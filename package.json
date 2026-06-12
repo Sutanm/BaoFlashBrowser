@@ -9,10 +9,11 @@
     "build:linux": "electron-builder --linux",
     "build": "electron-builder --win --linux"
   },
-  "dependencies": {},
   "devDependencies": {
     "electron": "11.5.0",
-    "electron-builder": "^22.14.13"
+    "electron-builder": "^22.14.13",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.35.1"
   },
   "author": "Sutanm",
   "build": {
@@ -31,17 +32,21 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64",
+            "ia32"
+          ]
         }
       ],
-      "icon": null,
-      "signAndEditExecutable": false
+      "icon": "build/icon.ico"
     },
     "linux": {
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
