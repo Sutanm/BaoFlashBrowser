@@ -3,3 +3,4 @@ dist/
 *.log
 wsl_*.sh
 package-lock.json
+docs/
