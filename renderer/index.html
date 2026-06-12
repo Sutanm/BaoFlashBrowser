@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BaoFlashBrowser</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="toolbar">
+    <button id="btn-back" title="后退" disabled>&larr;</button>
+    <button id="btn-forward" title="前进" disabled>&rarr;</button>
+    <button id="btn-refresh" title="刷新">&curvearrowright;</button>
+    <input type="text" id="address-bar" placeholder="输入网址..." autocomplete="off" spellcheck="false">
+    <button id="btn-mute" title="静音">&#x1f50a;</button>
+    <button id="btn-fav" title="收藏夹">&#9733;</button>
+    <button id="btn-settings" title="设置">&#x2699;</button>
+  </div>
+  <div id="favorites-panel" class="panel hidden">
+    <div class="panel-header">
+      <span>收藏夹</span>
+      <button id="btn-fav-close">&times;</button>
+    </div>
+    <div class="fav-add-bar">
+      <button id="btn-fav-add">+ 添加当前页</button>
+    </div>
+    <div id="favorites-list"></div>
+  </div>
+  <div id="settings-panel" class="panel hidden">
+    <div class="panel-header">
+      <span>设置</span>
+      <button id="btn-settings-close">&times;</button>
+    </div>
+    <div class="settings-body">
+      <label>主页网址</label>
+      <input type="text" id="setting-homepage" placeholder="newtab.html">
+      <label>Flash 伪装版本</label>
+      <input type="text" id="setting-flash-ver" placeholder="34.0.0.330">
+      <div class="toggle-row">
+        <label>暗黑模式</label>
+        <input type="checkbox" id="setting-darkmode">
+      </div>
+      <div class="setting-row">
+        <label>链接打开方式</label>
+        <select id="setting-link-behavior">
+          <option value="newtab">新标签页</option>
+          <option value="current">当前页</option>
+        </select>
+      </div>
+      <button id="btn-save-settings">保存</button>
+    </div>
+  </div>
+  <div id="tab-bar">
+    <div id="tab-list"></div>
+    <button id="btn-new-tab" title="新标签页">+</button>
+  </div>
+  <div id="webview-container"></div>
+  <script src="app.js"></script>
+</body>
+</html>
