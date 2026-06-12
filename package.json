@@ -5,6 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "icon": "node build/make-icon.js",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
     "build": "electron-builder --win --linux"
