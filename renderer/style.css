@@ -11,7 +11,7 @@ body {
   overflow: hidden;
   background: #ffffff;
   color: #222222;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', sans-serif;
   font-size: 14px;
 }
 
