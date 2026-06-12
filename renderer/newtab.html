@@ -30,9 +30,9 @@ body {
 .link-card:hover { background: #f0f0f0; }
 .link-card .icon {
   width: 40px; height: 40px; border-radius: 8px;
-  background: #f0f0f0; margin: 0 auto 8px;
+  margin: 0 auto 8px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 20px;
+  font-size: 16px; font-weight: bold; color: #fff;
 }
 .link-card .title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
@@ -44,12 +44,12 @@ body {
 <div class="links" id="links"></div>
 <script>
 var links = [
-  { title: '4399', url: 'https://www.4399.com/', icon: '🎮' },
-  { title: '7k7k', url: 'https://www.7k7k.com/', icon: '🕹' },
-  { title: 'Bing', url: 'https://www.bing.com/', icon: '🔍' },
-  { title: '百度', url: 'https://www.baidu.com/', icon: '🔗' },
-  { title: 'GitHub', url: 'https://github.com/', icon: '💻' },
-  { title: 'B站', url: 'https://www.bilibili.com/', icon: '📺' }
+  { title: '4399', url: 'https://www.4399.com/', icon: '4', bg: '#e74c3c' },
+  { title: '7k7k', url: 'https://www.7k7k.com/', icon: '7', bg: '#e67e22' },
+  { title: 'Bing', url: 'https://www.bing.com/', icon: 'B', bg: '#00897b' },
+  { title: '百度', url: 'https://www.baidu.com/', icon: '百', bg: '#3498db' },
+  { title: 'GitHub', url: 'https://github.com/', icon: 'G', bg: '#333' },
+  { title: 'B站', url: 'https://www.bilibili.com/', icon: 'B', bg: '#fb7299' }
 ];
 
 var el = document.getElementById('links');
@@ -57,7 +57,7 @@ for (var i = 0; i < links.length; i++) {
   var a = document.createElement('a');
   a.className = 'link-card';
   a.href = links[i].url;
-  a.innerHTML = '<div class="icon">' + links[i].icon + '</div><div class="title">' + links[i].title + '</div>';
+  a.innerHTML = '<div class="icon" style="background:' + links[i].bg + '">' + links[i].icon + '</div><div class="title">' + links[i].title + '</div>';
   a.addEventListener('click', function(e) {
     e.preventDefault();
     window.location.href = this.href;
