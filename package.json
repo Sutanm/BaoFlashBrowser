@@ -9,12 +9,12 @@
     "build:linux": "electron-builder --linux",
     "build": "electron-builder --win --linux"
   },
-  "dependencies": {
-    "electron": "11.5.0"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "electron": "11.5.0",
     "electron-builder": "^22.14.13"
   },
+  "author": "Sutanm",
   "build": {
     "appId": "com.bao.flashbrowser",
     "productName": "BaoFlashBrowser",
@@ -34,7 +34,8 @@
           "arch": ["x64", "ia32"]
         }
       ],
-      "icon": null
+      "icon": null,
+      "signAndEditExecutable": false
     },
     "linux": {
       "target": [
