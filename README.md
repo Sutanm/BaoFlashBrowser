@@ -2,13 +2,15 @@
 
 > 跨平台 Flash 浏览器 | Cross-platform Flash Browser
 
-基于 Electron 11 (Chromium 87) + PPAPI 原生 Flash 插件，专为运行 Flash 游戏设计，支持 Windows 和 Linux 双平台。
+基于 Electron 11 (Chromium 87) + PPAPI 原生 Flash 插件，专为运行 Flash 游戏设计，支持 Windows 和 Linux 双平台(只在wsl上测试)。
 
 A desktop Flash browser built on Electron 11 (Chromium 87) with native PPAPI Flash plugin support. Designed for Flash gaming on both Windows and Linux.
 
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)
 ![electron](https://img.shields.io/badge/electron-11.5.0-brightgreen)
 ![flash](https://img.shields.io/badge/flash-PPAPI%2032%2B-red)
+<img width="1280" height="770" alt="wsl" src="https://github.com/user-attachments/assets/4f789df8-9baf-4f49-8cf5-81d78d8dc3ef" />
+<img width="1280" height="770" alt="windows" src="https://github.com/user-attachments/assets/6226719d-7e1e-49f1-b6e5-c0f34254ac69" />
 
 ## 功能 Features
 
@@ -39,9 +41,24 @@ npm start
 | Windows | `dist/BaoFlashBrowser Setup 1.0.0.exe` | 双击安装 |
 | Linux | `dist/BaoFlashBrowser-1.0.0.AppImage` | `chmod +x` 后双击 |
 
-## 打包 Build
+### 🐧 Linux 额外依赖
+
+AppImage 需要 FUSE 运行，请先安装：
 
 ```bash
+# Ubuntu / Debian
+sudo apt install -y fuse libfuse2
+
+# Fedora
+sudo dnf install -y fuse fuse-libs
+
+# Arch
+sudo pacman -S fuse2
+
+```bash
+
+## 打包 Build
+
 # 安装依赖
 npm install
 
@@ -101,13 +118,6 @@ BaoFlashBrowser/
 │   └── make-icon.js        图标生成脚本
 └── package.json
 ```
-
-## 致谢 Credits
-
-- [Electron](https://www.electronjs.org/)
-- [mingde816/pepflashplayer.dll](https://github.com/mingde816/pepflashplayer.dll) — Windows Flash 插件
-- 百田游戏管家 — Linux Flash 插件 (libpepflashplayer64.so)
-- ceflash — Win64 Flash 插件 v34
 
 ## License
 
