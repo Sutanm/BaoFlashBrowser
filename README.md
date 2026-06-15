@@ -54,8 +54,46 @@ sudo dnf install -y fuse fuse-libs
 
 # Arch
 sudo pacman -S fuse2
+```
+
+### ❄️ NixOS
+
+本项目在 NixOS 25.11 + Intel CET 环境中无法原生运行（Electron 11 与 glibc 2.40 / 内核 6.12 不兼容）。推荐使用 `distrobox` 在 Ubuntu 22.04 容器中运行。
+
+#### 一次性环境搭建
 
 ```bash
+# 1. 创建 Ubuntu 22.04 容器
+distrobox create -i ubuntu:22.04 -n cn-apps
+distrobox enter cn-apps
+
+# 2. 在容器内安装系统依赖
+sudo apt-get update
+sudo apt-get install -y nodejs npm libnss3 libgtk-3-0 libx11-xcb1 libxtst6 \
+  libxss1 libasound2 libdrm2 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 \
+  libatk1.0-0 libatk-bridge2.0-0 libcups2 libxcomposite1 libxdamage1 \
+  libxfixes3 libxrandr2 libxrender1 libxi6 libnotify4 libsecret-1-0 \
+  libpulse0 libdbus-1-3 libexpat1 libuuid1 libxcb1 fontconfig libfreetype6
+
+# 3. 安装 npm 依赖
+cd ~/java_workspace/BaoFlashBrowser
+npm install --ignore-scripts
+printf electron > node_modules/electron/path.txt
+
+# 4. 下载 Electron 11.5.0 二进制
+wget https://mirrors.huaweicloud.com/electron/v11.5.0/electron-v11.5.0-linux-x64.zip
+unzip -o electron-v11.5.0-linux-x64.zip -d node_modules/electron/dist/
+```
+
+#### 日常启动
+
+```bash
+./run.sh start
+```
+
+`run.sh` 会自动通过 distrobox 容器启动应用，无需手动进入容器。
+
+.desktop 文件已生成到 `~/.local/share/applications/baoflash-browser.desktop`，可在应用菜单中搜索 "BaoFlashBrowser"。bash
 
 ## 打包 Build
 
@@ -116,6 +154,8 @@ BaoFlashBrowser/
 ├── build/
 │   ├── icon.svg            图标源文件
 │   └── make-icon.js        图标生成脚本
+├── run.sh                   NixOS 启动脚本
+├── shell.nix                NixOS FHS 环境定义（备用）
 └── package.json
 ```
 
