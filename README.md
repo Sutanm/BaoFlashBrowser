@@ -139,23 +139,23 @@ npm run build
 
 ```
 BaoFlashBrowser/
-├── plugins/                Flash 插件
-│   ├── linux64/            libpepflashplayer64.so
-│   ├── win64/              pepflashplayer.dll
-│   └── win32/              pepflashplayer32_32_0_0_156.dll
+├── plugins/
+│   ├── linux64/libpepflashplayer64.so
+│   ├── win64/pepflashplayer.dll
+│   └── win32/pepflashplayer32_32_0_0_156.dll
 ├── src/
-│   ├── main.js             Electron 主进程
-│   └── preload.js          IPC 预加载脚本
+│   ├── main.js
+│   └── preload.js
 ├── renderer/
-│   ├── index.html          浏览器主界面
-│   ├── app.js              工具栏/标签页逻辑
-│   ├── style.css           样式
-│   └── newtab.html         导航首页
+│   ├── index.html
+│   ├── app.js
+│   ├── style.css
+│   └── newtab.html
 ├── build/
-│   ├── icon.svg            图标源文件
-│   └── make-icon.js        图标生成脚本
-├── run.sh                   NixOS 启动脚本
-├── shell.nix                NixOS FHS 环境定义（备用）
+│   ├── icon.svg
+│   └── make-icon.js
+├── run.sh
+├── shell.nix
 └── package.json
 ```
 
