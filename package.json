@@ -1,0 +1,59 @@
+{
+  "name": "bao-flash-browser",
+  "version": "1.0.0",
+  "description": "Cross-platform Flash browser based on Electron",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "icon": "node build/make-icon.js",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "build": "electron-builder --win --linux"
+  },
+  "devDependencies": {
+    "electron": "11.5.0",
+    "electron-builder": "^22.14.13",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.35.1"
+  },
+  "author": "Sutanm",
+  "build": {
+    "appId": "com.bao.flashbrowser",
+    "productName": "BaoFlashBrowser",
+    "directories": {
+      "output": "dist"
+    },
+    "extraResources": [
+      {
+        "from": "plugins",
+        "to": "plugins"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
