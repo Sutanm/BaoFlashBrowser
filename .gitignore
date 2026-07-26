@@ -4,3 +4,5 @@ dist/
 wsl_*.sh
 package-lock.json
 docs/
+renderer/dist/
+.trae/

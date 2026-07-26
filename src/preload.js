@@ -16,9 +16,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   restartApp: function () {
     ipcRenderer.invoke('restart-app');
+  },
+  onNavigateUrl: function (callback) {
+    ipcRenderer.on('navigate-url', function (event, url) {
+      callback(url);
+    });
+  },
+  minimizeWindow: function () {
+    ipcRenderer.invoke('window-minimize');
+  },
+  toggleMaximizeWindow: function () {
+    return ipcRenderer.invoke('window-toggle-maximize');
+  },
+  closeWindow: function () {
+    ipcRenderer.invoke('window-close');
+  },
+  broadcastThemeChange: function (isDark) {
+    ipcRenderer.invoke('broadcast-theme-change', isDark);
+  },
+  onThemeChange: function (callback) {
+    ipcRenderer.on('theme-change', function (event, isDark) {
+      callback(isDark);
+    });
   }
-});
-
-ipcRenderer.on('navigate-url', function (event, url) {
-  window.postMessage({ type: 'navigate-url', url: url }, '*');
 });
