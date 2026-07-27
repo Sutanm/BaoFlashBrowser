@@ -71,12 +71,13 @@ body.dark {
   }
 
   .btn-tab {
-    @apply w-7 h-7 flex items-center justify-center rounded
+    @apply w-[42px] h-full flex items-center justify-center rounded
            text-gray-600
-           hover:bg-gray-200/60
+           hover:bg-gray-200
            transition-colors duration-150
            cursor-pointer border-none bg-transparent
-           text-base leading-none;
+           text-lg leading-none;
+    -webkit-app-region: no-drag;
   }
 
   body.dark .btn-tab {
@@ -88,12 +89,12 @@ body.dark {
   }
 
   .btn-win {
-    @apply w-11 h-full flex items-center justify-center
+    @apply w-12 h-full flex items-center justify-center
            text-gray-700
            hover:bg-gray-200
            transition-colors duration-150
            cursor-pointer border-none bg-transparent
-           text-sm leading-none;
+           text-base leading-none;
   }
 
   body.dark .btn-win {
@@ -220,7 +221,7 @@ body {
    ============================================ */
 
 #tab-bar {
-  @apply flex items-center h-9
+  @apply flex items-center h-[42px]
          border-b
          flex-shrink-0 pl-2 pr-0;
   background: var(--bg-tabbar);
@@ -233,9 +234,9 @@ body {
 }
 
 .tab-item {
-  @apply flex items-center px-[10px] h-[30px] min-w-[60px] max-w-[180px]
+  @apply flex items-center px-[10px] h-[34px] min-w-[70px] max-w-[200px]
          rounded-t-lg bg-transparent
-         cursor-pointer text-xs
+         cursor-pointer text-sm
          whitespace-nowrap relative flex-shrink mr-[2px];
   color: var(--text-secondary);
   -webkit-app-region: no-drag;
@@ -257,8 +258,8 @@ body {
 }
 
 .tab-close {
-  @apply w-4 h-4 rounded-full border-none bg-transparent
-         text-gray-400 text-sm leading-none
+  @apply w-5 h-5 rounded-full border-none bg-transparent
+         text-gray-400 text-base leading-none
          flex items-center justify-center flex-shrink-0
          cursor-pointer;
 }
@@ -306,7 +307,7 @@ body.dark .tab-close:hover {
    ============================================ */
 
 .panel {
-  top: 76px;
+  top: 82px;
 }
 
 .panel.hidden {
@@ -394,7 +395,7 @@ body.dark .tab-close:hover {
 #loading-progress {
   @apply absolute left-0 h-[3px] z-[200]
          transition-all duration-200 ease-out;
-  top: 72px;
+  top: 78px;
   background: var(--accent);
   box-shadow: 0 0 4px rgba(83, 52, 131, 0.5);
 }
