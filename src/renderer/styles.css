@@ -150,9 +150,9 @@ body.dark {
   }
 
   .tab-close {
-    @apply w-5 h-5 flex items-center justify-center rounded-full
+    @apply w-6 h-6 flex items-center justify-center rounded-full
            text-gray-400 hover:bg-gray-300 hover:text-gray-700
-           text-sm cursor-pointer;
+           text-sm cursor-pointer flex-shrink-0;
     opacity: 0.5;
     outline: none;
     margin: 0;
