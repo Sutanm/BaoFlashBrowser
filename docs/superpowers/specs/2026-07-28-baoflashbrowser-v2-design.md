@@ -38,7 +38,52 @@
 
 **Electron 11.5.0 / Chromium 87** 不可升级。Chromium 88 从源码删除了 Flash PPAPI 管道，87 是硬天花板。
 
-### 2.3 全新项目 vs 旧项目重构
+### 2.3 Flash 引擎策略：PPAPI + Ruffle 双引擎
+
+| 引擎 | 适用 | 原理 | 优势 |
+|------|------|------|------|
+| **PPAPI** | AS3 SWF（赛尔号、奥拉星等） | 调用系统原生 Flash 插件 | 完整 ActionScript 3 支持 |
+| **Ruffle** | AS2 SWF（4399 经典小游戏） | WASM 模拟器，注入 webview | 零插件进程、安全沙箱、更快 |
+
+#### SWF 头检测逻辑
+
+SWF 文件第 4 字节标识 Flash 版本号。版本 ≥9 时需进一步检查内部 `ActionScript3` 标记。main 进程通过 `webRequest` 拦截 `.swf` 请求，读取头部判定引擎。
+
+```
+webview 加载页面 → main 进程 webRequest 拦截 .swf
+  │
+  ├─ 读 SWF 头部（前 100 bytes）
+  │    ├─ 确认是 AS3 → 标记为 PPAPI，放行
+  │    └─ 确认是 AS2 → 标记为 Ruffle
+  │
+  ├─ Ruffle 路径：阻止原始 SWF 请求 → 注入 Ruffle WASM → Ruffle 加载 SWF 二进制
+  ├─ PPAPI 路径：放行原始请求 → Flash PPAPI 插件接管
+  └─ 检测失败：Ruffle 先试 → 失败则 PPAPI 兜底
+```
+
+#### 用户覆盖策略
+
+全局默认 **自动**，用户可在设置中按域名手动覆盖：
+
+```
+全局策略：[ 自动 ▼ ]  (自动 / 优先 Ruffle / 仅 PPAPI)
+
+example.com → [ 仅 PPAPI ▼ ] [ 删除 ]
++ 添加域名规则
+```
+
+- 自动判断优先 AS2→Ruffle / AS3→PPAPI
+- 某个游戏 Ruffle 表现异常 → 该域名手动设为"仅 PPAPI"
+- 少数旧站全局 Ruffle 不稳定 → 全局改为"仅 PPAPI"
+
+#### 引入代价
+
+- `src/main/modules/ruffle.ts`：SWF 头解析 + Ruffle WASM 注入，约 80 行
+- 设置面板 `<FlashEngineSettings />` 组件，约 60 行
+- 零额外运行时依赖（Ruffle WASM 自包含）
+- 优先级 P3——不影响阶段 1、2 的核心路径
+
+### 2.4 全新项目 vs 旧项目重构
 
 **选择：全新项目。** 旧项目 2,570 行 renderer 代码在 React + TypeScript 下会大幅压缩（DOM 操作行数砍掉 60%），开发时间与重构持平但得到类型安全、测试、零遗留。需从旧项目复制的仅有 4 个独立 main 进程模块 + 资源文件。
 
@@ -83,6 +128,7 @@ bao-flash-browser-v2/
 │   │   │   ├── dpapi.ts                # Windows DPAPI 封装
 │   │   │   ├── password-store.ts       # AES-256-GCM 密码库
 │   │   │   ├── config.ts               # electron-store 封装
+│   │   │   ├── ruffle.ts               # Ruffle WASM 注入 + SWF 头检测
 │   │   │   └── window.ts               # BrowserWindow 创建 + DevTools
 │   │   └── services/
 │   │       ├── history.store.ts         # nedb 历史记录
@@ -129,6 +175,7 @@ bao-flash-browser-v2/
 │   │   │   │   ├── HistoryPanel.tsx
 │   │   │   │   ├── DownloadsPanel.tsx
 │   │   │   │   ├── SettingsPanel.tsx
+│   │   │   │   │   └── FlashEngineSettings.tsx  # Ruffle/PPAPI 引擎切换
 │   │   │   │   └── PasswordPanel.tsx
 │   │   │   ├── overlays/
 │   │   │   │   ├── FindBar.tsx
@@ -207,7 +254,8 @@ bao-flash-browser-v2/
 ├── <FavoritesPanel />
 ├── <HistoryPanel />
 ├── <DownloadsPanel />
-├── <SettingsPanel />
+├── <SettingsPanel>
+│   └── <FlashEngineSettings />       # Flash 引擎策略配置（自动/Ruffle/PPAPI + 域名规则）
 ├── <PasswordPanel />
 ├── <ContextMenus />                   # 右键菜单（统一渲染入口）
 ├── <CookieManager />
@@ -574,7 +622,7 @@ export function useDownloadProgress(onProgress: (item: DownloadItem) => void) {
 ### 阶段 0：基础设施（~1 天）
 
 - `npm init` 新项目
-- webpack 配置（main renderer newtab 三入口 + ts-loader + babel + tailwind + postcss）
+- webpack 配置（main + renderer 双入口 + ts-loader + babel + tailwind + postcss）
 - tsconfig（ES2019 target，共享 / main / renderer 三层）
 - ESLint + Prettier 落地
 - `src/shared/types/` 全部类型定义
@@ -623,6 +671,7 @@ export function useDownloadProgress(onProgress: (item: DownloadItem) => void) {
 | 3.9 | 搜索引擎切换（设置中添加选项） | #55 |
 | 3.10 | 前后端鼠标侧键 | #26 |
 | 3.11 | 打印 / 截图 | #28 #48 #49 |
+| 3.12 | **Ruffle AS2 引擎**（SWF 头检测 + WASM 注入 + `<FlashEngineSettings />`） | 可选，约 200 行 |
 
 ### 不纳入范围
 
