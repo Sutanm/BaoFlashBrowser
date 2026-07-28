@@ -26,7 +26,7 @@ const TabBar: React.FC<TabBarProps> = ({
   return (
     <div
       id="tab-bar"
-      className="flex items-center h-[40px] flex-shrink-0 overflow-hidden mt-[5px]"
+      className="flex items-center h-[45px] flex-shrink-0 overflow-hidden pt-[5px]"
       style={{ background: 'var(--bg-tabbar)' }}
     >
       <div className="flex items-center h-full overflow-x-auto overflow-y-hidden" style={{ scrollbarWidth: 'none' }}>
