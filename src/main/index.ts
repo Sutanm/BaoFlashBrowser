@@ -42,6 +42,13 @@ function bootstrap(): void {
         const { handleWebviewBeforeInputEvent } = require('./ipc/shortcut.ipc');
         handleWebviewBeforeInputEvent(event, input);
       });
+
+      wc.on('new-window', (event: Electron.Event, url: string) => {
+        event.preventDefault();
+        if (wc.hostWebContents) {
+          wc.hostWebContents.send('navigate-url', url);
+        }
+      });
     });
   });
 

@@ -29,6 +29,8 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
       el.setAttribute('preload', '../../dist/webview-preload.js');
       el.setAttribute('plugins', 'true');
       el.setAttribute('allowpopups', 'true');
+      // Used by App.tsx to find the active webview
+      el.setAttribute('data-tab-id', tab.id);
 
       el.addEventListener('did-start-loading', () => {
         onTabUpdate(tab.id, { isLoading: true });
@@ -49,11 +51,13 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
       });
 
       el.addEventListener('did-navigate', (e: any) => {
+        // Don't store about:blank URLs — they're transient
+        if (e.url === 'about:blank') return;
         onTabUpdate(tab.id, { url: e.url });
       });
 
       el.addEventListener('did-navigate-in-page', (e: any) => {
-        if (e.isMainFrame) {
+        if (e.isMainFrame && e.url !== 'about:blank') {
           onTabUpdate(tab.id, { url: e.url });
         }
       });
@@ -68,7 +72,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
 
       (el as any).addEventListener('did-fail-load', (e: any) => {
         if (e.errorCode === -3) return;
-        const errorHtml = `<html><body style="font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:var(--bg-primary);color:var(--text-primary)"><div style="text-align:center"><h1 style="font-weight:300">${e.errorCode === -105 ? 'DNS not found' : 'Page failed to load'}</h1><p style="opacity:0.6">${e.validatedURL || e.url}</p><p style="opacity:0.4;font-size:0.85rem">Error: ${e.errorCode} — ${e.errorDescription}</p></div></body></html>`;
+        const errorHtml = `<html><body style="font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#fff;color:#333"><div style="text-align:center"><h1 style="font-weight:300">${e.errorCode === -105 ? 'DNS not found' : 'Page failed to load'}</h1><p style="opacity:0.6">${e.validatedURL || e.url}</p><p style="opacity:0.4;font-size:0.85rem">Error: ${e.errorCode} — ${e.errorDescription}</p></div></body></html>`;
         el.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errorHtml));
       });
 
@@ -94,6 +98,8 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
     }
 
     for (const tab of tabs) {
+      // Skip newtab tabs — no webview needed
+      if (tab.url === 'about:newtab') continue;
       if (!webviewRefs.current.has(tab.id)) {
         const el = createWebview(tab);
         containerRef.current.appendChild(el);
@@ -102,7 +108,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
     }
   }, [tabs, createWebview]);
 
-  // Toggle visibility via CSS class (not display:none, which breaks webview sizing)
+  // Toggle visibility via CSS class
   useEffect(() => {
     for (const [id, el] of webviewRefs.current) {
       if (id === activeTabId) {
