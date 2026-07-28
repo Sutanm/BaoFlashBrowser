@@ -31,7 +31,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
       };
 
       el.setAttribute('src', tab.url || 'about:blank');
-      el.setAttribute('preload', 'dist/webview-preload.js');
+      el.setAttribute('preload', '../../dist/webview-preload.js');
       el.setAttribute('plugins', 'true');
       el.setAttribute('allowpopups', 'true');
       el.style.cssText = `
