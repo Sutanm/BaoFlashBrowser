@@ -67,6 +67,7 @@ body.dark {
            text-lg leading-none;
     -webkit-app-region: no-drag;
     min-width: 42px;
+    outline: none;
   }
 
   body.dark .btn-tab {
@@ -152,11 +153,14 @@ body.dark {
     @apply w-6 h-6 flex items-center justify-center rounded-full
            text-gray-400 hover:bg-gray-300 hover:text-gray-700
            text-sm cursor-pointer flex-shrink-0;
-    opacity: 0;
+    opacity: 0.5;
+    margin-right: 4px;
+    outline: none;
   }
 
   .tab-item:hover .tab-close {
     opacity: 1;
+    background: rgba(0, 0, 0, 0.06);
   }
 
   body.dark .tab-close:hover {
