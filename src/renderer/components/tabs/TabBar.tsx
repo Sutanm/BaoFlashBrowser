@@ -1,5 +1,7 @@
 import React from 'react';
+import { Plus } from 'lucide-react';
 import TabItem from './TabItem';
+import WindowControls from '../shell/WindowControls';
 import type { TabState } from '@renderer/atoms/tabs.atom';
 
 interface TabBarProps {
@@ -8,12 +10,25 @@ interface TabBarProps {
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onNewTab: () => void;
+  onToggleTheme: () => void;
+  isDark: boolean;
 }
 
-const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onSelectTab, onCloseTab, onNewTab }) => {
+const TabBar: React.FC<TabBarProps> = ({
+  tabs,
+  activeTabId,
+  onSelectTab,
+  onCloseTab,
+  onNewTab,
+  onToggleTheme,
+  isDark,
+}) => {
   return (
-    <div className="flex items-end gap-0.5 bg-gray-100 dark:bg-gray-950 px-2 pt-1 overflow-x-auto shrink-0">
-      <div className="flex items-end gap-0.5 flex-1 min-w-0">
+    <div
+      className="flex items-center h-[34px] flex-shrink-0 overflow-hidden"
+      style={{ background: 'var(--bg-tabbar)' }}
+    >
+      <div className="flex items-center h-full overflow-x-auto overflow-y-hidden" style={{ scrollbarWidth: 'none' }}>
         {tabs.map((tab) => (
           <TabItem
             key={tab.id}
@@ -24,13 +39,20 @@ const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onSelectTab, onClose
           />
         ))}
       </div>
-      <button
-        onClick={onNewTab}
-        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors text-sm mb-0.5 no-drag"
-        title="New Tab (Ctrl+T)"
-      >
-        +
+      <button className="btn-tab" onClick={onNewTab} title="新标签页 (Ctrl+T)">
+        <Plus className="w-4 h-4" />
       </button>
+      <div className="flex-1 drag-region h-full" />
+      <div className="flex items-center h-full no-drag">
+        <button
+          onClick={onToggleTheme}
+          className="btn-win text-xs"
+          title="切换主题"
+        >
+          {isDark ? '☀️' : '🌙'}
+        </button>
+        <WindowControls />
+      </div>
     </div>
   );
 };

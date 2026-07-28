@@ -2,10 +2,324 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg-primary: #ffffff;
+  --bg-toolbar: #f0f0f0;
+  --bg-tabbar: #f0f0f0;
+  --bg-panel: #ffffff;
+  --bg-input: #ffffff;
+  --bg-active-tab: #ffffff;
+  --bg-hover: #e8e8e8;
+  --text-primary: #222222;
+  --text-secondary: #666666;
+  --text-disabled: #bbbbbb;
+  --border-color: #cccccc;
+  --border-light: #e0e0e0;
+  --accent: #533483;
+  --accent-hover: #f0e6ff;
+}
+
+body.dark {
+  --bg-primary: #1a1a2e;
+  --bg-toolbar: #16213e;
+  --bg-tabbar: #16213e;
+  --bg-panel: #16213e;
+  --bg-input: #0a0a1a;
+  --bg-active-tab: #1a1a2e;
+  --bg-hover: #0f3460;
+  --text-primary: #e0e0e0;
+  --text-secondary: #aaaaaa;
+  --text-disabled: #555555;
+  --border-color: #0f3460;
+  --border-light: #0f3460;
+  --accent: #533483;
+  --accent-hover: #0f3460;
+}
+
+@layer components {
+  .btn-icon {
+    @apply w-8 h-8 flex items-center justify-center rounded-md
+           text-gray-700 hover:bg-gray-200
+           transition-colors duration-150
+           cursor-pointer border-none bg-transparent
+           text-lg leading-none;
+  }
+
+  .btn-icon:disabled {
+    @apply text-gray-300 cursor-default hover:bg-transparent;
+  }
+
+  body.dark .btn-icon {
+    color: var(--text-secondary);
+  }
+
+  body.dark .btn-icon:hover {
+    background: var(--bg-hover);
+  }
+
+  body.dark .btn-icon:disabled {
+    color: var(--text-disabled);
+  }
+
+  .btn-tab {
+    @apply h-full flex items-center justify-center rounded
+           text-gray-600 hover:bg-gray-200
+           transition-colors duration-150
+           cursor-pointer border-none bg-transparent
+           text-lg leading-none;
+    -webkit-app-region: no-drag;
+    min-width: 42px;
+  }
+
+  body.dark .btn-tab {
+    color: var(--text-secondary);
+  }
+
+  body.dark .btn-tab:hover {
+    background: var(--bg-hover);
+  }
+
+  .btn-win {
+    @apply w-12 h-full flex items-center justify-center
+           text-gray-700 hover:bg-gray-200
+           transition-colors duration-150
+           cursor-pointer border-none bg-transparent
+           text-base leading-none;
+  }
+
+  body.dark .btn-win {
+    color: var(--text-secondary);
+  }
+
+  body.dark .btn-win:hover {
+    background: var(--bg-hover);
+  }
+
+  .btn-win-close {
+    @apply btn-win hover:bg-red-500 hover:text-white;
+  }
+
+  body.dark .btn-win-close:hover {
+    background: #e81123;
+    color: #ffffff;
+  }
+
+  .input-text {
+    @apply h-[30px] px-3 border border-gray-300
+           rounded-full bg-white
+           text-gray-800
+           text-sm outline-none
+           transition-colors duration-150;
+    flex: 1;
+    min-width: 0;
+  }
+
+  body.dark .input-text {
+    border-color: var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-primary);
+  }
+
+  .tab-item {
+    @apply flex items-center gap-1.5 h-full px-3 cursor-pointer
+           text-gray-600 text-xs
+           border-r border-gray-200
+           transition-colors duration-150;
+    -webkit-app-region: no-drag;
+    max-width: 200px;
+    min-width: 0;
+    position: relative;
+  }
+
+  .tab-item.active {
+    background: var(--bg-active-tab);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .tab-item:hover {
+    background: var(--bg-hover);
+  }
+
+  body.dark .tab-item {
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+  }
+
+  body.dark .tab-item.active {
+    color: var(--text-primary);
+    background: var(--bg-active-tab);
+  }
+
+  .tab-close {
+    @apply w-5 h-5 flex items-center justify-center rounded-full
+           text-gray-400 hover:bg-gray-300 hover:text-gray-700
+           text-xs cursor-pointer flex-shrink-0;
+    opacity: 0;
+  }
+
+  .tab-item:hover .tab-close {
+    opacity: 1;
+  }
+
+  body.dark .tab-close:hover {
+    background: rgba(255,255,255,0.15);
+    color: white;
+  }
+
+  .panel-card {
+    @apply absolute right-2 w-[280px] top-[72px]
+           bg-white border border-gray-200
+           rounded-lg z-[100] shadow-lg;
+  }
+
+  body.dark .panel-card {
+    background: var(--bg-panel);
+    border-color: var(--border-color);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+
+  .panel-header {
+    @apply flex justify-between items-center px-3 py-2
+           border-b border-gray-100
+           font-bold text-sm;
+    color: var(--text-primary);
+  }
+
+  body.dark .panel-header {
+    border-color: var(--border-light);
+  }
+
+  .panel-close {
+    @apply border-none bg-transparent text-gray-500 text-lg cursor-pointer;
+  }
+
+  body.dark .panel-close {
+    color: var(--text-secondary);
+  }
+
+  .fav-add-bar {
+    @apply px-3 py-2 border-b border-gray-100;
+  }
+
+  body.dark .fav-add-bar {
+    border-color: var(--border-light);
+  }
+
+  .btn-secondary {
+    @apply h-7 w-full rounded border border-dashed
+           text-gray-500 bg-transparent
+           hover:bg-gray-100 hover:text-gray-700
+           transition-colors duration-150
+           cursor-pointer text-sm;
+    border-color: var(--accent);
+  }
+
+  .fav-item {
+    @apply flex items-center gap-2 px-3 py-2
+           hover:bg-gray-50 cursor-pointer
+           text-sm border-b border-gray-50;
+  }
+
+  body.dark .fav-item {
+    border-color: var(--border-light);
+  }
+
+  body.dark .fav-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .fav-item-title {
+    @apply truncate flex-1 min-w-0;
+    color: var(--text-primary);
+  }
+
+  .fav-item-url {
+    @apply text-xs truncate;
+    color: var(--text-secondary);
+  }
+
+  .fav-remove {
+    @apply text-gray-400 hover:text-red-500 cursor-pointer text-sm flex-shrink-0;
+  }
+
+  .zoom-indicator {
+    @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
+           bg-black/70 text-white px-4 py-2 rounded-lg text-sm
+           pointer-events-none z-[200] transition-opacity duration-150;
+  }
+
+  .settings-body {
+    @apply p-3 flex flex-col gap-3;
+  }
+
+  .settings-body label {
+    @apply text-xs font-medium;
+    color: var(--text-secondary);
+    -webkit-app-region: no-drag;
+  }
+
+  .settings-body input[type="text"],
+  .settings-body select {
+    @apply h-[30px] px-3 border rounded text-sm outline-none;
+    border-color: var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    -webkit-app-region: no-drag;
+  }
+
+  .setting-row {
+    @apply flex items-center justify-between gap-2;
+  }
+
+  .btn-primary {
+    @apply h-[30px] px-4 rounded-md text-white
+           hover:opacity-90 transition-colors duration-150
+           cursor-pointer border-none text-sm;
+    background: var(--accent);
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+  user-select: none;
+}
+
 .drag-region {
   -webkit-app-region: drag;
 }
 
 .no-drag {
   -webkit-app-region: no-drag;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+body.dark ::-webkit-scrollbar-thumb {
+  background: #444;
 }

@@ -1,4 +1,5 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
+import { ArrowLeft, ArrowRight, RotateCw, X, Volume2, Star, Settings as SettingsIcon } from 'lucide-react';
 import AddressBar from './AddressBar';
 
 interface NavigationBarProps {
@@ -6,11 +7,15 @@ interface NavigationBarProps {
   isLoading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  isMuted: boolean;
   onNavigate: (url: string) => void;
   onBack: () => void;
   onForward: () => void;
   onStop: () => void;
   onReload: () => void;
+  onToggleMute: () => void;
+  onToggleFavorites: () => void;
+  onToggleSettings: () => void;
 }
 
 const NavigationBar: React.FC<NavigationBarProps> = ({
@@ -18,15 +23,19 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   isLoading,
   canGoBack,
   canGoForward,
+  isMuted,
   onNavigate,
   onBack,
   onForward,
   onStop,
   onReload,
+  onToggleMute,
+  onToggleFavorites,
+  onToggleSettings,
 }) => {
   const addressBarRef = useRef<{ focus: () => void }>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
         e.preventDefault();
@@ -42,31 +51,50 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   }, []);
 
   return (
-    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shrink-0">
+    <div
+      className="flex items-center gap-1 h-[38px] px-2 flex-shrink-0"
+      style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border-light)' }}
+    >
       <button
         onClick={onBack}
         disabled={!canGoBack}
-        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:cursor-default transition-colors text-sm no-drag"
-        title="Back"
+        className="btn-icon"
+        title="后退"
       >
-        ◀
+        <ArrowLeft className="w-4 h-4" />
       </button>
       <button
         onClick={onForward}
         disabled={!canGoForward}
-        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:cursor-default transition-colors text-sm no-drag"
-        title="Forward"
+        className="btn-icon"
+        title="前进"
       >
-        ▶
+        <ArrowRight className="w-4 h-4" />
       </button>
-      <AddressBar
-        ref={addressBarRef}
-        url={url}
-        isLoading={isLoading}
-        onNavigate={onNavigate}
-        onStop={onStop}
-        onReload={onReload}
-      />
+      {isLoading ? (
+        <button onClick={onStop} className="btn-icon" title="停止 (Esc)">
+          <X className="w-4 h-4" />
+        </button>
+      ) : (
+        <button onClick={onReload} className="btn-icon" title="刷新 (F5)">
+          <RotateCw className="w-4 h-4" />
+        </button>
+      )}
+      <AddressBar ref={addressBarRef} url={url} isLoading={isLoading} onNavigate={onNavigate} />
+      <button
+        onClick={onToggleMute}
+        className="btn-icon"
+        title={isMuted ? '取消静音' : '静音'}
+        style={{ opacity: isMuted ? 0.5 : 1 }}
+      >
+        <Volume2 className="w-4 h-4" />
+      </button>
+      <button onClick={onToggleFavorites} className="btn-icon" title="收藏夹">
+        <Star className="w-4 h-4" />
+      </button>
+      <button onClick={onToggleSettings} className="btn-icon" title="设置">
+        <SettingsIcon className="w-4 h-4" />
+      </button>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import { atom, useSetAtom, useAtom } from 'jotai';
+import { useAtom } from 'jotai';
 import { useCallback } from 'react';
 import type { TabState } from '@renderer/atoms/tabs.atom';
 import { tabsAtom, activeTabIdAtom } from '@renderer/atoms/tabs.atom';
