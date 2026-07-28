@@ -39,6 +39,9 @@ function createTab(url) {
   webview.setAttribute('src', src);
   webview.setAttribute('plugins', '');
   webview.setAttribute('allowpopups', '');
+  // preload 必须使用 file:// 协议 URL（Electron 底层用 require 加载）
+  var preloadUrl = new URL('./webview-preload.js', document.location.href).href;
+  webview.setAttribute('preload', preloadUrl);
   webview.classList.add('active');
   webviewContainer.appendChild(webview);
 
@@ -47,7 +50,8 @@ function createTab(url) {
     webview: webview,
     url: src,
     title: '新标签页',
-    isLoading: false
+    isLoading: false,
+    zoomFactor: state.defaultZoomFactor  // 每个标签页独立的缩放比例
   };
 
   for (var i = 0; i < state.tabs.length; i++) {
@@ -100,6 +104,12 @@ function switchTab(tabId) {
 
   tab.webview.classList.add('active');
   state.activeTabId = tabId;
+
+  // 恢复该标签页的缩放比例
+  try {
+    tab.webview.setZoomFactor(tab.zoomFactor || 1.0);
+  } catch (e) {}
+
   updateTabBar();
   syncFromActiveTab();
   try { tab.webview.setAudioMuted(state.isMuted); } catch (e) {}
@@ -208,6 +218,44 @@ function attachWebviewEvents(webview, tabId) {
 
   webview.addEventListener('dom-ready', function () {
     try { webview.setAudioMuted(state.isMuted); } catch (e) {}
+    // 应用初始缩放
+    try { webview.setZoomFactor(tab.zoomFactor); } catch (e) {}
+
+    // 注入 Ctrl+滚轮缩放处理器（不依赖 preload，对所有页面生效）
+    var zoomScript = (
+      'document.addEventListener("wheel",function(e){' +
+      'if(!e.ctrlKey)return;' +
+      'e.preventDefault();e.stopPropagation();' +
+      'console.log("__bfbzoom_"+(e.deltaY<0?"in":"out"));' +
+      '},{passive:false});'
+    );
+    try { webview.executeJavaScript(zoomScript); } catch (e) {}
+  });
+
+  // 接收 webview 注入脚本的 Ctrl+滚轮信号（通过 console.log）
+  webview.addEventListener('console-message', function (e) {
+    if (e.message.slice(0, 10) === '__bfbzoom_') {
+      if (tabId !== state.activeTabId) return;
+      var action = e.message.slice(10);
+      if (action === 'in') {
+        require('./zoom').zoomIn();
+      } else if (action === 'out') {
+        require('./zoom').zoomOut();
+      }
+    }
+  });
+
+  // 接收 webview preload 转发的 Ctrl+滚轮事件（兼容 ipc 方式）
+  webview.addEventListener('ipc-message', function (e) {
+    if (e.channel === 'zoom-wheel') {
+      if (tabId !== state.activeTabId) return;
+      var action = e.args && e.args[0];
+      if (action === 'in') {
+        require('./zoom').zoomIn();
+      } else if (action === 'out') {
+        require('./zoom').zoomOut();
+      }
+    }
   });
 
   webview.addEventListener('did-fail-load', function (e) {

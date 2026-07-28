@@ -57,6 +57,37 @@ if (!gotTheLock) {
         wc.hostWebContents.send('navigate-url', url);
       }
     });
+
+    // 拦截 webview 内部的快捷键（Ctrl++/Ctrl+-/Ctrl+0）
+    // webview 内部页面的快捷键不会冒泡到主窗口，需要在这里拦截
+    wc.on('before-input-event', function (event, input) {
+      if (!input.control && !input.meta) return;
+      if (input.type !== 'keyDown') return;
+
+      var key = input.key;
+      var action = null;
+      // Ctrl+Plus / Ctrl+Equals: 放大
+      if (key === '=' || key === '+') {
+        action = 'in';
+      }
+      // Ctrl+Minus: 缩小
+      else if (key === '-') {
+        action = 'out';
+      }
+      // Ctrl+0: 重置
+      else if (key === '0') {
+        action = 'reset';
+      }
+
+      if (action) {
+        event.preventDefault();
+        // 通过 host webContents 通知渲染进程
+        var host = wc.hostWebContents;
+        if (host && !host.isDestroyed()) {
+          host.send('zoom-shortcut', action);
+        }
+      }
+    });
   });
 
   app.on('window-all-closed', function () {
