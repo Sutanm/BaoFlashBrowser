@@ -67,6 +67,7 @@ body.dark {
            text-lg leading-none;
     -webkit-app-region: no-drag;
     min-width: 42px;
+    outline: none;
   }
 
   body.dark .btn-tab {
@@ -117,12 +118,12 @@ body.dark {
   }
 
   .tab-item {
-    @apply flex items-center gap-1.5 h-full px-3 cursor-pointer
-           text-gray-600 text-xs
+    @apply flex items-center gap-1.5 h-full pl-4 pr-2 cursor-pointer
+           text-gray-600 text-sm
            border-r border-gray-200;
     -webkit-app-region: no-drag;
-    max-width: 200px;
-    min-width: 0;
+    max-width: 220px;
+    min-width: 60px;
     position: relative;
   }
 
@@ -130,6 +131,8 @@ body.dark {
     background: var(--bg-active-tab);
     color: var(--text-primary);
     font-weight: 500;
+    border-radius: 8px 8px 0 0;
+    box-shadow: inset 0 -2px 0 #2563eb, 0 1px 3px rgba(0, 0, 0, 0.08);
   }
 
   .tab-item:hover {
@@ -147,14 +150,18 @@ body.dark {
   }
 
   .tab-close {
-    @apply w-5 h-5 flex items-center justify-center rounded-full
+    @apply w-6 h-6 flex items-center justify-center rounded-full
            text-gray-400 hover:bg-gray-300 hover:text-gray-700
-           text-xs cursor-pointer flex-shrink-0;
-    opacity: 0;
+           text-sm cursor-pointer flex-shrink-0;
+    opacity: 0.5;
+    outline: none;
+    margin: 0;
+    padding: 0;
   }
 
   .tab-item:hover .tab-close {
     opacity: 1;
+    background: rgba(0, 0, 0, 0.06);
   }
 
   body.dark .tab-close:hover {
@@ -325,6 +332,15 @@ body {
 
 .no-drag {
   -webkit-app-region: no-drag;
+}
+
+#loading-progress {
+  @apply fixed left-0 h-[3px] z-[200] pointer-events-none;
+  top: 83px;
+  background: #2563eb;
+  box-shadow: 0 0 4px rgba(37, 99, 235, 0.5);
+  display: none;
+  width: 0%;
 }
 
 ::-webkit-scrollbar {

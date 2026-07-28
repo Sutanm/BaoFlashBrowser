@@ -1,5 +1,5 @@
-import React from 'react';
-import { Globe, Loader2 } from 'lucide-react';
+import React, { memo } from 'react';
+import { Globe, Loader2, X } from 'lucide-react';
 import type { TabState } from '@renderer/atoms/tabs.atom';
 
 interface TabItemProps {
@@ -25,7 +25,7 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onSelect, onClose }) =
           <Globe className="w-3.5 h-3.5 text-gray-400" />
         )}
       </span>
-      <span className="truncate">{tab.title || 'New Tab'}</span>
+      <span className="truncate leading-none">{tab.title || 'New Tab'}</span>
       {tab.isAudible && (
         <span className="text-[10px] flex-shrink-0">{tab.isMuted ? '🔇' : '🔊'}</span>
       )}
@@ -37,10 +37,10 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onSelect, onClose }) =
         className="tab-close"
         title="关闭标签页"
       >
-        &times;
+        <X className="w-3.5 h-3.5" />
       </button>
     </div>
   );
 };
 
-export default TabItem;
+export default memo(TabItem);
