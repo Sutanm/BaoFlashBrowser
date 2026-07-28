@@ -4,6 +4,7 @@ import TabBar from './components/tabs/TabBar';
 import WebviewContainer from './components/tabs/WebviewContainer';
 import NavigationBar from './components/navigation/NavigationBar';
 import NewTabPage from './components/newtab/NewTabPage';
+import LoadingProgress from './components/overlays/LoadingProgress';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { tabsAtom, activeTabIdAtom } from './atoms/tabs.atom';
@@ -86,13 +87,7 @@ const App: React.FC = () => {
 
   const switchTab = useCallback((tabId: string) => {
     setActiveTabId(tabId);
-    // Sync address bar — use the stored tab URL, filter out about:blank/newtab
-    setTabs((prev) => {
-      const tab = prev.find((t) => t.id === tabId);
-      if (tab) setAddressUrl(displayUrl(tab.url));
-      return prev;
-    });
-  }, [setActiveTabId, setTabs]);
+  }, [setActiveTabId]);
 
   const updateTab = useCallback((tabId: string, changes: Partial<TabState>) => {
     setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, ...changes } : t)));
@@ -232,6 +227,7 @@ const App: React.FC = () => {
       <div style={{ display: isOnNewTab ? 'none' : 'flex', flex: '1 1 0%' }}>
         <WebviewContainer tabs={tabs} activeTabId={activeTabId} onTabUpdate={updateTab} />
       </div>
+      <LoadingProgress visible={activeTab?.isLoading ?? false} />
     </div>
   );
 };

@@ -327,6 +327,15 @@ body {
   -webkit-app-region: no-drag;
 }
 
+#loading-progress {
+  @apply fixed left-0 h-[3px] z-[200] pointer-events-none;
+  top: 72px;
+  background: var(--accent);
+  box-shadow: 0 0 4px rgba(83, 52, 131, 0.5);
+  display: none;
+  width: 0%;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
 }
