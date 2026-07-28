@@ -226,11 +226,12 @@ const App: React.FC = () => {
         onToggleSettings={() => setShowSettings((v) => !v)}
       />
 
-      {isOnNewTab ? (
+      <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
         <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
-      ) : (
+      </div>
+      <div style={{ display: isOnNewTab ? 'none' : 'flex', flex: '1 1 0%' }}>
         <WebviewContainer tabs={tabs} activeTabId={activeTabId} onTabUpdate={updateTab} />
-      )}
+      </div>
     </div>
   );
 };
