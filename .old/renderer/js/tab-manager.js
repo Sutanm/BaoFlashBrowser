@@ -160,7 +160,7 @@ function attachWebviewEvents(webview, tabId) {
     if (tab) {
       tab.url = e.url;
       if (tabId === state.activeTabId) {
-        addressBar.value = e.url;
+        addressBar.value = isNewtabUrl(e.url) ? '' : e.url;
         updateNavButtonsForTab(tab);
         if (window.electronAPI) {
           window.electronAPI.setTitle(document.title);
@@ -177,7 +177,7 @@ function attachWebviewEvents(webview, tabId) {
     if (tab) {
       tab.url = e.url;
       if (tabId === state.activeTabId) {
-        addressBar.value = e.url;
+        addressBar.value = isNewtabUrl(e.url) ? '' : e.url;
         updateNavButtonsForTab(tab);
       }
     }
@@ -221,13 +221,13 @@ function attachWebviewEvents(webview, tabId) {
     // 应用初始缩放
     try { webview.setZoomFactor(tab.zoomFactor); } catch (e) {}
 
-    // 注入 Ctrl+滚轮缩放处理器（不依赖 preload，对所有页面生效）
+    // 注入 Ctrl+滚轮缩放处理器（捕获阶段，优先于页面脚本）
     var zoomScript = (
       'document.addEventListener("wheel",function(e){' +
       'if(!e.ctrlKey)return;' +
       'e.preventDefault();e.stopPropagation();' +
       'console.log("__bfbzoom_"+(e.deltaY<0?"in":"out"));' +
-      '},{passive:false});'
+      '},{capture:true,passive:false});'
     );
     try { webview.executeJavaScript(zoomScript); } catch (e) {}
   });
@@ -272,10 +272,14 @@ function attachWebviewEvents(webview, tabId) {
   });
 }
 
+function isNewtabUrl(url) {
+  return url === 'about:blank' || url.indexOf('newtab.html') !== -1;
+}
+
 function syncFromActiveTab() {
   var tab = getActiveTab();
   if (!tab) return;
-  addressBar.value = tab.url === 'about:blank' || tab.url.slice(-11) === 'newtab.html' ? '' : tab.url;
+  addressBar.value = isNewtabUrl(tab.url) ? '' : tab.url;
   updateNavButtonsForTab(tab);
   emitTabSwitch(tab);
   if (tab.title) {

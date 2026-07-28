@@ -103,13 +103,14 @@ function registerWheelZoom() {
   document.addEventListener('wheel', function (e) {
     if (!e.ctrlKey) return;
     e.preventDefault();
+    e.stopPropagation();
 
     if (e.deltaY < 0) {
       zoomIn();  // 向上滚动 = 放大
     } else {
       zoomOut(); // 向下滚动 = 缩小
     }
-  }, { passive: false });
+  }, { capture: true, passive: false });
 }
 
 module.exports = {
