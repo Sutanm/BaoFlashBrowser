@@ -40,7 +40,6 @@ body.dark {
   .btn-icon {
     @apply w-8 h-8 flex items-center justify-center rounded-md
            text-gray-700 hover:bg-gray-200
-           transition-colors duration-150
            cursor-pointer border-none bg-transparent
            text-lg leading-none;
   }
@@ -64,7 +63,6 @@ body.dark {
   .btn-tab {
     @apply h-full flex items-center justify-center rounded
            text-gray-600 hover:bg-gray-200
-           transition-colors duration-150
            cursor-pointer border-none bg-transparent
            text-lg leading-none;
     -webkit-app-region: no-drag;
@@ -82,7 +80,6 @@ body.dark {
   .btn-win {
     @apply w-12 h-full flex items-center justify-center
            text-gray-700 hover:bg-gray-200
-           transition-colors duration-150
            cursor-pointer border-none bg-transparent
            text-base leading-none;
   }
@@ -108,8 +105,7 @@ body.dark {
     @apply h-[30px] px-3 border border-gray-300
            rounded-full bg-white
            text-gray-800
-           text-sm outline-none
-           transition-colors duration-150;
+           text-sm outline-none;
     flex: 1;
     min-width: 0;
   }
@@ -123,8 +119,7 @@ body.dark {
   .tab-item {
     @apply flex items-center gap-1.5 h-full px-3 cursor-pointer
            text-gray-600 text-xs
-           border-r border-gray-200
-           transition-colors duration-150;
+           border-r border-gray-200;
     -webkit-app-region: no-drag;
     max-width: 200px;
     min-width: 0;
