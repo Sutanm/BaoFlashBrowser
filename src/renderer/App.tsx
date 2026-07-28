@@ -186,7 +186,6 @@ const App: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>
-      <div className="h-[5px] flex-shrink-0 drag-region" />
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId}
