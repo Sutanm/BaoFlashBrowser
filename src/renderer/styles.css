@@ -118,7 +118,7 @@ body.dark {
   }
 
   .tab-item {
-    @apply flex items-center gap-1.5 h-full px-4 cursor-pointer
+    @apply flex items-center gap-1.5 h-full pl-4 pr-2 cursor-pointer
            text-gray-600 text-sm
            border-r border-gray-200;
     -webkit-app-region: no-drag;
@@ -150,12 +150,13 @@ body.dark {
   }
 
   .tab-close {
-    @apply w-6 h-6 flex items-center justify-center rounded-full
+    @apply w-5 h-5 flex items-center justify-center rounded-full
            text-gray-400 hover:bg-gray-300 hover:text-gray-700
-           text-sm cursor-pointer flex-shrink-0;
+           text-sm cursor-pointer;
     opacity: 0.5;
-    margin-right: 4px;
     outline: none;
+    margin: 0;
+    padding: 0;
   }
 
   .tab-item:hover .tab-close {
