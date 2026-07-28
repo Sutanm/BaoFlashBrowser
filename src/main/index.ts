@@ -28,9 +28,9 @@ function bootstrap(): void {
   app.commandLine.appendSwitch('--process-per-site');
 
   setupFlash(app, config.flashVersion);
-  initSession();
 
   app.whenReady().then(() => {
+    initSession();
     mainWindow = createWindow();
 
     app.on('web-contents-created', (_event, wc) => {

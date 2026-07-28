@@ -7,7 +7,7 @@ function getFlashPluginPath(app: App): string | null {
   const platform = process.platform;
   const arch = process.arch;
   const isPackaged = app.isPackaged;
-  const basePath = isPackaged ? process.resourcesPath : path.join(__dirname, '..', '..');
+  const basePath = isPackaged ? process.resourcesPath : path.join(__dirname, '..');
 
   if (platform === 'linux' && arch === 'x64') {
     return path.join(basePath, 'plugins', 'linux64', 'libpepflashplayer64.so');
