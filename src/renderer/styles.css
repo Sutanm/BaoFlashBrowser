@@ -329,7 +329,7 @@ body {
 
 #loading-progress {
   @apply fixed left-0 h-[3px] z-[200] pointer-events-none;
-  top: 78px;
+  top: 83px;
   background: #2563eb;
   box-shadow: 0 0 4px rgba(37, 99, 235, 0.5);
   display: none;
