@@ -7,6 +7,7 @@ import NewTabPage from './components/newtab/NewTabPage';
 import LoadingProgress from './components/overlays/LoadingProgress';
 import ZoomOverlay from './components/overlays/ZoomOverlay';
 import FavoritesPanel from './components/panels/FavoritesPanel';
+import SettingsPanel from './components/panels/SettingsPanel';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { tabsAtom, activeTabIdAtom } from './atoms/tabs.atom';
@@ -294,6 +295,11 @@ const App: React.FC = () => {
         }}
         currentUrl={activeTab?.url || ''}
         currentTitle={activeTab?.title || ''}
+      />
+      <SettingsPanel
+        visible={showSettings}
+        onClose={() => setShowSettings(false)}
+        currentZoom={activeTab?.zoomLevel ?? 1}
       />
     </div>
   );
