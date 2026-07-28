@@ -117,12 +117,12 @@ body.dark {
   }
 
   .tab-item {
-    @apply flex items-center gap-1.5 h-full px-3 cursor-pointer
-           text-gray-600 text-xs
+    @apply flex items-center gap-1.5 h-full px-4 cursor-pointer
+           text-gray-600 text-sm
            border-r border-gray-200;
     -webkit-app-region: no-drag;
-    max-width: 200px;
-    min-width: 0;
+    max-width: 220px;
+    min-width: 60px;
     position: relative;
   }
 
@@ -147,9 +147,9 @@ body.dark {
   }
 
   .tab-close {
-    @apply w-5 h-5 flex items-center justify-center rounded-full
+    @apply w-6 h-6 flex items-center justify-center rounded-full
            text-gray-400 hover:bg-gray-300 hover:text-gray-700
-           text-xs cursor-pointer flex-shrink-0;
+           text-sm cursor-pointer flex-shrink-0;
     opacity: 0;
   }
 
@@ -329,9 +329,9 @@ body {
 
 #loading-progress {
   @apply fixed left-0 h-[3px] z-[200] pointer-events-none;
-  top: 72px;
-  background: var(--accent);
-  box-shadow: 0 0 4px rgba(83, 52, 131, 0.5);
+  top: 78px;
+  background: #2563eb;
+  box-shadow: 0 0 4px rgba(37, 99, 235, 0.5);
   display: none;
   width: 0%;
 }

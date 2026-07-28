@@ -102,6 +102,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
       if (tab.url === 'about:newtab') continue;
       if (!webviewRefs.current.has(tab.id)) {
         const el = createWebview(tab);
+        if (tab.id === activeTabId) el.classList.add('active');
         containerRef.current.appendChild(el);
         webviewRefs.current.set(tab.id, el);
       }

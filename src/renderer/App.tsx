@@ -63,27 +63,18 @@ const App: React.FC = () => {
       if (idx < 0) return prev;
       const next = [...prev];
       next.splice(idx, 1);
-      // If no tabs left, create a fresh one
-      if (next.length === 0) {
-        setTimeout(() => createTab(), 0);
+      // If closing the active tab, switch to a sibling
+      if (tabId === activeTabId) {
+        if (next.length > 0) {
+          const newIdx = Math.min(idx, next.length - 1);
+          setActiveTabId(next[newIdx].id);
+        } else {
+          setActiveTabId(null);
+        }
       }
       return next;
     });
-    // If closing the active tab, switch to a sibling
-    if (activeTabId === tabId) {
-      setTabs((current) => {
-        if (current.length === 0) return current;
-        const idx = current.findIndex((t) => t.id === tabId);
-        // idx might be -1 since we filtered it out, but it was the active one
-        // After splice, the tab at the same index (or prev) is the replacement
-        const newIdx = Math.min(idx, current.length - 1);
-        if (newIdx >= 0 && current[newIdx]) {
-          setTimeout(() => setActiveTabId(current[newIdx].id), 0);
-        }
-        return current;
-      });
-    }
-  }, [activeTabId, setTabs, setActiveTabId, createTab]);
+  }, [activeTabId, setActiveTabId, setTabs]);
 
   const switchTab = useCallback((tabId: string) => {
     setActiveTabId(tabId);
@@ -175,10 +166,16 @@ const App: React.FC = () => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
-  // --- Initial tab ---
+  // --- Initial tab when none exist or no active tab ---
   useEffect(() => {
-    if (tabs.length === 0) createTab();
-  }, [tabs.length, createTab]);
+    if (tabs.length === 0 || activeTabId === null) {
+      if (tabs.length === 0) {
+        createTab();
+      } else {
+        setActiveTabId(tabs[0].id);
+      }
+    }
+  }, [tabs.length, activeTabId, createTab, setActiveTabId, tabs]);
 
   // --- Sync address bar when active tab changes ---
   useEffect(() => {
