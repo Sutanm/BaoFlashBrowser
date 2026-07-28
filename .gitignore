@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.log
 wsl_*.sh
+.trae/
