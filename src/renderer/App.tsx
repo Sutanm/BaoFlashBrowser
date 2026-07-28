@@ -6,6 +6,7 @@ import NavigationBar from './components/navigation/NavigationBar';
 import NewTabPage from './components/newtab/NewTabPage';
 import LoadingProgress from './components/overlays/LoadingProgress';
 import ZoomOverlay from './components/overlays/ZoomOverlay';
+import FavoritesPanel from './components/panels/FavoritesPanel';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { tabsAtom, activeTabIdAtom } from './atoms/tabs.atom';
@@ -256,6 +257,7 @@ const App: React.FC = () => {
         canGoBack={activeTab?.canGoBack || false}
         canGoForward={activeTab?.canGoForward || false}
         isMuted={isMuted}
+        isBookmarked={activeTab ? favorites.some((f) => f.url === activeTab.url && activeTab.url !== 'about:newtab') : false}
         onNavigate={handleNavigate}
         onBack={() => { const el = activeWebview(); if (el) el.goBack(); }}
         onForward={() => { const el = activeWebview(); if (el) el.goForward(); }}
@@ -280,6 +282,19 @@ const App: React.FC = () => {
       </div>
       <LoadingProgress visible={activeTab?.isLoading ?? false} />
       <ZoomOverlay level={zoomPercent / 100} visible={showZoom} />
+      <FavoritesPanel
+        visible={showFavorites}
+        onClose={() => setShowFavorites(false)}
+        onOpenUrl={(url, newTab) => {
+          if (newTab || activeTab?.url !== 'about:newtab') {
+            createTab(url);
+          } else {
+            handleNavigate(url);
+          }
+        }}
+        currentUrl={activeTab?.url || ''}
+        currentTitle={activeTab?.title || ''}
+      />
     </div>
   );
 };
