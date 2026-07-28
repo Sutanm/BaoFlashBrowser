@@ -25,7 +25,7 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onSelect, onClose }) =
           <Globe className="w-3.5 h-3.5 text-gray-400" />
         )}
       </span>
-      <span className="truncate">{tab.title || 'New Tab'}</span>
+      <span className="truncate leading-none">{tab.title || 'New Tab'}</span>
       {tab.isAudible && (
         <span className="text-[10px] flex-shrink-0">{tab.isMuted ? '🔇' : '🔊'}</span>
       )}
