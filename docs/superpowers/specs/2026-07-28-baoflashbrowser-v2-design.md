@@ -54,7 +54,6 @@ bao-flash-browser-v2/
 ├── tsconfig.renderer.json
 ├── webpack.main.config.js
 ├── webpack.renderer.config.js
-├── webpack.newtab.config.js
 ├── .eslintrc.js
 ├── .prettierrc
 ├── tailwind.config.js
@@ -92,13 +91,15 @@ bao-flash-browser-v2/
 │   │       └── browser-data.ts          # 清除浏览数据
 │   │
 │   ├── preload/
-│   │   └── index.ts                     # contextBridge API 契约
+│   │   └── index.ts                     # 主窗口 contextBridge API 契约
+│   │
+│   ├── webview-preload/
+│   │   └── index.ts                     # 注入 <webview> 内部（登录捕获、表单填充）
 │   │
 │   ├── renderer/                        # React 应用
 │   │   ├── index.html
 │   │   ├── index.tsx
 │   │   ├── App.tsx
-│   │   ├── webview-preload.ts            # webview 注入脚本（登录捕获）
 │   │   ├── components/
 │   │   │   ├── shell/
 │   │   │   │   ├── TitleBar.tsx
@@ -118,6 +119,11 @@ bao-flash-browser-v2/
 │   │   │   │   ├── ReloadButton.tsx
 │   │   │   │   ├── BookmarkStar.tsx
 │   │   │   │   └── HomeButton.tsx
+│   │   │   ├── newtab/
+│   │   │   │   ├── NewTabPage.tsx         # 新标签页（React 组件，替换 webview 渲染区）
+│   │   │   │   ├── SearchBox.tsx
+│   │   │   │   ├── QuickLinks.tsx
+│   │   │   │   └── BookmarkBar.tsx
 │   │   │   ├── panels/
 │   │   │   │   ├── FavoritesPanel.tsx
 │   │   │   │   ├── HistoryPanel.tsx
@@ -147,16 +153,6 @@ bao-flash-browser-v2/
 │   │       ├── useWebviewEvent.ts
 │   │       ├── useAutoSave.ts
 │   │       └── useTheme.ts
-│   │
-│   └── newtab/                          # 新标签页独立 React 应用
-│       ├── index.html
-│       ├── NewTabApp.tsx
-│       ├── components/
-│       │   ├── SearchBox.tsx
-│       │   ├── QuickLinks.tsx
-│       │   └── BookmarkBar.tsx
-│       └── atoms/
-│           └── newtab.atom.ts
 │
 ├── plugins/                             # 从旧项目直接复制
 │   ├── linux64/libpepflashplayer64.so
@@ -202,8 +198,9 @@ bao-flash-browser-v2/
 │   │   └── <AddressSuggestions />
 │   ├── <BookmarkStar />
 │   └── <HomeButton />
-├── <WebviewContainer>
-│   ├── <webview />                   # 当前活跃标签的 webview 元素
+├── <WebviewContainer>                  # 活跃标签的内容区
+│   ├── <NewTabPage />                   # 无 webview 时显示（React 组件，非独立页面）
+│   ├── <webview />                      # 活跃标签的 webview（有 URL 时）
 │   ├── <LoadingProgress />
 │   ├── <ZoomOverlay />
 │   └── <FindBar />
@@ -266,6 +263,46 @@ nedb 作为持久层，写时自动同步：
 ```
 
 应用启动时：`nedb 全量读取` → `atom 初始化` → `UI 渲染`。
+
+### nedb 数据存储策略
+
+```
+app.getPath('userData')/
+└── data/
+    ├── bookmarks.db          # 书签集合
+    ├── history.db            # 浏览历史集合
+    ├── downloads.db          # 下载记录集合
+    └── tabs-session.db       # 会话恢复数据
+```
+
+每个业务域一个独立 nedb 文件，避免锁竞争，方便单独清除某类数据：
+
+```typescript
+// src/main/services/database.ts
+import { app } from 'electron';
+import path from 'path';
+import Datastore from 'nedb-promises';
+
+const dbPath = path.join(app.getPath('userData'), 'data');
+
+export const bookmarksDb = Datastore.create({ filename: path.join(dbPath, 'bookmarks.db'), autoload: true });
+export const historyDb   = Datastore.create({ filename: path.join(dbPath, 'history.db'),   autoload: true });
+export const downloadsDb  = Datastore.create({ filename: path.join(dbPath, 'downloads.db'),  autoload: true });
+export const sessionDb    = Datastore.create({ filename: path.join(dbPath, 'tabs-session.db'), autoload: true });
+```
+
+**从旧版 localStorage 迁移**：首次启动时检测旧 `localStorage` key `baoflash_favorites`，若存在且 nedb 为空则自动导入，完成后删除旧 key。
+
+### 新标签页实现方式
+
+新标签页是 **React 组件 `<NewTabPage />`**，不是独立页面或 `<webview src="newtab.html">`。
+
+- 当用户创建新标签或访问 `about:newtab` 时，`activeTabAtom` 指向一个 `url` 为空的 Tab
+- `<WebviewContainer>` 检测到空 URL → 隐藏 `<webview>` → 渲染 `<NewTabPage />`
+- `<NewTabPage>` 与 `<App>` 共享**同一个 Jotai store**，直接读写 `favoritesAtom`、`historyAtom`
+- 搜索框输入 URL 并回车 → Jotai 更新 `activeTabAtom.url` → `<WebviewContainer>` 销毁 `<NewTabPage />` → 挂载 `<webview src={url}>`
+
+无需独立 React root、无需跨进程 IPC。新标签页就是主窗口内的一段 React UI。
 
 ---
 
@@ -442,9 +479,64 @@ webview 事件发生
 
 所有状态变更（标签页标题、favicon、加载状态、下载进度）都走这条单向推送路径，保证数据源唯一。
 
+### IPC 事件订阅与取消
+
+`on()` 返回 `unsubscribe` 函数。React 组件通过 `useEffect` 清理函数保证卸载时释放：
+
+```typescript
+// hooks/useShortcut.ts
+export function useShortcut(handler: (action: ShortcutAction) => void) {
+  useEffect(() => {
+    const unsub = window.electronAPI.on('shortcut', handler);
+    return unsub; // 组件卸载时自动取消订阅
+  }, [handler]);
+}
+
+// hooks/useDownloadProgress.ts
+export function useDownloadProgress(onProgress: (item: DownloadItem) => void) {
+  useEffect(() => {
+    const unsub = window.electronAPI.on('download:progress', (e, item) => onProgress(item));
+    return unsub;
+  }, [onProgress]);
+}
+```
+
+不做全局单例 listener——每个组件自己订阅自己取消，避免内存泄漏和重复处理。
+
 ---
 
-## 8. 依赖清单
+## 8. 会话恢复
+
+### 保存内容
+
+关闭窗口时（`before-quit` 事件），将以下状态写入 `tabs-session.db`：
+
+| 字段 | 说明 |
+|------|------|
+| `tabId` | 标签页 ID |
+| `url` | 当前页面 URL |
+| `title` | 页面标题 |
+| `favicon` | favicon URL（可选，部分页面无法恢复） |
+| `zoomLevel` | 缩放级别（0.25-5.0） |
+| `isMuted` | 静音状态 |
+| `scrollX / scrollY` | 滚动位置（通过 `executeJavaScript` 获取） |
+| `createdAt` | 标签创建时间（决定恢复后排序） |
+
+**不保存**：表单输入（安全风险）、Session Storage（webview 销毁即丢失）。
+
+### 恢复时机与策略
+
+- **启动时**：检测 `tabs-session.db` 是否有数据，若有 → 直接恢复全部标签页，URL 指向原始地址（非缓存快照）。第一个标签设为活跃。
+- **用户手动恢复**：在历史面板中提供"恢复上次会话"入口，匹配 `tabs-session.db` 中最新一次保存的快照。
+- **URL 失效处理**：恢复时若页面返回错误（加载失败 → webview `did-fail-load`），显示错误页而非白屏。用户可手动刷新或关闭标签。
+
+### 冲突处理
+
+若用户关闭浏览器前打开 10 个标签，恢复时仅恢复 8 个（2 个页面服务端已 404）——这 2 个标签显示标准错误页，不阻塞其余 8 个正常加载。恢复成功后 `tabs-session.db` 置空（下次正常退出再写入）。
+
+---
+
+## 9. 依赖清单
 
 | 包名 | 版本 | 用途 | 类型 |
 |------|------|------|------|
@@ -477,7 +569,7 @@ webview 事件发生
 
 ---
 
-## 9. 阶段实施计划
+## 10. 阶段实施计划
 
 ### 阶段 0：基础设施（~1 天）
 
@@ -545,7 +637,7 @@ webview 事件发生
 
 ---
 
-## 10. 从旧项目复制清单
+## 11. 从旧项目复制清单
 
 以下文件直接复制到新项目，仅添加 TypeScript 类型注解：
 
@@ -557,14 +649,14 @@ webview 事件发生
 | `src/modules/password-store.js` | `src/main/modules/password-store.ts` | 加类型注解 |
 | `src/modules/config.js` | `src/main/modules/config.ts` | 加类型注解 + 补 Flash 版本字段 |
 | `plugins/` | `plugins/` | 零修改，直接复制 |
-| `renderer/webview-preload.js` | `src/renderer/webview-preload.ts` | 加类型注解 |
+| `renderer/webview-preload.js` | `src/webview-preload/index.ts` | 加类型注解 |
 | `build/` | `build/` | 零修改，直接复制 |
 
 其余所有文件全新编写。
 
 ---
 
-## 11. 里程碑
+## 12. 里程碑
 
 | 里程碑 | 完成标志 | 预计时间 |
 |--------|---------|---------|
