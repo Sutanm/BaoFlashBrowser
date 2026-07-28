@@ -25,6 +25,7 @@ const TabBar: React.FC<TabBarProps> = ({
 }) => {
   return (
     <div
+      id="tab-bar"
       className="flex items-center h-[34px] flex-shrink-0 overflow-hidden"
       style={{ background: 'var(--bg-tabbar)' }}
     >

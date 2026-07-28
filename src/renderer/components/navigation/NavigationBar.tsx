@@ -52,6 +52,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
 
   return (
     <div
+      id="toolbar"
       className="flex items-center gap-1 h-[38px] px-2 flex-shrink-0"
       style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border-light)' }}
     >

@@ -29,13 +29,6 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
       el.setAttribute('preload', '../../dist/webview-preload.js');
       el.setAttribute('plugins', 'true');
       el.setAttribute('allowpopups', 'true');
-      el.style.cssText = `
-        position: absolute;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        border: none;
-        display: ${tab.id === activeTabId ? 'block' : 'none'};
-      `;
 
       el.addEventListener('did-start-loading', () => {
         onTabUpdate(tab.id, { isLoading: true });
@@ -81,7 +74,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
 
       return el;
     },
-    [activeTabId, onTabUpdate],
+    [onTabUpdate],
   );
 
   useEffect(() => {
@@ -107,17 +100,22 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
         webviewRefs.current.set(tab.id, el);
       }
     }
+  }, [tabs, createWebview]);
 
+  // Toggle visibility via CSS class (not display:none, which breaks webview sizing)
+  useEffect(() => {
     for (const [id, el] of webviewRefs.current) {
-      el.style.display = id === activeTabId ? 'block' : 'none';
+      if (id === activeTabId) {
+        el.classList.add('active');
+      } else {
+        el.classList.remove('active');
+      }
     }
-  }, [tabs, activeTabId, createWebview]);
+  }, [activeTabId]);
 
   return React.createElement('div', {
     ref: containerRef as any,
     id: 'webview-container',
-    className: 'relative flex-1',
-    style: { background: 'var(--bg-primary)' },
   });
 };
 

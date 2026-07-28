@@ -115,7 +115,7 @@ const App: React.FC = () => {
   }, [tabs.length, createTab]);
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId}
