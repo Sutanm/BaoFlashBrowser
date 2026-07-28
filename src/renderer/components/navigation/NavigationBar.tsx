@@ -8,6 +8,7 @@ interface NavigationBarProps {
   canGoBack: boolean;
   canGoForward: boolean;
   isMuted: boolean;
+  isBookmarked: boolean;
   onNavigate: (url: string) => void;
   onBack: () => void;
   onForward: () => void;
@@ -90,8 +91,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
       >
         <Volume2 className="w-4 h-4" />
       </button>
-      <button onClick={onToggleFavorites} className="btn-icon" title="收藏夹">
-        <Star className="w-4 h-4" />
+      <button onClick={onToggleFavorites} className="btn-icon" title={isBookmarked ? '已收藏' : '收藏夹'}>
+        <Star className="w-4 h-4" fill={isBookmarked ? '#ffd700' : 'none'} color={isBookmarked ? '#ffd700' : undefined} />
       </button>
       <button onClick={onToggleSettings} className="btn-icon" title="设置">
         <SettingsIcon className="w-4 h-4" />

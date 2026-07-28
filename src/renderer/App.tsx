@@ -5,6 +5,9 @@ import WebviewContainer from './components/tabs/WebviewContainer';
 import NavigationBar from './components/navigation/NavigationBar';
 import NewTabPage from './components/newtab/NewTabPage';
 import LoadingProgress from './components/overlays/LoadingProgress';
+import ZoomOverlay from './components/overlays/ZoomOverlay';
+import FavoritesPanel from './components/panels/FavoritesPanel';
+import SettingsPanel from './components/panels/SettingsPanel';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { tabsAtom, activeTabIdAtom } from './atoms/tabs.atom';
@@ -29,7 +32,16 @@ const App: React.FC = () => {
   const favorites = useAtomValue(favoritesAtom);
   const [isMuted, setIsMuted] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showZoom, setShowZoom] = useState(false);
+  const [zoomPercent, setZoomPercent] = useState(100);
+  const zoomTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showZoomOverlay = React.useCallback((level: number) => {
+    setZoomPercent(Math.round(level * 100));
+    setShowZoom(true);
+    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    zoomTimerRef.current = setTimeout(() => setShowZoom(false), 1500);
+  }, []);
   const [addressUrl, setAddressUrl] = useState('');
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
@@ -135,10 +147,54 @@ const App: React.FC = () => {
       }
       case 'bookmark': setShowFavorites((v) => !v); break;
       case 'history-panel': break;
+      case 'zoom-in': {
+        const el = activeWebview();
+        if (el && activeTab) {
+          const lvl = Math.min(5, activeTab.zoomLevel + 0.25);
+          el.setZoomLevel(lvl);
+          updateTab(activeTab.id, { zoomLevel: lvl });
+          showZoomOverlay(lvl);
+        }
+        break;
+      }
+      case 'zoom-out': {
+        const el = activeWebview();
+        if (el && activeTab) {
+          const lvl = Math.max(0.25, activeTab.zoomLevel - 0.25);
+          el.setZoomLevel(lvl);
+          updateTab(activeTab.id, { zoomLevel: lvl });
+          showZoomOverlay(lvl);
+        }
+        break;
+      }
+      case 'zoom-reset': {
+        const el = activeWebview();
+        if (el && activeTab) {
+          el.setZoomLevel(1);
+          updateTab(activeTab.id, { zoomLevel: 1 });
+          showZoomOverlay(1);
+        }
+        break;
+      }
     }
   });
 
-  // --- Ctrl+1~9 ---
+  // --- Ctrl+wheel zoom ---
+  useEffect(() => {
+    const handler = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const el = activeWebview();
+      if (!el || !activeTab) return;
+      const delta = e.deltaY < 0 ? 0.25 : -0.25;
+      const lvl = Math.min(5, Math.max(0.25, activeTab.zoomLevel + delta));
+      el.setZoomLevel(lvl);
+      updateTab(activeTab.id, { zoomLevel: lvl });
+      showZoomOverlay(lvl);
+    };
+    window.addEventListener('wheel', handler, { passive: false });
+    return () => window.removeEventListener('wheel', handler);
+  }, [activeTab, updateTab, showZoomOverlay, activeWebview]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -202,6 +258,7 @@ const App: React.FC = () => {
         canGoBack={activeTab?.canGoBack || false}
         canGoForward={activeTab?.canGoForward || false}
         isMuted={isMuted}
+        isBookmarked={activeTab ? favorites.some((f) => f.url === activeTab.url && activeTab.url !== 'about:newtab') : false}
         onNavigate={handleNavigate}
         onBack={() => { const el = activeWebview(); if (el) el.goBack(); }}
         onForward={() => { const el = activeWebview(); if (el) el.goForward(); }}
@@ -225,6 +282,25 @@ const App: React.FC = () => {
         <WebviewContainer tabs={tabs} activeTabId={activeTabId} onTabUpdate={updateTab} />
       </div>
       <LoadingProgress visible={activeTab?.isLoading ?? false} />
+      <ZoomOverlay level={zoomPercent / 100} visible={showZoom} />
+      <FavoritesPanel
+        visible={showFavorites}
+        onClose={() => setShowFavorites(false)}
+        onOpenUrl={(url, newTab) => {
+          if (newTab || activeTab?.url !== 'about:newtab') {
+            createTab(url);
+          } else {
+            handleNavigate(url);
+          }
+        }}
+        currentUrl={activeTab?.url || ''}
+        currentTitle={activeTab?.title || ''}
+      />
+      <SettingsPanel
+        visible={showSettings}
+        onClose={() => setShowSettings(false)}
+        currentZoom={activeTab?.zoomLevel ?? 1}
+      />
     </div>
   );
 };
