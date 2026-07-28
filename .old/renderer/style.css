@@ -1,0 +1,458 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   CSS 变量系统（暗黑模式核心）
+   ============================================ */
+
+:root {
+  --bg-primary: #ffffff;
+  --bg-toolbar: #f0f0f0;
+  --bg-tabbar: #f0f0f0;
+  --bg-panel: #ffffff;
+  --bg-input: #ffffff;
+  --bg-active-tab: #ffffff;
+  --bg-hover: #e8e8e8;
+  --text-primary: #222222;
+  --text-secondary: #666666;
+  --text-disabled: #bbbbbb;
+  --border-color: #cccccc;
+  --border-light: #e0e0e0;
+  --accent: #533483;
+  --accent-hover: #f0e6ff;
+}
+
+body.dark {
+  --bg-primary: #1a1a2e;
+  --bg-toolbar: #16213e;
+  --bg-tabbar: #16213e;
+  --bg-panel: #16213e;
+  --bg-input: #0a0a1a;
+  --bg-active-tab: #1a1a2e;
+  --bg-hover: #0f3460;
+  --text-primary: #e0e0e0;
+  --text-secondary: #aaaaaa;
+  --text-disabled: #555555;
+  --border-color: #0f3460;
+  --border-light: #0f3460;
+  --accent: #533483;
+  --accent-hover: #0f3460;
+}
+
+/* ============================================
+   统一组件类
+   ============================================ */
+
+@layer components {
+  .btn-icon {
+    @apply w-8 h-8 flex items-center justify-center rounded-md
+           text-gray-700
+           hover:bg-gray-200
+           transition-colors duration-150
+           cursor-pointer border-none bg-transparent
+           text-lg leading-none;
+  }
+
+  .btn-icon:disabled {
+    @apply text-gray-300 cursor-default hover:bg-transparent;
+  }
+
+  body.dark .btn-icon {
+    color: var(--text-secondary);
+  }
+
+  body.dark .btn-icon:hover {
+    background: var(--bg-hover);
+  }
+
+  body.dark .btn-icon:disabled {
+    color: var(--text-disabled);
+  }
+
+  .zoom-label {
+    @apply flex items-center justify-center text-xs;
+    color: var(--text-secondary);
+    -webkit-app-region: no-drag;
+    min-width: 50px;
+    text-align: center;
+  }
+
+  .zoom-controls {
+    @apply flex items-center gap-2;
+  }
+
+  .zoom-btn {
+    @apply h-7 w-auto px-3;
+    min-width: 36px;
+  }
+
+  .btn-tab {
+    @apply w-[42px] h-full flex items-center justify-center rounded
+           text-gray-600
+           hover:bg-gray-200
+           transition-colors duration-150
+           cursor-pointer border-none bg-transparent
+           text-lg leading-none;
+    -webkit-app-region: no-drag;
+  }
+
+  body.dark .btn-tab {
+    color: var(--text-secondary);
+  }
+
+  body.dark .btn-tab:hover {
+    background: var(--bg-hover);
+  }
+
+  .btn-win {
+    @apply w-12 h-full flex items-center justify-center
+           text-gray-700
+           hover:bg-gray-200
+           transition-colors duration-150
+           cursor-pointer border-none bg-transparent
+           text-base leading-none;
+  }
+
+  body.dark .btn-win {
+    color: var(--text-secondary);
+  }
+
+  body.dark .btn-win:hover {
+    background: var(--bg-hover);
+  }
+
+  .btn-win-close {
+    @apply btn-win hover:bg-red-500 hover:text-white;
+  }
+
+  body.dark .btn-win-close:hover {
+    background: #e81123;
+    color: #ffffff;
+  }
+
+  .input-text {
+    @apply h-[30px] px-3 border border-gray-300
+           rounded-full bg-white
+           text-gray-800
+           text-sm outline-none
+           focus:border-primary focus:ring-1 focus:ring-primary/30
+           transition-colors duration-150;
+  }
+
+  body.dark .input-text {
+    border-color: var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-primary);
+  }
+
+  .btn-primary {
+    @apply h-[30px] px-4 rounded-md bg-primary text-white
+           hover:bg-primary-hover transition-colors duration-150
+           cursor-pointer border-none text-sm;
+  }
+
+  .btn-secondary {
+    @apply h-7 w-full rounded border border-dashed border-primary
+           text-gray-500 bg-transparent
+           hover:bg-primary-light/30 hover:text-primary
+           transition-colors duration-150
+           cursor-pointer text-sm;
+  }
+
+  body.dark .btn-secondary {
+    color: var(--text-secondary);
+  }
+
+  body.dark .btn-secondary:hover {
+    background: var(--accent-hover);
+  }
+
+  .panel-card {
+    @apply absolute right-2 w-[280px]
+           bg-white border border-gray-200
+           rounded-lg z-[100] shadow-lg;
+  }
+
+  body.dark .panel-card {
+    background: var(--bg-panel);
+    border-color: var(--border-color);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+
+  .panel-header {
+    @apply flex justify-between items-center px-3 py-2
+           border-b border-gray-100
+           font-bold text-gray-800;
+  }
+
+  body.dark .panel-header {
+    border-color: var(--border-light);
+    color: var(--text-primary);
+  }
+
+  .panel-close {
+    @apply border-none bg-transparent
+           text-gray-500
+           text-lg cursor-pointer;
+  }
+
+  body.dark .panel-close {
+    color: var(--text-secondary);
+  }
+}
+
+/* ============================================
+   全局基础样式
+   ============================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  @apply flex flex-col h-screen overflow-hidden
+         text-sm select-none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+}
+
+#webview-container {
+  @apply flex-1 relative;
+}
+
+#webview-container webview {
+  @apply absolute top-0 left-0 w-full h-full border-none
+         invisible pointer-events-none;
+}
+
+#webview-container webview.active {
+  @apply visible pointer-events-auto;
+}
+
+/* ============================================
+   缩放指示器浮窗（类 Chrome）
+   ============================================ */
+.zoom-indicator {
+  @apply fixed rounded-lg bg-black bg-opacity-75 text-white
+         text-lg font-medium z-50 pointer-events-none select-none;
+  padding: 8px 28px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.zoom-indicator.show {
+  opacity: 1;
+}
+
+/* ============================================
+   标签栏
+   ============================================ */
+
+#tab-bar {
+  @apply flex items-center h-[42px]
+         border-b
+         flex-shrink-0 pl-2 pr-0;
+  background: var(--bg-tabbar);
+  border-color: var(--border-color);
+  -webkit-app-region: drag;
+}
+
+#tab-list {
+  @apply flex flex-1 h-full overflow-hidden;
+}
+
+.tab-item {
+  @apply flex items-center px-[10px] h-[34px] min-w-[70px] max-w-[200px]
+         rounded-t-lg bg-transparent
+         cursor-pointer text-sm
+         whitespace-nowrap relative flex-shrink mr-[2px];
+  color: var(--text-secondary);
+  -webkit-app-region: no-drag;
+}
+
+.tab-item:hover {
+  background: var(--bg-hover);
+}
+
+.tab-item.active {
+  background: var(--bg-active-tab);
+  color: var(--text-primary);
+  font-weight: bold;
+  border-bottom: 2px solid var(--accent);
+}
+
+.tab-title {
+  @apply flex-1 overflow-hidden text-ellipsis mr-1;
+}
+
+.tab-close {
+  @apply w-5 h-5 rounded-full border-none bg-transparent
+         text-gray-400 text-base leading-none
+         flex items-center justify-center flex-shrink-0
+         cursor-pointer;
+}
+
+.tab-close:hover {
+  background: #cccccc;
+  color: #333333;
+}
+
+body.dark .tab-close:hover {
+  background: #333333;
+  color: #e0e0e0;
+}
+
+#window-controls {
+  @apply flex items-stretch h-full flex-shrink-0 ml-2;
+  -webkit-app-region: no-drag;
+}
+
+/* ============================================
+   工具栏
+   ============================================ */
+
+#toolbar {
+  @apply flex items-center gap-[6px] px-2 py-[6px]
+         border-b
+         flex-shrink-0 h-10;
+  background: var(--bg-toolbar);
+  border-color: var(--border-color);
+  -webkit-app-region: drag;
+}
+
+#toolbar button,
+#toolbar .btn-icon {
+  -webkit-app-region: no-drag;
+}
+
+#address-bar {
+  @apply flex-1;
+  -webkit-app-region: no-drag;
+}
+
+/* ============================================
+   浮层面板
+   ============================================ */
+
+.panel {
+  top: 82px;
+}
+
+.panel.hidden {
+  display: none;
+}
+
+.settings-body {
+  @apply p-3;
+}
+
+.settings-body label {
+  @apply block mb-[6px] text-xs;
+  color: var(--text-secondary);
+}
+
+.settings-body input[type="text"],
+.settings-body select {
+  @apply w-full h-[30px] px-[10px] mb-[10px]
+         border rounded-md
+         text-sm outline-none
+         focus:border-primary focus:ring-1 focus:ring-primary/30
+         transition-colors duration-150;
+  border-color: var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.settings-body select {
+  cursor: pointer;
+}
+
+.setting-row {
+  @apply mb-[10px];
+}
+
+/* ============================================
+   收藏夹面板
+   ============================================ */
+
+.fav-add-bar {
+  @apply px-3 py-[6px] border-b;
+  border-color: var(--border-light);
+}
+
+#favorites-list {
+  @apply max-h-[300px] overflow-y-auto;
+}
+
+.fav-item {
+  @apply flex items-center justify-between px-3 py-2
+         border-b
+         cursor-pointer;
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.fav-item:hover {
+  background: var(--bg-hover);
+}
+
+.fav-item-title {
+  @apply flex-1 overflow-hidden text-ellipsis whitespace-nowrap;
+}
+
+.fav-item-url {
+  @apply text-[11px] ml-2
+         max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap;
+  color: var(--text-secondary);
+}
+
+.fav-item-remove {
+  @apply border-none bg-transparent text-red-500 text-base
+         cursor-pointer ml-2;
+}
+
+.fav-empty {
+  @apply py-4 text-center;
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   加载进度条
+   ============================================ */
+
+#loading-progress {
+  @apply absolute left-0 h-[3px] z-[200]
+         transition-all duration-200 ease-out;
+  top: 78px;
+  background: var(--accent);
+  box-shadow: 0 0 4px rgba(83, 52, 131, 0.5);
+}
+
+/* ============================================
+   滚动条
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-disabled);
+}

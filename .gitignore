@@ -2,8 +2,4 @@ node_modules/
 dist/
 *.log
 wsl_*.sh
-package-lock.json
-docs/
-renderer/dist/
 .trae/
-adobe-flash-player-main/
