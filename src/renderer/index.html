@@ -3,12 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
   <title>BaoFlashBrowser</title>
   <link rel="stylesheet" href="../../dist/renderer/bundle.css" />
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">Loading...</div>
+  <script>
+    console.log('HTML loaded, root:', document.getElementById('root'));
+    window.onerror = function(m, s, l, c, e) { console.error('GLOBAL ERR:', m, s, l, c, e); };
+    window.onunhandledrejection = function(e) { console.error('UNHANDLED:', e.reason); };
+  </script>
   <script src="../../dist/renderer/bundle.js"></script>
 </body>
 </html>

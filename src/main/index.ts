@@ -3,7 +3,9 @@ import log from 'electron-log';
 import { setupFlash } from './modules/flash';
 import { initSession } from './modules/session';
 import { loadConfig } from './modules/config';
-import { createWindow } from './modules/window';
+import { createWindow, getMainWindow } from './modules/window';
+import { setMainWindowRef, registerShortcutHandler } from './ipc/shortcut.ipc';
+import { registerWindowIPC } from './ipc/window.ipc';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -32,9 +34,21 @@ function bootstrap(): void {
   app.whenReady().then(() => {
     initSession();
     mainWindow = createWindow();
+    setMainWindowRef(mainWindow);
+    registerWindowIPC(() => getMainWindow());
 
     app.on('web-contents-created', (_event, wc) => {
-      wc.on('before-input-event', handleBeforeInputEvent);
+      wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
+        const { handleWebviewBeforeInputEvent } = require('./ipc/shortcut.ipc');
+        handleWebviewBeforeInputEvent(event, input);
+      });
+
+      wc.on('new-window', (event: Electron.Event, url: string) => {
+        event.preventDefault();
+        if (wc.hostWebContents) {
+          wc.hostWebContents.send('navigate-url', url);
+        }
+      });
     });
   });
 
@@ -42,15 +56,7 @@ function bootstrap(): void {
     app.quit();
   });
 
-  log.info('[App] started, version 2.0.0');
-}
-
-function handleBeforeInputEvent(
-  event: Electron.Event,
-  input: Electron.Input,
-): void {
-  // Placeholder — full shortcut table implemented in Phase 1.1
-  log.debug('[Shortcut] key=', input.key, 'ctrl=', input.control, 'type=', input.type);
+  log.info('[App] started, version 1.0.1');
 }
 
 bootstrap();

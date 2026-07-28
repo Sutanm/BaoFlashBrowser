@@ -12,6 +12,8 @@ module.exports = {
   },
   resolve: {
     extensions: ['.tsx', '.ts', '.js', '.jsx'],
+    mainFields: ['browser', 'main'],
+    conditionNames: ['browser', 'require'],
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
       '@renderer': path.resolve(__dirname, 'src/renderer'),
