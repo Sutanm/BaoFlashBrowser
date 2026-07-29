@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import path from 'path';
 
 const electronAPI = {
   on(channel: string, callback: (...args: unknown[]) => void): () => void {
@@ -12,6 +13,8 @@ const electronAPI = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     return ipcRenderer.invoke(channel, ...args);
   },
+
+  webviewPreloadPath: path.join(__dirname, 'webview-preload.js'),
 
   win: {
     minimize: () => ipcRenderer.invoke('win:minimize'),
