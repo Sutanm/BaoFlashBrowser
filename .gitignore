@@ -3,3 +3,5 @@ dist/
 *.log
 wsl_*.sh
 .trae/
+electron-v*.zip
+test/

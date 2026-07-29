@@ -9,9 +9,9 @@ export function createTabAtom(url: string) {
   const tab: TabState = {
     id,
     url: url || 'about:newtab',
-    title: 'New Tab',
+    title: '新标签页',
     favicon: '',
-    zoomLevel: 1.0,
+    zoomFactor: 1.0,
     isLoading: true,
     isAudible: false,
     isMuted: false,

@@ -1,18 +1,26 @@
 import React, { useState } from 'react';
+import { Globe } from 'lucide-react';
+import type { BookmarkEntry } from '@shared/types/bookmarks';
 
 interface NewTabPageProps {
   onNavigate: (url: string) => void;
-  bookmarks: { title: string; url: string }[];
+  bookmarks: BookmarkEntry[];
 }
 
+const COLORS = ['#e74c3c', '#e67e22', '#3498db', '#27ae60', '#9b59b6', '#1abc9c'];
+
 const QUICK_LINKS = [
-  { title: '4399', url: 'https://www.4399.com/', color: '#ff6b35' },
-  { title: '7k7k', url: 'https://www.7k7k.com/', color: '#4ecdc4' },
-  { title: 'Bing', url: 'https://cn.bing.com/', color: '#00897b' },
-  { title: 'Baidu', url: 'https://www.baidu.com/', color: '#2932e1' },
-  { title: 'GitHub', url: 'https://github.com/', color: '#333' },
-  { title: 'Bilibili', url: 'https://www.bilibili.com/', color: '#fb7299' },
+  { title: '4399', url: 'https://www.4399.com/', icon: '4', bg: '#e74c3c' },
+  { title: '7k7k', url: 'https://www.7k7k.com/', icon: '7', bg: '#e67e22' },
+  { title: 'Bing', url: 'https://www.bing.com/', icon: 'B', bg: '#00897b' },
+  { title: '百度', url: 'https://www.baidu.com/', icon: '百', bg: '#3498db' },
+  { title: 'GitHub', url: 'https://github.com/', icon: 'G', bg: '#333' },
+  { title: 'B站', url: 'https://www.bilibili.com/', icon: 'B', bg: '#fb7299' },
 ];
+
+function getHost(url: string): string {
+  try { return new URL(url).hostname; } catch { return url; }
+}
 
 const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
   const [search, setSearch] = useState('');
@@ -23,56 +31,105 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
     }
   };
 
-  const handleQuickLink = (url: string) => {
-    onNavigate(url);
+  const style = document.documentElement.classList.contains('dark')
+    ? { '--bg-secondary': '#16213e', '--input-border': '#0f3460', '--bg-card': '#0f3460' } as React.CSSProperties
+    : { '--bg-secondary': '#f8f8f8', '--input-border': '#cccccc', '--bg-card': '#f9f9f9' } as React.CSSProperties;
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', height: 44, padding: '0 20px',
+    border: '1px solid var(--input-border)', borderRadius: 22,
+    fontSize: 16, outline: 'none',
+    color: 'var(--text-primary)', background: 'var(--bg-card)',
+    boxShadow: '0 1px 6px rgba(32,33,36,0.1), 0 0 0 1px rgba(32,33,36,0.05)',
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center bg-white dark:bg-gray-900 px-4">
-      {/* Bookmarks bar */}
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, position: 'relative', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} {...style}>
+      {/* Bookmarks bar at top */}
       {bookmarks.length > 0 && (
-        <div className="flex gap-2 mb-8 flex-wrap justify-center max-w-lg">
-          {bookmarks.map((bm) => (
-            <button
-              key={bm.url}
-              onClick={() => handleQuickLink(bm.url)}
-              className="px-3 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors truncate max-w-[160px] no-drag"
-              title={bm.title}
-            >
-              ⭐ {bm.title}
-            </button>
-          ))}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0,
+          display: 'flex', alignItems: 'center', gap: 2,
+          padding: '4px 8px', background: 'var(--bg-secondary)',
+          borderBottom: '1px solid var(--border-color)',
+          overflowX: 'auto', whiteSpace: 'nowrap' as const, minHeight: 32,
+        }}>
+          {bookmarks.map((fav, i) => {
+            const firstChar = (fav.title || fav.url).charAt(0).toUpperCase();
+            const color = COLORS[i % COLORS.length];
+            const imgSrc = fav.favicon || `https://www.google.com/s2/favicons?domain=${getHost(fav.url)}&sz=16`;
+            return (
+              <div
+                key={fav.url}
+                className="no-drag"
+                onClick={() => onNavigate(fav.url)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '4px 8px', borderRadius: 4,
+                  cursor: 'pointer', fontSize: 12,
+                  color: 'var(--text-secondary)', flexShrink: 0,
+                  background: 'transparent',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                title={fav.url}
+              >
+                {fav.favicon ? (
+                  <img src={imgSrc} style={{ width: 16, height: 16, borderRadius: 3, flexShrink: 0 }} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                ) : (
+                  <div style={{
+                    width: 16, height: 16, borderRadius: 3,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, fontWeight: 'bold', color: '#fff', flexShrink: 0,
+                    background: color,
+                  }}>{firstChar}</div>
+                )}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 100 }}>{fav.title || fav.url}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Logo / Title */}
-      <h1 className="text-3xl font-light text-gray-300 dark:text-gray-600 mb-8 select-none">
-        BaoFlashBrowser
-      </h1>
-
       {/* Search box */}
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        onKeyDown={handleSearch}
-        placeholder="Search or enter address"
-        className="w-full max-w-lg h-10 px-5 text-sm rounded-full bg-gray-100 dark:bg-gray-800 border border-transparent focus:border-blue-400 dark:focus:border-blue-500 outline-none transition-colors text-gray-700 dark:text-gray-200 placeholder-gray-400 no-drag"
-        autoFocus
-        spellCheck={false}
-      />
+      <div style={{ width: 560, maxWidth: '90vw', marginBottom: 40 }}>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={handleSearch}
+          placeholder="搜索或输入网址"
+          className="no-drag"
+          autoFocus
+          spellCheck={false}
+          style={inputStyle}
+        />
+      </div>
 
       {/* Quick links */}
-      <div className="flex gap-3 mt-10 flex-wrap justify-center">
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center', maxWidth: 600 }}>
         {QUICK_LINKS.map((link) => (
-          <button
+          <div
             key={link.url}
-            onClick={() => handleQuickLink(link.url)}
-            className="w-20 h-20 rounded-2xl flex flex-col items-center justify-center gap-1 transition-transform hover:scale-105 no-drag"
-            style={{ backgroundColor: link.color }}
+            className="no-drag"
+            onClick={() => onNavigate(link.url)}
+            style={{
+              width: 120, padding: '16px 8px', textAlign: 'center',
+              borderRadius: 8, cursor: 'pointer',
+            }}
           >
-            <span className="text-white text-xs font-medium">{link.title}</span>
-          </button>
+            <div style={{
+              width: 40, height: 40, borderRadius: 8,
+              margin: '0 auto 8px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16, fontWeight: 'bold', color: '#fff',
+              background: link.bg,
+            }}>{link.icon}</div>
+            <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {link.title}
+            </div>
+          </div>
         ))}
       </div>
     </div>
