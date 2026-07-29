@@ -40,6 +40,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ visible, onClose, current
   const handleSave = useCallback(() => {
     setSettings(form);
     save(form);
+    (window as any).electronAPI?.invoke('save-config', { flashVersion: form.flashVersion });
     onClose();
   }, [form, setSettings, onClose]);
 

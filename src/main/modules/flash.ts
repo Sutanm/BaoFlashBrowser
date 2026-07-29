@@ -33,10 +33,10 @@ function extractVersion(dllPath: string): string {
   return '34.0.0.330';
 }
 
-export function setupFlash(app: App, _flashVersion: string): void {
+export function setupFlash(app: App, flashVersion: string): void {
   const pluginPath = getFlashPluginPath(app);
   if (pluginPath && fs.existsSync(pluginPath)) {
-    const ver = extractVersion(pluginPath);
+    const ver = /^\d+\.\d+\.\d+\.\d+$/.test(flashVersion) ? flashVersion : extractVersion(pluginPath);
     app.commandLine.appendSwitch('ppapi-flash-path', pluginPath);
     app.commandLine.appendSwitch('ppapi-flash-version', ver);
     log.info('[Flash] Plugin loaded: ' + pluginPath);
