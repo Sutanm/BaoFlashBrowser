@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import TabBar from './components/tabs/TabBar';
 import WebviewContainer from './components/tabs/WebviewContainer';
@@ -31,26 +31,14 @@ const App: React.FC = () => {
   const [activeTabId, setActiveTabId] = useAtom(activeTabIdAtom);
   const favorites = useAtomValue(favoritesAtom);
   const [isMuted, setIsMuted] = useState(false);
-  const [showFavorites, setShowFavorites] = useState(false);
+  const [activePanel, setActivePanel] = useState<'favorites' | 'settings' | null>(null);
   const [showZoom, setShowZoom] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
-  const zoomTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showZoomOverlay = React.useCallback((level: number) => {
-    setZoomPercent(Math.round(level * 100));
-    setShowZoom(true);
-    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
-    zoomTimerRef.current = setTimeout(() => setShowZoom(false), 1500);
-  }, []);
+  const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addressUrl, setAddressUrl] = useState('');
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const isOnNewTab = !activeTab || activeTab.url === NEWTAB_URL;
-
-  const webviewEl = useCallback(
-    (tabId: string) => document.querySelector(`#webview-container webview[data-tab-id="${tabId}"]`) as any,
-    [],
-  );
 
   const activeWebview = useCallback(() => {
     if (!activeTabId) return null;
@@ -61,8 +49,8 @@ const App: React.FC = () => {
   const createTab = useCallback((url?: string) => {
     const id = generateId();
     const tab: TabState = {
-      id, url: url || NEWTAB_URL, title: 'New Tab',
-      zoomLevel: 1, isLoading: false, isAudible: false, isMuted: false,
+      id, url: url || NEWTAB_URL, title: '新标签页',
+      zoomFactor: 1, isLoading: false, isAudible: false, isMuted: false,
       canGoBack: false, canGoForward: false, createdAt: Date.now(),
     };
     setTabs((prev) => [...prev, tab]);
@@ -110,11 +98,36 @@ const App: React.FC = () => {
     if (!activeTabId) { createTab(url); return; }
     updateTab(activeTabId, { url, title: url });
     setAddressUrl(url);
-    setTimeout(() => {
-      const el = document.querySelector('#webview-container webview.active') as any;
-      if (el) el.loadURL(url);
-    }, 50);
+    const el = document.querySelector('#webview-container webview.active') as any;
+    if (el) el.loadURL(url);
   }, [activeTabId, createTab, updateTab]);
+
+  // --- Zoom ---
+  const showZoomOverlay = useCallback((level: number) => {
+    setZoomPercent(Math.round(level * 100));
+    setShowZoom(true);
+    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    zoomTimerRef.current = setTimeout(() => setShowZoom(false), 1500);
+  }, []);
+
+  const doZoom = useCallback((delta: number) => {
+    if (!activeTab) return;
+    const lvl = Math.min(5, Math.max(0.25, activeTab.zoomFactor + delta));
+    const el = activeWebview();
+    if (el) el.setZoomFactor(lvl);
+    updateTab(activeTab.id, { zoomFactor: lvl });
+    showZoomOverlay(lvl);
+  }, [activeTab, updateTab, showZoomOverlay, activeWebview]);
+
+  const zoomIn = useCallback(() => doZoom(0.25), [doZoom]);
+  const zoomOut = useCallback(() => doZoom(-0.25), [doZoom]);
+  const zoomReset = useCallback(() => {
+    if (!activeTab) return;
+    const el = activeWebview();
+    if (el) el.setZoomFactor(1);
+    updateTab(activeTab.id, { zoomFactor: 1 });
+    showZoomOverlay(1);
+  }, [activeTab, updateTab, showZoomOverlay, activeWebview]);
 
   // --- Keyboard shortcuts ---
   useShortcut((action) => {
@@ -145,56 +158,24 @@ const App: React.FC = () => {
         if (el) el.openDevTools();
         break;
       }
-      case 'bookmark': setShowFavorites((v) => !v); break;
+      case 'bookmark': setActivePanel((v) => v === 'favorites' ? null : 'favorites'); break;
       case 'history-panel': break;
-      case 'zoom-in': {
-        const el = activeWebview();
-        if (el && activeTab) {
-          const lvl = Math.min(5, activeTab.zoomLevel + 0.25);
-          el.setZoomLevel(lvl);
-          updateTab(activeTab.id, { zoomLevel: lvl });
-          showZoomOverlay(lvl);
-        }
-        break;
-      }
-      case 'zoom-out': {
-        const el = activeWebview();
-        if (el && activeTab) {
-          const lvl = Math.max(0.25, activeTab.zoomLevel - 0.25);
-          el.setZoomLevel(lvl);
-          updateTab(activeTab.id, { zoomLevel: lvl });
-          showZoomOverlay(lvl);
-        }
-        break;
-      }
-      case 'zoom-reset': {
-        const el = activeWebview();
-        if (el && activeTab) {
-          el.setZoomLevel(1);
-          updateTab(activeTab.id, { zoomLevel: 1 });
-          showZoomOverlay(1);
-        }
-        break;
-      }
+      case 'zoom-in': zoomIn(); break;
+      case 'zoom-out': zoomOut(); break;
+      case 'zoom-reset': zoomReset(); break;
     }
   });
 
-  // --- Ctrl+wheel zoom ---
+  // --- Ctrl+wheel zoom (chrome UI area) ---
   useEffect(() => {
     const handler = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      const el = activeWebview();
-      if (!el || !activeTab) return;
-      const delta = e.deltaY < 0 ? 0.25 : -0.25;
-      const lvl = Math.min(5, Math.max(0.25, activeTab.zoomLevel + delta));
-      el.setZoomLevel(lvl);
-      updateTab(activeTab.id, { zoomLevel: lvl });
-      showZoomOverlay(lvl);
+      doZoom(e.deltaY < 0 ? 0.25 : -0.25);
     };
     window.addEventListener('wheel', handler, { passive: false });
     return () => window.removeEventListener('wheel', handler);
-  }, [activeTab, updateTab, showZoomOverlay, activeWebview]);
+  }, [doZoom]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -271,8 +252,8 @@ const App: React.FC = () => {
             return !m;
           });
         }}
-        onToggleFavorites={() => setShowFavorites((v) => !v)}
-        onToggleSettings={() => setShowSettings((v) => !v)}
+        onToggleFavorites={() => setActivePanel((v) => v === 'favorites' ? null : 'favorites')}
+        onToggleSettings={() => setActivePanel((v) => v === 'settings' ? null : 'settings')}
       />
 
       <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
@@ -284,8 +265,8 @@ const App: React.FC = () => {
       <LoadingProgress visible={activeTab?.isLoading ?? false} />
       <ZoomOverlay level={zoomPercent / 100} visible={showZoom} />
       <FavoritesPanel
-        visible={showFavorites}
-        onClose={() => setShowFavorites(false)}
+        visible={activePanel === 'favorites'}
+        onClose={() => setActivePanel(null)}
         onOpenUrl={(url, newTab) => {
           if (newTab || activeTab?.url !== 'about:newtab') {
             createTab(url);
@@ -295,11 +276,15 @@ const App: React.FC = () => {
         }}
         currentUrl={activeTab?.url || ''}
         currentTitle={activeTab?.title || ''}
+        currentFavicon={activeTab?.favicon || ''}
       />
       <SettingsPanel
-        visible={showSettings}
-        onClose={() => setShowSettings(false)}
-        currentZoom={activeTab?.zoomLevel ?? 1}
+        visible={activePanel === 'settings'}
+        onClose={() => setActivePanel(null)}
+        currentZoom={activeTab?.zoomFactor ?? 1}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
+        onZoomReset={zoomReset}
       />
     </div>
   );

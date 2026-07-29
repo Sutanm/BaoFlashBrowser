@@ -69,15 +69,25 @@ export function handleWebviewBeforeInputEvent(
   event: Electron.Event,
   input: Electron.Input,
 ): void {
-  if (input.type !== 'keyDown') return;
+  // Handle keyboard shortcuts
+  if (input.type === 'keyDown') {
+    const matched = matchShortcut(input);
+    if (matched) {
+      event.preventDefault();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('shortcut', matched.action);
+      }
+      return;
+    }
+  }
 
-  const matched = matchShortcut(input);
-  if (!matched) return;
-
-  event.preventDefault();
-
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('shortcut', matched.action);
+  // Handle Ctrl+MouseWheel for zoom (fallback for Flash/iframe areas)
+  if (input.type === 'mouseWheel' && (input.control || input.meta)) {
+    event.preventDefault();
+    const action = input.deltaY < 0 ? 'zoom-in' : 'zoom-out';
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('shortcut', action);
+    }
   }
 }
 

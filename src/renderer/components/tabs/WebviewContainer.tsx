@@ -20,7 +20,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
         goBack: () => void;
         goForward: () => void;
         stop: () => void;
-        setZoomLevel: (level: number) => void;
+        setZoomFactor: (level: number) => void;
         setAudioMuted: (muted: boolean) => void;
         openDevTools: () => void;
       };
@@ -29,8 +29,16 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
       el.setAttribute('preload', '../../dist/webview-preload.js');
       el.setAttribute('plugins', 'true');
       el.setAttribute('allowpopups', 'true');
-      // Used by App.tsx to find the active webview
       el.setAttribute('data-tab-id', tab.id);
+
+      // Apply stored zoom factor when webview is ready
+      el.addEventListener('dom-ready', () => {
+        const current = tabs.find((t) => t.id === tab.id);
+        const zoom = current?.zoomFactor ?? 1;
+        if (zoom !== 1) {
+          try { el.setZoomFactor(zoom); } catch (_e) {}
+        }
+      });
 
       el.addEventListener('did-start-loading', () => {
         onTabUpdate(tab.id, { isLoading: true });
@@ -38,6 +46,15 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
 
       el.addEventListener('did-stop-loading', () => {
         onTabUpdate(tab.id, { isLoading: false });
+        // Apply stored zoom factor on every page load
+        const current = tabs.find((t) => t.id === tab.id);
+        const zoom = current?.zoomFactor ?? 1;
+        if (zoom !== 1) {
+          try { el.setZoomFactor(zoom); } catch (_e) {}
+        }
+        try {
+          onTabUpdate(tab.id, { canGoBack: el.canGoBack(), canGoForward: el.canGoForward() });
+        } catch (_e) { /* webview may not be ready */ }
       });
 
       el.addEventListener('page-title-updated', (e: any) => {
@@ -51,14 +68,19 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
       });
 
       el.addEventListener('did-navigate', (e: any) => {
-        // Don't store about:blank URLs — they're transient
         if (e.url === 'about:blank') return;
         onTabUpdate(tab.id, { url: e.url });
+        try {
+          onTabUpdate(tab.id, { canGoBack: el.canGoBack(), canGoForward: el.canGoForward() });
+        } catch (_e) {}
       });
 
       el.addEventListener('did-navigate-in-page', (e: any) => {
         if (e.isMainFrame && e.url !== 'about:blank') {
           onTabUpdate(tab.id, { url: e.url });
+          try {
+            onTabUpdate(tab.id, { canGoBack: el.canGoBack(), canGoForward: el.canGoForward() });
+          } catch (_e) {}
         }
       });
 
@@ -98,7 +120,6 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
     }
 
     for (const tab of tabs) {
-      // Skip newtab tabs — no webview needed
       if (tab.url === 'about:newtab') continue;
       if (!webviewRefs.current.has(tab.id)) {
         const el = createWebview(tab);
@@ -109,7 +130,6 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
     }
   }, [tabs, createWebview]);
 
-  // Toggle visibility via CSS class
   useEffect(() => {
     for (const [id, el] of webviewRefs.current) {
       if (id === activeTabId) {

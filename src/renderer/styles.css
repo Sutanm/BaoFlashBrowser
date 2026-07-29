@@ -170,9 +170,10 @@ body.dark {
   }
 
   .panel-card {
-    @apply absolute right-2 w-[280px] top-[72px]
+    @apply fixed right-2 w-[320px]
            bg-white border border-gray-200
            rounded-lg z-[100] shadow-lg;
+    top: 83px;
   }
 
   body.dark .panel-card {
@@ -279,6 +280,24 @@ body.dark {
            hover:opacity-90 transition-colors duration-150
            cursor-pointer border-none text-sm;
     background: var(--accent);
+  }
+
+  .zoom-controls {
+    @apply flex items-center gap-2;
+  }
+
+  .zoom-label {
+    @apply flex items-center justify-center text-xs;
+    color: var(--text-secondary);
+    -webkit-app-region: no-drag;
+    min-width: 50px;
+    text-align: center;
+  }
+
+  .zoom-btn {
+    @apply h-7 px-3 flex-shrink-0;
+    min-width: 36px;
+    width: auto !important;
   }
 }
 

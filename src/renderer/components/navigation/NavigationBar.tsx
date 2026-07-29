@@ -25,6 +25,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   canGoBack,
   canGoForward,
   isMuted,
+  isBookmarked,
   onNavigate,
   onBack,
   onForward,

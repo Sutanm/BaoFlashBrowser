@@ -3,7 +3,7 @@ export interface Tab {
   url: string;
   title: string;
   favicon?: string;
-  zoomLevel: number;
+  zoomFactor: number;
   isLoading: boolean;
   isAudible: boolean;
   isMuted: boolean;

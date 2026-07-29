@@ -13,10 +13,10 @@ function getFlashPluginPath(app: App): string | null {
     return path.join(basePath, 'plugins', 'linux64', 'libpepflashplayer64.so');
   }
   if (platform === 'win32' && arch === 'x64') {
-    return path.join(basePath, 'plugins', 'win64', 'pepflashplayer.dll');
+    return path.join(basePath, 'plugins', 'win64', 'pepflashplayer64.dll');
   }
   if (platform === 'win32' && arch === 'ia32') {
-    return path.join(basePath, 'plugins', 'win32', 'pepflashplayer32_32_0_0_465.dll');
+    return path.join(basePath, 'plugins', 'win32', 'pepflashplayer.dll');
   }
   return null;
 }
@@ -30,7 +30,7 @@ function extractVersion(dllPath: string): string {
       return ver;
     }
   }
-  return '0.0.0.0';
+  return '34.0.0.330';
 }
 
 export function setupFlash(app: App, _flashVersion: string): void {

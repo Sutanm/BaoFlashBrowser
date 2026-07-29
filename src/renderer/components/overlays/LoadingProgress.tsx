@@ -6,44 +6,69 @@ interface LoadingProgressProps {
 
 const LoadingProgress: React.FC<LoadingProgressProps> = ({ visible }) => {
   const barRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rafRef = useRef(0);
+  const progressRef = useRef(0);
+  const lastTimeRef = useRef(0);
 
   useEffect(() => {
     const bar = barRef.current;
     if (!bar) return;
 
     if (visible) {
+      bar.style.transition = 'none';
+      bar.style.display = 'block';
       bar.style.width = '0%';
       bar.style.opacity = '1';
-      bar.style.display = 'block';
+      progressRef.current = 0;
+      lastTimeRef.current = 0;
 
-      let progress = 0;
-      timerRef.current = setInterval(() => {
-        progress += Math.random() * 30;
-        if (progress > 90) progress = 90;
-        bar.style.width = progress + '%';
-      }, 200);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      const animate = (timestamp: number) => {
+        if (lastTimeRef.current === 0) lastTimeRef.current = timestamp;
+        const elapsed = timestamp - lastTimeRef.current;
+
+        // Grow ~25% per second, with slight randomness for natural feel
+        const speed = 25 + Math.random() * 10;
+        const delta = speed * (elapsed / 1000);
+        progressRef.current = Math.min(92, progressRef.current + delta);
+        bar.style.width = progressRef.current + '%';
+
+        lastTimeRef.current = timestamp;
+        rafRef.current = requestAnimationFrame(animate);
+      };
+
+      rafRef.current = requestAnimationFrame(animate);
+
+      return () => {
+        cancelAnimationFrame(rafRef.current);
+      };
+    }
+    return undefined;
+  }, [visible]);
+
+  const prevVisible = useRef(visible);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+
+    if (prevVisible.current && !visible) {
+      cancelAnimationFrame(rafRef.current);
+
+      // Snap to 100% smoothly
+      bar.style.transition = 'width 0.3s ease-out';
       bar.style.width = '100%';
+
       setTimeout(() => {
+        bar.style.transition = 'opacity 0.2s ease-out';
         bar.style.opacity = '0';
         setTimeout(() => {
           bar.style.display = 'none';
           bar.style.width = '0%';
+          bar.style.transition = 'none';
         }, 200);
-      }, 100);
+      }, 300);
     }
 
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
+    prevVisible.current = visible;
   }, [visible]);
 
   return React.createElement('div', {

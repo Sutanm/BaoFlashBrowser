@@ -24,6 +24,10 @@ function bootstrap(): void {
 
   const config = loadConfig();
 
+  if (process.platform === 'linux') {
+    app.commandLine.appendSwitch('no-sandbox');
+  }
+
   app.commandLine.appendSwitch('--ignore-gpu-blacklist');
   app.commandLine.appendSwitch('--enable-gpu-rasterization');
   app.commandLine.appendSwitch('--enable-zero-copy');

@@ -4,6 +4,84 @@
 // 通信：guest->host 用 ipcRenderer.sendToHost；host->guest 用 webview.send -> ipcRenderer.on
 // 注意：本脚本为独立 CommonJS 文件，不经 webpack（target:web 无法打包 electron）。
 var preloadLog = function () {};
+window.__baoflash_preload = 1;
+try { document.body.setAttribute('data-preload', '1'); } catch (_e) {}
+console.log('[PRELOAD] webview-preload running');
+
+// --- Flash PPAPI plugin 检测注入（Linux PPAPI 不注册 navigator.plugins） ---
+(function() {
+  try {
+  // Skip if Flash already properly registered (Windows/PPAPI native)
+  var existing = navigator.plugins.namedItem('Shockwave Flash');
+  if (existing && /\.dll$|\.plugin$/i.test(existing.filename)) {
+    return;
+  }
+  var fakeFlashPlugin = {
+    name: 'Shockwave Flash',
+    filename: 'pepflashplayer64.dll',
+    description: 'Shockwave Flash 34.0 r0',
+    length: 2,
+    item: function(i) {
+      if (i === 0) return fakeFlashMime;
+      return null;
+    },
+    namedItem: function(name) {
+      if (name === 'Shockwave Flash') return fakeFlashPlugin;
+      return null;
+    },
+    0: { type: 'application/x-shockwave-flash', suffixes: 'swf', description: 'Shockwave Flash' },
+    1: { type: 'application/futuresplash', suffixes: 'spl', description: 'FutureSplash Player' }
+  };
+  var fakeFlashMime = {
+    type: 'application/x-shockwave-flash',
+    suffixes: 'swf',
+    description: 'Shockwave Flash',
+    enabledPlugin: fakeFlashPlugin
+  };
+
+  var origPlugins = navigator.plugins;
+  var origMimeTypes = navigator.mimeTypes;
+  var pluginsList = [];
+  for (var i = 0; i < origPlugins.length; i++) {
+    pluginsList.push(origPlugins[i]);
+  }
+  pluginsList.unshift(fakeFlashPlugin);
+
+  var fakePlugins = {
+    length: pluginsList.length,
+    item: function(i) { return pluginsList[i] || null; },
+    namedItem: function(name) {
+      if (name === 'Shockwave Flash' || name === 'Shockwave Flash 32.0 r0') return fakeFlashPlugin;
+      for (var j = 0; j < pluginsList.length; j++) {
+        if (pluginsList[j].name === name) return pluginsList[j];
+      }
+      return null;
+    },
+    refresh: function() {}
+  };
+  for (var k = 0; k < pluginsList.length; k++) {
+    fakePlugins[k] = pluginsList[k];
+  }
+  Object.defineProperty(navigator, 'plugins', { value: fakePlugins, configurable: true });
+
+  var fakeMimeTypes = {
+    length: origMimeTypes.length + 1,
+    item: function(i) {
+      if (i === 0) return fakeFlashMime;
+      return origMimeTypes.item(i - 1);
+    },
+    namedItem: function(name) {
+      if (name === 'application/x-shockwave-flash') return fakeFlashMime;
+      return origMimeTypes.namedItem(name);
+    }
+  };
+  for (var m = 0; m < fakeMimeTypes.length; m++) {
+    fakeMimeTypes[m] = fakeMimeTypes.item(m);
+  }
+  Object.defineProperty(navigator, 'mimeTypes', { value: fakeMimeTypes, configurable: true });
+  } catch (_e) {}
+})();
+
 try {
   var electron = require('electron');
   var ipcRenderer = electron.ipcRenderer;
@@ -11,10 +89,11 @@ try {
     preloadLog = function (msg) { try { ipcRenderer.sendToHost('preload-log', msg); } catch (e) {} };
     preloadLog('loaded:' + location.href);
   }
-} catch (e) { return; }
+} catch (e) { /* preloadLog stays as no-op */ }
 
 // 仅主框架生效，避免嵌套 iframe 重复触发
 if (window.top === window.self) {
+try {
   preloadLog('topframe:' + location.href);
 
   // --- 登录表单识别 ---
@@ -154,4 +233,5 @@ if (window.top === window.self) {
   // --- Ctrl+滚轮缩放 ---
   // 缩放由 host 通过 executeJavaScript 注入，不在此处理（避免 file:// 页面 preload 限制）
 
+} catch (e) { /* silently fail */ }
 }
