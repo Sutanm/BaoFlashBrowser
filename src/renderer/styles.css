@@ -279,6 +279,43 @@ body.dark {
     background: var(--bg-secondary);
   }
 
+  .download-item {
+    @apply flex items-center gap-3 px-3 py-2 cursor-pointer;
+  }
+
+  .download-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .download-icon {
+    @apply flex-shrink-0 flex items-center justify-center;
+    width: 24px; height: 24px;
+  }
+
+  .download-info {
+    @apply flex flex-col min-w-0 flex-1 gap-0.5;
+  }
+
+  .download-filename {
+    @apply text-sm truncate;
+    color: var(--text-primary);
+  }
+
+  .download-meta {
+    @apply text-xs;
+    color: var(--text-secondary);
+  }
+
+  .download-progress {
+    @apply w-full h-[3px] rounded-full mt-0.5;
+    background: var(--border-color);
+  }
+
+  .download-progress-bar {
+    @apply h-full rounded-full transition-all duration-200;
+    background: var(--accent);
+  }
+
   .zoom-indicator {
     @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
            bg-black/70 text-white px-4 py-2 rounded-lg text-sm

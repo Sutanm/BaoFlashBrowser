@@ -9,6 +9,7 @@ import ZoomOverlay from './components/overlays/ZoomOverlay';
 import FavoritesPanel from './components/panels/FavoritesPanel';
 import SettingsPanel from './components/panels/SettingsPanel';
 import HistoryPanel from './components/panels/HistoryPanel';
+import DownloadsPanel from './components/panels/DownloadsPanel';
 import ContextMenu from './components/overlays/ContextMenu';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
@@ -33,7 +34,7 @@ const App: React.FC = () => {
   const [activeTabId, setActiveTabId] = useAtom(activeTabIdAtom);
   const favorites = useAtomValue(favoritesAtom);
   const [isMuted, setIsMuted] = useState(false);
-  const [activePanel, setActivePanel] = useState<'favorites' | 'history' | 'settings' | null>(null);
+  const [activePanel, setActivePanel] = useState<'favorites' | 'history' | 'downloads' | 'settings' | null>(null);
   const [showZoom, setShowZoom] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -258,6 +259,7 @@ const App: React.FC = () => {
         }}
         onToggleFavorites={() => setActivePanel((v) => v === 'favorites' ? null : 'favorites')}
         onToggleHistory={() => setActivePanel((v) => v === 'history' ? null : 'history')}
+        onToggleDownloads={() => setActivePanel((v) => v === 'downloads' ? null : 'downloads')}
         onToggleSettings={() => setActivePanel((v) => v === 'settings' ? null : 'settings')}
       />
 
@@ -294,6 +296,10 @@ const App: React.FC = () => {
           }
         }}
         currentUrl={activeTab?.url || ''}
+      />
+      <DownloadsPanel
+        visible={activePanel === 'downloads'}
+        onClose={() => setActivePanel(null)}
       />
       <SettingsPanel
         visible={activePanel === 'settings'}

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, X, Volume2, Star, Clock, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, X, Volume2, Star, Clock, Download, Settings as SettingsIcon } from 'lucide-react';
 import AddressBar from './AddressBar';
 
 interface NavigationBarProps {
@@ -17,6 +17,7 @@ interface NavigationBarProps {
   onToggleMute: () => void;
   onToggleFavorites: () => void;
   onToggleHistory: () => void;
+  onToggleDownloads: () => void;
   onToggleSettings: () => void;
 }
 
@@ -35,6 +36,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   onToggleMute,
   onToggleFavorites,
   onToggleHistory,
+  onToggleDownloads,
   onToggleSettings,
 }) => {
   const addressBarRef = useRef<{ focus: () => void }>(null);
@@ -99,6 +101,9 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
       </button>
       <button onClick={onToggleHistory} className="btn-icon" title="历史记录">
         <Clock className="w-4 h-4" />
+      </button>
+      <button onClick={onToggleDownloads} className="btn-icon" title="下载">
+        <Download className="w-4 h-4" />
       </button>
       <button onClick={onToggleSettings} className="btn-icon" title="设置">
         <SettingsIcon className="w-4 h-4" />

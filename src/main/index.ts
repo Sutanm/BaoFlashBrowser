@@ -41,8 +41,8 @@ function bootstrap(): void {
   setupFlash(app, config.flashVersion);
 
   app.whenReady().then(() => {
-    initSession();
     mainWindow = createWindow();
+    initSession(() => getMainWindow());
     setMainWindowRef(mainWindow);
     registerZoomShortcuts();
     startMouseHook();
