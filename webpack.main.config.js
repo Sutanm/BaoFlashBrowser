@@ -38,11 +38,8 @@ module.exports = {
   },
   externals: {
     electron: 'commonjs electron',
-    'electron-localshortcut': 'commonjs electron-localshortcut',
     'electron-log': 'commonjs electron-log',
     'electron-store': 'commonjs electron-store',
-    validator: 'commonjs validator',
-    'nedb-promises': 'commonjs nedb-promises',
   },
   node: {
     __dirname: false,
