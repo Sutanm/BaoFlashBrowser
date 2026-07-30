@@ -173,6 +173,11 @@ body.dark {
     color: white;
   }
 
+  .tab-item.drag-over {
+    box-shadow: inset 2px 0 0 var(--accent);
+    background: var(--bg-hover);
+  }
+
   .panel-card {
     @apply fixed right-2 w-[320px]
            bg-white border border-gray-200
@@ -316,57 +321,26 @@ body.dark {
     background: var(--accent);
   }
 
-  .find-capsule {
-    @apply absolute top-3 left-1/2 flex items-center gap-1 px-3 py-1.5 rounded-full shadow-md z-[250];
-    transform: translateX(-50%);
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  .find-bar-embed {
+    @apply flex items-center gap-1 h-[32px] px-2 flex-shrink-0;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
   }
-
-  .find-capsule-input {
-    width: 200px;
-    height: 24px;
-    padding: 0 6px;
-    font-size: 13px;
-    border: none;
-    outline: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--text-primary);
+  .find-bar-embed-input {
+    width: 200px; height: 24px; padding: 0 6px; font-size: 13px;
+    border: none; outline: none; border-radius: 4px;
+    background: var(--bg-input); color: var(--text-primary);
   }
-
-  .find-capsule-input::placeholder {
-    color: var(--text-secondary);
+  .find-bar-embed-input::placeholder { color: var(--text-secondary); }
+  .find-bar-embed-count {
+    @apply text-xs; color: var(--text-secondary); min-width: 36px; text-align: center;
   }
-
-  .find-capsule-count {
-    @apply text-xs;
-    color: var(--text-secondary);
-    min-width: 36px;
-    text-align: center;
-  }
-
-  .find-capsule-btn {
+  .find-bar-embed-btn {
     @apply w-6 h-6 flex items-center justify-center border-none bg-transparent cursor-pointer rounded;
     color: var(--text-secondary);
   }
-
-  .find-capsule-btn:hover:not(:disabled) {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .find-capsule-btn:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  .zoom-indicator {
-    @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
-           bg-black/70 text-white px-4 py-2 rounded-lg text-sm
-           pointer-events-none z-[200] transition-opacity duration-150;
-  }
+  .find-bar-embed-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+  .find-bar-embed-btn:disabled { opacity: 0.3; cursor: default; }
 
   .settings-body {
     @apply p-3 flex flex-col gap-3;
@@ -473,29 +447,6 @@ body {
   user-select: none;
 }
 
-/* === Webview layout (mirrors working .old/ version) === */
-#webview-container {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-}
-
-#webview-container webview {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border: none;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-#webview-container webview.active {
-  visibility: visible;
-  pointer-events: auto;
-}
-
 .drag-region {
   -webkit-app-region: drag;
 }
@@ -530,31 +481,112 @@ body.dark ::-webkit-scrollbar-thumb {
   background: #444;
 }
 
-.context-menu {
-  @apply fixed flex flex-col py-1 rounded-lg shadow-lg z-[300] overflow-hidden;
-  min-width: 200px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  font-size: 13px;
+.sidebar {
+  display: flex;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.25s ease;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-color);
 }
 
-.context-menu button {
-  @apply text-left px-4 py-[6px] border-none cursor-pointer bg-transparent;
+.sidebar.collapsed {
+  width: 48px;
+}
+
+.sidebar.expanded {
+  width: 280px;
+}
+
+.sidebar-icons {
+  width: 48px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 4px;
+}
+
+.sidebar-icon {
+  @apply w-9 h-9 flex items-center justify-center border-none bg-transparent rounded-lg cursor-pointer text-base;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.sidebar-icon:hover {
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-.context-menu button:hover:not(:disabled) {
+.sidebar-icon.active {
   background: var(--accent);
   color: #fff;
 }
 
-.context-menu button:disabled {
-  opacity: 0.35;
-  cursor: default;
+.sidebar-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.context-separator {
-  @apply my-1;
-  height: 1px;
-  background: var(--border-color);
+.sidebar-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.panel-close-btn {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+
+.panel-close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-empty {
+  @apply text-center py-6 text-xs;
+  color: var(--text-secondary);
+}
+
+.zoom-capsule {
+  flex-shrink: 0;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  padding: 2px 7px;
+  min-width: 38px;
+  height: 22px;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
 }

@@ -2,55 +2,36 @@
 
 > 跨平台 Flash 浏览器 | Cross-platform Flash Browser
 
-基于 Electron 11 (Chromium 87) + React 17 + TypeScript + Jotai，原生 PPAPI Flash 插件支持。专为 Flash 游戏设计，Windows / Linux 双平台（含 WSLg）。
+基于 Electron 11 (Chromium 87) + React 17 + TypeScript + Jotai + BrowserView，原生 PPAPI Flash 插件支持。标签级渲染进程隔离，Windows / Linux 双平台（含 WSLg）。
 
-Built on Electron 11 (Chromium 87) with React 17 + TypeScript + Jotai. Supports native PPAPI Flash plugin on both Windows and Linux (including WSLg).
+Built on Electron 11 (Chromium 87) with React 17 + TypeScript + Jotai + BrowserView. Tab-level renderer process isolation for Flash. Supports native PPAPI Flash plugin on both Windows and Linux (including WSLg).
 
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)
 ![electron](https://img.shields.io/badge/electron-11.5.0-brightgreen)
-![flash](https://img.shields.io/badge/flash-PPAPI%2032%2B-red)
+![flash](https://img.shields.io/badge/flash-PPAPI%2029%2B-red)
 
 ## 功能 Features
 
 - 原生 PPAPI Flash 支持（非 Ruffle 模拟）
-- 多标签页浏览（Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Tab 切换）
-- 地址栏导航、搜索（Bing / Google / 百度）
-- 收藏夹管理
+- **标签级进程隔离**（BrowserView）——一个 Flash 崩溃不影响其他标签
+- 多标签页浏览（Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Tab 切换 / 拖拽排序）
+- 统一侧边栏（⭐ 收藏 🕐 历史 ⬇ 下载 ⚙ 设置 一站式）
+- 地址栏导航、搜索（Bing / Google / 百度）+ 缩放比例胶囊
+- 收藏夹管理（侧边栏内操作）
 - 可配置 Flash 伪装版本（绕过网站反 Flash 检测）
 - 链接打开方式可选（当前页 / 新标签页）
 - 页面缩放（Ctrl+=/-/0 键盘 + Ctrl+滚轮，Flash 区域内全局生效）
-- 浅色 / 暗黑双主题切换
+- 浅色 / 暗黑双主题切换（IndexedDB 持久化）
 - 主页 URL 自定义 + 简约导航首页
-- F12 内嵌 DevTools
+- F12 独立窗口 DevTools（页面 DevTools / Ctrl+Shift+I 壳 DevTools）
 - 无边框窗口，自定义窗口控件
 - 淘米 61.com 游戏门户反 Flash 检测绕过
-
-## v 1.0.0 → 1.0.1 版本对比
-
-### 升级变更
-
-| 模块 | v1.0.0 | v1.0.1 |
-|------|--------|--------|
-| 前端框架 | 原生 HTML/JS/CSS（单文件 ~800 行） | **React 17 + TypeScript + Jotai** 组件化重写 |
-| 标签管理 | 基础 URL 列表切换 | 完整标签页管理：Ctrl+T/W/Tab，编号切换，webview 不卸载 |
-| 收藏夹 | 无 | 双击星标添加/移除，独立面板 |
-| 设置面板 | 基础 localStorage | React 面板，electron-store 持久化，版本号伪装同步主进程 |
-| 搜索引擎 | 仅 Bing | Bing / Google / 百度三选一 |
-| 主页 | about:newtab 固定 | 自定义 URL + 简约导航首页 |
-| 缩放 | 无 | **Ctrl+=/-/0 + Ctrl+滚轮**，Flash 区域内全局生效 |
-| Ctrl+滚轮在 Flash 内 | 不支持 | **支持**（Windows: WH_MOUSE_LL 钩子，Linux: XRecord） |
-| 淘米 61.com | 不支持（触发升级拦截页） | **支持**（webRequest 拦截替换 swfobject.js） |
-| 主题 | 浅色 only | 浅色 / 暗黑双主题切换 |
-
-### 保持不变
-
-| 项目 | 说明 |
-|------|------|
-| **Electron 11.5.0 / Chromium 87** | 最后一个原生支持 PPAPI Flash 的版本，不可升级 |
-| **PPAPI Flash 插件** | Windows: `pepflashplayer64.dll` (34.0.0.330) / Linux: `libpepflashplayer64.so` (32.0.0.371) |
-| **no-sandbox (Linux)** | 必须参数，否则沙箱与 Flash 不兼容 |
-| **contextIsolation: true** | 开启，preload 脚本通过 contextBridge 暴露 API |
-| **打包工具** | electron-builder 22.x |
+- 右键原生菜单（新标签打开 / 复制 / 检查元素）
+- 页内查找（Ctrl+F 嵌入查找栏）
+- 历史记录自动记录 + 搜索过滤
+- 下载管理 + 进度条
+- 低端设备模式（减少 GPU 纹理缓存）
+- IndexedDB + Dexie 持久化（收藏/历史/下载/设置）
 
 ## 快捷键 Shortcuts
 
@@ -66,10 +47,26 @@ Built on Electron 11 (Chromium 87) with React 17 + TypeScript + Jotai. Supports 
 | Ctrl+滚轮 | 放大/缩小（Flash 区域内全局生效） |
 | Ctrl+L / Alt+D | 聚焦地址栏 |
 | Ctrl+R / F5 | 刷新 |
-| Ctrl+D | 收藏当前页 |
-| Ctrl+F | 页内查找 |
-| F11 | 全屏 |
-| F12 | 检查（聚焦地址栏：Electron 壳 DevTools；其他位置：页面 DevTools） |
+| Ctrl+D | 收藏当前页（需先打开侧边栏） |
+| Ctrl+H | 历史记录面板 |
+| Ctrl+F | 页内查找（嵌入栏） |
+| Alt+← / Alt+→ | 后退 / 前进 |
+| F11 | 全屏切换 |
+| F12 | 页面 DevTools（独立窗口） |
+| Ctrl+Shift+I | Electron 壳 DevTools（独立窗口） |
+
+## 技术栈 Tech Stack
+
+| 组件 | 版本 | 说明 |
+|------|------|------|
+| Electron | 11.5.0 | 锁定（最后一个支持 PPAPI Flash 的版本） |
+| Chromium | 87 | Electron 11 内置 |
+| React | 17 | Node 12 兼容上限 |
+| TypeScript | 4.9.5 | ES2019 target |
+| Jotai | 1.x | 轻量状态管理 |
+| Dexie | 3.x | IndexedDB 封装 |
+| webpack | 5 | target: web |
+| Flash PPAPI | 29.0.0.171 (Win) / 32.0.0.371 (Linux) | Adobe 官方正式版 |
 
 ## 运行 Run
 
@@ -88,32 +85,6 @@ sudo apt install -y libnss3 libgtk-3-0 libx11-xcb1 libxtst6 libxss1 \
   libpulse0 libdbus-1-3
 ```
 
-### 打包 Build
-
-```bash
-# 构建代码
-npm run build
-
-# 打包
-npm run build:win    # Windows NSIS 安装器
-npm run build:linux  # Linux AppImage
-
-# 添加镜像加速
-$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
-```
-
-## 技术栈 Tech Stack
-
-| 组件 | 版本 | 说明 |
-|------|------|------|
-| Electron | 11.5.0 | 锁定（最后一个支持 PPAPI Flash 的版本） |
-| Chromium | 87 | Electron 11 内置 |
-| React | 17 | Node 12 兼容上限 |
-| TypeScript | 4.9.5 | ES2019 target |
-| Jotai | 1.x | 轻量状态管理 |
-| webpack | 5 | target: web, CJS 兼容 |
-| Flash PPAPI | 34.0.0.330 (Windows) / 32.0.0.371 (Linux) | 原生插件 |
-
 ## 目录结构 Structure
 
 ```
@@ -122,56 +93,76 @@ BaoFlashBrowser/
 │   ├── main/
 │   │   ├── index.ts              # 主进程入口
 │   │   ├── modules/
-│   │   │   ├── flash.ts          # Flash 插件加载与版本注入
+│   │   │   ├── flash.ts          # Flash 插件加载 + mms.cfg 写入
 │   │   │   ├── session.ts        # 会话初始化 + webRequest 拦截
+│   │   │   ├── tabs.ts           # BrowserView TabManager（标签进程隔离）
 │   │   │   ├── config.ts         # electron-store 配置
 │   │   │   └── window.ts         # BrowserWindow 创建
 │   │   └── ipc/
 │   │       ├── shortcut.ipc.ts   # 快捷键分派 + globalShortcut + 原生鼠标钩子
-│   │       └── window.ipc.ts     # 窗口控制 IPC
+│   │       ├── window.ipc.ts     # 窗口控制 IPC
+│   │       ├── tabs.ipc.ts       # BrowserView 标签 IPC
+│   │       └── config.ipc.ts     # 配置同步 IPC
 │   ├── renderer/
-│   │   ├── App.tsx               # 应用根组件（缩放、快捷键处理）
-│   │   ├── components/           # 标签栏、地址栏、面板、覆盖层等
+│   │   ├── App.tsx               # 应用根组件
+│   │   ├── components/
+│   │   │   ├── panels/           # UnifiedSidebar（收藏/历史/下载/设置）
+│   │   │   ├── navigation/       # AddressBar + NavigationBar
+│   │   │   ├── tabs/             # TabBar + TabItem
+│   │   │   └── overlays/         # FindBar, LoadingProgress
 │   │   ├── atoms/                # Jotai 状态原子
-│   │   ├── hooks/                # 自定义 hooks
-│   │   └── services/             # 标签管理、键盘等
-│   ├── preload/                  # 主窗口 preload 脚本
-│   ├── webview-preload/          # Webview 内 preload（navigator.plugins 注入）
+│   │   ├── hooks/                # useTheme, useShortcut
+│   │   └── services/             # db.ts (Dexie), id.service.ts
+│   ├── preload/                  # 主窗口 preload（contextBridge）
+│   ├── webview-preload/          # 页面 preload（navigator.plugins 注入）
 │   └── shared/types/             # 公共类型定义
 ├── plugins/
-│   ├── linux64/libpepflashplayer64.so
-│   ├── win64/pepflashplayer64.dll
-│   └── win32/pepflashplayer.dll
+│   ├── linux64/libpepflashplayer64.so   (32.0.0.371, Adobe 官方)
+│   └── win64/pepflashplayer64.dll       (29.0.0.171, Adobe 官方)
 ├── native/
 │   ├── mouse-hook.cs / .exe      # Windows WH_MOUSE_LL 鼠标钩子
 │   └── mouse-hook-linux.c        # Linux XRecord 鼠标钩子
-├── docs/lessons-learned.md       # v2 开发经验总结
+├── docs/
+│   ├── sidebar-demo.html         # 侧边栏交互 Demo
+│   └── lessons-learned.md        # v2 开发经验总结
 └── package.json
 ```
 
-## Flash 与快捷键开发历程
+## Flash 插件选择
 
-### Flash 插件兼容性
+| 版本 | 来源 | 问题 |
+|------|------|------|
+| 34.0.0.330 | 重橙网络魔改 | 内置调试器，会弹出 AS3 错误对话框 |
+| **29.0.0.171** | **Adobe 官方正式版** | 无时间炸弹、无调试弹窗、稳定 |
+| 32.0.0.371 (Linux) | Adobe 官方 | EOL 前最后一版，正常注册 `navigator.plugins` |
 
-Electron 11 是最后一个原生支持 PPAPI Flash 的版本，无法升级。核心挑战：
+版本 29 不被淘米 `checkUpgrade` 拦截（只拦截 major === 32），配合版本伪装 34 + SWFObject bypass 三重保障。
 
-- **版本伪装**：`--ppapi-flash-version` 决定 `navigator.plugins` 的描述字段，须传 >32 的版本号以绕过网站版本检测
-- **Linux 无 navigator.plugins**：Linux PPAPI Flash 不在 `navigator.plugins` 中注册，需 webview-preload JS 注入
-- **淘米 61.com 反检测**：魔改 SWFObject 同时检测版本号 AND 插件文件名后缀。网络层 `webRequest.onBeforeRequest` 拦截替换 `swfobject.js` 是唯一跨平台可靠方案
+## v 1.0.0 → 当前版本对比
 
-### 全局快捷键攻克 Flash 区域
+### 升级变更
 
-Flash 通过 DirectInput / XInput 直读输入设备，绕过了常规的键盘事件通道。在 Flash 游戏内区域：
+| 模块 | v1.0.0 | 当前 |
+|------|--------|------|
+| 前端框架 | 原生 HTML/JS/CSS | **React 17 + TypeScript + Jotai** |
+| 页面承载 | `<webview>`（同进程） | **BrowserView**（标签级进程隔离） |
+| 标签管理 | 基础 URL 列表 | 完整标签管理 + 拖拽排序 |
+| 收藏夹 | 无 | 统一侧边栏管理 |
+| 设置面板 | localStorage | IndexedDB (Dexie) 持久化 |
+| 缩放 | 无 | Ctrl+=/-/0 + Ctrl+滚轮，Flash 区域全局生效 |
+| 数据存储 | localStorage | **IndexedDB** (Dexie) |
+| 淘米 61.com | 不支持 | SWFObject bypass 支持 |
+| 右键菜单 | 无 | 原生 Menu |
+| 查找 | 无 | Ctrl+F 嵌入查找栏 |
+| 下载管理 | 无 | 进度条 + 面板 |
 
-| 快捷键 | Windows 实现 | Linux 实现 | 原理 |
-|--------|-------------|-----------|------|
-| Ctrl+=/-/0 | `globalShortcut` (RegisterHotKey) | `globalShortcut` (X11) | 内核键盘驱动层拦截，DirectInput 绕不过 |
-| Ctrl+滚轮 | `WH_MOUSE_LL` 全局钩子 (mouse-hook.exe) | XRecord 被动监听 (mouse-hook-linux) | OS 最低层鼠标钩子，比 Flash 更底层 |
+### 保持不变
 
-失败过的方案：
-- `before-input-event`：Flash 捕获事件后 webContents 收不到
-- `electron-localshortcut`：`WH_KEYBOARD_LL` 被 DirectInput 绕过
-- `XGrabButton`（Linux 滚轮）：compositor 先占了 root 窗口 grab，换 XRecord 解决
+| 项目 | 说明 |
+|------|------|
+| **Electron 11.5.0 / Chromium 87** | 最后一个原生支持 PPAPI Flash 的版本 |
+| **contextIsolation: true** | preload 通过 contextBridge 暴露 API |
+| **no-sandbox (Linux)** | 必须参数 |
 
 ## License
 

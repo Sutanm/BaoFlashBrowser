@@ -7,13 +7,48 @@ interface TabItemProps {
   isActive: boolean;
   onSelect: () => void;
   onClose: () => void;
+  onDragStart: () => void;
+  onDragOver: () => void;
+  onDragEnd: () => void;
+  onDrop: () => void;
+  isDragOver: boolean;
 }
 
-const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onSelect, onClose }) => {
+const TabItem: React.FC<TabItemProps> = ({
+  tab,
+  isActive,
+  onSelect,
+  onClose,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
+  isDragOver,
+}) => {
   return (
     <div
+      draggable
       onClick={onSelect}
-      className={`tab-item ${isActive ? 'active' : ''}`}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', tab.id);
+        (e.currentTarget as HTMLElement).style.opacity = '0.5';
+        onDragStart();
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        onDragOver();
+      }}
+      onDragEnd={(e) => {
+        (e.currentTarget as HTMLElement).style.opacity = '1';
+        onDragEnd();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDrop();
+      }}
+      className={`tab-item ${isActive ? 'active' : ''} ${isDragOver ? 'drag-over' : ''}`}
       title={tab.url || tab.title}
     >
       <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center">

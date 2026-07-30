@@ -9,6 +9,15 @@ export function initSession(getWindow: () => BrowserWindow | null): void {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36',
   );
 
+  // Serve permissive crossdomain.xml for Flash cross-origin requests
+  const crossDomainXML = '<?xml version="1.0"?><!DOCTYPE cross-domain-policy SYSTEM "http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd"><cross-domain-policy><allow-access-from domain="*"/></cross-domain-policy>';
+  defaultSession.webRequest.onBeforeRequest(
+    { urls: ['*://*/crossdomain.xml', '*://*/crossdomain.xml?*'] },
+    (_details, callback) => {
+      callback({ redirectURL: 'data:text/xml;charset=utf-8,' + encodeURIComponent(crossDomainXML) });
+    },
+  );
+
   // Intercept Taomee SWFObject and replace checkUpgrade with no-op
   defaultSession.webRequest.onBeforeRequest(
     { urls: ['*://webres.61.com/common/js/swfobject.js*'] },
@@ -80,7 +89,7 @@ function formatBytes(bytesPerSec: number): string {
   return Math.round(bytesPerSec) + ' B';
 }
 
-function patchedSWFObject(): string {
+export function patchedSWFObject(): string {
   // SWFObject with checkUpgrade replaced to always return false
   return `
 var _swf_patched=1;

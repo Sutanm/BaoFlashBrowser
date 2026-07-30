@@ -9,6 +9,7 @@ interface NavigationBarProps {
   canGoForward: boolean;
   isMuted: boolean;
   isBookmarked: boolean;
+  zoomPercent: number;
   onNavigate: (url: string) => void;
   onBack: () => void;
   onForward: () => void;
@@ -28,6 +29,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   canGoForward,
   isMuted,
   isBookmarked,
+  zoomPercent,
   onNavigate,
   onBack,
   onForward,
@@ -87,7 +89,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
           <RotateCw className="w-4 h-4" />
         </button>
       )}
-      <AddressBar ref={addressBarRef} url={url} isLoading={isLoading} onNavigate={onNavigate} />
+      <AddressBar ref={addressBarRef} url={url} isLoading={isLoading} zoomPercent={zoomPercent} onNavigate={onNavigate} />
       <button
         onClick={onToggleMute}
         className="btn-icon"

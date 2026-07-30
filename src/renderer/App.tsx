@@ -1,23 +1,22 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import TabBar from './components/tabs/TabBar';
-import WebviewContainer from './components/tabs/WebviewContainer';
 import NavigationBar from './components/navigation/NavigationBar';
 import NewTabPage from './components/newtab/NewTabPage';
 import LoadingProgress from './components/overlays/LoadingProgress';
-import ZoomOverlay from './components/overlays/ZoomOverlay';
-import FavoritesPanel from './components/panels/FavoritesPanel';
-import SettingsPanel from './components/panels/SettingsPanel';
-import HistoryPanel from './components/panels/HistoryPanel';
-import DownloadsPanel from './components/panels/DownloadsPanel';
-import ContextMenu from './components/overlays/ContextMenu';
+import UnifiedSidebar from './components/panels/UnifiedSidebar';
 import FindBar from './components/overlays/FindBar';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { tabsAtom, activeTabIdAtom } from './atoms/tabs.atom';
-import { favoritesAtom } from './atoms/data.atom';
+import { favoritesAtom, historyAtom, downloadsAtom, settingsAtom, themeAtom } from './atoms/data.atom';
 import { normalizeUrl, generateId } from './services/id.service';
+import { loadAll, migrateFromLocalStorage, db } from './services/db';
 import type { TabState } from './atoms/tabs.atom';
+import type { BookmarkEntry } from '@shared/types/bookmarks';
+import type { HistoryEntry } from '@shared/types/history';
+import type { DownloadItem } from '@shared/types/downloads';
+import type { Settings } from '@shared/types/settings';
 
 const NEWTAB_URL = 'about:newtab';
 
@@ -34,23 +33,58 @@ const App: React.FC = () => {
   const [tabs, setTabs] = useAtom(tabsAtom);
   const [activeTabId, setActiveTabId] = useAtom(activeTabIdAtom);
   const favorites = useAtomValue(favoritesAtom);
+  const history = useAtomValue(historyAtom);
+  const downloads = useAtomValue(downloadsAtom);
   const [isMuted, setIsMuted] = useState(false);
+
+  const setFavorites = useSetAtom(favoritesAtom);
+  const setHistory = useSetAtom(historyAtom);
+  const setDownloads = useSetAtom(downloadsAtom);
+  const setSettings = useSetAtom(settingsAtom);
+  const setTheme = useSetAtom(themeAtom);
+
+  // Hydrate all atoms from IndexedDB on startup
+  useEffect(() => {
+    migrateFromLocalStorage().then(() => loadAll()).then((data) => {
+      setFavorites(data.favorites as BookmarkEntry[]);
+      setHistory(data.history as HistoryEntry[]);
+      setDownloads(data.downloads as DownloadItem[]);
+      if (data.settings) setSettings(data.settings as Settings);
+      if (data.meta?.theme) setTheme(data.meta.theme);
+    });
+  }, [setFavorites, setHistory, setDownloads, setSettings, setTheme]);
+
+  // Auto-persist to IndexedDB on atom changes
+  useEffect(() => {
+    db.favorites.bulkPut(favorites.map((f, i) => ({ ...f, _idx: i })));
+  }, [favorites]);
+
+  useEffect(() => {
+    if (history.length > 0) db.history.bulkPut(history);
+  }, [history]);
+
+  useEffect(() => {
+    if (downloads.length > 0) db.downloads.bulkPut(downloads);
+  }, [downloads]);
   const [activePanel, setActivePanel] = useState<'favorites' | 'history' | 'downloads' | 'settings' | null>(null);
-  const [showZoom, setShowZoom] = useState(false);
-  const [zoomPercent, setZoomPercent] = useState(100);
   const [findBarVisible, setFindBarVisible] = useState(false);
-  const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addressUrl, setAddressUrl] = useState('');
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const isOnNewTab = !activeTab || activeTab.url === NEWTAB_URL;
 
-  const activeWebview = useCallback(() => {
-    if (!activeTabId) return null;
-    return document.querySelector('#webview-container webview.active') as any;
-  }, [activeTabId]);
-
   // --- Tab management ---
+  const switchTab = useCallback((tabId: string) => {
+    setActiveTabId(tabId);
+    setTimeout(() => {
+      if (bvAreaRef.current) {
+        const r = bvAreaRef.current.getBoundingClientRect();
+        window.electronAPI.tab.setBounds(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height));
+      }
+      window.electronAPI.tab.activate(tabId);
+    }, 50);
+  }, [setActiveTabId]);
+
   const createTab = useCallback((url?: string) => {
     const id = generateId();
     const tab: TabState = {
@@ -59,10 +93,12 @@ const App: React.FC = () => {
       canGoBack: false, canGoForward: false, createdAt: Date.now(),
     };
     setTabs((prev) => [...prev, tab]);
-    setActiveTabId(id);
-  }, [setTabs, setActiveTabId]);
+    window.electronAPI.tab.create(id, url || NEWTAB_URL);
+    switchTab(id);
+  }, [setTabs, switchTab]);
 
   const closeTab = useCallback((tabId: string) => {
+    window.electronAPI.tab.close(tabId);
     setTabs((prev) => {
       const idx = prev.findIndex((t) => t.id === tabId);
       if (idx < 0) return prev;
@@ -73,6 +109,7 @@ const App: React.FC = () => {
         if (next.length > 0) {
           const newIdx = Math.min(idx, next.length - 1);
           setActiveTabId(next[newIdx].id);
+          window.electronAPI.tab.activate(next[newIdx].id);
         } else {
           setActiveTabId(null);
         }
@@ -80,10 +117,6 @@ const App: React.FC = () => {
       return next;
     });
   }, [activeTabId, setActiveTabId, setTabs]);
-
-  const switchTab = useCallback((tabId: string) => {
-    setActiveTabId(tabId);
-  }, [setActiveTabId]);
 
   const updateTab = useCallback((tabId: string, changes: Partial<TabState>) => {
     setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, ...changes } : t)));
@@ -98,41 +131,43 @@ const App: React.FC = () => {
     }
   }, [setTabs, activeTabId]);
 
+  const updateTabRef = useRef(updateTab);
+  updateTabRef.current = updateTab;
+
+  useEffect(() => {
+    const unsub = window.electronAPI.on('tab:updated', (payload: any) => {
+      const { tabId, ...changes } = payload;
+      updateTabRef.current(tabId, changes as Partial<TabState>);
+    });
+    return () => { try { unsub(); } catch {} };
+  }, []);
+
   const handleNavigate = useCallback((input: string) => {
     const url = normalizeUrl(input);
     if (!activeTabId) { createTab(url); return; }
     updateTab(activeTabId, { url, title: url });
     setAddressUrl(url);
-    const el = document.querySelector('#webview-container webview.active') as any;
-    if (el) el.loadURL(url);
+    if (activeTabId) {
+      window.electronAPI.tab.stop(activeTabId);
+      window.electronAPI.tab.navigate(activeTabId, url);
+    }
   }, [activeTabId, createTab, updateTab]);
 
   // --- Zoom ---
-  const showZoomOverlay = useCallback((level: number) => {
-    setZoomPercent(Math.round(level * 100));
-    setShowZoom(true);
-    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
-    zoomTimerRef.current = setTimeout(() => setShowZoom(false), 1500);
-  }, []);
-
   const doZoom = useCallback((delta: number) => {
     if (!activeTab) return;
     const lvl = Math.min(5, Math.max(0.25, activeTab.zoomFactor + delta));
-    const el = activeWebview();
-    if (el) el.setZoomFactor(lvl);
+    if (activeTabId) window.electronAPI.tab.zoom(activeTabId, lvl);
     updateTab(activeTab.id, { zoomFactor: lvl });
-    showZoomOverlay(lvl);
-  }, [activeTab, updateTab, showZoomOverlay, activeWebview]);
+  }, [activeTab, updateTab, activeTabId]);
 
   const zoomIn = useCallback(() => doZoom(0.25), [doZoom]);
   const zoomOut = useCallback(() => doZoom(-0.25), [doZoom]);
   const zoomReset = useCallback(() => {
     if (!activeTab) return;
-    const el = activeWebview();
-    if (el) el.setZoomFactor(1);
+    if (activeTabId) window.electronAPI.tab.zoom(activeTabId, 1);
     updateTab(activeTab.id, { zoomFactor: 1 });
-    showZoomOverlay(1);
-  }, [activeTab, updateTab, showZoomOverlay, activeWebview]);
+  }, [activeTab, updateTab, activeTabId]);
 
   // --- Keyboard shortcuts ---
   useShortcut((action) => {
@@ -151,25 +186,17 @@ const App: React.FC = () => {
         else if (tabs.length > 0) switchTab(tabs[tabs.length - 1].id);
         break;
       }
-      case 'reload':
-      case 'stop-or-dismiss': {
-        const el = activeWebview();
-        if (el) action === 'reload' ? el.reload() : el.stop();
-        break;
-      }
-      case 'fullscreen': window.electronAPI.win.setFullscreen(true); break;
-      case 'devtools': {
-        const el = activeWebview();
-        if (el) el.openDevTools();
-        break;
-      }
+      case 'reload': { if (activeTabId) window.electronAPI.tab.reload(activeTabId); break; }
+      case 'stop-or-dismiss': { if (activeTabId) window.electronAPI.tab.stop(activeTabId); break; }
+      case 'fullscreen': window.electronAPI.win.toggleFullscreen(); break;
+      case 'devtools': { if (activeTabId) window.electronAPI.tab.devtools(activeTabId); break; }
       case 'bookmark': setActivePanel((v) => v === 'favorites' ? null : 'favorites'); break;
       case 'history-panel': setActivePanel((v) => v === 'history' ? null : 'history'); break;
       case 'zoom-in': zoomIn(); break;
       case 'zoom-out': zoomOut(); break;
       case 'zoom-reset': zoomReset(); break;
-      case 'go-back': { const el = activeWebview(); if (el) el.goBack(); break; }
-      case 'go-forward': { const el = activeWebview(); if (el) el.goForward(); break; }
+      case 'go-back': { if (activeTabId) window.electronAPI.tab.goBack(activeTabId); break; }
+      case 'go-forward': { if (activeTabId) window.electronAPI.tab.goForward(activeTabId); break; }
       case 'find-in-page': setFindBarVisible((v) => !v); break;
     }
   });
@@ -210,12 +237,34 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // --- External URL open (new-window → new tab) ---
+  // --- External URL open (new-window → delayed tab to avoid Flash crash) ---
   useEffect(() => {
+    let pendingUrl: string | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
     const unsub = window.electronAPI.on('navigate-url', (url: any) => {
-      createTab(String(url));
+      const delay = activeTab?.isLoading ? 600 : 0;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        createTab(String(url));
+        timer = null;
+      }, delay);
     });
-    return () => { try { unsub(); } catch (_) {} };
+
+    return () => {
+      try { unsub(); } catch (_) {}
+      if (timer) clearTimeout(timer);
+    };
+  }, [createTab, activeTab]);
+
+  useEffect(() => {
+    const u1 = window.electronAPI.on('tab:newwindow', (payload: any) => {
+      createTab(String((payload as any).url || payload));
+    });
+    const u2 = window.electronAPI.on('tab:crashed', (payload: any) => {
+      updateTabRef.current(payload.tabId, { url: 'about:crash', title: '页面崩溃了' });
+    });
+    return () => { try { u1(); u2(); } catch {} };
   }, [createTab]);
 
   // --- Theme ---
@@ -241,6 +290,31 @@ const App: React.FC = () => {
     }
   }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const bvAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const calc = () => {
+      if (!bvAreaRef.current) return;
+      const r = bvAreaRef.current.getBoundingClientRect();
+      window.electronAPI.tab.setBounds(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height));
+    };
+    calc();
+    const area = bvAreaRef.current;
+    const ro = new ResizeObserver(() => calc());
+    if (area) ro.observe(area);
+    window.addEventListener('resize', calc);
+    return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
+  }, [activePanel, findBarVisible]);
+
+  useEffect(() => {
+    setTimeout(() => {
+      if (bvAreaRef.current) {
+        const r = bvAreaRef.current.getBoundingClientRect();
+        window.electronAPI.tab.setBounds(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height));
+      }
+    }, 270);
+  }, [activePanel]);
+
   return (
     <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>
       <TabBar
@@ -251,6 +325,14 @@ const App: React.FC = () => {
         onNewTab={() => createTab()}
         onToggleTheme={toggleTheme}
         isDark={theme === 'dark'}
+        onReorder={(from, to) => {
+          setTabs((prev) => {
+            const next = [...prev];
+            const [moved] = next.splice(from, 1);
+            next.splice(to, 0, moved);
+            return next;
+          });
+        }}
       />
 
       <NavigationBar
@@ -260,15 +342,15 @@ const App: React.FC = () => {
         canGoForward={activeTab?.canGoForward || false}
         isMuted={isMuted}
         isBookmarked={activeTab ? favorites.some((f) => f.url === activeTab.url && activeTab.url !== 'about:newtab') : false}
+        zoomPercent={Math.round((activeTab?.zoomFactor ?? 1) * 100)}
         onNavigate={handleNavigate}
-        onBack={() => { const el = activeWebview(); if (el) el.goBack(); }}
-        onForward={() => { const el = activeWebview(); if (el) el.goForward(); }}
-        onStop={() => { const el = activeWebview(); if (el) el.stop(); }}
-        onReload={() => { const el = activeWebview(); if (el) el.reload(); }}
+        onBack={() => { if (activeTabId) window.electronAPI.tab.goBack(activeTabId); }}
+        onForward={() => { if (activeTabId) window.electronAPI.tab.goForward(activeTabId); }}
+        onStop={() => { if (activeTabId) window.electronAPI.tab.stop(activeTabId); }}
+        onReload={() => { if (activeTabId) window.electronAPI.tab.reload(activeTabId); }}
         onToggleMute={() => {
           setIsMuted((m) => {
-            const el = activeWebview();
-            if (el) el.setAudioMuted(!m);
+            if (activeTabId) window.electronAPI.tab.mute(activeTabId, !m);
             return !m;
           });
         }}
@@ -278,66 +360,47 @@ const App: React.FC = () => {
         onToggleSettings={() => setActivePanel((v) => v === 'settings' ? null : 'settings')}
       />
 
-      <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
-        <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
-      </div>
-      <div style={{ display: isOnNewTab ? 'none' : 'flex', flex: '1 1 0%', position: 'relative' }}>
-        <WebviewContainer tabs={tabs} activeTabId={activeTabId} onTabUpdate={updateTab} />
-        <FindBar
-          visible={findBarVisible && !isOnNewTab}
-          onClose={() => setFindBarVisible(false)}
-          activeWebview={activeWebview}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+        <UnifiedSidebar
+          activePanel={activePanel}
+          currentUrl={activeTab?.url || ''}
+          onOpenUrl={(url, newTab) => {
+            if (newTab || activeTab?.url !== 'about:newtab') {
+              createTab(url);
+            } else {
+              handleNavigate(url);
+            }
+          }}
+          onClose={() => setActivePanel(null)}
+          onTogglePanel={(panel) => {
+            const type = panel === 'bookmarks' ? 'favorites' :
+                         panel === 'history' ? 'history' :
+                         panel === 'downloads' ? 'downloads' :
+                         panel === 'settings' ? 'settings' : 'favorites';
+            setActivePanel((v) => v === type ? null : type);
+          }}
+          zoomPercent={Math.round((activeTab?.zoomFactor ?? 1) * 100)}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onZoomReset={zoomReset}
         />
+
+        <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
+          <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
+        </div>
+        <div
+          id="browserview-area"
+          ref={bvAreaRef}
+          style={{ display: isOnNewTab ? 'none' : 'flex', flex: '1 1 0%', position: 'relative', flexDirection: 'column' }}
+        >
+          <FindBar
+            visible={findBarVisible && !isOnNewTab}
+            onClose={() => setFindBarVisible(false)}
+            activeTabId={activeTabId}
+          />
+        </div>
       </div>
       <LoadingProgress visible={activeTab?.isLoading ?? false} />
-      <ZoomOverlay level={zoomPercent / 100} visible={showZoom} />
-      <FavoritesPanel
-        visible={activePanel === 'favorites'}
-        onClose={() => setActivePanel(null)}
-        onOpenUrl={(url, newTab) => {
-          if (newTab || activeTab?.url !== 'about:newtab') {
-            createTab(url);
-          } else {
-            handleNavigate(url);
-          }
-        }}
-        currentUrl={activeTab?.url || ''}
-        currentTitle={activeTab?.title || ''}
-        currentFavicon={activeTab?.favicon || ''}
-      />
-      <HistoryPanel
-        visible={activePanel === 'history'}
-        onClose={() => setActivePanel(null)}
-        onOpenUrl={(url, newTab) => {
-          if (newTab || activeTab?.url !== 'about:newtab') {
-            createTab(url);
-          } else {
-            handleNavigate(url);
-          }
-        }}
-        currentUrl={activeTab?.url || ''}
-      />
-      <DownloadsPanel
-        visible={activePanel === 'downloads'}
-        onClose={() => setActivePanel(null)}
-      />
-      <SettingsPanel
-        visible={activePanel === 'settings'}
-        onClose={() => setActivePanel(null)}
-        currentZoom={activeTab?.zoomFactor ?? 1}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-        onZoomReset={zoomReset}
-      />
-      <ContextMenu
-        onOpenUrl={(url, newTab) => {
-          if (newTab) {
-            createTab(url);
-          } else {
-            handleNavigate(url);
-          }
-        }}
-      />
     </div>
   );
 };

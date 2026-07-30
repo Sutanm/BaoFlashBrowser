@@ -18,7 +18,13 @@ export function registerWindowIPC(getWindow: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle('win:setFullscreen', (_e, fullscreen: boolean) => {
-    getWindow()?.setFullScreen(fullscreen);
+    const win = getWindow();
+    if (win) win.setFullScreen(fullscreen);
+  });
+
+  ipcMain.handle('win:toggleFullscreen', () => {
+    const win = getWindow();
+    if (win) win.setFullScreen(!win.isFullScreen());
   });
 
   ipcMain.handle('win:isMaximized', () => {

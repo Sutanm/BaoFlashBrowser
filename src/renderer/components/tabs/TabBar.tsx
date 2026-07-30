@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Plus } from 'lucide-react';
 import TabItem from './TabItem';
 import WindowControls from '../shell/WindowControls';
@@ -12,6 +12,7 @@ interface TabBarProps {
   onNewTab: () => void;
   onToggleTheme: () => void;
   isDark: boolean;
+  onReorder: (fromIndex: number, toIndex: number) => void;
 }
 
 const TabBar: React.FC<TabBarProps> = ({
@@ -22,7 +23,32 @@ const TabBar: React.FC<TabBarProps> = ({
   onNewTab,
   onToggleTheme,
   isDark,
+  onReorder,
 }) => {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleDragStart = useCallback((index: number) => {
+    setDragIndex(index);
+  }, []);
+
+  const handleDragOver = useCallback((index: number) => {
+    setDragOverIndex(index);
+  }, []);
+
+  const handleDrop = useCallback((index: number) => {
+    if (dragIndex !== null && dragIndex !== index) {
+      onReorder(dragIndex, index);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }, [dragIndex, onReorder]);
+
+  const handleDragEnd = useCallback(() => {
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }, []);
+
   return (
     <div
       id="tab-bar"
@@ -30,13 +56,18 @@ const TabBar: React.FC<TabBarProps> = ({
       style={{ background: 'var(--bg-tabbar)' }}
     >
       <div className="flex items-center h-full overflow-x-auto overflow-y-hidden" style={{ scrollbarWidth: 'none' }}>
-        {tabs.map((tab) => (
+        {tabs.map((tab, index) => (
           <TabItem
             key={tab.id}
             tab={tab}
             isActive={tab.id === activeTabId}
             onSelect={() => onSelectTab(tab.id)}
             onClose={() => onCloseTab(tab.id)}
+            onDragStart={() => handleDragStart(index)}
+            onDragOver={() => handleDragOver(index)}
+            onDragEnd={handleDragEnd}
+            onDrop={() => handleDrop(index)}
+            isDragOver={dragOverIndex === index && dragIndex !== index}
           />
         ))}
       </div>
