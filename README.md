@@ -10,12 +10,18 @@ Built on Electron 11 (Chromium 87) with React 17 + TypeScript + Jotai + BrowserV
 ![electron](https://img.shields.io/badge/electron-11.5.0-brightgreen)
 ![flash](https://img.shields.io/badge/flash-PPAPI%2029%2B-red)
 
+## 为什么使用 BrowserView Why BrowserView
+
+Electron 的 `<webview>` 标签在 Flash 场景下存在致命缺陷：当一个标签页正在加载 Flash 内容时，在另一个标签页中打开新页面会导致渲染进程崩溃。这是因为多个 webview 共享同一个渲染管道，Flash 插件的大量 GPU 纹理和渲染指令相互抢占，最终导致整个渲染进程全局崩溃——所有标签页同时白屏。
+
+BrowserView 为每个标签页创建独立的渲染进程，从根本上隔离了 Flash 的渲染管线。即便一个标签页因 Flash 崩溃，其他标签页完全不受影响。这在 Electron 11 中尤为重要——Chromium 87 是最后一个支持 PPAPI Flash 的版本，而 BrowserView 是唯一能在该版本上实现标签级进程隔离的方案。
+
 ## 功能 Features
 
 - 原生 PPAPI Flash 支持（非 Ruffle 模拟）
 - **标签级进程隔离**（BrowserView）——一个 Flash 崩溃不影响其他标签
 - 多标签页浏览（Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Tab 切换 / 拖拽排序）
-- 统一侧边栏（⭐ 收藏 🕐 历史 ⬇ 下载 ⚙ 设置 一站式）
+- 抽屉式侧边栏（⭐ 收藏 🕐 历史 ⬇ 下载 ⚙ 设置）
 - 地址栏导航、搜索（Bing / Google / 百度）+ 缩放比例胶囊
 - 收藏夹管理（侧边栏内操作）
 - 可配置 Flash 伪装版本（绕过网站反 Flash 检测）
@@ -106,10 +112,10 @@ BaoFlashBrowser/
 │   ├── renderer/
 │   │   ├── App.tsx               # 应用根组件
 │   │   ├── components/
-│   │   │   ├── panels/           # UnifiedSidebar（收藏/历史/下载/设置）
-│   │   │   ├── navigation/       # AddressBar + NavigationBar
-│   │   │   ├── tabs/             # TabBar + TabItem
-│   │   │   └── overlays/         # FindBar, LoadingProgress
+│   │   │   ├── layout/             # TopBar（合并标签+导航栏）+ DrawerSidebar（抽屉侧边栏）
+│   │   │   ├── panels/             # Favorites/History/Downloads/Settings
+│   │   │   ├── tabs/               # TabItem
+│   │   │   └── overlays/           # FindBar, LoadingProgress
 │   │   ├── atoms/                # Jotai 状态原子
 │   │   ├── hooks/                # useTheme, useShortcut
 │   │   └── services/             # db.ts (Dexie), id.service.ts
@@ -123,6 +129,7 @@ BaoFlashBrowser/
 │   ├── mouse-hook.cs / .exe      # Windows WH_MOUSE_LL 鼠标钩子
 │   └── mouse-hook-linux.c        # Linux XRecord 鼠标钩子
 ├── docs/
+│   ├── layout-demo.html          # 抽屉侧边栏布局 Demo
 │   ├── sidebar-demo.html         # 侧边栏交互 Demo
 │   └── lessons-learned.md        # v2 开发经验总结
 └── package.json
@@ -147,7 +154,7 @@ BaoFlashBrowser/
 | 前端框架 | 原生 HTML/JS/CSS | **React 17 + TypeScript + Jotai** |
 | 页面承载 | `<webview>`（同进程） | **BrowserView**（标签级进程隔离） |
 | 标签管理 | 基础 URL 列表 | 完整标签管理 + 拖拽排序 |
-| 收藏夹 | 无 | 统一侧边栏管理 |
+| 收藏夹 | 无 | 抽屉侧边栏管理 |
 | 设置面板 | localStorage | IndexedDB (Dexie) 持久化 |
 | 缩放 | 无 | Ctrl+=/-/0 + Ctrl+滚轮，Flash 区域全局生效 |
 | 数据存储 | localStorage | **IndexedDB** (Dexie) |
