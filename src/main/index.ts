@@ -27,12 +27,12 @@ function bootstrap(): void {
 
   if (process.platform === 'linux') {
     app.commandLine.appendSwitch('no-sandbox');
+    app.commandLine.appendSwitch('--enable-gpu-rasterization');
+    app.commandLine.appendSwitch('--enable-zero-copy');
   }
 
   app.commandLine.appendSwitch('--ignore-gpu-blacklist');
-  app.commandLine.appendSwitch('--enable-gpu-rasterization');
-  app.commandLine.appendSwitch('--enable-zero-copy');
-  app.commandLine.appendSwitch('--process-per-site');
+  app.commandLine.appendSwitch('--disable-gpu-process-crash-limit');
 
   if (config.lowEndMode) {
     app.commandLine.appendSwitch('enable-low-end-device-mode');
@@ -66,6 +66,28 @@ function bootstrap(): void {
 
   app.on('window-all-closed', () => {
     app.quit();
+  });
+
+  let crashCount = 0;
+  app.on('render-process-gone', (_event, _wc, details) => {
+    log.error('[App] RENDER PROCESS GONE — reason: ' + details.reason + ', exitCode: ' + details.exitCode);
+    crashCount++;
+    if (crashCount > 3) {
+      log.error('[App] too many crashes, quitting');
+      app.quit();
+      return;
+    }
+    const win = mainWindow;
+    if (win && !win.isDestroyed()) {
+      setTimeout(() => {
+        log.info('[App] reloading window after renderer crash (attempt ' + crashCount + ')');
+        win.reload();
+      }, 500);
+    }
+  });
+
+  app.on('child-process-gone', (_event, details) => {
+    log.error('[App] CHILD PROCESS GONE — type: ' + details.type + ', reason: ' + details.reason + ', exitCode: ' + details.exitCode);
   });
 
   log.info('[App] started, version 1.0.1');

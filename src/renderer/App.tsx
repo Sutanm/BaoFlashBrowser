@@ -104,7 +104,7 @@ const App: React.FC = () => {
     updateTab(activeTabId, { url, title: url });
     setAddressUrl(url);
     const el = document.querySelector('#webview-container webview.active') as any;
-    if (el) el.loadURL(url);
+    if (el) { try { el.stop(); } catch (_e) {} try { el.loadURL(url); } catch (_e) {} }
   }, [activeTabId, createTab, updateTab]);
 
   // --- Zoom ---
@@ -210,10 +210,10 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // --- External URL open (new-window → new tab) ---
+  // --- External URL open (new-window → new tab with delay to avoid Flash crash) ---
   useEffect(() => {
     const unsub = window.electronAPI.on('navigate-url', (url: any) => {
-      createTab(String(url));
+      setTimeout(() => createTab(String(url)), 200);
     });
     return () => { try { unsub(); } catch (_) {} };
   }, [createTab]);

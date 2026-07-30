@@ -35,6 +35,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
       el.setAttribute('preload', (window as any).electronAPI?.webviewPreloadPath || '../../dist/webview-preload.js');
       el.setAttribute('plugins', 'true');
       el.setAttribute('allowpopups', 'true');
+      el.setAttribute('partition', 'persist:tab_' + tab.id);
       el.setAttribute('data-tab-id', tab.id);
 
       // Apply stored zoom factor when webview is ready
@@ -142,8 +143,10 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
 
       (el as any).addEventListener('did-fail-load', (e: any) => {
         if (e.errorCode === -3) return;
-        const errorHtml = `<html><body style="font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#fff;color:#333"><div style="text-align:center"><h1 style="font-weight:300">${e.errorCode === -105 ? 'DNS not found' : 'Page failed to load'}</h1><p style="opacity:0.6">${e.validatedURL || e.url}</p><p style="opacity:0.4;font-size:0.85rem">Error: ${e.errorCode} — ${e.errorDescription}</p></div></body></html>`;
-        el.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errorHtml));
+        try {
+          const errorHtml = `<html><body style="font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#fff;color:#333"><div style="text-align:center"><h1 style="font-weight:300">${e.errorCode === -105 ? 'DNS not found' : 'Page failed to load'}</h1><p style="opacity:0.6">${e.validatedURL || e.url}</p><p style="opacity:0.4;font-size:0.85rem">Error: ${e.errorCode} — ${e.errorDescription}</p></div></body></html>`;
+          el.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errorHtml));
+        } catch (_e) {}
       });
 
       return el;
@@ -170,10 +173,12 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
     for (const tab of tabs) {
       if (tab.url === 'about:newtab') continue;
       if (!webviewRefs.current.has(tab.id)) {
-        const el = createWebview(tab);
-        if (tab.id === activeTabId) el.classList.add('active');
-        containerRef.current.appendChild(el);
-        webviewRefs.current.set(tab.id, el);
+        try {
+          const el = createWebview(tab);
+          if (tab.id === activeTabId) el.classList.add('active');
+          containerRef.current.appendChild(el);
+          webviewRefs.current.set(tab.id, el);
+        } catch (_e) {}
       }
     }
   }, [tabs, createWebview]);
