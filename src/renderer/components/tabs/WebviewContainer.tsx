@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import { useSetAtom } from 'jotai';
 import type { TabState } from '@renderer/atoms/tabs.atom';
 import { contextMenuAtom } from '@renderer/atoms/ui.atom';
+import { historyAtom } from '@renderer/atoms/data.atom';
+import { generateId } from '@renderer/services/id.service';
 
 interface WebviewContainerProps {
   tabs: TabState[];
@@ -13,6 +15,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
   const containerRef = useRef<HTMLDivElement>(null);
   const webviewRefs = useRef<Map<string, HTMLElement>>(new Map());
   const setContextMenu = useSetAtom(contextMenuAtom);
+  const setHistory = useSetAtom(historyAtom);
 
   const createWebview = useCallback(
     (tab: TabState) => {
@@ -62,11 +65,28 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
 
       el.addEventListener('page-title-updated', (e: any) => {
         onTabUpdate(tab.id, { title: e.title });
+        const pageUrl = el.src;
+        if (e.title && pageUrl && !pageUrl.startsWith('about:') && !pageUrl.startsWith('data:')) {
+          setHistory((prev) => {
+            const updated = prev.map((h) => h.url === pageUrl ? { ...h, title: e.title } : h);
+            try { localStorage.setItem('baoflash_history', JSON.stringify(updated)); } catch {}
+            return updated;
+          });
+        }
       });
 
       el.addEventListener('page-favicon-updated', (e: any) => {
         if (e.favicons && e.favicons.length > 0) {
           onTabUpdate(tab.id, { favicon: e.favicons[0] });
+          const favicon = e.favicons[0];
+          const pageUrl = el.src;
+          if (pageUrl && !pageUrl.startsWith('about:') && !pageUrl.startsWith('data:')) {
+            setHistory((prev) => {
+              const updated = prev.map((h) => h.url === pageUrl ? { ...h, favicon } : h);
+              try { localStorage.setItem('baoflash_history', JSON.stringify(updated)); } catch {}
+              return updated;
+            });
+          }
         }
       });
 
@@ -76,6 +96,17 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
         try {
           onTabUpdate(tab.id, { canGoBack: el.canGoBack(), canGoForward: el.canGoForward() });
         } catch (_e) {}
+        // Record history
+        if (e.url && !e.url.startsWith('about:') && !e.url.startsWith('data:')) {
+          setHistory((prev) => {
+            const existing = prev.find((h) => h.url === e.url);
+            const next = existing
+              ? prev.map((h) => h.url === e.url ? { ...h, lastVisit: Date.now(), visitCount: h.visitCount + 1 } : h)
+              : [{ id: generateId(), url: e.url, title: e.title || e.url, favicon: '', visitCount: 1, lastVisit: Date.now() }, ...prev];
+            try { localStorage.setItem('baoflash_history', JSON.stringify(next)); } catch {}
+            return next;
+          });
+        }
       });
 
       el.addEventListener('did-navigate-in-page', (e: any) => {
@@ -117,7 +148,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
 
       return el;
     },
-    [onTabUpdate, setContextMenu],
+    [onTabUpdate, setContextMenu, setHistory],
   );
 
   useEffect(() => {

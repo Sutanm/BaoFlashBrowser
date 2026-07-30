@@ -4,6 +4,8 @@
 
 :root {
   --bg-primary: #ffffff;
+  --bg-secondary: #f8f8f8;
+  --bg-card: #f9f9f9;
   --bg-toolbar: #f0f0f0;
   --bg-tabbar: #f0f0f0;
   --bg-panel: #ffffff;
@@ -21,6 +23,8 @@
 
 body.dark {
   --bg-primary: #1a1a2e;
+  --bg-secondary: #111827;
+  --bg-card: #1e293b;
   --bg-toolbar: #16213e;
   --bg-tabbar: #16213e;
   --bg-panel: #16213e;
@@ -244,6 +248,35 @@ body.dark {
 
   .fav-remove {
     @apply text-gray-400 hover:text-red-500 cursor-pointer text-sm flex-shrink-0;
+  }
+
+  .history-search-bar {
+    @apply flex items-center gap-2 px-3 py-2;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .history-search-input {
+    @apply flex-1 border-none outline-none text-sm bg-transparent;
+    color: var(--text-primary);
+  }
+
+  .history-search-input::placeholder {
+    color: var(--text-secondary);
+  }
+
+  .history-clear-btn {
+    @apply text-xs border-none bg-transparent cursor-pointer;
+    color: var(--text-secondary);
+  }
+
+  .history-clear-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .history-group-header {
+    @apply text-xs px-3 py-[6px] font-medium;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
   }
 
   .zoom-indicator {

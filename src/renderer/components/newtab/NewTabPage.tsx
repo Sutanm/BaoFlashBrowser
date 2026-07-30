@@ -31,20 +31,16 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
     }
   };
 
-  const style = document.documentElement.classList.contains('dark')
-    ? { '--bg-secondary': '#16213e', '--input-border': '#0f3460', '--bg-card': '#0f3460' } as React.CSSProperties
-    : { '--bg-secondary': '#f8f8f8', '--input-border': '#cccccc', '--bg-card': '#f9f9f9' } as React.CSSProperties;
-
   const inputStyle: React.CSSProperties = {
     width: '100%', height: 44, padding: '0 20px',
-    border: '1px solid var(--input-border)', borderRadius: 22,
+    border: '1px solid var(--border-color)', borderRadius: 22,
     fontSize: 16, outline: 'none',
     color: 'var(--text-primary)', background: 'var(--bg-card)',
     boxShadow: '0 1px 6px rgba(32,33,36,0.1), 0 0 0 1px rgba(32,33,36,0.05)',
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, position: 'relative', background: 'var(--bg-primary)', color: 'var(--text-primary)', ...style }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, position: 'relative', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       {/* Bookmarks bar at top */}
       {bookmarks.length > 0 && (
         <div style={{

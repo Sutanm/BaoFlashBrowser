@@ -8,6 +8,7 @@ import LoadingProgress from './components/overlays/LoadingProgress';
 import ZoomOverlay from './components/overlays/ZoomOverlay';
 import FavoritesPanel from './components/panels/FavoritesPanel';
 import SettingsPanel from './components/panels/SettingsPanel';
+import HistoryPanel from './components/panels/HistoryPanel';
 import ContextMenu from './components/overlays/ContextMenu';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
@@ -32,7 +33,7 @@ const App: React.FC = () => {
   const [activeTabId, setActiveTabId] = useAtom(activeTabIdAtom);
   const favorites = useAtomValue(favoritesAtom);
   const [isMuted, setIsMuted] = useState(false);
-  const [activePanel, setActivePanel] = useState<'favorites' | 'settings' | null>(null);
+  const [activePanel, setActivePanel] = useState<'favorites' | 'history' | 'settings' | null>(null);
   const [showZoom, setShowZoom] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,10 +161,12 @@ const App: React.FC = () => {
         break;
       }
       case 'bookmark': setActivePanel((v) => v === 'favorites' ? null : 'favorites'); break;
-      case 'history-panel': break;
+      case 'history-panel': setActivePanel((v) => v === 'history' ? null : 'history'); break;
       case 'zoom-in': zoomIn(); break;
       case 'zoom-out': zoomOut(); break;
       case 'zoom-reset': zoomReset(); break;
+      case 'go-back': { const el = activeWebview(); if (el) el.goBack(); break; }
+      case 'go-forward': { const el = activeWebview(); if (el) el.goForward(); break; }
     }
   });
 
@@ -254,6 +257,7 @@ const App: React.FC = () => {
           });
         }}
         onToggleFavorites={() => setActivePanel((v) => v === 'favorites' ? null : 'favorites')}
+        onToggleHistory={() => setActivePanel((v) => v === 'history' ? null : 'history')}
         onToggleSettings={() => setActivePanel((v) => v === 'settings' ? null : 'settings')}
       />
 
@@ -278,6 +282,18 @@ const App: React.FC = () => {
         currentUrl={activeTab?.url || ''}
         currentTitle={activeTab?.title || ''}
         currentFavicon={activeTab?.favicon || ''}
+      />
+      <HistoryPanel
+        visible={activePanel === 'history'}
+        onClose={() => setActivePanel(null)}
+        onOpenUrl={(url, newTab) => {
+          if (newTab || activeTab?.url !== 'about:newtab') {
+            createTab(url);
+          } else {
+            handleNavigate(url);
+          }
+        }}
+        currentUrl={activeTab?.url || ''}
       />
       <SettingsPanel
         visible={activePanel === 'settings'}

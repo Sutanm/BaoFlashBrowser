@@ -26,7 +26,9 @@ export type ShortcutAction =
   | 'print-page'
   | 'view-source'
   | 'new-window'
-  | 'clear-data';
+  | 'clear-data'
+  | 'go-back'
+  | 'go-forward';
 
 export interface TabUpdatedPayload {
   tabId: string;
