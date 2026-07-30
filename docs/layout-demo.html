@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Layout Demo - Drawer Sidebar</title>
+<style>
+/* ===== Reset ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ===== CSS Variables ===== */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f7;
+  --bg-tertiary: #e8e8ed;
+  --bg-toolbar: #f5f5f7;
+  --bg-panel: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: #e8e8ed;
+  --bg-active-tab: #ffffff;
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --text-disabled: #bbbbbb;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --border: #d2d2d7;
+  --border-light: #e8e8ed;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+}
+
+body.dark {
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #181825;
+  --bg-tertiary: #313244;
+  --bg-toolbar: #181825;
+  --bg-panel: #1e1e2e;
+  --bg-input: #11111b;
+  --bg-hover: #313244;
+  --bg-active-tab: #1e1e2e;
+  --text-primary: #cdd6f4;
+  --text-secondary: #a6adc8;
+  --text-disabled: #585b70;
+  --accent: #89b4fa;
+  --accent-hover: #74c7ec;
+  --border: #313244;
+  --border-light: #45475a;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ===== Layout ===== */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ===== Top Bar (merged tab bar + nav bar) ===== */
+.topbar {
+  flex-shrink: 0;
+  background: var(--bg-toolbar);
+}
+
+.topbar-tabs {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 4px;
+  padding-top: 4px;
+  gap: 2px;
+  background: var(--bg-secondary);
+}
+
+.topbar-tabs-list {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  overflow-x: auto;
+  flex: 1;
+  scrollbar-width: none;
+}
+.topbar-tabs-list::-webkit-scrollbar { display: none; }
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 38px;
+  padding: 0 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* ===== Shared Button Styles ===== */
+.btn-icon {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; cursor: pointer;
+  border: none; background: transparent;
+  font-size: 16px; line-height: 1; transition: all 0.15s;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-icon:disabled { color: var(--text-disabled); cursor: default; }
+.btn-icon:disabled:hover { background: transparent; }
+
+/* ===== Tab Item ===== */
+.tab-item {
+  height: 30px; padding: 0 12px;
+  display: flex; align-items: center; gap: 6px;
+  border-radius: 8px; font-size: 12px;
+  cursor: pointer; border: none;
+  background: transparent; color: var(--text-secondary);
+  max-width: 180px; white-space: nowrap;
+  -webkit-app-region: no-drag;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.tab-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tab-item.active { background: var(--bg-active-tab); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.tab-close {
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 12px;
+  cursor: pointer; flex-shrink: 0;
+  color: var(--text-secondary); opacity: 0.5;
+  border: none; background: transparent;
+  outline: none;
+}
+.tab-item:hover .tab-close { opacity: 1; background: rgba(0,0,0,0.06); }
+
+/* ===== Window Controls ===== */
+.btn-win {
+  width: 46px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary); cursor: pointer;
+  border: none; background: transparent;
+  font-size: 10px; line-height: 1;
+  border-radius: 0;
+  -webkit-app-region: no-drag;
+}
+.btn-win:hover { background: var(--bg-hover); }
+.btn-win-close {
+  width: 46px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary); cursor: pointer;
+  border: none; background: transparent;
+  font-size: 14px; line-height: 1;
+  border-radius: 0;
+  -webkit-app-region: no-drag;
+}
+.btn-win-close:hover { background: #e81123; color: #fff; }
+
+/* ===== Address Bar ===== */
+.input-text {
+  flex: 1; height: 32px; padding: 0 12px;
+  border-radius: 8px; border: 1px solid var(--border);
+  font-size: 13px; outline: none; transition: all 0.15s;
+  background: var(--bg-input); color: var(--text-primary);
+}
+.input-text:focus { border-color: var(--accent); }
+
+/* ===== Content Area ===== */
+.content {
+  flex: 1; display: flex; overflow: hidden; min-height: 0;
+}
+
+/* ===== Sidebar Icon Strip ===== */
+.sidebar-icons {
+  width: 56px; min-width: 56px; max-width: 56px;
+  display: flex; flex-direction: column;
+  align-items: center; padding: 8px 0; gap: 4px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+.sidebar-icon {
+  width: 44px; min-width: 44px; height: 44px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 2px;
+  border-radius: 8px; cursor: pointer;
+  border: none; background: transparent;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.sidebar-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar-icon.active { background: var(--accent); color: #ffffff; }
+.sidebar-icon svg { width: 20px; height: 20px; flex-shrink: 0; display: block; }
+.sidebar-icon-label { font-size: 9px; line-height: 1; white-space: nowrap; }
+
+/* ===== Drawer Panel ===== */
+.drawer-panel {
+  position: absolute;
+  left: 56px; top: 0; bottom: 0;
+  width: 280px;
+  z-index: 50;
+  display: none;
+  overflow: hidden;
+  border-radius: 0 12px 12px 0;
+}
+.drawer-panel.open { display: block; }
+.drawer-inner {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-light);
+  box-shadow: var(--shadow-lg);
+  border-radius: 0 12px 12px 0;
+  transform: translateX(-100%);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.drawer-panel.open .drawer-inner { transform: translateX(0); }
+
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+.drawer-header span { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+
+.drawer-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+/* ===== Panel Content ===== */
+.panel-section { padding: 12px; }
+.panel-section + .panel-section { border-top: 1px solid var(--border-light); }
+
+.panel-card {
+  border-radius: 12px; padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+}
+.panel-card + .panel-card { margin-top: 12px; }
+.panel-card-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 12px;
+  color: var(--text-secondary);
+}
+.panel-card .field { margin-bottom: 12px; }
+.panel-card .field:last-child { margin-bottom: 0; }
+.panel-card .field-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.panel-card .field-hint { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+/* ===== List Items ===== */
+.list-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px; border-radius: 8px;
+  cursor: pointer; transition: all 0.15s;
+}
+.list-item:hover { background: var(--bg-hover); }
+
+/* ===== Toggle Switch ===== */
+.toggle-switch {
+  position: relative; display: inline-flex;
+  width: 44px; height: 24px; align-items: center;
+  border-radius: 12px; cursor: pointer;
+  background: var(--border); transition: all 0.2s;
+  flex-shrink: 0;
+}
+.toggle-switch.on { background: var(--accent); }
+.toggle-knob {
+  display: inline-block; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff;
+  transform: translateX(3px); transition: transform 0.2s;
+}
+.toggle-switch.on .toggle-knob { transform: translateX(25px); }
+
+/* ===== Zoom Controls ===== */
+.zoom-controls { display: flex; align-items: center; gap: 8px; }
+.zoom-btn {
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; border: none; background: var(--bg-hover);
+  color: var(--text-primary); cursor: pointer; font-size: 14px;
+}
+.zoom-label { font-size: 13px; font-weight: 500; min-width: 48px; text-align: center; }
+
+/* ===== BrowserView Area ===== */
+.browserview-area {
+  flex: 1; position: relative;
+  display: flex; flex-direction: column;
+  background: var(--bg-primary);
+}
+.browserview-placeholder {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary); font-size: 14px;
+}
+
+/* ===== Theme Toggle ===== */
+.theme-toggle {
+  padding: 0 8px; height: 100%;
+  display: flex; align-items: center;
+  border: none; background: transparent;
+  cursor: pointer; font-size: 14px;
+  color: var(--text-secondary);
+}
+.theme-toggle:hover { background: var(--bg-hover); }
+
+/* ===== Drag Region ===== */
+.drag-region { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== Top Bar ===== -->
+  <div class="topbar">
+    <!-- Tab Row -->
+    <div class="topbar-tabs">
+      <div class="topbar-tabs-list">
+        <div class="tab-item active" title="摩尔庄园 - 淘米游戏">
+          <span style="flex-shrink:0;width:16px;height:16px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span class="truncate" style="flex:1;overflow:hidden;text-overflow:ellipsis">摩尔庄园 - 淘米游戏</span>
+          <button class="tab-close" title="关闭">×</button>
+        </div>
+        <div class="tab-item" title="赛尔号 - 淘米游戏">
+          <span style="flex-shrink:0;width:16px;height:16px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span class="truncate" style="flex:1;overflow:hidden;text-overflow:ellipsis">赛尔号 - 淘米游戏</span>
+          <button class="tab-close" title="关闭">×</button>
+        </div>
+        <div class="tab-item" title="4399游戏">
+          <span style="flex-shrink:0;width:16px;height:16px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span class="truncate" style="flex:1;overflow:hidden;text-overflow:ellipsis">4399游戏</span>
+          <button class="tab-close" title="关闭">×</button>
+        </div>
+        <button class="btn-icon" title="新标签页 (Ctrl+T)" style="width:28px;height:28px;flex-shrink:0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+      <div class="drag-region" style="flex:1;height:100%"></div>
+      <div style="display:flex;align-items:center;height:100%" class="no-drag">
+        <button class="theme-toggle" onclick="document.body.classList.toggle('dark')" title="切换主题">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+        <button class="btn-win" title="最小化">
+          <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+        </button>
+        <button class="btn-win" title="最大化">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"><rect x="0.5" y="0.5" width="9" height="9"/></svg>
+        </button>
+        <button class="btn-win-close" title="关闭">
+          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.2"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Nav Row -->
+    <div class="topbar-nav">
+      <button class="btn-icon" title="后退" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      </button>
+      <button class="btn-icon" title="前进" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+      <button class="btn-icon" title="刷新">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
+      <input class="input-text no-drag" type="text" value="https://www.4399.com/flash/2247.htm" spellcheck="false" />
+      <button class="btn-icon" title="缩小" onclick="changeZoom(-10)" style="width:28px;height:28px">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      </button>
+      <span class="zoom-label" id="zoomLabel" style="font-size:12px;color:var(--text-secondary);min-width:36px;text-align:center;cursor:pointer" title="点击重置为100%" onclick="resetZoom()">100%</span>
+      <button class="btn-icon" title="放大" onclick="changeZoom(10)" style="width:28px;height:28px">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      </button>
+      <button class="btn-icon" title="静音">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ===== Content Area ===== -->
+  <div class="content" style="position:relative">
+    <!-- Sidebar Icon Strip -->
+    <div class="sidebar-icons">
+      <button class="sidebar-icon" title="收藏夹" onclick="toggleDrawer('favorites')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <span class="sidebar-icon-label">收藏</span>
+      </button>
+      <button class="sidebar-icon" title="历史记录" onclick="toggleDrawer('history')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="sidebar-icon-label">历史</span>
+      </button>
+      <button class="sidebar-icon" title="下载" onclick="toggleDrawer('downloads')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="sidebar-icon-label">下载</span>
+      </button>
+      <button class="sidebar-icon" title="设置" onclick="toggleDrawer('settings')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span class="sidebar-icon-label">设置</span>
+      </button>
+    </div>
+
+    <!-- Drawer Panel -->
+    <div class="drawer-panel" id="drawer">
+      <div class="drawer-inner">
+        <div class="drawer-header">
+          <span id="drawer-title">收藏夹</span>
+          <button class="btn-icon" style="width:24px;height:24px" onclick="closeDrawer()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="drawer-body" id="drawer-content">
+          <!-- Content injected by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- BrowserView Area -->
+    <div class="browserview-area">
+      <div class="browserview-placeholder">
+        BrowserView 区域（Flash 游戏显示在这里）
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentPanel = null;
+let currentZoom = 100;
+
+function changeZoom(delta) {
+  currentZoom = Math.max(25, Math.min(500, currentZoom + delta));
+  document.getElementById('zoomLabel').textContent = currentZoom + '%';
+}
+
+function resetZoom() {
+  currentZoom = 100;
+  document.getElementById('zoomLabel').textContent = '100%';
+}
+
+function toggleDrawer(panel) {
+  const drawer = document.getElementById('drawer');
+  const icons = document.querySelectorAll('.sidebar-icon');
+  
+  if (currentPanel === panel) {
+    closeDrawer();
+    return;
+  }
+  
+  currentPanel = panel;
+  drawer.style.display = 'block';
+  drawer.offsetHeight;
+  drawer.classList.add('open');
+  
+  // Update active icon
+  icons.forEach((icon, i) => {
+    const panels = ['favorites', 'history', 'downloads', 'settings'];
+    icon.classList.toggle('active', panels[i] === panel);
+  });
+  
+  // Update content
+  document.getElementById('drawer-title').textContent = {
+    favorites: '收藏夹',
+    history: '历史记录',
+    downloads: '下载管理',
+    settings: '设置'
+  }[panel];
+  
+  document.getElementById('drawer-content').innerHTML = getPanelContent(panel);
+}
+
+function closeDrawer() {
+  const drawer = document.getElementById('drawer');
+  drawer.classList.remove('open');
+  drawer.addEventListener('transitionend', function handler() {
+    drawer.style.display = 'none';
+    drawer.removeEventListener('transitionend', handler);
+  });
+  document.querySelectorAll('.sidebar-icon').forEach(i => i.classList.remove('active'));
+  currentPanel = null;
+}
+
+function getPanelContent(panel) {
+  if (panel === 'favorites') return `
+    <div class="panel-section">
+      <button class="btn-icon" style="width:100%;justify-content:center;background:var(--bg-hover);color:var(--text-primary);height:32px;font-size:13px;border-radius:8px">
+        ☆ 添加当前页
+      </button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:0 8px">
+      <div style="font-size:11px;color:var(--text-secondary);padding:8px 4px;font-weight:600">📁 淘米游戏</div>
+      <div class="list-item"><span style="flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">摩尔庄园</div><div style="font-size:11px;color:var(--text-secondary)">mo.com</div></div></div>
+      <div class="list-item"><span style="flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">赛尔号</div><div style="font-size:11px;color:var(--text-secondary)">seer.61.com</div></div></div>
+      <div style="font-size:11px;color:var(--text-secondary);padding:8px 4px;font-weight:600">📁 4399游戏</div>
+      <div class="list-item"><span style="flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">洛克王国</div><div style="font-size:11px;color:var(--text-secondary)">4399.com</div></div></div>
+      <div class="list-item"><span style="flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">奥比岛</div><div style="font-size:11px;color:var(--text-secondary)">4399.com</div></div></div>
+    </div>
+  `;
+  
+  if (panel === 'history') return `
+    <div class="panel-section" style="display:flex;align-items:center;gap:8px">
+      <input class="input-text" placeholder="搜索历史记录" style="flex:1" />
+      <button style="font-size:12px;color:var(--accent);border:none;background:none;cursor:pointer;white-space:nowrap">清空</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:0 8px">
+      <div style="font-size:11px;color:var(--text-secondary);padding:8px 4px;font-weight:600">今天</div>
+      <div class="list-item"><span style="flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary)">摩尔庄园</div><div style="font-size:11px;color:var(--text-secondary)">mo.com · 14:30</div></div></div>
+      <div class="list-item"><span style="flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary)">赛尔号</div><div style="font-size:11px;color:var(--text-secondary)">seer.61.com · 13:20</div></div></div>
+      <div style="font-size:11px;color:var(--text-secondary);padding:8px 4px;font-weight:600">昨天</div>
+      <div class="list-item"><span style="flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary)">洛克王国</div><div style="font-size:11px;color:var(--text-secondary)">4399.com · 昨天</div></div></div>
+    </div>
+  `;
+  
+  if (panel === 'downloads') return `
+    <div style="flex:1;overflow-y:auto;padding:8px">
+      <div class="list-item"><span style="color:#27ae60;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary)">game.swf</div><div style="font-size:11px;color:var(--text-secondary)">已完成 · 2.3 MB</div></div></div>
+      <div class="list-item"><span style="color:var(--accent);flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text-primary)">music.mp3</div><div style="font-size:11px;color:var(--text-secondary)">60% · 1.8 MB</div>
+        <div style="width:100%;height:4px;border-radius:2px;background:var(--bg-tertiary);margin-top:4px"><div style="width:60%;height:100%;border-radius:2px;background:var(--accent)"></div></div>
+      </div></div>
+    </div>
+  `;
+  
+  if (panel === 'settings') return `
+    <div style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px">
+      <div class="panel-card">
+        <div class="panel-card-title">通用</div>
+        <div class="field"><div class="field-label">主页地址</div><input class="input-text" value="about:newtab" style="width:100%" /></div>
+        <div class="field"><div class="field-label">搜索引擎</div>
+          <select class="input-text" style="width:100%"><option>百度</option><option>Bing</option><option>Google</option></select>
+        </div>
+      </div>
+      <div class="panel-card">
+        <div class="panel-card-title">Flash</div>
+        <div class="field"><div class="field-label">伪装版本</div><input class="input-text" value="34.0.0.330" style="width:100%" /></div>
+        <div class="field" style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;color:var(--text-primary)">低性能设备模式</span>
+          <div class="toggle-switch" onclick="this.classList.toggle('on')"><span class="toggle-knob"></span></div>
+        </div>
+        <div class="field-hint">减少 GPU 纹理缓存，改善长时间游玩卡顿。需重启生效。</div>
+      </div>
+      <div class="panel-card">
+        <div class="panel-card-title">外观</div>
+        <div class="field" style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;color:var(--text-primary)">页面缩放</span>
+          <div class="zoom-controls">
+            <button class="zoom-btn">−</button>
+            <span class="zoom-label">100%</span>
+            <button class="zoom-btn">+</button>
+            <button style="font-size:12px;color:var(--accent);border:none;background:none;cursor:pointer">重置</button>
+          </div>
+        </div>
+      </div>
+      <button style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:500;cursor:pointer">保存设置</button>
+    </div>
+  `;
+  
+  return '';
+}
+
+// Close drawer when clicking outside
+document.querySelector('.browserview-area').addEventListener('click', closeDrawer);
+</script>
+</body>
+</html>
