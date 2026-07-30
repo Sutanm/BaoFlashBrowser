@@ -413,3 +413,32 @@ body {
 body.dark ::-webkit-scrollbar-thumb {
   background: #444;
 }
+
+.context-menu {
+  @apply fixed flex flex-col py-1 rounded-lg shadow-lg z-[300] overflow-hidden;
+  min-width: 200px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+}
+
+.context-menu button {
+  @apply text-left px-4 py-[6px] border-none cursor-pointer bg-transparent;
+  color: var(--text-primary);
+}
+
+.context-menu button:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.context-menu button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.context-separator {
+  @apply my-1;
+  height: 1px;
+  background: var(--border-color);
+}

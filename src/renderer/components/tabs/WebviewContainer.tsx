@@ -1,5 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
+import { useSetAtom } from 'jotai';
 import type { TabState } from '@renderer/atoms/tabs.atom';
+import { contextMenuAtom } from '@renderer/atoms/ui.atom';
 
 interface WebviewContainerProps {
   tabs: TabState[];
@@ -10,6 +12,7 @@ interface WebviewContainerProps {
 const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, onTabUpdate }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const webviewRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const setContextMenu = useSetAtom(contextMenuAtom);
 
   const createWebview = useCallback(
     (tab: TabState) => {
@@ -84,6 +87,20 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
         }
       });
 
+      el.addEventListener('context-menu', (e: any) => {
+        e.preventDefault();
+        const p = e.params || {};
+        setContextMenu({
+          visible: true,
+          x: p.x,
+          y: p.y,
+          tabId: tab.id,
+          linkURL: p.linkURL,
+          selectionText: p.selectionText,
+          isEditable: p.isEditable,
+        });
+      });
+
       el.addEventListener('-media-started-playing', () => {
         onTabUpdate(tab.id, { isAudible: true });
       });
@@ -100,7 +117,7 @@ const WebviewContainer: React.FC<WebviewContainerProps> = ({ tabs, activeTabId, 
 
       return el;
     },
-    [onTabUpdate],
+    [onTabUpdate, setContextMenu],
   );
 
   useEffect(() => {

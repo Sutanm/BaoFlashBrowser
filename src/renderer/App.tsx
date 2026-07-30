@@ -8,6 +8,7 @@ import LoadingProgress from './components/overlays/LoadingProgress';
 import ZoomOverlay from './components/overlays/ZoomOverlay';
 import FavoritesPanel from './components/panels/FavoritesPanel';
 import SettingsPanel from './components/panels/SettingsPanel';
+import ContextMenu from './components/overlays/ContextMenu';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { tabsAtom, activeTabIdAtom } from './atoms/tabs.atom';
@@ -285,6 +286,15 @@ const App: React.FC = () => {
         onZoomIn={zoomIn}
         onZoomOut={zoomOut}
         onZoomReset={zoomReset}
+      />
+      <ContextMenu
+        onOpenUrl={(url, newTab) => {
+          if (newTab) {
+            createTab(url);
+          } else {
+            handleNavigate(url);
+          }
+        }}
       />
     </div>
   );

@@ -44,7 +44,7 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, position: 'relative', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} {...style}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, position: 'relative', background: 'var(--bg-primary)', color: 'var(--text-primary)', ...style }}>
       {/* Bookmarks bar at top */}
       {bookmarks.length > 0 && (
         <div style={{
