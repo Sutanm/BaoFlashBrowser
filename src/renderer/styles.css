@@ -271,6 +271,41 @@ body.dark {
     -webkit-app-region: no-drag;
   }
 
+  .toggle-switch {
+    @apply relative w-10 h-[22px] inline-block;
+    -webkit-app-region: no-drag;
+  }
+
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .toggle-slider {
+    @apply absolute inset-0 rounded-full cursor-pointer transition-colors duration-200;
+    background: var(--border-color);
+  }
+
+  .toggle-slider::before {
+    content: "";
+    @apply absolute h-4 w-4 left-[3px] bottom-[3px] rounded-full bg-white transition-transform duration-200;
+  }
+
+  .toggle-switch input:checked + .toggle-slider {
+    background: var(--accent);
+  }
+
+  .toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(18px);
+  }
+
+  .setting-hint {
+    @apply text-xs leading-relaxed;
+    color: var(--text-secondary);
+    -webkit-app-region: no-drag;
+  }
+
   .setting-row {
     @apply flex items-center justify-between gap-2;
   }

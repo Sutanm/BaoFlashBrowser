@@ -15,6 +15,7 @@ export const defaultSettings: Settings = {
   flashVersion: '34.0.0.330',
   flashEngineMode: 'auto' as FlashEngineMode,
   flashEngineRules: [] as FlashEngineRule[],
+  lowEndMode: false,
 };
 
 export const settingsAtom = atom<Settings>(defaultSettings);

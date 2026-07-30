@@ -6,6 +6,7 @@ import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow } from './modules/window';
 import { setMainWindowRef, registerShortcutHandler, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
+import { registerConfigIPC } from './ipc/config.ipc';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -33,6 +34,10 @@ function bootstrap(): void {
   app.commandLine.appendSwitch('--enable-zero-copy');
   app.commandLine.appendSwitch('--process-per-site');
 
+  if (config.lowEndMode) {
+    app.commandLine.appendSwitch('enable-low-end-device-mode');
+  }
+
   setupFlash(app, config.flashVersion);
 
   app.whenReady().then(() => {
@@ -42,6 +47,7 @@ function bootstrap(): void {
     registerZoomShortcuts();
     startMouseHook();
     registerWindowIPC(() => getMainWindow());
+    registerConfigIPC();
 
     app.on('web-contents-created', (_event, wc) => {
       wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
