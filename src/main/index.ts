@@ -1,3 +1,4 @@
+import path from 'path';
 import { app, BrowserWindow } from 'electron';
 import log from 'electron-log';
 import { setupFlash } from './modules/flash';
@@ -7,6 +8,8 @@ import { createWindow, getMainWindow } from './modules/window';
 import { setMainWindowRef, registerShortcutHandler, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
 import { registerConfigIPC } from './ipc/config.ipc';
+import { registerTabsIPC } from './ipc/tabs.ipc';
+import { tabManager } from './modules/tabs';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -33,6 +36,8 @@ function bootstrap(): void {
 
   app.commandLine.appendSwitch('--ignore-gpu-blacklist');
   app.commandLine.appendSwitch('--disable-gpu-process-crash-limit');
+  app.commandLine.appendSwitch('--disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-flash-sandbox');
 
   if (config.lowEndMode) {
     app.commandLine.appendSwitch('enable-low-end-device-mode');
@@ -42,12 +47,25 @@ function bootstrap(): void {
 
   app.whenReady().then(() => {
     mainWindow = createWindow();
+    tabManager.setWindow(mainWindow);
+    tabManager.setPreload(path.join(__dirname, 'webview-preload.js'));
     initSession(() => getMainWindow());
     setMainWindowRef(mainWindow);
     registerZoomShortcuts();
     startMouseHook();
     registerWindowIPC(() => getMainWindow());
     registerConfigIPC();
+    registerTabsIPC();
+
+    mainWindow.on('resize', () => {
+      // Renderer recalculates and sends tab:setBounds
+    });
+
+    if (process.platform === 'win32') {
+      mainWindow.on('move', () => {
+        // Renderer recalculates and sends tab:setBounds
+      });
+    }
 
     app.on('web-contents-created', (_event, wc) => {
       wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
@@ -69,20 +87,14 @@ function bootstrap(): void {
   });
 
   let crashCount = 0;
-  app.on('render-process-gone', (_event, _wc, details) => {
-    log.error('[App] RENDER PROCESS GONE — reason: ' + details.reason + ', exitCode: ' + details.exitCode);
-    crashCount++;
-    if (crashCount > 3) {
-      log.error('[App] too many crashes, quitting');
-      app.quit();
-      return;
-    }
+  app.on('render-process-gone', (_event, wc, details) => {
+    // Only handle main window renderer crash (not BrowserView tabs)
     const win = mainWindow;
-    if (win && !win.isDestroyed()) {
-      setTimeout(() => {
-        log.info('[App] reloading window after renderer crash (attempt ' + crashCount + ')');
-        win.reload();
-      }, 500);
+    if (wc === win?.webContents) {
+      log.error('[App] MAIN RENDER PROCESS GONE — reason: ' + details.reason);
+      crashCount++;
+      if (crashCount > 3) { app.quit(); return; }
+      setTimeout(() => win?.reload(), 500);
     }
   });
 

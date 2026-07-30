@@ -21,6 +21,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "dexie": "^4.4.4",
     "electron-localshortcut": "^3.2.1",
     "electron-log": "^4.4.8",
     "electron-store": "^7.0.3",

@@ -3,119 +3,80 @@ import { ChevronUp, ChevronDown, X } from 'lucide-react';
 
 interface FindBarProps {
   visible: boolean;
+  activeTabId: string | null;
   onClose: () => void;
-  activeWebview: () => HTMLElement | null;
 }
 
-interface FindResult {
-  activeMatchOrdinal: number;
-  matches: number;
-}
+interface FindResult { activeMatchOrdinal: number; matches: number; }
 
-const FindBar: React.FC<FindBarProps> = ({ visible, onClose, activeWebview }) => {
+const FindBar: React.FC<FindBarProps> = ({ visible, activeTabId, onClose }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState('');
   const [result, setResult] = useState<FindResult>({ activeMatchOrdinal: 0, matches: 0 });
 
   const handleClose = useCallback(() => {
-    const el = activeWebview();
-    if (el) (el as any).focus();
+    if (activeTabId) window.electronAPI.tab.stopFind(activeTabId, 'clearSelection');
     onClose();
-  }, [activeWebview, onClose]);
+    setText('');
+    setResult({ activeMatchOrdinal: 0, matches: 0 });
+  }, [activeTabId, onClose]);
 
   useEffect(() => {
     if (visible) {
       setTimeout(() => inputRef.current?.focus(), 50);
-    } else {
-      const wv = activeWebview() as any;
-      if (wv?.stopFindInPage) wv.stopFindInPage('clearSelection');
-      setText('');
-      setResult({ activeMatchOrdinal: 0, matches: 0 });
     }
-  }, [visible, activeWebview]);
+  }, [visible]);
 
   useEffect(() => {
     if (!visible) return;
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault();
-        handleClose();
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); handleClose(); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [visible, handleClose]);
 
   useEffect(() => {
-    const wv = activeWebview() as HTMLElement | null;
-    if (!wv) return;
-    const onFoundInPage = (e: any) => {
-      const r = e.result || e.detail || e;
-      if (r.matches !== undefined) {
-        setResult({ activeMatchOrdinal: r.activeMatchOrdinal || 0, matches: r.matches });
+    const unsub = window.electronAPI.on('tab:found', (payload: any) => {
+      if (payload.tabId === activeTabId) {
+        setResult({ activeMatchOrdinal: payload.activeMatchOrdinal || 0, matches: payload.matches || 0 });
       }
-    };
-    wv.addEventListener('found-in-page', onFoundInPage);
-    return () => wv.removeEventListener('found-in-page', onFoundInPage);
-  }, [activeWebview, visible]);
+    });
+    return () => { try { unsub(); } catch {} };
+  }, [activeTabId]);
 
   const doFind = useCallback((value: string) => {
-    const wv = activeWebview() as any;
-    if (!wv?.findInPage) return;
-
+    if (!activeTabId) return;
     if (!value) {
-      wv.stopFindInPage('clearSelection');
+      window.electronAPI.tab.stopFind(activeTabId, 'clearSelection');
       setResult({ activeMatchOrdinal: 0, matches: 0 });
       return;
     }
-
-    wv.findInPage(value);
-  }, [activeWebview]);
+    window.electronAPI.tab.find(activeTabId, value);
+  }, [activeTabId]);
 
   const handleInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value;
-    setText(v);
-    doFind(v);
+    const v = e.target.value; setText(v); doFind(v);
   }, [doFind]);
 
-  const findNext = useCallback(() => {
-    (activeWebview() as any)?.findInPage(text, { forward: true, findNext: true });
-  }, [activeWebview, text]);
-
-  const findPrev = useCallback(() => {
-    (activeWebview() as any)?.findInPage(text, { forward: false, findNext: true });
-  }, [activeWebview, text]);
+  const findNext = () => { if (activeTabId) window.electronAPI.tab.find(activeTabId, text, { forward: true, findNext: true }); };
+  const findPrev = () => { if (activeTabId) window.electronAPI.tab.find(activeTabId, text, { forward: false, findNext: true }); };
 
   if (!visible) return null;
 
   return (
-    <div className="find-capsule">
-      <input
-        ref={inputRef}
-        className="find-capsule-input"
-        value={text}
-        onChange={handleInput}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') return handleClose();
+    <div className="find-bar-embed">
+      <input ref={inputRef} className="find-bar-embed-input" value={text} onChange={handleInput}
+        onKeyDown={e => {
+          if (e.key === 'Escape') handleClose();
           if (e.key === 'Enter') { e.preventDefault(); return e.shiftKey ? findPrev() : findNext(); }
-        }}
-        placeholder="查找"
-        spellCheck={false}
+        }} placeholder="查找" spellCheck={false}
       />
-      <span className="find-capsule-count">
-        {text ? `${result.activeMatchOrdinal || 0}/${result.matches || 0}` : ''}
-      </span>
-      <button onClick={findPrev} className="find-capsule-btn" disabled={!text} title="上一个">
-        <ChevronUp className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={findNext} className="find-capsule-btn" disabled={!text} title="下一个">
-        <ChevronDown className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={handleClose} className="find-capsule-btn" title="关闭">
-        <X className="w-3.5 h-3.5" />
-      </button>
+      <span className="find-bar-embed-count">{text ? `${result.activeMatchOrdinal || 0}/${result.matches || 0}` : ''}</span>
+      <button onClick={findPrev} className="find-bar-embed-btn" disabled={!text}><ChevronUp className="w-3.5 h-3.5" /></button>
+      <button onClick={findNext} className="find-bar-embed-btn" disabled={!text}><ChevronDown className="w-3.5 h-3.5" /></button>
+      <button onClick={handleClose} className="find-bar-embed-btn"><X className="w-3.5 h-3.5" /></button>
     </div>
   );
 };
-
 export default FindBar;

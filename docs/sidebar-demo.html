@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>侧边栏设计 Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1a2e;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ===== Toolbar (tab bar) ===== */
+  .tabbar {
+    height: 42px;
+    background: #16213e;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    gap: 2px;
+    font-size: 13px; color: #bbb;
+  }
+  .tab {
+    padding: 6px 16px;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tab.active { background: #1a1a2e; color: #ccc; }
+  .tab:hover:not(.active) { background: #0f3460; }
+
+  /* ===== NavBar (address bar) ===== */
+  .navbar {
+    height: 38px;
+    background: #16213e;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 6px;
+    border-top: 1px solid #1a2840;
+  }
+  .nav-btn {
+    width: 28px; height: 28px;
+    border: none; background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: #888;
+  }
+  .nav-btn:hover { background: #0f3460; color: #ccc; }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+  .nav-url {
+    flex: 1; height: 28px;
+    background: #0a0a1a;
+    border: 1px solid #0f3460;
+    border-radius: 14px;
+    padding: 0 14px;
+    color: #ccc; font-size: 13px;
+    outline: none;
+  }
+  .nav-url:focus { border-color: #533483; }
+
+  /* ===== Quick Actions Bar ===== */
+  .quickbar {
+    height: 34px;
+    background: #1a2840;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    gap: 2px;
+    border-bottom: 1px solid #0f3460;
+  }
+  .quick-btn {
+    height: 28px;
+    padding: 0 10px;
+    border: none; background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: #888;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .quick-btn:hover { background: #0f3460; color: #ccc; }
+  .quick-btn .lbl { display: none; }
+  .quickbar.expanded .quick-btn .lbl { display: inline; }
+
+  .quick-toggle {
+    margin-left: auto;
+    font-size: 16px; color: #555;
+    transition: transform 0.25s ease;
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    cursor: pointer;
+    border: none; background: transparent;
+  }
+  .quick-toggle:hover { background: #0f3460; color: #ccc; }
+  .quickbar.expanded .quick-toggle { transform: rotate(180deg); }
+
+  /* ===== Content Area ===== */
+  .content {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ===== Sidebar ===== */
+  .sidebar {
+    display: flex;
+    flex-shrink: 0;
+    transition: width 0.25s ease;
+    background: #16213e;
+    border-right: 1px solid #0f3460;
+    overflow: hidden;
+  }
+  .sidebar.collapsed { width: 48px; }
+  .sidebar.expanded { width: 280px; }
+
+  .sidebar-icons {
+    width: 48px; flex-shrink: 0;
+    display: flex; flex-direction: column;
+    align-items: center; padding: 8px 0; gap: 4px;
+  }
+  .sidebar-icon {
+    width: 36px; height: 36px;
+    border: none; background: transparent;
+    border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: #888;
+    position: relative; transition: all 0.15s;
+  }
+  .sidebar-icon:hover { background: #0f3460; color: #ccc; }
+  .sidebar-icon.active { background: #533483; color: #fff; }
+  .sidebar-icon .badge {
+    position: absolute; top: 3px; right: 3px;
+    width: 6px; height: 6px;
+    border-radius: 50%; background: #e74c3c;
+  }
+
+  .sidebar-panel {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .panel-header {
+    height: 38px; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 12px;
+    font-size: 13px; font-weight: 600; color: #ccc;
+    border-bottom: 1px solid #0f3460; flex-shrink: 0;
+  }
+  .panel-list {
+    flex: 1; overflow-y: auto; padding: 4px 0;
+  }
+  .panel-list::-webkit-scrollbar { width: 4px; }
+  .panel-list::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+  .panel-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; cursor: pointer;
+    font-size: 13px; color: #bbb;
+    transition: background 0.1s;
+  }
+  .panel-item:hover { background: #0f3460; }
+  .panel-item .favicon {
+    width: 16px; height: 16px; border-radius: 3px;
+    flex-shrink: 0; display: flex; align-items: center;
+    justify-content: center;
+    font-size: 10px; font-weight: bold; color: #fff;
+  }
+  .panel-item .item-text { flex: 1; min-width: 0; }
+  .panel-item .item-title {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: block;
+  }
+  .panel-item .item-sub {
+    font-size: 11px; color: #666;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: block; margin-top: 1px;
+  }
+
+  .panel-section-label {
+    font-size: 11px; font-weight: 600; color: #666;
+    padding: 10px 12px 4px;
+    letter-spacing: 0.3px;
+  }
+
+  .panel-actions {
+    border-top: 1px solid #0f3460; padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 2px; flex-shrink: 0;
+  }
+  .panel-action {
+    font-size: 12px; color: #aaa; padding: 6px 8px;
+    border-radius: 6px; cursor: pointer; display: flex;
+    align-items: center; gap: 8px; border: none;
+    background: transparent; width: 100%; text-align: left;
+  }
+  .panel-action:hover { background: #0f3460; color: #ccc; }
+
+  /* ===== BrowserView Area ===== */
+  .browser-view {
+    flex: 1;
+    background: #0a0a1a;
+    display: flex; align-items: center; justify-content: center;
+    color: #555; font-size: 14px;
+    transition: all 0.25s ease;
+    position: relative; overflow: hidden;
+  }
+  .browser-view::after {
+    content: '';
+    position: absolute; inset: 20px;
+    border: 1px dashed #1a1a3e; border-radius: 8px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- Tab Bar -->
+<div class="tabbar">
+  <button class="tab active"><span style="font-size:10px">🌐</span> 7k7k小游戏</button>
+</div>
+
+<!-- Navigation Bar -->
+<div class="navbar">
+  <button class="nav-btn" disabled>◀</button>
+  <button class="nav-btn" disabled>▶</button>
+  <button class="nav-btn">↻</button>
+  <input class="nav-url" value="https://www.7k7k.com/" readonly>
+</div>
+
+<!-- Quick Actions Bar -->
+<div class="quickbar" id="quickbar">
+  <button class="quick-btn" title="刷新" onclick="flash('刷新')"><span style="font-size:13px">↻</span><span class="lbl">刷新</span></button>
+  <button class="quick-btn" title="静音" onclick="flash('静音切换')"><span style="font-size:13px">🔇</span><span class="lbl">静音</span></button>
+  <button class="quick-btn" title="深色/浅色" onclick="flash('主题切换')"><span style="font-size:13px">🌙</span><span class="lbl">主题</span></button>
+  <button class="quick-btn" title="全屏" onclick="flash('全屏')"><span style="font-size:13px">⛶</span><span class="lbl">全屏</span></button>
+  <button class="quick-btn" title="主页" onclick="flash('主页')"><span style="font-size:13px">🏠</span><span class="lbl">主页</span></button>
+  <button class="quick-btn" title="截图" onclick="flash('截图')"><span style="font-size:13px">📷</span><span class="lbl">截图</span></button>
+  <button class="quick-btn" onclick="flash('清缓存')"><span style="font-size:13px">🗑️</span><span class="lbl">清缓存</span></button>
+  <button class="quick-toggle" id="quickToggle" onclick="toggleQuick()" title="展开快捷操作">▶</button>
+</div>
+
+<!-- Content: Sidebar + BrowserView -->
+<div class="content">
+  <div class="sidebar collapsed" id="sidebar">
+    <div class="sidebar-icons">
+      <button class="sidebar-icon active" data-panel="bookmarks" title="收藏夹" onclick="togglePanel('bookmarks')">⭐</button>
+      <button class="sidebar-icon" data-panel="history" title="历史记录" onclick="togglePanel('history')">🕐</button>
+      <button class="sidebar-icon" data-panel="downloads" title="下载" onclick="togglePanel('downloads')">⬇<span class="badge"></span></button>
+      <button class="sidebar-icon" data-panel="settings" title="设置" onclick="togglePanel('settings')">⚙</button>
+    </div>
+    <div class="sidebar-panel" id="panelContainer"></div>
+  </div>
+
+  <div class="browser-view" id="browserView">
+    <span style="opacity:0.3">Flash 游戏区域 (BrowserView)</span>
+  </div>
+</div>
+
+<script>
+  const sidebar = document.getElementById('sidebar');
+  const panelContainer = document.getElementById('panelContainer');
+  const quickbar = document.getElementById('quickbar');
+  let activePanel = null;
+  let sidebarExpanded = false;
+  let quickExpanded = false;
+
+  const panelData = {
+    bookmarks: {
+      title: '收藏夹',
+      sections: [
+        { label: '游戏', items: [
+          { icon: '7', color: '#e67e22', title: '7k7k小游戏', sub: '7k7k.com' },
+          { icon: '4', color: '#e74c3c', title: '4399小游戏', sub: '4399.com' },
+          { icon: 'M', color: '#3498db', title: '摩尔庄园', sub: 'mole.61.com' },
+          { icon: 'S', color: '#27ae60', title: '赛尔号', sub: 'seer.61.com' },
+        ]},
+        { label: '工具', items: [
+          { icon: 'B', color: '#00897b', title: 'Bing 搜索', sub: 'bing.com' },
+          { icon: 'G', color: '#333', title: 'GitHub', sub: 'github.com' },
+        ]},
+      ],
+    },
+    history: {
+      title: '历史记录',
+      sections: [
+        { label: '今天', items: [
+          { icon: '7', color: '#e67e22', title: '7k7k小游戏', sub: '7k7k.com · 14:23' },
+          { icon: 'M', color: '#3498db', title: '摩尔庄园攻略', sub: 'mole.61.com · 13:50' },
+          { icon: 'B', color: '#00897b', title: 'Bing 搜索', sub: 'bing.com · 10:15' },
+        ]},
+        { label: '昨天', items: [
+          { icon: '4', color: '#e74c3c', title: '4399赛尔号', sub: '4399.com · 昨天' },
+        ]},
+      ],
+    },
+    downloads: {
+      title: '下载',
+      sections: [
+        { label: '进行中', items: [
+          { icon: '⬇', color: '#533483', title: 'flashgame.swf', sub: '12.4 MB · 67%' },
+        ]},
+        { label: '已完成', items: [
+          { icon: '✓', color: '#27ae60', title: 'screenshot.png', sub: '2.1 MB · 已完成' },
+        ]},
+      ],
+    },
+    settings: {
+      title: '设置',
+      sections: [],
+      actions: [
+        { label: '主页网址', sub: 'about:newtab' },
+        { label: 'Flash 伪装版本', sub: '34.0.0.330' },
+        { label: '搜索引擎', sub: 'Bing' },
+        { label: '链接打开方式', sub: '新标签页' },
+        { label: '低端设备模式', sub: '关闭' },
+      ],
+    },
+  };
+
+  function flash(msg) {
+    // Visual feedback stub — nothing to do here in demo
+    console.log('Action:', msg);
+  }
+
+  function toggleQuick() {
+    quickExpanded = !quickExpanded;
+    applyQuickState();
+  }
+
+  function applyQuickState() {
+    if (quickExpanded || sidebarExpanded) {
+      quickbar.classList.add('expanded');
+    } else {
+      quickbar.classList.remove('expanded');
+    }
+  }
+
+  function togglePanel(name) {
+    if (sidebarExpanded && activePanel === name) {
+      // Collapse
+      sidebar.classList.remove('expanded');
+      sidebar.classList.add('collapsed');
+      sidebarExpanded = false;
+      activePanel = null;
+      panelContainer.innerHTML = '';
+      applyQuickState();
+    } else {
+      // Expand
+      activePanel = name;
+      sidebar.classList.remove('collapsed');
+      sidebar.classList.add('expanded');
+      sidebarExpanded = true;
+      applyQuickState();
+
+      document.querySelectorAll('.sidebar-icon').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.panel === name);
+      });
+
+      renderPanel(name);
+    }
+  }
+
+  function renderPanel(name) {
+    const data = panelData[name];
+    let html = `<div class="panel-header"><span>${data.title}</span><button class="nav-btn" onclick="togglePanel('${name}')" style="font-size:16px">×</button></div><div class="panel-list">`;
+
+    if (data.sections) {
+      data.sections.forEach(sec => {
+        html += `<div class="panel-section-label">${sec.label}</div>`;
+        sec.items.forEach(item => {
+          html += `
+            <div class="panel-item">
+              <div class="favicon" style="background:${item.color}">${item.icon}</div>
+              <div class="item-text">
+                <span class="item-title">${item.title}</span>
+                <span class="item-sub">${item.sub}</span>
+              </div>
+            </div>`;
+        });
+      });
+    }
+
+    if (data.actions) {
+      data.actions.forEach(a => {
+        html += `
+          <button class="panel-action">
+            <span>${a.label}</span>
+            <span style="flex:1;text-align:right;color:#666;font-size:11px">${a.sub}</span>
+          </button>`;
+      });
+    }
+
+    html += '</div>';
+    panelContainer.innerHTML = html;
+  }
+</script>
+
+</body>
+</html>

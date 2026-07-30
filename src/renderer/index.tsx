@@ -4,7 +4,6 @@ window.document.title = 'Bao — loaded';
 import React from 'react';
 import ReactDOM from 'react-dom';
 import App from './App';
-import ErrorBoundary from './components/overlays/ErrorBoundary';
 import './styles.css';
 
 console.log('[Entry] Modules loaded, mounting React...');
@@ -14,7 +13,7 @@ console.log('[Entry] rootEl:', !!rootEl);
 
 if (rootEl) {
   try {
-    ReactDOM.render(React.createElement(React.StrictMode, null, React.createElement(ErrorBoundary, null, React.createElement(App))), rootEl);
+    ReactDOM.render(React.createElement(React.StrictMode, null, React.createElement(App)), rootEl);
     console.log('[Entry] React mounted successfully');
   } catch (e) {
     console.error('[Entry] React mount error:', e);

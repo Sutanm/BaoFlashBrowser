@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import log from 'electron-log';
 import { App } from 'electron';
 
@@ -39,6 +40,31 @@ export function setupFlash(app: App, flashVersion: string): void {
     const ver = /^\d+\.\d+\.\d+\.\d+$/.test(flashVersion) ? flashVersion : extractVersion(pluginPath);
     app.commandLine.appendSwitch('ppapi-flash-path', pluginPath);
     app.commandLine.appendSwitch('ppapi-flash-version', ver);
+
+    const mmsContent =
+      'SuppressDebuggerExceptionDialogs=1\nErrorReportingEnable=0\nTraceOutputFileEnable=0\nDisableProductDownload=1\n';
+
+    // Write to every path Flash might read from (both mms.cfg and mm.cfg)
+    const mmsPaths = [
+      process.cwd(),
+      path.join(app.getPath('userData'), 'PepperFlash', 'System'),
+      path.join(os.homedir(), 'AppData', 'Roaming', 'Macromedia', 'Flash Player'),
+      path.join(os.homedir(), 'AppData', 'Local', 'PepperFlashPlayer'),
+      path.join(os.homedir(), 'AppData', 'Roaming', 'Adobe', 'Flash Player'),
+      path.dirname(pluginPath),
+      path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'Macromed', 'Flash'),
+      path.join(process.env.SystemRoot || 'C:\\Windows', 'SysWOW64', 'Macromed', 'Flash'),
+    ];
+
+    for (const p of mmsPaths) {
+      try {
+        fs.mkdirSync(p, { recursive: true });
+        fs.writeFileSync(path.join(p, 'mms.cfg'), mmsContent, 'utf-8');
+        fs.writeFileSync(path.join(p, 'mm.cfg'), mmsContent, 'utf-8');
+      } catch (_e) {}
+    }
+    log.info('[Flash] mms.cfg + mm.cfg written to all paths');
+
     log.info('[Flash] Plugin loaded: ' + pluginPath);
     log.info('[Flash] Version: ' + ver);
   } else {

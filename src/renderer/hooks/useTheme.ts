@@ -1,9 +1,7 @@
-import { atom, useAtom } from 'jotai';
-import { useCallback } from 'react';
-
-const themeAtom = atom<'light' | 'dark'>(
-  (localStorage.getItem('baoflash_theme') as 'light' | 'dark') || 'light',
-);
+import { useAtom } from 'jotai';
+import { useCallback, useEffect } from 'react';
+import { themeAtom } from '@renderer/atoms/data.atom';
+import { saveMeta } from '@renderer/services/db';
 
 export function useTheme() {
   const [theme, setTheme] = useAtom(themeAtom);
@@ -11,9 +9,12 @@ export function useTheme() {
   const toggle = useCallback(() => {
     const next = theme === 'light' ? 'dark' : 'light';
     setTheme(next);
-    localStorage.setItem('baoflash_theme', next);
-    document.documentElement.classList.toggle('dark', next === 'dark');
   }, [theme, setTheme]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    saveMeta('theme', theme);
+  }, [theme]);
 
   return { theme, toggle };
 }
