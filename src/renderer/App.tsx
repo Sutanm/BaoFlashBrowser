@@ -11,6 +11,7 @@ import SettingsPanel from './components/panels/SettingsPanel';
 import HistoryPanel from './components/panels/HistoryPanel';
 import DownloadsPanel from './components/panels/DownloadsPanel';
 import ContextMenu from './components/overlays/ContextMenu';
+import FindBar from './components/overlays/FindBar';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { tabsAtom, activeTabIdAtom } from './atoms/tabs.atom';
@@ -37,6 +38,7 @@ const App: React.FC = () => {
   const [activePanel, setActivePanel] = useState<'favorites' | 'history' | 'downloads' | 'settings' | null>(null);
   const [showZoom, setShowZoom] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
+  const [findBarVisible, setFindBarVisible] = useState(false);
   const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addressUrl, setAddressUrl] = useState('');
 
@@ -168,6 +170,7 @@ const App: React.FC = () => {
       case 'zoom-reset': zoomReset(); break;
       case 'go-back': { const el = activeWebview(); if (el) el.goBack(); break; }
       case 'go-forward': { const el = activeWebview(); if (el) el.goForward(); break; }
+      case 'find-in-page': setFindBarVisible((v) => !v); break;
     }
   });
 
@@ -194,6 +197,18 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [tabs, switchTab]);
+
+  // Ctrl+F global toggle — works even when focus is outside webview (address bar etc.)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        setFindBarVisible((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // --- External URL open (new-window → new tab) ---
   useEffect(() => {
@@ -266,8 +281,13 @@ const App: React.FC = () => {
       <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
         <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
       </div>
-      <div style={{ display: isOnNewTab ? 'none' : 'flex', flex: '1 1 0%' }}>
+      <div style={{ display: isOnNewTab ? 'none' : 'flex', flex: '1 1 0%', position: 'relative' }}>
         <WebviewContainer tabs={tabs} activeTabId={activeTabId} onTabUpdate={updateTab} />
+        <FindBar
+          visible={findBarVisible && !isOnNewTab}
+          onClose={() => setFindBarVisible(false)}
+          activeWebview={activeWebview}
+        />
       </div>
       <LoadingProgress visible={activeTab?.isLoading ?? false} />
       <ZoomOverlay level={zoomPercent / 100} visible={showZoom} />

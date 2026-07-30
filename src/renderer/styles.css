@@ -316,6 +316,52 @@ body.dark {
     background: var(--accent);
   }
 
+  .find-capsule {
+    @apply absolute top-3 left-1/2 flex items-center gap-1 px-3 py-1.5 rounded-full shadow-md z-[250];
+    transform: translateX(-50%);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .find-capsule-input {
+    width: 200px;
+    height: 24px;
+    padding: 0 6px;
+    font-size: 13px;
+    border: none;
+    outline: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-primary);
+  }
+
+  .find-capsule-input::placeholder {
+    color: var(--text-secondary);
+  }
+
+  .find-capsule-count {
+    @apply text-xs;
+    color: var(--text-secondary);
+    min-width: 36px;
+    text-align: center;
+  }
+
+  .find-capsule-btn {
+    @apply w-6 h-6 flex items-center justify-center border-none bg-transparent cursor-pointer rounded;
+    color: var(--text-secondary);
+  }
+
+  .find-capsule-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .find-capsule-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
   .zoom-indicator {
     @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
            bg-black/70 text-white px-4 py-2 rounded-lg text-sm
