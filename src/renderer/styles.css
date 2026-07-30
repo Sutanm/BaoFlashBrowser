@@ -173,6 +173,11 @@ body.dark {
     color: white;
   }
 
+  .tab-item.drag-over {
+    box-shadow: inset 2px 0 0 var(--accent);
+    background: var(--bg-hover);
+  }
+
   .panel-card {
     @apply fixed right-2 w-[320px]
            bg-white border border-gray-200

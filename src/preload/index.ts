@@ -23,6 +23,7 @@ const electronAPI = {
     close: () => ipcRenderer.invoke('win:close'),
     setFullscreen: (fullscreen: boolean) =>
       ipcRenderer.invoke('win:setFullscreen', fullscreen),
+    toggleFullscreen: () => ipcRenderer.invoke('win:toggleFullscreen'),
     isMaximized: () => ipcRenderer.invoke('win:isMaximized') as Promise<boolean>,
   },
 };

@@ -157,7 +157,7 @@ const App: React.FC = () => {
         if (el) action === 'reload' ? el.reload() : el.stop();
         break;
       }
-      case 'fullscreen': window.electronAPI.win.setFullscreen(true); break;
+      case 'fullscreen': window.electronAPI.win.toggleFullscreen(); break;
       case 'devtools': {
         const el = activeWebview();
         if (el) el.openDevTools();
@@ -251,6 +251,14 @@ const App: React.FC = () => {
         onNewTab={() => createTab()}
         onToggleTheme={toggleTheme}
         isDark={theme === 'dark'}
+        onReorder={(from, to) => {
+          setTabs((prev) => {
+            const next = [...prev];
+            const [moved] = next.splice(from, 1);
+            next.splice(to, 0, moved);
+            return next;
+          });
+        }}
       />
 
       <NavigationBar

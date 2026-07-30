@@ -8,6 +8,7 @@ interface ElectronAPI {
     unmaximize(): Promise<void>;
     close(): Promise<void>;
     setFullscreen(fullscreen: boolean): Promise<void>;
+    toggleFullscreen(): Promise<void>;
     isMaximized(): Promise<boolean>;
   };
 }
