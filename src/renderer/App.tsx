@@ -1,10 +1,9 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import TabBar from './components/tabs/TabBar';
-import NavigationBar from './components/navigation/NavigationBar';
+import TopBar from './components/layout/TopBar';
+import DrawerSidebar from './components/layout/DrawerSidebar';
 import NewTabPage from './components/newtab/NewTabPage';
 import LoadingProgress from './components/overlays/LoadingProgress';
-import UnifiedSidebar from './components/panels/UnifiedSidebar';
 import FindBar from './components/overlays/FindBar';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
@@ -36,6 +35,8 @@ const App: React.FC = () => {
   const history = useAtomValue(historyAtom);
   const downloads = useAtomValue(downloadsAtom);
   const [isMuted, setIsMuted] = useState(false);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
 
   const setFavorites = useSetAtom(favoritesAtom);
   const setHistory = useSetAtom(historyAtom);
@@ -129,7 +130,43 @@ const App: React.FC = () => {
         setAddressUrl(url);
       }
     }
-  }, [setTabs, activeTabId]);
+    // Record history when URL changes to a real page
+    if (changes.url !== undefined && !isNewtabUrl(changes.url) && changes.url !== 'about:blank') {
+      const currentTab = tabsRef.current.find((t) => t.id === tabId);
+      const entry: HistoryEntry = {
+        id: generateId(),
+        url: changes.url,
+        title: changes.title || changes.url,
+        favicon: currentTab?.favicon || (changes as any).favicon || '',
+        lastVisit: Date.now(),
+        visitCount: 1,
+      };
+      setHistory((prev) => {
+        // Dedupe: if same URL visited recently, update instead of prepend
+        const existing = prev.find((h) => h.url === entry.url);
+        if (existing) {
+          return prev.map((h) => h.url === entry.url
+            ? { ...h, lastVisit: Date.now(), visitCount: h.visitCount + 1, title: entry.title || h.title, favicon: entry.favicon || h.favicon }
+            : h
+          );
+        }
+        return [entry, ...prev];
+      });
+    }
+    // Update favicon in history when it arrives from page-favicon-updated
+    if (changes.favicon) {
+      const tabUrl = tabsRef.current.find((t) => t.id === tabId)?.url;
+      if (tabUrl) {
+        setHistory((prev) => {
+          const idx = prev.findIndex((h) => h.url === tabUrl);
+          if (idx >= 0 && !prev[idx].favicon) {
+            return prev.map((h) => h.url === tabUrl ? { ...h, favicon: changes.favicon! } : h);
+          }
+          return prev;
+        });
+      }
+    }
+  }, [setTabs, activeTabId, setHistory]);
 
   const updateTabRef = useRef(updateTab);
   updateTabRef.current = updateTab;
@@ -291,58 +328,76 @@ const App: React.FC = () => {
   }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bvAreaRef = useRef<HTMLDivElement>(null);
+  const bvAnimRef = useRef(0);
 
-  useEffect(() => {
-    const calc = () => {
-      if (!bvAreaRef.current) return;
-      const r = bvAreaRef.current.getBoundingClientRect();
-      window.electronAPI.tab.setBounds(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height));
+  const calcBounds = useCallback((animated = false) => {
+    if (!bvAreaRef.current) return;
+    const r = bvAreaRef.current.getBoundingClientRect();
+    const targetX = activePanel !== null ? 280 : 0;
+
+    if (!animated) {
+      window.electronAPI.tab.setBounds(
+        Math.round(r.x + targetX),
+        Math.round(r.y),
+        Math.round(r.width),
+        Math.round(r.height),
+      );
+      return;
+    }
+
+    // Animate BrowserView x position over 250ms to match drawer CSS transition
+    cancelAnimationFrame(bvAnimRef.current);
+    const startX = activePanel !== null ? 0 : 280;
+    const startTime = performance.now();
+    const duration = 250;
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      // ease-out cubic
+      const ease = 1 - Math.pow(1 - t, 3);
+      const x = Math.round(r.x + startX + (targetX - startX) * ease);
+      window.electronAPI.tab.setBounds(x, Math.round(r.y), Math.round(r.width), Math.round(r.height));
+      if (t < 1) bvAnimRef.current = requestAnimationFrame(step);
     };
-    calc();
-    const area = bvAreaRef.current;
-    const ro = new ResizeObserver(() => calc());
-    if (area) ro.observe(area);
-    window.addEventListener('resize', calc);
-    return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
-  }, [activePanel, findBarVisible]);
+    bvAnimRef.current = requestAnimationFrame(step);
+  }, [activePanel]);
+
+  const calcBoundsRef = useRef(calcBounds);
+  calcBoundsRef.current = calcBounds;
 
   useEffect(() => {
-    setTimeout(() => {
-      if (bvAreaRef.current) {
-        const r = bvAreaRef.current.getBoundingClientRect();
-        window.electronAPI.tab.setBounds(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height));
-      }
-    }, 270);
+    calcBoundsRef.current(false);
+    const area = bvAreaRef.current;
+    const onResize = () => calcBoundsRef.current(false);
+    const ro = new ResizeObserver(onResize);
+    if (area) ro.observe(area);
+    window.addEventListener('resize', onResize);
+    return () => { ro.disconnect(); window.removeEventListener('resize', onResize); };
+  }, [calcBounds, findBarVisible]);
+
+  // Animate BrowserView when drawer opens/closes
+  useEffect(() => {
+    calcBoundsRef.current(true);
+    const timer = setTimeout(() => calcBoundsRef.current(false), 300);
+    return () => clearTimeout(timer);
   }, [activePanel]);
 
   return (
     <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>
-      <TabBar
+      <TopBar
         tabs={tabs}
         activeTabId={activeTabId}
-        onSelectTab={switchTab}
-        onCloseTab={closeTab}
-        onNewTab={() => createTab()}
-        onToggleTheme={toggleTheme}
-        isDark={theme === 'dark'}
-        onReorder={(from, to) => {
-          setTabs((prev) => {
-            const next = [...prev];
-            const [moved] = next.splice(from, 1);
-            next.splice(to, 0, moved);
-            return next;
-          });
-        }}
-      />
-
-      <NavigationBar
         url={addressUrl}
         isLoading={activeTab?.isLoading || false}
         canGoBack={activeTab?.canGoBack || false}
         canGoForward={activeTab?.canGoForward || false}
         isMuted={isMuted}
-        isBookmarked={activeTab ? favorites.some((f) => f.url === activeTab.url && activeTab.url !== 'about:newtab') : false}
+        isDark={theme === 'dark'}
         zoomPercent={Math.round((activeTab?.zoomFactor ?? 1) * 100)}
+        onSelectTab={switchTab}
+        onCloseTab={closeTab}
+        onNewTab={() => createTab()}
         onNavigate={handleNavigate}
         onBack={() => { if (activeTabId) window.electronAPI.tab.goBack(activeTabId); }}
         onForward={() => { if (activeTabId) window.electronAPI.tab.goForward(activeTabId); }}
@@ -354,30 +409,32 @@ const App: React.FC = () => {
             return !m;
           });
         }}
-        onToggleFavorites={() => setActivePanel((v) => v === 'favorites' ? null : 'favorites')}
-        onToggleHistory={() => setActivePanel((v) => v === 'history' ? null : 'history')}
-        onToggleDownloads={() => setActivePanel((v) => v === 'downloads' ? null : 'downloads')}
-        onToggleSettings={() => setActivePanel((v) => v === 'settings' ? null : 'settings')}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
+        onZoomReset={zoomReset}
+        onReorder={(from, to) => {
+          setTabs((prev) => {
+            const next = [...prev];
+            const [moved] = next.splice(from, 1);
+            next.splice(to, 0, moved);
+            return next;
+          });
+        }}
       />
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
-        <UnifiedSidebar
+      {/* Content area: sidebar icon strip + drawer panel + main content */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0, position: 'relative' }}>
+        <DrawerSidebar
           activePanel={activePanel}
           currentUrl={activeTab?.url || ''}
+          onTogglePanel={(panel) => setActivePanel((v) => v === panel ? null : panel)}
+          onClose={() => setActivePanel(null)}
           onOpenUrl={(url, newTab) => {
             if (newTab || activeTab?.url !== 'about:newtab') {
               createTab(url);
             } else {
               handleNavigate(url);
             }
-          }}
-          onClose={() => setActivePanel(null)}
-          onTogglePanel={(panel) => {
-            const type = panel === 'bookmarks' ? 'favorites' :
-                         panel === 'history' ? 'history' :
-                         panel === 'downloads' ? 'downloads' :
-                         panel === 'settings' ? 'settings' : 'favorites';
-            setActivePanel((v) => v === type ? null : type);
           }}
           zoomPercent={Math.round((activeTab?.zoomFactor ?? 1) * 100)}
           onZoomIn={zoomIn}

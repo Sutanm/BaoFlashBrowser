@@ -4,20 +4,21 @@ import { X as XIcon, Download, CheckCircle, XCircle } from 'lucide-react';
 import { downloadsAtom } from '@renderer/atoms/data.atom';
 import type { DownloadItem } from '@shared/types/downloads';
 
-interface DownloadsPanelProps {
-  visible: boolean;
-  onClose: () => void;
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return bytes + ' B';
 }
 
-const DownloadsPanel: React.FC<DownloadsPanelProps> = ({ visible, onClose }) => {
+const DownloadsPanel: React.FC = () => {
   const [downloads, setDownloads] = useAtom(downloadsAtom);
 
   useEffect(() => {
     const cleanup = (window as any).electronAPI?.on('download:updated', (payload: any) => {
       setDownloads((prev) => {
-        const exists = prev.find((d) => d.id === payload.id);
+        const exists = prev.find((d: DownloadItem) => d.id === payload.id);
         if (exists) {
-          return prev.map((d) => d.id === payload.id ? { ...d, ...payload } : d);
+          return prev.map((d: DownloadItem) => d.id === payload.id ? { ...d, ...payload } : d);
         }
         return [{ ...payload, id: payload.id }, ...prev];
       });
@@ -27,36 +28,28 @@ const DownloadsPanel: React.FC<DownloadsPanelProps> = ({ visible, onClose }) => 
 
   const removeEntry = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setDownloads((prev) => prev.filter((d) => d.id !== id));
+    setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== id));
   }, [setDownloads]);
 
   const clearCompleted = useCallback(() => {
-    setDownloads((prev) => prev.filter((d) => d.state !== 'completed' && d.state !== 'cancelled'));
+    setDownloads((prev) => prev.filter((d: DownloadItem) => d.state !== 'completed' && d.state !== 'cancelled'));
   }, [setDownloads]);
 
-  if (!visible) return null;
-
   const sorted = [...downloads].reverse();
-  const hasCompleted = sorted.some((d) => d.state === 'completed' || d.state === 'cancelled');
+  const hasCompleted = sorted.some((d: DownloadItem) => d.state === 'completed' || d.state === 'cancelled');
 
   return (
-    <div className="panel-card">
-      <div className="panel-header">
-        <span>下载</span>
-        <button onClick={onClose} className="panel-close">&times;</button>
-      </div>
+    <>
       {hasCompleted && (
         <div className="fav-add-bar">
           <button onClick={clearCompleted} className="btn-secondary">清除已完成</button>
         </div>
       )}
-      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
         {sorted.length === 0 ? (
-          <div className="text-center py-6 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            暂无下载
-          </div>
+          <div className="sidebar-empty">暂无下载</div>
         ) : (
-          sorted.map((entry) => (
+          sorted.map((entry: DownloadItem) => (
             <div key={entry.id} className="download-item" title={entry.url}>
               <div className="download-icon">
                 {entry.state === 'completed' ? (
@@ -90,14 +83,8 @@ const DownloadsPanel: React.FC<DownloadsPanelProps> = ({ visible, onClose }) => 
           ))
         )}
       </div>
-    </div>
+    </>
   );
 };
-
-function formatFileSize(bytes: number): string {
-  if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
-  if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return bytes + ' B';
-}
 
 export default DownloadsPanel;

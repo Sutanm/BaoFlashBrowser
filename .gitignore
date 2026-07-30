@@ -5,3 +5,6 @@ wsl_*.sh
 .trae/
 electron-v*.zip
 test/
+adobeflash-archive-master/
+mm.cfg
+mms.cfg
