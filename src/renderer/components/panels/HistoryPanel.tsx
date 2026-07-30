@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
-import { useAtom } from 'jotai';
+import { useAtom, useSetAtom } from 'jotai';
 import { X as XIcon, Search } from 'lucide-react';
-import { historyAtom } from '@renderer/atoms/data.atom';
+import { historyAtom, pushToastAtom } from '@renderer/atoms/data.atom';
 import type { HistoryEntry } from '@shared/types/history';
 
 interface HistoryPanelProps {
@@ -40,15 +40,13 @@ function getHistFaviconUrl(entry: HistoryEntry): string {
 
 const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) => {
   const [history, setHistory] = useAtom(historyAtom);
+  const pushToast = useSetAtom(pushToastAtom);
   const [filter, setFilter] = useState('');
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const removeEntry = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setHistory(history.filter((h) => h.id !== id));
-  }, [history, setHistory]);
-
-  const clearAll = useCallback(() => {
-    setHistory([]);
+    setHistory((prev) => prev.filter((h) => h.id !== id));
   }, [setHistory]);
 
   const sorted = [...history]
@@ -58,6 +56,12 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
       return h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q);
     })
     .sort((a, b) => b.lastVisit - a.lastVisit);
+
+  const clearAll = useCallback(() => {
+    setHistory([]);
+    setConfirmClear(false);
+    pushToast({ message: '历史记录已清空', type: 'info' });
+  }, [setHistory, pushToast]);
 
   const groups = new Map<DateGroup, HistoryEntry[]>();
   for (const entry of sorted) {
@@ -80,10 +84,39 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
           onChange={(e) => setFilter(e.target.value)}
           className="history-search-input"
         />
-        {hasAny && (
-          <button onClick={clearAll} className="history-clear-btn">清空</button>
+        {hasAny && !confirmClear && (
+          <button onClick={() => setConfirmClear(true)} className="history-clear-btn">清空</button>
         )}
       </div>
+      {confirmClear && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          padding: '10px 12px', background: 'var(--bg-hover)', borderRadius: 8,
+          margin: '0 8px 4px', fontSize: 13, flexShrink: 0,
+        }}>
+          <span style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>清空所有历史记录？</span>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button
+              onClick={clearAll}
+              style={{
+                padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                background: '#e81123', color: '#fff', fontSize: 12, whiteSpace: 'nowrap',
+              }}
+            >
+              清空
+            </button>
+            <button
+              onClick={() => setConfirmClear(false)}
+              style={{
+                padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                background: 'var(--border)', color: 'var(--text-primary)', fontSize: 12, whiteSpace: 'nowrap',
+              }}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!hasAny ? (
           <div className="sidebar-empty">暂无历史记录</div>

@@ -71,10 +71,9 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({ visible }) => {
     prevVisible.current = visible;
   }, [visible]);
 
-  return React.createElement('div', {
-    ref: barRef as any,
-    id: 'loading-progress',
-  });
+  return (
+    <div ref={barRef} id="loading-progress" />
+  );
 };
 
 export default LoadingProgress;

@@ -10,6 +10,7 @@ export interface Tab {
   canGoBack: boolean;
   canGoForward: boolean;
   createdAt: number;
+  ruffleMode: 'ppapi' | 'ruffle';
 }
 
 export interface TabCreateOptions {

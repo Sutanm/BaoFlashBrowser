@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import log from 'electron-log';
 import { App } from 'electron';
+import { DEFAULT_FLASH_VERSION } from './config';
 
 function getFlashPluginPath(app: App): string | null {
   const platform = process.platform;
@@ -31,7 +32,7 @@ function extractVersion(dllPath: string): string {
       return ver;
     }
   }
-  return '34.0.0.330';
+  return DEFAULT_FLASH_VERSION;
 }
 
 export function setupFlash(app: App, flashVersion: string): void {
@@ -44,16 +45,18 @@ export function setupFlash(app: App, flashVersion: string): void {
     const mmsContent =
       'SuppressDebuggerExceptionDialogs=1\nErrorReportingEnable=0\nTraceOutputFileEnable=0\nDisableProductDownload=1\n';
 
-    // Write to every path Flash might read from (both mms.cfg and mm.cfg)
+    // Write to every path Flash might read from (platform-specific)
+    // Note: System32/SysWOW64 require admin, skip those — Flash reads user-level paths primarily
+    const isWindows = process.platform === 'win32';
     const mmsPaths = [
       process.cwd(),
       path.join(app.getPath('userData'), 'PepperFlash', 'System'),
-      path.join(os.homedir(), 'AppData', 'Roaming', 'Macromedia', 'Flash Player'),
-      path.join(os.homedir(), 'AppData', 'Local', 'PepperFlashPlayer'),
-      path.join(os.homedir(), 'AppData', 'Roaming', 'Adobe', 'Flash Player'),
+      ...(isWindows ? [
+        path.join(os.homedir(), 'AppData', 'Roaming', 'Macromedia', 'Flash Player'),
+        path.join(os.homedir(), 'AppData', 'Local', 'PepperFlashPlayer'),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'Adobe', 'Flash Player'),
+      ] : []),
       path.dirname(pluginPath),
-      path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'Macromed', 'Flash'),
-      path.join(process.env.SystemRoot || 'C:\\Windows', 'SysWOW64', 'Macromed', 'Flash'),
     ];
 
     for (const p of mmsPaths) {
@@ -61,7 +64,9 @@ export function setupFlash(app: App, flashVersion: string): void {
         fs.mkdirSync(p, { recursive: true });
         fs.writeFileSync(path.join(p, 'mms.cfg'), mmsContent, 'utf-8');
         fs.writeFileSync(path.join(p, 'mm.cfg'), mmsContent, 'utf-8');
-      } catch (_e) {}
+      } catch (e: any) {
+        log.warn(`[Flash] failed to write mms.cfg to ${p}: ${e?.message || e}`);
+      }
     }
     log.info('[Flash] mms.cfg + mm.cfg written to all paths');
 

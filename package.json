@@ -5,7 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build:main": "webpack --config webpack.main.config.js",
-    "build:renderer": "webpack --config webpack.renderer.config.js",
+    "build:renderer": "webpack --config webpack.renderer.config.js && node -e \"require('fs').copyFileSync('src/renderer/index.html', 'dist/renderer/index.html')\"",
     "build": "npm run build:main && npm run build:renderer",
     "dev:main": "webpack --config webpack.main.config.js --watch",
     "dev:renderer": "webpack --config webpack.renderer.config.js --watch",
@@ -23,8 +23,10 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@ruffle-rs/ruffle": "^0.4.1",
+    "copy-webpack-plugin": "^14.0.0",
     "electron-log": "^4.4.8",
-    "electron-store": "^7.0.3"
+    "electron-store": "^6.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
@@ -86,6 +88,10 @@
       {
         "from": "plugins",
         "to": "plugins"
+      },
+      {
+        "from": "native",
+        "to": "native"
       }
     ],
     "files": [

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Star, Clock, Download, Settings as SettingsIcon, X } from 'lucide-react';
 import FavoritesPanel from '../panels/FavoritesPanel';
 import HistoryPanel from '../panels/HistoryPanel';
@@ -6,6 +6,7 @@ import DownloadsPanel from '../panels/DownloadsPanel';
 import SettingsPanel from '../panels/SettingsPanel';
 
 interface DrawerSidebarProps {
+  collapsed: boolean;
   activePanel: 'favorites' | 'history' | 'downloads' | 'settings' | null;
   currentUrl: string;
   onTogglePanel: (panel: 'favorites' | 'history' | 'downloads' | 'settings') => void;
@@ -15,6 +16,7 @@ interface DrawerSidebarProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
+  downloadCount: number;
 }
 
 const PANELS = [
@@ -25,45 +27,42 @@ const PANELS = [
 ];
 
 const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
+  collapsed,
   activePanel, currentUrl, onTogglePanel, onClose, onOpenUrl,
   zoomPercent, onZoomIn, onZoomOut, onZoomReset,
+  downloadCount,
 }) => {
   const isOpen = activePanel !== null;
-  const panelRef = useRef<HTMLDivElement>(null);
-  const openedOnce = useRef(false);
-
-  // Initial mount: hide element so first open can animate
-  useEffect(() => {
-    if (panelRef.current) {
-      panelRef.current.style.display = 'none';
-    }
-  }, []);
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const rafRef = useRef(0);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    const el = panelRef.current;
-    if (!el) return;
-
     if (isOpen) {
-      // Always show and add class when opening
-      el.style.display = 'block';
-      // Force reflow so the browser registers display:block before adding class
-      void el.offsetHeight;
-      el.classList.add('open');
-      openedOnce.current = true;
-    } else if (openedOnce.current) {
-      // Remove class to trigger close animation
-      el.classList.remove('open');
-      // After animation, hide element
-      const timer = setTimeout(() => {
-        el.style.display = 'none';
-      }, 300);
-      return () => clearTimeout(timer);
+      cancelAnimationFrame(rafRef.current);
+      setDrawerMounted(true);
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = requestAnimationFrame(() => {
+          setDrawerOpen(true);
+        });
+      });
+    } else if (drawerMounted) {
+      setDrawerOpen(false);
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = setTimeout(() => setDrawerMounted(false), 300);
     }
-  }, [isOpen]);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      clearTimeout(closeTimerRef.current);
+    };
+  }, [isOpen, drawerMounted]);
+
+  if (collapsed) return null;
 
   return (
     <>
-      {/* Icon strip — 48px flex child */}
+      {/* Icon strip */}
       <div
         className="sidebar-icons"
         style={{
@@ -78,53 +77,69 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
           borderRight: '1px solid var(--border-light)',
         }}
       >
-        {PANELS.map(({ id, label, icon: Icon }) => (
+        {PANELS.map(({ id, label, icon: Icon }) => {
+          const showBadge = id === 'downloads' && downloadCount > 0;
+          return (
           <button
             key={id}
             className={`sidebar-icon ${activePanel === id ? 'active' : ''}`}
             title={label}
             onClick={() => onTogglePanel(id)}
+            style={{ position: 'relative' }}
           >
             <Icon className="w-5 h-5" />
+            {showBadge && (
+              <span style={{
+                position: 'absolute', top: 2, right: 2,
+                minWidth: 16, height: 16, borderRadius: 8,
+                background: '#e74c3c', color: '#fff',
+                fontSize: 10, fontWeight: 600,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '0 4px',
+              }}>
+                {downloadCount}
+              </span>
+            )}
           </button>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Drawer panel — absolute positioned, NOT a flex child */}
-      <div ref={panelRef} className="drawer-panel">
-        <div className="drawer-inner">
-          {/* Header */}
-          <div
-            className="flex items-center justify-between px-3 py-2 border-b flex-shrink-0"
-            style={{ borderColor: 'var(--border-light)' }}
-          >
-            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              {PANELS.find((p) => p.id === activePanel)?.label}
-            </span>
-            <button onClick={onClose} className="btn-icon" style={{ width: 24, height: 24 }}>
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          {/* Panel content */}
-          <div className="flex-1 overflow-hidden">
-            {activePanel === 'favorites' && (
-              <FavoritesPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
-            )}
-            {activePanel === 'history' && (
-              <HistoryPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
-            )}
-            {activePanel === 'downloads' && <DownloadsPanel />}
-            {activePanel === 'settings' && (
-              <SettingsPanel
-                zoomPercent={zoomPercent}
-                onZoomIn={onZoomIn}
-                onZoomOut={onZoomOut}
-                onZoomReset={onZoomReset}
-              />
-            )}
+      {/* Drawer panel */}
+      {drawerMounted && (
+        <div className={`drawer-panel ${drawerOpen ? 'open' : ''}`}>
+          <div className="drawer-inner">
+            <div
+              className="flex items-center justify-between px-3 py-2 border-b flex-shrink-0"
+              style={{ borderColor: 'var(--border-light)' }}
+            >
+              <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                {PANELS.find((p) => p.id === activePanel)?.label}
+              </span>
+              <button onClick={onClose} className="btn-icon" style={{ width: 24, height: 24 }}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {activePanel === 'favorites' && (
+                <FavoritesPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
+              )}
+              {activePanel === 'history' && (
+                <HistoryPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
+              )}
+              {activePanel === 'downloads' && <DownloadsPanel />}
+              {activePanel === 'settings' && (
+                <SettingsPanel
+                  zoomPercent={zoomPercent}
+                  onZoomIn={onZoomIn}
+                  onZoomOut={onZoomOut}
+                  onZoomReset={onZoomReset}
+                />
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </>
   );
 };

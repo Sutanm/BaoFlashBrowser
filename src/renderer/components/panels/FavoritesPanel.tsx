@@ -25,17 +25,17 @@ const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, onOpenUrl }
 
   const toggleBookmark = useCallback(() => {
     if (!currentUrl || currentUrl === 'about:newtab') return;
-    const exists = favs.some((f) => f.url === currentUrl);
-    const next = exists
-      ? favs.filter((f) => f.url !== currentUrl)
-      : [{ url: currentUrl, title: currentUrl, favicon: undefined, addedAt: Date.now() } as BookmarkEntry, ...favs];
-    setFavs(next);
-  }, [currentUrl, favs, setFavs]);
+    setFavs((prev) => {
+      const exists = prev.some((f) => f.url === currentUrl);
+      if (exists) return prev.filter((f) => f.url !== currentUrl);
+      return [{ url: currentUrl, title: currentUrl, favicon: undefined, addedAt: Date.now() } as BookmarkEntry, ...prev];
+    });
+  }, [currentUrl, setFavs]);
 
   const removeFav = useCallback((e: React.MouseEvent, url: string) => {
     e.stopPropagation();
-    setFavs(favs.filter((f) => f.url !== url));
-  }, [favs, setFavs]);
+    setFavs((prev) => prev.filter((f) => f.url !== url));
+  }, [setFavs]);
 
   return (
     <>

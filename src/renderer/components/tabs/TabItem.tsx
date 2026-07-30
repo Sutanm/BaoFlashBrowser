@@ -25,25 +25,29 @@ const TabItem: React.FC<TabItemProps> = ({
   onDrop,
   isDragOver,
 }) => {
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', tab.id);
+    e.currentTarget.setAttribute('data-dragging', 'true');
+    onDragStart();
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    e.currentTarget.removeAttribute('data-dragging');
+    onDragEnd();
+  };
+
   return (
     <div
       draggable
       onClick={onSelect}
-      onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', tab.id);
-        (e.currentTarget as HTMLElement).style.opacity = '0.5';
-        onDragStart();
-      }}
+      onDragStart={handleDragStart}
       onDragOver={(e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         onDragOver();
       }}
-      onDragEnd={(e) => {
-        (e.currentTarget as HTMLElement).style.opacity = '1';
-        onDragEnd();
-      }}
+      onDragEnd={handleDragEnd}
       onDrop={(e) => {
         e.preventDefault();
         onDrop();

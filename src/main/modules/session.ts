@@ -1,8 +1,7 @@
-import { session, BrowserWindow } from 'electron';
+import { session } from 'electron';
 import log from 'electron-log';
-import path from 'path';
 
-export function initSession(getWindow: () => BrowserWindow | null): void {
+export function initSession(): void {
   const defaultSession = session.defaultSession;
 
   defaultSession.setUserAgent(
@@ -26,67 +25,7 @@ export function initSession(getWindow: () => BrowserWindow | null): void {
     },
   );
 
-  // Handle downloads — track progress and send to renderer
-  defaultSession.on('will-download', (_event, item) => {
-    const downloadId = 'dl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-    const filename = item.getFilename() || item.getURL().split('/').pop() || 'download';
-
-    const send = (payload: Record<string, unknown>) => {
-      const win = getWindow();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('download:updated', { id: downloadId, ...payload });
-      }
-    };
-
-    send({
-      url: item.getURL(),
-      filename,
-      state: 'progressing',
-      progress: 0,
-      receivedBytes: 0,
-      totalBytes: item.getTotalBytes(),
-      mimeType: item.getMimeType(),
-      savePath: item.getSavePath(),
-      startTime: Date.now(),
-    });
-
-    let lastBytes = 0;
-    let lastTime = Date.now();
-
-    item.on('updated', () => {
-      const now = Date.now();
-      const received = item.getReceivedBytes();
-      const total = item.getTotalBytes();
-      const progr = total > 0 ? Math.round((received / total) * 100) : 0;
-      const dt = (now - lastTime) / 1000;
-      const speed = dt > 0 ? formatBytes((received - lastBytes) / dt) + '/s' : '—';
-
-      send({
-        state: item.getState() === 'completed' ? 'completed' :
-              item.getState() === 'cancelled' ? 'cancelled' :
-              item.getState() === 'interrupted' ? 'interrupted' : 'progressing',
-        progress: progr,
-        receivedBytes: received,
-        totalBytes: total,
-        speed,
-      });
-
-      lastBytes = received;
-      lastTime = now;
-    });
-
-    item.on('done', () => {
-      send({ state: 'completed', progress: 100, speed: '—' });
-    });
-  });
-
   log.info('[Session] initialized');
-}
-
-function formatBytes(bytesPerSec: number): string {
-  if (bytesPerSec >= 1048576) return (bytesPerSec / 1048576).toFixed(1) + ' MB';
-  if (bytesPerSec >= 1024) return (bytesPerSec / 1024).toFixed(0) + ' KB';
-  return Math.round(bytesPerSec) + ' B';
 }
 
 export function patchedSWFObject(): string {
@@ -206,11 +145,4 @@ window.getQueryParamValue=deconcept.util.getRequestParameter;
 window.FlashObject=deconcept.SWFObject;
 window.SWFObject=deconcept.SWFObject;
 `.trim();
-}
-
-export function clearCache(): void {
-  const defaultSession = session.defaultSession;
-  defaultSession.clearCache().then(() => {
-    log.info('[Session] cache cleared');
-  });
 }

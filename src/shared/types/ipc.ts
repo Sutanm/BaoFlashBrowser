@@ -37,9 +37,15 @@ export interface TabUpdatedPayload {
 
 export interface DownloadProgressPayload {
   id: string;
+  url?: string;
+  filename?: string;
   state: DownloadItem['state'];
-  percent: number;
-  speed: string;
+  progress: number;
+  speed: number;
+  receivedBytes?: number;
+  totalBytes?: number;
+  savePath?: string;
+  engine?: DownloadItem['engine'];
 }
 
 export interface ContextMenuPayload {
@@ -68,5 +74,5 @@ export type IPCMainToRendererChannel = keyof IPCMainToRenderer;
 export type { Tab, TabCreateOptions } from './tab';
 export type { BookmarkEntry } from './bookmarks';
 export type { HistoryEntry } from './history';
-export type { DownloadItem, DownloadState } from './downloads';
-export type { Settings, LinkBehavior, FlashEngineMode, FlashEngineRule, SearchEngine } from './settings';
+export type { DownloadItem, DownloadState, DownloadEngine } from './downloads';
+export type { Settings, LinkBehavior, FlashEngineMode, FlashEngineRule, SearchEngine, DownloadEngine } from './settings';

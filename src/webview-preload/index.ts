@@ -1,8 +1,62 @@
 // @ts-nocheck
 // webview 注入脚本（guest 页面内运行）
-// 职责：1) 识别登录表单 2) 捕获提交的账号密码 3) 按主机指令填充表单
-// 通信：guest->host 用 ipcRenderer.sendToHost；host->guest 用 webview.send -> ipcRenderer.on
-// 注意：本脚本为独立 CommonJS 文件，不经 webpack（target:web 无法打包 electron）。
+// 职责：1) Ruffle 注入 (contextIsolation:false → eval 到页面上下文)
+//       2) 识别登录表单/捕获账号密码/自动填充
+// 通信：guest→host 用 ipcRenderer.sendToHost；host→guest 用 webview.send → ipcRenderer.on
+// 注意：本脚本为独立 CommonJS 文件，不经 webpack。
+
+// --- Ruffle 模式检测与注入（contextIsolation: false 时直接 eval 到页面上下文）---
+(function() {
+  if (window.top !== window.self) return;
+  try {
+    var _e = require('electron');
+    var _ipc = _e.ipcRenderer;
+    if (!_ipc) return;
+    var _cfg = _ipc.sendSync('get-ruffle-mode');
+    if (_cfg && _cfg.enabled) {
+      var _config = {
+        favorFlash: false,
+        quality: 'best',
+        forceScale: true,
+        fontSources: ['ruffle-resource://simhei.ttf'],
+        defaultFonts: {
+          '_sans': 'SimHei',
+          '_serif': 'SimHei',
+          '_typewriter': 'SimHei',
+          '宋体': 'SimHei',
+          '黑体': 'SimHei',
+          '微软雅黑': 'SimHei',
+          'SimSun': 'SimHei',
+          'SimHei': 'SimHei',
+        },
+      };
+      if (_cfg.js) _config.publicPath = 'ruffle-resource://';
+      window.RufflePlayer = { config: _config };
+      if (_cfg.js) {
+        eval(_cfg.js);
+        console.log('[PRELOAD] Ruffle eval\'d (' + (_cfg.js.length / 1024).toFixed(0) + 'KB)');
+      } else {
+        function _doCdn() {
+          var parent = document.head || document.documentElement;
+          if (parent) {
+            var s = document.createElement('script');
+            s.src = 'https://unpkg.com/@ruffle-rs/ruffle@latest/ruffle.js';
+            s.onload = function() { console.log('[PRELOAD] Ruffle CDN loaded'); };
+            s.onerror = function() { console.error('[PRELOAD] Ruffle CDN failed'); };
+            parent.appendChild(s);
+            console.log('[PRELOAD] Ruffle CDN loading...');
+          } else {
+            requestAnimationFrame(_doCdn);
+          }
+        }
+        _doCdn();
+      }
+      return; // Ruffle mode: skip PPAPI fake plugin injection + login capture below
+    }
+  } catch (_e) {}
+})();
+
+// --- PPAPI 模式：existing fake plugin injection + login capture ---
 var preloadLog = function () {};
 window.__baoflash_preload = 1;
 try { document.body.setAttribute('data-preload', '1'); } catch (_e) {}

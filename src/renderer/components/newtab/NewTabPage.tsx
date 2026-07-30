@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Globe } from 'lucide-react';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 
 interface NewTabPageProps {
@@ -33,9 +32,9 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
 
   const inputStyle: React.CSSProperties = {
     width: '100%', height: 44, padding: '0 20px',
-    border: '1px solid var(--border-color)', borderRadius: 22,
+    border: '1px solid var(--border)', borderRadius: 22,
     fontSize: 16, outline: 'none',
-    color: 'var(--text-primary)', background: 'var(--bg-card)',
+    color: 'var(--text-primary)', background: 'var(--bg-input)',
     boxShadow: '0 1px 6px rgba(32,33,36,0.1), 0 0 0 1px rgba(32,33,36,0.05)',
   };
 
@@ -47,7 +46,7 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
           position: 'absolute', top: 0, left: 0, right: 0,
           display: 'flex', alignItems: 'center', gap: 2,
           padding: '4px 8px', background: 'var(--bg-secondary)',
-          borderBottom: '1px solid var(--border-color)',
+          borderBottom: '1px solid var(--border)',
           overflowX: 'auto', whiteSpace: 'nowrap' as const, minHeight: 32,
         }}>
           {bookmarks.map((fav, i) => {
@@ -57,18 +56,14 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
             return (
               <div
                 key={fav.url}
-                className="no-drag"
+                className="no-drag newtab-bookmark"
                 onClick={() => onNavigate(fav.url)}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                   padding: '4px 8px', borderRadius: 4,
                   cursor: 'pointer', fontSize: 12,
                   color: 'var(--text-secondary)', flexShrink: 0,
-                  background: 'transparent',
-                  transition: 'background 0.15s',
                 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 title={fav.url}
               >
                 {fav.favicon ? (

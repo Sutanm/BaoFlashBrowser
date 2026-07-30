@@ -1,4 +1,5 @@
 const path = require('path');
+const CopyPlugin = require('copy-webpack-plugin');
 
 module.exports = {
   mode: 'development',
@@ -12,7 +13,6 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: '[name].js',
-    libraryTarget: 'umd',
   },
   resolve: {
     extensions: ['.ts', '.js'],
@@ -40,9 +40,19 @@ module.exports = {
     electron: 'commonjs electron',
     'electron-log': 'commonjs electron-log',
     'electron-store': 'commonjs electron-store',
+    'win-dpapi': 'commonjs win-dpapi',
   },
   node: {
     __dirname: false,
     __filename: false,
   },
+  plugins: [
+    new CopyPlugin({
+      patterns: [
+        { from: 'node_modules/@ruffle-rs/ruffle/ruffle.js', to: 'lib/ruffle/ruffle.js' },
+        { from: 'node_modules/@ruffle-rs/ruffle', to: 'lib/ruffle', globOptions: { ignore: ['**/*.map', '**/README.md', '**/package.json', '**/LICENSE*'] } },
+        { from: 'assets/simhei.ttf', to: 'lib/ruffle/simhei.ttf' },
+      ],
+    }),
+  ],
 };

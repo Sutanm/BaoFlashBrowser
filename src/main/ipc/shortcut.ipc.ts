@@ -147,6 +147,7 @@ export function registerZoomShortcuts(): void {
 }
 
 let mouseHookProcess: ChildProcess | null = null;
+let _willQuitRegistered = false;
 
 export function startMouseHook(): void {
   if (mouseHookProcess) return;
@@ -185,17 +186,26 @@ export function startMouseHook(): void {
       log.warn('[mouse-hook] ' + data.toString().trim());
     });
 
-    child.on('exit', (code) => {
-      log.warn('[mouse-hook] exited with code ' + code);
+    child.on('error', (err) => {
+      log.error('[mouse-hook] spawn error: ' + err.message);
       mouseHookProcess = null;
     });
 
-    app.on('will-quit', () => {
-      if (mouseHookProcess) {
-        mouseHookProcess.kill();
-        mouseHookProcess = null;
-      }
+    child.on('exit', (code, signal) => {
+      const reason = signal ? 'signal ' + signal : 'code ' + code;
+      log.warn('[mouse-hook] exited with ' + reason);
+      mouseHookProcess = null;
     });
+
+    if (!_willQuitRegistered) {
+      _willQuitRegistered = true;
+      app.on('will-quit', () => {
+        if (mouseHookProcess) {
+          mouseHookProcess.kill();
+          mouseHookProcess = null;
+        }
+      });
+    }
   } catch (err) {
     log.warn('[mouse-hook] failed to start: ' + err);
   }

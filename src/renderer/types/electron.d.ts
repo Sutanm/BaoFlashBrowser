@@ -13,6 +13,7 @@ interface TabAPI {
   find(tabId: string, text: string, options?: any): Promise<void>;
   stopFind(tabId: string, action: string): Promise<void>;
   setBounds(x: number, y: number, w: number, h: number): Promise<void>;
+  setRuffleMode(tabId: string, enabled: boolean, source: 'bundled' | 'cdn'): Promise<void>;
 }
 
 interface ElectronAPI {

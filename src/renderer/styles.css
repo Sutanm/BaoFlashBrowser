@@ -65,7 +65,7 @@ body.dark {
   body.dark .btn-icon:disabled { color: var(--text-disabled); }
 
   .btn-win {
-    @apply w-12 h-full flex items-center justify-center
+    @apply w-14 h-full flex items-center justify-center
            cursor-pointer border-none bg-transparent
            text-base leading-none;
     color: var(--text-secondary);
@@ -77,7 +77,7 @@ body.dark {
   body.dark .btn-win:hover { background: var(--bg-hover); }
 
   .btn-win-close {
-    @apply w-12 h-full flex items-center justify-center
+    @apply w-14 h-full flex items-center justify-center
            cursor-pointer border-none bg-transparent
            text-base leading-none;
     color: var(--text-secondary);
@@ -90,8 +90,8 @@ body.dark {
   .btn-tab {
     @apply flex items-center justify-center rounded
            cursor-pointer border-none bg-transparent;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     color: var(--text-secondary);
     flex-shrink: 0;
   }
@@ -100,7 +100,7 @@ body.dark {
   body.dark .btn-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
 
   .input-text {
-    @apply h-[30px] px-3 border text-sm outline-none;
+    @apply h-[32px] px-3 border text-sm outline-none;
     flex: 1;
     min-width: 0;
     border-radius: var(--radius-sm);
@@ -117,17 +117,18 @@ body.dark {
   }
 
   .tab-item {
-    @apply flex items-center gap-1.5 h-[30px] pl-3 pr-1.5 cursor-pointer
+    @apply flex items-center gap-1.5 h-[36px] pl-3 pr-1.5 cursor-pointer
            text-sm border-none;
     border-radius: 8px;
-    font-size: 12px;
+    font-size: 13px;
     background: transparent;
     color: var(--text-secondary);
-    max-width: 180px;
+    min-width: 60px;
+    max-width: 200px;
     white-space: nowrap;
     -webkit-app-region: no-drag;
     transition: all 0.15s;
-    flex-shrink: 0;
+    flex-shrink: 1;
   }
   .tab-item:hover { background: var(--bg-hover); color: var(--text-primary); }
   .tab-item.active {
@@ -140,7 +141,7 @@ body.dark {
   body.dark .tab-item.active { color: var(--text-primary); background: var(--bg-active-tab); }
 
   .tab-close {
-    @apply w-5 h-5 flex items-center justify-center rounded-full
+    @apply w-6 h-6 flex items-center justify-center rounded-full
            text-sm cursor-pointer flex-shrink-0;
     color: var(--text-secondary);
     opacity: 0.5;
@@ -157,6 +158,7 @@ body.dark {
     box-shadow: inset 2px 0 0 var(--accent);
     background: var(--bg-hover);
   }
+  .tab-item[data-dragging="true"] { opacity: 0.5; }
 
   .panel-card {
     @apply rounded-xl;
@@ -301,6 +303,16 @@ body.dark {
   .download-progress-bar {
     @apply h-full rounded-full transition-all duration-200;
     background: var(--accent);
+  }
+
+  @keyframes address-flip {
+    0%   { transform: scaleY(1); }
+    50%  { transform: scaleY(0.02); }
+    100% { transform: scaleY(1); }
+  }
+  .address-flip {
+    animation: address-flip 300ms ease-in-out;
+    transform-origin: center;
   }
 
   .find-bar-embed {
@@ -609,9 +621,34 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+.topbar-toolbar {
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.topbar-tabbar {
+  background: var(--bg-secondary);
+}
+
+.btn-icon-sm {
+  width: 32px;
+  height: 32px;
+}
+
+.btn-mute {
+  border-radius: 4px;
+  padding: 4px;
+  transition: opacity 0.15s, background 0.15s;
+}
+
 #loading-progress {
   @apply fixed left-0 h-[3px] z-[200] pointer-events-none;
-  top: 74px;
+  top: 82px;
   background: var(--accent);
   box-shadow: 0 0 4px rgba(0, 113, 227, 0.5);
   display: none;
@@ -625,6 +662,12 @@ body.dark #loading-progress {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
 body.dark ::-webkit-scrollbar-thumb { background: #45475a; }
+
+.newtab-bookmark {
+  background: transparent;
+  transition: background 0.15s;
+}
+.newtab-bookmark:hover { background: var(--bg-hover); }
 
 .zoom-capsule {
   flex-shrink: 0;

@@ -28,15 +28,6 @@ const FindBar: React.FC<FindBarProps> = ({ visible, activeTabId, onClose }) => {
   }, [visible]);
 
   useEffect(() => {
-    if (!visible) return;
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); handleClose(); }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [visible, handleClose]);
-
-  useEffect(() => {
     const unsub = window.electronAPI.on('tab:found', (payload: any) => {
       if (payload.tabId === activeTabId) {
         setResult({ activeMatchOrdinal: payload.activeMatchOrdinal || 0, matches: payload.matches || 0 });

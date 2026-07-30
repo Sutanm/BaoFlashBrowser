@@ -1,4 +1,5 @@
-export type DownloadState = 'progressing' | 'completed' | 'cancelled' | 'interrupted';
+export type DownloadState = 'progressing' | 'completed' | 'cancelled' | 'interrupted' | 'paused';
+export type DownloadEngine = 'chromium' | 'aria2';
 
 export interface DownloadItem {
   id: string;
@@ -6,10 +7,9 @@ export interface DownloadItem {
   filename: string;
   state: DownloadState;
   progress: number;
-  speed: string;
+  speed: number;
   receivedBytes: number;
   totalBytes: number;
-  mimeType: string;
   savePath: string;
-  startTime: number;
+  engine?: DownloadEngine;
 }

@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import log from 'electron-log';
 import childProcess from 'child_process';
 
@@ -53,7 +55,15 @@ const UNPROTECT_PS = [
 ].join(';');
 
 function runPs(script: string, b64Input: string): Buffer {
-  const res = childProcess.spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+  const psExe = fs.existsSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    ? 'powershell.exe'
+    : process.env.PATH?.split(';').find((d) => {
+        try { return fs.existsSync(path.join(d, 'pwsh.exe')); } catch { return false; }
+      })
+      ? 'pwsh.exe'
+      : 'powershell.exe';
+
+  const res = childProcess.spawnSync(psExe, ['-NoProfile', '-NonInteractive', '-Command', script], {
     input: b64Input,
     encoding: 'utf8',
     windowsHide: true,

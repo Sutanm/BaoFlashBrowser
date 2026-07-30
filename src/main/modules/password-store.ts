@@ -269,20 +269,22 @@ export function deleteEntry(id: string): boolean {
 }
 
 export function getDecryptedPassword(id: string): string | null {
-  if (!_dekFromMaster) return null;
+  const dek = _dekFromMaster || _dekFromDpapi;
+  if (!dek) return null;
   const entries = store.get('entries') || [];
   const idx = _findEntryIndex(id);
   if (idx < 0) return null;
-  return _decryptStr(_dekFromMaster, entries[idx].passwordEnc);
+  return _decryptStr(dek, entries[idx].passwordEnc);
 }
 
 export function getEntriesForHost(host: string): { username: string; password: string }[] {
-  if (!_dekFromDpapi) return [];
+  const dek = _dekFromDpapi || _dekFromMaster;
+  if (!dek) return [];
   const entries = store.get('entries') || [];
   const out: { username: string; password: string }[] = [];
   for (const entry of entries) {
     if (entry.host === host) {
-      const pw = _decryptStr(_dekFromDpapi, entry.passwordEnc);
+      const pw = _decryptStr(dek, entry.passwordEnc);
       if (pw !== null) out.push({ username: entry.username, password: pw });
     }
   }
@@ -306,6 +308,14 @@ export function changeMaster(oldPwd: string, newPwd: string): boolean {
   const kek = _deriveKek(newPwd, salt);
   store.set('salt', _b64(salt));
   store.set('dekMasterEnc', _encryptBuf(kek, dek));
+  if (dpapi.isAvailable()) {
+    try {
+      store.set('dekDpapiEnc', _b64(dpapi.protect(dek)));
+      _dekFromDpapi = dek;
+    } catch (e: unknown) {
+      log.warn('[PasswordStore] DPAPI protect failed on changeMaster: ' + (e as Error).message);
+    }
+  }
   return true;
 }
 

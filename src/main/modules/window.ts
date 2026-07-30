@@ -1,12 +1,14 @@
 import path from 'path';
-import fs from 'fs';
 import log from 'electron-log';
-import { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
+import { app, BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 
 let mainWindow: BrowserWindow | null = null;
 
 export function createWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, 'preload.js');
+  const iconPath = process.platform === 'win32'
+    ? path.join(__dirname, '..', 'build', 'icon.ico')
+    : path.join(__dirname, '..', 'build', 'icon.png');
 
   const opts: BrowserWindowConstructorOptions = {
     width: 1280,
@@ -14,7 +16,7 @@ export function createWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     title: 'BaoFlashBrowser',
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    icon: iconPath,
     backgroundColor: '#f0f0f0',
     frame: false,
     webPreferences: {
@@ -28,21 +30,17 @@ export function createWindow(): BrowserWindow {
 
   mainWindow = new BrowserWindow(opts);
 
-  const htmlPath = path.join(__dirname, '..', 'src', 'renderer', 'index.html');
+  // Explicit setIcon for Windows (some Electron versions need both)
+  if (process.platform === 'win32') {
+    try { mainWindow.setIcon(iconPath); } catch {}
+  }
+
+  const htmlPath = app.isPackaged
+    ? path.join(__dirname, '..', 'renderer', 'index.html')
+    : path.join(__dirname, '..', 'src', 'renderer', 'index.html');
   mainWindow.loadFile(htmlPath);
 
   mainWindow.setMenu(null);
-
-  if (process.platform === 'win32') {
-    try {
-      const iconPath = path.join(__dirname, '..', 'build', 'icon.ico');
-      if (fs.existsSync(iconPath)) {
-        mainWindow.setIcon(iconPath);
-      }
-    } catch (_e) {
-      /* ignore */
-    }
-  }
 
   mainWindow.on('page-title-updated', (e) => {
     e.preventDefault();

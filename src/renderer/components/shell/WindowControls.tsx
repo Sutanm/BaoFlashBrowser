@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const WindowControls: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState(false);
 
-  useEffect(() => {
-    const checkMax = () => {
-      window.electronAPI.win.isMaximized().then(setIsMaximized);
-    };
-    checkMax();
-    const id = setInterval(checkMax, 500);
-    return () => clearInterval(id);
+  const checkMax = useCallback(() => {
+    window.electronAPI.win.isMaximized().then(setIsMaximized);
   }, []);
+
+  useEffect(() => {
+    checkMax();
+    window.addEventListener('resize', checkMax);
+    return () => window.removeEventListener('resize', checkMax);
+  }, [checkMax]);
 
   const handleMaximize = () => {
     if (isMaximized) {

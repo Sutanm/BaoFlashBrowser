@@ -8,7 +8,7 @@ import FindBar from './components/overlays/FindBar';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { tabsAtom, activeTabIdAtom } from './atoms/tabs.atom';
-import { favoritesAtom, historyAtom, downloadsAtom, settingsAtom, themeAtom } from './atoms/data.atom';
+import { favoritesAtom, historyAtom, downloadsAtom, settingsAtom, themeAtom, pushToastAtom } from './atoms/data.atom';
 import { normalizeUrl, generateId } from './services/id.service';
 import { loadAll, migrateFromLocalStorage, db } from './services/db';
 import type { TabState } from './atoms/tabs.atom';
@@ -20,7 +20,7 @@ import type { Settings } from '@shared/types/settings';
 const NEWTAB_URL = 'about:newtab';
 
 function isNewtabUrl(url: string): boolean {
-  return !url || url === 'about:blank' || url === NEWTAB_URL;
+  return !url || url === 'about:blank' || url === NEWTAB_URL || url.startsWith('data:');
 }
 
 function displayUrl(url: string): string {
@@ -34,40 +34,124 @@ const App: React.FC = () => {
   const favorites = useAtomValue(favoritesAtom);
   const history = useAtomValue(historyAtom);
   const downloads = useAtomValue(downloadsAtom);
-  const [isMuted, setIsMuted] = useState(false);
+  const settings = useAtomValue(settingsAtom);
   const tabsRef = useRef(tabs);
-  tabsRef.current = tabs;
+  useEffect(() => { tabsRef.current = tabs; });
 
   const setFavorites = useSetAtom(favoritesAtom);
   const setHistory = useSetAtom(historyAtom);
   const setDownloads = useSetAtom(downloadsAtom);
   const setSettings = useSetAtom(settingsAtom);
   const setTheme = useSetAtom(themeAtom);
+  const pushToast = useSetAtom(pushToastAtom);
 
-  // Hydrate all atoms from IndexedDB on startup
+  // Hydrate all atoms from IndexedDB on startup — suppress auto-persist until done
+  const hydrationDone = useRef(false);
+
   useEffect(() => {
-    migrateFromLocalStorage().then(() => loadAll()).then((data) => {
+    Promise.all([
+      migrateFromLocalStorage().then(() => loadAll()),
+      (window as any).electronAPI?.config?.get() ?? Promise.resolve(null),
+    ]).then(([data, mainConfig]: [any, any]) => {
       setFavorites(data.favorites as BookmarkEntry[]);
       setHistory(data.history as HistoryEntry[]);
-      setDownloads(data.downloads as DownloadItem[]);
-      if (data.settings) setSettings(data.settings as Settings);
+      const downloadsData = (data.downloads as DownloadItem[]).filter((d) => d.filename);
+      if (downloadsData.length < (data.downloads || []).length) {
+        db.downloads.clear().then(() => db.downloads.bulkPut(downloadsData));
+      }
+      setDownloads(downloadsData);
+      if (data.settings) {
+        const merged = { ...data.settings } as Settings;
+        if (mainConfig) {
+          merged.flashVersion = mainConfig.flashVersion;
+          merged.lowEndMode = mainConfig.lowEndMode;
+          merged.downloadEngine = mainConfig.downloadEngine;
+        }
+        setSettings(merged);
+      }
       if (data.meta?.theme) setTheme(data.meta.theme);
+      hydrationDone.current = true;
     });
   }, [setFavorites, setHistory, setDownloads, setSettings, setTheme]);
 
-  // Auto-persist to IndexedDB on atom changes
+  // Always-on download:progress listener (not tied to panel mount/unmount)
   useEffect(() => {
-    db.favorites.bulkPut(favorites.map((f, i) => ({ ...f, _idx: i })));
+    const cleanup = (window as any).electronAPI?.on('download:progress', (payload: any) => {
+      const name = payload.filename || '文件';
+
+      setDownloads((prev) => {
+        const exists = prev.find((d: DownloadItem) => d.id === payload.id);
+        if (exists) {
+          return prev.map((d) => {
+            if (d.id !== payload.id) return d;
+            const merged = { ...d } as any;
+            for (const key of Object.keys(payload)) {
+              if (payload[key] !== undefined) merged[key] = payload[key];
+            }
+            return merged as DownloadItem;
+          });
+        }
+        pushToast({ message: `${name} 开始下载`, type: 'info' });
+        return [{ ...payload, id: payload.id }, ...prev];
+      });
+
+      if (payload.state === 'completed') {
+        pushToast({ message: `${name} 下载完成`, type: 'success' });
+      } else if (payload.state === 'cancelled') {
+        pushToast({ message: `${name} 已取消`, type: 'warning' });
+      } else if (payload.state === 'interrupted') {
+        pushToast({ message: `${name} 下载失败`, type: 'error' });
+      }
+    });
+    return () => { cleanup?.(); };
+  }, [setDownloads, pushToast]);
+
+  // Auto-persist to IndexedDB on atom changes (skip until hydrationDone)
+  const favTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const histTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const dlTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (!hydrationDone.current) return;
+    if (favorites.length === 0) {
+      clearTimeout(favTimerRef.current);
+      db.favorites.clear().catch((e) => console.error('[DB] favorites clear failed:', e));
+      return;
+    }
+    db.favorites.bulkPut(favorites.map((f, i) => ({ ...f, _idx: i }))).catch((e) => console.error('[DB] favorites persist failed:', e));
   }, [favorites]);
 
   useEffect(() => {
-    if (history.length > 0) db.history.bulkPut(history);
+    if (!hydrationDone.current) return;
+    if (history.length === 0) {
+      clearTimeout(histTimerRef.current);
+      db.history.clear().catch((e) => console.error('[DB] history clear failed:', e));
+      return;
+    }
+    histTimerRef.current = setTimeout(() => {
+      db.history.bulkPut(history).catch((e) => console.error('[DB] history persist failed:', e));
+    }, 500);
+    return () => clearTimeout(histTimerRef.current);
   }, [history]);
 
   useEffect(() => {
-    if (downloads.length > 0) db.downloads.bulkPut(downloads);
+    if (!hydrationDone.current) return;
+    if (downloads.length === 0) {
+      clearTimeout(dlTimerRef.current);
+      db.downloads.clear().catch((e) => console.error('[DB] downloads clear failed:', e));
+      return;
+    }
+    db.downloads.bulkPut(downloads).catch((e) => console.error('[DB] downloads persist failed:', e));
   }, [downloads]);
+
+  useEffect(() => {
+    if (!hydrationDone.current) return;
+    const { flashVersion, lowEndMode, downloadEngine, ...idbSettings } = settings as any;
+    db.settings.put(idbSettings, 'default').catch((e) => console.error('[DB] settings persist failed:', e));
+  }, [settings]);
+
   const [activePanel, setActivePanel] = useState<'favorites' | 'history' | 'downloads' | 'settings' | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [findBarVisible, setFindBarVisible] = useState(false);
   const [addressUrl, setAddressUrl] = useState('');
 
@@ -78,25 +162,28 @@ const App: React.FC = () => {
   const switchTab = useCallback((tabId: string) => {
     setActiveTabId(tabId);
     setTimeout(() => {
-      if (bvAreaRef.current) {
-        const r = bvAreaRef.current.getBoundingClientRect();
-        window.electronAPI.tab.setBounds(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height));
-      }
+      calcBoundsRef.current(false);
       window.electronAPI.tab.activate(tabId);
     }, 50);
   }, [setActiveTabId]);
 
   const createTab = useCallback((url?: string) => {
     const id = generateId();
+    const ruffleMode: 'ppapi' | 'ruffle' = settings.flashEngineMode === 'prefer-ruffle' ? 'ruffle' : 'ppapi';
     const tab: TabState = {
       id, url: url || NEWTAB_URL, title: '新标签页',
       zoomFactor: 1, isLoading: false, isAudible: false, isMuted: false,
       canGoBack: false, canGoForward: false, createdAt: Date.now(),
+      ruffleMode,
     };
     setTabs((prev) => [...prev, tab]);
-    window.electronAPI.tab.create(id, url || NEWTAB_URL);
+    const useRuffle = ruffleMode === 'ruffle';
+    window.electronAPI.tab.create(id, url || NEWTAB_URL, {
+      enabled: useRuffle,
+      source: settings.ruffleSource,
+    } as any);
     switchTab(id);
-  }, [setTabs, switchTab]);
+  }, [setTabs, switchTab, settings.flashEngineMode, settings.ruffleSource]);
 
   const closeTab = useCallback((tabId: string) => {
     window.electronAPI.tab.close(tabId);
@@ -136,7 +223,7 @@ const App: React.FC = () => {
       const entry: HistoryEntry = {
         id: generateId(),
         url: changes.url,
-        title: changes.title || changes.url,
+        title: changes.title || (() => { try { return new URL(changes.url).hostname; } catch { return changes.url; } })(),
         favicon: currentTab?.favicon || (changes as any).favicon || '',
         lastVisit: Date.now(),
         visitCount: 1,
@@ -166,21 +253,38 @@ const App: React.FC = () => {
         });
       }
     }
+    // Update title in history when it arrives from page-title-updated
+    if (changes.title && changes.title !== changes.url) {
+      const tabUrl = tabsRef.current.find((t) => t.id === tabId)?.url;
+      if (tabUrl && !isNewtabUrl(tabUrl)) {
+        setHistory((prev) => {
+          const idx = prev.findIndex((h) => h.url === tabUrl);
+          if (idx >= 0) {
+            return prev.map((h) => h.url === tabUrl ? { ...h, title: changes.title! } : h);
+          }
+          return prev;
+        });
+      }
+    }
   }, [setTabs, activeTabId, setHistory]);
 
   const updateTabRef = useRef(updateTab);
-  updateTabRef.current = updateTab;
+  useEffect(() => { updateTabRef.current = updateTab; });
 
   useEffect(() => {
     const unsub = window.electronAPI.on('tab:updated', (payload: any) => {
       const { tabId, ...changes } = payload;
       updateTabRef.current(tabId, changes as Partial<TabState>);
     });
-    return () => { try { unsub(); } catch {} };
+    const unsubErr = window.electronAPI.on('tab:load-error', (payload: any) => {
+      const msg = payload.errorCode === -105 ? 'DNS 解析失败' : '页面加载失败';
+      pushToast({ message: `${msg} (-${payload.errorCode})`, type: 'error' });
+    });
+    return () => { try { unsub(); unsubErr(); } catch {} };
   }, []);
 
   const handleNavigate = useCallback((input: string) => {
-    const url = normalizeUrl(input);
+    const url = normalizeUrl(input, settings.searchEngine);
     if (!activeTabId) { createTab(url); return; }
     updateTab(activeTabId, { url, title: url });
     setAddressUrl(url);
@@ -300,6 +404,7 @@ const App: React.FC = () => {
     });
     const u2 = window.electronAPI.on('tab:crashed', (payload: any) => {
       updateTabRef.current(payload.tabId, { url: 'about:crash', title: '页面崩溃了' });
+      pushToast({ message: '页面崩溃了', type: 'error' });
     });
     return () => { try { u1(); u2(); } catch {} };
   }, [createTab]);
@@ -333,7 +438,7 @@ const App: React.FC = () => {
   const calcBounds = useCallback((animated = false) => {
     if (!bvAreaRef.current) return;
     const r = bvAreaRef.current.getBoundingClientRect();
-    const targetX = activePanel !== null ? 280 : 0;
+    const targetX = (!sidebarCollapsed && activePanel !== null) ? 280 : 0;
 
     if (!animated) {
       window.electronAPI.tab.setBounds(
@@ -347,7 +452,7 @@ const App: React.FC = () => {
 
     // Animate BrowserView x position over 250ms to match drawer CSS transition
     cancelAnimationFrame(bvAnimRef.current);
-    const startX = activePanel !== null ? 0 : 280;
+    const startX = (!sidebarCollapsed && activePanel !== null) ? 0 : 280;
     const startTime = performance.now();
     const duration = 250;
 
@@ -361,10 +466,10 @@ const App: React.FC = () => {
       if (t < 1) bvAnimRef.current = requestAnimationFrame(step);
     };
     bvAnimRef.current = requestAnimationFrame(step);
-  }, [activePanel]);
+  }, [activePanel, sidebarCollapsed]);
 
   const calcBoundsRef = useRef(calcBounds);
-  calcBoundsRef.current = calcBounds;
+  useEffect(() => { calcBoundsRef.current = calcBounds; });
 
   useEffect(() => {
     calcBoundsRef.current(false);
@@ -376,12 +481,26 @@ const App: React.FC = () => {
     return () => { ro.disconnect(); window.removeEventListener('resize', onResize); };
   }, [calcBounds, findBarVisible]);
 
-  // Animate BrowserView when drawer opens/closes
+  // Animate BrowserView when drawer opens/closes (not on panel switch)
+  const prevDrawerOpen = useRef(false);
   useEffect(() => {
+    const isOpen = activePanel !== null;
+    if (prevDrawerOpen.current === isOpen) return;
+    prevDrawerOpen.current = isOpen;
     calcBoundsRef.current(true);
     const timer = setTimeout(() => calcBoundsRef.current(false), 300);
     return () => clearTimeout(timer);
   }, [activePanel]);
+
+  const ruffleMode = activeTab?.ruffleMode ?? 'ppapi';
+  const handleToggleRuffle = useCallback(() => {
+    if (!activeTabId) return;
+    const nextMode = ruffleMode === 'ruffle' ? 'ppapi' : 'ruffle';
+    updateTab(activeTabId, { ruffleMode: nextMode });
+    if (activeTab?.url && !isNewtabUrl(activeTab.url)) {
+      window.electronAPI.tab.setRuffleMode(activeTabId, nextMode === 'ruffle', settings.ruffleSource);
+    }
+  }, [ruffleMode, activeTabId, activeTab, updateTab, settings.ruffleSource]);
 
   return (
     <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>
@@ -392,9 +511,13 @@ const App: React.FC = () => {
         isLoading={activeTab?.isLoading || false}
         canGoBack={activeTab?.canGoBack || false}
         canGoForward={activeTab?.canGoForward || false}
-        isMuted={isMuted}
+        isMuted={activeTab?.isMuted || false}
         isDark={theme === 'dark'}
         zoomPercent={Math.round((activeTab?.zoomFactor ?? 1) * 100)}
+        flashEngineMode={ruffleMode === 'ruffle' ? 'prefer-ruffle' : 'auto'}
+        ruffleSource={settings.ruffleSource}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
         onSelectTab={switchTab}
         onCloseTab={closeTab}
         onNewTab={() => createTab()}
@@ -404,11 +527,29 @@ const App: React.FC = () => {
         onStop={() => { if (activeTabId) window.electronAPI.tab.stop(activeTabId); }}
         onReload={() => { if (activeTabId) window.electronAPI.tab.reload(activeTabId); }}
         onToggleMute={() => {
-          setIsMuted((m) => {
-            if (activeTabId) window.electronAPI.tab.mute(activeTabId, !m);
-            return !m;
+          if (activeTabId) {
+            const newMuted = !activeTab?.isMuted;
+            window.electronAPI.tab.mute(activeTabId, newMuted);
+            updateTab(activeTabId, { isMuted: newMuted });
+          }
+        }}
+        onToggleRuffle={handleToggleRuffle}
+        onToggleBookmark={() => {
+          if (!activeTab?.url || activeTab.url === 'about:newtab') return;
+          const url = activeTab.url;
+          const rawTitle = activeTab.title || url;
+          const title = /^https?:\/\//.test(rawTitle) ? (() => { try { return new URL(rawTitle).hostname; } catch { return rawTitle; } })() : rawTitle;
+          setFavorites((prev) => {
+            const exists = prev.some((f) => f.url === url);
+            if (exists) {
+              pushToast({ message: `已取消收藏 ${title}`, type: 'info' });
+              return prev.filter((f) => f.url !== url);
+            }
+            pushToast({ message: `已收藏 ${title}`, type: 'success' });
+            return [{ url, title, favicon: activeTab.favicon, addedAt: Date.now() } as BookmarkEntry, ...prev];
           });
         }}
+        isBookmarked={favorites.some((f) => f.url === activeTab?.url && activeTab?.url && activeTab.url !== 'about:newtab')}
         onZoomIn={zoomIn}
         onZoomOut={zoomOut}
         onZoomReset={zoomReset}
@@ -425,11 +566,13 @@ const App: React.FC = () => {
       {/* Content area: sidebar icon strip + drawer panel + main content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0, position: 'relative' }}>
         <DrawerSidebar
+          collapsed={sidebarCollapsed}
           activePanel={activePanel}
           currentUrl={activeTab?.url || ''}
           onTogglePanel={(panel) => setActivePanel((v) => v === panel ? null : panel)}
           onClose={() => setActivePanel(null)}
           onOpenUrl={(url, newTab) => {
+            setActivePanel(null);
             if (newTab || activeTab?.url !== 'about:newtab') {
               createTab(url);
             } else {
@@ -440,6 +583,7 @@ const App: React.FC = () => {
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           onZoomReset={zoomReset}
+          downloadCount={downloads.filter((d) => d.state === 'progressing' || d.state === 'paused').length}
         />
 
         <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>

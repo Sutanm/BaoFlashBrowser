@@ -11,7 +11,13 @@ export function isUrl(text: string): boolean {
   return urlPattern.test(text);
 }
 
-export function normalizeUrl(input: string): string {
+const SEARCH_ENGINES: Record<string, string> = {
+  bing: 'https://cn.bing.com/search?q=',
+  google: 'https://www.google.com/search?q=',
+  baidu: 'https://www.baidu.com/s?wd=',
+};
+
+export function normalizeUrl(input: string, searchEngine?: string): string {
   const trimmed = input.trim();
   if (!trimmed) return 'about:newtab';
 
@@ -27,5 +33,6 @@ export function normalizeUrl(input: string): string {
     return 'https://' + trimmed;
   }
 
-  return 'https://cn.bing.com/search?q=' + encodeURIComponent(trimmed);
+  const engine = SEARCH_ENGINES[searchEngine || ''] || SEARCH_ENGINES.bing;
+  return engine + encodeURIComponent(trimmed);
 }
