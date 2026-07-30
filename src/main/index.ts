@@ -4,7 +4,7 @@ import { setupFlash } from './modules/flash';
 import { initSession } from './modules/session';
 import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow } from './modules/window';
-import { setMainWindowRef, registerShortcutHandler } from './ipc/shortcut.ipc';
+import { setMainWindowRef, registerShortcutHandler, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -39,6 +39,8 @@ function bootstrap(): void {
     initSession();
     mainWindow = createWindow();
     setMainWindowRef(mainWindow);
+    registerZoomShortcuts();
+    startMouseHook();
     registerWindowIPC(() => getMainWindow());
 
     app.on('web-contents-created', (_event, wc) => {
