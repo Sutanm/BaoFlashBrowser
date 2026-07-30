@@ -14,4 +14,5 @@ export interface Settings {
   flashVersion: string;
   flashEngineMode: FlashEngineMode;
   flashEngineRules: FlashEngineRule[];
+  lowEndMode: boolean;
 }

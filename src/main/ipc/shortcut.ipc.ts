@@ -50,6 +50,9 @@ const SHORTCUTS: ShortcutEntry[] = [
   { key: '+', ctrl: true, action: 'zoom-in' },
   { key: '-', ctrl: true, action: 'zoom-out' },
   { key: '0', ctrl: true, action: 'zoom-reset' },
+  // Navigation
+  { key: 'Left', alt: true, action: 'go-back' },
+  { key: 'Right', alt: true, action: 'go-forward' },
 ];
 
 let mainWindow: BrowserWindow | null = null;

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, X, Volume2, Star, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, X, Volume2, Star, Clock, Download, Settings as SettingsIcon } from 'lucide-react';
 import AddressBar from './AddressBar';
 
 interface NavigationBarProps {
@@ -16,6 +16,8 @@ interface NavigationBarProps {
   onReload: () => void;
   onToggleMute: () => void;
   onToggleFavorites: () => void;
+  onToggleHistory: () => void;
+  onToggleDownloads: () => void;
   onToggleSettings: () => void;
 }
 
@@ -33,6 +35,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   onReload,
   onToggleMute,
   onToggleFavorites,
+  onToggleHistory,
+  onToggleDownloads,
   onToggleSettings,
 }) => {
   const addressBarRef = useRef<{ focus: () => void }>(null);
@@ -94,6 +98,12 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
       </button>
       <button onClick={onToggleFavorites} className="btn-icon" title={isBookmarked ? '已收藏' : '收藏夹'}>
         <Star className="w-4 h-4" fill={isBookmarked ? '#ffd700' : 'none'} color={isBookmarked ? '#ffd700' : undefined} />
+      </button>
+      <button onClick={onToggleHistory} className="btn-icon" title="历史记录">
+        <Clock className="w-4 h-4" />
+      </button>
+      <button onClick={onToggleDownloads} className="btn-icon" title="下载">
+        <Download className="w-4 h-4" />
       </button>
       <button onClick={onToggleSettings} className="btn-icon" title="设置">
         <SettingsIcon className="w-4 h-4" />

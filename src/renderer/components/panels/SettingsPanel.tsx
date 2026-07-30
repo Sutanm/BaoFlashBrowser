@@ -40,7 +40,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ visible, onClose, current
   const handleSave = useCallback(() => {
     setSettings(form);
     save(form);
-    (window as any).electronAPI?.invoke('save-config', { flashVersion: form.flashVersion });
+    (window as any).electronAPI?.invoke('save-config', {
+      flashVersion: form.flashVersion,
+      lowEndMode: form.lowEndMode,
+    });
     onClose();
   }, [form, setSettings, onClose]);
 
@@ -82,6 +85,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ visible, onClose, current
           <option value="google">Google</option>
           <option value="baidu">百度</option>
         </select>
+
+        <div className="setting-row">
+          <span>低端设备模式</span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={form.lowEndMode}
+              onChange={(e) => handleChange('lowEndMode', e.target.checked)}
+            />
+            <span className="toggle-slider" />
+          </label>
+        </div>
+        <small className="setting-hint">减少 GPU 纹理缓存，改善长时间游玩 Flash 游戏卡顿。需重启应用生效。</small>
 
         <div className="setting-row">
           <span>页面缩放</span>
