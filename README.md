@@ -69,7 +69,7 @@ Built on Electron 11 (Chromium 87) with React 17 + TypeScript + Jotai. Supports 
 | Ctrl+D | 收藏当前页 |
 | Ctrl+F | 页内查找 |
 | F11 | 全屏 |
-| F12 | DevTools |
+| F12 | 检查（聚焦地址栏：Electron 壳 DevTools；其他位置：页面 DevTools） |
 
 ## 运行 Run
 
