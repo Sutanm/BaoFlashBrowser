@@ -6,6 +6,7 @@ import WindowControls from '../shell/WindowControls';
 import RuffleToggle from '../navigation/RuffleToggle';
 import type { TabState } from '@renderer/atoms/tabs.atom';
 import type { FlashEngineMode } from '@shared/types/settings';
+import type { AddressToast } from '@renderer/atoms/data.atom';
 import { toastQueueAtom } from '@renderer/atoms/data.atom';
 
 interface TopBarProps {
@@ -81,9 +82,11 @@ const TopBar: React.FC<TopBarProps> = ({
   const toastQueue = useAtomValue(toastQueueAtom);
   const setToastQueue = useSetAtom(toastQueueAtom);
 
+  const currentToast = toastQueue[0];
+
   // Address bar flip animation for toast queue
   useEffect(() => {
-    const toast = toastQueue[0];
+    const toast = currentToast;
     if (!toast) {
       prevHadToastRef.current = false;
       return;
@@ -102,27 +105,35 @@ const TopBar: React.FC<TopBarProps> = ({
       : '#e74c3c'
     );
 
+    if (toast.actions && toast.actions.length > 0) {
+      setToastColor(bg);
+      return;
+    }
+
     setFlipping(true);
     setTimeout(() => {
       setAddressValue(toast.message);
       setToastColor(bg);
-      setFlipping(false);
     }, 150);
+    setTimeout(() => {
+      setFlipping(false);
+    }, 300);
 
-    const duration = toast.duration || 1500;
-
+    const duration = typeof toast.duration === 'number' ? toast.duration : 1500;
     toastTimerRef.current = setTimeout(() => {
       setFlipping(true);
       setTimeout(() => {
         setAddressValue(savedUrlRef.current);
         setToastColor(null);
-        setFlipping(false);
-        setToastQueue((prev) => prev.slice(1));
       }, 150);
+      setTimeout(() => {
+        setFlipping(false);
+        setToastQueue((prev: AddressToast[]) => prev.slice(1));
+      }, 300);
     }, duration);
 
     return () => clearTimeout(toastTimerRef.current);
-  }, [toastQueue, setToastQueue]);
+  }, [currentToast, setToastQueue]);
 
   useEffect(() => {
     setAddressValue(url);
@@ -247,22 +258,47 @@ const TopBar: React.FC<TopBarProps> = ({
           </button>
         )}
         <RuffleToggle engineMode={flashEngineMode} ruffleSource={ruffleSource} onToggle={onToggleRuffle} />
-        <input
-          ref={addressInputRef}
-          type="text"
-          value={addressValue}
-          onChange={(e) => setAddressValue(e.target.value)}
-          onKeyDown={handleAddressKeyDown}
-          placeholder="输入网址或搜索..."
-          className={`input-text no-drag ${flipping ? 'address-flip' : ''}`}
-          spellCheck={false}
-          autoComplete="off"
-          style={toastColor ? {
-            background: toastColor,
-            color: '#fff',
-            fontWeight: 500,
-          } : undefined}
-        />
+        <div style={{ position: 'relative', flex: 1, display: 'flex' }}>
+          <input
+            ref={addressInputRef}
+            type="text"
+            value={addressValue}
+            onChange={(e) => setAddressValue(e.target.value)}
+            onKeyDown={handleAddressKeyDown}
+            placeholder="输入网址或搜索..."
+            className={`input-text no-drag ${flipping ? 'address-flip' : ''}`}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          {currentToast && (
+            <div
+              className={`toast-overlay ${flipping ? 'address-flip' : ''}`}
+              style={{
+                background: toastColor || (
+                  currentToast.type === 'success' ? '#27ae60'
+                  : currentToast.type === 'info' ? '#3498db'
+                  : currentToast.type === 'warning' ? '#f39c12'
+                  : '#e74c3c'
+                ),
+              }}
+            >
+              <span style={{ flex: 1 }}>{currentToast.message}</span>
+              {currentToast.actions && (
+                <div className="toast-actions">
+                  {currentToast.actions.map((action, i) => (
+                    <button
+                      key={i}
+                      className={action.primary ? 'toast-btn-primary' : ''}
+                      onClick={(e) => { e.stopPropagation(); action.onClick(); }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <button onClick={onZoomOut} className="btn-icon btn-icon-sm" title="缩小 (Ctrl+-)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
         </button>

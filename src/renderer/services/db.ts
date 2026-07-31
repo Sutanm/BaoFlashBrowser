@@ -59,22 +59,26 @@ export async function migrateFromLocalStorage() {
   const migrated = await loadMeta('migrated_v1');
   if (migrated) return;
 
-  const migrate = (key: string, store: Dexie.Table) => {
+  // L23: 迁移改为 async + await bulkPut，确保数据完整性
+  const migrate = async (key: string, store: Dexie.Table) => {
     try {
       const raw = localStorage.getItem(key);
       if (raw) {
         const data = JSON.parse(raw);
         if (Array.isArray(data) && data.length > 0) {
-          store.bulkPut(data);
+          await store.bulkPut(data);
         }
       }
-    } catch {}
+    } catch (e) { console.warn('[DB] migrate failed for ' + key + ':', e); }
   };
 
-  migrate('baoflash_favorites', db.favorites);
-  migrate('baoflash_history', db.history);
-  migrate('baoflash_downloads', db.downloads);
-  migrate('baoflash_settings', db.settings);
+  // L23: 4 个 migrate 相互独立，并行执行
+  await Promise.all([
+    migrate('baoflash_favorites', db.favorites),
+    migrate('baoflash_history', db.history),
+    migrate('baoflash_downloads', db.downloads),
+    migrate('baoflash_settings', db.settings),
+  ]);
 
   // Migrate theme
   const theme = localStorage.getItem('baoflash_theme');

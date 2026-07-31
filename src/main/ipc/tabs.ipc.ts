@@ -1,18 +1,7 @@
 import { ipcMain } from 'electron';
-import log from 'electron-log';
+import { createHandler } from '../utils/ipc-wrapper';
 import { tabManager } from '../modules/tabs';
 import { ruffleJsContent } from '../modules/ruffle-bundle';
-
-function handle(channel: string, fn: (args: any) => void) {
-  ipcMain.handle(channel, (_e: any, args: any) => {
-    try {
-      return fn(args);
-    } catch (err: any) {
-      log.error(`[IPC] ${channel} failed:`, err?.message || err);
-      throw err;
-    }
-  });
-}
 
 export function registerTabsIPC(): void {
   // Sync handler: preload uses sendSync to get ruffle config at document-start
@@ -25,48 +14,48 @@ export function registerTabsIPC(): void {
     };
   });
 
-  handle('tab:create', (args) =>
+  createHandler('tab:create', (args: any) =>
     tabManager.create(args.tabId, args.url, args.ruffleConfig));
 
-  handle('tab:close', (args) =>
+  createHandler('tab:close', (args: any) =>
     tabManager.close(args.tabId));
 
-  handle('tab:activate', (args) =>
+  createHandler('tab:activate', (args: any) =>
     tabManager.activate(args.tabId));
 
-  handle('tab:navigate', (args) =>
+  createHandler('tab:navigate', (args: any) =>
     tabManager.navigate(args.tabId, args.url));
 
-  handle('tab:goBack', (args) =>
+  createHandler('tab:goBack', (args: any) =>
     tabManager.goBack(args.tabId));
 
-  handle('tab:goForward', (args) =>
+  createHandler('tab:goForward', (args: any) =>
     tabManager.goForward(args.tabId));
 
-  handle('tab:reload', (args) =>
+  createHandler('tab:reload', (args: any) =>
     tabManager.reload(args.tabId));
 
-  handle('tab:stop', (args) =>
+  createHandler('tab:stop', (args: any) =>
     tabManager.stop(args.tabId));
 
-  handle('tab:zoom', (args) =>
+  createHandler('tab:zoom', (args: any) =>
     tabManager.setZoom(args.tabId, args.factor));
 
-  handle('tab:mute', (args) =>
+  createHandler('tab:mute', (args: any) =>
     tabManager.setMuted(args.tabId, args.muted));
 
-  handle('tab:devtools', (args) =>
+  createHandler('tab:devtools', (args: any) =>
     tabManager.openDevTools(args.tabId));
 
-  handle('tab:find', (args) =>
+  createHandler('tab:find', (args: any) =>
     tabManager.findInPage(args.tabId, args.text, args.options));
 
-  handle('tab:stopFind', (args) =>
+  createHandler('tab:stopFind', (args: any) =>
     tabManager.stopFindInPage(args.tabId, args.action));
 
-  handle('tab:setBounds', (args) =>
+  createHandler('tab:setBounds', (args: any) =>
     tabManager.setBounds(args.x ?? 0, args.y ?? 0, args.w ?? 0, args.h ?? 0));
 
-  handle('tab:setRuffleMode', (args) =>
+  createHandler('tab:setRuffleMode', (args: any) =>
     tabManager.setRuffleMode(args.tabId, args.enabled, args.source));
 }

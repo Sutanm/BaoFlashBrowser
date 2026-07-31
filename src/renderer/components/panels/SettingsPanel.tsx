@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
-import { settingsAtom, defaultSettings, pushToastAtom } from '@renderer/atoms/data.atom';
+import { settingsAtom, defaultSettings, pushToastAtom, passwordStoreStatusAtom } from '@renderer/atoms/data.atom';
 import type { Settings } from '@shared/types/settings';
 
 interface SettingsPanelProps {
@@ -13,8 +13,10 @@ interface SettingsPanelProps {
 const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, onZoomOut, onZoomReset }) => {
   const [settings, setSettings] = useAtom(settingsAtom);
   const pushToast = useSetAtom(pushToastAtom);
+  const setStoreStatus = useSetAtom(passwordStoreStatusAtom);
   const [form, setForm] = useState<Settings>({ ...defaultSettings, ...settings });
   const [saved, setSaved] = useState<boolean | 'restart'>(false);
+  const [resetConfirming, setResetConfirming] = useState(false);
 
   const handleChange = useCallback((key: keyof Settings, value: unknown) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -41,6 +43,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
       pushToast({ message: '设置已保存', type: 'success' });
     }
   }, [form, setSettings, settings, pushToast]);
+
+  const handleResetPassword = useCallback(async () => {
+    if (!resetConfirming) { setResetConfirming(true); return; }
+    setResetConfirming(false);
+    await (window as any).electronAPI?.pwd?.resetAll();
+    setStoreStatus({ initialized: false, unlocked: false, enabled: false, dpapiAvailable: false });
+    pushToast({ message: '密码本已重置', type: 'info' });
+  }, [resetConfirming, setStoreStatus, pushToast]);
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -137,6 +147,23 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
             <option value="chromium">Chromium (内置)</option>
           </select>
         </div>
+      </div>
+
+      <div className="panel-card">
+        <div className="panel-card-title">密码</div>
+        <div className="field-hint" style={{ marginBottom: 8 }}>重置将清空所有已保存的密码，需重新设置主密码。</div>
+        <button
+          onClick={handleResetPassword}
+          style={{
+            width: '100%', padding: 8, borderRadius: 6, border: 'none',
+            background: resetConfirming ? '#e74c3c' : 'var(--bg-hover)',
+            color: resetConfirming ? '#fff' : '#e74c3c',
+            fontSize: 13, cursor: 'pointer',
+          }}
+          onBlur={() => setResetConfirming(false)}
+        >
+          {resetConfirming ? '确认重置？再次点击确认' : '重置密码本'}
+        </button>
       </div>
 
       <div className="panel-card">

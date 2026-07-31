@@ -117,9 +117,11 @@ sudo apt install -y libnss3 libgtk-3-0 libx11-xcb1 libxtst6 libxss1 \
   libpulse0 libdbus-1-3
 ```
 
-## 打包 Package
+## 文档 Docs
 
-参见 [docs/PACKAGE.md](docs/PACKAGE.md)
+- [架构手册](docs/architecture-manual.md) — 面向二次开发的完整系统解析（模块、数据流、经验教训）
+- [打包手册](docs/PACKAGE.md)
+- [v2 开发经验总结](docs/lessons-learned.md)
 
 ## 目录结构 Structure
 

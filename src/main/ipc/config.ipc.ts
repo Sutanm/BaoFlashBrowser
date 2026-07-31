@@ -1,18 +1,7 @@
-import { ipcMain } from 'electron';
-import log from 'electron-log';
+import { createHandler } from '../utils/ipc-wrapper';
 import { loadConfig, saveConfig } from '../modules/config';
 
 export function registerConfigIPC(): void {
-  ipcMain.handle('load-config', () => {
-    return loadConfig();
-  });
-
-  ipcMain.handle('save-config', (_event, cfg) => {
-    try {
-      return saveConfig(cfg);
-    } catch (err: any) {
-      log.error('[IPC] save-config failed:', err?.message || err);
-      throw err;
-    }
-  });
+  createHandler('load-config', () => loadConfig());
+  createHandler('save-config', (cfg) => saveConfig(cfg));
 }

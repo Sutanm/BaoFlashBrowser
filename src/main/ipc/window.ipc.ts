@@ -1,33 +1,18 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { BrowserWindow } from 'electron';
+import { createHandler } from '../utils/ipc-wrapper';
 
 export function registerWindowIPC(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('win:minimize', () => {
-    getWindow()?.minimize();
-  });
-
-  ipcMain.handle('win:maximize', () => {
-    getWindow()?.maximize();
-  });
-
-  ipcMain.handle('win:unmaximize', () => {
-    getWindow()?.unmaximize();
-  });
-
-  ipcMain.handle('win:close', () => {
-    getWindow()?.close();
-  });
-
-  ipcMain.handle('win:setFullscreen', (_e, fullscreen: boolean) => {
+  createHandler('win:minimize', () => { getWindow()?.minimize(); });
+  createHandler('win:maximize', () => { getWindow()?.maximize(); });
+  createHandler('win:unmaximize', () => { getWindow()?.unmaximize(); });
+  createHandler('win:close', () => { getWindow()?.close(); });
+  createHandler('win:setFullscreen', (_args: any) => {
     const win = getWindow();
-    if (win) win.setFullScreen(fullscreen);
+    if (win) win.setFullScreen(_args.fullscreen);
   });
-
-  ipcMain.handle('win:toggleFullscreen', () => {
+  createHandler('win:toggleFullscreen', () => {
     const win = getWindow();
     if (win) win.setFullScreen(!win.isFullScreen());
   });
-
-  ipcMain.handle('win:isMaximized', () => {
-    return getWindow()?.isMaximized() ?? false;
-  });
+  createHandler('win:isMaximized', () => getWindow()?.isMaximized() ?? false);
 }

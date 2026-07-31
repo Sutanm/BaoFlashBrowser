@@ -2,8 +2,9 @@ import { BrowserView, BrowserWindow, Menu, shell } from 'electron';
 import log from 'electron-log';
 import fs from 'fs';
 import path from 'path';
-import { patchedSWFObject } from './session';
-import { setupDownloadHandlers } from './download';
+import { getMainWindow } from './window';
+import { setupSessionOnce } from './session-manager';
+import { setupCapture, teardownCapture } from './password-capture';
 
 interface TabEntry {
   id: string;
@@ -24,10 +25,8 @@ class TabManager {
   private tabs = new Map<string, TabEntry>();
   private wcToId = new Map<number, string>();
   private activeId: string | null = null;
-  private mainWindow: BrowserWindow | null = null;
   private rect: ContainerRect = { x: 0, y: 0, width: 0, height: 0 };
   private preloadPath = '';
-  private sessionSetup = false;
 
   getRuffleForWC(wcId: number): { enabled: boolean; source?: 'bundled' | 'cdn' } | null {
     const tabId = this.wcToId.get(wcId);
@@ -35,12 +34,6 @@ class TabManager {
     const tab = this.tabs.get(tabId);
     if (!tab) return null;
     return { enabled: tab.isRuffle, source: tab.ruffleSource };
-  }
-
-  get window(): BrowserWindow | null { return this.mainWindow; }
-
-  setWindow(win: BrowserWindow): void {
-    this.mainWindow = win;
   }
 
   setPreload(path: string): void {
@@ -56,8 +49,9 @@ class TabManager {
   }
 
   create(tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }): void {
-    if (!this.mainWindow) {
-      log.warn('[TabManager] create: mainWindow not set, skipping tab ' + tabId);
+    const win = getMainWindow();
+    if (!win) {
+      log.warn('[TabManager] create: mainWindow not available, skipping tab ' + tabId);
       return;
     }
     const useRuffle = ruffleConfig?.enabled ?? false;
@@ -70,29 +64,14 @@ class TabManager {
         partition: 'persist:',
       },
     });
-    this.mainWindow?.addBrowserView(view);
+    win.addBrowserView(view);
     view.setBounds(this.rect.width > 0 ? this.rect : { x: -9999, y: -9999, width: 1, height: 1 });
     view.setAutoResize({ width: false, height: false });
 
     const wc = view.webContents;
 
     // Setup session handlers once (first BrowserView)
-    if (!this.sessionSetup) {
-      this.sessionSetup = true;
-      const sess = wc.session;
-      sess.setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36',
-      );
-      // Taomee SWFObject bypass
-      sess.webRequest.onBeforeRequest(
-        { urls: ['*://webres.61.com/common/js/swfobject.js*'] },
-        (_details: any, cb: any) => {
-          cb({ redirectURL: 'data:text/javascript;charset=utf-8,' + encodeURIComponent(patchedSWFObject()) });
-        },
-      );
-      // Unified download handler (Chromium tracking or aria2)
-      setupDownloadHandlers(sess);
-    }
+    setupSessionOnce(wc.session);
 
     wc.on('page-title-updated', (_e, title) => this.send('tab:updated', { tabId, title }));
     wc.on('page-favicon-updated', (_e, favicons) => {
@@ -116,9 +95,11 @@ class TabManager {
               this.send('tab:updated', { tabId, favicon });
             }
           }).catch(() => {});
-        } catch {}
+        } catch (e: any) { log.warn('[TabManager] fallback title/favicon failed:', e?.message); }
       }, 500);
+      setupCapture(wc);
     });
+
     wc.on('did-navigate', (_e, navUrl) => {
       if (navUrl === 'about:blank') return;
       if (navUrl.startsWith('data:')) return;
@@ -133,7 +114,7 @@ class TabManager {
     const updateNav = () => {
       try {
         this.send('tab:updated', { tabId, canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() });
-      } catch {}
+      } catch (e: any) { log.warn('[TabManager] updateNav failed:', e?.message); }
     };
     wc.on('did-navigate', updateNav);
     wc.on('did-navigate-in-page', updateNav);
@@ -145,11 +126,11 @@ class TabManager {
 
     wc.on('did-fail-load', (_e, errorCode, _desc, validatedURL) => {
       if (errorCode === -3) return;
-      wc.stop();
       this.send('tab:load-error', { tabId, errorCode, validatedURL });
     });
 
     wc.on('render-process-gone', () => {
+      this.wcToId.delete(wc.id);  // L12: 清理 wcToId，避免 id 残留
       this.send('tab:crashed', { tabId });
     });
 
@@ -159,12 +140,15 @@ class TabManager {
     });
 
     wc.on('context-menu', (_e, params) => {
+      // L21: 非空断言修复
+      const mw = getMainWindow();
+      if (!mw || mw.isDestroyed()) return;
       const template: Electron.MenuItemConstructorOptions[] = [
         { label: '↩ 后退', enabled: wc.canGoBack(), click: () => wc.goBack() },
         { label: '↪ 前进', enabled: wc.canGoForward(), click: () => wc.goForward() },
         { label: '⟳ 刷新', click: () => wc.reload() },
         { type: 'separator' },
-        { label: '复制', enabled: params.selectionText.length > 0, role: 'copy' },
+        { label: '复制', enabled: (params.selectionText?.length ?? 0) > 0, role: 'copy' },
         { label: '粘贴', role: 'paste' },
       ];
       if (params.linkURL) {
@@ -181,7 +165,7 @@ class TabManager {
         { label: isRuffle ? 'Flash 引擎: Ruffle (WASM 模拟)' + sourceLabel : 'Flash 引擎: PPAPI (原生)', enabled: false },
         { label: '检查元素', click: () => wc.openDevTools({ mode: 'detach' }) },
       );
-      Menu.buildFromTemplate(template).popup({ window: this.mainWindow!, x: params.x, y: params.y });
+      Menu.buildFromTemplate(template).popup({ window: mw, x: params.x, y: params.y });
     });
 
     this.tabs.set(tabId, {
@@ -204,10 +188,8 @@ class TabManager {
     const wasActive = this.activeId === tabId;
     const currentUrl = tab.browserView.webContents.getURL();
 
-    // Remove old BrowserView
-    this.wcToId.delete(tab.browserView.webContents.id);
-    this.mainWindow?.removeBrowserView(tab.browserView);
-    try { (tab.browserView.webContents as Electron.WebContents).destroy(); } catch {}
+    // Remove old BrowserView (L12: 使用 _destroyView)
+    this._destroyView(tab);
 
     // Create new BrowserView with correct plugin setting
     const view = new BrowserView({
@@ -219,7 +201,8 @@ class TabManager {
         partition: 'persist:',
       },
     });
-    this.mainWindow?.addBrowserView(view);
+    const win = getMainWindow();
+    win?.addBrowserView(view);
     view.setBounds(this.rect.width > 0 ? this.rect : { x: -9999, y: -9999, width: 1, height: 1 });
     view.setAutoResize({ width: false, height: false });
 
@@ -242,9 +225,11 @@ class TabManager {
           ).then((favicon) => {
             if (typeof favicon === 'string' && favicon) this.send('tab:updated', { tabId, favicon });
           }).catch(() => {});
-        } catch {}
+        } catch (e: any) { log.warn('[TabManager] fallback title/favicon failed:', e?.message); }
       }, 500);
+      setupCapture(wc);
     });
+
     wc.on('did-navigate', (_e, navUrl) => {
       if (navUrl !== 'about:blank' && !navUrl.startsWith('data:')) this.send('tab:updated', { tabId, url: navUrl });
     });
@@ -252,12 +237,15 @@ class TabManager {
       if (isMainFrame && navUrl !== 'about:blank') this.send('tab:updated', { tabId, url: navUrl });
     });
     wc.on('context-menu', (_e, params) => {
+      // L21: 非空断言修复
+      const mw = getMainWindow();
+      if (!mw || mw.isDestroyed()) return;
       const template: Electron.MenuItemConstructorOptions[] = [
         { label: '↩ 后退', enabled: wc.canGoBack(), click: () => wc.goBack() },
         { label: '↪ 前进', enabled: wc.canGoForward(), click: () => wc.goForward() },
         { label: '⟳ 刷新', click: () => wc.reload() },
         { type: 'separator' },
-        { label: '复制', enabled: params.selectionText.length > 0, role: 'copy' },
+        { label: '复制', enabled: (params.selectionText?.length ?? 0) > 0, role: 'copy' },
         { label: '粘贴', role: 'paste' },
       ];
       if (params.linkURL) {
@@ -271,17 +259,19 @@ class TabManager {
         { label: enabled ? ('Flash 引擎: Ruffle (WASM 模拟)' + (source === 'cdn' ? ' (CDN)' : '')) : 'Flash 引擎: PPAPI (原生)', enabled: false },
         { label: '检查元素', click: () => wc.openDevTools({ mode: 'detach' }) },
       );
-      Menu.buildFromTemplate(template).popup({ window: this.mainWindow!, x: params.x, y: params.y });
+      Menu.buildFromTemplate(template).popup({ window: mw, x: params.x, y: params.y });
     });
 
     wc.on('media-started-playing', () => this.send('tab:updated', { tabId, isAudible: true }));
     wc.on('media-paused', () => this.send('tab:updated', { tabId, isAudible: false }));
     wc.on('did-fail-load', (_e, errorCode, _desc, validatedURL) => {
       if (errorCode === -3) return;
-      wc.stop();
       this.send('tab:load-error', { tabId, errorCode, validatedURL });
     });
-    wc.on('render-process-gone', () => { this.send('tab:crashed', { tabId }); });
+    wc.on('render-process-gone', () => {
+      this.wcToId.delete(wc.id);  // L12: 清理 wcToId
+      this.send('tab:crashed', { tabId });
+    });
     wc.on('new-window', (e, url) => {
       e.preventDefault();
       this.send('tab:newwindow', { url });
@@ -323,11 +313,29 @@ class TabManager {
   close(tabId: string): void {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
-    this.wcToId.delete(tab.browserView.webContents.id);
-    this.mainWindow?.removeBrowserView(tab.browserView);
-    (tab.browserView.webContents as Electron.WebContents).destroy();
+    this._destroyView(tab);
     this.tabs.delete(tabId);
     if (this.activeId === tabId) this.activeId = null;
+  }
+
+  // L12: 安全销毁 BrowserView，防止内存泄漏
+  private _destroyView(tab: TabEntry): void {
+    teardownCapture(tab.browserView.webContents);
+    this.wcToId.delete(tab.browserView.webContents.id);
+    const win = getMainWindow();
+    win?.removeBrowserView(tab.browserView);
+    try { (tab.browserView.webContents as Electron.WebContents).destroy(); } catch {}
+    try { (tab.browserView as any).destroy(); } catch {}
+  }
+
+  // L12: 退出时批量销毁
+  destroyAll(): void {
+    for (const [, tab] of this.tabs) {
+      try { this._destroyView(tab); } catch {}
+    }
+    this.tabs.clear();
+    this.wcToId.clear();
+    this.activeId = null;
   }
 
   navigate(tabId: string, url: string): void {
@@ -391,8 +399,9 @@ class TabManager {
   }
 
   private send(channel: string, payload: Record<string, unknown>): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(channel, payload);
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(channel, payload);
     }
   }
 }

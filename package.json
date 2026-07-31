@@ -24,9 +24,14 @@
   },
   "dependencies": {
     "@ruffle-rs/ruffle": "^0.4.1",
+    "axios": "1.6.x",
     "copy-webpack-plugin": "^14.0.0",
+    "dayjs": "^1.11.13",
     "electron-log": "^4.4.8",
-    "electron-store": "^6.0.1"
+    "electron-store": "^6.0.1",
+    "execa": "^5.1.1",
+    "nanoid": "^3.3.7",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

@@ -1,8 +1,33 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import path from 'path';
 
+// --- L04: IPC 通道白名单 ---
+const ALLOWED_ON_CHANNELS = new Set([
+  'tab:updated', 'tab:found', 'tab:load-error', 'tab:crashed', 'tab:newwindow',
+  'download:progress', 'aria2:status', 'navigate-url',
+  'shortcut',
+  'password:captured', 'password:changed',
+]);
+
+const ALLOWED_INVOKE_CHANNELS = new Set([
+  'tab:create', 'tab:close', 'tab:activate', 'tab:navigate', 'tab:goBack', 'tab:goForward',
+  'tab:reload', 'tab:stop', 'tab:zoom', 'tab:mute', 'tab:devtools', 'tab:find', 'tab:stopFind',
+  'tab:setBounds', 'tab:setRuffleMode',
+  'load-config', 'save-config',
+  'download:aria2-status', 'download:get-dir', 'download:set-dir', 'download:delete-file',
+  'password:status', 'password:setup', 'password:unlock', 'password:lock',
+  'password:toggle-enabled', 'password:list', 'password:save-confirm',
+  'password:ignore', 'password:delete', 'password:get-password', 'password:set-default',
+'password:reset',
+  'win:minimize', 'win:maximize', 'win:unmaximize', 'win:close', 'win:setFullscreen', 'win:toggleFullscreen', 'win:isMaximized',
+]);
+
 const electronAPI = {
   on(channel: string, callback: (...args: unknown[]) => void): () => void {
+    if (!ALLOWED_ON_CHANNELS.has(channel)) {
+      console.warn('[Preload] on() rejected: unauthorized channel', channel);
+      return () => {};
+    }
     const listener = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args);
     ipcRenderer.on(channel, listener);
     return () => {
@@ -11,6 +36,10 @@ const electronAPI = {
   },
 
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {
+    if (!ALLOWED_INVOKE_CHANNELS.has(channel)) {
+      console.warn('[Preload] invoke() rejected: unauthorized channel', channel);
+      return Promise.reject(new Error('Unauthorized IPC channel: ' + channel));
+    }
     return ipcRenderer.invoke(channel, ...args);
   },
 
@@ -50,6 +79,21 @@ const electronAPI = {
     setDir: () => ipcRenderer.invoke('download:set-dir'),
     deleteFile: (savePath: string) => ipcRenderer.invoke('download:delete-file', { savePath }),
   },
+
+  pwd: {
+    status: () => ipcRenderer.invoke('password:status'),
+    setup: (password: string) => ipcRenderer.invoke('password:setup', { password }),
+    unlock: (password: string) => ipcRenderer.invoke('password:unlock', { password }),
+    lock: () => ipcRenderer.invoke('password:lock'),
+    toggleEnabled: () => ipcRenderer.invoke('password:toggle-enabled'),
+    list: () => ipcRenderer.invoke('password:list'),
+    saveConfirm: (captureId: string) => ipcRenderer.invoke('password:save-confirm', { captureId }),
+    ignore: (captureId: string) => ipcRenderer.invoke('password:ignore', { captureId }),
+    delete: (id: string) => ipcRenderer.invoke('password:delete', { id }),
+    getPassword: (id: string) => ipcRenderer.invoke('password:get-password', { id }),
+  setDefault: (id: string) => ipcRenderer.invoke('password:set-default', { id }),
+  resetAll: () => ipcRenderer.invoke('password:reset'),
+},
 
   win: {
     minimize: () => ipcRenderer.invoke('win:minimize'),

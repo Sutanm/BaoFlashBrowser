@@ -95,9 +95,14 @@ const DownloadsPanel: React.FC = () => {
   const deleteFileAndEntry = useCallback(async (e: React.MouseEvent, entry: DownloadItem) => {
     e.stopPropagation();
     if (!window.confirm(`确定删除 "${entry.filename}"？`)) return;
-    await (window as any).electronAPI?.dl?.deleteFile(entry.savePath);
-    setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== entry.id));
-    pushToast({ message: `${entry.filename || '文件'} 已删除`, type: 'info', color: '#e74c3c' });
+    // L42: 校验 deleteFile 返回值，失败时不移除条目
+    const success = await (window as any).electronAPI?.dl?.deleteFile(entry.savePath);
+    if (success) {
+      setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== entry.id));
+      pushToast({ message: `${entry.filename || '文件'} 已删除`, type: 'info', color: '#e74c3c' });
+    } else {
+      pushToast({ message: `${entry.filename || '文件'} 删除失败`, type: 'error' });
+    }
   }, [setDownloads, pushToast]);
 
   const chooseDir = useCallback(async () => {
@@ -221,12 +226,12 @@ const DownloadsPanel: React.FC = () => {
                      isDone ? '已完成' :
                      entry.state === 'cancelled' ? '已取消' :
                      entry.state === 'interrupted' ? '已中断' :
-                     isProgress && entry.progress > 0 ? entry.progress.toFixed(1) + '%' : '准备中...'}
+                     isProgress && (entry.progress ?? 0) > 0 ? (entry.progress ?? 0).toFixed(1) + '%' : '准备中...'}
                     {entry.totalBytes > 0 ? ' · ' + formatBytes(entry.receivedBytes) + ' / ' + formatBytes(entry.totalBytes) : ''}
                   </span>
                   {(isProgress || isPaused) && (
                     <div className="download-progress">
-                      <div className="download-progress-bar" style={{ width: Math.min(entry.progress, 99.9) + '%' }} />
+                      <div className="download-progress-bar" style={{ width: Math.min(entry.progress ?? 0, 99.9) + '%' }} />
                     </div>
                   )}
                 </div>

@@ -6,17 +6,17 @@ import { setupFlash } from './modules/flash';
 import { initSession } from './modules/session';
 import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow } from './modules/window';
-import { setMainWindowRef, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
+import { registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
 import { registerConfigIPC } from './ipc/config.ipc';
 import { registerTabsIPC } from './ipc/tabs.ipc';
 import { registerDownloadIPC } from './ipc/download.ipc';
+import { registerPasswordIPC } from './ipc/password.ipc';
+import { init as initPasswordStore } from './modules/password-store';
 import { tabManager } from './modules/tabs';
 import { loadRuffleJs } from './modules/ruffle-bundle';
 import { selfTest as dpapiSelfTest } from './modules/dpapi';
 import { initDownloadManager, killAria2 } from './modules/download';
-
-let mainWindow: BrowserWindow | null = null;
 
 function bootstrap(): void {
   if (!app.requestSingleInstanceLock()) {
@@ -25,9 +25,10 @@ function bootstrap(): void {
   }
 
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+    const win = getMainWindow();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
     }
   });
 
@@ -105,26 +106,27 @@ function bootstrap(): void {
       log.info('[Ruffle] protocol ruffle-resource registered (buffer mode');
     } catch (e: any) { log.warn('[Ruffle] protocol registration failed:', e?.message); }
 
-    mainWindow = createWindow();
-    tabManager.setWindow(mainWindow);
+    createWindow();
     tabManager.setPreload(path.join(__dirname, 'webview-preload.js'));
     initSession();
-    initDownloadManager(() => getMainWindow());
-    setMainWindowRef(mainWindow);
+    initDownloadManager();
     registerZoomShortcuts();
     startMouseHook();
     registerWindowIPC(() => getMainWindow());
     registerConfigIPC();
     registerTabsIPC();
     registerDownloadIPC();
+    initPasswordStore().catch((e: any) => log.warn('[App] password store init failed:', e?.message));
+    registerPasswordIPC();
     dpapiSelfTest();
 
-    mainWindow.on('resize', () => {
+    const win = getMainWindow();
+    win?.on('resize', () => {
       // Renderer recalculates and sends tab:setBounds
     });
 
     if (process.platform === 'win32') {
-      mainWindow.on('move', () => {
+      win?.on('move', () => {
         // Renderer recalculates and sends tab:setBounds
       });
     }
@@ -153,7 +155,7 @@ function bootstrap(): void {
   let crashResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   app.on('render-process-gone', (_event, wc, details) => {
-    const win = mainWindow;
+    const win = getMainWindow();
     if (wc === win?.webContents) {
       log.error('[App] MAIN RENDER PROCESS GONE — reason: ' + details.reason);
       crashCount++;

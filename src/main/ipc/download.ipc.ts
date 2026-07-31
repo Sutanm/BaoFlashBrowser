@@ -5,6 +5,19 @@ import path from 'path';
 import { cancelDownload, pauseDownload, resumeDownload, getAria2Status, getDownloadDir } from '../modules/download';
 import { saveConfig } from '../modules/config';
 
+// --- L02: 路径穿越校验 ---
+function isPathAllowed(savePath: string): boolean {
+  const allowed = path.resolve(getDownloadDir());
+  const target = path.resolve(savePath);
+  return target === allowed || target.startsWith(allowed + path.sep);
+}
+
+// --- L03: 危险扩展名黑名单 ---
+const DANGEROUS_EXTS = new Set(['.exe', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.wsf', '.scr', '.com']);
+
+// --- L06: 允许的下载协议 ---
+const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
+
 export function registerDownloadIPC(): void {
   ipcMain.handle('download:aria2-status', () => {
     return getAria2Status();
@@ -31,16 +44,22 @@ export function registerDownloadIPC(): void {
   });
 
   ipcMain.handle('download:delete-file', (_event, { savePath }: { savePath: string }) => {
+    if (!isPathAllowed(savePath)) {
+      log.warn('[Download] path rejected (out of download dir):', savePath);
+      return false;
+    }
     try {
-      if (savePath && fs.existsSync(savePath)) {
-        fs.unlinkSync(savePath);
-        log.info('[Download] file deleted:', savePath);
+      fs.unlinkSync(savePath);
+      log.info('[Download] file deleted:', savePath);
+      return true;
+    } catch (e: any) {
+      if (e.code === 'ENOENT') {
+        log.info('[Download] file already removed:', savePath);
         return true;
       }
-    } catch (e: any) {
       log.error('[Download] delete file failed:', e.message);
+      return false;
     }
-    return false;
   });
 
   ipcMain.on('download:cancel', (_event, { id }: { id: string }) => {
@@ -59,7 +78,16 @@ export function registerDownloadIPC(): void {
   });
 
   ipcMain.on('download:open', (_event, { savePath }: { savePath: string }) => {
-    if (savePath && fs.existsSync(savePath)) {
+    if (!savePath || !isPathAllowed(savePath)) {
+      log.warn('[Download] open rejected (out of download dir):', savePath);
+      return;
+    }
+    const ext = path.extname(savePath).toLowerCase();
+    if (DANGEROUS_EXTS.has(ext)) {
+      log.warn('[Download] open rejected (dangerous extension):', savePath);
+      return;
+    }
+    if (fs.existsSync(savePath)) {
       shell.openPath(savePath);
     }
   });
@@ -72,6 +100,16 @@ export function registerDownloadIPC(): void {
   });
 
   ipcMain.on('download:start', (_event, { url, filename: _filename }: { url: string; filename?: string }) => {
+    try {
+      const proto = new URL(url).protocol;
+      if (!ALLOWED_PROTOCOLS.has(proto)) {
+        log.warn('[Download] start rejected (disallowed protocol):', proto, url);
+        return;
+      }
+    } catch {
+      log.warn('[Download] start rejected (invalid URL):', url);
+      return;
+    }
     log.info('[Download] manual start:', url);
     session.defaultSession.downloadURL(url);
   });

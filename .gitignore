@@ -9,3 +9,7 @@ test/
 adobeflash-archive-master/
 mm.cfg
 mms.cfg
+.idea/
+7k7k-reqs.json
+aria2-*.zip
+native/aria2/

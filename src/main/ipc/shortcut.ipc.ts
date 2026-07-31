@@ -3,6 +3,7 @@ import { globalShortcut, app } from 'electron';
 import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import log from 'electron-log';
+import { getMainWindow } from '../modules/window';
 import type { ShortcutAction } from '@shared/types/ipc';
 
 type ShortcutEntry = {
@@ -55,12 +56,6 @@ const SHORTCUTS: ShortcutEntry[] = [
   { key: 'Right', alt: true, action: 'go-forward' },
 ];
 
-let mainWindow: BrowserWindow | null = null;
-
-export function setMainWindowRef(win: BrowserWindow): void {
-  mainWindow = win;
-}
-
 function matchShortcut(input: Electron.Input): ShortcutEntry | null {
   for (const sc of SHORTCUTS) {
     if (input.key !== sc.key) continue;
@@ -81,8 +76,9 @@ export function handleWebviewBeforeInputEvent(
     const matched = matchShortcut(input);
     if (matched) {
       event.preventDefault();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('shortcut', matched.action);
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('shortcut', matched.action);
       }
       return;
     }
@@ -92,8 +88,9 @@ export function handleWebviewBeforeInputEvent(
   if (input.type === 'mouseWheel' && (input.control || input.meta)) {
     event.preventDefault();
     const action = input.deltaY < 0 ? 'zoom-in' : 'zoom-out';
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('shortcut', action);
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('shortcut', action);
     }
   }
 }
@@ -116,8 +113,9 @@ function registerGlobalZoom(): void {
     try {
       if (!globalShortcut.isRegistered(accel)) {
         globalShortcut.register(accel, () => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('shortcut', action);
+          const win = getMainWindow();
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('shortcut', action);
           }
         });
       }
@@ -134,12 +132,13 @@ function unregisterGlobalZoom(): void {
 }
 
 export function registerZoomShortcuts(): void {
-  if (!mainWindow) return;
+  const win = getMainWindow();
+  if (!win) return;
 
-  mainWindow.on('focus', registerGlobalZoom);
-  mainWindow.on('blur', unregisterGlobalZoom);
+  win.on('focus', registerGlobalZoom);
+  win.on('blur', unregisterGlobalZoom);
 
-  if (mainWindow.isFocused()) {
+  if (win.isFocused()) {
     registerGlobalZoom();
   }
 
@@ -176,8 +175,9 @@ export function startMouseHook(): void {
       for (const line of lines) {
         const trimmed = line.trim();
         const action = trimmed === 'ZOOM_IN' ? 'zoom-in' : trimmed === 'ZOOM_OUT' ? 'zoom-out' : null;
-        if (action && mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('shortcut', action);
+        const win = getMainWindow();
+        if (action && win && !win.isDestroyed()) {
+          win.webContents.send('shortcut', action);
         }
       }
     });

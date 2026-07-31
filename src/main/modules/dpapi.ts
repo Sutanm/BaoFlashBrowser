@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import childProcess from 'child_process';
+import execa from 'execa';
 
 let winDpapi: { protectData: (b: Buffer, e: null, s: string) => Buffer; unprotectData: (b: Buffer, e: null, s: string) => Buffer } | null = null;
 let _impl: 'win-dpapi' | 'powershell' | 'none' = 'none';
@@ -55,13 +56,7 @@ const UNPROTECT_PS = [
 ].join(';');
 
 function runPs(script: string, b64Input: string): Buffer {
-  const psExe = fs.existsSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
-    ? 'powershell.exe'
-    : process.env.PATH?.split(';').find((d) => {
-        try { return fs.existsSync(path.join(d, 'pwsh.exe')); } catch { return false; }
-      })
-      ? 'pwsh.exe'
-      : 'powershell.exe';
+  const psExe = getPsExe();
 
   const res = childProcess.spawnSync(psExe, ['-NoProfile', '-NonInteractive', '-Command', script], {
     input: b64Input,
@@ -74,6 +69,32 @@ function runPs(script: string, b64Input: string): Buffer {
     throw new Error('PowerShell DPAPI failed: ' + msg);
   }
   const out = (res.stdout || '').trim();
+  if (!out) throw new Error('PowerShell DPAPI empty output');
+  return Buffer.from(out, 'base64');
+}
+
+// --- L15: 异步版本（使用 execa，Node 12 兼容 timeout） ---
+function getPsExe(): string {
+  return fs.existsSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    ? 'powershell.exe'
+    : process.env.PATH?.split(';').find((d) => {
+        try { return fs.existsSync(path.join(d, 'pwsh.exe')); } catch { return false; }
+      })
+      ? 'pwsh.exe'
+      : 'powershell.exe';
+}
+
+async function runPsAsync(script: string, b64Input: string): Promise<Buffer> {
+  const result = await execa(getPsExe(), ['-NoProfile', '-NonInteractive', '-Command', script], {
+    input: b64Input,
+    timeout: 15000,       // execa 5.x 内部用 setTimeout + child.kill() 实现，兼容 Node 12
+    reject: false,
+    maxBuffer: 1024 * 1024,
+  });
+  if (result.failed || result.timedOut) {
+    throw new Error('PowerShell DPAPI failed: ' + (result.stderr?.trim() || result.message));
+  }
+  const out = result.stdout.trim();
   if (!out) throw new Error('PowerShell DPAPI empty output');
   return Buffer.from(out, 'base64');
 }
@@ -109,4 +130,17 @@ export function selfTest(): boolean {
     log.warn('[DPAPI] self-test failed: ' + (e as Error).message);
     return false;
   }
+}
+
+// --- L15: 异步导出（运行时使用，不阻塞主进程） ---
+export async function protectAsync(plainBuffer: Buffer): Promise<Buffer> {
+  if (!isAvailable()) throw new Error('DPAPI unavailable');
+  if (_impl === 'win-dpapi') return protectNative(plainBuffer);
+  return runPsAsync(PROTECT_PS, plainBuffer.toString('base64'));
+}
+
+export async function unprotectAsync(cipherBuffer: Buffer): Promise<Buffer> {
+  if (!isAvailable()) throw new Error('DPAPI unavailable');
+  if (_impl === 'win-dpapi') return unprotectNative(cipherBuffer);
+  return runPsAsync(UNPROTECT_PS, cipherBuffer.toString('base64'));
 }

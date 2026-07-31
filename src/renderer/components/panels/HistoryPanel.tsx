@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
 import { X as XIcon, Search } from 'lucide-react';
+import dayjs from 'dayjs';
 import { historyAtom, pushToastAtom } from '@renderer/atoms/data.atom';
 import type { HistoryEntry } from '@shared/types/history';
 
@@ -16,21 +17,18 @@ function getHost(url: string): string {
 }
 
 function getDateGroup(ts: number): DateGroup {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const yesterdayStart = todayStart - 86400000;
-  const weekStart = todayStart - 6 * 86400000;
-  if (ts >= todayStart) return 'today';
-  if (ts >= yesterdayStart) return 'yesterday';
-  if (ts >= weekStart) return 'thisWeek';
+  const t = dayjs(ts);
+  const now = dayjs();
+  if (t.isSame(now, 'day')) return 'today';
+  if (t.isSame(now.subtract(1, 'day'), 'day')) return 'yesterday';
+  if (t.isAfter(now.subtract(7, 'day'))) return 'thisWeek';
   return 'older';
 }
 
-const GROUP_LABELS: Record<DateGroup, string> = { today: '今天', yesterday: '昨天', thisWeek: '更早', older: '更早' };
+const GROUP_LABELS: Record<DateGroup, string> = { today: '今天', yesterday: '昨天', thisWeek: '本周', older: '更早' };
 
 function formatTime(ts: number): string {
-  const d = new Date(ts);
-  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  return dayjs(ts).format('HH:mm');
 }
 
 function getHistFaviconUrl(entry: HistoryEntry): string {

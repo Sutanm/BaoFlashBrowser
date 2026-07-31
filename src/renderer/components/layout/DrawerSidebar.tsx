@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Star, Clock, Download, Settings as SettingsIcon, X } from 'lucide-react';
+import { Star, Clock, Download, Key, Settings as SettingsIcon, X } from 'lucide-react';
+import { useAtom } from 'jotai';
+import { activePanelAtom } from '@renderer/atoms/data.atom';
+import PasswordsPanel from '../panels/PasswordsPanel';
 import FavoritesPanel from '../panels/FavoritesPanel';
 import HistoryPanel from '../panels/HistoryPanel';
 import DownloadsPanel from '../panels/DownloadsPanel';
@@ -7,10 +10,7 @@ import SettingsPanel from '../panels/SettingsPanel';
 
 interface DrawerSidebarProps {
   collapsed: boolean;
-  activePanel: 'favorites' | 'history' | 'downloads' | 'settings' | null;
   currentUrl: string;
-  onTogglePanel: (panel: 'favorites' | 'history' | 'downloads' | 'settings') => void;
-  onClose: () => void;
   onOpenUrl: (url: string, newTab: boolean) => void;
   zoomPercent: number;
   onZoomIn: () => void;
@@ -23,15 +23,17 @@ const PANELS = [
   { id: 'favorites' as const, label: '收藏夹', icon: Star },
   { id: 'history' as const, label: '历史记录', icon: Clock },
   { id: 'downloads' as const, label: '下载', icon: Download },
+  { id: 'passwords' as const, label: '密码', icon: Key },
   { id: 'settings' as const, label: '设置', icon: SettingsIcon },
 ];
 
 const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   collapsed,
-  activePanel, currentUrl, onTogglePanel, onClose, onOpenUrl,
+  currentUrl, onOpenUrl,
   zoomPercent, onZoomIn, onZoomOut, onZoomReset,
   downloadCount,
 }) => {
+  const [activePanel, setActivePanel] = useAtom(activePanelAtom);
   const isOpen = activePanel !== null;
   const [drawerMounted, setDrawerMounted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -84,7 +86,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             key={id}
             className={`sidebar-icon ${activePanel === id ? 'active' : ''}`}
             title={label}
-            onClick={() => onTogglePanel(id)}
+            onClick={() => setActivePanel((v) => v === id ? null : id)}
             style={{ position: 'relative' }}
           >
             <Icon className="w-5 h-5" />
@@ -116,7 +118,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                 {PANELS.find((p) => p.id === activePanel)?.label}
               </span>
-              <button onClick={onClose} className="btn-icon" style={{ width: 24, height: 24 }}>
+              <button onClick={() => setActivePanel(null)} className="btn-icon" style={{ width: 24, height: 24 }}>
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -128,6 +130,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 <HistoryPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
               )}
               {activePanel === 'downloads' && <DownloadsPanel />}
+              {activePanel === 'passwords' && <PasswordsPanel />}
               {activePanel === 'settings' && (
                 <SettingsPanel
                   zoomPercent={zoomPercent}

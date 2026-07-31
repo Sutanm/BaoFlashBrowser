@@ -42,17 +42,14 @@ export function loadConfig(): Config {
 
 export function saveConfig(cfg: Partial<Config>): boolean {
   try {
-    if (cfg.flashVersion) {
-      store.set('flashVersion', cfg.flashVersion);
-    }
-    if (cfg.lowEndMode !== undefined) {
-      store.set('lowEndMode', cfg.lowEndMode);
-    }
-    if (cfg.downloadEngine) {
-      store.set('downloadEngine', cfg.downloadEngine);
-    }
-    if (cfg.downloadDir !== undefined) {
-      store.set('downloadDir', cfg.downloadDir);
+    // L26: 原子写入 — 合并后一次性 set，避免中途 crash 导致半更新
+    const updates: Partial<Config> = {};
+    if (cfg.flashVersion !== undefined) updates.flashVersion = cfg.flashVersion;
+    if (cfg.lowEndMode !== undefined) updates.lowEndMode = cfg.lowEndMode;
+    if (cfg.downloadEngine !== undefined) updates.downloadEngine = cfg.downloadEngine;
+    if (cfg.downloadDir !== undefined) updates.downloadDir = cfg.downloadDir;
+    if (Object.keys(updates).length > 0) {
+      store.set(updates as any);
     }
     return true;
   } catch (e) {

@@ -4,12 +4,16 @@ import { spawn, ChildProcess } from 'child_process';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { execSync } from 'child_process';
+import { nanoid } from 'nanoid';
 import { loadConfig } from './config';
+import { getMainWindow } from './window';
 
 // ─── aria2 configuration ────────────────────────────────────────────
 const ARIA2_RPC_PORT = 16800;
-const ARIA2_RPC_SECRET = 'bao_' + Date.now();
+// L10: 使用 crypto.randomBytes 生成不可预测的 RPC secret
+const ARIA2_RPC_SECRET = 'bao_' + crypto.randomBytes(16).toString('hex');
 const DEFAULT_DIR = path.join(app.getPath('downloads'), 'BaoFlashBrowser');
 
 export function getDownloadDir(): string {
@@ -22,43 +26,44 @@ let aria2Process: ChildProcess | null = null;
 let aria2Ready = false;
 const aria2Gids = new Map<string, string>(); // dlId -> aria2 GID
 const chromiumItems = new Map<string, DownloadItem>(); // dlId -> DownloadItem
-let getMainWindow: () => BrowserWindow | null = () => null;
 let aria2StatusSent = false;
 
 // ─── aria2 binary path detection ────────────────────────────────────
-function getAria2Path(): string | null {
-  // In packaged app: resources/native/aria2/
+// Returns a prioritized list of aria2 candidates:
+//   1. Bundled aria2 (packaged, then dev) — Linux/Windows
+//   2. User-installed aria2 via system PATH — Linux only, silent (no install reminder)
+// Each candidate is tried in order; if one fails to spawn or respond to RPC,
+// the next is tried. If all fail, downloads fall back to Chromium.
+function getAria2Candidates(): Array<{ path: string; bundled: boolean }> {
+  const candidates: Array<{ path: string; bundled: boolean }> = [];
+
   const exeDir = app.getPath('exe');
   const packagedBase = path.join(exeDir, '..', 'resources', 'native', 'aria2');
-  // In dev mode: project root/native/aria2/
   const devBase = path.join(__dirname, '..', 'native', 'aria2');
+  const binaryName = process.platform === 'win32' ? 'aria2c.exe' : 'aria2c';
 
-  const candidates = process.platform === 'win32'
-    ? [path.join(packagedBase, 'aria2c.exe'), path.join(devBase, 'aria2c.exe')]
-    : [path.join(packagedBase, 'aria2c'), path.join(devBase, 'aria2c')];
-
-  log.info('[Download] aria2 search paths:', candidates);
-
-  for (const p of candidates) {
+  // Priority 1: bundled aria2 (packaged, then dev)
+  for (const base of [packagedBase, devBase]) {
+    const p = path.join(base, binaryName);
     if (fs.existsSync(p)) {
-      log.info('[Download] aria2 found:', p);
-      return p;
+      candidates.push({ path: p, bundled: true });
     }
   }
 
-  // Linux: fallback to system PATH
+  // Priority 2 (Linux only): user-installed aria2 via system PATH — silent, no install reminder
   if (process.platform === 'linux') {
     try {
       const result = execSync('which aria2c', { encoding: 'utf-8', timeout: 5000 }).trim();
-      log.info('[Download] aria2 system PATH:', result);
-      return result || null;
+      if (result && !candidates.some(c => c.path === result)) {
+        candidates.push({ path: result, bundled: false });
+      }
     } catch {
-      log.info('[Download] aria2 not found in system PATH');
+      // User hasn't installed aria2 — silent fallback, no reminder
     }
   }
 
-  log.warn('[Download] aria2 binary NOT FOUND');
-  return null;
+  log.info('[Download] aria2 candidates:', candidates.map(c => `${c.path} (${c.bundled ? 'bundled' : 'system'})`));
+  return candidates;
 }
 
 function getAria2LibDir(): string | null {
@@ -127,10 +132,15 @@ function aria2Rpc(method: string, ...params: unknown[]): Promise<any> {
 }
 
 // ─── aria2 child process ────────────────────────────────────────────
-function startAria2(): boolean {
-  const aria2Path = getAria2Path();
-  if (!aria2Path) {
-    sendLog('aria2', 'aria2 binary not found');
+// Tries each candidate in priority order. For each candidate:
+//   1. Spawn the process
+//   2. Race RPC-readiness vs early process death (ENOENT, EACCES, missing libs)
+//   3. If RPC responds → keep this candidate; otherwise kill and try the next
+// Returns true if any candidate succeeded, false if all failed (→ Chromium fallback).
+async function startAria2(): Promise<boolean> {
+  const candidates = getAria2Candidates();
+  if (candidates.length === 0) {
+    sendLog('aria2', 'aria2 binary not found — using Chromium fallback');
     return false;
   }
 
@@ -138,43 +148,89 @@ function startAria2(): boolean {
     fs.mkdirSync(DEFAULT_DIR, { recursive: true });
   }
 
+  for (const candidate of candidates) {
+    const ok = await tryStartCandidate(candidate);
+    if (ok) return true;
+  }
+
+  sendLog('aria2', 'all aria2 candidates failed — using Chromium fallback');
+  return false;
+}
+
+async function tryStartCandidate(candidate: { path: string; bundled: boolean }): Promise<boolean> {
+  sendLog('aria2', `trying ${candidate.bundled ? 'bundled' : 'system'}: ${candidate.path}`);
+
   const env = { ...process.env };
-  if (process.platform === 'linux') {
+  // Bundled Linux aria2 may need libaria2.so.0 on LD_LIBRARY_PATH
+  if (process.platform === 'linux' && candidate.bundled) {
     const libDir = getAria2LibDir();
     if (libDir) {
       env.LD_LIBRARY_PATH = libDir + (env.LD_LIBRARY_PATH ? ':' + env.LD_LIBRARY_PATH : '');
     }
   }
 
-  aria2Process = spawn(aria2Path, [
-    '--enable-rpc',
-    '--rpc-listen-port=' + ARIA2_RPC_PORT,
-    '--rpc-allow-origin-all',
-    '--rpc-secret=' + ARIA2_RPC_SECRET,
-    '--max-concurrent-downloads=5',
-    '--max-connection-per-server=16',
-    '--split=16',
-    '--min-split-size=1M',
-    '--continue=true',
-    '--auto-file-renaming=false',
-    '--allow-overwrite=true',
-    '--console-log-level=notice',
-  ], { stdio: ['ignore', 'pipe', 'pipe'], env });
+  let child: ChildProcess;
+  try {
+    child = spawn(candidate.path, [
+      '--enable-rpc',
+      '--rpc-listen-port=' + ARIA2_RPC_PORT,
+      '--rpc-allow-origin-all',
+      '--rpc-secret=' + ARIA2_RPC_SECRET,
+      '--max-concurrent-downloads=5',
+      '--max-connection-per-server=16',
+      '--split=16',
+      '--min-split-size=1M',
+      '--continue=true',
+      '--auto-file-renaming=false',
+      '--allow-overwrite=true',
+      '--console-log-level=notice',
+    ], { stdio: ['ignore', 'pipe', 'pipe'], env });
+  } catch (err: any) {
+    log.warn(`[Download] aria2 spawn exception: ${candidate.path} — ${err?.message}`);
+    return false;
+  }
 
-  aria2Process.stdout?.on('data', (buf: Buffer) => {
+  // Race RPC readiness against early process death (ENOENT, EACCES, missing libs, etc.)
+  const earlyFailure = new Promise<never>((_, reject) => {
+    child.once('error', (err) => reject(new Error(`error: ${err.message}`)));
+    child.once('exit', (code) => {
+      if (code !== 0) reject(new Error(`early exit code=${code}`));
+    });
+  });
+
+  const readyPromise = waitAria2Ready().then((ok) => {
+    if (!ok) throw new Error('RPC not ready after retries');
+    return ok;
+  });
+
+  try {
+    await Promise.race([readyPromise, earlyFailure]);
+  } catch (err: any) {
+    log.warn(`[Download] aria2 candidate failed: ${candidate.path} — ${err.message}`);
+    try { child.kill('SIGKILL'); } catch { /* best-effort kill, ignore ESRCH/EPERM */ }
+    return false;
+  }
+
+  // Success — detach early-failure listeners, attach permanent handlers
+  child.removeAllListeners('error');
+  child.removeAllListeners('exit');
+
+  child.stdout?.on('data', (buf: Buffer) => {
     const line = buf.toString().trim();
     if (line) sendLog('aria2', line);
   });
-  aria2Process.stderr?.on('data', (buf: Buffer) => {
+  // stderr 仅 log.warn + 截断，不通过 IPC 发送到渲染进程
+  child.stderr?.on('data', (buf: Buffer) => {
     const line = buf.toString().trim();
-    if (line) sendLog('aria2', line);
+    if (line) log.warn('[Aria2] stderr:', line.slice(0, 200));
   });
-  aria2Process.on('exit', (code) => {
+  child.on('exit', (code) => {
     aria2Ready = false;
     sendLog('aria2', `exited code=${code}`);
   });
 
-  sendLog('aria2', `spawned PID=${aria2Process.pid} port=${ARIA2_RPC_PORT}`);
+  aria2Process = child;
+  sendLog('aria2', `RPC ready — PID=${child.pid} port=${ARIA2_RPC_PORT} src=${candidate.bundled ? 'bundled' : 'system'}`);
   return true;
 }
 
@@ -182,14 +238,11 @@ async function waitAria2Ready(retries = 20): Promise<boolean> {
   for (let i = 0; i < retries; i++) {
     try {
       await aria2Rpc('aria2.getVersion');
-      aria2Ready = true;
-      sendLog('aria2', 'RPC ready');
       return true;
     } catch {
       await new Promise((r) => setTimeout(r, 300));
     }
   }
-  sendLog('aria2', 'RPC not ready after retries');
   return false;
 }
 
@@ -202,7 +255,7 @@ function killAria2(): void {
 
 // ─── Chromium download tracking ─────────────────────────────────────
 function trackChromiumDownload(item: DownloadItem): void {
-  const dlId = 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const dlId = 'cr_' + nanoid(8);
   const filename = item.getFilename() || 'download';
   const dir = getDownloadDir();
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -276,7 +329,7 @@ function trackChromiumDownload(item: DownloadItem): void {
 
 // ─── aria2 download ─────────────────────────────────────────────────
 async function aria2Download(url: string, filename: string): Promise<void> {
-  const dlId = 'a2_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const dlId = 'a2_' + nanoid(8);
   const dir = getDownloadDir();
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -374,26 +427,20 @@ export function getAria2Status(): { ready: boolean; port: number; dir: string } 
   return { ready: aria2Ready, port: ARIA2_RPC_PORT, dir: getDownloadDir() };
 }
 
-export function initDownloadManager(getWindow: () => BrowserWindow | null): void {
-  getMainWindow = getWindow;
-
+export function initDownloadManager(): void {
   const dir = getDownloadDir();
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  // Start aria2
-  const spawned = startAria2();
-  if (spawned) {
-    waitAria2Ready().then((ready) => {
-      aria2Ready = ready;
-      aria2StatusSent = true;
-      send('aria2:status', { ready, port: ARIA2_RPC_PORT, dir: getDownloadDir() });
-    });
-  } else {
+  // Start aria2 with fallback chain: bundled → system (Linux) → Chromium
+  // startAria2() is async and tries each candidate; while it runs, downloads
+  // temporarily use Chromium until aria2:status is broadcast.
+  startAria2().then((ready) => {
+    aria2Ready = ready;
     aria2StatusSent = true;
-    send('aria2:status', { ready: false, port: ARIA2_RPC_PORT, dir: getDownloadDir() });
-  }
+    send('aria2:status', { ready, port: ARIA2_RPC_PORT, dir: getDownloadDir() });
+  });
 
   log.info('[Download] manager initialized');
 }
