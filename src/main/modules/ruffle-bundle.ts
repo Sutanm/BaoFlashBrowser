@@ -16,5 +16,8 @@ export function loadRuffleJs(): void {
 }
 
 export function ruffleJsContent(): string {
+  if (!_content) {
+    loadRuffleJs();
+  }
   return _content;
 }

@@ -7,7 +7,7 @@ function maskMiddle(str: string, keepStart: number, keepEnd: number): string {
   return str.slice(0, keepStart) + '******' + str.slice(-keepEnd);
 }
 
-interface StoreStatus { initialized: boolean; unlocked: boolean; enabled: boolean; dpapiAvailable: boolean; }
+interface StoreStatus { initialized: boolean; unlocked: boolean; enabled: boolean; }
 
 const PasswordsPanel: React.FC = () => {
   const [status, setStatus] = useState<StoreStatus | null>(null);
@@ -20,7 +20,7 @@ const PasswordsPanel: React.FC = () => {
   const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set());
   const [decryptedPasswords, setDecryptedPasswords] = useState<Map<string, string>>(new Map());
 
-  const api = (window as any).electronAPI?.pwd;
+  const api = window.electronAPI?.pwd;
 
   const refreshStatus = useCallback(async () => {
     if (!api) return;
@@ -39,7 +39,7 @@ const PasswordsPanel: React.FC = () => {
 
   // 密码本数据变化通知（保存/删除/设置默认/重置后自动刷新列表）
   useEffect(() => {
-    const api = (window as any).electronAPI;
+    const api = window.electronAPI;
     if (!api?.on) return;
     const unsub = api.on('password:changed', () => { refreshStatus(); });
     return () => { if (unsub) unsub(); };
@@ -91,15 +91,15 @@ const PasswordsPanel: React.FC = () => {
 
   if (!status.initialized) {
     return (
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ textAlign: 'center', paddingTop: 24 }}>
+      <div className="pwd-setup-container">
+        <div className="pwd-setup-hero">
           <Key className="w-8 h-8" style={{ color: 'var(--text-secondary)', margin: '0 auto' }} />
-          <p style={{ marginTop: 8, fontSize: 14, color: 'var(--text-primary)' }}>尚未设置主密码</p>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>设置后可保存和查看密码</p>
+          <p className="pwd-setup-hero-title">尚未设置主密码</p>
+          <p className="pwd-setup-hero-sub">设置后可保存和查看密码</p>
         </div>
         <input type="password" className="input-text" placeholder="设置主密码 (8位, 含大小写+数字)" value={setupPwd} onChange={(e) => setSetupPwd(e.target.value)} style={{ width: '100%' }} />
         <input type="password" className="input-text" placeholder="确认主密码" value={setupPwd2} onChange={(e) => setSetupPwd2(e.target.value)} style={{ width: '100%' }} />
-        {setupError && <span style={{ color: '#e74c3c', fontSize: 12 }}>{setupError}</span>}
+        {setupError && <span className="pwd-error">{setupError}</span>}
         <button onClick={handleSetup} className="btn-secondary" style={{ width: '100%' }}>设置主密码</button>
       </div>
     );
@@ -107,19 +107,19 @@ const PasswordsPanel: React.FC = () => {
 
   if (!status.unlocked) {
     return (
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="pwd-setup-container">
         <div className="pwd-settings-bar">
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
             <input type="checkbox" checked={status.enabled} onChange={handleToggleEnabled} />
             启用密码本
           </label>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="pwd-unlock-row">
           <input type="password" className="input-text" placeholder="输入主密码解锁" value={unlockPwd}
             onChange={(e) => setUnlockPwd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUnlock()} style={{ width: '100%' }} />
           <button className="btn-secondary" onClick={handleUnlock} style={{ width: '100%' }}>解锁</button>
         </div>
-        {unlockError && <span style={{ color: '#e74c3c', fontSize: 12 }}>密码错误</span>}
+        {unlockError && <span className="pwd-error">密码错误</span>}
       </div>
     );
   }
@@ -149,25 +149,25 @@ const PasswordsPanel: React.FC = () => {
                 <span>{expandedHosts.has(host) ? '▾' : '▸'} {host}</span>
               </div>
               {expandedHosts.has(host) && items.map((entry) => (
-                <div key={entry.id} style={{ padding: '6px 12px 6px 24px', fontSize: 13 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div key={entry.id} className="pwd-entry">
+                  <div className="pwd-entry-row">
                     <span style={{ color: 'var(--text-primary)' }}>
                       {status.unlocked ? entry.username : maskMiddle(entry.username, 3, 2)}
                     </span>
-                    {entry.id === defaultId && <span style={{ fontSize: 10, color: '#f39c12' }}>★</span>}
+                    {entry.id === defaultId && <span className="pwd-default-star">★</span>}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 80 }}>
+                  <div className="pwd-entry-actions">
+                    <span className="pwd-pwd-text">
                       {decryptedPasswords.has(entry.id) ? decryptedPasswords.get(entry.id) : '••••••••'}
                     </span>
-                    <button className="btn-secondary" style={{ fontSize: 11, padding: '1px 6px' }} onClick={() => handleTogglePassword(entry.id)}>
+                    <button className="btn-secondary pwd-btn-action" onClick={() => handleTogglePassword(entry.id)}>
                       {decryptedPasswords.has(entry.id) ? '隐藏' : '查看'}
                     </button>
                     {decryptedPasswords.has(entry.id) && (
-                      <button className="btn-secondary" style={{ fontSize: 11, padding: '1px 6px' }} onClick={() => handleCopy(decryptedPasswords.get(entry.id)!)}>复制</button>
+                      <button className="btn-secondary pwd-btn-action" onClick={() => handleCopy(decryptedPasswords.get(entry.id)!)}>复制</button>
                     )}
-                    <button className="btn-secondary" style={{ fontSize: 11, padding: '1px 6px' }} onClick={async () => { await api.setDefault(entry.id); refreshStatus(); }}>设为默认</button>
-                    <button className="btn-secondary" style={{ fontSize: 11, padding: '1px 6px', color: '#e74c3c' }} onClick={() => handleDelete(entry.id)}>删除</button>
+                    <button className="btn-secondary pwd-btn-action" onClick={async () => { await api.setDefault(entry.id); refreshStatus(); }}>设为默认</button>
+                    <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={() => handleDelete(entry.id)}>删除</button>
                   </div>
                 </div>
               ))}

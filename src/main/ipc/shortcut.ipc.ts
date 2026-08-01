@@ -164,7 +164,7 @@ export function startMouseHook(): void {
 
   const exePath = path.join(app.getAppPath(), 'native', exeName);
   try {
-    const child = spawn(exePath, [], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(exePath, [], { stdio: ['ignore', 'pipe', 'ignore'] });
     mouseHookProcess = child;
 
     let buf = '';
@@ -182,7 +182,7 @@ export function startMouseHook(): void {
       }
     });
 
-    child.stderr.on('data', (data: Buffer) => {
+    child.stderr?.on('data', (data: Buffer) => {
       log.warn('[mouse-hook] ' + data.toString().trim());
     });
 

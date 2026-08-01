@@ -1,29 +1,26 @@
-import { useEffect, useRef } from 'react';
-import { useSetAtom } from 'jotai';
-import { pushToastAtom, passwordStoreStatusAtom, activePanelAtom, toastQueueAtom } from '@renderer/atoms/data.atom';
+import { useEffect } from 'react';
+import { useDataStore } from '@renderer/store/useDataStore';
 import type { CaptureNotification } from '@shared/types/passwords';
-import type { AddressToast } from '@renderer/atoms/data.atom';
 
 export function usePasswordListener(): void {
-  const pushToast = useSetAtom(pushToastAtom);
-  const setStoreStatus = useSetAtom(passwordStoreStatusAtom);
-  const setActivePanel = useSetAtom(activePanelAtom);
-  const setToastQueue = useSetAtom(toastQueueAtom);
+  const setStoreStatus = useDataStore((s) => s.setPasswordStoreStatus);
+  const setActivePanel = useDataStore((s) => s.setActivePanel);
+  const pushToast = useDataStore((s) => s.pushToast);
 
   useEffect(() => {
-    (window as any).electronAPI?.pwd?.status().then((s: any) => {
+    window.electronAPI?.pwd?.status().then((s) => {
       if (s) setStoreStatus(s);
     }).catch(() => {});
   }, [setStoreStatus]);
 
   useEffect(() => {
-    const api = (window as any).electronAPI;
+    const api = window.electronAPI;
     if (!api) return;
 
-    const unsub = api.on('password:captured', (data: CaptureNotification) => {
-      const { captureId, host } = data;
+    const unsub = api.on('password:captured', (data) => {
+      const { captureId, host } = data as CaptureNotification;
 
-      api.pwd?.status().then((s: any) => {
+      api.pwd?.status().then((s) => {
         if (!s || !s.initialized) {
           pushToast({
             message: '检测到登录信息，可启用密码本保存',
@@ -32,9 +29,6 @@ export function usePasswordListener(): void {
               label: '启用密码本',
               primary: true,
               onClick: () => { setActivePanel('passwords'); },
-            }, {
-              label: '忽略',
-              onClick: () => { api.pwd?.ignore(captureId); },
             }],
           });
           return;
@@ -48,24 +42,22 @@ export function usePasswordListener(): void {
         pushToast({
           message: `为 ${host} 保存密码？`,
           type: 'info',
-          actions: [{
-            label: '保存',
-            primary: true,
-            onClick: async () => {
-              await api.pwd?.saveConfirm(captureId);
-              setToastQueue((prev: AddressToast[]) => prev.slice(1));
+          duration: null,
+          actions: [
+            {
+              label: '保存',
+              primary: true,
+              onClick: async () => { await api.pwd?.saveConfirm(captureId); },
             },
-          }, {
-            label: '忽略',
-            onClick: () => {
-              api.pwd?.ignore(captureId);
-              setToastQueue((prev: AddressToast[]) => prev.slice(1));
+            {
+              label: '忽略',
+              onClick: () => { api.pwd?.ignore(captureId); },
             },
-          }],
+          ],
         });
       }).catch(() => {});
     });
 
     return () => { if (unsub) unsub(); };
-  }, [pushToast, setStoreStatus, setActivePanel, setToastQueue]);
+  }, [setStoreStatus, setActivePanel, pushToast]);
 }

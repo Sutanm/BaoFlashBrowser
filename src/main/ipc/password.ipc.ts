@@ -4,7 +4,7 @@ import {
   init, isInitialized, unlockWithMaster, lock, isUnlocked, setupMaster,
   addEntry, listEntries, deleteEntry,
   getDecryptedPassword,
-  setDefault, toggleEnabled, isEnabled, dpapiAvailable, resetAll,
+  setDefault, toggleEnabled, isEnabled, resetAll,
 } from '../modules/password-store';
 import { getPendingCredential, removePendingCredential, notifyPasswordChanged } from '../modules/password-capture';
 
@@ -13,7 +13,6 @@ export function registerPasswordIPC(): void {
     initialized: isInitialized(),
     unlocked: isUnlocked(),
     enabled: isEnabled(),
-    dpapiAvailable: dpapiAvailable(),
   }));
 
   createHandler('password:setup', async ({ password }: { password: string }) => {
@@ -80,7 +79,7 @@ export function registerPasswordIPC(): void {
     return { success: true };
   });
 
-  createHandler('password:reset', () => {
+  createHandler('password:reset', async () => {
     resetAll();
     notifyPasswordChanged();
     return { success: true };

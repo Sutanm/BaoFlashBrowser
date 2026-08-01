@@ -1,7 +1,5 @@
 import crypto from 'crypto';
 import Store from 'electron-store';
-import log from 'electron-log';
-import * as dpapi from './dpapi';
 import {
   EncBlob, SALT_LEN, KEY_LEN,
   b64, unb64, deriveKek, encryptStr, decryptStr, encryptBuf, decryptBuf,
@@ -25,7 +23,6 @@ interface PasswordStoreSchema {
   version: number;
   salt: string | null;
   dekMasterEnc: EncBlob | null;
-  dekDpapiEnc: string | null;
   entries: StoredEntry[];
   _enabled: boolean;
 }
@@ -36,7 +33,6 @@ const store = new Store<PasswordStoreSchema>({
     version: 1,
     salt: null,
     dekMasterEnc: null,
-    dekDpapiEnc: null,
     entries: [],
     _enabled: true,
   },
@@ -45,46 +41,21 @@ const store = new Store<PasswordStoreSchema>({
   },
 });
 
-let _dekFromDpapi: Buffer | null = null;
 let _dekFromMaster: Buffer | null = null;
-let _initialized: boolean | null = null;
 
 function _genId(): string {
   return crypto.randomBytes(16).toString('hex');
 }
 
 export function isInitialized(): boolean {
-  // L27: 每次重新校验，不使用 _initialized 缓存（防止 resetAll 后缓存不一致）
   return !!(store.get('salt') && store.get('dekMasterEnc'));
-}
-
-export function dpapiAvailable(): boolean {
-  return dpapi.isAvailable();
 }
 
 export async function init(): Promise<void> {
   _loadEnabled();
-  if (!isInitialized()) return;
-  const dekDpapiEnc = store.get('dekDpapiEnc');
-  if (!dekDpapiEnc || !dpapi.isAvailable()) {
-    log.warn('[PasswordStore] DPAPI DEK unavailable, auto-fill requires master password');
-    return;
-  }
-  try {
-    const dek = await dpapi.unprotectAsync(unb64(dekDpapiEnc));
-    if (dek && dek.length === KEY_LEN) {
-      _dekFromDpapi = dek;
-      log.info('[PasswordStore] DPAPI DEK loaded, auto-fill ready');
-    } else {
-      log.warn('[PasswordStore] DPAPI DEK length mismatch');
-    }
-  } catch (e: unknown) {
-    log.warn('[PasswordStore] DPAPI unprotect failed: ' + (e as Error).message);
-  }
 }
 
 export async function setupMaster(password: string): Promise<boolean> {
-  // L09: 弱密码策略升级
   const MIN_PASSWORD_LENGTH = 8;
   if (!password || password.length < MIN_PASSWORD_LENGTH) {
     throw new Error(`Master password at least ${MIN_PASSWORD_LENGTH} chars`);
@@ -97,25 +68,13 @@ export async function setupMaster(password: string): Promise<boolean> {
   const salt = crypto.randomBytes(SALT_LEN);
   const kek = deriveKek(password, salt);
   const dekMasterEnc = encryptBuf(kek, dek);
-  let dekDpapiEnc: string | null = null;
-  if (dpapi.isAvailable()) {
-    try {
-      dekDpapiEnc = b64(await dpapi.protectAsync(dek));
-      _dekFromDpapi = dek;
-    } catch (e: unknown) {
-      log.warn('[PasswordStore] DPAPI protect failed: ' + (e as Error).message);
-    }
-  }
-  // L25: 原子写入
   store.set({
     version: 1,
     salt: b64(salt),
     dekMasterEnc,
-    dekDpapiEnc,
     entries: [],
   });
   _dekFromMaster = dek;
-  _initialized = true;
   return true;
 }
 
@@ -126,7 +85,6 @@ export function unlockWithMaster(password: string): boolean {
   const dek = decryptBuf(kek, store.get('dekMasterEnc')!);
   if (!dek) return false;
   _dekFromMaster = dek;
-  // L08: 删除 _dekFromDpapi = dek，避免缓存污染
   return true;
 }
 
@@ -135,11 +93,6 @@ export function lock(): void {
     try { _dekFromMaster.fill(0); } catch (_e) { /* ignore */ }
     _dekFromMaster = null;
   }
-  // L08: lock 同时清除 _dekFromDpapi，防止缓存残留
-  if (_dekFromDpapi) {
-    try { _dekFromDpapi.fill(0); } catch (_e) { /* ignore */ }
-    _dekFromDpapi = null;
-  }
 }
 
 export function isUnlocked(): boolean {
@@ -147,7 +100,7 @@ export function isUnlocked(): boolean {
 }
 
 function _getDekForWrite(): Buffer | null {
-  return _dekFromMaster || _dekFromDpapi;
+  return _dekFromMaster;
 }
 
 export function listEntries(): EntryMeta[] {
@@ -179,7 +132,7 @@ export function addEntry(opts: {
 }): string {
   if (!opts || !opts.host || !opts.username || !opts.password) throw new Error('Incomplete params');
   const dek = _getDekForWrite();
-  if (!dek) throw new Error('Password store not unlocked and DPAPI unavailable');
+  if (!dek) throw new Error('Password store not unlocked');
   const entries = store.get('entries') || [];
   let idx = -1;
   for (let i = 0; i < entries.length; i++) {
@@ -217,7 +170,7 @@ export function updateEntry(
   if (fields.username !== undefined) entry.username = fields.username;
   if (fields.password !== undefined) {
     const dek = _getDekForWrite();
-    if (!dek) throw new Error('Password store not unlocked and DPAPI unavailable');
+    if (!dek) throw new Error('Password store not unlocked');
     entry.passwordEnc = encryptStr(dek, fields.password);
   }
   entry.updatedAt = Date.now();
@@ -233,39 +186,44 @@ export function deleteEntry(id: string): boolean {
 }
 
 export function getDecryptedPassword(id: string): string | null {
-  const dek = _dekFromMaster || _dekFromDpapi;
-  if (!dek) return null;
+  if (!_dekFromMaster) return null;
   const entries = store.get('entries') || [];
   const idx = _findEntryIndex(id);
   if (idx < 0) return null;
-  return decryptStr(dek, entries[idx].passwordEnc);
+  return decryptStr(_dekFromMaster, entries[idx].passwordEnc);
 }
 
 export function getEntriesForHost(host: string): { username: string; password: string }[] {
-  const dek = _dekFromDpapi || _dekFromMaster;
-  if (!dek) return [];
+  if (!_dekFromMaster) return [];
   const entries = store.get('entries') || [];
+  const normalizedHost = _normalizeHost(host);
   const out: { username: string; password: string }[] = [];
   for (const entry of entries) {
-    if (entry.host === host) {
-      const pw = decryptStr(dek, entry.passwordEnc);
+    if (_normalizeHost(entry.host) === normalizedHost) {
+      const pw = decryptStr(_dekFromMaster, entry.passwordEnc);
       if (pw !== null) out.push({ username: entry.username, password: pw });
     }
   }
   return out;
 }
 
+function _normalizeHost(host: string): string {
+  return host.replace(/^www\./i, '').toLowerCase();
+}
+
 export function getMetaForHost(host: string): { id: string; username: string }[] {
   const entries = store.get('entries') || [];
+  const normalizedHost = _normalizeHost(host);
   const out: { id: string; username: string }[] = [];
   for (const entry of entries) {
-    if (entry.host === host) out.push({ id: entry.id, username: entry.username });
+    if (_normalizeHost(entry.host) === normalizedHost) {
+      out.push({ id: entry.id, username: entry.username });
+    }
   }
   return out;
 }
 
 export async function changeMaster(oldPwd: string, newPwd: string): Promise<boolean> {
-  // L09: 弱密码策略升级
   const MIN_PASSWORD_LENGTH = 8;
   if (!newPwd || newPwd.length < MIN_PASSWORD_LENGTH) {
     throw new Error(`New master password at least ${MIN_PASSWORD_LENGTH} chars`);
@@ -277,34 +235,19 @@ export async function changeMaster(oldPwd: string, newPwd: string): Promise<bool
   const dek = _dekFromMaster!;
   const salt = crypto.randomBytes(SALT_LEN);
   const kek = deriveKek(newPwd, salt);
-  const updates: Partial<PasswordStoreSchema> = {
+  store.set({
     salt: b64(salt),
     dekMasterEnc: encryptBuf(kek, dek),
-  };
-  if (dpapi.isAvailable()) {
-    try {
-      updates.dekDpapiEnc = b64(await dpapi.protectAsync(dek));
-      _dekFromDpapi = dek;
-    } catch (e: unknown) {
-      log.warn('[PasswordStore] DPAPI protect failed on changeMaster: ' + (e as Error).message);
-    }
-  }
-  // L25: 原子写入
-  store.set(updates as any);
+  } as any);
   return true;
 }
 
 export function resetAll(): void {
   store.clear();
-  if (_dekFromDpapi) {
-    try { _dekFromDpapi.fill(0); } catch (_e) { /* ignore */ }
-    _dekFromDpapi = null;
-  }
   if (_dekFromMaster) {
     try { _dekFromMaster.fill(0); } catch (_e) { /* ignore */ }
     _dekFromMaster = null;
   }
-  _initialized = false;
 }
 
 let _enabled = true;

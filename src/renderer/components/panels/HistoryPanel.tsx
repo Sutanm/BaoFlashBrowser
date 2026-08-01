@@ -1,8 +1,7 @@
 import React, { useCallback, useState } from 'react';
-import { useAtom, useSetAtom } from 'jotai';
 import { X as XIcon, Search } from 'lucide-react';
 import dayjs from 'dayjs';
-import { historyAtom, pushToastAtom } from '@renderer/atoms/data.atom';
+import { useDataStore } from '@renderer/store/useDataStore';
 import type { HistoryEntry } from '@shared/types/history';
 
 interface HistoryPanelProps {
@@ -37,8 +36,9 @@ function getHistFaviconUrl(entry: HistoryEntry): string {
 }
 
 const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) => {
-  const [history, setHistory] = useAtom(historyAtom);
-  const pushToast = useSetAtom(pushToastAtom);
+  const history = useDataStore((s) => s.history);
+  const setHistory = useDataStore((s) => s.setHistory);
+  const pushToast = useDataStore((s) => s.pushToast);
   const [filter, setFilter] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
 

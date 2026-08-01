@@ -1,9 +1,8 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { tabsAtom, activeTabIdAtom } from '../atoms/tabs.atom';
-import { historyAtom, pushToastAtom, settingsAtom } from '../atoms/data.atom';
+import { useTabsStore } from '../store/useTabsStore';
+import { useDataStore } from '../store/useDataStore';
 import { normalizeUrl, generateId } from '../services/id.service';
-import type { TabState } from '../atoms/tabs.atom';
+import type { TabState } from '../store/useTabsStore';
 import type { HistoryEntry } from '@shared/types/history';
 
 const NEWTAB_URL = 'about:newtab';
@@ -29,12 +28,14 @@ export interface UseTabManagerReturn {
 }
 
 export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: boolean) => void>): UseTabManagerReturn {
-  const settings = useAtomValue(settingsAtom);
-  const [tabs, setTabs] = useAtom(tabsAtom);
-  const [activeTabId, setActiveTabId] = useAtom(activeTabIdAtom);
+  const settings = useDataStore((s) => s.settings);
+  const pushToast = useDataStore((s) => s.pushToast);
+  const tabs = useTabsStore((s) => s.tabs);
+  const setTabs = useTabsStore((s) => s.setTabs);
+  const activeTabId = useTabsStore((s) => s.activeTabId);
+  const setActiveTabId = useTabsStore((s) => s.setActiveTabId);
   const [addressUrl, setAddressUrl] = useState('');
-  const setHistory = useSetAtom(historyAtom);
-  const pushToast = useSetAtom(pushToastAtom);
+  const setHistory = useDataStore((s) => s.setHistory);
   const tabsRef = useRef(tabs);
   useEffect(() => { tabsRef.current = tabs; });
 
@@ -187,7 +188,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       pushToast({ message: `${msg} (-${payload.errorCode})`, type: 'error' });
     });
     return () => { try { unsub(); unsubErr(); } catch (e) { console.warn('[App] tab event cleanup failed:', e); } };
-  }, [pushToast]);
+  }, []);
 
   useEffect(() => {
     const u1 = window.electronAPI.on('tab:newwindow', (payload: any) => {
@@ -197,12 +198,11 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       updateTabRef.current(payload.tabId, { url: 'about:crash', title: '页面崩溃了' });
       pushToast({ message: '页面崩溃了', type: 'error' });
     });
-    return () => { try { u1(); u2(); } catch {} };
+    return () => { try { u1(); u2(); } catch { /* ignore */ } };
   }, [createTab, pushToast]);
 
   // External URL open
   useEffect(() => {
-    let pendingUrl: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const unsub = window.electronAPI.on('navigate-url', (url: any) => {
@@ -215,7 +215,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     });
 
     return () => {
-      try { unsub(); } catch (_) {}
+      try { unsub(); } catch { /* ignore */ }
       if (timer) clearTimeout(timer);
     };
   }, [createTab, activeTab]);

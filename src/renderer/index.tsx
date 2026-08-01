@@ -2,7 +2,7 @@
 window.document.title = 'Bao — loaded';
 
 import React from 'react';
-import ReactDOM from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import './styles.css';
@@ -14,13 +14,13 @@ console.log('[Entry] rootEl:', !!rootEl);
 
 if (rootEl) {
   try {
-    ReactDOM.render(
+    const root = createRoot(rootEl);
+    root.render(
       <React.StrictMode>
         <ErrorBoundary>
           <App />
         </ErrorBoundary>
       </React.StrictMode>,
-      rootEl,
     );
     console.log('[Entry] React mounted successfully');
   } catch (e) {

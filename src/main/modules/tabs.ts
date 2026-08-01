@@ -70,9 +70,25 @@ class TabManager {
 
     const wc = view.webContents;
 
-    // Setup session handlers once (first BrowserView)
+    // Setup session handlers once per partition
     setupSessionOnce(wc.session);
+    this._wireBrowserViewEvents(wc, tabId);
 
+    this.tabs.set(tabId, {
+      id: tabId,
+      browserView: view,
+      isRuffle: useRuffle,
+      ruffleSource: useRuffle ? ruffleConfig?.source : undefined,
+      lastTargetUrl: url || '',
+    });
+    this.wcToId.set(wc.id, tabId);
+
+    if (url && url !== 'about:newtab' && url !== 'about:blank') {
+      wc.loadURL(url);
+    }
+  }
+
+  private _wireBrowserViewEvents(wc: Electron.WebContents, tabId: string): void {
     wc.on('page-title-updated', (_e, title) => this.send('tab:updated', { tabId, title }));
     wc.on('page-favicon-updated', (_e, favicons) => {
       if (favicons && favicons.length > 0) this.send('tab:updated', { tabId, favicon: favicons[0] });
@@ -80,7 +96,6 @@ class TabManager {
     wc.on('did-start-loading', () => this.send('tab:updated', { tabId, isLoading: true }));
     wc.on('did-stop-loading', () => {
       this.send('tab:updated', { tabId, isLoading: false });
-      // Fallback: some pages (Flash etc) never fire page-title-updated / page-favicon-updated
       setTimeout(() => {
         try {
           wc.executeJavaScript('document.title').then((title) => {
@@ -130,7 +145,7 @@ class TabManager {
     });
 
     wc.on('render-process-gone', () => {
-      this.wcToId.delete(wc.id);  // L12: 清理 wcToId，避免 id 残留
+      this.wcToId.delete(wc.id);
       this.send('tab:crashed', { tabId });
     });
 
@@ -140,7 +155,6 @@ class TabManager {
     });
 
     wc.on('context-menu', (_e, params) => {
-      // L21: 非空断言修复
       const mw = getMainWindow();
       if (!mw || mw.isDestroyed()) return;
       const template: Electron.MenuItemConstructorOptions[] = [
@@ -167,19 +181,6 @@ class TabManager {
       );
       Menu.buildFromTemplate(template).popup({ window: mw, x: params.x, y: params.y });
     });
-
-    this.tabs.set(tabId, {
-      id: tabId,
-      browserView: view,
-      isRuffle: useRuffle,
-      ruffleSource: useRuffle ? ruffleConfig?.source : undefined,
-      lastTargetUrl: url || '',
-    });
-    this.wcToId.set(wc.id, tabId);
-
-    if (url && url !== 'about:newtab' && url !== 'about:blank') {
-      wc.loadURL(url);
-    }
   }
 
   setRuffleMode(tabId: string, enabled: boolean, source: 'bundled' | 'cdn'): void {
@@ -188,10 +189,8 @@ class TabManager {
     const wasActive = this.activeId === tabId;
     const currentUrl = tab.browserView.webContents.getURL();
 
-    // Remove old BrowserView (L12: 使用 _destroyView)
     this._destroyView(tab);
 
-    // Create new BrowserView with correct plugin setting
     const view = new BrowserView({
       webPreferences: {
         preload: this.preloadPath,
@@ -207,88 +206,17 @@ class TabManager {
     view.setAutoResize({ width: false, height: false });
 
     const wc = view.webContents;
-    // Wire up same events as create()
-    wc.on('page-title-updated', (_e, title) => this.send('tab:updated', { tabId, title }));
-    wc.on('page-favicon-updated', (_e, favicons) => {
-      if (favicons && favicons.length > 0) this.send('tab:updated', { tabId, favicon: favicons[0] });
-    });
-    wc.on('did-start-loading', () => this.send('tab:updated', { tabId, isLoading: true }));
-    wc.on('did-stop-loading', () => {
-      this.send('tab:updated', { tabId, isLoading: false });
-      setTimeout(() => {
-        try {
-          wc.executeJavaScript('document.title').then((title) => {
-            if (typeof title === 'string' && title && title !== 'about:blank') this.send('tab:updated', { tabId, title });
-          }).catch(() => {});
-          wc.executeJavaScript(
-            `(function(){var e=document.querySelector('link[rel*="icon"]');return e?e.href:''})()`
-          ).then((favicon) => {
-            if (typeof favicon === 'string' && favicon) this.send('tab:updated', { tabId, favicon });
-          }).catch(() => {});
-        } catch (e: any) { log.warn('[TabManager] fallback title/favicon failed:', e?.message); }
-      }, 500);
-      setupCapture(wc);
-    });
+    this._wireBrowserViewEvents(wc, tabId);
 
-    wc.on('did-navigate', (_e, navUrl) => {
-      if (navUrl !== 'about:blank' && !navUrl.startsWith('data:')) this.send('tab:updated', { tabId, url: navUrl });
-    });
-    wc.on('did-navigate-in-page', (_e, navUrl, isMainFrame) => {
-      if (isMainFrame && navUrl !== 'about:blank') this.send('tab:updated', { tabId, url: navUrl });
-    });
-    wc.on('context-menu', (_e, params) => {
-      // L21: 非空断言修复
-      const mw = getMainWindow();
-      if (!mw || mw.isDestroyed()) return;
-      const template: Electron.MenuItemConstructorOptions[] = [
-        { label: '↩ 后退', enabled: wc.canGoBack(), click: () => wc.goBack() },
-        { label: '↪ 前进', enabled: wc.canGoForward(), click: () => wc.goForward() },
-        { label: '⟳ 刷新', click: () => wc.reload() },
-        { type: 'separator' },
-        { label: '复制', enabled: (params.selectionText?.length ?? 0) > 0, role: 'copy' },
-        { label: '粘贴', role: 'paste' },
-      ];
-      if (params.linkURL) {
-        template.push(
-          { type: 'separator' },
-          { label: '在新标签页打开链接', click: () => this.send('tab:newwindow', { url: params.linkURL }) },
-        );
-      }
-      template.push(
-        { type: 'separator' },
-        { label: enabled ? ('Flash 引擎: Ruffle (WASM 模拟)' + (source === 'cdn' ? ' (CDN)' : '')) : 'Flash 引擎: PPAPI (原生)', enabled: false },
-        { label: '检查元素', click: () => wc.openDevTools({ mode: 'detach' }) },
-      );
-      Menu.buildFromTemplate(template).popup({ window: mw, x: params.x, y: params.y });
-    });
-
-    wc.on('media-started-playing', () => this.send('tab:updated', { tabId, isAudible: true }));
-    wc.on('media-paused', () => this.send('tab:updated', { tabId, isAudible: false }));
-    wc.on('did-fail-load', (_e, errorCode, _desc, validatedURL) => {
-      if (errorCode === -3) return;
-      this.send('tab:load-error', { tabId, errorCode, validatedURL });
-    });
-    wc.on('render-process-gone', () => {
-      this.wcToId.delete(wc.id);  // L12: 清理 wcToId
-      this.send('tab:crashed', { tabId });
-    });
-    wc.on('new-window', (e, url) => {
-      e.preventDefault();
-      this.send('tab:newwindow', { url });
-    });
-
-    // Update tab entry
     tab.browserView = view;
     tab.isRuffle = enabled;
     tab.ruffleSource = enabled ? source : undefined;
     this.wcToId.set(wc.id, tabId);
 
-    // Reload the same URL (skip newtab/blank pages)
     if (currentUrl && currentUrl !== 'about:blank' && currentUrl !== 'about:newtab') {
       wc.loadURL(currentUrl);
     }
 
-    // Reactivate if was active
     if (wasActive) {
       if (this.activeId) {
         const old = this.tabs.get(this.activeId);
@@ -324,14 +252,14 @@ class TabManager {
     this.wcToId.delete(tab.browserView.webContents.id);
     const win = getMainWindow();
     win?.removeBrowserView(tab.browserView);
-    try { (tab.browserView.webContents as Electron.WebContents).destroy(); } catch {}
-    try { (tab.browserView as any).destroy(); } catch {}
+    try { (tab.browserView.webContents as Electron.WebContents).destroy(); } catch { /* ignore */ }
+    try { (tab.browserView as any).destroy(); } catch { /* ignore */ }
   }
 
   // L12: 退出时批量销毁
   destroyAll(): void {
     for (const [, tab] of this.tabs) {
-      try { this._destroyView(tab); } catch {}
+      try { this._destroyView(tab); } catch { /* ignore */ }
     }
     this.tabs.clear();
     this.wcToId.clear();

@@ -1,7 +1,6 @@
 import React, { useCallback } from 'react';
-import { useAtom } from 'jotai';
 import { X as XIcon } from 'lucide-react';
-import { favoritesAtom } from '@renderer/atoms/data.atom';
+import { useDataStore } from '@renderer/store/useDataStore';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 
 interface FavoritesPanelProps {
@@ -19,7 +18,8 @@ function getFaviconUrl(favicon: string | undefined, url: string): string {
 }
 
 const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, onOpenUrl }) => {
-  const [favs, setFavs] = useAtom(favoritesAtom);
+  const favs = useDataStore((s) => s.favorites);
+  const setFavs = useDataStore((s) => s.setFavorites);
 
   const isBookmarked = favs.some((f) => f.url === currentUrl && currentUrl && currentUrl !== 'about:newtab');
 

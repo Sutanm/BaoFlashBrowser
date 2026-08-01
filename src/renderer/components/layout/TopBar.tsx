@@ -1,13 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { useAtomValue, useSetAtom } from 'jotai';
-import { Plus, ArrowLeft, ArrowRight, RotateCw, X, Volume2, VolumeX, Star, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
+import { Plus, ArrowLeft, ArrowRight, RotateCw, X, Volume2, VolumeX, Star, PanelLeftOpen, PanelLeftClose, ZoomIn, ZoomOut } from 'lucide-react';
 import TabItem from '../tabs/TabItem';
 import WindowControls from '../shell/WindowControls';
 import RuffleToggle from '../navigation/RuffleToggle';
-import type { TabState } from '@renderer/atoms/tabs.atom';
+import { useDataStore } from '@renderer/store/useDataStore';
+import type { AddressToast } from '@renderer/store/useDataStore';
+import type { TabState } from '@renderer/store/useTabsStore';
 import type { FlashEngineMode } from '@shared/types/settings';
-import type { AddressToast } from '@renderer/atoms/data.atom';
-import { toastQueueAtom } from '@renderer/atoms/data.atom';
 
 interface TopBarProps {
   tabs: TabState[];
@@ -74,66 +73,42 @@ const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const [addressValue, setAddressValue] = useState(url);
   const addressInputRef = useRef<HTMLInputElement>(null);
-  const savedUrlRef = useRef('');
-  const prevHadToastRef = useRef(false);
+
+  // --- Toast 队列：订阅 store，逐条消费，触发地址栏翻转 ---
+  const toastQueue = useDataStore((s) => s.toastQueue);
+  const setToastQueue = useDataStore((s) => s.setToastQueue);
+  const [currentToast, setCurrentToast] = useState<AddressToast | null>(null);
   const [flipping, setFlipping] = useState(false);
-  const [toastColor, setToastColor] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const toastQueue = useAtomValue(toastQueueAtom);
-  const setToastQueue = useSetAtom(toastQueueAtom);
+  const toastColorMap = { success: '#27ae60', info: '#3498db', warning: '#f39c12', error: '#e74c3c' };
 
-  const currentToast = toastQueue[0];
-
-  // Address bar flip animation for toast queue
+  // 队列推送新 toast 时，若当前无显示则立即消费
   useEffect(() => {
-    const toast = currentToast;
-    if (!toast) {
-      prevHadToastRef.current = false;
-      return;
-    }
-    clearTimeout(toastTimerRef.current);
-
-    if (!prevHadToastRef.current) {
-      savedUrlRef.current = addressValue;
-    }
-    prevHadToastRef.current = true;
-
-    const bg = toast.color || (
-      toast.type === 'success' ? '#27ae60'
-      : toast.type === 'info' ? '#3498db'
-      : toast.type === 'warning' ? '#f39c12'
-      : '#e74c3c'
-    );
-
-    if (toast.actions && toast.actions.length > 0) {
-      setToastColor(bg);
-      return;
-    }
-
-    setFlipping(true);
-    setTimeout(() => {
-      setAddressValue(toast.message);
-      setToastColor(bg);
-    }, 150);
-    setTimeout(() => {
-      setFlipping(false);
-    }, 300);
-
-    const duration = typeof toast.duration === 'number' ? toast.duration : 1500;
-    toastTimerRef.current = setTimeout(() => {
+    if (toastQueue.length > 0 && !currentToast) {
+      const next = toastQueue[0];
+      setToastQueue((prev) => prev.slice(1));
+      setCurrentToast(next);
       setFlipping(true);
-      setTimeout(() => {
-        setAddressValue(savedUrlRef.current);
-        setToastColor(null);
-      }, 150);
-      setTimeout(() => {
-        setFlipping(false);
-        setToastQueue((prev: AddressToast[]) => prev.slice(1));
-      }, 300);
-    }, duration);
+      const flipOff = setTimeout(() => setFlipping(false), 300);
+      // 有 actions 的 toast 不自动消失（等用户操作），其它按 duration 或默认 2500ms
+      const hasActions = next.actions && next.actions.length > 0;
+      const dur = hasActions ? null : (next.duration ?? 2500);
+      clearTimeout(toastTimerRef.current);
+      if (dur !== null) {
+        toastTimerRef.current = setTimeout(() => {
+          setFlipping(true);
+          setTimeout(() => { setFlipping(false); setCurrentToast(null); }, 300);
+        }, dur);
+      }
+      return () => clearTimeout(flipOff);
+    }
+  }, [toastQueue, currentToast, setToastQueue]);
 
-    return () => clearTimeout(toastTimerRef.current);
-  }, [currentToast, setToastQueue]);
+  const dismissToast = useCallback(() => {
+    clearTimeout(toastTimerRef.current);
+    setFlipping(true);
+    setTimeout(() => { setFlipping(false); setCurrentToast(null); }, 300);
+  }, []);
 
   useEffect(() => {
     setAddressValue(url);
@@ -273,23 +248,21 @@ const TopBar: React.FC<TopBarProps> = ({
           {currentToast && (
             <div
               className={`toast-overlay ${flipping ? 'address-flip' : ''}`}
+              onClick={dismissToast}
               style={{
-                background: toastColor || (
-                  currentToast.type === 'success' ? '#27ae60'
-                  : currentToast.type === 'info' ? '#3498db'
-                  : currentToast.type === 'warning' ? '#f39c12'
-                  : '#e74c3c'
-                ),
+                background: currentToast.color || toastColorMap[currentToast.type],
               }}
             >
-              <span style={{ flex: 1 }}>{currentToast.message}</span>
-              {currentToast.actions && (
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {currentToast.message}
+              </span>
+              {currentToast.actions && currentToast.actions.length > 0 && (
                 <div className="toast-actions">
                   {currentToast.actions.map((action, i) => (
                     <button
                       key={i}
-                      className={action.primary ? 'toast-btn-primary' : ''}
-                      onClick={(e) => { e.stopPropagation(); action.onClick(); }}
+                      className={`toast-btn ${action.primary ? 'toast-btn-primary' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); action.onClick(); dismissToast(); }}
                     >
                       {action.label}
                     </button>
@@ -300,13 +273,13 @@ const TopBar: React.FC<TopBarProps> = ({
           )}
         </div>
         <button onClick={onZoomOut} className="btn-icon btn-icon-sm" title="缩小 (Ctrl+-)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          <ZoomOut className="w-3.5 h-3.5" />
         </button>
         <span className="zoom-capsule" onClick={onZoomReset} title="点击重置为100%" style={{ cursor: 'pointer' }}>
           {zoomPercent}%
         </span>
         <button onClick={onZoomIn} className="btn-icon btn-icon-sm" title="放大 (Ctrl++)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          <ZoomIn className="w-3.5 h-3.5" />
         </button>
         <button onClick={onToggleBookmark} className="btn-icon" title={isBookmarked ? '取消收藏' : '收藏当前页'}>
           <Star className="w-4 h-4" style={{ fill: isBookmarked ? '#f5c518' : 'none', color: isBookmarked ? '#f5c518' : 'var(--text-secondary)' }} />

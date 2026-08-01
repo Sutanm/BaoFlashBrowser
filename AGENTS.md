@@ -16,7 +16,7 @@ npm run lint       # eslint src/ --ext .ts,.tsx
 - **PPAPI tab**: `contextIsolation: true, plugins: true`
 - **Ruffle tab**: `contextIsolation: false, plugins: false` (Ruffle must run in page context, loaded via `ipcRenderer.sendSync` + `eval()`)
 - **Session**: tabs use `partition: 'persist:'` — a *different* session from `defaultSession`. WebRequest interceptors must be registered on both.
-- **Webpack** bundles main (target: electron-main) and renderer (target: web). No Vite.
+- **esbuild** bundles main (platform: node, CJS). **Vite** bundles renderer.
 
 ## Key files
 

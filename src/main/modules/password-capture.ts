@@ -2,6 +2,7 @@
 import type { WebContents } from 'electron';
 import log from 'electron-log';
 import { getMainWindow } from './window';
+import { getMetaForHost } from './password-store';
 
 interface CaptureState {
   wc: WebContents;
@@ -15,7 +16,26 @@ interface CaptureState {
 const captures = new Map<number, CaptureState>();
 
 // 待保存凭据 —— 模块级全局，不受 state 重建影响（JSONP 捕获后 detach → teardown → setupCapture，旧 state 的 pendingCreds 不丢）
-const globalPendingCredentials = new Map<string, { host: string; username: string; password: string; origin: string; title: string }>();
+const globalPendingCredentials = new Map<string, { host: string; username: string; password: string; origin: string; title: string; timestamp: number }>();
+
+// 已弹出 toast 的 host+username 去重 —— 模块级全局，跨 detach→re-attach 会话
+// 防止同一登录在 capture session 重建后被重复捕获并再次弹出 toast
+const shownToastKeys = new Map<string, { captureId: string; timestamp: number }>();
+
+// 密码 5 分钟 TTL 自动过期清理，防止内存泄漏
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, cred] of globalPendingCredentials.entries()) {
+    if (now - cred.timestamp > 5 * 60 * 1000) {
+      globalPendingCredentials.delete(id);
+    }
+  }
+  for (const [key, val] of shownToastKeys.entries()) {
+    if (now - val.timestamp > 5 * 60 * 1000) {
+      shownToastKeys.delete(key);
+    }
+  }
+}, 60 * 1000);
 
 function sendToRenderer(channel: string, payload: Record<string, unknown>): void {
   const win = getMainWindow();
@@ -24,7 +44,7 @@ function sendToRenderer(channel: string, payload: Record<string, unknown>): void
 
 function detachQuietly(state: CaptureState): void {
   // 直接尝试 detach，try/catch 处理重复 detach（对齐 bv demo）
-  try { state.wc.debugger.detach(); } catch {}
+  try { state.wc.debugger.detach(); } catch { /* ignore duplicate detach */ }
 }
 
 const CAPTURE_SCRIPT = `
@@ -221,7 +241,7 @@ const CAPTURE_SCRIPT = `
       var text = (target.innerText || target.value || '').toLowerCase().trim();
       var tagName = target.tagName || '';
       var isButton = tagName === 'BUTTON' || tagName === 'INPUT' && (target.type === 'submit' || target.type === 'button');
-      var isLoginText = /登[\s]*录|login|sign[\s_-]*in|submit|确[\s]*定|进[\s]*入|go/.test(text);
+      var isLoginText = /登\\s*录|login|sign(?:\\s|_|-)*in|submit|确\\s*定|进\\s*入|go/.test(text);
       if (isButton || isLoginText) {
         var userNow = _rawUser || '';
         var u = findUserInput(container);
@@ -367,21 +387,49 @@ export function setupCapture(wc: WebContents): void {
         if (!data.user || !data.pass || data.pass.length < 2) continue;
         const key = `${data.host}/${data.user}`;
         if (state.capturedSet.has(key)) continue;
+
+        let skipToast = shownToastKeys.has(key);
+        if (skipToast) {
+          log.info('[PasswordCapture] skip already-shown-toast host=' + data.host + ' user=' + data.user);
+        }
+
         if (state.capturedSet.size > 200) { const f = state.capturedSet.values().next().value; if (f) state.capturedSet.delete(f); }
-        state.capturedSet.add(key);
+        if (!skipToast) state.capturedSet.add(key);
         const captureId = 'cap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-        globalPendingCredentials.set(captureId, { host: data.host, username: data.user, password: data.pass, origin: data.origin || '', title: data.title || '' });
+        if (!skipToast) {
+          globalPendingCredentials.set(captureId, { host: data.host, username: data.user, password: data.pass, origin: data.origin || '', title: data.title || '', timestamp: Date.now() });
+        }
+
+        // 已保存账号查重：跳过密码本中已有的 host+username 组合，避免重复弹出 toast
+        if (!skipToast) {
+          try {
+            const existing = getMetaForHost(data.host);
+            if (existing.some((e) => e.username === data.user)) {
+              log.info('[PasswordCapture] skip already-saved host=' + data.host + ' user=' + data.user);
+              skipToast = true;
+            }
+          } catch { /* password-store 未初始化时忽略 */ }
+        }
+
+        // Workaround for 7k7k JSONP stuck: debugger attached may block <script> onload callback execution.
+        // ⚠️ detach 必须在 toast 决策之后、continue 之前执行，无论是否显示 toast 都要 detach
+        const needsDetach = ['script-src', 'script-mo', 'img-src', 'beacon', 'fetch', 'xhr', 'form.submit', 'click-login'].includes(String(data.source || ''));
+        if (needsDetach) {
+          log.info('[PasswordCapture] detach after capture source=' + data.source + ' (unblock JSONP callback)');
+          detachQuietly(state);
+        }
+
+        if (skipToast) {
+          globalPendingCredentials.delete(captureId);
+          continue;
+        }
+
+        shownToastKeys.set(key, { captureId, timestamp: Date.now() });
         sendToRenderer('password:captured', { captureId, host: data.host, username: data.user });
         log.info('[PasswordCapture] captured host=' + data.host + ' source=' + data.source);
         // LRU：超过 50 条删最早的（removePendingCredential 里也会兜底）
         if (globalPendingCredentials.size > 50) { const fk = globalPendingCredentials.keys().next().value; if (fk) globalPendingCredentials.delete(fk); }
-        // Workaround for 7k7k JSONP stuck: debugger attached may block <script> onload callback execution.
-        // Detach immediately after capture, then re-attach via did-stop-loading once navigation settles.
-        if (['script-src', 'script-mo', 'img-src', 'beacon', 'fetch', 'xhr', 'form.submit', 'click-login'].includes(String(data.source || ''))) {
-          log.info('[PasswordCapture] detach after capture source=' + data.source + ' (unblock JSONP callback)');
-          detachQuietly(state);
-        }
-      } catch {}
+      } catch { /* ignore detach errors */ }
     }
   });
 
@@ -406,12 +454,19 @@ export function teardownCapture(wc: WebContents): void {
   captures.delete(wc.id);
 }
 
-export function getPendingCredential(captureId: string): { host: string; username: string; password: string; origin: string; title: string } | null {
+export function getPendingCredential(captureId: string): { host: string; username: string; password: string; origin: string; title: string; timestamp: number } | null {
   return globalPendingCredentials.get(captureId) || null;
 }
 
 export function removePendingCredential(captureId: string): void {
   globalPendingCredentials.delete(captureId);
+  // 同步清理 shownToastKeys，下次相同 host+user 允许再次弹出的逻辑由 password-store 查重保证
+  for (const [k, v] of shownToastKeys.entries()) {
+    if (v.captureId === captureId) {
+      shownToastKeys.delete(k);
+      break;
+    }
+  }
   // LRU：超过 50 条删最早的
   if (globalPendingCredentials.size > 50) {
     const firstKey = globalPendingCredentials.keys().next().value;

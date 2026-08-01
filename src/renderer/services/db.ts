@@ -5,9 +5,9 @@ import type { DownloadItem } from '@shared/types/downloads';
 import type { Settings } from '@shared/types/settings';
 
 class BaoDB extends Dexie {
-  favorites!: Dexie.Table<BookmarkEntry, string>;
+  favorites!: Dexie.Table<BookmarkEntry & { _idx?: number }, string>;
   history!: Dexie.Table<HistoryEntry, string>;
-  downloads!: Dexie.Table<DownloadItem, string>;
+  downloads!: Dexie.Table<DownloadItem & { _idx?: number }, string>;
   settings!: Dexie.Table<Settings, string>;
   meta!: Dexie.Table<{ key: string; value: any }, string>;
 
@@ -25,26 +25,7 @@ class BaoDB extends Dexie {
 
 export const db = new BaoDB();
 
-export async function loadAll() {
-  const [favorites, history, downloads, settings, meta] = await Promise.all([
-    db.favorites.toArray(),
-    db.history.orderBy('lastVisit').reverse().toArray(),
-    db.downloads.toArray(),
-    db.settings.toArray().then((r) => r[0] || null),
-    db.meta.toArray().then((arr) => {
-      const m: Record<string, any> = {};
-      for (const { key, value } of arr) m[key] = value;
-      return m;
-    }),
-  ]);
-  return { favorites, history, downloads, settings, meta };
-}
-
 // Atomic upsert helpers
-export async function saveSettings(s: Settings) {
-  await db.settings.put(s, 'default');
-}
-
 export async function saveMeta(key: string, value: any) {
   await db.meta.put({ key, value }, key);
 }
@@ -80,9 +61,13 @@ export async function migrateFromLocalStorage() {
     migrate('baoflash_settings', db.settings),
   ]);
 
-  // Migrate theme
-  const theme = localStorage.getItem('baoflash_theme');
-  if (theme) await saveMeta('theme', theme);
+  // Migrate theme to themeMode
+  const oldTheme = localStorage.getItem('baoflash_theme');
+  if (oldTheme) {
+    const themeMode = oldTheme === 'dark' ? 'dark' : 'light';
+    await saveMeta('themeMode', themeMode);
+    localStorage.removeItem('baoflash_theme');
+  }
 
   await saveMeta('migrated_v1', true);
 

@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { cancelDownload, pauseDownload, resumeDownload, getAria2Status, getDownloadDir } from '../modules/download';
 import { saveConfig } from '../modules/config';
+import { getMainWindow } from '../modules/window';
 
 // --- L02: 路径穿越校验 ---
 function isPathAllowed(savePath: string): boolean {
@@ -28,7 +29,8 @@ export function registerDownloadIPC(): void {
   });
 
   ipcMain.handle('download:set-dir', async () => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = BrowserWindow.getFocusedWindow() || getMainWindow();
+    if (!win) return null;
     const result = await dialog.showOpenDialog(win!, {
       properties: ['openDirectory', 'createDirectory'],
       defaultPath: getDownloadDir(),
@@ -93,10 +95,12 @@ export function registerDownloadIPC(): void {
   });
 
   ipcMain.on('download:openDir', (_event, { savePath }: { savePath: string }) => {
-    if (savePath) {
-      const dir = path.dirname(savePath);
-      if (fs.existsSync(dir)) shell.openPath(dir);
+    if (!savePath || !isPathAllowed(savePath)) {
+      log.warn('[Download] openDir rejected (out of download dir):', savePath);
+      return;
     }
+    const dir = path.dirname(savePath);
+    if (fs.existsSync(dir)) shell.openPath(dir);
   });
 
   ipcMain.on('download:start', (_event, { url, filename: _filename }: { url: string; filename?: string }) => {

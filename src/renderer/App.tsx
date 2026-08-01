@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { useLiveQuery } from 'dexie-react-hooks';
 import TopBar from './components/layout/TopBar';
 import DrawerSidebar from './components/layout/DrawerSidebar';
 import NewTabPage from './components/newtab/NewTabPage';
@@ -9,129 +9,84 @@ import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { useTabManager } from './hooks/useTabManager';
 import { useDownloadListener } from './hooks/useDownloadListener';
-import { favoritesAtom, historyAtom, downloadsAtom, settingsAtom, themeAtom, pushToastAtom, activePanelAtom } from './atoms/data.atom';
+import { useDataStore, hydrateFromDb } from './store/useDataStore';
 import { usePasswordListener } from './hooks/usePasswordListener';
-import { loadAll, migrateFromLocalStorage, db } from './services/db';
+import { migrateFromLocalStorage, db } from './services/db';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
-import type { HistoryEntry } from '@shared/types/history';
-import type { DownloadItem } from '@shared/types/downloads';
-import type { Settings } from '@shared/types/settings';
-
-const NEWTAB_URL = 'about:newtab';
-
-function isNewtabUrl(url: string): boolean {
-  return !url || url === 'about:blank' || url === NEWTAB_URL || url.startsWith('data:');
-}
-
-function displayUrl(url: string): string {
-  return isNewtabUrl(url) ? '' : url;
-}
+import { isNewtabUrl } from './services/url-utils';
 
 const App: React.FC = () => {
-  const { theme, toggle: toggleTheme } = useTheme();
-  const favorites = useAtomValue(favoritesAtom);
-  const history = useAtomValue(historyAtom);
-  const downloads = useAtomValue(downloadsAtom);
-  const settings = useAtomValue(settingsAtom);
+  const { theme } = useTheme();
+  const favorites = useDataStore((s) => s.favorites);
+  const downloads = useDataStore((s) => s.downloads);
+  const settings = useDataStore((s) => s.settings);
 
-  const setFavorites = useSetAtom(favoritesAtom);
-  const setHistory = useSetAtom(historyAtom);
-  const setDownloads = useSetAtom(downloadsAtom);
-  const setSettings = useSetAtom(settingsAtom);
-  const setTheme = useSetAtom(themeAtom);
-  const pushToast = useSetAtom(pushToastAtom);
+  const setFavorites = useDataStore((s) => s.setFavorites);
+  const pushToast = useDataStore((s) => s.pushToast);
 
-  // Hydrate all atoms from IndexedDB on startup — suppress auto-persist until done
-  const hydrationDone = useRef(false);
+  const activePanel = useDataStore((s) => s.activePanel);
+  const setActivePanel = useDataStore((s) => s.setActivePanel);
 
-  useEffect(() => {
-    Promise.all([
-      migrateFromLocalStorage().then(() => loadAll()),
-      (window as any).electronAPI?.config?.get() ?? Promise.resolve(null),
-    ]).then(([data, mainConfig]: [any, any]) => {
-      setFavorites(data.favorites as BookmarkEntry[]);
-      setHistory(data.history as HistoryEntry[]);
-      const downloadsData = (data.downloads as DownloadItem[]).filter((d) => d.filename);
-      if (downloadsData.length < (data.downloads || []).length) {
-        db.downloads.clear().then(() => db.downloads.bulkPut(downloadsData));
-      }
-      setDownloads(downloadsData);
-      if (data.settings) {
-        const merged = { ...data.settings } as Settings;
-        if (mainConfig) {
-          merged.flashVersion = mainConfig.flashVersion;
-          merged.lowEndMode = mainConfig.lowEndMode;
-          merged.downloadEngine = mainConfig.downloadEngine;
-        }
-        setSettings(merged);
-      }
-      if (data.meta?.theme) setTheme(data.meta.theme);
-      hydrationDone.current = true;
-    // L36: 水合失败时降级，避免白屏
-    }).catch((e) => {
-      console.warn('[App] hydration failed, using empty data:', e);
-      hydrationDone.current = true;
-    });
-  }, [setFavorites, setHistory, setDownloads, setSettings, setTheme]);
-
-  // Auto-persist to IndexedDB on atom changes (skip until hydrationDone)
-  const favTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const histTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const dlTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  // L36: useLiveQuery 自动订阅 db 变化，启动时水合 + 持续同步到 store
+  // 写操作在 store 的 setX 内部直接写 db，db 变化触发 useLiveQuery → hydrateFromDb 注入 store
+  // hydrateFromDb 用 skipPersist 标志跳过 db 写入，避免循环
+  const dbSnapshot = useLiveQuery(async () => {
+    const [favs, hist, dls, settsArr, metaThemeMode] = await Promise.all([
+      db.favorites.toArray(),
+      db.history.orderBy('lastVisit').reverse().toArray(),
+      db.downloads.toArray(),
+      db.settings.toArray(),
+      db.meta.get('themeMode'),
+    ]);
+    // L36: 过滤历史遗留的无效下载项（无 filename），不写回 db，下次 setDownloads 时自动清理
+    const dlsFiltered = dls.filter((d) => d.filename);
+    favs.sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0));
+    dlsFiltered.sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0));
+    return {
+      favorites: favs,
+      history: hist,
+      downloads: dlsFiltered,
+      settings: settsArr[0] || null,
+      themeMode: metaThemeMode?.value as 'light' | 'dark' | 'system' | undefined,
+    };
+  }, [], undefined);
 
   useEffect(() => {
-    if (!hydrationDone.current) return;
-    if (favorites.length === 0) {
-      clearTimeout(favTimerRef.current);
-      db.favorites.clear().catch((e) => console.error('[DB] favorites clear failed:', e));
-      return;
-    }
-    db.favorites.bulkPut(favorites.map((f, i) => ({ ...f, _idx: i }))).catch((e) => console.error('[DB] favorites persist failed:', e));
-  }, [favorites]);
+    if (!dbSnapshot) return;
+    const patch: Parameters<typeof hydrateFromDb>[0] = {
+      favorites: dbSnapshot.favorites,
+      history: dbSnapshot.history,
+      downloads: dbSnapshot.downloads,
+    };
+    if (dbSnapshot.settings) patch.settings = dbSnapshot.settings;
+    if (dbSnapshot.themeMode) patch.themeMode = dbSnapshot.themeMode;
+    hydrateFromDb(patch);
+  }, [dbSnapshot]);
 
+  // L36: localStorage → IndexedDB 一次性迁移（仅首次启动执行）
   useEffect(() => {
-    if (!hydrationDone.current) return;
-    if (history.length === 0) {
-      clearTimeout(histTimerRef.current);
-      db.history.clear().catch((e) => console.error('[DB] history clear failed:', e));
-      return;
-    }
-    histTimerRef.current = setTimeout(() => {
-      db.history.bulkPut(history).catch((e) => console.error('[DB] history persist failed:', e));
-    }, 500);
-    return () => clearTimeout(histTimerRef.current);
-  }, [history]);
+    migrateFromLocalStorage().catch((e) => console.warn('[App] migrate failed:', e));
+  }, []);
 
-  useEffect(() => {
-    if (!hydrationDone.current) return;
-    if (downloads.length === 0) {
-      clearTimeout(dlTimerRef.current);
-      db.downloads.clear().catch((e) => console.error('[DB] downloads clear failed:', e));
-      return;
-    }
-    db.downloads.bulkPut(downloads).catch((e) => console.error('[DB] downloads persist failed:', e));
-  }, [downloads]);
-
-  useEffect(() => {
-    if (!hydrationDone.current) return;
-    const { flashVersion, lowEndMode, downloadEngine, ...idbSettings } = settings as any;
-    db.settings.put(idbSettings, 'default').catch((e) => console.error('[DB] settings persist failed:', e));
-  }, [settings]);
-
-  const [activePanel, setActivePanel] = useAtom(activePanelAtom);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [findBarVisible, setFindBarVisible] = useState(false);
 
   // --- BrowserView bounds ---
   const bvAreaRef = useRef<HTMLDivElement>(null);
   const bvAnimRef = useRef(0);
+  const bvAnimatingRef = useRef(false);
 
   const calcBounds = useCallback((animated = false) => {
     if (!bvAreaRef.current) return;
     const r = bvAreaRef.current.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) {
+      window.electronAPI.tab.setBounds(-9999, -9999, 1, 1);
+      return;
+    }
     const targetX = (!sidebarCollapsed && activePanel !== null) ? 280 : 0;
 
     if (!animated) {
+      if (bvAnimatingRef.current) return; // 动画中跳过非动画调用，避免频闪
       window.electronAPI.tab.setBounds(
         Math.round(r.x + targetX),
         Math.round(r.y),
@@ -143,6 +98,7 @@ const App: React.FC = () => {
 
     // Animate BrowserView x position over 250ms to match drawer CSS transition
     cancelAnimationFrame(bvAnimRef.current);
+    bvAnimatingRef.current = true;
     const startX = (!sidebarCollapsed && activePanel !== null) ? 0 : 280;
     const startTime = performance.now();
     const duration = 250;
@@ -154,7 +110,11 @@ const App: React.FC = () => {
       const ease = 1 - Math.pow(1 - t, 3);
       const x = Math.round(r.x + startX + (targetX - startX) * ease);
       window.electronAPI.tab.setBounds(x, Math.round(r.y), Math.round(r.width), Math.round(r.height));
-      if (t < 1) bvAnimRef.current = requestAnimationFrame(step);
+      if (t < 1) {
+        bvAnimRef.current = requestAnimationFrame(step);
+      } else {
+        bvAnimatingRef.current = false;
+      }
     };
     bvAnimRef.current = requestAnimationFrame(step);
   }, [activePanel, sidebarCollapsed]);
@@ -163,9 +123,9 @@ const App: React.FC = () => {
   useEffect(() => { calcBoundsRef.current = calcBounds; });
 
   useEffect(() => {
-    calcBoundsRef.current(false);
+    if (!bvAnimatingRef.current) calcBoundsRef.current(false);
     const area = bvAreaRef.current;
-    const onResize = () => calcBoundsRef.current(false);
+    const onResize = () => { if (!bvAnimatingRef.current) calcBoundsRef.current(false); };
     const ro = new ResizeObserver(onResize);
     if (area) ro.observe(area);
     window.addEventListener('resize', onResize);
@@ -223,22 +183,8 @@ const App: React.FC = () => {
     }
   });
 
-  // Ctrl+F global toggle
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f' && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        setFindBarVisible((v) => !v);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
   // --- Theme ---
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [theme]);
+  // Note: useTheme hook handles DOM class toggling
 
   const ruffleMode = activeTab?.ruffleMode ?? 'ppapi';
   const handleToggleRuffle = useCallback(() => {
@@ -250,7 +196,7 @@ const App: React.FC = () => {
     }
   }, [ruffleMode, activeTabId, activeTab, updateTab, settings.ruffleSource]);
 
-  const isOnNewTab = !activeTab || activeTab.url === NEWTAB_URL;
+  const isOnNewTab = !activeTab || activeTab.url === 'about:newtab';
 
   return (
     <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>

@@ -2,8 +2,9 @@ import path from 'path';
 import fs from 'fs';
 import { app, BrowserWindow, protocol } from 'electron';
 import log from 'electron-log';
+
 import { setupFlash } from './modules/flash';
-import { initSession } from './modules/session';
+import { initSession } from './modules/session-manager';
 import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow } from './modules/window';
 import { registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
@@ -14,8 +15,6 @@ import { registerDownloadIPC } from './ipc/download.ipc';
 import { registerPasswordIPC } from './ipc/password.ipc';
 import { init as initPasswordStore } from './modules/password-store';
 import { tabManager } from './modules/tabs';
-import { loadRuffleJs } from './modules/ruffle-bundle';
-import { selfTest as dpapiSelfTest } from './modules/dpapi';
 import { initDownloadManager, killAria2 } from './modules/download';
 
 function bootstrap(): void {
@@ -72,44 +71,10 @@ function bootstrap(): void {
   }
 
   app.whenReady().then(() => {
-    loadRuffleJs();
-    // Register custom protocol for Ruffle self-hosted resources
-    try {
-      protocol.registerBufferProtocol('ruffle-resource', (req, cb) => {
-        // req.url;
-        const stripped = req.url.replace(/^ruffle-resource:\/\//, '');
-        // Strip query string / fragment
-        const cleanName = stripped.split('?')[0].split('#')[0];
-        const fileName = decodeURIComponent(cleanName);
-        const fullPath = path.join(__dirname, 'lib', 'ruffle', fileName);
-        fs.readFile(fullPath, (err, data) => {
-          if (err) {
-            log.warn('[Ruffle] resource not found: ' + fullPath + ' (' + err.message + ')');
-            cb({ error: -6 /* net::ERR_FILE_NOT_FOUND */ });
-            return;
-          }
-          let mimeType = 'application/octet-stream';
-          const ext = path.extname(fullPath).toLowerCase();
-          if (ext === '.js') mimeType = 'application/javascript';
-          else if (ext === '.wasm') mimeType = 'application/wasm';
-          else if (ext === '.map') mimeType = 'application/json';
-          cb({
-            mimeType,
-            data,
-            headers: {
-              'Cache-Control': 'public, max-age=31536000, immutable',
-              'Access-Control-Allow-Origin': '*',
-            },
-          });
-        });
-      });
-      log.info('[Ruffle] protocol ruffle-resource registered (buffer mode');
-    } catch (e: any) { log.warn('[Ruffle] protocol registration failed:', e?.message); }
-
+    // 窗口优先创建，首屏最快展示
     createWindow();
     tabManager.setPreload(path.join(__dirname, 'webview-preload.js'));
     initSession();
-    initDownloadManager();
     registerZoomShortcuts();
     startMouseHook();
     registerWindowIPC(() => getMainWindow());
@@ -118,7 +83,42 @@ function bootstrap(): void {
     registerDownloadIPC();
     initPasswordStore().catch((e: any) => log.warn('[App] password store init failed:', e?.message));
     registerPasswordIPC();
-    dpapiSelfTest();
+
+    // 重任务延迟到首渲染后执行，不阻塞首屏展示
+     setImmediate(() => {
+       // Register custom protocol for Ruffle self-hosted resources
+       try {
+         protocol.registerBufferProtocol('ruffle-resource', (req, cb) => {
+           const stripped = req.url.replace(/^ruffle-resource:\/\//, '');
+           const cleanName = stripped.split('?')[0].split('#')[0];
+           const fileName = decodeURIComponent(cleanName);
+           const fullPath = path.join(__dirname, 'lib', 'ruffle', fileName);
+           fs.readFile(fullPath, (err, data) => {
+             if (err) {
+               log.warn('[Ruffle] resource not found: ' + fullPath + ' (' + err.message + ')');
+               cb({ error: -6 });
+               return;
+             }
+             let mimeType = 'application/octet-stream';
+             const ext = path.extname(fullPath).toLowerCase();
+             if (ext === '.js') mimeType = 'application/javascript';
+             else if (ext === '.wasm') mimeType = 'application/wasm';
+             else if (ext === '.map') mimeType = 'application/json';
+             cb({
+               mimeType,
+               data,
+               headers: {
+                 'Cache-Control': 'public, max-age=31536000, immutable',
+                 'Access-Control-Allow-Origin': '*',
+               },
+             });
+           });
+         });
+         log.info('[Ruffle] protocol ruffle-resource registered (buffer mode)');
+      } catch (e: any) { log.warn('[Ruffle] protocol registration failed:', e?.message); }
+
+      initDownloadManager();
+     });
 
     const win = getMainWindow();
     win?.on('resize', () => {
@@ -133,6 +133,7 @@ function bootstrap(): void {
 
     app.on('web-contents-created', (_event, wc) => {
       wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { handleWebviewBeforeInputEvent } = require('./ipc/shortcut.ipc');
         handleWebviewBeforeInputEvent(event, input);
       });

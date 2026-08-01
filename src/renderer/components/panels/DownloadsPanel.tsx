@@ -1,8 +1,8 @@
 import React, { useEffect, useCallback, useState } from 'react';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { X as XIcon, File, FileArchive, FileCode, Play as PlayIcon, Pause, FolderOpen, Trash2 } from 'lucide-react';
-import { downloadsAtom, settingsAtom, pushToastAtom } from '@renderer/atoms/data.atom';
+import { useDataStore } from '@renderer/store/useDataStore';
 import type { DownloadItem } from '@shared/types/downloads';
+import type { DownloadEngine } from '@shared/types/settings';
 
 function formatSpeed(bytesPerSec: number): string {
   if (bytesPerSec <= 0) return '';
@@ -28,7 +28,7 @@ function fileExt(filename: string): string {
 function FileIcon({ filename }: { filename: string }) {
   const ext = fileExt(filename);
   if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return <FileArchive className="w-4 h-4" style={{ color: '#e67e22' }} />;
-  if (['swf'].includes(ext)) return <Play className="w-4 h-4" style={{ color: '#3498db' }} />;
+  if (['swf'].includes(ext)) return <PlayIcon className="w-4 h-4" style={{ color: '#3498db' }} />;
   if (['exe', 'msi'].includes(ext)) return <FileCode className="w-4 h-4" style={{ color: '#27ae60' }} />;
   return <File className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />;
 }
@@ -40,26 +40,31 @@ function dirName(fullPath: string): string {
 }
 
 const DownloadsPanel: React.FC = () => {
-  const [downloads, setDownloads] = useAtom(downloadsAtom);
-  const settings = useAtomValue(settingsAtom);
-  const pushToast = useSetAtom(pushToastAtom);
+  const downloads = useDataStore((s) => s.downloads);
+  const setDownloads = useDataStore((s) => s.setDownloads);
+  const pushToast = useDataStore((s) => s.pushToast);
   const [aria2Status, setAria2Status] = useState<{ ready: boolean; port?: number; dir?: string } | null>(null);
   const [downloadDir, setDownloadDir] = useState('');
-
-  const engine = settings.downloadEngine;
+  const [engine, setEngine] = useState<DownloadEngine>('aria2');
 
   useEffect(() => {
-    const cleanup = (window as any).electronAPI?.on('aria2:status', (data: any) => {
+    window.electronAPI?.config?.get().then((cfg) => {
+      if (cfg?.downloadEngine) setEngine(cfg.downloadEngine as DownloadEngine);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const cleanup = window.electronAPI?.on('aria2:status', (data: any) => {
       setAria2Status(data);
     });
-    (window as any).electronAPI?.invoke('download:aria2-status').then((data: any) => {
+    window.electronAPI?.invoke('download:aria2-status').then((data: any) => {
       if (data) setAria2Status(data);
     }).catch(() => {});
     return () => { cleanup?.(); };
   }, []);
 
   useEffect(() => {
-    (window as any).electronAPI?.dl?.getDir().then((dir: string) => {
+    window.electronAPI?.dl?.getDir().then((dir: string) => {
       if (dir) setDownloadDir(dir);
     }).catch(() => {});
   }, []);
@@ -71,42 +76,42 @@ const DownloadsPanel: React.FC = () => {
 
   const cancelDl = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    (window as any).electronAPI?.dl?.cancel(id);
+    window.electronAPI?.dl?.cancel(id);
   }, []);
 
   const pauseDl = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    (window as any).electronAPI?.dl?.pause(id);
+    window.electronAPI?.dl?.pause(id);
   }, []);
 
   const resumeDl = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    (window as any).electronAPI?.dl?.resume(id);
+    window.electronAPI?.dl?.resume(id);
   }, []);
 
   const openFile = useCallback((savePath: string) => {
-    if (savePath) (window as any).electronAPI?.dl?.open(savePath);
+    if (savePath) window.electronAPI?.dl?.open(savePath);
   }, []);
 
   const openDir = useCallback((savePath: string) => {
-    if (savePath) (window as any).electronAPI?.dl?.openDir(savePath);
+    if (savePath) window.electronAPI?.dl?.openDir(savePath);
   }, []);
 
   const deleteFileAndEntry = useCallback(async (e: React.MouseEvent, entry: DownloadItem) => {
     e.stopPropagation();
     if (!window.confirm(`确定删除 "${entry.filename}"？`)) return;
     // L42: 校验 deleteFile 返回值，失败时不移除条目
-    const success = await (window as any).electronAPI?.dl?.deleteFile(entry.savePath);
+    const success = await window.electronAPI?.dl?.deleteFile(entry.savePath);
     if (success) {
       setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== entry.id));
-      pushToast({ message: `${entry.filename || '文件'} 已删除`, type: 'info', color: '#e74c3c' });
+      pushToast({ message: `${entry.filename || '文件'} 已删除`, type: 'error' });
     } else {
       pushToast({ message: `${entry.filename || '文件'} 删除失败`, type: 'error' });
     }
   }, [setDownloads, pushToast]);
 
   const chooseDir = useCallback(async () => {
-    const newDir = await (window as any).electronAPI?.dl?.setDir();
+    const newDir = await window.electronAPI?.dl?.setDir();
     if (newDir) {
       setDownloadDir(newDir);
       pushToast({ message: '下载目录已更改', type: 'success' });
@@ -138,22 +143,19 @@ const DownloadsPanel: React.FC = () => {
         flexDirection: 'column',
         gap: 6,
       }}>
-        {/* Engine line */}
+        {/* Engine line: 显示实际生效的引擎 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
           <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>引擎:</span>
-          <span>{engine === 'aria2' ? 'aria2' : 'Chromium'}</span>
-          {engine === 'aria2' && (
-            <span style={{
-              width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-              background: aria2Status?.ready ? '#27ae60' : '#e74c3c',
-              boxShadow: aria2Status?.ready ? '0 0 6px #27ae60' : '0 0 6px #e74c3c',
-            }} />
-          )}
-          {engine === 'aria2' && (
-            <span style={{ fontSize: 11, opacity: 0.6 }}>
-              {aria2Status?.ready ? `就绪 :${aria2Status.port}` : aria2Status ? '不可用' : '检测中...'}
-            </span>
-          )}
+          <span>{aria2Status?.ready ? 'aria2' : 'Chromium'}</span>
+          <span style={{
+            width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+            background: aria2Status?.ready ? '#27ae60' : '#3498db',
+            boxShadow: aria2Status?.ready ? '0 0 6px #27ae60' : '0 0 6px #3498db',
+          }} />
+          <span style={{ fontSize: 11, opacity: 0.6 }}>
+            {engine === 'aria2' && !aria2Status?.ready && aria2Status !== null ? '(aria2 不可用，已回退)' : ''}
+            {aria2Status?.ready ? `就绪 :${aria2Status.port}` : aria2Status ? '' : '检测中...'}
+          </span>
         </div>
         {/* Directory line */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>

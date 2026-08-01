@@ -33,7 +33,7 @@ const FindBar: React.FC<FindBarProps> = ({ visible, activeTabId, onClose }) => {
         setResult({ activeMatchOrdinal: payload.activeMatchOrdinal || 0, matches: payload.matches || 0 });
       }
     });
-    return () => { try { unsub(); } catch {} };
+    return () => { try { unsub(); } catch { /* ignore */ } };
   }, [activeTabId]);
 
   const doFind = useCallback((value: string) => {

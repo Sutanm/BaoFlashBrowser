@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Star, Clock, Download, Key, Settings as SettingsIcon, X } from 'lucide-react';
-import { useAtom } from 'jotai';
-import { activePanelAtom } from '@renderer/atoms/data.atom';
+import { useDataStore } from '@renderer/store/useDataStore';
 import PasswordsPanel from '../panels/PasswordsPanel';
 import FavoritesPanel from '../panels/FavoritesPanel';
 import HistoryPanel from '../panels/HistoryPanel';
@@ -33,7 +32,8 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   zoomPercent, onZoomIn, onZoomOut, onZoomReset,
   downloadCount,
 }) => {
-  const [activePanel, setActivePanel] = useAtom(activePanelAtom);
+  const activePanel = useDataStore((s) => s.activePanel);
+  const setActivePanel = useDataStore((s) => s.setActivePanel);
   const isOpen = activePanel !== null;
   const [drawerMounted, setDrawerMounted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);

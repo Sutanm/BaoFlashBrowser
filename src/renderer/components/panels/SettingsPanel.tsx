@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from 'react';
-import { useAtom, useSetAtom } from 'jotai';
-import { settingsAtom, defaultSettings, pushToastAtom, passwordStoreStatusAtom } from '@renderer/atoms/data.atom';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useDataStore, defaultSettings } from '@renderer/store/useDataStore';
+import { useTheme } from '@renderer/hooks/useTheme';
 import type { Settings } from '@shared/types/settings';
+import type { DownloadEngine } from '@shared/types/downloads';
 
 interface SettingsPanelProps {
   zoomPercent: number;
@@ -10,30 +11,57 @@ interface SettingsPanelProps {
   onZoomReset: () => void;
 }
 
+interface MainConfigForm {
+  flashVersion: string;
+  lowEndMode: boolean;
+  downloadEngine: DownloadEngine;
+}
+
+const DEFAULT_MAIN_CONFIG: MainConfigForm = {
+  flashVersion: '34.0.0.330',
+  lowEndMode: false,
+  downloadEngine: 'aria2',
+};
+
 const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, onZoomOut, onZoomReset }) => {
-  const [settings, setSettings] = useAtom(settingsAtom);
-  const pushToast = useSetAtom(pushToastAtom);
-  const setStoreStatus = useSetAtom(passwordStoreStatusAtom);
+  const settings = useDataStore((s) => s.settings);
+  const setSettings = useDataStore((s) => s.setSettings);
+  const setStoreStatus = useDataStore((s) => s.setPasswordStoreStatus);
+  const pushToast = useDataStore((s) => s.pushToast);
+  const { themeMode, setThemeMode } = useTheme();
+
   const [form, setForm] = useState<Settings>({ ...defaultSettings, ...settings });
+  const [mainForm, setMainForm] = useState<MainConfigForm>({ ...DEFAULT_MAIN_CONFIG });
   const [saved, setSaved] = useState<boolean | 'restart'>(false);
   const [resetConfirming, setResetConfirming] = useState(false);
 
-  const handleChange = useCallback((key: keyof Settings, value: unknown) => {
+  useEffect(() => {
+    window.electronAPI?.config?.get().then((cfg) => {
+      if (cfg) setMainForm({ flashVersion: cfg.flashVersion, lowEndMode: cfg.lowEndMode, downloadEngine: cfg.downloadEngine });
+    }).catch(() => {});
+  }, []);
+
+  const handleChange = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
   }, []);
 
-  const handleSave = useCallback(() => {
+  const handleMainChange = useCallback(<K extends keyof MainConfigForm>(key: K, value: MainConfigForm[K]) => {
+    setMainForm((prev) => ({ ...prev, [key]: value }));
+    setSaved(false);
+  }, []);
+
+  const handleSave = useCallback(async () => {
     setSettings(form);
-    (window as any).electronAPI?.invoke('save-config', {
-      flashVersion: form.flashVersion,
-      lowEndMode: form.lowEndMode,
-      downloadEngine: form.downloadEngine,
+    await window.electronAPI?.invoke('save-config', {
+      flashVersion: mainForm.flashVersion,
+      lowEndMode: mainForm.lowEndMode,
+      downloadEngine: mainForm.downloadEngine,
     });
 
     const needsRestart =
-      form.flashVersion !== settings.flashVersion ||
-      form.lowEndMode !== settings.lowEndMode;
+      mainForm.flashVersion !== DEFAULT_MAIN_CONFIG.flashVersion ||
+      mainForm.lowEndMode !== DEFAULT_MAIN_CONFIG.lowEndMode;
 
     if (needsRestart) {
       setSaved('restart');
@@ -42,13 +70,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
       setSaved(true);
       pushToast({ message: '设置已保存', type: 'success' });
     }
-  }, [form, setSettings, settings, pushToast]);
+  }, [form, mainForm, setSettings, pushToast]);
 
   const handleResetPassword = useCallback(async () => {
     if (!resetConfirming) { setResetConfirming(true); return; }
     setResetConfirming(false);
-    await (window as any).electronAPI?.pwd?.resetAll();
-    setStoreStatus({ initialized: false, unlocked: false, enabled: false, dpapiAvailable: false });
+    await window.electronAPI?.pwd?.resetAll();
+    setStoreStatus({ initialized: false, unlocked: false, enabled: false });
     pushToast({ message: '密码本已重置', type: 'info' });
   }, [resetConfirming, setStoreStatus, pushToast]);
 
@@ -69,7 +97,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
         </div>
         <div className="field">
           <div className="field-label">搜索引擎</div>
-          <select className="input-text" style={{ width: '100%' }} value={form.searchEngine} onChange={(e) => handleChange('searchEngine', e.target.value)}>
+          <select className="input-text" style={{ width: '100%' }} value={form.searchEngine} onChange={(e) => handleChange('searchEngine', e.target.value as Settings['searchEngine'])}>
             <option value="baidu">百度</option>
             <option value="bing">Bing</option>
             <option value="google">Google</option>
@@ -85,21 +113,24 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
             className="input-text"
             style={{ width: '100%' }}
             type="text"
-            value={form.flashVersion}
-            onChange={(e) => handleChange('flashVersion', e.target.value)}
+            value={mainForm.flashVersion}
+            onChange={(e) => handleMainChange('flashVersion', e.target.value)}
             placeholder="34.0.0.330"
-          pattern="^\\d+\\.\\d+\\.\\d+\\.\\d+$"
-        />
-        <div className="field-hint">伪装为指定版本号，部分网站会检测。需重启生效。</div>
+            pattern="^\\d+\\.\\d+\\.\\d+\\.\\d+$"
+          />
+          <div className="field-hint">伪装为指定版本号，部分网站会检测。需重启生效。</div>
         </div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>低性能设备模式</span>
-          <div
-            className={`toggle-switch ${form.lowEndMode ? 'on' : ''}`}
-            onClick={() => handleChange('lowEndMode', !form.lowEndMode)}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={mainForm.lowEndMode}
+            className={`toggle-switch ${mainForm.lowEndMode ? 'on' : ''}`}
+            onClick={() => handleMainChange('lowEndMode', !mainForm.lowEndMode)}
           >
             <span className="toggle-knob" />
-          </div>
+          </button>
         </div>
         <div className="field-hint">需重启生效</div>
       </div>
@@ -111,7 +142,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
           <select
             className="input-text" style={{ width: '100%' }}
             value={form.flashEngineMode}
-            onChange={(e) => handleChange('flashEngineMode', e.target.value)}
+            onChange={(e) => handleChange('flashEngineMode', e.target.value as Settings['flashEngineMode'])}
           >
             <option value="auto">PPAPI (原生 Flash)</option>
             <option value="prefer-ruffle">Ruffle (WASM 模拟)</option>
@@ -123,7 +154,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
           <select
             className="input-text" style={{ width: '100%' }}
             value={form.ruffleSource}
-            onChange={(e) => handleChange('ruffleSource', e.target.value)}
+            onChange={(e) => handleChange('ruffleSource', e.target.value as Settings['ruffleSource'])}
           >
             <option value="bundled">自托管 (离线可用)</option>
             <option value="cdn">CDN (始终最新)</option>
@@ -140,8 +171,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
           <div className="field-label">下载引擎</div>
           <select
             className="input-text" style={{ width: '100%' }}
-            value={form.downloadEngine}
-            onChange={(e) => handleChange('downloadEngine', e.target.value)}
+            value={mainForm.downloadEngine}
+            onChange={(e) => handleMainChange('downloadEngine', e.target.value as DownloadEngine)}
           >
             <option value="aria2">aria2 (多连接加速)</option>
             <option value="chromium">Chromium (内置)</option>
@@ -175,6 +206,34 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
             <span className="zoom-label">{zoomPercent}%</span>
             <button onClick={onZoomIn} className="zoom-btn" title="放大 (Ctrl++)">+</button>
             <button onClick={onZoomReset} className="zoom-reset" title="重置缩放">重置</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel-card">
+        <div className="panel-card-title">主题</div>
+        <div className="field">
+          <div className="field-label">主题模式</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['light', 'dark', 'system'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setThemeMode(mode)}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  border: `1px solid ${themeMode === mode ? 'var(--accent)' : 'var(--border)'}`,
+                  background: themeMode === mode ? 'var(--accent)' : 'var(--bg-input)',
+                  color: themeMode === mode ? '#fff' : 'var(--text-primary)',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {mode === 'light' ? '亮色' : mode === 'dark' ? '暗色' : '跟随系统'}
+              </button>
+            ))}
           </div>
         </div>
       </div>

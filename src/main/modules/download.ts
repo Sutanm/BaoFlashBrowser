@@ -53,12 +53,29 @@ function getAria2Candidates(): Array<{ path: string; bundled: boolean }> {
   // Priority 2 (Linux only): user-installed aria2 via system PATH — silent, no install reminder
   if (process.platform === 'linux') {
     try {
-      const result = execSync('which aria2c', { encoding: 'utf-8', timeout: 5000 }).trim();
+      const result = execSync('which aria2c', { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' }).trim();
       if (result && !candidates.some(c => c.path === result)) {
         candidates.push({ path: result, bundled: false });
       }
     } catch {
       // User hasn't installed aria2 — silent fallback, no reminder
+    }
+  }
+
+  // Priority 2b (Windows): user-installed aria2 via system PATH
+  // Walk PATH directly instead of spawning 'where' to avoid GBK encoding issues
+  if (process.platform === 'win32') {
+    const pathDirs = (process.env.PATH || '').split(path.delimiter);
+    const exts = (process.env.PATHEXT || '.exe').split(path.delimiter);
+    for (const dir of pathDirs) {
+      for (const ext of exts) {
+        const fullPath = path.join(dir, 'aria2c' + ext);
+        try {
+          if (fs.existsSync(fullPath) && !candidates.some(c => c.path === fullPath)) {
+            candidates.push({ path: fullPath, bundled: false });
+          }
+        } catch { /* skip inaccessible dirs */ }
+      }
     }
   }
 
@@ -160,7 +177,7 @@ async function startAria2(): Promise<boolean> {
 async function tryStartCandidate(candidate: { path: string; bundled: boolean }): Promise<boolean> {
   sendLog('aria2', `trying ${candidate.bundled ? 'bundled' : 'system'}: ${candidate.path}`);
 
-  const env = { ...process.env };
+  const env = { ...process.env, LANG: 'C', LC_ALL: 'C' };
   // Bundled Linux aria2 may need libaria2.so.0 on LD_LIBRARY_PATH
   if (process.platform === 'linux' && candidate.bundled) {
     const libDir = getAria2LibDir();
@@ -183,8 +200,8 @@ async function tryStartCandidate(candidate: { path: string; bundled: boolean }):
       '--continue=true',
       '--auto-file-renaming=false',
       '--allow-overwrite=true',
-      '--console-log-level=notice',
-    ], { stdio: ['ignore', 'pipe', 'pipe'], env });
+      '--console-log-level=error',
+    ], { stdio: ['ignore', 'ignore', 'ignore'], env, windowsHide: true });
   } catch (err: any) {
     log.warn(`[Download] aria2 spawn exception: ${candidate.path} — ${err?.message}`);
     return false;
@@ -216,7 +233,7 @@ async function tryStartCandidate(candidate: { path: string; bundled: boolean }):
   child.removeAllListeners('exit');
 
   child.stdout?.on('data', (buf: Buffer) => {
-    const line = buf.toString().trim();
+    const line = buf.toString('utf-8').trim();
     if (line) sendLog('aria2', line);
   });
   // stderr 仅 log.warn + 截断，不通过 IPC 发送到渲染进程

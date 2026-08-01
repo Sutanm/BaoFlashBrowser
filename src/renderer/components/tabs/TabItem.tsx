@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Globe, Loader2, X } from 'lucide-react';
-import type { TabState } from '@renderer/atoms/tabs.atom';
+import type { TabState } from '@renderer/store/useTabsStore';
 
 interface TabItemProps {
   tab: TabState;

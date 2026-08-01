@@ -28,7 +28,10 @@ export type ShortcutAction =
   | 'new-window'
   | 'clear-data'
   | 'go-back'
-  | 'go-forward';
+  | 'go-forward'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'zoom-reset';
 
 export interface TabUpdatedPayload {
   tabId: string;
@@ -61,10 +64,51 @@ export interface NewWindowPayload {
   disposition: 'default' | 'foreground-tab' | 'background-tab' | 'new-window' | 'save-to-disk';
 }
 
+export interface TabFoundPayload {
+  tabId: string;
+  activeMatchOrdinal: number;
+  matches: number;
+}
+
+export interface TabLoadErrorPayload {
+  tabId: string;
+  errorCode: number;
+  validatedURL?: string;
+}
+
+export interface TabCrashedPayload {
+  tabId: string;
+  reason: string;
+}
+
+export interface Aria2StatusPayload {
+  ready: boolean;
+  port: number;
+  dir: string;
+}
+
+export interface PasswordCapturedPayload {
+  captureId: string;
+  host: string;
+  username: string;
+}
+
+export interface PasswordChangedPayload {
+  ts: number;
+}
+
 export interface IPCMainToRenderer {
   shortcut: (action: ShortcutAction) => void;
   'tab:updated': (payload: TabUpdatedPayload) => void;
+  'tab:found': (payload: TabFoundPayload) => void;
+  'tab:load-error': (payload: TabLoadErrorPayload) => void;
+  'tab:crashed': (payload: TabCrashedPayload) => void;
+  'tab:newwindow': (payload: NewWindowPayload) => void;
   'download:progress': (payload: DownloadProgressPayload) => void;
+  'aria2:status': (payload: Aria2StatusPayload) => void;
+  'navigate-url': (url: string) => void;
+  'password:captured': (payload: PasswordCapturedPayload) => void;
+  'password:changed': (payload: PasswordChangedPayload) => void;
   'webview:context-menu': (payload: ContextMenuPayload) => void;
   'webview:new-window': (payload: NewWindowPayload) => void;
 }

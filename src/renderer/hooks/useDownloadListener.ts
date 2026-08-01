@@ -1,14 +1,13 @@
 import { useEffect } from 'react';
-import { useSetAtom } from 'jotai';
-import { downloadsAtom, pushToastAtom } from '../atoms/data.atom';
+import { useDataStore } from '../store/useDataStore';
 import type { DownloadItem } from '@shared/types/downloads';
 
 export function useDownloadListener(): void {
-  const setDownloads = useSetAtom(downloadsAtom);
-  const pushToast = useSetAtom(pushToastAtom);
+  const setDownloads = useDataStore((s) => s.setDownloads);
+  const pushToast = useDataStore((s) => s.pushToast);
 
   useEffect(() => {
-    const cleanup = (window as any).electronAPI?.on('download:progress', (payload: any) => {
+    const cleanup = window.electronAPI?.on('download:progress', (payload) => {
       const name = payload.filename || '文件';
 
       setDownloads((prev: DownloadItem[]) => {

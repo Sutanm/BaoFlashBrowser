@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import log from 'electron-log';
 import { app, BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 
@@ -17,6 +18,7 @@ export function createWindow(): BrowserWindow {
     minHeight: 600,
     title: 'BaoFlashBrowser',
     icon: iconPath,
+    show: false,
     backgroundColor: '#f0f0f0',
     frame: false,
     webPreferences: {
@@ -32,15 +34,26 @@ export function createWindow(): BrowserWindow {
 
   // Explicit setIcon for Windows (some Electron versions need both)
   if (process.platform === 'win32') {
-    try { mainWindow.setIcon(iconPath); } catch {}
+    try { mainWindow.setIcon(iconPath); } catch { /* ignore */ }
   }
 
-  const htmlPath = app.isPackaged
-    ? path.join(__dirname, '..', 'renderer', 'index.html')
-    : path.join(__dirname, '..', 'src', 'renderer', 'index.html');
-  mainWindow.loadFile(htmlPath);
+  const distHtml = path.join(__dirname, 'renderer', 'index.html');
+  if (app.isPackaged) {
+    mainWindow.loadFile(distHtml);
+  } else if (fs.existsSync(distHtml)) {
+    log.info('[Window] loading dist renderer (start mode):', distHtml);
+    mainWindow.loadFile(distHtml);
+  } else {
+    log.info('[Window] loading vite dev server (dev mode): http://localhost:5173');
+    mainWindow.loadURL('http://localhost:5173');
+  }
 
   mainWindow.setMenu(null);
+
+  // ready-to-show 机制：等首帧渲染完毕再显示窗口，消除白屏/灰色背景
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
 
   mainWindow.on('page-title-updated', (e) => {
     e.preventDefault();

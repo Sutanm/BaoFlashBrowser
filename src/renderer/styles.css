@@ -305,55 +305,6 @@ body.dark {
     background: var(--accent);
   }
 
-  @keyframes address-flip {
-    0%   { transform: scaleY(1); }
-    50%  { transform: scaleY(0.02); }
-    100% { transform: scaleY(1); }
-  }
-  .address-flip {
-    animation: address-flip 300ms ease-in-out;
-    transform-origin: center;
-  }
-
-  .toast-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 12px;
-    border-radius: 8px;
-    z-index: 10;
-    color: #fff;
-    font-size: 13px;
-    font-weight: 500;
-  }
-
-  .toast-actions {
-    display: flex;
-    gap: 6px;
-    margin-left: 12px;
-    flex-shrink: 0;
-  }
-  .toast-actions button {
-    padding: 3px 10px;
-    border: 1px solid rgba(255,255,255,.4);
-    border-radius: 4px;
-    background: rgba(255,255,255,.15);
-    color: #fff;
-    font-size: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .toast-actions button:hover {
-    background: rgba(255,255,255,.3);
-  }
-  .toast-actions .toast-btn-primary {
-    background: rgba(255,255,255,.35);
-    border-color: rgba(255,255,255,.6);
-    font-weight: 600;
-  }
-
   .find-bar-embed {
     @apply flex items-center gap-1 h-[32px] px-2 flex-shrink-0;
     background: var(--bg-secondary);
@@ -503,6 +454,8 @@ body.dark {
     gap: 4px;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-light);
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+    z-index: 51;
   }
 
   .sidebar-icon {
@@ -769,4 +722,146 @@ body.dark ::-webkit-scrollbar-thumb { background: #45475a; }
 }
 .pwd-host-header:hover {
   background: var(--bg-hover);
+}
+
+.pwd-entry {
+  padding: 6px 12px 6px 24px;
+  font-size: 13px;
+}
+
+.pwd-entry-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pwd-entry-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.pwd-pwd-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 80px;
+}
+
+.pwd-btn-action {
+  font-size: 11px;
+  padding: 1px 6px;
+  height: auto;
+  width: auto;
+}
+
+.pwd-btn-danger {
+  color: #e74c3c;
+}
+
+.pwd-default-star {
+  font-size: 10px;
+  color: #f39c12;
+}
+
+.pwd-setup-container {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pwd-setup-hero {
+  text-align: center;
+  padding-top: 24px;
+}
+
+.pwd-setup-hero p {
+  margin: 0;
+}
+
+.pwd-setup-hero-title {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.pwd-setup-hero-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.pwd-error {
+  color: #e74c3c;
+  font-size: 12px;
+}
+
+.pwd-unlock-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ===== Toast 地址栏翻转动画 ===== */
+@keyframes address-flip {
+  0%   { transform: scaleY(1); }
+  50%  { transform: scaleY(0.02); }
+  100% { transform: scaleY(1); }
+}
+.address-flip {
+  animation: address-flip 300ms ease-in-out;
+  transform-origin: center;
+}
+
+/* Toast Overlay 覆盖在地址栏上，不挤压 BrowserView */
+.toast-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-radius: 8px;
+  z-index: 10;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.toast-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.toast-btn {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toast-btn:hover { background: rgba(255, 255, 255, 0.15); }
+
+.toast-btn-primary {
+  background: rgba(255, 255, 255, 0.95);
+  color: #1d1d1f;
+  border-color: transparent;
+  font-weight: 600;
+}
+.toast-btn-primary:hover { background: #fff; }
+
+/* ===== 可访问性：focus-visible 轮廓 ===== */
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

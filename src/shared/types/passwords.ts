@@ -11,7 +11,6 @@ export interface PasswordStoreStatus {
   initialized: boolean;
   unlocked: boolean;
   enabled: boolean;
-  dpapiAvailable: boolean;
 }
 
 /** Sent from main → renderer via password:captured. Does NOT contain password. */
