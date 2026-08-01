@@ -127,6 +127,7 @@
   }
 
   function updateTabBar() {
+    var btn = document.getElementById('btn-new-tab');
     tabList.innerHTML = '';
     for (var i = 0; i < tabs.length; i++) {
       var t = tabs[i];
@@ -142,6 +143,7 @@
       });
       tabList.appendChild(el);
     }
+    tabList.appendChild(btn);
 
     // Attach close handlers
     var closeBtns = tabList.querySelectorAll('.tab-close');
@@ -428,8 +430,13 @@
         if (e.target.className === 'fav-item-remove') return;
         var url = this.querySelector('.fav-item-remove').getAttribute('data-url');
         var tab = getActiveTab();
-        if (tab) {
-          tab.webview.loadURL(url);
+        var isNewTab = !tab || tab.url === 'newtab.html' || tab.url === 'about:blank' || tab.url.endsWith('/newtab.html');
+        if (isNewTab) {
+          if (tab) tab.webview.loadURL(url);
+          else createTab(url);
+        } else {
+          var newTabId = createTab(url);
+          switchTab(newTabId);
         }
         favPanel.classList.add('hidden');
       });
@@ -563,6 +570,10 @@
   var initUrl = homepage !== 'about:blank' && homepage !== 'newtab.html' ? normalizeUrl(homepage) : 'newtab.html';
   console.log('[APP] init homepage=' + homepage + ' initUrl=' + initUrl);
   createTab(initUrl);
+
+  window.addEventListener('resize', function () {
+    updateTabBar();
+  });
 
   window.addEventListener('message', function (e) {
     if (e.data && e.data.type === 'navigate-url') {

@@ -9,9 +9,8 @@ A desktop Flash browser built on Electron 11 (Chromium 87) with native PPAPI Fla
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)
 ![electron](https://img.shields.io/badge/electron-11.5.0-brightgreen)
 ![flash](https://img.shields.io/badge/flash-PPAPI%2032%2B-red)
-![输入图片说明](src/607450531-6226719d-7e1e-49f1-b6e5-c0f34254ac69.png)
-![输入图片说明](src/607450534-4f789df8-9baf-4f49-8cf5-81d78d8dc3ef.png)
-
+<img width="1280" height="770" alt="wsl" src="https://github.com/user-attachments/assets/4f789df8-9baf-4f49-8cf5-81d78d8dc3ef" />
+<img width="1280" height="770" alt="windows" src="https://github.com/user-attachments/assets/6226719d-7e1e-49f1-b6e5-c0f34254ac69" />
 
 ## 功能 Features
 
@@ -95,8 +94,6 @@ unzip -o electron-v11.5.0-linux-x64.zip -d node_modules/electron/dist/
 `run.sh` 会自动通过 distrobox 容器启动应用，无需手动进入容器。
 
 .desktop 文件已生成到 `~/.local/share/applications/baoflash-browser.desktop`，可在应用菜单中搜索 "BaoFlashBrowser"。bash
-![真好玩](src/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE_20260617_233522.png)
-NIXOS真好玩，是最具可玩性的系统
 
 ## 打包 Build
 

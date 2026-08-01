@@ -12,6 +12,29 @@ body {
   background: #ffffff;   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', sans-serif;
   color: #222222; user-select: none;
 }
+.bookmark-bar {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 8px; background: #f8f8f8;
+  border-bottom: 1px solid #e0e0e0;
+  overflow-x: auto; white-space: nowrap;
+  min-height: 32px;
+}
+.bookmark-bar:empty { display: none; }
+.bookmark-item {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border-radius: 4px;
+  cursor: pointer; text-decoration: none; color: #333;
+  font-size: 12px; transition: background 0.15s;
+  flex-shrink: 0;
+}
+.bookmark-item:hover { background: #e8e8e8; }
+.bookmark-item .icon {
+  width: 16px; height: 16px; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: bold; color: #fff; flex-shrink: 0;
+}
+.bookmark-item .title { overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
 .search-box {
   width: 560px; max-width: 90vw; margin-bottom: 40px;
 }
@@ -38,11 +61,37 @@ body {
 </style>
 </head>
 <body>
+<div class="bookmark-bar" id="bookmark-bar"></div>
 <div class="search-box">
   <input type="text" id="search-input" placeholder="搜索或输入网址" autofocus>
 </div>
 <div class="links" id="links"></div>
 <script>
+var bookmarkBar = document.getElementById('bookmark-bar');
+var favorites = [];
+try { favorites = JSON.parse(localStorage.getItem('baoflash_favorites') || '[]'); } catch (e) {}
+
+function renderBookmarkBar() {
+  bookmarkBar.innerHTML = '';
+  for (var i = 0; i < favorites.length; i++) {
+    var fav = favorites[i];
+    var a = document.createElement('a');
+    a.className = 'bookmark-item';
+    a.href = fav.url;
+    var firstChar = (fav.title || fav.url).charAt(0).toUpperCase();
+    var colors = ['#e74c3c', '#e67e22', '#3498db', '#27ae60', '#9b59b6', '#1abc9c'];
+    var color = colors[i % colors.length];
+    a.innerHTML = '<div class="icon" style="background:' + color + '">' + firstChar + '</div><div class="title">' + (fav.title || fav.url) + '</div>';
+    a.addEventListener('click', function(e) {
+      e.preventDefault();
+      window.location.href = this.href;
+    });
+    bookmarkBar.appendChild(a);
+  }
+}
+
+renderBookmarkBar();
+
 var links = [
   { title: '4399', url: 'https://www.4399.com/', icon: '4', bg: '#e74c3c' },
   { title: '7k7k', url: 'https://www.7k7k.com/', icon: '7', bg: '#e67e22' },
