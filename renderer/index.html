@@ -57,9 +57,19 @@
           <option value="current">当前页</option>
         </select>
       </div>
+      <div class="setting-row">
+        <label>页面缩放</label>
+        <div class="zoom-controls">
+          <button id="btn-zoom-out" class="btn-secondary zoom-btn" title="缩小（Ctrl+-）">&#8722;</button>
+          <span id="zoom-display" class="zoom-label">100%</span>
+          <button id="btn-zoom-in" class="btn-secondary zoom-btn" title="放大（Ctrl++）">&#43;</button>
+          <button id="btn-zoom-reset" class="btn-secondary zoom-btn" title="重置（Ctrl+0）">重置</button>
+        </div>
+      </div>
       <button id="btn-save-settings" class="btn-primary">保存</button>
     </div>
   </div>
+  <div id="zoom-indicator" class="zoom-indicator">100%</div>
   <script src="dist/bundle.js"></script>
 </body>
 </html>

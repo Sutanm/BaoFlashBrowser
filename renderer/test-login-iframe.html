@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>iframe 登录</title>
+<style>
+  body { font-family: sans-serif; padding: 20px; margin: 0; }
+  h4 { color: #888; margin-bottom: 12px; }
+  label { display: block; margin-bottom: 4px; font-size: 13px; }
+  input { width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+  button { width: 100%; padding: 10px; background: #533483; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <h4>iframe 内登录</h4>
+  <form id="form-iframe" action="about:blank">
+    <label>用户名</label>
+    <input type="text" name="username" id="user3" placeholder="iframe内输入" autocomplete="username">
+    <label>密码</label>
+    <input type="password" name="password" id="pass3" placeholder="iframe内输入" autocomplete="current-password">
+    <button type="submit">iframe 提交</button>
+  </form>
+</body>
+</html>

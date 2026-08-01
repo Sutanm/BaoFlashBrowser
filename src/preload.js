@@ -38,5 +38,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('theme-change', function (event, isDark) {
       callback(isDark);
     });
+  },
+  // 接收来自主进程的缩放快捷键指令（Ctrl++/Ctrl+-/Ctrl+0）
+  onZoomShortcut: function (callback) {
+    ipcRenderer.on('zoom-shortcut', function (event, action) {
+      callback(action);
+    });
   }
 });

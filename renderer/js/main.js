@@ -5,6 +5,7 @@ var settings = require('./settings');
 var navigation = require('./navigation');
 var theme = require('./theme');
 var windowControls = require('./window-controls');
+var zoom = require('./zoom');
 var storage = require('./utils/storage');
 var urlUtil = require('./utils/url');
 
@@ -68,6 +69,19 @@ function init() {
     btnRefresh: btnRefresh,
     btnMute: btnMute,
     btnNewTab: btnNewTab
+  });
+
+  // 初始化缩放模块
+  var btnZoomIn = document.getElementById('btn-zoom-in');
+  var btnZoomOut = document.getElementById('btn-zoom-out');
+  var btnZoomReset = document.getElementById('btn-zoom-reset');
+  var zoomDisplay = document.getElementById('zoom-display');
+
+  zoom.init({
+    btnZoomIn: btnZoomIn,
+    btnZoomOut: btnZoomOut,
+    btnZoomReset: btnZoomReset,
+    zoomDisplay: zoomDisplay
   });
 
   // 标签切换时更新收藏星标

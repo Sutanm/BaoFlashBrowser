@@ -44,6 +44,15 @@ function createWindow(BrowserWindow) {
   setupDevTools(mainWindow);
   mainWindow.setMenu(null);
 
+  if (process.platform === 'win32') {
+    try {
+      var iconPath = path.join(__dirname, '..', '..', 'build', 'icon.ico');
+      if (require('fs').existsSync(iconPath)) {
+        mainWindow.setIcon(iconPath);
+      }
+    } catch (e) {}
+  }
+
   mainWindow.on('page-title-updated', function (e) {
     e.preventDefault();
   });
