@@ -7,6 +7,8 @@ var Menu = electron.Menu;
 var ipcMain = electron.ipcMain;
 var shell = electron.shell;
 
+app.setName('BaoFlashBrowser');
+
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('no-sandbox');
 }
@@ -102,6 +104,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: 'BaoFlashBrowser',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     backgroundColor: '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
