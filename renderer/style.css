@@ -1,0 +1,507 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: #ffffff;
+  color: #222222;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+}
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #f0f0f0;
+  border-bottom: 1px solid #cccccc;
+  flex-shrink: 0;
+  height: 42px;
+  -webkit-app-region: drag;
+}
+
+#toolbar button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #333333;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+#toolbar button:hover {
+  background: #e0e0e0;
+}
+
+#toolbar button:disabled {
+  color: #bbbbbb;
+  cursor: default;
+}
+
+#toolbar button:disabled:hover {
+  background: transparent;
+}
+
+#address-bar {
+  flex: 1;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #cccccc;
+  border-radius: 15px;
+  background: #ffffff;
+  color: #222222;
+  font-size: 13px;
+  outline: none;
+  -webkit-app-region: no-drag;
+}
+
+#address-bar:focus {
+  border-color: #533483;
+}
+
+#tab-bar {
+  display: flex;
+  align-items: center;
+  background: inherit;
+  border-bottom: 1px solid #cccccc;
+  flex-shrink: 0;
+  height: 32px;
+  -webkit-app-region: drag;
+  padding-right: 4px;
+}
+
+body.dark-mode #tab-bar {
+  border-bottom-color: #0f3460;
+}
+
+#tab-list {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+#tab-list::-webkit-scrollbar {
+  height: 2px;
+}
+
+#tab-list::-webkit-scrollbar-thumb {
+  background: #cccccc;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  height: 100%;
+  min-width: 80px;
+  max-width: 180px;
+  border-right: 1px solid #e0e0e0;
+  cursor: pointer;
+  font-size: 12px;
+  color: #666666;
+  white-space: nowrap;
+  position: relative;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+body.dark-mode .tab-item {
+  color: #888888;
+  border-right-color: #0f3460;
+}
+
+.tab-item:hover {
+  background: #e8e8e8;
+}
+
+body.dark-mode .tab-item:hover {
+  background: #0f3460;
+}
+
+.tab-item.active {
+  background: #ffffff;
+  color: #222222;
+  font-weight: bold;
+  border-bottom: 2px solid #533483;
+}
+
+body.dark-mode .tab-item.active {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.tab-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 4px;
+}
+
+.tab-close {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #999999;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tab-close:hover {
+  background: #cccccc;
+  color: #333333;
+}
+
+body.dark-mode .tab-close:hover {
+  background: #333333;
+  color: #e0e0e0;
+}
+
+#btn-new-tab {
+  width: 28px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #666666;
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+
+#btn-new-tab:hover {
+  background: #e0e0e0;
+}
+
+body.dark-mode #btn-new-tab {
+  color: #888888;
+}
+
+body.dark-mode #btn-new-tab:hover {
+  background: #0f3460;
+}
+
+#webview-container {
+  flex: 1;
+  position: relative;
+}
+
+#webview-container webview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#webview-container webview.active {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+#gameview {
+  flex: 1;
+  border: none;
+}
+
+.panel {
+  position: absolute;
+  top: 74px;
+  right: 8px;
+  width: 280px;
+  background: #ffffff;
+  border: 1px solid #cccccc;
+  border-radius: 6px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.panel.hidden {
+  display: none;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  font-weight: bold;
+}
+
+.panel-header button {
+  border: none;
+  background: transparent;
+  color: #333333;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.fav-add-bar {
+  padding: 6px 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.fav-add-bar button {
+  width: 100%;
+  height: 28px;
+  border: 1px dashed #533483;
+  border-radius: 4px;
+  background: transparent;
+  color: #666666;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fav-add-bar button:hover {
+  background: #f0e6ff;
+  color: #533483;
+}
+
+#favorites-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.fav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+}
+
+.fav-item:hover {
+  background: #f5f5f5;
+}
+
+.fav-item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fav-item-url {
+  font-size: 11px;
+  color: #888888;
+  margin-left: 8px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fav-item-remove {
+  border: none;
+  background: transparent;
+  color: #e74c3c;
+  font-size: 16px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+.fav-empty {
+  padding: 16px;
+  text-align: center;
+  color: #999999;
+}
+
+.settings-body {
+  padding: 12px;
+}
+
+.settings-body label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #666666;
+}
+
+.settings-body input[type="text"] {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  margin-bottom: 10px;
+  border: 1px solid #cccccc;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #222222;
+  font-size: 13px;
+  outline: none;
+}
+
+.settings-body button {
+  height: 30px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 4px;
+  background: #533483;
+  color: #fff;
+  cursor: pointer;
+}
+
+.settings-body .toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.settings-body .toggle-row label {
+  margin-bottom: 0;
+}
+
+.settings-body .toggle-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* --- Dark Mode --- */
+
+body.dark-mode {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+body.dark-mode #toolbar {
+  background: #16213e;
+  border-bottom-color: #0f3460;
+}
+
+body.dark-mode #toolbar button {
+  color: #e0e0e0;
+}
+
+body.dark-mode #toolbar button:hover {
+  background: #0f3460;
+}
+
+body.dark-mode #toolbar button:disabled {
+  color: #555555;
+}
+
+body.dark-mode #address-bar {
+  background: #0a0a1a;
+  color: #e0e0e0;
+  border-color: #0f3460;
+}
+
+body.dark-mode .panel {
+  background: #16213e;
+  border-color: #0f3460;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+body.dark-mode .panel-header {
+  border-bottom-color: #0f3460;
+}
+
+body.dark-mode .panel-header button {
+  color: #e0e0e0;
+}
+
+body.dark-mode .fav-add-bar {
+  border-bottom-color: #0f3460;
+}
+
+body.dark-mode .fav-add-bar button {
+  color: #aaaaaa;
+}
+
+body.dark-mode .fav-add-bar button:hover {
+  background: #0f3460;
+  color: #e0e0e0;
+}
+
+body.dark-mode .fav-item {
+  border-bottom-color: #0f3460;
+}
+
+body.dark-mode .fav-item:hover {
+  background: #0f3460;
+}
+
+body.dark-mode .fav-item-url {
+  color: #888888;
+}
+
+body.dark-mode .fav-empty {
+  color: #666666;
+}
+
+body.dark-mode .settings-body label {
+  color: #aaaaaa;
+}
+
+body.dark-mode .settings-body input[type="text"] {
+  background: #0a0a1a;
+  color: #e0e0e0;
+  border-color: #0f3460;
+}
+
+.settings-body select {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  margin-bottom: 10px;
+  border: 1px solid #cccccc;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #222222;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+body.dark-mode .settings-body select {
+  background: #0a0a1a;
+  color: #e0e0e0;
+  border-color: #0f3460;
+}
+
+.setting-row {
+  margin-bottom: 10px;
+}
+
+.setting-row label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #666666;
+}
+
+body.dark-mode .setting-row label {
+  color: #aaaaaa;
+}
