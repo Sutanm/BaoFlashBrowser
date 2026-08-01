@@ -1,113 +1,108 @@
 # BaoFlashBrowser
 
-> 跨平台 Flash 浏览器 | Cross-platform Flash Browser
+> 基于 Electron 11 的跨平台 Flash 浏览器——让 PPAPI Flash 在现代系统上继续运行。
 
-基于 Electron 11 (Chromium 87) + React 17 + TypeScript + Jotai + BrowserView，原生 PPAPI Flash 插件 + Ruffle WASM 双核支持。标签级渲染进程隔离，Windows / Linux 双平台。
+[中文](README.md) **|** [English](README_EN.md)
 
-Built on Electron 11 (Chromium 87) with React 17 + TypeScript + Jotai + BrowserView. Native PPAPI Flash + Ruffle WASM dual-engine. Tab-level renderer process isolation. Supports Windows and Linux.
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)](https://github.com/Sutanm/BaoFlashBrowser)
+[![electron](https://img.shields.io/badge/electron-11.5.0-brightgreen)](https://www.electronjs.org/)
+[![react](https://img.shields.io/badge/react-18.3-blue)](https://react.dev/)
+[![flash](https://img.shields.io/badge/flash-PPAPI%2029%2F32-red)](#flash-插件版本)
+[![ruffle](https://img.shields.io/badge/ruffle-0.4.1-blueviolet)](https://ruffle.rs/)
 
-![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)
-![electron](https://img.shields.io/badge/electron-11.5.0-brightgreen)
-![flash](https://img.shields.io/badge/flash-PPAPI%2029%2B-red)
-![ruffle](https://img.shields.io/badge/ruffle-0.4.1-blueviolet)
+## 目录
 
-## 为什么使用 BrowserView Why BrowserView
+- [为什么做这个](#为什么做这个)
+- [核心特性](#核心特性)
+- [技术架构](#技术架构)
+- [快速开始](#快速开始)
+- [功能详解](#功能详解)
+- [快捷键](#快捷键)
+- [目录结构](#目录结构)
+- [开发指南](#开发指南)
+- [Flash 插件版本](#flash-插件版本)
+- [License](#license)
 
-Electron 的 `<webview>` 标签在 Flash 场景下存在致命缺陷：当一个标签页正在加载 Flash 内容时，在另一个标签页中打开新页面会导致渲染进程崩溃。这是因为多个 webview 共享同一个渲染管道，Flash 插件的大量 GPU 纹理和渲染指令相互抢占，最终导致整个渲染进程全局崩溃——所有标签页同时白屏。
+## 为什么做这个
 
-BrowserView 为每个标签页创建独立的渲染进程，从根本上隔离了 Flash 的渲染管线。即便一个标签页因 Flash 崩溃，其他标签页完全不受影响。这在 Electron 11 中尤为重要——Chromium 87 是最后一个支持 PPAPI Flash 的版本，而 BrowserView 是唯一能在该版本上实现标签级进程隔离的方案。
+2020 年 12 月 31 日，Adobe 正式停止 Flash Player 支持。此后所有主流浏览器移除了 PPAPI（Pepper Plugin API）支持，大量基于 Flash 的网页游戏和内容无法再运行。虽然 Ruffle 等开源替代品在持续进步，但对 ActionScript 3 的支持仍不完整。
 
-## 功能 Features
+**Chromium 87 是最后一个原生支持 PPAPI Flash 的浏览器内核**。本项目基于 Electron 11（内嵌 Chromium 87）构建，旨在提供一个开箱即用的 Flash 浏览体验，同时通过 BrowserView 架构解决传统方案中的稳定性问题。
 
-### Flash 双核引擎（PPAPI + Ruffle）
+### BrowserView vs `<webview>` 标签
 
-- **PPAPI 原生 Flash**：默认引擎，兼容性最广
-- **Ruffle WASM 模拟**：无需 Flash 插件，开源实现
-- **标签页级别切换**：每个标签可独立选择 Flash / Ruffle
-- **双源支持**：
-  - 自托管（bundled）：离线可用，随安装包发布
-  - CDN（unpkg）：始终最新版，首次需网络
-- **Ruffle 配置可调**：画质 `best`、强制缩放 `forceScale`、中文字体支持
-- **导航栏切换按钮**：Flash（暗红）⇄ Ruffle（蓝紫），显示 CDN 标签
+Electron 的 `<webview>` 标签在 Flash 场景下有致命缺陷——多个 webview 共享同一渲染管道，当一个标签页加载 Flash 内容时，在另一个标签页中打开新页面会导致渲染进程崩溃，所有标签页同时白屏。
 
-### 标签页管理
+BrowserView 为每个标签页创建独立的渲染进程，从根本上隔离了 Flash 的渲染管线。一个标签页崩溃不会影响其他标签页。
 
-- 多标签页浏览（Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Tab 切换）
-- 标签拖拽排序
-- 标签压缩（Chrome 风格）——标签多时自动收缩，`+` 按钮始终可见
-- **右键菜单**：后退/前进/刷新/复制/粘贴 + 引擎状态显示
+## 核心特性
 
-### 侧边栏与面板
+- **PPAPI + Ruffle 双核引擎**：原生 Flash 插件和 WASM 模拟器，标签页级别独立切换
+- **标签页管理**：多标签、拖拽排序、Chrome 风格压缩、完整的导航控制
+- **密码管理器**：CDP 自动捕获登录凭据、AES-256-GCM 加密存储、主密码保护
+- **下载管理器**：aria2 多线程引擎、三级启动保底、路径安全校验
+- **侧边栏面板**：收藏夹、历史记录、下载、密码本、设置
+- **淘米 61.com 兼容**：SWFObject 网络层绕过、Flash 版本伪装
+- **跨平台**：Windows / Linux 双平台（WSL 可用）
 
-- 抽屉式侧边栏（⭐ 收藏 🕐 历史 ⬇ 下载 ⚙ 设置）
-- 侧边栏折叠按钮——展开/全屏模式一键切换
-- 下载面板：文件类型图标 + 红/绿点通知 badge
-- 历史记录：自动记录、搜索过滤、按日期分组
-- 收藏夹管理 + 导航栏星标快捷收藏
-- 设置面板：搜索引擎、主页、Flash 版本伪装、Ruffle 引擎/来源选择
-- 页内查找栏（Ctrl+F 嵌入）
+## 技术架构
 
-### 界面与交互
-
-- 地址栏导航 + 搜索引擎（Bing / Google / 百度 / 4399 站内搜索）
-- 缩放比例胶囊（Ctrl+=/-/0 + Ctrl+滚轮，Flash 区域内全局生效）
-- 浅色 / 暗黑双主题切换（IndexedDB 持久化）
-- 无边框窗口，自定义窗口控件
-- F12 独立窗口 DevTools
-
-### 兼容性与稳定性
-
-- 淘米 61.com 游戏门户反 Flash 检测绕过（SWFObject bypass）
-- Flash 版本伪装（绕过网站版本检测）
-- 低端设备模式（减少 GPU 纹理缓存）
-- 跨域 SWF 加载（CORS 头自动注入）
-- IndexedDB + Dexie 持久化（收藏/历史/下载/设置）
-- 启动时自动清理损坏下载记录
-
-## 快捷键 Shortcuts
-
-| 快捷键 | 功能 |
-|--------|------|
-| Ctrl+T | 新建标签页 |
-| Ctrl+W | 关闭标签页 |
-| Ctrl+Tab / Ctrl+Shift+Tab | 切换标签页 |
-| Ctrl+1~8 | 切换到第 N 个标签页 |
-| Ctrl+= / Ctrl++ | 放大 |
-| Ctrl+- | 缩小 |
-| Ctrl+0 | 重置缩放 |
-| Ctrl+滚轮 | 放大/缩小（Flash 区域内全局生效） |
-| Ctrl+L / Alt+D | 聚焦地址栏 |
-| Ctrl+R / F5 | 刷新 |
-| Ctrl+D | 收藏当前页 |
-| Ctrl+H | 历史记录面板 |
-| Ctrl+F | 页内查找（嵌入栏） |
-| Alt+← / Alt+→ | 后退 / 前进 |
-| F11 | 全屏切换 |
-| F12 | 页面 DevTools（独立窗口） |
-| Ctrl+Shift+I | Electron 壳 DevTools（独立窗口） |
-
-## 技术栈 Tech Stack
-
-| 组件 | 版本 | 说明 |
+| 层级 | 技术 | 说明 |
 |------|------|------|
-| Electron | 11.5.0 | 锁定（最后一个支持 PPAPI Flash 的版本） |
-| Chromium | 87 | Electron 11 内置 |
-| React | 17 | Node 12 兼容上限 |
-| TypeScript | 4.9.5 | ES2019 target |
-| Jotai | 1.x | 轻量状态管理 |
-| Dexie | 3.x | IndexedDB 封装 |
-| Ruffle | 0.4.1 | WASM Flash 模拟器 |
-| webpack | 5 | target: web |
-| Flash PPAPI | 29.0.0.171 (Win) / 32.0.0.371 (Linux) | Adobe 官方正式版 |
+| 桌面壳 | Electron 11.5.0 | 锁定——Chromium 87，最后支持 PPAPI |
+| 前端框架 | React 18 + TypeScript 5 | createRoot 并发模式 |
+| 状态管理 | Zustand 5 + Dexie 4 | Persist 中间件 + liveQuery 响应式 |
+| 主进程构建 | esbuild 0.28 | ~14ms 构建，CJS 输出 |
+| 渲染进程构建 | Vite 6 | ~1.8s 构建，HMR 开发 |
+| 样式 | Tailwind CSS 3.4 | 锁版本——Chromium 87 不支持 v4 |
+| 加密 | AES-256-GCM + PBKDF2 | 250,000 迭代密钥派生 |
+| 测试 | Vitest + Playwright | 单元测试 + E2E |
+| 代码质量 | ESLint 9 + Prettier | Flat config |
 
-## 运行 Run
+完整架构图：
 
-```bash
-npm install
-npm start
+```
+┌──────────────────────────────────────────────────────────┐
+│                     Electron 11 (Chromium 87)               │
+│                                                            │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │  main process │  │  BrowserViews │  │  renderer process │  │
+│  │               │  │  (tab 1..N)   │  │                   │  │
+│  │  tab manager  │  │  ┌──────────┐ │  │  React 18 App     │  │
+│  │  download mgr │  │  │ PPAPI or │ │  │  ┌─────────────┐ │  │
+│  │  password     │  │  │ Ruffle   │ │  │  │ TopBar       │ │  │
+│  │  session      │  │  │ engine   │ │  │  │ + Drawer     │ │  │
+│  │  flash loader │  │  └──────────┘ │  │  │ + Panels     │ │  │
+│  │  ipc handlers │  │               │  │  └─────────────┘ │  │
+│  └──────┬────────┘  └──────┬────────┘  └────────┬─────────┘  │
+│         │                  │                     │            │
+│         └────── IPC ───────┴────── IPC ──────────┘            │
+│                            │                                  │
+│                    ┌───────┴───────┐                          │
+│                    │ electron-store │  (配置文件 + 密码加密)     │
+│                    │ Dexie/IndexedDB│  (收藏/历史/下载/设置)      │
+│                    └───────────────┘                          │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### Linux 额外依赖
+## 快速开始
+
+```bash
+# 安装依赖
+npm install
+
+# 开发模式（热更新）
+npm run dev
+
+# 构建 + 启动
+npm start
+
+# 打包
+npm run build:win      # Windows NSIS 安装包
+npm run build:linux    # Linux AppImage
+```
+
+### Linux 依赖
 
 ```bash
 sudo apt install -y libnss3 libgtk-3-0 libx11-xcb1 libxtst6 libxss1 \
@@ -117,108 +112,201 @@ sudo apt install -y libnss3 libgtk-3-0 libx11-xcb1 libxtst6 libxss1 \
   libpulse0 libdbus-1-3
 ```
 
-## 文档 Docs
+## 功能详解
 
-- [架构手册](docs/architecture-manual.md) — 面向二次开发的完整系统解析（模块、数据流、经验教训）
-- [打包手册](docs/PACKAGE.md)
-- [v2 开发经验总结](docs/lessons-learned.md)
+### Flash 双核引擎
 
-## 目录结构 Structure
+每个标签页可以独立选择 Flash 引擎：
+
+- **PPAPI 原生**（默认）：Adobe 官方插件，兼容性最好
+- **Ruffle WASM**：开源模拟器，无需原生插件
+
+Ruffle 支持两种来源：
+- **自托管（Bundled）**：随应用打包，离线可用
+- **CDN**：始终使用最新版 Ruffle，首次需要网络
+
+Ruffle 配置项：画质（`best`）、强制缩放（`forceScale`）、中文字体回退（黑体）。
+
+### 标签页管理
+
+- 完整的导航控制：前进、后退、刷新、停止
+- 页面标题和 favicon 实时同步
+- 静音开关、媒体播放状态指示
+- 页面内缩放（每个标签独立）
+- 崩溃恢复——单个标签崩溃不影响其他标签
+- 链接拖拽到标签栏打开新标签
+
+### 密码管理器
+
+采用 CDP（Chrome DevTools Protocol）捕获登录凭据，支持 8 种捕获策略：
+
+| 策略 | 适用场景 |
+|------|----------|
+| `form.submit` | 传统表单提交 |
+| `beforeunload` | 页面离开时捕获 |
+| 轮询检测（200ms） | AJAX 无刷新登录 |
+| `fetch` / `xhr` 拦截 | 从请求体中提取凭据 |
+| `sendBeacon` 拦截 | 异步上报登录 |
+| Script.src / Image.src 拦截 | JSONP 登录（如 7k7k） |
+| MutationObserver | DOM 动态变化检测 |
+
+加密方案：
+- 主密码 → PBKDF2-SHA256（250,000 迭代）→ KEK
+- DEK（数据加密密钥）用 KEK 加密存储
+- 每条密码用 DEK 通过 AES-256-GCM 加密
+- 主密码要求：8 字符以上，含大小写字母和数字
+
+### 下载管理器
+
+双引擎架构，自动选择最佳引擎：
+
+| 特性 | aria2 | Chromium 内置 |
+|------|-------|--------------|
+| 多线程 | 16 线程分片 | 单线程 |
+| 断点续传 | 支持 | 有限支持 |
+| 下载速度 | 更快 | 一般 |
+| 优先级 | 捆绑 > 系统 PATH | 回退方案 |
+
+aria2 启动三级保底：捆绑二进制 → 系统已安装 → 降级为 Chromium 内置引擎。
+
+安全措施：下载路径防目录穿越、危险扩展名黑名单（`.exe/.bat/.cmd/.ps1/.vbs/.js/.wsf/.scr/.com`）。
+
+### 消息通知
+
+采用地址栏翻转动画作为 Toast 通知——因 BrowserView 始终处于最顶层，传统浮动 Toast 会被其遮挡。支持两种模式：
+
+- **纯文本消息**：自动消失（如「已复制到剪贴板」）
+- **交互式覆盖层**：需要用户操作（如「保存密码？」保存/忽略按钮）
+
+### 主题系统
+
+支持浅色 / 深色 / 跟随系统 三种模式，通过 CSS 变量实现，所有面板和 UI 元素自动适配。
+
+## 快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Ctrl+T` | 新建标签页 |
+| `Ctrl+W` | 关闭当前标签页 |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | 下一个 / 上一个标签页 |
+| `Ctrl+1` ~ `8` | 切换到第 N 个标签页 |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | 放大 / 缩小 / 重置缩放 |
+| `Ctrl+滚轮` | 缩放（Flash 区域内全局生效） |
+| `Ctrl+L` / `Alt+D` | 聚焦地址栏 |
+| `Ctrl+R` / `F5` | 刷新 |
+| `Ctrl+D` | 收藏当前页 |
+| `Ctrl+H` | 打开历史记录面板 |
+| `Ctrl+F` | 页内查找 |
+| `Ctrl+S` | 保存页面 |
+| `Ctrl+N` | 新建窗口 |
+| `Alt+←` / `Alt+→` | 后退 / 前进 |
+| `F11` | 全屏切换 |
+| `F12` / `Ctrl+Shift+I` | 打开 DevTools |
+
+## 目录结构
 
 ```
 BaoFlashBrowser/
 ├── src/
-│   ├── main/
-│   │   ├── index.ts              # 主进程入口
+│   ├── main/                          # 主进程
+│   │   ├── index.ts                   # 入口：窗口创建、模块初始化
 │   │   ├── modules/
-│   │   │   ├── flash.ts          # Flash 插件加载 + mms.cfg 写入
-│   │   │   ├── session.ts        # 会话初始化 + webRequest 拦截 + CORS 注入
-│   │   │   ├── tabs.ts           # BrowserView TabManager（标签进程隔离 + Ruffle 模式）
-│   │   │   ├── config.ts         # electron-store 配置
-│   │   │   ├── password-store.ts # 主密码 + DPAPI 密码管理器
-│   │   │   ├── dpapi.ts          # Windows DPAPI 加密
-│   │   │   ├── ruffle-bundle.ts  # Ruffle JS 预加载（内联注入用）
-│   │   │   └── window.ts         # BrowserWindow 创建
-│   │   └── ipc/
-│   │       ├── shortcut.ipc.ts   # 快捷键分派 + globalShortcut + 原生鼠标钩子
-│   │       ├── window.ipc.ts     # 窗口控制 IPC
-│   │       ├── tabs.ipc.ts       # BrowserView 标签 + Ruffle 模式 + 下载 IPC
-│   │       └── config.ipc.ts     # 配置同步 IPC
-│   ├── renderer/
-│   │   ├── App.tsx               # 应用根组件
+│   │   │   ├── window.ts              # BrowserWindow 创建（ready-to-show）
+│   │   │   ├── tabs.ts                # TabManager：BrowserView 生命周期
+│   │   │   ├── flash.ts               # PPAPI 插件加载 + mms.cfg
+│   │   │   ├── session-manager.ts     # UA、crossdomain.xml、SWFObject 补丁、CORS
+│   │   │   ├── download.ts            # aria2 下载管理器
+│   │   │   ├── password-capture.ts    # CDP 密码捕获
+│   │   │   ├── password-store.ts      # AES-256-GCM 加密密码存储
+│   │   │   ├── crypto-helper.ts       # 密码学工具
+│   │   │   ├── config.ts              # electron-store 主配置
+│   │   │   └── ruffle-bundle.ts       # Ruffle JS 懒加载
+│   │   ├── ipc/                       # IPC 处理器
+│   │   │   ├── tabs.ipc.ts            # 标签页操作（15 通道）
+│   │   │   ├── window.ipc.ts          # 窗口控制（7 通道）
+│   │   │   ├── shortcut.ipc.ts        # 全局快捷键 + 鼠标钩子
+│   │   │   ├── download.ipc.ts        # 下载管理（10 通道）
+│   │   │   ├── password.ipc.ts        # 密码管理（12 通道）
+│   │   │   └── config.ipc.ts          # 配置同步（2 通道）
+│   │   └── utils/
+│   │       └── ipc-wrapper.ts         # IPC handler 统一封装
+│   ├── renderer/                      # 渲染进程（React）
+│   │   ├── App.tsx                    # 根组件
+│   │   ├── index.tsx                  # 渲染入口（createRoot）
+│   │   ├── styles.css                 # 全局样式 + 自定义组件 + 动画
 │   │   ├── components/
-│   │   │   ├── layout/             # TopBar + DrawerSidebar（抽屉侧边栏）
-│   │   │   ├── navigation/         # RuffleToggle（Flash/Ruffle 切换开关）
-│   │   │   ├── panels/             # Favorites/History/Downloads/Settings
-│   │   │   ├── tabs/               # TabItem
-│   │   │   ├── shell/              # WindowControls
-│   │   │   ├── overlays/           # FindBar, LoadingProgress
-│   │   │   └── ErrorBoundary.tsx   # React 错误边界
-│   │   ├── atoms/                # Jotai 状态原子
-│   │   ├── hooks/                # useTheme, useShortcut
-│   │   └── services/             # db.ts (Dexie), id.service.ts
-│   ├── preload/                  # 主窗口 preload（contextBridge）
-│   ├── webview-preload/          # 页面 preload（Ruffle 注入 + 登录捕获）
-│   └── shared/types/             # 公共类型定义
-├── plugins/
-│   ├── linux64/libpepflashplayer64.so   (32.0.0.371, Adobe 官方)
-│   └── win64/pepflashplayer64.dll       (29.0.0.171, Adobe 官方)
-├── native/
-│   ├── mouse-hook.cs / .exe      # Windows WH_MOUSE_LL 鼠标钩子
-│   └── mouse-hook-linux.c        # Linux XRecord 鼠标钩子
+│   │   │   ├── layout/                # TopBar + DrawerSidebar
+│   │   │   ├── navigation/            # RuffleToggle
+│   │   │   ├── panels/                # Favorites / History / Downloads / Passwords / Settings
+│   │   │   ├── tabs/                  # TabItem（React.memo）
+│   │   │   ├── shell/                 # WindowControls
+│   │   │   ├── overlays/              # FindBar / LoadingProgress
+│   │   │   ├── newtab/                # NewTabPage
+│   │   │   └── ErrorBoundary.tsx      # 错误边界
+│   │   ├── hooks/                     # useTabManager / useTheme / useShortcut 等
+│   │   ├── store/                     # Zustand stores（useDataStore / useTabsStore）
+│   │   ├── services/                  # db.ts（Dexie）/ keyboard / url / id
+│   │   └── types/                     # electron.d.ts 类型声明
+│   ├── preload/index.ts               # 主窗口 preload（contextBridge + IPC 白名单）
+│   ├── webview-preload/index.ts       # 页面 preload（Ruffle + 登录识别 + 自动填充）
+│   └── shared/types/                  # 公共类型（tab / settings / downloads / passwords / history / bookmarks / ipc）
+├── plugins/                           # Flash 插件（随应用打包）
+│   ├── linux64/libpepflashplayer64.so
+│   ├── win32/pepflashplayer.dll
+│   └── win64/pepflashplayer64.dll
+├── native/                            # 原生工具
+│   ├── aria2/                         # 捆绑的 aria2 二进制
+│   ├── mouse-hook.exe                 # Windows 鼠标钩子（WH_MOUSE_LL）
+│   └── mouse-hook-linux               # Linux 鼠标钩子（XRecord）
 ├── assets/
-│   └── simhei.ttf                # 中文字体（Ruffle 设备字体回退）
+│   ├── images/                        # 新标签页背景图
+│   └── simhei.ttf                     # 中文字体（Ruffle 回退）
 ├── docs/
-│   ├── PACKAGE.md                # 打包手册
-│   └── lessons-learned.md        # v2 开发经验总结
-├── build/
-│   ├── icon.svg / .png / .ico    # 多尺寸应用图标
-│   └── make-icon.js              # 图标生成脚本
+│   ├── PACKAGE.md                     # 打包手册
+│   └── lessons-learned.md             # v2 开发经验总结
+├── test/                              # 独立测试脚本
+├── build/                             # 图标资源
+├── esbuild.main.config.mjs            # esbuild 主进程构建配置
+├── vite.renderer.config.ts            # Vite 渲染进程构建配置
 └── package.json
 ```
 
-## Flash 插件选择
+## 开发指南
 
-| 版本 | 来源 | 问题 |
-|------|------|------|
-| 34.0.0.330 | 重橙网络魔改 | 内置调试器，会弹出 AS3 错误对话框 |
-| **29.0.0.171 (Win)** | **Adobe 官方正式版** | 无时间炸弹、无调试弹窗、稳定 |
-| **32.0.0.371 (Linux)** | Adobe 官方 | EOL 前最后一版，正常注册 `navigator.plugins` |
+### 浏览器兼容性约束
 
-版本 29 不被淘米 `checkUpgrade` 拦截（只拦截 major === 32），配合版本伪装 34 + SWFObject bypass 三重保障。
+本项目锁定 Electron 11 / Chromium 87，**不得升级任何内核相关组件**：
 
-## v 1.0.0 → 当前版本对比
+- **Electron**：11.5.0 是最后一个支持 PPAPI Flash 的版本
+- **Tailwind CSS**：锁定 3.4——v4 使用 `oklch()` 颜色空间和 CSS `@property`，Chromium 87 不支持
+- **Node.js**：Electron 11 内嵌 Node 12，依赖需兼容该版本
 
-### 升级变更
+### 关键注意事项
 
-| 模块 | v1.0.0 | 当前 |
-|------|--------|------|
-| 前端框架 | 原生 HTML/JS/CSS | **React 17 + TypeScript + Jotai** |
-| 页面承载 | `<webview>`（同进程） | **BrowserView**（标签级进程隔离） |
-| 标签管理 | 基础 URL 列表 | 完整标签管理 + 拖拽排序 + 压缩 |
-| 收藏夹 | 无 | 抽屉侧边栏管理 + 导航栏星标按钮 |
-| 设置面板 | localStorage | IndexedDB (Dexie) 持久化 |
-| 缩放 | 无 | Ctrl+=/-/0 + Ctrl+滚轮，Flash 区域全局生效 |
-| 数据存储 | localStorage | **IndexedDB** (Dexie) |
-| 淘米 61.com | 不支持 | SWFObject bypass 支持 |
-| 右键菜单 | 无 | 原生 Menu（引擎状态显示） |
-| 查找 | 无 | Ctrl+F 嵌入查找栏 |
-| 下载管理 | 无 | 文件图标 + 状态通知 + 侧边栏 badge |
-| 历史记录 | 无 | 自动记录 + 搜索过滤 + 日期分组 |
-| **Flash 引擎** | PPAPI 单一 | **PPAPI + Ruffle 双核**，标签页级别切换 |
-| **Ruffle 来源** | 无 | 自托管（bundled）/ CDN（始终最新） |
-| **侧边栏** | 无 | 折叠/展开开关，全屏模式 |
-| **中文字体** | 无 | Ruffle 设备字体 + 黑体回退 |
-| **错误处理** | 白屏 | ErrorBoundary 组件，捕获异常显示重试 |
+1. **CDP `debugger.attach` 会阻塞 `<script>` 的 `onload` 回调**：密码捕获后必须在非 `beforeunload` 来源时执行 `detach`，否则 JSONP 登录（如 7k7k）会卡死
+2. **跨域 iframe 无法用 `executeJavaScript`**：必须走 CDP `Runtime.evaluate` + `contextId`
+3. **登录方式因站点而异**：4399 用 `<form>` submit，7k7k 用 `<script>` JSONP 注入——先探测再编码
+4. **Linux 必须加 `--no-sandbox`**；WSLg 需三个 GPU flag：`--ignore-gpu-blacklist`、`--enable-gpu-rasterization`、`--enable-zero-copy`
+5. **`did-fail-load` 不要调用 `wc.stop()`**：会杀死登录后重定向
+6. **BrowserView 始终在最顶层**：DOM 元素无法覆盖它，Toast 等 UI 需特殊处理
 
-### 保持不变
+### 调试流程
 
-| 项目 | 说明 |
-|------|------|
-| **Electron 11.5.0 / Chromium 87** | 最后一个原生支持 PPAPI Flash 的版本 |
-| **contextIsolation** | PPAPI 标签 `true`，Ruffle 标签 `false`（设计如此） |
-| **no-sandbox (Linux)** | 必须参数 |
+1. 先理清完整链路再动手
+2. 先用独立测试脚本验证（参考 `test/` 目录）
+3. 测试通过后再集成到主项目
+4. 站点特有问题：用 Python/Node.js + Playwright 探测实际网络请求和 DOM 行为
+
+## Flash 插件版本
+
+| 版本 | 平台 | 来源 | 说明 |
+|------|------|------|------|
+| 29.0.0.171 | Windows | Adobe 官方 | 无时间炸弹、无调试弹窗、稳定 |
+| 32.0.0.371 | Linux | Adobe 官方 | EOL 前最后一版 |
+| ~~34.0.0.330~~ | ~~Windows~~ | ~~重橙网络~~ | 内置调试器、弹 AS3 错误，不使用 |
+
+版本 29 不被淘米 `checkUpgrade` 拦截（只拦截 `major === 32`），配合版本伪装 34 + SWFObject bypass 三重保障。
 
 ## License
 
-MIT
+[MIT](LICENSE)
