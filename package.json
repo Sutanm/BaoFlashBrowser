@@ -4,17 +4,28 @@
   "description": "Cross-platform Flash browser based on Electron",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
+    "build:renderer": "webpack --config webpack.config.js",
+    "dev": "webpack --config webpack.config.js --watch",
+    "start": "npm run build:renderer && electron .",
     "icon": "node build/make-icon.js",
-    "build:win": "electron-builder --win",
-    "build:linux": "electron-builder --linux",
-    "build": "electron-builder --win --linux"
+    "build:win": "npm run build:renderer && electron-builder --win",
+    "build:linux": "npm run build:renderer && electron-builder --linux",
+    "build": "npm run build:renderer && electron-builder --win --linux"
   },
   "devDependencies": {
+    "autoprefixer": "^10.5.4",
+    "css-loader": "^7.1.4",
     "electron": "11.5.0",
     "electron-builder": "^22.14.13",
+    "mini-css-extract-plugin": "^2.10.2",
     "png-to-ico": "^3.0.1",
-    "sharp": "^0.35.1"
+    "postcss": "^8.5.23",
+    "postcss-loader": "^8.2.1",
+    "sharp": "^0.35.1",
+    "style-loader": "^4.0.0",
+    "tailwindcss": "^3.4.19",
+    "webpack": "^5.109.0",
+    "webpack-cli": "^5.1.4"
   },
   "author": "Sutanm",
   "build": {
@@ -55,5 +66,11 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     }
+  },
+  "dependencies": {
+    "electron-localshortcut": "^3.2.1",
+    "electron-log": "^4.4.8",
+    "electron-store": "^7.0.3",
+    "validator": "^13.15.35"
   }
 }

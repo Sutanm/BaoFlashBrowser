@@ -1,11 +1,18 @@
-var path = require('path');
-var fs = require('fs');
 var electron = require('electron');
 var app = electron.app;
 var BrowserWindow = electron.BrowserWindow;
-var Menu = electron.Menu;
 var ipcMain = electron.ipcMain;
 var shell = electron.shell;
+var validator = require('validator');
+var log = require('electron-log');
+
+var config = require('./modules/config');
+var flash = require('./modules/flash');
+var windowMgr = require('./modules/window');
+var sessionMgr = require('./modules/session');
+
+log.transports.file.level = 'info';
+log.transports.console.level = 'info';
 
 app.setName('BaoFlashBrowser');
 
@@ -17,165 +24,113 @@ app.commandLine.appendSwitch('ignore-gpu-blacklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 
-var configPath = path.join(app.getPath('userData'), 'baoflash-config.json');
-var defaultConfig = { flashVersion: '34.0.0.330' };
+app.commandLine.appendSwitch('process-per-site');
+app.commandLine.appendSwitch('disk-cache-size', '524288000');
 
-function loadConfig() {
-  try {
-    if (fs.existsSync(configPath)) {
-      var raw = fs.readFileSync(configPath, 'utf8');
-      var cfg = JSON.parse(raw);
-      return { flashVersion: cfg.flashVersion || defaultConfig.flashVersion };
-    }
-  } catch (e) {}
-  return defaultConfig;
-}
-
-function saveConfig(cfg) {
-  try {
-    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function getFlashPluginPath() {
-  var platform = process.platform;
-  var arch = process.arch;
-  var isPackaged = app.isPackaged;
-  var basePath = isPackaged ? process.resourcesPath : path.join(__dirname, '..');
-
-  if (platform === 'linux' && arch === 'x64') {
-    return path.join(basePath, 'plugins', 'linux64', 'libpepflashplayer64.so');
-  }
-  if (platform === 'win32' && arch === 'x64') {
-    return path.join(basePath, 'plugins', 'win64', 'pepflashplayer.dll');
-  }
-  if (platform === 'win32' && arch === 'ia32') {
-    return path.join(basePath, 'plugins', 'win32', 'pepflashplayer32_32_0_0_156.dll');
-  }
-  return null;
-}
-
-var config = loadConfig();
-var pluginPath = getFlashPluginPath();
-if (pluginPath && fs.existsSync(pluginPath)) {
-  app.commandLine.appendSwitch('ppapi-flash-path', pluginPath);
-  app.commandLine.appendSwitch('ppapi-flash-version', config.flashVersion);
-  console.log('[Flash] Plugin loaded: ' + pluginPath);
-  console.log('[Flash] Version reported: ' + config.flashVersion);
+// --- 单实例锁（解决二次启动卡顿问题） ---
+// 第二个实例立即退出，不创建任何窗口，避免闪现
+var gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.exit(0);
 } else {
-  console.warn('[Flash] Plugin NOT found at: ' + pluginPath);
-}
+  app.on('second-instance', function (event, commandLine, workingDirectory) {
+    var win = windowMgr.getMainWindow();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
 
-var mainWindow;
+  // --- Flash 插件初始化 ---
+  var appConfig = config.loadConfig();
+  flash.setupFlash(app, appConfig.flashVersion);
 
-function setupDevTools(wc) {
-  wc.on('before-input-event', function (e, input) {
-    if (input.key !== 'F12' || input.type !== 'keyDown') return;
-    e.preventDefault();
-    try {
-      if (wc.isDevToolsOpened()) {
-        wc.closeDevTools();
-      } else {
-        wc.openDevTools({ mode: 'right' });
+  app.whenReady().then(function () {
+    sessionMgr.initSession(app);
+    windowMgr.createWindow(BrowserWindow);
+  });
+
+  app.on('web-contents-created', function (event, wc) {
+    wc.on('new-window', function (e, url) {
+      e.preventDefault();
+      if (wc.hostWebContents) {
+        wc.hostWebContents.send('navigate-url', url);
       }
-    } catch (err) {}
+    });
   });
 
-  wc.on('devtools-opened', function () {
-    var devWc = wc.devToolsWebContents;
-    if (devWc) {
-      devWc.on('before-input-event', function (e2, input2) {
-        if (input2.key === 'F12' && input2.type === 'keyDown') {
-          e2.preventDefault();
-          try { wc.closeDevTools(); } catch (err) {}
-        }
-      });
+  app.on('window-all-closed', function () {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  app.on('activate', function () {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      windowMgr.createWindow(BrowserWindow);
     }
   });
 }
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
-    title: 'BaoFlashBrowser',
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
-    backgroundColor: '#ffffff',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      plugins: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-      webviewTag: true
-    }
-  });
+// --- IPC 处理 ---
 
-  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-
-  setupDevTools(mainWindow.webContents);
-
-  mainWindow.webContents.on('did-attach-webview', function (event, guestWc) {
-    setupDevTools(guestWc);
-  });
-
-  mainWindow.setMenu(null);
-
-  mainWindow.on('page-title-updated', function (e) {
-    e.preventDefault();
-  });
-
-  mainWindow.on('closed', function () {
-    mainWindow = null;
-  });
-}
-
-app.whenReady().then(createWindow);
-
-app.on('web-contents-created', function (event, wc) {
-  wc.on('new-window', function (e, url) {
-    e.preventDefault();
-    if (wc.hostWebContents) {
-      wc.hostWebContents.send('navigate-url', url);
-    }
-  });
-});
-
-app.on('window-all-closed', function () {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('activate', function () {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
-
+// open-external：仅允许 http/https 协议
 ipcMain.handle('open-external', function (event, url) {
-  shell.openExternal(url);
+  if (!url || typeof url !== 'string') return;
+  if (validator.isURL(url, { protocols: ['http', 'https'], require_protocol: true })) {
+    shell.openExternal(url);
+  } else {
+    log.warn('[Security] blocked open-external for invalid url: ' + url);
+  }
 });
 
 ipcMain.handle('set-window-title', function (event, title) {
-  if (mainWindow) {
-    mainWindow.setTitle(title || 'BaoFlashBrowser');
+  var win = windowMgr.getMainWindow();
+  if (win) {
+    win.setTitle(title || 'BaoFlashBrowser');
   }
 });
 
 ipcMain.handle('get-config', function () {
-  return loadConfig();
+  return config.loadConfig();
 });
 
 ipcMain.handle('save-config', function (event, cfg) {
-  return saveConfig(cfg);
+  return config.saveConfig(cfg);
 });
 
 ipcMain.handle('restart-app', function () {
   app.relaunch();
   app.quit();
+});
+
+// 窗口控制（无边框窗口用）
+ipcMain.handle('window-minimize', function () {
+  var win = windowMgr.getMainWindow();
+  if (win) win.minimize();
+});
+
+ipcMain.handle('window-toggle-maximize', function () {
+  var win = windowMgr.getMainWindow();
+  if (!win) return false;
+  if (win.isMaximized()) {
+    win.unmaximize();
+    return false;
+  } else {
+    win.maximize();
+    return true;
+  }
+});
+
+ipcMain.handle('window-close', function () {
+  var win = windowMgr.getMainWindow();
+  if (win) win.close();
+});
+
+ipcMain.handle('broadcast-theme-change', function (event, isDark) {
+  var win = windowMgr.getMainWindow();
+  if (win) {
+    var wc = win.webContents;
+    wc.send('theme-change', isDark);
+  }
 });

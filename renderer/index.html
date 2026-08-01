@@ -4,41 +4,51 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BaoFlashBrowser</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="dist/style.css">
 </head>
 <body>
-  <div id="toolbar">
-    <button id="btn-back" title="后退" disabled>&larr;</button>
-    <button id="btn-forward" title="前进" disabled>&rarr;</button>
-    <button id="btn-refresh" title="刷新">&curvearrowright;</button>
-    <input type="text" id="address-bar" placeholder="输入网址..." autocomplete="off" spellcheck="false">
-    <button id="btn-mute" title="静音">&#x266A;</button>
-    <button id="btn-fav" title="收藏夹">&#9733;</button>
-    <button id="btn-settings" title="设置">&#x2699;</button>
+  <div id="tab-bar">
+    <div id="tab-list"></div>
+    <button id="btn-new-tab" class="btn-tab" title="新标签页">+</button>
+    <div id="window-controls">
+      <button id="btn-win-min" class="btn-win" title="最小化">&#8211;</button>
+      <button id="btn-win-max" class="btn-win" title="最大化">&#9633;</button>
+      <button id="btn-win-close" class="btn-win-close" title="关闭">&times;</button>
+    </div>
   </div>
-  <div id="favorites-panel" class="panel hidden">
+  <div id="toolbar">
+    <button id="btn-back" class="btn-icon" title="后退" disabled>&larr;</button>
+    <button id="btn-forward" class="btn-icon" title="前进" disabled>&rarr;</button>
+    <button id="btn-refresh" class="btn-icon" title="刷新">&#x21BB;</button>
+    <input type="text" id="address-bar" class="input-text" placeholder="输入网址..." autocomplete="off" spellcheck="false">
+    <button id="btn-mute" class="btn-icon" title="静音">&#x266A;</button>
+    <button id="btn-fav" class="btn-icon" title="收藏夹">&#9733;</button>
+    <button id="btn-settings" class="btn-icon" title="设置">&#x2699;</button>
+  </div>
+  <div id="webview-container"></div>
+  <div id="favorites-panel" class="panel panel-card hidden">
     <div class="panel-header">
       <span>收藏夹</span>
-      <button id="btn-fav-close">&times;</button>
+      <button id="btn-fav-close" class="panel-close">&times;</button>
     </div>
     <div class="fav-add-bar">
-      <button id="btn-fav-add">+ 添加当前页</button>
+      <button id="btn-fav-add" class="btn-secondary">+ 添加当前页</button>
     </div>
     <div id="favorites-list"></div>
   </div>
-  <div id="settings-panel" class="panel hidden">
+  <div id="settings-panel" class="panel panel-card hidden">
     <div class="panel-header">
       <span>设置</span>
-      <button id="btn-settings-close">&times;</button>
+      <button id="btn-settings-close" class="panel-close">&times;</button>
     </div>
     <div class="settings-body">
       <label>主页网址</label>
       <input type="text" id="setting-homepage" placeholder="newtab.html">
       <label>Flash 伪装版本</label>
       <input type="text" id="setting-flash-ver" placeholder="34.0.0.330">
-      <div class="toggle-row">
-        <label>暗黑模式</label>
-        <input type="checkbox" id="setting-darkmode">
+      <div class="setting-row">
+        <label>主题</label>
+        <button id="setting-darkmode" class="btn-secondary">切换主题</button>
       </div>
       <div class="setting-row">
         <label>链接打开方式</label>
@@ -47,15 +57,9 @@
           <option value="current">当前页</option>
         </select>
       </div>
-      <button id="btn-save-settings">保存</button>
+      <button id="btn-save-settings" class="btn-primary">保存</button>
     </div>
   </div>
-  <div id="tab-bar">
-    <div id="tab-list">
-      <button id="btn-new-tab" title="新标签页">+</button>
-    </div>
-  </div>
-  <div id="webview-container"></div>
-  <script src="app.js"></script>
+  <script src="dist/bundle.js"></script>
 </body>
 </html>

@@ -93,10 +93,11 @@ unzip -o electron-v11.5.0-linux-x64.zip -d node_modules/electron/dist/
 
 `run.sh` 会自动通过 distrobox 容器启动应用，无需手动进入容器。
 
-.desktop 文件已生成到 `~/.local/share/applications/baoflash-browser.desktop`，可在应用菜单中搜索 "BaoFlashBrowser"。bash
+.desktop 文件已生成到 `~/.local/share/applications/baoflash-browser.desktop`，可在应用菜单中搜索 "BaoFlashBrowser"。
 
 ## 打包 Build
 
+```bash
 # 安装依赖
 npm install
 
