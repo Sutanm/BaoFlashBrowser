@@ -29,6 +29,7 @@ export const defaultSettings: Settings = {
   flashEngineRules: [] as FlashEngineRule[],
   ruffleSource: 'bundled' as RuffleSource,
   themeMode: 'system' as ThemeMode,
+  language: 'zh-CN',
 };
 
 export interface DataState {

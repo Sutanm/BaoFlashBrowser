@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 
 interface NewTabPageProps {
   onNavigate: (url: string) => void;
@@ -22,6 +23,7 @@ function getHost(url: string): string {
 }
 
 const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
+  const { LL } = useI18nContext();
   const [search, setSearch] = useState('');
 
   const handleSearch = (e: React.KeyboardEvent) => {
@@ -90,7 +92,7 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={handleSearch}
-          placeholder="搜索或输入网址"
+          placeholder={LL.newtab.searchPlaceholder()}
           className="no-drag"
           autoFocus
           spellCheck={false}

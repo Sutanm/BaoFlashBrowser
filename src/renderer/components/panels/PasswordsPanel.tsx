@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Key } from 'lucide-react';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { PasswordEntry } from '@shared/types/passwords';
 
 function maskMiddle(str: string, keepStart: number, keepEnd: number): string {
@@ -10,6 +11,7 @@ function maskMiddle(str: string, keepStart: number, keepEnd: number): string {
 interface StoreStatus { initialized: boolean; unlocked: boolean; enabled: boolean; }
 
 const PasswordsPanel: React.FC = () => {
+  const { LL } = useI18nContext();
   const [status, setStatus] = useState<StoreStatus | null>(null);
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
   const [unlockPwd, setUnlockPwd] = useState('');
@@ -52,14 +54,14 @@ const PasswordsPanel: React.FC = () => {
   };
 
   const handleSetup = async () => {
-    if (setupPwd !== setupPwd2) { setSetupError('两次密码不一致'); return; }
-    if (setupPwd.length < 8) { setSetupError('密码至少 8 位'); return; }
+    if (setupPwd !== setupPwd2) { setSetupError(LL.password.mismatch()); return; }
+    if (setupPwd.length < 8) { setSetupError(LL.password.tooShort()); return; }
     if (!/[A-Z]/.test(setupPwd) || !/[a-z]/.test(setupPwd) || !/\d/.test(setupPwd)) {
-      setSetupError('密码需包含大写、小写和数字'); return;
+      setSetupError(LL.password.complexityFail()); return;
     }
     const result = await api.setup(setupPwd);
     if (result.success) { setSetupError(''); refreshStatus(); }
-    else { setSetupError(result.error || '设置失败'); }
+    else { setSetupError(result.error || LL.password.setupFailed()); }
   };
 
   const handleToggleEnabled = async () => {
@@ -87,20 +89,20 @@ const PasswordsPanel: React.FC = () => {
     setExpandedHosts((prev) => { const next = new Set(prev); if (next.has(host)) next.delete(host); else next.add(host); return next; });
   };
 
-  if (!status) return <div className="sidebar-empty">加载中...</div>;
+  if (!status) return <div className="sidebar-empty">{LL.loading()}</div>;
 
   if (!status.initialized) {
     return (
       <div className="pwd-setup-container">
         <div className="pwd-setup-hero">
           <Key className="w-8 h-8" style={{ color: 'var(--text-secondary)', margin: '0 auto' }} />
-          <p className="pwd-setup-hero-title">尚未设置主密码</p>
-          <p className="pwd-setup-hero-sub">设置后可保存和查看密码</p>
+          <p className="pwd-setup-hero-title">{LL.password.notSetup()}</p>
+          <p className="pwd-setup-hero-sub">{LL.password.notSetupDesc()}</p>
         </div>
-        <input type="password" className="input-text" placeholder="设置主密码 (8位, 含大小写+数字)" value={setupPwd} onChange={(e) => setSetupPwd(e.target.value)} style={{ width: '100%' }} />
-        <input type="password" className="input-text" placeholder="确认主密码" value={setupPwd2} onChange={(e) => setSetupPwd2(e.target.value)} style={{ width: '100%' }} />
+        <input type="password" className="input-text" placeholder={LL.password.setupPlaceholder()} value={setupPwd} onChange={(e) => setSetupPwd(e.target.value)} style={{ width: '100%' }} />
+        <input type="password" className="input-text" placeholder={LL.password.confirmPlaceholder()} value={setupPwd2} onChange={(e) => setSetupPwd2(e.target.value)} style={{ width: '100%' }} />
         {setupError && <span className="pwd-error">{setupError}</span>}
-        <button onClick={handleSetup} className="btn-secondary" style={{ width: '100%' }}>设置主密码</button>
+        <button onClick={handleSetup} className="btn-secondary" style={{ width: '100%' }}>{LL.password.setupBtn()}</button>
       </div>
     );
   }
@@ -111,15 +113,15 @@ const PasswordsPanel: React.FC = () => {
         <div className="pwd-settings-bar">
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
             <input type="checkbox" checked={status.enabled} onChange={handleToggleEnabled} />
-            启用密码本
+            {LL.password.enable()}
           </label>
         </div>
         <div className="pwd-unlock-row">
-          <input type="password" className="input-text" placeholder="输入主密码解锁" value={unlockPwd}
+          <input type="password" className="input-text" placeholder={LL.password.unlockPlaceholder()} value={unlockPwd}
             onChange={(e) => setUnlockPwd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUnlock()} style={{ width: '100%' }} />
-          <button className="btn-secondary" onClick={handleUnlock} style={{ width: '100%' }}>解锁</button>
+          <button className="btn-secondary" onClick={handleUnlock} style={{ width: '100%' }}>{LL.password.unlockBtn()}</button>
         </div>
-        {unlockError && <span className="pwd-error">密码错误</span>}
+        {unlockError && <span className="pwd-error">{LL.password.wrongPassword()}</span>}
       </div>
     );
   }
@@ -133,12 +135,12 @@ const PasswordsPanel: React.FC = () => {
     <div style={{ flex: 1, overflowY: 'auto' }}>
       <div className="pwd-settings-bar" style={{ borderBottom: '1px solid var(--border-light)' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={status.enabled} onChange={handleToggleEnabled} /> 启用密码本
+          <input type="checkbox" checked={status.enabled} onChange={handleToggleEnabled} /> {LL.password.enable()}
         </label>
-        <button className="btn-secondary" onClick={async () => { await api.lock(); setUnlockPwd(''); refreshStatus(); }} style={{ marginLeft: 'auto', fontSize: 12, padding: '2px 8px' }}>锁定</button>
+        <button className="btn-secondary" onClick={async () => { await api.lock(); setUnlockPwd(''); refreshStatus(); }} style={{ marginLeft: 'auto', fontSize: 12, padding: '2px 8px' }}>{LL.password.lock()}</button>
       </div>
       {hosts.length === 0 ? (
-        <div className="sidebar-empty">暂无保存的密码</div>
+        <div className="sidebar-empty">{LL.password.empty()}</div>
       ) : (
         hosts.map((host) => {
           const items = grouped.get(host)!;
@@ -161,13 +163,13 @@ const PasswordsPanel: React.FC = () => {
                       {decryptedPasswords.has(entry.id) ? decryptedPasswords.get(entry.id) : '••••••••'}
                     </span>
                     <button className="btn-secondary pwd-btn-action" onClick={() => handleTogglePassword(entry.id)}>
-                      {decryptedPasswords.has(entry.id) ? '隐藏' : '查看'}
+                      {decryptedPasswords.has(entry.id) ? LL.password.hide() : LL.password.view()}
                     </button>
                     {decryptedPasswords.has(entry.id) && (
-                      <button className="btn-secondary pwd-btn-action" onClick={() => handleCopy(decryptedPasswords.get(entry.id)!)}>复制</button>
+                      <button className="btn-secondary pwd-btn-action" onClick={() => handleCopy(decryptedPasswords.get(entry.id)!)}>{LL.copy()}</button>
                     )}
-                    <button className="btn-secondary pwd-btn-action" onClick={async () => { await api.setDefault(entry.id); refreshStatus(); }}>设为默认</button>
-                    <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={() => handleDelete(entry.id)}>删除</button>
+                    <button className="btn-secondary pwd-btn-action" onClick={async () => { await api.setDefault(entry.id); refreshStatus(); }}>{LL.password.setDefault()}</button>
+                    <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={() => handleDelete(entry.id)}>{LL.delete()}</button>
                   </div>
                 </div>
               ))}

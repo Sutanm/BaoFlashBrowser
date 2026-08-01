@@ -1,6 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { useTabsStore } from '../store/useTabsStore';
 import { useDataStore } from '../store/useDataStore';
+import { useI18nContext } from '../i18n/i18n-react';
 import { normalizeUrl, generateId } from '../services/id.service';
 import type { TabState } from '../store/useTabsStore';
 import type { HistoryEntry } from '@shared/types/history';
@@ -28,6 +29,9 @@ export interface UseTabManagerReturn {
 }
 
 export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: boolean) => void>): UseTabManagerReturn {
+  const { LL } = useI18nContext();
+  const LLRef = useRef(LL);
+  useEffect(() => { LLRef.current = LL; });
   const settings = useDataStore((s) => s.settings);
   const pushToast = useDataStore((s) => s.pushToast);
   const tabs = useTabsStore((s) => s.tabs);
@@ -56,7 +60,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     const id = generateId();
     const ruffleMode: 'ppapi' | 'ruffle' = settings.flashEngineMode === 'prefer-ruffle' ? 'ruffle' : 'ppapi';
     const tab: TabState = {
-      id, url: url || NEWTAB_URL, title: '新标签页',
+      id, url: url || NEWTAB_URL, title: LLRef.current.tab.newTab(),
       zoomFactor: 1, isLoading: false, isAudible: false, isMuted: false,
       canGoBack: false, canGoForward: false, createdAt: Date.now(),
       ruffleMode,
@@ -184,7 +188,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       updateTabRef.current(tabId, changes as Partial<TabState>);
     });
     const unsubErr = window.electronAPI.on('tab:load-error', (payload: any) => {
-      const msg = payload.errorCode === -105 ? 'DNS 解析失败' : '页面加载失败';
+      const msg = payload.errorCode === -105 ? LLRef.current.error.dnsFail() : LLRef.current.error.pageLoadFail();
       pushToast({ message: `${msg} (-${payload.errorCode})`, type: 'error' });
     });
     return () => { try { unsub(); unsubErr(); } catch (e) { console.warn('[App] tab event cleanup failed:', e); } };
@@ -195,8 +199,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       createTab(String((payload as any).url || payload));
     });
     const u2 = window.electronAPI.on('tab:crashed', (payload: any) => {
-      updateTabRef.current(payload.tabId, { url: 'about:crash', title: '页面崩溃了' });
-      pushToast({ message: '页面崩溃了', type: 'error' });
+      updateTabRef.current(payload.tabId, { url: 'about:crash', title: LLRef.current.error.pageCrashed() });
+      pushToast({ message: LLRef.current.error.pageCrashed(), type: 'error' });
     });
     return () => { try { u1(); u2(); } catch { /* ignore */ } };
   }, [createTab, pushToast]);

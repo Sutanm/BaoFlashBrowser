@@ -17,4 +17,5 @@ export interface Settings {
   flashEngineRules: FlashEngineRule[];
   ruffleSource: RuffleSource;
   themeMode: ThemeMode;
+  language: string;
 }

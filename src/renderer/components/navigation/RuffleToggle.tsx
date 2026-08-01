@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 
 interface RuffleToggleProps {
   engineMode: 'auto' | 'prefer-ruffle';
@@ -7,6 +8,7 @@ interface RuffleToggleProps {
 }
 
 const RuffleToggle: React.FC<RuffleToggleProps> = ({ engineMode, ruffleSource, onToggle }) => {
+  const { LL } = useI18nContext();
   const isRuffle = engineMode === 'prefer-ruffle';
   const bgColor = isRuffle ? '#6246ea' : '#c62828';
 
@@ -16,8 +18,8 @@ const RuffleToggle: React.FC<RuffleToggleProps> = ({ engineMode, ruffleSource, o
       className="no-drag"
       title={
         isRuffle
-          ? 'Ruffle 模式 — 点击切换 Flash  (' + (ruffleSource === 'cdn' ? 'CDN' : '自托管') + ')'
-          : 'Flash 模式 — 点击切换 Ruffle'
+          ? `${LL.ruffle.switchToFlash()} (${ruffleSource === 'cdn' ? 'CDN' : LL.settings.bundled()})`
+          : LL.ruffle.switchToRuffle()
       }
       style={{
         display: 'flex', alignItems: 'center', gap: 5,

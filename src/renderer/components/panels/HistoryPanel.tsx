@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { X as XIcon, Search } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useDataStore } from '@renderer/store/useDataStore';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { HistoryEntry } from '@shared/types/history';
 
 interface HistoryPanelProps {
@@ -24,8 +25,6 @@ function getDateGroup(ts: number): DateGroup {
   return 'older';
 }
 
-const GROUP_LABELS: Record<DateGroup, string> = { today: '今天', yesterday: '昨天', thisWeek: '本周', older: '更早' };
-
 function formatTime(ts: number): string {
   return dayjs(ts).format('HH:mm');
 }
@@ -36,6 +35,15 @@ function getHistFaviconUrl(entry: HistoryEntry): string {
 }
 
 const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) => {
+  const { LL } = useI18nContext();
+  function getGroupLabel(group: DateGroup): string {
+    switch (group) {
+      case 'today': return LL.history.today();
+      case 'yesterday': return LL.history.yesterday();
+      case 'thisWeek': return LL.history.thisWeek();
+      case 'older': return LL.history.older();
+    }
+  }
   const history = useDataStore((s) => s.history);
   const setHistory = useDataStore((s) => s.setHistory);
   const pushToast = useDataStore((s) => s.pushToast);
@@ -58,8 +66,8 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
   const clearAll = useCallback(() => {
     setHistory([]);
     setConfirmClear(false);
-    pushToast({ message: '历史记录已清空', type: 'info' });
-  }, [setHistory, pushToast]);
+    pushToast({ message: LL.history.cleared(), type: 'info' });
+  }, [setHistory, pushToast, LL]);
 
   const groups = new Map<DateGroup, HistoryEntry[]>();
   for (const entry of sorted) {
@@ -77,13 +85,13 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
         <Search className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
         <input
           type="text"
-          placeholder="搜索历史记录"
+          placeholder={LL.history.searchPlaceholder()}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="history-search-input"
         />
         {hasAny && !confirmClear && (
-          <button onClick={() => setConfirmClear(true)} className="history-clear-btn">清空</button>
+          <button onClick={() => setConfirmClear(true)} className="history-clear-btn">{LL.history.clear()}</button>
         )}
       </div>
       {confirmClear && (
@@ -92,7 +100,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
           padding: '10px 12px', background: 'var(--bg-hover)', borderRadius: 8,
           margin: '0 8px 4px', fontSize: 13, flexShrink: 0,
         }}>
-          <span style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>清空所有历史记录？</span>
+          <span style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{LL.history.clearConfirm()}</span>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <button
               onClick={clearAll}
@@ -101,7 +109,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
                 background: '#e81123', color: '#fff', fontSize: 12, whiteSpace: 'nowrap',
               }}
             >
-              清空
+              {LL.history.clear()}
             </button>
             <button
               onClick={() => setConfirmClear(false)}
@@ -110,21 +118,21 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
                 background: 'var(--border)', color: 'var(--text-primary)', fontSize: 12, whiteSpace: 'nowrap',
               }}
             >
-              取消
+              {LL.cancel()}
             </button>
           </div>
         </div>
       )}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!hasAny ? (
-          <div className="sidebar-empty">暂无历史记录</div>
+          <div className="sidebar-empty">{LL.history.empty()}</div>
         ) : (
           orderedGroups.map((group) => {
             const entries = groups.get(group);
             if (!entries || entries.length === 0) return null;
             return (
               <div key={group}>
-                <div className="history-group-header">{GROUP_LABELS[group]}</div>
+                <div className="history-group-header">{getGroupLabel(group)}</div>
                 {entries.map((entry) => (
                   <div
                     key={entry.id}
@@ -144,10 +152,10 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
                       <span className="fav-item-title">{entry.title || getHost(entry.url)}</span>
                       <span className="fav-item-url">
                         {getHost(entry.url)} · {formatTime(entry.lastVisit)}
-                        {entry.visitCount > 1 ? ` · ${entry.visitCount} 次访问` : ''}
+                        {entry.visitCount > 1 ? ` · ${LL.history.visitCount({ count: entry.visitCount })}` : ''}
                       </span>
                     </div>
-                    <button onClick={(e) => removeEntry(e, entry.id)} className="fav-remove" title="删除">
+                    <button onClick={(e) => removeEntry(e, entry.id)} className="fav-remove" title={LL.delete()}>
                       <XIcon className="w-3.5 h-3.5" />
                     </button>
                   </div>

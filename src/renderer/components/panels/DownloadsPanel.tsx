@@ -3,6 +3,7 @@ import { X as XIcon, File, FileArchive, FileCode, Play as PlayIcon, Pause, Folde
 import { useDataStore } from '@renderer/store/useDataStore';
 import type { DownloadItem } from '@shared/types/downloads';
 import type { DownloadEngine } from '@shared/types/settings';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 
 function formatSpeed(bytesPerSec: number): string {
   if (bytesPerSec <= 0) return '';
@@ -40,6 +41,7 @@ function dirName(fullPath: string): string {
 }
 
 const DownloadsPanel: React.FC = () => {
+  const { LL } = useI18nContext();
   const downloads = useDataStore((s) => s.downloads);
   const setDownloads = useDataStore((s) => s.setDownloads);
   const pushToast = useDataStore((s) => s.pushToast);
@@ -99,29 +101,29 @@ const DownloadsPanel: React.FC = () => {
 
   const deleteFileAndEntry = useCallback(async (e: React.MouseEvent, entry: DownloadItem) => {
     e.stopPropagation();
-    if (!window.confirm(`确定删除 "${entry.filename}"？`)) return;
+    if (!window.confirm(LL.download.deleteConfirm({ filename: entry.filename || '' }))) return;
     // L42: 校验 deleteFile 返回值，失败时不移除条目
     const success = await window.electronAPI?.dl?.deleteFile(entry.savePath);
     if (success) {
       setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== entry.id));
-      pushToast({ message: `${entry.filename || '文件'} 已删除`, type: 'error' });
+      pushToast({ message: LL.download.deleted({ filename: entry.filename || LL.download.file() }), type: 'error' });
     } else {
-      pushToast({ message: `${entry.filename || '文件'} 删除失败`, type: 'error' });
+      pushToast({ message: LL.download.deleteFailed({ filename: entry.filename || LL.download.file() }), type: 'error' });
     }
-  }, [setDownloads, pushToast]);
+  }, [setDownloads, pushToast, LL]);
 
   const chooseDir = useCallback(async () => {
     const newDir = await window.electronAPI?.dl?.setDir();
     if (newDir) {
       setDownloadDir(newDir);
-      pushToast({ message: '下载目录已更改', type: 'success' });
+      pushToast({ message: LL.download.dirChanged(), type: 'success' });
     }
-  }, [pushToast]);
+  }, [pushToast, LL]);
 
   const clearCompleted = useCallback(() => {
     setDownloads((prev) => prev.filter((d: DownloadItem) => d.state === 'progressing'));
-    pushToast({ message: '已清除完成的下载', type: 'info' });
-  }, [setDownloads, pushToast]);
+    pushToast({ message: LL.download.cleared(), type: 'info' });
+  }, [setDownloads, pushToast, LL]);
 
   const handleItemClick = useCallback((entry: DownloadItem) => {
     if (entry.state === 'completed' && entry.savePath) {
@@ -145,7 +147,7 @@ const DownloadsPanel: React.FC = () => {
       }}>
         {/* Engine line: 显示实际生效的引擎 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
-          <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>引擎:</span>
+          <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{LL.download.engine()}:</span>
           <span>{aria2Status?.ready ? 'aria2' : 'Chromium'}</span>
           <span style={{
             width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
@@ -153,21 +155,21 @@ const DownloadsPanel: React.FC = () => {
             boxShadow: aria2Status?.ready ? '0 0 6px #27ae60' : '0 0 6px #3498db',
           }} />
           <span style={{ fontSize: 11, opacity: 0.6 }}>
-            {engine === 'aria2' && !aria2Status?.ready && aria2Status !== null ? '(aria2 不可用，已回退)' : ''}
-            {aria2Status?.ready ? `就绪 :${aria2Status.port}` : aria2Status ? '' : '检测中...'}
+            {engine === 'aria2' && !aria2Status?.ready && aria2Status !== null ? `(${LL.download.aria2Unavailable()})` : ''}
+            {aria2Status?.ready ? `${LL.download.ready()} :${aria2Status.port}` : aria2Status ? '' : LL.download.detecting()}
           </span>
         </div>
         {/* Directory line */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
-          <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>位置:</span>
+          <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{LL.download.location()}:</span>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {downloadDir ? dirName(downloadDir) : '默认'}
+            {downloadDir ? dirName(downloadDir) : LL.default()}
           </span>
           <button
             onClick={chooseDir}
             className="btn-icon"
             style={{ width: 24, height: 24, flexShrink: 0 }}
-            title="选择下载目录"
+            title={LL.download.selectDir()}
           >
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
@@ -176,12 +178,12 @@ const DownloadsPanel: React.FC = () => {
 
       {hasCompleted && (
         <div className="fav-add-bar">
-          <button onClick={clearCompleted} className="btn-secondary">清除已完成</button>
+          <button onClick={clearCompleted} className="btn-secondary">{LL.download.clearCompleted()}</button>
         </div>
       )}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {sorted.length === 0 ? (
-          <div className="sidebar-empty">暂无下载</div>
+          <div className="sidebar-empty">{LL.download.empty()}</div>
         ) : (
           sorted.map((entry: DownloadItem) => {
             const isProgress = entry.state === 'progressing';
@@ -210,7 +212,7 @@ const DownloadsPanel: React.FC = () => {
                 </div>
                 <div className="download-info">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="download-filename">{entry.filename || '下载文件'}</span>
+                    <span className="download-filename">{entry.filename || LL.download.file()}</span>
                     <span style={{
                       fontSize: 10,
                       padding: '1px 5px',
@@ -224,11 +226,11 @@ const DownloadsPanel: React.FC = () => {
                   </div>
                   <span className="download-meta">
                     {isProgress && entry.speed > 0 ? formatSpeed(entry.speed) + ' · ' : ''}
-                    {isPaused ? '已暂停' :
-                     isDone ? '已完成' :
-                     entry.state === 'cancelled' ? '已取消' :
-                     entry.state === 'interrupted' ? '已中断' :
-                     isProgress && (entry.progress ?? 0) > 0 ? (entry.progress ?? 0).toFixed(1) + '%' : '准备中...'}
+                    {isPaused ? LL.download.paused() :
+                     isDone ? LL.download.complete() :
+                     entry.state === 'cancelled' ? LL.download.cancelled() :
+                     entry.state === 'interrupted' ? LL.download.interrupted() :
+                     isProgress && (entry.progress ?? 0) > 0 ? (entry.progress ?? 0).toFixed(1) + '%' : LL.download.preparing()}
                     {entry.totalBytes > 0 ? ' · ' + formatBytes(entry.receivedBytes) + ' / ' + formatBytes(entry.totalBytes) : ''}
                   </span>
                   {(isProgress || isPaused) && (
@@ -239,32 +241,32 @@ const DownloadsPanel: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                   {isProgress && (
-                    <button onClick={(e) => pauseDl(e, entry.id)} className="fav-remove" title="暂停下载">
+                    <button onClick={(e) => pauseDl(e, entry.id)} className="fav-remove" title={LL.download.pause()}>
                       <Pause className="w-3.5 h-3.5" />
                     </button>
                   )}
                   {isPaused && (
-                    <button onClick={(e) => resumeDl(e, entry.id)} className="fav-remove" title="恢复下载">
+                    <button onClick={(e) => resumeDl(e, entry.id)} className="fav-remove" title={LL.download.resume()}>
                       <PlayIcon className="w-3.5 h-3.5" />
                     </button>
                   )}
                   {(isProgress || isPaused) && (
-                    <button onClick={(e) => cancelDl(e, entry.id)} className="fav-remove" title="取消下载">
+                    <button onClick={(e) => cancelDl(e, entry.id)} className="fav-remove" title={LL.download.cancel()}>
                       <XIcon className="w-3.5 h-3.5" />
                     </button>
                   )}
                   {isDone && entry.savePath && (
-                    <button onClick={(e) => { e.stopPropagation(); openDir(entry.savePath); }} className="fav-remove" title="打开文件夹">
+                    <button onClick={(e) => { e.stopPropagation(); openDir(entry.savePath); }} className="fav-remove" title={LL.download.openDir()}>
                       <FolderOpen className="w-3.5 h-3.5" />
                     </button>
                   )}
                   {isDone && entry.savePath && (
-                    <button onClick={(e) => deleteFileAndEntry(e, entry)} className="fav-remove" title="删除文件">
+                    <button onClick={(e) => deleteFileAndEntry(e, entry)} className="fav-remove" title={LL.delete()}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
                   {!isProgress && !isPaused && (
-                    <button onClick={(e) => removeEntry(e, entry.id)} className="fav-remove" title="移除记录">
+                    <button onClick={(e) => removeEntry(e, entry.id)} className="fav-remove" title={LL.download.removeRecord()}>
                       <XIcon className="w-3.5 h-3.5" />
                     </button>
                   )}

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { ChevronUp, ChevronDown, X } from 'lucide-react';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 
 interface FindBarProps {
   visible: boolean;
@@ -10,6 +11,7 @@ interface FindBarProps {
 interface FindResult { activeMatchOrdinal: number; matches: number; }
 
 const FindBar: React.FC<FindBarProps> = ({ visible, activeTabId, onClose }) => {
+  const { LL } = useI18nContext();
   const inputRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState('');
   const [result, setResult] = useState<FindResult>({ activeMatchOrdinal: 0, matches: 0 });
@@ -61,7 +63,7 @@ const FindBar: React.FC<FindBarProps> = ({ visible, activeTabId, onClose }) => {
         onKeyDown={e => {
           if (e.key === 'Escape') handleClose();
           if (e.key === 'Enter') { e.preventDefault(); return e.shiftKey ? findPrev() : findNext(); }
-        }} placeholder="查找" spellCheck={false}
+        }} placeholder={LL.find.placeholder()} spellCheck={false}
       />
       <span className="find-bar-embed-count">{text ? `${result.activeMatchOrdinal || 0}/${result.matches || 0}` : ''}</span>
       <button onClick={findPrev} className="find-bar-embed-btn" disabled={!text}><ChevronUp className="w-3.5 h-3.5" /></button>

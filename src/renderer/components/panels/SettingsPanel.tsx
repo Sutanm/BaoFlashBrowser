@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useDataStore, defaultSettings } from '@renderer/store/useDataStore';
 import { useTheme } from '@renderer/hooks/useTheme';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { Settings } from '@shared/types/settings';
 import type { DownloadEngine } from '@shared/types/downloads';
 
@@ -29,6 +30,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
   const setStoreStatus = useDataStore((s) => s.setPasswordStoreStatus);
   const pushToast = useDataStore((s) => s.pushToast);
   const { themeMode, setThemeMode } = useTheme();
+  const { LL, setLocale } = useI18nContext() as any;
 
   const [form, setForm] = useState<Settings>({ ...defaultSettings, ...settings });
   const [mainForm, setMainForm] = useState<MainConfigForm>({ ...DEFAULT_MAIN_CONFIG });
@@ -40,6 +42,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
       if (cfg) setMainForm({ flashVersion: cfg.flashVersion, lowEndMode: cfg.lowEndMode, downloadEngine: cfg.downloadEngine });
     }).catch(() => {});
   }, []);
+
+  // Eagerly sync locale when language dropdown changes (before save)
+  useEffect(() => {
+    if (form.language) setLocale(form.language);
+  }, [form.language, setLocale]);
 
   const handleChange = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -65,27 +72,27 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
 
     if (needsRestart) {
       setSaved('restart');
-      pushToast({ message: '设置已保存，需重启生效', type: 'warning' });
+      pushToast({ message: LL.settings.savedRestart(), type: 'warning' });
     } else {
       setSaved(true);
-      pushToast({ message: '设置已保存', type: 'success' });
+      pushToast({ message: LL.settings.saved(), type: 'success' });
     }
-  }, [form, mainForm, setSettings, pushToast]);
+  }, [form, mainForm, setSettings, pushToast, LL]);
 
   const handleResetPassword = useCallback(async () => {
     if (!resetConfirming) { setResetConfirming(true); return; }
     setResetConfirming(false);
     await window.electronAPI?.pwd?.resetAll();
     setStoreStatus({ initialized: false, unlocked: false, enabled: false });
-    pushToast({ message: '密码本已重置', type: 'info' });
-  }, [resetConfirming, setStoreStatus, pushToast]);
+    pushToast({ message: LL.password.resetDone(), type: 'info' });
+  }, [resetConfirming, setStoreStatus, pushToast, LL]);
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="panel-card">
-        <div className="panel-card-title">通用</div>
+        <div className="panel-card-title">{LL.settings.general()}</div>
         <div className="field">
-          <div className="field-label">主页地址</div>
+          <div className="field-label">{LL.settings.homepage()}</div>
           <input
             className="input-text"
             style={{ width: '100%' }}
@@ -96,19 +103,26 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
           />
         </div>
         <div className="field">
-          <div className="field-label">搜索引擎</div>
+          <div className="field-label">{LL.settings.searchEngine()}</div>
           <select className="input-text" style={{ width: '100%' }} value={form.searchEngine} onChange={(e) => handleChange('searchEngine', e.target.value as Settings['searchEngine'])}>
-            <option value="baidu">百度</option>
+            <option value="baidu">{LL.settings.baidu()}</option>
             <option value="bing">Bing</option>
             <option value="google">Google</option>
+          </select>
+        </div>
+        <div className="field">
+          <div className="field-label">{LL.settings.language()}</div>
+          <select className="input-text" style={{ width: '100%' }} value={form.language} onChange={(e) => handleChange('language', e.target.value as Settings['language'])}>
+            <option value="zh-CN">简体中文</option>
+            <option value="en">English</option>
           </select>
         </div>
       </div>
 
       <div className="panel-card">
-        <div className="panel-card-title">Flash</div>
+        <div className="panel-card-title">{LL.ruffle.flash()}</div>
         <div className="field">
-          <div className="field-label">伪装版本</div>
+          <div className="field-label">{LL.settings.spoofVersion()}</div>
           <input
             className="input-text"
             style={{ width: '100%' }}
@@ -118,10 +132,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
             placeholder="34.0.0.330"
             pattern="^\\d+\\.\\d+\\.\\d+\\.\\d+$"
           />
-          <div className="field-hint">伪装为指定版本号，部分网站会检测。需重启生效。</div>
+          <div className="field-hint">{LL.settings.spoofVersionHint()}</div>
         </div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>低性能设备模式</span>
+          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{LL.settings.lowEndMode()}</span>
           <button
             type="button"
             role="switch"
@@ -132,57 +146,55 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
             <span className="toggle-knob" />
           </button>
         </div>
-        <div className="field-hint">需重启生效</div>
+        <div className="field-hint">{LL.settings.lowEndModeHint()}</div>
       </div>
 
       <div className="panel-card">
-        <div className="panel-card-title">Ruffle</div>
+        <div className="panel-card-title">{LL.settings.ruffle()}</div>
         <div className="field">
-          <div className="field-label">新标签默认引擎</div>
+          <div className="field-label">{LL.settings.defaultEngine()}</div>
           <select
             className="input-text" style={{ width: '100%' }}
             value={form.flashEngineMode}
             onChange={(e) => handleChange('flashEngineMode', e.target.value as Settings['flashEngineMode'])}
           >
-            <option value="auto">PPAPI (原生 Flash)</option>
-            <option value="prefer-ruffle">Ruffle (WASM 模拟)</option>
-            <option value="ppapi-only">仅 PPAPI</option>
+            <option value="auto">PPAPI ({LL.ruffle.flash()})</option>
+            <option value="prefer-ruffle">{LL.settings.preferRuffle()}</option>
+            <option value="ppapi-only">{LL.settings.ppapiOnly()}</option>
           </select>
         </div>
         <div className="field">
-          <div className="field-label">Ruffle 来源</div>
+          <div className="field-label">{LL.settings.ruffleSource()}</div>
           <select
             className="input-text" style={{ width: '100%' }}
             value={form.ruffleSource}
             onChange={(e) => handleChange('ruffleSource', e.target.value as Settings['ruffleSource'])}
           >
-            <option value="bundled">自托管 (离线可用)</option>
-            <option value="cdn">CDN (始终最新)</option>
+            <option value="bundled">{LL.settings.bundled()}</option>
+            <option value="cdn">{LL.settings.cdn()}</option>
           </select>
         </div>
-        <div className="field-hint">
-          仅对新建标签页生效，已有标签页用导航栏按钮切换
-        </div>
+        <div className="field-hint">{LL.settings.ruffleHint()}</div>
       </div>
 
       <div className="panel-card">
-        <div className="panel-card-title">下载</div>
+        <div className="panel-card-title">{LL.settings.download()}</div>
         <div className="field">
-          <div className="field-label">下载引擎</div>
+          <div className="field-label">{LL.settings.downloadEngine()}</div>
           <select
             className="input-text" style={{ width: '100%' }}
             value={mainForm.downloadEngine}
             onChange={(e) => handleMainChange('downloadEngine', e.target.value as DownloadEngine)}
           >
-            <option value="aria2">aria2 (多连接加速)</option>
-            <option value="chromium">Chromium (内置)</option>
+            <option value="aria2">{LL.settings.aria2()}</option>
+            <option value="chromium">{LL.settings.chromium()}</option>
           </select>
         </div>
       </div>
 
       <div className="panel-card">
-        <div className="panel-card-title">密码</div>
-        <div className="field-hint" style={{ marginBottom: 8 }}>重置将清空所有已保存的密码，需重新设置主密码。</div>
+        <div className="panel-card-title">{LL.sidebar.passwords()}</div>
+        <div className="field-hint" style={{ marginBottom: 8 }}>{LL.password.resetDesc()}</div>
         <button
           onClick={handleResetPassword}
           style={{
@@ -193,27 +205,27 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
           }}
           onBlur={() => setResetConfirming(false)}
         >
-          {resetConfirming ? '确认重置？再次点击确认' : '重置密码本'}
+          {resetConfirming ? LL.password.resetConfirm() : LL.password.resetBtn()}
         </button>
       </div>
 
       <div className="panel-card">
-        <div className="panel-card-title">外观</div>
+        <div className="panel-card-title">{LL.settings.appearance()}</div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>页面缩放</span>
+          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{LL.settings.zoom()}</span>
           <div className="zoom-controls">
-            <button onClick={onZoomOut} className="zoom-btn" title="缩小 (Ctrl+-)">−</button>
+            <button onClick={onZoomOut} className="zoom-btn" title={LL.addressbar.zoomOut()}>−</button>
             <span className="zoom-label">{zoomPercent}%</span>
-            <button onClick={onZoomIn} className="zoom-btn" title="放大 (Ctrl++)">+</button>
-            <button onClick={onZoomReset} className="zoom-reset" title="重置缩放">重置</button>
+            <button onClick={onZoomIn} className="zoom-btn" title={LL.addressbar.zoomIn()}>+</button>
+            <button onClick={onZoomReset} className="zoom-reset" title={LL.addressbar.zoomReset()}>{LL.reset()}</button>
           </div>
         </div>
       </div>
 
       <div className="panel-card">
-        <div className="panel-card-title">主题</div>
+        <div className="panel-card-title">{LL.settings.theme()}</div>
         <div className="field">
-          <div className="field-label">主题模式</div>
+          <div className="field-label">{LL.settings.themeMode()}</div>
           <div style={{ display: 'flex', gap: 8 }}>
             {(['light', 'dark', 'system'] as const).map((mode) => (
               <button
@@ -231,7 +243,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
                   transition: 'all 0.2s',
                 }}
               >
-                {mode === 'light' ? '亮色' : mode === 'dark' ? '暗色' : '跟随系统'}
+                {mode === 'light' ? LL.settings.light() : mode === 'dark' ? LL.settings.dark() : LL.settings.system()}
               </button>
             ))}
           </div>
@@ -248,7 +260,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
           transition: 'background 0.3s',
         }}
       >
-        {saved === 'restart' ? '已保存 — 需重启生效' : saved ? '已保存 ✓' : '保存设置'}
+        {saved === 'restart' ? LL.settings.savedRestartBtn() : saved ? LL.settings.savedBtn() : LL.settings.saveBtn()}
       </button>
     </div>
   );

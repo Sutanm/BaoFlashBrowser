@@ -1,14 +1,16 @@
 import { useEffect } from 'react';
 import { useDataStore } from '../store/useDataStore';
+import { useI18nContext } from '../i18n/i18n-react';
 import type { DownloadItem } from '@shared/types/downloads';
 
 export function useDownloadListener(): void {
+  const { LL } = useI18nContext();
   const setDownloads = useDataStore((s) => s.setDownloads);
   const pushToast = useDataStore((s) => s.pushToast);
 
   useEffect(() => {
     const cleanup = window.electronAPI?.on('download:progress', (payload) => {
-      const name = payload.filename || '文件';
+      const name = payload.filename || LL.download.file();
 
       setDownloads((prev: DownloadItem[]) => {
         const exists = prev.find((d) => d.id === payload.id);
@@ -22,18 +24,18 @@ export function useDownloadListener(): void {
             return merged as DownloadItem;
           });
         }
-        pushToast({ message: `${name} 开始下载`, type: 'info' });
+        pushToast({ message: LL.download.started({ name }), type: 'info' });
         return [{ ...payload, id: payload.id }, ...prev];
       });
 
       if (payload.state === 'completed') {
-        pushToast({ message: `${name} 下载完成`, type: 'success' });
+        pushToast({ message: LL.download.completed({ name }), type: 'success' });
       } else if (payload.state === 'cancelled') {
-        pushToast({ message: `${name} 已取消`, type: 'warning' });
+        pushToast({ message: LL.download.cancelledNotify({ name }), type: 'warning' });
       } else if (payload.state === 'interrupted') {
-        pushToast({ message: `${name} 下载失败`, type: 'error' });
+        pushToast({ message: LL.download.failed({ name }), type: 'error' });
       }
     });
     return () => { cleanup?.(); };
-  }, [setDownloads, pushToast]);
+  }, [setDownloads, pushToast, LL]);
 }

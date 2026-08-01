@@ -266,22 +266,37 @@ class TabManager {
     this.activeId = null;
   }
 
+  // L: 导航前卸载 CDP debugger，防止已附着的 debugger 阻塞 <script> onload
+  // 从而导致 did-stop-loading 不触发、标签页卡在 isLoading:true（AGENTS.md landmine）
+  // did-stop-loading 会重新调用 setupCapture 挂载 debugger，无需在此重新挂载
+  private _detachDebuggerBeforeNavigate(wc: Electron.WebContents): void {
+    try { teardownCapture(wc); } catch (e: any) { log.warn('[TabManager] teardownCapture failed:', e?.message); }
+  }
+
   navigate(tabId: string, url: string): void {
     const tab = this.tabs.get(tabId);
     if (tab) {
       tab.lastTargetUrl = url;
-      tab.browserView.webContents.loadURL(url);
+      const wc = tab.browserView.webContents;
+      this._detachDebuggerBeforeNavigate(wc);
+      wc.loadURL(url);
     }
   }
 
   goBack(tabId: string): void {
     const tab = this.tabs.get(tabId);
-    if (tab && tab.browserView.webContents.canGoBack()) tab.browserView.webContents.goBack();
+    if (tab && tab.browserView.webContents.canGoBack()) {
+      this._detachDebuggerBeforeNavigate(tab.browserView.webContents);
+      tab.browserView.webContents.goBack();
+    }
   }
 
   goForward(tabId: string): void {
     const tab = this.tabs.get(tabId);
-    if (tab && tab.browserView.webContents.canGoForward()) tab.browserView.webContents.goForward();
+    if (tab && tab.browserView.webContents.canGoForward()) {
+      this._detachDebuggerBeforeNavigate(tab.browserView.webContents);
+      tab.browserView.webContents.goForward();
+    }
   }
 
   reload(tabId: string): void {
@@ -289,10 +304,15 @@ class TabManager {
     if (!tab) return;
     const wc = tab.browserView.webContents;
     const committedUrl = wc.getURL();
+    this._detachDebuggerBeforeNavigate(wc);
     if (tab.lastTargetUrl && (!committedUrl || committedUrl === 'about:blank')) {
-      wc.loadURL(tab.lastTargetUrl);
-    } else {
-      wc.reload();
+      if (tab.lastTargetUrl !== 'about:newtab') {
+        wc.loadURL(tab.lastTargetUrl);
+      }
+      // about:newtab is handled by renderer UI — do nothing
+    } else if (committedUrl) {
+      // Use loadURL instead of reload for BrowserView compatibility (Electron 11)
+      wc.loadURL(committedUrl);
     }
   }
 

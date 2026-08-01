@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Star, Clock, Download, Key, Settings as SettingsIcon, X } from 'lucide-react';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useDataStore } from '@renderer/store/useDataStore';
 import PasswordsPanel from '../panels/PasswordsPanel';
 import FavoritesPanel from '../panels/FavoritesPanel';
@@ -18,13 +19,24 @@ interface DrawerSidebarProps {
   downloadCount: number;
 }
 
-const PANELS = [
-  { id: 'favorites' as const, label: '收藏夹', icon: Star },
-  { id: 'history' as const, label: '历史记录', icon: Clock },
-  { id: 'downloads' as const, label: '下载', icon: Download },
-  { id: 'passwords' as const, label: '密码', icon: Key },
-  { id: 'settings' as const, label: '设置', icon: SettingsIcon },
+const PANEL_ITEMS = [
+  { id: 'favorites' as const, icon: Star },
+  { id: 'history' as const, icon: Clock },
+  { id: 'downloads' as const, icon: Download },
+  { id: 'passwords' as const, icon: Key },
+  { id: 'settings' as const, icon: SettingsIcon },
 ];
+
+function getPanelLabel(id: string, LL: any): string {
+  switch (id) {
+    case 'favorites': return LL.sidebar.favorites();
+    case 'history': return LL.sidebar.history();
+    case 'downloads': return LL.sidebar.downloads();
+    case 'passwords': return LL.sidebar.passwords();
+    case 'settings': return LL.sidebar.settings();
+    default: return id;
+  }
+}
 
 const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   collapsed,
@@ -34,6 +46,8 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
 }) => {
   const activePanel = useDataStore((s) => s.activePanel);
   const setActivePanel = useDataStore((s) => s.setActivePanel);
+  const { LL } = useI18nContext();
+  const panels = PANEL_ITEMS.map(item => ({ ...item, label: getPanelLabel(item.id, LL) }));
   const isOpen = activePanel !== null;
   const [drawerMounted, setDrawerMounted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -79,7 +93,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
           borderRight: '1px solid var(--border-light)',
         }}
       >
-        {PANELS.map(({ id, label, icon: Icon }) => {
+        {panels.map(({ id, label, icon: Icon }) => {
           const showBadge = id === 'downloads' && downloadCount > 0;
           return (
           <button
@@ -116,7 +130,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               style={{ borderColor: 'var(--border-light)' }}
             >
               <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                {PANELS.find((p) => p.id === activePanel)?.label}
+                {panels.find((p) => p.id === activePanel)?.label}
               </span>
               <button onClick={() => setActivePanel(null)} className="btn-icon" style={{ width: 24, height: 24 }}>
                 <X className="w-4 h-4" />

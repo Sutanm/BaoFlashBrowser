@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { X as XIcon } from 'lucide-react';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useDataStore } from '@renderer/store/useDataStore';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 
@@ -18,6 +19,7 @@ function getFaviconUrl(favicon: string | undefined, url: string): string {
 }
 
 const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, onOpenUrl }) => {
+  const { LL } = useI18nContext();
   const favs = useDataStore((s) => s.favorites);
   const setFavs = useDataStore((s) => s.setFavorites);
 
@@ -41,12 +43,12 @@ const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, onOpenUrl }
     <>
       <div className="fav-add-bar">
         <button onClick={toggleBookmark} className="btn-secondary">
-          {isBookmarked ? '★ 已收藏（点击取消）' : '☆ 添加当前页'}
+          {isBookmarked ? LL.favorites.bookmarkRemove() : LL.favorites.bookmarkAdd()}
         </button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {favs.length === 0 ? (
-          <div className="sidebar-empty">暂无收藏</div>
+          <div className="sidebar-empty">{LL.favorites.empty()}</div>
         ) : (
           favs.map((f) => (
             <div key={f.url} className="fav-item"
@@ -59,7 +61,7 @@ const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, onOpenUrl }
                 <span className="fav-item-title">{f.title || f.url}</span>
                 <span className="fav-item-url">{f.url}</span>
               </div>
-              <button onClick={(e) => removeFav(e, f.url)} className="fav-remove" title="删除">
+              <button onClick={(e) => removeFav(e, f.url)} className="fav-remove" title={LL.delete()}>
                 <XIcon className="w-3.5 h-3.5" />
               </button>
             </div>

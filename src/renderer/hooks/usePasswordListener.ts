@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { useDataStore } from '@renderer/store/useDataStore';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { CaptureNotification } from '@shared/types/passwords';
 
 export function usePasswordListener(): void {
+  const { LL } = useI18nContext();
   const setStoreStatus = useDataStore((s) => s.setPasswordStoreStatus);
   const setActivePanel = useDataStore((s) => s.setActivePanel);
   const pushToast = useDataStore((s) => s.pushToast);
@@ -23,10 +25,10 @@ export function usePasswordListener(): void {
       api.pwd?.status().then((s) => {
         if (!s || !s.initialized) {
           pushToast({
-            message: '检测到登录信息，可启用密码本保存',
+            message: LL.password.captureNotify(),
             type: 'info',
             actions: [{
-              label: '启用密码本',
+              label: LL.password.enableBtn(),
               primary: true,
               onClick: () => { setActivePanel('passwords'); },
             }],
@@ -40,17 +42,17 @@ export function usePasswordListener(): void {
         }
 
         pushToast({
-          message: `为 ${host} 保存密码？`,
+          message: LL.password.savePrompt({ host }),
           type: 'info',
           duration: null,
           actions: [
             {
-              label: '保存',
+              label: LL.save(),
               primary: true,
               onClick: async () => { await api.pwd?.saveConfirm(captureId); },
             },
             {
-              label: '忽略',
+              label: LL.password.ignore(),
               onClick: () => { api.pwd?.ignore(captureId); },
             },
           ],
@@ -59,5 +61,5 @@ export function usePasswordListener(): void {
     });
 
     return () => { if (unsub) unsub(); };
-  }, [setStoreStatus, setActivePanel, pushToast]);
+  }, [setStoreStatus, setActivePanel, pushToast, LL]);
 }

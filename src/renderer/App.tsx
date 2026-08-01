@@ -14,8 +14,11 @@ import { usePasswordListener } from './hooks/usePasswordListener';
 import { migrateFromLocalStorage, db } from './services/db';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 import { isNewtabUrl } from './services/url-utils';
+import TypesafeI18n, { useI18nContext } from './i18n/i18n-react';
+import { loadAllLocales } from './i18n/i18n-util.sync';
 
-const App: React.FC = () => {
+const AppInner: React.FC = () => {
+  const { LL, setLocale } = useI18nContext() as any;
   const { theme } = useTheme();
   const favorites = useDataStore((s) => s.favorites);
   const downloads = useDataStore((s) => s.downloads);
@@ -67,6 +70,13 @@ const App: React.FC = () => {
   useEffect(() => {
     migrateFromLocalStorage().catch((e) => console.warn('[App] migrate failed:', e));
   }, []);
+
+  // Sync i18n locale when settings.language changes
+  useEffect(() => {
+    if (settings.language) {
+      setLocale(settings.language);
+    }
+  }, [settings.language, setLocale]);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [findBarVisible, setFindBarVisible] = useState(false);
@@ -238,10 +248,10 @@ const App: React.FC = () => {
           setFavorites((prev) => {
             const exists = prev.some((f) => f.url === url);
             if (exists) {
-              pushToast({ message: `已取消收藏 ${title}`, type: 'info' });
+              pushToast({ message: LL.bookmark.removed({ title }), type: 'info' });
               return prev.filter((f) => f.url !== url);
             }
-            pushToast({ message: `已收藏 ${title}`, type: 'success' });
+            pushToast({ message: LL.bookmark.added({ title }), type: 'success' });
             return [{ url, title, favicon: activeTab.favicon, addedAt: Date.now() } as BookmarkEntry, ...prev];
           });
         }}
@@ -296,6 +306,20 @@ const App: React.FC = () => {
       </div>
       <LoadingProgress visible={activeTab?.isLoading ?? false} />
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  const settings = useDataStore((s) => s.settings);
+  const initRef = useRef(false);
+  if (!initRef.current) {
+    initRef.current = true;
+    try { loadAllLocales(); } catch (e) { console.error('[i18n] loadAllLocales failed:', e); }
+  }
+  return (
+    <TypesafeI18n locale={(settings.language || 'zh-CN')}>
+      <AppInner />
+    </TypesafeI18n>
   );
 };
 

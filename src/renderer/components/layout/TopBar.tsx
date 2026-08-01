@@ -4,6 +4,7 @@ import TabItem from '../tabs/TabItem';
 import WindowControls from '../shell/WindowControls';
 import RuffleToggle from '../navigation/RuffleToggle';
 import { useDataStore } from '@renderer/store/useDataStore';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { AddressToast } from '@renderer/store/useDataStore';
 import type { TabState } from '@renderer/store/useTabsStore';
 import type { FlashEngineMode } from '@shared/types/settings';
@@ -71,6 +72,7 @@ const TopBar: React.FC<TopBarProps> = ({
   onZoomReset,
   onReorder,
 }) => {
+  const { LL } = useI18nContext();
   const [addressValue, setAddressValue] = useState(url);
   const addressInputRef = useRef<HTMLInputElement>(null);
 
@@ -202,7 +204,7 @@ const TopBar: React.FC<TopBarProps> = ({
             />
             );
           })}
-          <button className="btn-tab no-drag" onClick={onNewTab} title="新标签页 (Ctrl+T)">
+          <button className="btn-tab no-drag" onClick={onNewTab} title={LL.tab.newTabHint()}>
             <Plus className="w-4 h-4" />
           </button>
         </div>
@@ -214,21 +216,21 @@ const TopBar: React.FC<TopBarProps> = ({
       <div
         className="flex items-center gap-1 h-[40px] px-2 flex-shrink-0 topbar-toolbar"
       >
-        <button onClick={onToggleSidebar} className="btn-icon" title={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}>
+        <button onClick={onToggleSidebar} className="btn-icon" title={sidebarCollapsed ? LL.sidebar.expand() : LL.sidebar.collapse()}>
           {sidebarCollapsed ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
         </button>
-        <button onClick={onBack} disabled={!canGoBack} className="btn-icon" title="后退">
+        <button onClick={onBack} disabled={!canGoBack} className="btn-icon" title={LL.back()}>
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <button onClick={onForward} disabled={!canGoForward} className="btn-icon" title="前进">
+        <button onClick={onForward} disabled={!canGoForward} className="btn-icon" title={LL.forward()}>
           <ArrowRight className="w-4 h-4" />
         </button>
         {isLoading ? (
-          <button onClick={onStop} className="btn-icon" title="停止 (Esc)">
+          <button onClick={onStop} className="btn-icon" title={`${LL.stop()} (Esc)`}>
             <X className="w-4 h-4" />
           </button>
         ) : (
-          <button onClick={onReload} className="btn-icon" title="刷新 (F5)">
+          <button onClick={onReload} className="btn-icon" title={`${LL.refresh()} (F5)`}>
             <RotateCw className="w-4 h-4" />
           </button>
         )}
@@ -240,7 +242,7 @@ const TopBar: React.FC<TopBarProps> = ({
             value={addressValue}
             onChange={(e) => setAddressValue(e.target.value)}
             onKeyDown={handleAddressKeyDown}
-            placeholder="输入网址或搜索..."
+            placeholder={LL.addressbar.placeholder()}
             className={`input-text no-drag ${flipping ? 'address-flip' : ''}`}
             spellCheck={false}
             autoComplete="off"
@@ -272,22 +274,22 @@ const TopBar: React.FC<TopBarProps> = ({
             </div>
           )}
         </div>
-        <button onClick={onZoomOut} className="btn-icon btn-icon-sm" title="缩小 (Ctrl+-)">
+        <button onClick={onZoomOut} className="btn-icon btn-icon-sm" title={LL.addressbar.zoomOut()}>
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
-        <span className="zoom-capsule" onClick={onZoomReset} title="点击重置为100%" style={{ cursor: 'pointer' }}>
+        <span className="zoom-capsule" onClick={onZoomReset} title={LL.addressbar.zoomReset()} style={{ cursor: 'pointer' }}>
           {zoomPercent}%
         </span>
-        <button onClick={onZoomIn} className="btn-icon btn-icon-sm" title="放大 (Ctrl++)">
+        <button onClick={onZoomIn} className="btn-icon btn-icon-sm" title={LL.addressbar.zoomIn()}>
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
-        <button onClick={onToggleBookmark} className="btn-icon" title={isBookmarked ? '取消收藏' : '收藏当前页'}>
+        <button onClick={onToggleBookmark} className="btn-icon" title={isBookmarked ? LL.addressbar.bookmarkRemove() : LL.addressbar.bookmarkAdd()}>
           <Star className="w-4 h-4" style={{ fill: isBookmarked ? '#f5c518' : 'none', color: isBookmarked ? '#f5c518' : 'var(--text-secondary)' }} />
         </button>
         <button
           onClick={onToggleMute}
           className="btn-icon btn-mute"
-          title={isMuted ? '取消静音' : '静音'}
+          title={isMuted ? LL.addressbar.unmute() : LL.addressbar.mute()}
           style={{ opacity: isMuted ? 0.5 : 1, background: isMuted ? 'var(--bg-hover)' : 'transparent' }}
         >
           {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
