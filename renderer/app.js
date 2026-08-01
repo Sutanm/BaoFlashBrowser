@@ -399,8 +399,13 @@
     for (var i = 0; i < tabs.length; i++) {
       try { tabs[i].webview.setAudioMuted(isMuted); } catch (e) {}
     }
-    btnMute.innerHTML = isMuted ? '&#x1f507;' : '&#x1f50a;';
+    btnMute.innerHTML = isMuted ? '&#x266A;' : '&#x266A;';
     btnMute.title = isMuted ? '取消静音' : '静音';
+    if (isMuted) {
+      btnMute.style.opacity = '0.3';
+    } else {
+      btnMute.style.opacity = '';
+    }
   });
 
   // --- Favorites ---
