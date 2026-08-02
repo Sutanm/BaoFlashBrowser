@@ -35,8 +35,11 @@ async function fileDiagnostic(name: string, file: string): Promise<ResourceDiagn
 function expectedNativeResources(): Array<[string, string]> {
   const root = app.isPackaged ? process.resourcesPath : path.join(__dirname, '..');
   if (process.platform === 'win32') {
+    const aria2Path = !app.isPackaged && process.arch === 'ia32'
+      ? path.join(root, 'native', 'aria2', 'win32', 'aria2c.exe')
+      : path.join(root, 'native', 'aria2', 'aria2c.exe');
     return [
-      ['aria2', path.join(root, 'native', 'aria2', 'aria2c.exe')],
+      ['aria2', aria2Path],
       ['mouse-hook', path.join(root, 'native', 'mouse-hook.exe')],
     ];
   }
@@ -75,7 +78,7 @@ export async function createDiagnosticReport(): Promise<Record<string, unknown>>
   const resources = await Promise.all([
     fileDiagnostic('PPAPI Flash', flashPath || ''),
     fileDiagnostic('Ruffle bootstrap', path.join(ruffleRoot, 'ruffle.js')),
-    fileDiagnostic('Ruffle CJK font', path.join(ruffleRoot, 'simhei.ttf')),
+    fileDiagnostic('Ruffle CJK font', path.join(ruffleRoot, 'SourceHanSansCN-Regular.otf')),
     ...expectedNativeResources().map(([name, file]) => fileDiagnostic(name, file)),
   ]);
 

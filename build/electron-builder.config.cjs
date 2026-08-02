@@ -16,6 +16,7 @@ function selectedResources() {
   if (targetPlatform === 'win32' && targetArch === 'ia32') {
     return [
       { from: 'plugins/win32', to: 'plugins/win32' },
+      { from: 'native/aria2/win32/aria2c.exe', to: 'native/aria2/aria2c.exe' },
       { from: 'native/mouse-hook.exe', to: 'native/mouse-hook.exe' },
     ];
   }

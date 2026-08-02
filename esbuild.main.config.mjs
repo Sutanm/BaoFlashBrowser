@@ -30,8 +30,12 @@ const builds = [
             to: 'lib/ruffle',
           },
           {
-            from: 'assets/simhei.ttf',
-            to: 'lib/ruffle/simhei.ttf',
+            from: 'assets/SourceHanSansCN-Regular.otf',
+            to: 'lib/ruffle/SourceHanSansCN-Regular.otf',
+          },
+          {
+            from: 'assets/SourceHanSans-LICENSE.txt',
+            to: 'lib/ruffle/SourceHanSans-LICENSE.txt',
           },
         ],
       }),

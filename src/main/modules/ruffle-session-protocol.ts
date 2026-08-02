@@ -27,6 +27,7 @@ function mimeTypeFor(fileName: string): string {
     case '.wasm': return 'application/wasm';
     case '.map': return 'application/json';
     case '.ttf': return 'font/ttf';
+    case '.otf': return 'font/otf';
     default: return 'application/octet-stream';
   }
 }

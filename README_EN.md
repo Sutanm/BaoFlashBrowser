@@ -45,7 +45,7 @@ BrowserView creates an independent renderer process per tab, isolating Flash's r
 - **Taomee 61.com Compatibility**: SWFObject network-layer bypass, Flash version spoofing
 - **Safe Session Recovery**: Offers tab recovery only after an abnormal exit; normal window closure does not prompt
 - **Optional Tab Suspension**: Silent inactive web tabs release their process after 10 minutes and restore engine, zoom, and mute state when selected
-- **Cross-platform**: Windows / Linux (WSL compatible)
+- **Cross-platform**: Windows is the primary supported platform; Linux can run from source, while the AppImage is an experimental portable build with possible compatibility issues
 
 ## Tech Stack
 
@@ -104,6 +104,8 @@ npm run build:win      # Windows NSIS installer
 npm run build:linux    # Linux AppImage
 ```
 
+> **Platform status:** Windows x64 is the primary release. Windows ia32 has not been fully tested. The Linux AppImage may be affected by distribution, FUSE, dynamic-library, and X11/Wayland differences; Linux users are advised to download the source and run `npm install` followed by `npm start` with Node.js 20.
+
 ### Linux Dependencies
 
 ```bash
@@ -127,7 +129,7 @@ Ruffle supports two sources:
 - **Bundled**: Packaged with the app, works offline
 - **CDN**: Always uses the latest Ruffle build, requires network on first load
 
-Ruffle options: quality (`best`), forced scaling (`forceScale`), Chinese font fallback (SimHei).
+Ruffle options: quality (`best`), forced scaling (`forceScale`), and an OFL-licensed Source Han Sans Chinese fallback.
 
 ### Tab Management
 
@@ -270,7 +272,8 @@ BaoFlashBrowser/
 │   └── mouse-hook-linux               # Linux mouse hook (XRecord)
 ├── assets/
 │   ├── images/                        # New tab background images
-│   └── simhei.ttf                     # Chinese font (Ruffle fallback)
+│   ├── SourceHanSansCN-Regular.otf     # Ruffle CJK fallback (OFL-1.1)
+│   └── SourceHanSans-LICENSE.txt       # Font license
 ├── docs/
 │   ├── PACKAGE.md                     # Packaging guide
 │   └── lessons-learned.md             # v2 development lessons learned
@@ -323,4 +326,4 @@ Windows loads the stable 29.0.0.171 DLL while advertising 34.0.0.330 to pages by
 
 ## License
 
-[MIT](LICENSE)
+The project source code is licensed under [MIT](LICENSE). Bundled third-party components retain their respective licenses and rights; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

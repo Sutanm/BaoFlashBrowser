@@ -593,8 +593,8 @@ Ruffle 需要在页面上下文执行：
 
 ### 中文字体
 
-- `fontSources: ['ruffle-resource://simhei.ttf']` — 黑体 9.3MB
-- `defaultFonts` 将 Flash 默认字体族（`_sans`/`_serif`/`_typewriter`）映射到 SimHei
+- `fontSources: ['ruffle-resource://SourceHanSansCN-Regular.otf']` — OFL-1.1 思源黑体
+- `defaultFonts` 将 Flash 默认字体族（`_sans`/`_serif`/`_typewriter`）映射到 Source Han Sans CN
 - SWF 内嵌字体不受 `fontSources` 影响（Ruffle 底层限制）
 
 ### `ruffle-resource://` 自定义协议
@@ -817,7 +817,7 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 | `plugins/win64/pepflashplayer64.dll` | Flash PPAPI 29.0.0.171 (Windows) |
 | `plugins/win32/pepflashplayer.dll` | Flash PPAPI 32.0.0.xxx (Windows x86) |
 | `plugins/linux64/libpepflashplayer64.so` | Flash PPAPI 32.0.0.371 (Linux) |
-| `assets/simhei.ttf` | 黑体 9.3MB (Ruffle 中文字体) |
+| `assets/SourceHanSansCN-Regular.otf` | 思源黑体（Ruffle 中文字体，OFL-1.1） |
 | `native/mouse-hook.exe` | Windows WH_MOUSE_LL 鼠标钩子 |
 | `native/mouse-hook-linux` | Linux XRecord 鼠标钩子 |
 | `native/aria2/aria2c.exe` | aria2 下载引擎 |

@@ -114,8 +114,8 @@ CDN 脚本通过 `<script src="...">` 异步加载。和 bundled 模式一样，
 
 ### 中文字体
 
-- `fontSources` 指向 `ruffle-resource://simhei.ttf`（黑体 9.3MB）
-- `defaultFonts` 将 Flash 默认字体族（`_sans`/`_serif`/`_typewriter`）和中文名（宋体/黑体/微软雅黑）全部映射到 SimHei
+- `fontSources` 指向 `ruffle-resource://SourceHanSansCN-Regular.otf`（OFL-1.1 思源黑体）
+- `defaultFonts` 将 Flash 默认字体族（`_sans`/`_serif`/`_typewriter`）和中文名（宋体/黑体/微软雅黑）全部映射到 Source Han Sans CN
 - `deviceFontRenderer: 'embedded'`（默认值）使用 Ruffle 内建字体渲染器
 - SWF 内嵌字体（非设备字体）不受 `fontSources` 影响——这是 Ruffle 底层限制
 
@@ -261,4 +261,4 @@ useEffect(() => {
 | IndexedDB 数据层 | `src/renderer/services/db.ts` |
 | 打包手册 | `docs/PACKAGE.md` |
 | Flash 插件目录 | `plugins/linux64/`, `plugins/win64/` |
-| 中文字体 | `assets/simhei.ttf` |
+| 中文字体 | `assets/SourceHanSansCN-Regular.otf`（OFL-1.1） |

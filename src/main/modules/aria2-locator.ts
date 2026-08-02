@@ -15,11 +15,19 @@ function aria2Bases(): string[] {
   ];
 }
 
+function bundledAria2Paths(): string[] {
+  const packaged = path.join(app.getPath('exe'), '..', 'resources', 'native', 'aria2');
+  const source = path.join(__dirname, '..', 'native', 'aria2');
+  if (process.platform === 'win32' && process.arch === 'ia32') {
+    return [path.join(packaged, 'aria2c.exe'), path.join(source, 'win32', 'aria2c.exe')];
+  }
+  const binaryName = process.platform === 'win32' ? 'aria2c.exe' : 'aria2c';
+  return [path.join(packaged, binaryName), path.join(source, binaryName)];
+}
+
 export function getAria2Candidates(): Aria2Candidate[] {
   const candidates: Aria2Candidate[] = [];
-  const binaryName = process.platform === 'win32' ? 'aria2c.exe' : 'aria2c';
-  for (const base of aria2Bases()) {
-    const candidate = path.join(base, binaryName);
+  for (const candidate of bundledAria2Paths()) {
     if (fs.existsSync(candidate)) candidates.push({ path: candidate, bundled: true });
   }
   if (process.platform === 'linux') {

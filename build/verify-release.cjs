@@ -78,7 +78,8 @@ function verifyRuffle(root, fromAsar = false) {
   if (fromAsar) return;
   const ruffleDir = path.join(root, 'lib', 'ruffle');
   record(path.join(ruffleDir, 'ruffle.js'), 'Ruffle bootstrap');
-  record(path.join(ruffleDir, 'simhei.ttf'), 'Ruffle CJK font');
+  record(path.join(ruffleDir, 'SourceHanSansCN-Regular.otf'), 'Ruffle CJK font');
+  record(path.join(ruffleDir, 'SourceHanSans-LICENSE.txt'), 'Ruffle CJK font license');
   const files = walk(ruffleDir);
   if (!files.some((file) => /^core\.ruffle\..+\.js$/.test(path.basename(file)))) fail('missing Ruffle core JavaScript chunk');
   if (!files.some((file) => file.endsWith('.wasm'))) fail('missing Ruffle WebAssembly module');
@@ -97,8 +98,11 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
     expectArch(path.join(native, 'mouse-hook.exe'), 'ia32', 'pe', 'Windows mouse hook');
   } else if (platform === 'win32' && arch === 'ia32') {
     expectArch(path.join(plugins, 'win32', 'pepflashplayer.dll'), 'ia32', 'pe', 'Windows ia32 PPAPI');
+    const aria2Path = packaged
+      ? path.join(native, 'aria2', 'aria2c.exe')
+      : path.join(native, 'aria2', 'win32', 'aria2c.exe');
+    expectArch(aria2Path, 'ia32', 'pe', 'Windows ia32 aria2');
     expectArch(path.join(native, 'mouse-hook.exe'), 'ia32', 'pe', 'Windows mouse hook');
-    if (packaged && fs.existsSync(path.join(native, 'aria2', 'aria2c.exe'))) fail('Windows ia32 package must not include the x64 aria2 binary');
   } else if (platform === 'linux' && arch === 'x64') {
     expectArch(path.join(plugins, 'linux64', 'libpepflashplayer64.so'), 'x64', 'elf', 'Linux x64 PPAPI');
     expectArch(path.join(native, 'aria2', 'aria2c'), 'x64', 'elf', 'Linux x64 aria2');
@@ -159,7 +163,8 @@ function verifyAsar(asarPath) {
     'dist/renderer/bundle.js',
     'dist/renderer/bundle.css',
     'dist/lib/ruffle/ruffle.js',
-    'dist/lib/ruffle/simhei.ttf',
+    'dist/lib/ruffle/SourceHanSansCN-Regular.otf',
+    'dist/lib/ruffle/SourceHanSans-LICENSE.txt',
     'node_modules/electron-log/package.json',
     'node_modules/electron-store/package.json',
   ];

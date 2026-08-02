@@ -7,10 +7,12 @@
 | 目标 | 命令 | 随包资源 |
 | --- | --- | --- |
 | Windows x64 | `npm run build:win64` | win64 PPAPI、x64 aria2、Windows mouse hook |
-| Windows ia32 | `npm run build:win32` | win32 PPAPI、Windows mouse hook |
+| Windows ia32 | `npm run build:win32` | win32 PPAPI、ia32 aria2、Windows mouse hook |
 | Linux x64 | `npm run build:linux` | linux64 PPAPI、x64 aria2、Linux mouse hook |
 
-Windows ia32 没有捆绑 aria2，因为仓库中现有的 `aria2c.exe` 是 x64。该版本会使用 Chromium 下载后备通道，避免启动不兼容的二进制。
+Windows ia32 使用独立的 `native/aria2/win32/aria2c.exe`，打包后映射为标准资源路径；发布校验会确认它确实是 PE ia32，避免误装 x64 二进制。Windows ia32 当前属于未完全测试版本，应在发布页明确标注。
+
+Linux 只发布 x64，不提供 x86 构建；Electron、PPAPI Flash 及项目内其他原生资源没有完整的 Linux x86 支持链。
 
 每条发布命令依次执行：
 
@@ -33,6 +35,7 @@ Windows ia32 没有捆绑 aria2，因为仓库中现有的 `aria2c.exe` 是 x64�
 ## 平台注意事项
 
 - AppImage 应在 Linux 或 CI 的 Ubuntu runner 上构建。Windows 默认没有创建 AppImage 内部符号链接所需的权限，即使 Linux 解包目录已经生成，也可能在最后一步失败。
+- Linux AppImage 可能受发行版、FUSE、系统动态库、X11/Wayland 和沙箱环境影响。当前建议 Linux 用户优先下载源码，在安装 Node.js 20 后执行 `npm install` 与 `npm start`；AppImage 作为便携试用构建提供。
 - Linux 辅助程序会在打包前后显式设置可执行权限，避免 Git 在 Windows checkout 中丢失执行位。
 - 打包器读取隔离的应用文件清单，不扫描整个工作区；临时目录、IDE 文件或异常目录名不会混入安装包。
 - `@ruffle-rs/ruffle` 是构建期依赖，成品只包含复制到 `dist/lib/ruffle` 的运行时文件，不会重复打包完整 npm 模块。

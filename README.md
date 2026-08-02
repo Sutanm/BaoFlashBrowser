@@ -45,7 +45,7 @@ BrowserView 为每个标签页创建独立的渲染进程，从根本上隔离�
 - **淘米 61.com 兼容**：SWFObject 网络层绕过、Flash 版本伪装
 - **安全会话恢复**：仅在上次异常退出后询问是否恢复标签页，正常关闭不会提示
 - **可选标签休眠**：静音的非活动网页标签在 10 分钟后释放进程，切回时恢复引擎、缩放和静音状态
-- **跨平台**：Windows / Linux 双平台（WSL 可用）
+- **跨平台**：Windows 为主要支持平台；Linux 可从源码运行，AppImage 作为可能存在兼容缺陷的便携构建
 
 ## 技术架构
 
@@ -103,6 +103,8 @@ npm start
 npm run build:win      # Windows NSIS 安装包
 npm run build:linux    # Linux AppImage
 ```
+
+> **平台状态：** Windows x64 是主要发布版本；Windows ia32 尚未完全测试。Linux AppImage 可能受发行版、FUSE、动态库以及 X11/Wayland 环境影响，建议 Linux 用户优先下载源码，使用 Node.js 20 执行 `npm install` 和 `npm start`。
 
 ### Linux 依赖
 
@@ -270,7 +272,8 @@ BaoFlashBrowser/
 │   └── mouse-hook-linux               # Linux 鼠标钩子（XRecord）
 ├── assets/
 │   ├── images/                        # 新标签页背景图
-│   └── simhei.ttf                     # 中文字体（Ruffle 回退）
+│   ├── SourceHanSansCN-Regular.otf     # 思源黑体（Ruffle 中文回退，OFL-1.1）
+│   └── SourceHanSans-LICENSE.txt       # 思源黑体许可证
 ├── docs/
 │   ├── PACKAGE.md                     # 打包手册
 │   └── lessons-learned.md             # v2 开发经验总结
@@ -323,4 +326,4 @@ Windows 实际加载稳定的 29.0.0.171 DLL，但默认向网页声明 34.0.0.3
 
 ## License
 
-[MIT](LICENSE)
+项目源代码采用 [MIT](LICENSE)。安装包内第三方组件保留各自许可证与权利声明，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
