@@ -49,7 +49,7 @@ export function saveConfig(cfg: Partial<Config>): boolean {
     if (cfg.downloadEngine !== undefined) updates.downloadEngine = cfg.downloadEngine;
     if (cfg.downloadDir !== undefined) updates.downloadDir = cfg.downloadDir;
     if (Object.keys(updates).length > 0) {
-      store.set(updates as any);
+      store.set(updates);
     }
     return true;
   } catch (e) {

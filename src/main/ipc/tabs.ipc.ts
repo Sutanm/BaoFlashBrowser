@@ -6,6 +6,10 @@ import { ruffleBundleInfo, ruffleJsContent } from '../modules/ruffle-bundle';
 import log from 'electron-log';
 
 export function registerTabsIPC(): void {
+  ipcMain.on('password:form-detected', (event) => {
+    tabManager.notifyPasswordFormDetected(event.sender.id);
+  });
+
   // Sync handler: preload uses sendSync to get ruffle config at document-start
   ipcMain.on('get-ruffle-mode', (e) => {
     const ruffle = tabManager.getRuffleForWC(e.sender.id);

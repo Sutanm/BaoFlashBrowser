@@ -24,5 +24,5 @@ export default [
     },
   },
   prettier,
-  { ignores: ['dist/', 'src/dist/', 'src/i18n/', 'node_modules/', '.old/', 'release/'] },
+  { ignores: ['dist/', 'src/dist/', 'src/i18n/', 'src/renderer/i18n/i18n-*.ts', 'src/renderer/i18n/i18n-*.tsx', 'node_modules/', '.old/', 'release/'] },
 ];

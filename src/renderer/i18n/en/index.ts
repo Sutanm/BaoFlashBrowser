@@ -181,6 +181,8 @@ const en: Translation = {
     homepage: 'Homepage',
     restoreSession: 'Offer Tab Recovery After a Crash',
     restoreSessionHint: 'Normal exits start fresh. Recovery is offered only after a crash, power loss, or forced termination, for up to 20 tabs.',
+    suspendInactiveTabs: 'Suspend Long-Idle Tabs',
+    suspendInactiveTabsHint: 'Optional. Inactive, silent web tabs release their process after 10 minutes and reload when selected.',
     searchEngine: 'Search Engine',
     baidu: 'Baidu',
     spoofVersion: 'Spoof Flash Version',

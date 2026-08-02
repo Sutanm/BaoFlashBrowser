@@ -7,8 +7,11 @@ import type { TabState } from '../store/useTabsStore';
 import type { HistoryEntry } from '@shared/types/history';
 import { db, loadMeta, saveMeta } from '../services/db';
 import { createTabSession, selectCrashRecoverySession, TAB_SESSION_META_KEY } from '../services/tab-session';
+import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
+import { isTabEligibleForSuspension } from '../services/tab-suspension';
 
 const NEWTAB_URL = 'about:newtab';
+const INACTIVE_TAB_SUSPEND_MS = 10 * 60 * 1000;
 
 function isNewtabUrl(url: string): boolean {
   return !url || url === 'about:blank' || url === NEWTAB_URL || url.startsWith('data:');
@@ -46,9 +49,27 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const setHistory = useDataStore((s) => s.setHistory);
   const tabsRef = useRef(tabs);
   const ruffleErrorsRef = useRef(new Set<string>());
+  const suspensionTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const suspensionPromisesRef = useRef(new Map<string, Promise<void>>());
   useEffect(() => { tabsRef.current = tabs; });
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+
+  const ensureTabView = useCallback(async (tabId: string) => {
+    const pending = suspensionPromisesRef.current.get(tabId);
+    if (pending) await pending;
+    const tab = useTabsStore.getState().tabs.find((item) => item.id === tabId);
+    if (!tab?.suspended) return;
+    await window.electronAPI.tab.create(tab.id, tab.url, {
+      enabled: tab.ruffleMode === 'ruffle',
+      source: useDataStore.getState().settings.ruffleSource,
+    });
+    if (tab.zoomFactor !== 1) await window.electronAPI.tab.zoom(tab.id, tab.zoomFactor);
+    if (tab.isMuted) await window.electronAPI.tab.mute(tab.id, true);
+    setTabs((previous) => previous.map((item) => item.id === tabId
+      ? { ...item, suspended: false, isLoading: true, canGoBack: false, canGoForward: false }
+      : item));
+  }, [setTabs]);
 
   // --- Tab switching with debounced bounds calc ---
   const switchTabTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -56,10 +77,15 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     if (switchTabTimerRef.current) clearTimeout(switchTabTimerRef.current);
     setActiveTabId(tabId);
     switchTabTimerRef.current = setTimeout(() => {
-      calcBoundsRef.current(false);
-      window.electronAPI.tab.activate(tabId);
+      void ensureTabView(tabId).then(() => {
+        calcBoundsRef.current(false);
+        return window.electronAPI.tab.activate(tabId);
+      }).catch((error) => {
+        console.warn('[Tabs] suspended tab resume failed:', error);
+        pushToast({ message: LLRef.current.error.pageLoadFail(), type: 'error' });
+      });
     }, 50);
-  }, [setActiveTabId, calcBoundsRef]);
+  }, [setActiveTabId, calcBoundsRef, ensureTabView, pushToast]);
 
   const createTab = useCallback((url?: string) => {
     const id = generateId();
@@ -110,14 +136,14 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         if (next.length > 0) {
           const newIdx = Math.min(idx, next.length - 1);
           setActiveTabId(next[newIdx].id);
-          window.electronAPI.tab.activate(next[newIdx].id);
+          void ensureTabView(next[newIdx].id).then(() => window.electronAPI.tab.activate(next[newIdx].id));
         } else {
           setActiveTabId(null);
         }
       }
       return next;
     });
-  }, [activeTabId, setActiveTabId, setTabs]);
+  }, [activeTabId, ensureTabView, setActiveTabId, setTabs]);
 
   const commitHistory = useCallback(() => {
     const pending = pendingHistoryRef.current;
@@ -126,7 +152,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     const currentTab = tabsRef.current.find((t) => t.id === pending.tabId);
     const entry: HistoryEntry = {
       id: generateId(),
-      url: pending.url,
+      url: sanitizeUrlForPersistence(pending.url),
       title: pending.title || (() => { try { return new URL(pending.url).hostname; } catch { return pending.url; } })(),
       favicon: currentTab?.favicon || '',
       lastVisit: Date.now(),
@@ -152,7 +178,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     }
     // 历史记录：URL 变化时 debounce 1500ms，重定向只保留最终 URL
     if (changes.url !== undefined && !isNewtabUrl(changes.url) && changes.url !== 'about:blank') {
-      pendingHistoryRef.current = { tabId, url: changes.url, title: changes.title };
+      pendingHistoryRef.current = { tabId, url: sanitizeUrlForPersistence(changes.url), title: changes.title };
       if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
       historyTimerRef.current = setTimeout(() => {
         commitHistory();
@@ -169,7 +195,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     }
     // Update favicon in history
     if (changes.favicon) {
-      const tabUrl = tabsRef.current.find((t) => t.id === tabId)?.url;
+      const rawTabUrl = tabsRef.current.find((t) => t.id === tabId)?.url;
+      const tabUrl = rawTabUrl ? sanitizeUrlForPersistence(rawTabUrl) : '';
       if (tabUrl) {
         setHistory((prev) => {
           const idx = prev.findIndex((h) => h.url === tabUrl);
@@ -182,7 +209,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     }
     // Update title in history
     if (changes.title && changes.title !== changes.url) {
-      const tabUrl = tabsRef.current.find((t) => t.id === tabId)?.url;
+      const rawTabUrl = tabsRef.current.find((t) => t.id === tabId)?.url;
+      const tabUrl = rawTabUrl ? sanitizeUrlForPersistence(rawTabUrl) : '';
       if (tabUrl && !isNewtabUrl(tabUrl)) {
         setHistory((prev) => {
           const idx = prev.findIndex((h) => h.url === tabUrl);
@@ -198,13 +226,50 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const updateTabRef = useRef(updateTab);
   useEffect(() => { updateTabRef.current = updateTab; });
 
+  useEffect(() => {
+    const eligible = new Set(
+      settings.suspendInactiveTabs
+        ? tabs.filter((tab) => isTabEligibleForSuspension(tab, activeTabId, true)).map((tab) => tab.id)
+        : [],
+    );
+    for (const [tabId, timer] of suspensionTimersRef.current) {
+      if (!eligible.has(tabId)) {
+        clearTimeout(timer);
+        suspensionTimersRef.current.delete(tabId);
+      }
+    }
+    for (const tabId of eligible) {
+      if (suspensionTimersRef.current.has(tabId)) continue;
+      const timer = setTimeout(() => {
+        suspensionTimersRef.current.delete(tabId);
+        const current = useTabsStore.getState();
+        const tab = current.tabs.find((item) => item.id === tabId);
+        if (!tab || current.activeTabId === tabId || tab.suspended || tab.isLoading || tab.isAudible) return;
+        const suspension = window.electronAPI.tab.close(tabId).then(() => {
+          setTabs((previous) => previous.map((item) => item.id === tabId
+            ? { ...item, suspended: true, isLoading: false, isAudible: false, canGoBack: false, canGoForward: false }
+            : item));
+        }).finally(() => {
+          suspensionPromisesRef.current.delete(tabId);
+        });
+        suspensionPromisesRef.current.set(tabId, suspension);
+      }, INACTIVE_TAB_SUSPEND_MS);
+      suspensionTimersRef.current.set(tabId, timer);
+    }
+  }, [activeTabId, settings.suspendInactiveTabs, setTabs, tabs]);
+
+  useEffect(() => () => {
+    for (const timer of suspensionTimersRef.current.values()) clearTimeout(timer);
+    suspensionTimersRef.current.clear();
+  }, []);
+
   // IPC listeners
   useEffect(() => {
-    const unsub = window.electronAPI.on('tab:updated', (payload: any) => {
+    const unsub = window.electronAPI.on('tab:updated', (payload) => {
       const { tabId, ...changes } = payload;
       updateTabRef.current(tabId, changes as Partial<TabState>);
     });
-    const unsubErr = window.electronAPI.on('tab:load-error', (payload: any) => {
+    const unsubErr = window.electronAPI.on('tab:load-error', (payload) => {
       const msg = payload.errorCode === -105 ? LLRef.current.error.dnsFail() : LLRef.current.error.pageLoadFail();
       pushToast({
         key: `tab-load-error:${payload.tabId}:${payload.errorCode}`,
@@ -212,7 +277,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         type: 'error',
       });
     });
-    const unsubRuffle = window.electronAPI.on('ruffle:diagnostic', (payload: any) => {
+    const unsubRuffle = window.electronAPI.on('ruffle:diagnostic', (payload) => {
       if (payload.phase === 'runtime-ready') {
         for (const key of ruffleErrorsRef.current) {
           if (key.startsWith(`${payload.tabId}:`)) ruffleErrorsRef.current.delete(key);
@@ -247,15 +312,15 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   }, []);
 
   useEffect(() => {
-    const u1 = window.electronAPI.on('tab:newwindow', (payload: any) => {
-      const url = String((payload as any).url || payload);
+    const u1 = window.electronAPI.on('tab:newwindow', (payload) => {
+      const url = payload.url;
       if (settings.linkBehavior === 'current-page' && activeTabId) {
         window.electronAPI.tab.navigate(activeTabId, url);
       } else {
         createTab(url);
       }
     });
-    const u2 = window.electronAPI.on('tab:crashed', (payload: any) => {
+    const u2 = window.electronAPI.on('tab:crashed', (payload) => {
       updateTabRef.current(payload.tabId, { url: 'about:crash', title: LLRef.current.error.pageCrashed() });
       pushToast({ key: `tab-crashed:${payload.tabId}`, message: LLRef.current.error.pageCrashed(), type: 'error' });
     });
@@ -266,7 +331,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const unsub = window.electronAPI.on('navigate-url', (url: any) => {
+    const unsub = window.electronAPI.on('navigate-url', (url) => {
       const delay = activeTab?.isLoading ? 600 : 0;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
@@ -400,7 +465,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     if (activeTab) {
       setAddressUrl(isNewtabUrl(activeTab.url) ? '' : activeTab.url);
     }
-  }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTabId, activeTab]);
 
   // --- Navigation ---
   const handleNavigate = useCallback((input: string) => {

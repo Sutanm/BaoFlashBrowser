@@ -30,7 +30,7 @@ const FindBar: React.FC<FindBarProps> = ({ visible, activeTabId, onClose }) => {
   }, [visible]);
 
   useEffect(() => {
-    const unsub = window.electronAPI.on('tab:found', (payload: any) => {
+    const unsub = window.electronAPI.on('tab:found', (payload) => {
       if (payload.tabId === activeTabId) {
         setResult({ activeMatchOrdinal: payload.activeMatchOrdinal || 0, matches: payload.matches || 0 });
       }

@@ -44,6 +44,7 @@ BrowserView 为每个标签页创建独立的渲染进程，从根本上隔离�
 - **侧边栏面板**：收藏夹、历史记录、下载、密码本、设置
 - **淘米 61.com 兼容**：SWFObject 网络层绕过、Flash 版本伪装
 - **安全会话恢复**：仅在上次异常退出后询问是否恢复标签页，正常关闭不会提示
+- **可选标签休眠**：静音的非活动网页标签在 10 分钟后释放进程，切回时恢复引擎、缩放和静音状态
 - **跨平台**：Windows / Linux 双平台（WSL 可用）
 
 ## 技术架构
@@ -159,7 +160,7 @@ Ruffle 配置项：画质（`best`）、强制缩放（`forceScale`）、中文�
 - 每条密码用 DEK 通过 AES-256-GCM 加密
 - 主密码要求：8 字符以上，含大小写字母和数字
 
-为了实现类似 Chrome 的体验，密码本锁定后仍可自动填充。首次创建密码本会登记设备本地自动填充密钥；旧密码本需要成功解锁一次完成迁移。锁定状态不能查看、编辑、导出或新增密码。自动填充仅匹配准确主机名（只忽略 `www.`），不会把 HTTPS 保存的密码降级填充到 HTTP，也会避开注册、修改密码、多密码框和已有不同账号的表单。
+为了实现类似 Chrome 的体验，密码本锁定后仍可自动填充。首次创建密码本会登记设备本地自动填充密钥；旧密码本需要成功解锁一次完成迁移。锁定状态不能查看、编辑、导出或新增密码。自动填充仅匹配准确主机名（只忽略 `www.`），不会把 HTTPS 保存的密码降级填充到 HTTP，也会避开注册、修改密码、多密码框和已有不同账号的表单。捕获结果通过 CDP 专用 binding 送回主进程，明文密码不会写入页面控制台或 renderer IPC。
 
 ### 下载管理器
 
@@ -221,6 +222,8 @@ BaoFlashBrowser/
 │   │   │   ├── flash.ts               # PPAPI 插件加载 + mms.cfg
 │   │   │   ├── session-manager.ts     # UA、SWFObject 补丁、SWF CORS（保留原站 crossdomain.xml）
 │   │   │   ├── download.ts            # aria2 下载管理器
+│   │   │   ├── aria2-locator.ts        # aria2 二进制与 Linux 运行库定位
+│   │   │   ├── aria2-rpc.ts            # 动态本地端口与带密钥 RPC 客户端
 │   │   │   ├── password-capture.ts    # CDP 密码捕获
 │   │   │   ├── password-fill.ts       # 主文档及跨域 iframe 自动填充
 │   │   │   ├── password-store.ts      # AES-256-GCM 加密密码存储
@@ -298,6 +301,8 @@ BaoFlashBrowser/
 6. **BrowserView 始终在最顶层**：DOM 元素无法覆盖它，Toast 等 UI 需特殊处理
 7. **禁止把 `crossdomain.xml` 重定向到 `data:`**：PPAPI 会将其视为 `ERR_ABORTED`，常表现为启动器正常、登录后白屏。必须保留游戏服务器原始策略文件；`.swf` 的 CORS 响应头只服务于 Ruffle
 8. **导航前先拆除密码捕获 CDP**：在 `reload`、`loadURL`、前进或后退前调用 `teardownCapture`，否则附着的 debugger 可能让标签页永久停在加载状态
+9. **旧 BrowserView 的事件必须丢弃**：引擎切换后只有当前 WebContents 可以更新标签状态
+10. **敏感 URL 不应原样持久化或记录**：历史和崩溃快照会移除账号、令牌、会话等查询参数，日志移除全部查询与片段
 
 ### 调试流程
 

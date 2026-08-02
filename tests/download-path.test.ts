@@ -24,6 +24,19 @@ describe('download paths', () => {
     expect(isPathWithinDirectory(dir, path.join(dir, '..', 'outside.swf'))).toBe(false);
   });
 
+  it('rejects a nonexistent target that escapes through a symlinked parent', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bao-download-link-'));
+    tempDirs.push(root);
+    const allowed = path.join(root, 'allowed');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(allowed);
+    fs.mkdirSync(outside);
+    const link = path.join(allowed, 'linked');
+    fs.symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+
+    expect(isPathWithinDirectory(allowed, path.join(link, 'not-created-yet.swf'))).toBe(false);
+  });
+
   it('numbers an existing filename instead of overwriting it', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bao-download-'));
     tempDirs.push(dir);

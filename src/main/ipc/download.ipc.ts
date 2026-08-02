@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain, shell, session, dialog } from 'electron';
 import log from 'electron-log';
+import { redactUrlForLog } from '@shared/utils/url-privacy';
 import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
@@ -148,14 +149,14 @@ export function registerDownloadIPC(): void {
     try {
       const proto = new URL(url).protocol;
       if (!ALLOWED_PROTOCOLS.has(proto)) {
-        log.warn('[Download] start rejected (disallowed protocol):', proto, url);
+        log.warn('[Download] start rejected (disallowed protocol):', proto, redactUrlForLog(url));
         return;
       }
     } catch {
-      log.warn('[Download] start rejected (invalid URL):', url);
+      log.warn('[Download] start rejected (invalid URL)');
       return;
     }
-    log.info('[Download] manual start:', url);
+    log.info('[Download] manual start:', redactUrlForLog(url));
     session.defaultSession.downloadURL(url);
   });
 

@@ -111,6 +111,13 @@ export interface PasswordFilledPayload {
   automatic: boolean;
 }
 
+export interface RuffleDiagnosticPayload {
+  tabId: string;
+  source: 'bundled' | 'cdn';
+  phase: 'config' | 'bundled-eval-ok' | 'bundled-eval-error' | 'cdn-loading' | 'cdn-loaded' | 'cdn-error' | 'runtime-ready' | 'runtime-error' | 'component-error';
+  detail?: string;
+}
+
 export interface IPCMainToRenderer {
   shortcut: (action: ShortcutAction) => void;
   'tab:updated': (payload: TabUpdatedPayload) => void;
@@ -124,6 +131,7 @@ export interface IPCMainToRenderer {
   'password:captured': (payload: PasswordCapturedPayload) => void;
   'password:changed': (payload: PasswordChangedPayload) => void;
   'password:filled': (payload: PasswordFilledPayload) => void;
+  'ruffle:diagnostic': (payload: RuffleDiagnosticPayload) => void;
   'webview:context-menu': (payload: ContextMenuPayload) => void;
   'webview:new-window': (payload: NewWindowPayload) => void;
 }

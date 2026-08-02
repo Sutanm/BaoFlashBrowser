@@ -42,7 +42,7 @@ export function decryptStr(key: Buffer, blob: EncBlob): string | null {
     decipher.setAuthTag(unb64(blob.tag));
     const pt = Buffer.concat([decipher.update(unb64(blob.ct)), decipher.final()]);
     return pt.toString('utf8');
-  } catch (_e) {
+  } catch {
     return null;
   }
 }
@@ -61,7 +61,7 @@ export function decryptBuf(key: Buffer, blob: EncBlob): Buffer | null {
     decipher.setAuthTag(unb64(blob.tag));
     const pt = Buffer.concat([decipher.update(unb64(blob.ct)), decipher.final()]);
     return pt;
-  } catch (_e) {
+  } catch {
     return null;
   }
 }

@@ -163,7 +163,7 @@ export async function unlockWithMaster(password: string): Promise<boolean> {
 
 export function lock(): void {
   if (_dekFromMaster) {
-    try { _dekFromMaster.fill(0); } catch (_e) { /* ignore */ }
+    try { _dekFromMaster.fill(0); } catch { /* ignore */ }
     _dekFromMaster = null;
   }
 }
@@ -355,7 +355,7 @@ export function resetAll(): void {
   autoFillKeyStore.clear();
   _clearAutoFillDek();
   if (_dekFromMaster) {
-    try { _dekFromMaster.fill(0); } catch (_e) { /* ignore */ }
+    try { _dekFromMaster.fill(0); } catch { /* ignore */ }
     _dekFromMaster = null;
   }
 }
@@ -449,7 +449,7 @@ export function setDefault(id: string): void {
 
 export function dispose(): void {
   if (_dekFromMaster) {
-    try { _dekFromMaster.fill(0); } catch (_e) { /* ignore */ }
+    try { _dekFromMaster.fill(0); } catch { /* ignore */ }
     _dekFromMaster = null;
   }
   _clearAutoFillDek();

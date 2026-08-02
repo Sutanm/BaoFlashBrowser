@@ -44,6 +44,7 @@ BrowserView creates an independent renderer process per tab, isolating Flash's r
 - **Sidebar Panels**: Bookmarks, History, Downloads, Passwords, Settings
 - **Taomee 61.com Compatibility**: SWFObject network-layer bypass, Flash version spoofing
 - **Safe Session Recovery**: Offers tab recovery only after an abnormal exit; normal window closure does not prompt
+- **Optional Tab Suspension**: Silent inactive web tabs release their process after 10 minutes and restore engine, zoom, and mute state when selected
 - **Cross-platform**: Windows / Linux (WSL compatible)
 
 ## Tech Stack
@@ -159,7 +160,7 @@ Encryption scheme:
 - Each password encrypted with DEK via AES-256-GCM
 - Master password requirements: 8+ characters, uppercase + lowercase + digits
 
-For a Chrome-like experience, autofill remains available while the vault UI is locked. New vaults enroll a device-local autofill wrapping key during setup; an existing vault must be successfully unlocked once to migrate. A locked vault still cannot reveal, edit, export, or add credentials. Autofill uses exact host matching (ignoring only `www.`), never downgrades an HTTPS credential to HTTP, and skips registration, password-change, multi-password, and conflicting prefilled-account forms.
+For a Chrome-like experience, autofill remains available while the vault UI is locked. New vaults enroll a device-local autofill wrapping key during setup; an existing vault must be successfully unlocked once to migrate. A locked vault still cannot reveal, edit, export, or add credentials. Autofill uses exact host matching (ignoring only `www.`), never downgrades an HTTPS credential to HTTP, and skips registration, password-change, multi-password, and conflicting prefilled-account forms. Captures return to the main process through a dedicated CDP binding; plaintext passwords are never written to the page console or renderer IPC.
 
 ### Download Manager
 
@@ -221,6 +222,8 @@ BaoFlashBrowser/
 │   │   │   ├── flash.ts               # PPAPI plugin loader + mms.cfg
 │   │   │   ├── session-manager.ts     # UA, SWFObject patch, SWF CORS; native crossdomain.xml preserved
 │   │   │   ├── download.ts            # aria2 download manager
+│   │   │   ├── aria2-locator.ts        # aria2 binary and Linux runtime discovery
+│   │   │   ├── aria2-rpc.ts            # Dynamic loopback port and authenticated RPC client
 │   │   │   ├── password-capture.ts    # CDP credential capture
 │   │   │   ├── password-fill.ts       # Main-frame and cross-origin-frame autofill
 │   │   │   ├── password-store.ts      # AES-256-GCM encrypted storage
@@ -298,6 +301,8 @@ This project is locked to Electron 11 / Chromium 87. **Never upgrade any kernel-
 6. **BrowserView always renders on top**: DOM elements cannot cover it; notifications require special handling
 7. **Never redirect `crossdomain.xml` to `data:`**: PPAPI treats it as `ERR_ABORTED`, often showing a working launcher followed by a white screen after login. Preserve the game server's native policy; SWF CORS headers are for Ruffle only
 8. **Detach password-capture CDP before navigation**: Call `teardownCapture` before reload, loadURL, back, or forward, or the attached debugger can leave a tab permanently loading
+9. **Discard events from replaced BrowserViews**: After an engine switch, only the current WebContents may update tab state
+10. **Do not persist or log sensitive URLs verbatim**: History and crash snapshots remove account, token, and session parameters; logs remove all query strings and fragments
 
 ### Debugging Workflow
 

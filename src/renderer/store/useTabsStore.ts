@@ -18,7 +18,7 @@ export const useTabsStore = create<TabsState>((set) => ({
   activeTabId: null,
 
   setTabs: (t) =>
-    set((state) => ({ tabs: typeof t === 'function' ? (t as any)(state.tabs) : t })),
+    set((state) => ({ tabs: typeof t === 'function' ? t(state.tabs) : t })),
   setActiveTabId: (id) => set({ activeTabId: id }),
 }));
 

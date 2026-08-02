@@ -194,6 +194,8 @@ const zhCN: BaseTranslation = {
     homepage: '主页地址',
     restoreSession: '异常关闭后询问恢复标签',
     restoreSessionHint: '正常关闭不会恢复；仅在崩溃、断电或强制结束后询问，最多恢复 20 个标签页。',
+    suspendInactiveTabs: '休眠长期未使用的标签页',
+    suspendInactiveTabsHint: '可选；非活动且未播放声音的网页标签在 10 分钟后释放进程，切回时自动重新载入。',
     searchEngine: '搜索引擎',
     baidu: '百度',
     spoofVersion: '伪装版本',

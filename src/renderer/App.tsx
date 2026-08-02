@@ -19,7 +19,7 @@ import { loadAllLocales } from './i18n/i18n-util.sync';
 import { isLocale } from './i18n/i18n-util';
 
 const AppInner: React.FC = () => {
-  const { LL, setLocale } = useI18nContext() as any;
+  const { LL, setLocale } = useI18nContext();
   const { theme } = useTheme();
   const favorites = useDataStore((s) => s.favorites);
   const downloads = useDataStore((s) => s.downloads);

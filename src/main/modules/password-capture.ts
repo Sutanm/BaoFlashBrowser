@@ -3,6 +3,7 @@ import type { WebContents } from 'electron';
 import log from 'electron-log';
 import { getMainWindow } from './window';
 import { getMetaForHost, isAutoCaptureEnabled, isCaptureExcluded } from './password-store';
+import { credentialOrigin, redactUrlForLog } from '@shared/utils/url-privacy';
 
 interface CaptureState {
   wc: WebContents;
@@ -54,11 +55,12 @@ function detachQuietly(state: CaptureState): void {
   try { state.wc.debugger.detach(); } catch { /* ignore duplicate detach */ }
 }
 
-const CAPTURE_SCRIPT = `
+export const CAPTURE_SCRIPT = `
 (function() {
   if (window.__baop_pw_capture) return;
   window.__baop_pw_capture = true;
-  console.log(JSON.stringify({_type:'baop_diag',msg:'script loaded host='+location.hostname+' href='+location.href}));
+  function _baopEmit(payload){try{window.__baopReport(JSON.stringify(payload));}catch(e){}}
+  _baopEmit({_type:'baop_diag',msg:'script loaded host='+location.hostname});
   var _rawUser='',_rawPass='';
   function findUserInput(container) {
     var s=['input[type="text"]','input[type="email"]','input[type="tel"]','input[name*="user"]','input[name*="login"]','input[name*="account"]','input[name*="username"]','input[name*="name"]','input[id*="user"]','input[id*="login"]','input[id*="name"]','input[autocomplete="username"]'];
@@ -67,7 +69,7 @@ const CAPTURE_SCRIPT = `
   }
   function report(src) {
     if(!_rawPass||_rawPass.length<2)return;
-    console.log(JSON.stringify({_type:'baop_capture',user:_rawUser||'',pass:_rawPass,host:location.hostname,origin:location.href,title:document.title,source:src}));
+    _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:_rawPass,host:location.hostname,origin:location.href,title:document.title,source:src});
     _rawPass='';_rawUser='';
   }
   document.addEventListener('input',function(e){
@@ -75,17 +77,17 @@ const CAPTURE_SCRIPT = `
     _rawPass=e.target.value;
     var c=e.target.closest('form')||e.target.closest('[class*="login"]')||e.target.closest('[class*="con"]')||e.target.closest('[class*="pop"]')||document;
     var u=findUserInput(c);if(u&&u.value)_rawUser=u.value;
-    console.log(JSON.stringify({_type:'baop_diag',msg:'input pw len='+_rawPass.length+' user='+_rawUser+' host='+location.hostname}));
+    _baopEmit({_type:'baop_diag',msg:'input pw len='+_rawPass.length+' host='+location.hostname});
   },true);
   document.addEventListener('submit',function(e){
     var p=e.target.querySelector('input[type="password"]');
-    console.log(JSON.stringify({_type:'baop_diag',msg:'submit form='+e.target.tagName+' hasPw='+(!!p)+' host='+location.hostname}));
+    _baopEmit({_type:'baop_diag',msg:'submit form='+e.target.tagName+' hasPw='+(!!p)+' host='+location.hostname});
     if(!p||!p.value||p.value.length<2)return;
     var u=findUserInput(e.target);
-    console.log(JSON.stringify({_type:'baop_capture',user:u?u.value:'',pass:p.value,host:location.hostname,origin:location.href,title:document.title,source:'submit'}));
+    _baopEmit({_type:'baop_capture',user:u?u.value:'',pass:p.value,host:location.hostname,origin:location.href,title:document.title,source:'submit'});
   },true);
   window.addEventListener('beforeunload',function(){
-    console.log(JSON.stringify({_type:'baop_diag',msg:'beforeunload pwLen='+(_rawPass?_rawPass.length:0)+' host='+location.hostname}));
+    _baopEmit({_type:'baop_diag',msg:'beforeunload pwLen='+(_rawPass?_rawPass.length:0)+' host='+location.hostname});
     if(_rawPass&&_rawPass.length>=2)report('beforeunload');
   });
 
@@ -108,13 +110,13 @@ const CAPTURE_SCRIPT = `
     }
     // 密码框被清空 → 登录提交了
     if (len === 0 && _lastLen > 0) {
-      console.log(JSON.stringify({_type:'baop_diag',msg:'poll trigger: cleared was='+_lastLen+' host='+location.hostname}));
+      _baopEmit({_type:'baop_diag',msg:'poll trigger: cleared was='+_lastLen+' host='+location.hostname});
       report('cleared');
       _lastLen = 0;
     }
     // 密码被加密值替换 → 登录提交了
     if (len > 60 && _lastLen > 0 && _lastLen < 60) {
-      console.log(JSON.stringify({_type:'baop_diag',msg:'poll trigger: encrypted was='+_lastLen+' now='+len+' host='+location.hostname}));
+      _baopEmit({_type:'baop_diag',msg:'poll trigger: encrypted was='+_lastLen+' now='+len+' host='+location.hostname});
       report('encrypted');
       _lastLen = 0;
     }
@@ -150,7 +152,7 @@ const CAPTURE_SCRIPT = `
       }
       if (!pw || pw.length < 2) return;
       if (!user) user = _rawUser || '';
-      console.log(JSON.stringify({_type:'baop_capture',user:user||'',pass:pw,host:location.hostname,origin:location.href,title:document.title,source:src}));
+      _baopEmit({_type:'baop_capture',user:user||'',pass:pw,host:location.hostname,origin:location.href,title:document.title,source:src});
       _rawPass='';_rawUser='';
     } catch(e) {}
   }
@@ -167,7 +169,7 @@ const CAPTURE_SCRIPT = `
           var lower = input.toLowerCase();
           if (lower.indexOf('password=') >= 0 || lower.indexOf('pwd=') >= 0) {
             var m = lower.match(/password=([^&]+)/) || lower.match(/pwd=([^&]+)/);
-            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { console.log(JSON.stringify({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'fetch-query'})); _rawPass='';_rawUser=''; } } catch(e) {} }
+            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'fetch-query'}); _rawPass='';_rawUser=''; } } catch(e) {} }
           }
         }
       } catch(e) {}
@@ -191,7 +193,7 @@ const CAPTURE_SCRIPT = `
           var lower = String(this.__baop_url).toLowerCase();
           if (lower.indexOf('password=') >= 0 || lower.indexOf('pwd=') >= 0) {
             var m = lower.match(/password=([^&]+)/) || lower.match(/pwd=([^&]+)/);
-            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { console.log(JSON.stringify({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'xhr-query'})); _rawPass='';_rawUser=''; } } catch(e) {} }
+            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'xhr-query'}); _rawPass='';_rawUser=''; } } catch(e) {} }
           }
         }
       } catch(e) {}
@@ -206,10 +208,10 @@ const CAPTURE_SCRIPT = `
     HTMLFormElement.prototype.submit = function() {
       try {
         var p = this.querySelector('input[type="password"]');
-        console.log(JSON.stringify({_type:'baop_diag',msg:'form.submit() called hasPw='+(!!p)+' host='+location.hostname}));
+        _baopEmit({_type:'baop_diag',msg:'form.submit() called hasPw='+(!!p)+' host='+location.hostname});
         if (p && p.value && p.value.length >= 2) {
           var u = findUserInput(this);
-          console.log(JSON.stringify({_type:'baop_capture',user:u?u.value:'',pass:p.value,host:location.hostname,origin:location.href,title:document.title,source:'form.submit'}));
+          _baopEmit({_type:'baop_capture',user:u?u.value:'',pass:p.value,host:location.hostname,origin:location.href,title:document.title,source:'form.submit'});
         }
       } catch(e) {}
       return _origFormSubmit.apply(this, arguments);
@@ -227,7 +229,7 @@ const CAPTURE_SCRIPT = `
           var lower = String(url).toLowerCase();
           if (lower.indexOf('password=') >= 0 || lower.indexOf('pwd=') >= 0) {
             var m = lower.match(/password=([^&]+)/) || lower.match(/pwd=([^&]+)/);
-            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { console.log(JSON.stringify({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'beacon-query'})); _rawPass='';_rawUser=''; } } catch(e) {} }
+            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'beacon-query'}); _rawPass='';_rawUser=''; } } catch(e) {} }
           }
         }
       } catch(e) {}
@@ -253,7 +255,7 @@ const CAPTURE_SCRIPT = `
         var userNow = _rawUser || '';
         var u = findUserInput(container);
         if (u && u.value) userNow = u.value;
-        console.log(JSON.stringify({_type:'baop_diag',msg:'click trigger isBtn='+isButton+' isLogin='+isLoginText+' text='+text.slice(0,20)+' host='+location.hostname}));
+        _baopEmit({_type:'baop_diag',msg:'click trigger isBtn='+isButton+' isLogin='+isLoginText+' host='+location.hostname});
         report('click-login');
       }
     } catch(e) {}
@@ -283,8 +285,8 @@ const CAPTURE_SCRIPT = `
       }
       if (!pw || pw.length < 2) return;
       if (!user) user = _rawUser || '';
-      console.log(JSON.stringify({_type:'baop_diag',msg:'url trigger src='+src+' pwLen='+pw.length+' user='+user+' host='+location.hostname}));
-      console.log(JSON.stringify({_type:'baop_capture',user:user||'',pass:pw,host:location.hostname,origin:location.href,title:document.title,source:src}));
+      _baopEmit({_type:'baop_diag',msg:'url trigger src='+src+' pwLen='+pw.length+' host='+location.hostname});
+      _baopEmit({_type:'baop_capture',user:user||'',pass:pw,host:location.hostname,origin:location.href,title:document.title,source:src});
       _rawPass='';_rawUser='';
     } catch(e) {}
   }
@@ -368,12 +370,12 @@ export function setupCapture(wc: WebContents): void {
     return;
   }
   if (isCaptureExcluded(wc.getURL())) {
-    log.info('[PasswordCapture] excluded site, wc.id=' + wc.id + ' url=' + wc.getURL());
+    log.info('[PasswordCapture] excluded site, wc.id=' + wc.id + ' url=' + redactUrlForLog(wc.getURL()));
     teardownCapture(wc);
     return;
   }
 
-  log.info('[PasswordCapture] setupCapture wc=' + wc.id + ' url=' + wc.getURL());
+  log.info('[PasswordCapture] setupCapture wc=' + wc.id + ' url=' + redactUrlForLog(wc.getURL()));
 
   // 强制清理旧 state（对齐 bv demo 的 detach+reattach 模式）
   const existing = captures.get(wc.id);
@@ -398,9 +400,8 @@ export function setupCapture(wc: WebContents): void {
       wc.debugger.sendCommand('Runtime.evaluate', { expression: CAPTURE_SCRIPT, awaitPromise: false, contextId: ctxId }).catch(() => {});
     }
     if (method === 'Runtime.executionContextDestroyed') { state.contexts.delete(params.executionContextId); }
-    if (method !== 'Runtime.consoleAPICalled') return;
-    for (const arg of (params.args || [])) {
-      const text = String(arg.value || '');
+    if (method !== 'Runtime.bindingCalled' || params.name !== '__baopReport') return;
+    for (const text of [String(params.payload || '')]) {
       if (!text.startsWith('{"_type":"baop_')) continue;
       try {
         const data = JSON.parse(text);
@@ -416,14 +417,21 @@ export function setupCapture(wc: WebContents): void {
 
         let skipToast = shownToastKeys.has(key);
         if (skipToast) {
-          log.info('[PasswordCapture] skip already-shown-toast host=' + data.host + ' user=' + data.user);
+          log.info('[PasswordCapture] skip already-shown-toast host=' + data.host);
         }
 
         if (state.capturedSet.size > 200) { const f = state.capturedSet.values().next().value; if (f) state.capturedSet.delete(f); }
         if (!skipToast) state.capturedSet.add(key);
         const captureId = 'cap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
         if (!skipToast) {
-          globalPendingCredentials.set(captureId, { host: data.host, username: data.user, password: data.pass, origin: data.origin || '', title: data.title || '', timestamp: Date.now() });
+          globalPendingCredentials.set(captureId, {
+            host: data.host,
+            username: data.user,
+            password: data.pass,
+            origin: credentialOrigin(String(data.origin || ''), String(data.host || '')),
+            title: data.title || '',
+            timestamp: Date.now(),
+          });
         }
 
         // 已保存账号查重：跳过密码本中已有的 host+username 组合，避免重复弹出 toast
@@ -431,7 +439,7 @@ export function setupCapture(wc: WebContents): void {
           try {
             const existing = getMetaForHost(data.host);
             if (existing.some((e) => e.username === data.user)) {
-              log.info('[PasswordCapture] skip already-saved host=' + data.host + ' user=' + data.user);
+              log.info('[PasswordCapture] skip already-saved host=' + data.host);
               skipToast = true;
             }
           } catch { /* password-store 未初始化时忽略 */ }
@@ -459,7 +467,8 @@ export function setupCapture(wc: WebContents): void {
     }
   });
 
-  wc.debugger.sendCommand('Runtime.enable').then(() => {
+  wc.debugger.sendCommand('Runtime.addBinding', { name: '__baopReport' }).then(() =>
+    wc.debugger.sendCommand('Runtime.enable')).then(() => {
     log.info('[PasswordCapture] Runtime.enable OK, injecting main frame');
     wc.debugger.sendCommand('Runtime.evaluate', { expression: CAPTURE_SCRIPT, awaitPromise: false }).catch(() => {});
   }).catch((e: any) => {

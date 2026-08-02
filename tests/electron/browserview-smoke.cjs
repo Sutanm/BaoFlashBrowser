@@ -1,4 +1,5 @@
-const { app, BrowserView, BrowserWindow } = require('electron');
+const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
 
@@ -15,7 +16,13 @@ async function load(view, marker) {
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } });
-  const preferences = { plugins: true, contextIsolation: true, nodeIntegration: false, partition: 'persist:smoke' };
+  const preferences = {
+    plugins: true,
+    contextIsolation: true,
+    nodeIntegration: false,
+    partition: 'persist:smoke',
+    preload: path.join(__dirname, '..', '..', 'dist', 'webview-preload.js'),
+  };
   const first = new BrowserView({ webPreferences: preferences });
   const second = new BrowserView({ webPreferences: preferences });
 
@@ -26,6 +33,39 @@ app.whenReady().then(async () => {
     second.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
     await Promise.all([load(first, 'first'), load(second, 'second')]);
 
+    const passwordFormDetected = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('dynamic password form signal timed out')), 3000);
+      ipcMain.once('password:form-detected', (event) => {
+        clearTimeout(timer);
+        resolve(event.sender.id);
+      });
+    });
+    await first.webContents.executeJavaScript(
+      `setTimeout(function(){var input=document.createElement('input');input.type='password';document.body.appendChild(input);},50)`,
+    );
+    const detectedWebContentsId = await passwordFormDetected;
+    if (detectedWebContentsId !== first.webContents.id) {
+      throw new Error(`password form signal came from unexpected view: ${detectedWebContentsId}`);
+    }
+
+    first.webContents.debugger.attach('1.3');
+    const bindingPayload = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('CDP binding signal timed out')), 3000);
+      first.webContents.debugger.on('message', (_event, method, params) => {
+        if (method === 'Runtime.bindingCalled' && params.name === '__baopSmokeReport') {
+          clearTimeout(timer);
+          resolve(params.payload);
+        }
+      });
+    });
+    await first.webContents.debugger.sendCommand('Runtime.addBinding', { name: '__baopSmokeReport' });
+    await first.webContents.debugger.sendCommand('Runtime.enable');
+    await first.webContents.debugger.sendCommand('Runtime.evaluate', {
+      expression: `window.__baopSmokeReport('binding-ok')`,
+    });
+    if ((await bindingPayload) !== 'binding-ok') throw new Error('unexpected CDP binding payload');
+    first.webContents.debugger.detach();
+
     const firstProcess = first.webContents.getOSProcessId();
     const secondProcess = second.webContents.getOSProcessId();
     if (!firstProcess || !secondProcess || firstProcess === secondProcess) {
@@ -35,7 +75,7 @@ app.whenReady().then(async () => {
     first.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
     second.setBounds({ x: 0, y: 0, width: 640, height: 480 });
     await second.webContents.reload();
-    console.log('[smoke] BrowserView isolation, hidden bounds and reload passed');
+    console.log('[smoke] BrowserView isolation, hidden bounds, password signals and reload passed');
     clearTimeout(timeout);
     app.exit(0);
   } catch (error) {

@@ -12,6 +12,7 @@ export type { AddressToast, ToastAction, ToastDismissReason, ToastInput } from '
 export const defaultSettings: Settings = {
   homepage: 'about:newtab',
   restoreSession: true,
+  suspendInactiveTabs: false,
   searchEngine: 'bing',
   linkBehavior: 'new-tab',
   flashEngineMode: 'auto' as FlashEngineMode,
@@ -47,6 +48,13 @@ export interface DataState {
 // L36: history 写入 debounce，合并频繁的 URL 变化触发
 let histPersistTimer: ReturnType<typeof setTimeout> | undefined;
 let downloadsPersistTimer: ReturnType<typeof setTimeout> | undefined;
+let persistenceQueue: Promise<void> = Promise.resolve();
+
+function enqueuePersistence(label: string, operation: () => Promise<void>): void {
+  persistenceQueue = persistenceQueue
+    .then(operation, operation)
+    .catch((error) => console.error(`[DB] ${label} persist failed:`, error));
+}
 
 // L36: 注入标志 — useLiveQuery 回灌 store 时跳过 db 写入，避免循环
 let skipPersist = false;
@@ -103,19 +111,19 @@ export const useDataStore = create<DataState>((set) => ({
     set((state) => {
       const next = typeof f === 'function' ? f(state.favorites) : f;
       if (!skipPersist) {
-        replaceFavorites(next).catch((e) => console.error('[DB] favorites persist failed:', e));
+        enqueuePersistence('favorites', () => replaceFavorites(next));
       }
       return { favorites: next };
     }),
 
   setHistory: (h) =>
     set((state) => {
-      const next = typeof h === 'function' ? (h as any)(state.history) : h;
+      const next = typeof h === 'function' ? h(state.history) : h;
       if (!skipPersist) {
         if (histPersistTimer) clearTimeout(histPersistTimer);
         histPersistTimer = setTimeout(() => {
           // history 使用 clear + bulkPut 全量替换，确保单项删除也能真正生效
-          replaceHistory(next).catch((e) => console.error('[DB] history persist failed:', e));
+          enqueuePersistence('history', () => replaceHistory(next));
         }, 500);
       }
       return { history: next };
@@ -132,11 +140,11 @@ export const useDataStore = create<DataState>((set) => ({
         if (downloadsPersistTimer) clearTimeout(downloadsPersistTimer);
         if (terminalChanged) {
           downloadsPersistTimer = undefined;
-          replaceDownloads(next).catch((e) => console.error('[DB] downloads persist failed:', e));
+          enqueuePersistence('downloads', () => replaceDownloads(next));
         } else {
           downloadsPersistTimer = setTimeout(() => {
             downloadsPersistTimer = undefined;
-            replaceDownloads(next).catch((e) => console.error('[DB] downloads persist failed:', e));
+            enqueuePersistence('downloads', () => replaceDownloads(next));
           }, 1000);
         }
       }
@@ -147,8 +155,12 @@ export const useDataStore = create<DataState>((set) => ({
     set((state) => {
       const nextSettings = { ...state.settings, themeMode: t };
       if (!skipPersist) {
-        db.settings.put(nextSettings, 'default').catch((e) => console.error('[DB] themeMode persist failed:', e));
-        saveMeta('themeMode', t).catch((e) => console.error('[DB] legacy themeMode persist failed:', e));
+        enqueuePersistence('themeMode', async () => {
+          await db.transaction('rw', db.settings, db.meta, async () => {
+            await db.settings.put(nextSettings, 'default');
+            await saveMeta('themeMode', t);
+          });
+        });
       }
       return { themeMode: t, settings: nextSettings };
     });
@@ -156,23 +168,21 @@ export const useDataStore = create<DataState>((set) => ({
 
   setSettings: (s) =>
     set((state) => {
-      const next = typeof s === 'function' ? (s as any)(state.settings) : s;
+      const next = typeof s === 'function' ? s(state.settings) : s;
       if (!skipPersist) {
-        db.settings
-          .put(next, 'default')
-          .catch((e) => console.error('[DB] settings persist failed:', e));
+        enqueuePersistence('settings', () => db.settings.put(next, 'default').then(() => undefined));
       }
       return { settings: next, themeMode: next.themeMode };
     }),
 
   setPasswords: (p) =>
     set((state) => ({
-      passwords: typeof p === 'function' ? (p as any)(state.passwords) : p,
+      passwords: typeof p === 'function' ? p(state.passwords) : p,
     })),
   setPasswordStoreStatus: (s) =>
     set((state) => ({
       passwordStoreStatus:
-        typeof s === 'function' ? (s as any)(state.passwordStoreStatus) : s,
+        typeof s === 'function' ? s(state.passwordStoreStatus) : s,
     })),
   setActivePanel: (p) =>
     set((state) => ({

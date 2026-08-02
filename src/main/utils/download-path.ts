@@ -28,10 +28,19 @@ export function availableSavePath(dir: string, filename: string): string {
 }
 
 export function isPathWithinDirectory(directory: string, targetPath: string): boolean {
-  const directoryResolved = path.resolve(directory);
-  const targetResolved = path.resolve(targetPath);
-  const allowed = fs.existsSync(directoryResolved) ? fs.realpathSync(directoryResolved) : directoryResolved;
-  const target = fs.existsSync(targetResolved) ? fs.realpathSync(targetResolved) : targetResolved;
+  const resolveThroughExistingAncestor = (value: string): string => {
+    let cursor = path.resolve(value);
+    const tail: string[] = [];
+    while (!fs.existsSync(cursor)) {
+      const parent = path.dirname(cursor);
+      if (parent === cursor) return path.resolve(value);
+      tail.unshift(path.basename(cursor));
+      cursor = parent;
+    }
+    return path.join(fs.realpathSync(cursor), ...tail);
+  };
+  const allowed = resolveThroughExistingAncestor(directory);
+  const target = resolveThroughExistingAncestor(targetPath);
   const normalizedAllowed = process.platform === 'win32' ? allowed.toLowerCase() : allowed;
   const normalizedTarget = process.platform === 'win32' ? target.toLowerCase() : target;
   return normalizedTarget === normalizedAllowed || normalizedTarget.startsWith(normalizedAllowed + path.sep);

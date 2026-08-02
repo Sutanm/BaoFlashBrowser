@@ -1,7 +1,5 @@
-import { BrowserView, BrowserWindow, Menu, shell } from 'electron';
+import { BrowserView, Menu } from 'electron';
 import log from 'electron-log';
-import fs from 'fs';
-import path from 'path';
 import { getMainWindow } from './window';
 import { setupSessionOnce } from './session-manager';
 import { setupCapture, teardownCapture } from './password-capture';
@@ -34,6 +32,13 @@ class TabManager {
   private rect: ContainerRect = { x: 0, y: 0, width: 0, height: 0 };
   private preloadPath = '';
   private passwordFillTimers = new Map<number, Set<ReturnType<typeof setTimeout>>>();
+  private passwordFormSignalTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private passwordFillInFlight = new Set<number>();
+
+  private _isCurrentWebContents(tabId: string, wc: Electron.WebContents): boolean {
+    const tab = this.tabs.get(tabId);
+    return !!tab && tab.browserView.webContents.id === wc.id && this.wcToId.get(wc.id) === tabId;
+  }
 
   getRuffleForWC(wcId: number): { tabId: string; enabled: boolean; source?: 'bundled' | 'cdn' } | null {
     const tabId = this.wcToId.get(wcId);
@@ -96,27 +101,33 @@ class TabManager {
   }
 
   private _wireBrowserViewEvents(wc: Electron.WebContents, tabId: string): void {
-    wc.on('page-title-updated', (_e, title) => this.send('tab:updated', { tabId, title }));
+    wc.on('page-title-updated', (_e, title) => {
+      if (this._isCurrentWebContents(tabId, wc)) this.send('tab:updated', { tabId, title });
+    });
     wc.on('page-favicon-updated', (_e, favicons) => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       if (favicons && favicons.length > 0) this.send('tab:updated', { tabId, favicon: favicons[0] });
     });
     wc.on('did-start-loading', () => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       this._clearPasswordFillTimers(wc.id);
       this.send('tab:updated', { tabId, isLoading: true });
     });
     wc.on('did-stop-loading', () => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       this.send('tab:updated', { tabId, isLoading: false });
       setTimeout(() => {
+        if (!this._isCurrentWebContents(tabId, wc) || wc.isDestroyed()) return;
         try {
           wc.executeJavaScript('document.title').then((title) => {
-            if (typeof title === 'string' && title && title !== 'about:blank') {
+            if (this._isCurrentWebContents(tabId, wc) && typeof title === 'string' && title && title !== 'about:blank') {
               this.send('tab:updated', { tabId, title });
             }
           }).catch(() => {});
           wc.executeJavaScript(
             `(function(){var e=document.querySelector('link[rel*="icon"]');return e?e.href:''})()`
           ).then((favicon) => {
-            if (typeof favicon === 'string' && favicon) {
+            if (this._isCurrentWebContents(tabId, wc) && typeof favicon === 'string' && favicon) {
               this.send('tab:updated', { tabId, favicon });
             }
           }).catch(() => {});
@@ -127,17 +138,24 @@ class TabManager {
     });
 
     wc.on('did-navigate', (_e, navUrl) => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       if (navUrl === 'about:blank') return;
       if (navUrl.startsWith('data:')) return;
       this.send('tab:updated', { tabId, url: navUrl });
     });
     wc.on('did-navigate-in-page', (_e, navUrl, isMainFrame) => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       if (isMainFrame && navUrl !== 'about:blank') this.send('tab:updated', { tabId, url: navUrl });
     });
-    wc.on('media-started-playing', () => this.send('tab:updated', { tabId, isAudible: true }));
-    wc.on('media-paused', () => this.send('tab:updated', { tabId, isAudible: false }));
+    wc.on('media-started-playing', () => {
+      if (this._isCurrentWebContents(tabId, wc)) this.send('tab:updated', { tabId, isAudible: true });
+    });
+    wc.on('media-paused', () => {
+      if (this._isCurrentWebContents(tabId, wc)) this.send('tab:updated', { tabId, isAudible: false });
+    });
 
     const updateNav = () => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       try {
         this.send('tab:updated', { tabId, canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() });
       } catch (e: any) { log.warn('[TabManager] updateNav failed:', e?.message); }
@@ -147,31 +165,36 @@ class TabManager {
     wc.on('did-stop-loading', updateNav);
 
     wc.on('found-in-page', (_e, result) => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       this.send('tab:found', { tabId, activeMatchOrdinal: result.activeMatchOrdinal, matches: result.matches });
     });
 
     wc.on('did-fail-load', (_e, errorCode, _desc, validatedURL) => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       if (errorCode === -3) return;
       this.send('tab:load-error', { tabId, errorCode, validatedURL });
     });
 
     wc.on('render-process-gone', () => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       this.wcToId.delete(wc.id);
       this.send('tab:crashed', { tabId });
     });
 
     wc.on('new-window', (e, url) => {
       e.preventDefault();
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       this.send('tab:newwindow', { url });
     });
 
     wc.on('context-menu', (_e, params) => {
+      if (!this._isCurrentWebContents(tabId, wc)) return;
       const mw = getMainWindow();
       if (!mw || mw.isDestroyed()) return;
       const template: Electron.MenuItemConstructorOptions[] = [
-        { label: '↩ 后退', enabled: wc.canGoBack(), click: () => wc.goBack() },
-        { label: '↪ 前进', enabled: wc.canGoForward(), click: () => wc.goForward() },
-        { label: '⟳ 刷新', click: () => wc.reload() },
+        { label: '↩ 后退', enabled: wc.canGoBack(), click: () => this.goBack(tabId) },
+        { label: '↪ 前进', enabled: wc.canGoForward(), click: () => this.goForward(tabId) },
+        { label: '⟳ 刷新', click: () => this.reload(tabId) },
         { type: 'separator' },
         { label: '复制', enabled: (params.selectionText?.length ?? 0) > 0, role: 'copy' },
         { label: '粘贴', role: 'paste' },
@@ -290,39 +313,67 @@ class TabManager {
     const timers = this.passwordFillTimers.get(wcId);
     if (timers) {
       for (const timer of timers) clearTimeout(timer);
+      timers.clear();
     }
     this.passwordFillTimers.delete(wcId);
+    const signalTimer = this.passwordFormSignalTimers.get(wcId);
+    if (signalTimer) clearTimeout(signalTimer);
+    this.passwordFormSignalTimers.delete(wcId);
+  }
+
+  private _attemptPasswordFill(wc: Electron.WebContents, tabId: string): Promise<void> {
+    if (!isAutoFillEnabled() || wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc) || this.passwordFillInFlight.has(wc.id)) {
+      return Promise.resolve();
+    }
+    this.passwordFillInFlight.add(wc.id);
+    return fillPasswordsInWebContents(
+      wc,
+      (frameUrl) => getFillCredentialForUrl(frameUrl, undefined, true),
+    ).then((result) => {
+      if (!result.success || !this._isCurrentWebContents(tabId, wc)) return;
+      this._clearPasswordFillTimers(wc.id);
+      this.send('password:filled', {
+        tabId,
+        username: result.usernames[0] || '',
+        count: result.filledCredentials,
+        automatic: true,
+      });
+    }).catch((error) => {
+      log.debug('[PasswordFill] automatic attempt failed:', error);
+    }).finally(() => {
+      this.passwordFillInFlight.delete(wc.id);
+    });
   }
 
   private _schedulePasswordFill(wc: Electron.WebContents, tabId: string): void {
     this._clearPasswordFillTimers(wc.id);
     if (!isAutoFillEnabled()) return;
-    let completed = false;
     const timers = new Set<ReturnType<typeof setTimeout>>();
     this.passwordFillTimers.set(wc.id, timers);
-    for (const delay of [120, 1000, 3000]) {
+    for (const delay of [120, 1000, 3000, 10000, 30000]) {
       const timer = setTimeout(async () => {
         timers.delete(timer);
-        if (completed || wc.isDestroyed()) return;
-        const result = await fillPasswordsInWebContents(
-          wc,
-          (frameUrl) => getFillCredentialForUrl(frameUrl, undefined, true),
-        );
-        if (result.success) {
-          completed = true;
-          this._clearPasswordFillTimers(wc.id);
-          this.send('password:filled', {
-            tabId,
-            username: result.usernames[0] || '',
-            count: result.filledCredentials,
-            automatic: true,
-          });
-        } else if (timers.size === 0) {
+        await this._attemptPasswordFill(wc, tabId);
+        if (timers.size === 0) {
           this.passwordFillTimers.delete(wc.id);
         }
       }, delay);
       timers.add(timer);
     }
+  }
+
+  notifyPasswordFormDetected(wcId: number): void {
+    const tabId = this.wcToId.get(wcId);
+    if (!tabId || !isAutoFillEnabled()) return;
+    const tab = this.tabs.get(tabId);
+    if (!tab || tab.browserView.webContents.id !== wcId || tab.browserView.webContents.isLoading()) return;
+    const existing = this.passwordFormSignalTimers.get(wcId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.passwordFormSignalTimers.delete(wcId);
+      void this._attemptPasswordFill(tab.browserView.webContents, tabId);
+    }, 100);
+    this.passwordFormSignalTimers.set(wcId, timer);
   }
 
   refreshPasswordFill(): void {

@@ -9,7 +9,7 @@ class BaoDB extends Dexie {
   history!: Dexie.Table<HistoryEntry, string>;
   downloads!: Dexie.Table<DownloadItem & { _idx?: number }, string>;
   settings!: Dexie.Table<Settings, string>;
-  meta!: Dexie.Table<{ key: string; value: any }, string>;
+  meta!: Dexie.Table<{ key: string; value: unknown }, string>;
 
   constructor() {
     super('BaoFlashDB');
@@ -26,13 +26,13 @@ class BaoDB extends Dexie {
 export const db = new BaoDB();
 
 // Atomic upsert helpers
-export async function saveMeta(key: string, value: any) {
+export async function saveMeta(key: string, value: unknown): Promise<void> {
   await db.meta.put({ key, value }, key);
 }
 
-export async function loadMeta(key: string): Promise<any> {
+export async function loadMeta<T = unknown>(key: string): Promise<T | undefined> {
   const entry = await db.meta.get(key);
-  return entry?.value;
+  return entry?.value as T | undefined;
 }
 
 // Migrate localStorage to IndexedDB on first run

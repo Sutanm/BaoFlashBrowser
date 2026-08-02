@@ -63,6 +63,9 @@ npm run check      # i18n + typecheck + lint + tests + production build
 - **Never redirect `crossdomain.xml` to `data:`**. PPAPI reports the redirected policy request as `net::ERR_ABORTED`; AS3 games can render their launcher and then turn white when login switches to remote game services. Let every origin serve its native Flash policy. The permissive response headers in `session-manager.ts` apply only to `.swf` requests for Ruffle and are not a substitute for PPAPI policy files.
 - **PPAPI version differs by platform**: Win `29.0.0.171`, Linux `32.0.0.371`. DLL filename must contain version number or `extractVersion` returns `0.0.0.0` → sites detects wrong version.
 - **Advertised and physical Flash versions are intentionally different on Windows**: the stable bundled DLL is 29.0.0.171 while the default advertised version is 34.0.0.330 for legacy site gates. Do not remove spoofing merely because the physical DLL is older.
+- **Password capture payloads use CDP `Runtime.addBinding`**. Never send credentials through `console.log`, renderer IPC, or diagnostics. Dynamic form observation may send only a presence signal (`password:form-detected`).
+- **BrowserView events must pass the current-WebContents guard** before updating a tab. Engine switches destroy and replace the view while late events from the old renderer may still arrive.
+- **Inactive-tab suspension is opt-in**. Never suspend the active, loading, audible, or React new-tab page; recreation must restore engine, zoom and mute state.
 - **Linux requires `--no-sandbox`**. WSLg requires all three GPU flags: `--ignore-gpu-blacklist`, `--enable-gpu-rasterization`, `--enable-zero-copy`.
 - **`did-fail-load` handler**: never call `wc.stop()` — it kills post-login redirects.
 - **Never attempt to override or upgrade Electron version.** Everything depends on Chromium 87.

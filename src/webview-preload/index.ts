@@ -2,7 +2,7 @@
 // Password capture and filling live in the main process CDP modules so that
 // cross-origin frames work and plaintext credentials never enter renderer IPC.
 
-export {};
+import { installPasswordFormObserver } from './password-form-observer';
 
 interface RuffleModeConfig {
   enabled: boolean;
@@ -29,6 +29,15 @@ declare global {
     __baoflash_preload?: number;
   }
 }
+
+(function() {
+  try {
+    // Only a presence signal crosses IPC; credentials stay in the main-process CDP path.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const ipc = require('electron').ipcRenderer;
+    if (ipc) installPasswordFormObserver(() => ipc.send('password:form-detected'));
+  } catch { /* page operation must not depend on autofill observation */ }
+})();
 
 // --- Ruffle 模式检测与注入（contextIsolation: false 时直接 eval 到页面上下文）---
 (function() {

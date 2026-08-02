@@ -11,6 +11,7 @@ export interface Tab {
   canGoForward: boolean;
   createdAt: number;
   ruffleMode: 'ppapi' | 'ruffle';
+  suspended?: boolean;
 }
 
 export interface TabCreateOptions {

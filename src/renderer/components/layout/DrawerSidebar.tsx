@@ -7,6 +7,7 @@ import FavoritesPanel from '../panels/FavoritesPanel';
 import HistoryPanel from '../panels/HistoryPanel';
 import DownloadsPanel from '../panels/DownloadsPanel';
 import SettingsPanel from '../panels/SettingsPanel';
+import type { TranslationFunctions } from '@renderer/i18n/i18n-types';
 
 interface DrawerSidebarProps {
   collapsed: boolean;
@@ -27,7 +28,7 @@ const PANEL_ITEMS = [
   { id: 'settings' as const, icon: SettingsIcon },
 ];
 
-function getPanelLabel(id: string, LL: any): string {
+function getPanelLabel(id: string, LL: TranslationFunctions): string {
   switch (id) {
     case 'favorites': return LL.sidebar.favorites();
     case 'history': return LL.sidebar.history();

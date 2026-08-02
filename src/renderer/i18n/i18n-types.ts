@@ -639,6 +639,14 @@ type RootTranslation = {
 		 */
 		restoreSessionHint: string
 		/**
+		 * 休​眠​长​期​未​使​用​的​标​签​页
+		 */
+		suspendInactiveTabs: string
+		/**
+		 * 可​选​；​非​活​动​且​未​播​放​声​音​的​网​页​标​签​在​ ​1​0​ ​分​钟​后​释​放​进​程​，​切​回​时​自​动​重​新​载​入​。
+		 */
+		suspendInactiveTabsHint: string
+		/**
 		 * 搜​索​引​擎
 		 */
 		searchEngine: string
@@ -1449,6 +1457,14 @@ export type TranslationFunctions = {
 		 * 正常关闭不会恢复；仅在崩溃、断电或强制结束后询问，最多恢复 20 个标签页。
 		 */
 		restoreSessionHint: () => LocalizedString
+		/**
+		 * 休眠长期未使用的标签页
+		 */
+		suspendInactiveTabs: () => LocalizedString
+		/**
+		 * 可选；非活动且未播放声音的网页标签在 10 分钟后释放进程，切回时自动重新载入。
+		 */
+		suspendInactiveTabsHint: () => LocalizedString
 		/**
 		 * 搜索引擎
 		 */

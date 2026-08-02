@@ -1,4 +1,5 @@
 import type { Tab } from '@shared/types/tab';
+import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
 
 export const TAB_SESSION_META_KEY = 'tab_session_v1';
 export const MAX_RESTORED_TABS = 20;
@@ -15,7 +16,7 @@ function safeSessionUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length < 1 || value.length > 8192) return null;
   try {
     const parsed = new URL(value);
-    return ['http:', 'https:', 'file:'].includes(parsed.protocol) ? value : null;
+    return ['http:', 'https:', 'file:'].includes(parsed.protocol) ? sanitizeUrlForPersistence(value) : null;
   } catch {
     return null;
   }
@@ -48,6 +49,7 @@ export function sanitizeTabSession(value: unknown): TabSessionSnapshot | null {
       canGoForward: false,
       createdAt: typeof tab.createdAt === 'number' ? tab.createdAt : Date.now(),
       ruffleMode: tab.ruffleMode === 'ruffle' ? 'ruffle' : 'ppapi',
+      suspended: false,
     });
   }
 

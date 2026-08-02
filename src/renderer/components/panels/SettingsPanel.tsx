@@ -31,7 +31,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
   const setStoreStatus = useDataStore((s) => s.setPasswordStoreStatus);
   const pushToast = useDataStore((s) => s.pushToast);
   const { themeMode, setThemeMode } = useTheme();
-  const { LL, setLocale } = useI18nContext() as any;
+  const { LL, setLocale } = useI18nContext();
 
   const [form, setForm] = useState<Settings>({ ...defaultSettings, ...settings });
   const [mainForm, setMainForm] = useState<MainConfigForm>({ ...DEFAULT_MAIN_CONFIG });
@@ -185,6 +185,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
             aria-checked={form.restoreSession}
             className={`toggle-switch ${form.restoreSession ? 'on' : ''}`}
             onClick={() => handleChange('restoreSession', !form.restoreSession)}
+          >
+            <span className="toggle-knob" />
+          </button>
+        </div>
+        <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>
+            <span className="field-label" style={{ display: 'block' }}>{LL.settings.suspendInactiveTabs()}</span>
+            <span className="field-hint">{LL.settings.suspendInactiveTabsHint()}</span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.suspendInactiveTabs}
+            className={`toggle-switch ${form.suspendInactiveTabs ? 'on' : ''}`}
+            onClick={() => handleChange('suspendInactiveTabs', !form.suspendInactiveTabs)}
           >
             <span className="toggle-knob" />
           </button>

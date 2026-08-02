@@ -12,11 +12,12 @@ export interface FlashEngineRule {
 export interface Settings {
   homepage: string;
   restoreSession: boolean;
+  suspendInactiveTabs: boolean;
   searchEngine: SearchEngine;
   linkBehavior: LinkBehavior;
   flashEngineMode: FlashEngineMode;
   flashEngineRules: FlashEngineRule[];
   ruffleSource: RuffleSource;
   themeMode: ThemeMode;
-  language: string;
+  language: 'zh-CN' | 'en';
 }
