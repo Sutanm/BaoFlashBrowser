@@ -6,11 +6,17 @@ BaoFlashBrowser 是基于 Electron 11.5.0（Chromium 87）、React 18 和 TypeSc
 
 | 平台 | 安装包 |
 | --- | --- |
-| Windows x64 | [BaoFlashBrowser-1.0.1-x64.exe](https://gitee.com/sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-x64.exe) |
-| Windows ia32（未完全测试） | [BaoFlashBrowser-1.0.1-ia32.exe](https://gitee.com/sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-ia32.exe) |
-| Linux x64（AppImage 可能存在兼容缺陷） | [BaoFlashBrowser-1.0.1-x64.AppImage](https://gitee.com/sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-x64.AppImage) |
+| Windows x64 | [BaoFlashBrowser-1.0.1-x64.exe](https://github.com/Sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-x64.exe) |
+| Windows ia32（未完全测试） | [BaoFlashBrowser-1.0.1-ia32.exe](https://github.com/Sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-ia32.exe) |
+| Linux x64（AppImage 可能存在兼容缺陷） | [BaoFlashBrowser-1.0.1-x86_64.AppImage](https://github.com/Sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-x86_64.AppImage) |
 
-正式发布的文件名、大小和 SHA-256 校验值以 GitHub/Gitee Release 页面为准。Windows ia32 已包含匹配的 aria2 1.37.0，但该平台尚未完成充分实机测试。Linux 仅提供 x64，不提供 x86；AppImage 可能受发行版、FUSE、动态库和显示环境影响，建议优先下载源码并使用 Node.js 20 执行 `npm install`、`npm start`。
+| 文件 | SHA-256 |
+| --- | --- |
+| `BaoFlashBrowser-1.0.1-x64.exe` | `9D0FEE85251E9E9D98B79765C79FAA153C809A702F1EA486D1420DD5C8D11BAC` |
+| `BaoFlashBrowser-1.0.1-ia32.exe` | `77309E784AEE05C04681D3FF3859C175C47254FD40EF5B1ED82D1E53FA40784A` |
+| `BaoFlashBrowser-1.0.1-x86_64.AppImage` | `F87CD4BFA845DE8B537A8D3FCBEF2C3B297945DF92CC0213092ACF0E6C2075AC` |
+
+Windows ia32 已包含匹配的 aria2 1.37.0，但该平台尚未完成充分实机测试。Linux 仅提供 x64，不提供 x86；AppImage 可能受发行版、FUSE、动态库和显示环境影响，建议优先下载源码并使用 Node.js 20 执行 `npm install`、`npm start`。
 
 ## 核心能力
 
