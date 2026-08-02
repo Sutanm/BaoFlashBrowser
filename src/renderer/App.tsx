@@ -280,6 +280,8 @@ const AppInner: React.FC = () => {
         <DrawerSidebar
           collapsed={sidebarCollapsed}
           currentUrl={activeTab?.url || ''}
+          currentTitle={activeTab?.title || ''}
+          currentFavicon={activeTab?.favicon}
           onOpenUrl={(url, newTab) => {
             setActivePanel(null);
             if (settings.linkBehavior === 'new-tab' && (newTab || activeTab?.url !== 'about:newtab')) {

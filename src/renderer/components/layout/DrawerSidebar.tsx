@@ -12,6 +12,8 @@ import type { TranslationFunctions } from '@renderer/i18n/i18n-types';
 interface DrawerSidebarProps {
   collapsed: boolean;
   currentUrl: string;
+  currentTitle: string;
+  currentFavicon?: string;
   onOpenUrl: (url: string, newTab: boolean) => void;
   zoomPercent: number;
   onZoomIn: () => void;
@@ -41,7 +43,7 @@ function getPanelLabel(id: string, LL: TranslationFunctions): string {
 
 const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   collapsed,
-  currentUrl, onOpenUrl,
+  currentUrl, currentTitle, currentFavicon, onOpenUrl,
   zoomPercent, onZoomIn, onZoomOut, onZoomReset,
   downloadCount,
 }) => {
@@ -139,7 +141,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             </div>
             <div className="flex-1 overflow-y-auto">
               {activePanel === 'favorites' && (
-                <FavoritesPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
+                <FavoritesPanel currentUrl={currentUrl} currentTitle={currentTitle} currentFavicon={currentFavicon} onOpenUrl={onOpenUrl} />
               )}
               {activePanel === 'history' && (
                 <HistoryPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />

@@ -6,6 +6,8 @@ import type { BookmarkEntry } from '@shared/types/bookmarks';
 
 interface FavoritesPanelProps {
   currentUrl: string;
+  currentTitle: string;
+  currentFavicon?: string;
   onOpenUrl: (url: string, newTab: boolean) => void;
 }
 
@@ -18,7 +20,16 @@ function getFaviconUrl(favicon: string | undefined, url: string): string {
   return `https://www.google.com/s2/favicons?domain=${getHost(url)}&sz=16`;
 }
 
-const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, onOpenUrl }) => {
+// 与标签栏收藏按钮保持一致：若 title 缺失或本身就是 http(s) URL，则退化为 hostname
+function resolveBookmarkTitle(rawTitle: string, url: string): string {
+  const fallback = rawTitle || url;
+  if (/^https?:\/\//.test(fallback)) {
+    try { return new URL(fallback).hostname; } catch { return fallback; }
+  }
+  return fallback;
+}
+
+const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, currentTitle, currentFavicon, onOpenUrl }) => {
   const { LL } = useI18nContext();
   const favs = useDataStore((s) => s.favorites);
   const setFavs = useDataStore((s) => s.setFavorites);
@@ -27,12 +38,13 @@ const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, onOpenUrl }
 
   const toggleBookmark = useCallback(() => {
     if (!currentUrl || currentUrl === 'about:newtab') return;
+    const title = resolveBookmarkTitle(currentTitle, currentUrl);
     setFavs((prev) => {
       const exists = prev.some((f) => f.url === currentUrl);
       if (exists) return prev.filter((f) => f.url !== currentUrl);
-      return [{ url: currentUrl, title: currentUrl, favicon: undefined, addedAt: Date.now() } as BookmarkEntry, ...prev];
+      return [{ url: currentUrl, title, favicon: currentFavicon, addedAt: Date.now() } as BookmarkEntry, ...prev];
     });
-  }, [currentUrl, setFavs]);
+  }, [currentUrl, currentTitle, currentFavicon, setFavs]);
 
   const removeFav = useCallback((e: React.MouseEvent, url: string) => {
     e.stopPropagation();
