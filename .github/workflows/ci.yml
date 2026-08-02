@@ -24,7 +24,12 @@ jobs:
         run: npm run test:electron && npm run test:ruffle && npm run test:compat
       - name: BrowserView smoke test (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:electron && xvfb-run -a npm run test:ruffle && xvfb-run -a npm run test:compat
+        shell: bash
+        run: |
+          xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/browserview-smoke.cjs
+          xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/ruffle-session-smoke.cjs
+          node tests/electron/build-compatibility-smoke.mjs
+          xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/session-compatibility-smoke.cjs
 
   package:
     needs: check
