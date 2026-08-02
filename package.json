@@ -4,27 +4,37 @@
   "description": "Cross-platform Flash browser based on Electron",
   "main": "dist/main.js",
   "scripts": {
+    "clean": "node build/clean-dist.cjs",
     "build:main": "node esbuild.main.config.mjs",
-    "build:renderer": "npm run i18n && vite build --config vite.renderer.config.ts",
-    "build": "npm run build:main && npm run build:renderer",
+    "build:renderer": "vite build --config vite.renderer.config.ts",
+    "build": "npm run clean && npm run build:main && npm run build:renderer",
     "dev:main": "node esbuild.main.config.mjs --watch",
     "dev:renderer": "npm run i18n && vite --config vite.renderer.config.ts",
     "dev": "concurrently \"npm run dev:main\" \"npm run dev:renderer\"",
     "i18n": "typesafe-i18n --no-watch",
+    "typecheck:main": "tsc -p tsconfig.main.json --noEmit",
+    "typecheck:renderer": "tsc -p tsconfig.renderer.json --noEmit",
+    "typecheck:preload": "tsc -p tsconfig.preload.json --noEmit",
+    "typecheck": "npm run typecheck:main && npm run typecheck:renderer && npm run typecheck:preload",
+    "check": "npm run i18n && npm run typecheck && npm run lint && npm run test -- --run && npm run build",
+    "verify:release": "node build/verify-release.cjs",
+    "prepare:release": "node build/prepare-release.cjs",
     "start": "npm run i18n && npm run build && electron .",
     "icon": "node build/make-icon.js",
-    "build:win": "npm run build && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --win",
-    "build:win64": "npm run build && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --win --x64",
-    "build:win32": "npm run build && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --win --ia32",
-    "build:linux": "npm run build && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --linux",
-    "build:all": "npm run build && electron-builder --win --linux",
+    "build:win": "npm run build:win64",
+    "build:win64": "npm run build && npm run verify:release -- --stage source --platform win32 --arch x64 && npm run prepare:release && cross-env BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=x64 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config build/electron-builder.config.cjs --win --x64 && npm run verify:release -- --stage unpacked --platform win32 --arch x64",
+    "build:win32": "npm run build && npm run verify:release -- --stage source --platform win32 --arch ia32 && npm run prepare:release && cross-env BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=ia32 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config build/electron-builder.config.cjs --win --ia32 && npm run verify:release -- --stage unpacked --platform win32 --arch ia32",
+    "build:linux": "npm run build && npm run verify:release -- --stage source --platform linux --arch x64 && npm run prepare:release && cross-env BAO_TARGET_PLATFORM=linux BAO_TARGET_ARCH=x64 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config build/electron-builder.config.cjs --linux --x64 && npm run verify:release -- --stage unpacked --platform linux --arch x64",
+    "build:all": "npm run build:win64 && npm run build:win32 && npm run build:linux",
     "lint": "eslint src/ --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "test": "vitest",
+    "test:electron": "electron tests/electron/browserview-smoke.cjs",
+    "test:ruffle": "electron tests/electron/ruffle-session-smoke.cjs",
+    "test:compat": "node tests/electron/build-compatibility-smoke.mjs && electron release/tests/session-compatibility-smoke.cjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@ruffle-rs/ruffle": "^0.4.1",
     "dayjs": "^1.11.13",
     "dexie-react-hooks": "^4.4.0",
     "electron-log": "^4.4.8",
@@ -34,6 +44,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@ruffle-rs/ruffle": "^0.4.1",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^18.3.0",
@@ -51,6 +62,7 @@
     "eslint-config-prettier": "^10.0.0",
     "eslint-plugin-react": "^7.34.0",
     "eslint-plugin-react-hooks": "^5.0.0",
+    "jsdom": "^26.1.0",
     "lucide-react": "^0.460.0",
     "playwright": "^1.42.0",
     "png-to-ico": "^3.0.1",
@@ -68,43 +80,5 @@
     "zustand": "^5.0.0"
   },
   "author": "Sutanm",
-  "license": "MIT",
-  "build": {
-    "appId": "com.bao.flashbrowser",
-    "productName": "BaoFlashBrowser",
-    "directories": {
-      "output": "release"
-    },
-    "extraResources": [
-      {
-        "from": "plugins",
-        "to": "plugins"
-      },
-      {
-        "from": "native",
-        "to": "native"
-      }
-    ],
-    "files": [
-      "dist/**/*",
-      "build/icon.ico"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "build/icon.png",
-      "category": "Network"
-    },
-    "appImage": {
-      "artifactName": "${productName}-${version}-x64.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
-    }
-  }
+  "license": "MIT"
 }

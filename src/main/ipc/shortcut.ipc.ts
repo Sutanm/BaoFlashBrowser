@@ -1,4 +1,4 @@
-import type { BrowserWindow, WebContents } from 'electron';
+import type { WebContents } from 'electron';
 import { globalShortcut, app } from 'electron';
 import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
@@ -87,7 +87,8 @@ export function handleWebviewBeforeInputEvent(
   // Handle Ctrl+MouseWheel for zoom (fallback for Flash/iframe areas)
   if (input.type === 'mouseWheel' && (input.control || input.meta)) {
     event.preventDefault();
-    const action = input.deltaY < 0 ? 'zoom-in' : 'zoom-out';
+    const deltaY = (input as Electron.Input & { deltaY: number }).deltaY;
+    const action = deltaY < 0 ? 'zoom-in' : 'zoom-out';
     const win = getMainWindow();
     if (win && !win.isDestroyed()) {
       win.webContents.send('shortcut', action);
@@ -162,7 +163,8 @@ export function startMouseHook(): void {
     return;
   }
 
-  const exePath = path.join(app.getAppPath(), 'native', exeName);
+  const resourceRoot = app.isPackaged ? process.resourcesPath : app.getAppPath();
+  const exePath = path.join(resourceRoot, 'native', exeName);
   try {
     const child = spawn(exePath, [], { stdio: ['ignore', 'pipe', 'ignore'] });
     mouseHookProcess = child;
@@ -180,10 +182,6 @@ export function startMouseHook(): void {
           win.webContents.send('shortcut', action);
         }
       }
-    });
-
-    child.stderr?.on('data', (data: Buffer) => {
-      log.warn('[mouse-hook] ' + data.toString().trim());
     });
 
     child.on('error', (err) => {

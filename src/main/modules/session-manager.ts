@@ -123,25 +123,32 @@ window.SWFObject=deconcept.SWFObject;
 `.trim();
 }
 
-function applySessionConfig(sess: Session): void {
+export function applyCompatibilitySessionConfig(sess: Session): void {
   sess.setUserAgent(
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36',
   );
 
-  // Serve permissive crossdomain.xml for Flash cross-origin requests
-  const crossDomainXML = '<?xml version="1.0"?><!DOCTYPE cross-domain-policy SYSTEM "http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd"><cross-domain-policy><allow-access-from domain="*"/></cross-domain-policy>';
-  sess.webRequest.onBeforeRequest(
-    { urls: ['*://*/crossdomain.xml', '*://*/crossdomain.xml?*'] },
-    (_details, callback: any) => {
-      callback({ redirectURL: 'data:text/xml;charset=utf-8,' + encodeURIComponent(crossDomainXML) });
-    },
-  );
+  // Old game pages should not inherit broad device permissions from Chromium 87.
+  // Fullscreen and pointer lock remain available for game interaction.
+  const gamePermissions = new Set(['fullscreen', 'pointerLock']);
+  sess.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(gamePermissions.has(permission));
+  });
 
-  // Intercept Taomee SWFObject and replace checkUpgrade with no-op
+  // Keep Flash policy files on their original origin. PPAPI treats redirects
+  // from crossdomain.xml to a data: URL as aborted, which breaks remote game
+  // services after login. Only Taomee's legacy Flash-version gate is patched.
   sess.webRequest.onBeforeRequest(
     { urls: ['*://webres.61.com/common/js/swfobject.js*'] },
-    (_details: any, cb: any) => {
-      cb({ redirectURL: 'data:text/javascript;charset=utf-8,' + encodeURIComponent(patchedSWFObject()) });
+    (details, callback: any) => {
+      try {
+        const requestUrl = new URL(details.url);
+        if (requestUrl.hostname === 'webres.61.com' && requestUrl.pathname === '/common/js/swfobject.js') {
+          callback({ redirectURL: 'data:text/javascript;charset=utf-8,' + encodeURIComponent(patchedSWFObject()) });
+          return;
+        }
+      } catch { /* let malformed/unexpected requests continue unchanged */ }
+      callback({});
     },
   );
 
@@ -151,14 +158,17 @@ function applySessionConfig(sess: Session): void {
     { urls: ['*://*/*.swf', '*://*/*.swf?*'] },
     (details: any, callback: any) => {
       const responseHeaders = details.responseHeaders || {};
-      responseHeaders['access-control-allow-origin'] = ['*'];
-      responseHeaders['access-control-allow-credentials'] = ['false'];
-      responseHeaders['access-control-allow-methods'] = ['GET, POST, HEAD, OPTIONS'];
-      responseHeaders['access-control-allow-headers'] = ['*'];
+      responseHeaders['Access-Control-Allow-Origin'] = ['*'];
+      responseHeaders['Access-Control-Allow-Methods'] = ['GET, POST, HEAD, OPTIONS'];
+      responseHeaders['Access-Control-Allow-Headers'] = ['*'];
       callback({ responseHeaders });
     },
   );
 
+}
+
+function applySessionConfig(sess: Session): void {
+  applyCompatibilitySessionConfig(sess);
   // Unified download handler (Chromium tracking or aria2)
   setupDownloadHandlers(sess);
 }
@@ -166,7 +176,7 @@ function applySessionConfig(sess: Session): void {
 /**
  * One-time session configuration per partition:
  * - Sets user agent
- * - Serves crossdomain.xml
+ * - Leaves each site's native Flash crossdomain.xml policy untouched
  * - Redirects Taomee swfobject.js to patched version
  * - Registers unified download handlers (Chromium tracking + aria2)
  *

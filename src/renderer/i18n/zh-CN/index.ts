@@ -38,6 +38,13 @@ const zhCN: BaseTranslation = {
     newTabHint: '新标签页 (Ctrl+T)',
   },
 
+  session: {
+    restorePrompt: '浏览器上次未正常关闭，是否恢复 {count} 个标签页？',
+    restore: '恢复',
+    ignore: '忽略',
+    restoreFailed: '标签页恢复失败，已打开新的标签页',
+  },
+
   // 侧边栏
   sidebar: {
     favorites: '收藏夹',
@@ -69,6 +76,8 @@ const zhCN: BaseTranslation = {
     switchToFlash: 'Ruffle 模式 — 点击切换 Flash',
     flash: 'Flash',
     ruffle: 'Ruffle',
+    loadFailed: 'Ruffle 加载失败：{detail}',
+    retryBundled: '切回内置版并重试',
   },
 
   // 收藏夹
@@ -154,8 +163,22 @@ const zhCN: BaseTranslation = {
     captureNotify: '检测到登录信息，可启用密码本保存',
     enableBtn: '启用密码本',
     savePrompt: '为 {host} 保存密码？',
+    saveFailed: '密码保存失败，请解锁密码本后重试',
     ignore: '忽略',
     deleted: '已删除',
+    autoCapture: '自动检测登录信息',
+    autoCaptureHint: '默认开启；关闭后不再向网页附加密码捕获器。',
+    autoFill: '自动填充保存的密码',
+    autoFillHint: '密码本锁定时也可填充，但不会自动提交表单。',
+    autoFillNeedsUnlock: '旧密码本需成功解锁一次，之后才能在锁定状态下自动填充。',
+    filled: '已填充登录信息，请确认后登录',
+    fill: '填充当前页面',
+    fillFailed: '当前页面没有可安全填充的匹配登录表单',
+    excludedSites: '不捕获的网站',
+    excludedSitesHint: '每行填写一个域名，同时排除其子域名。修改后立即对已打开标签生效。',
+    saveExcludedSites: '保存排除列表',
+    excludedSitesSaved: '密码捕获排除列表已保存',
+    excludedSitesSaveFailed: '排除列表保存失败',
   },
 
   // 设置
@@ -169,6 +192,8 @@ const zhCN: BaseTranslation = {
     // 通用
     general: '通用',
     homepage: '主页地址',
+    restoreSession: '异常关闭后询问恢复标签',
+    restoreSessionHint: '正常关闭不会恢复；仅在崩溃、断电或强制结束后询问，最多恢复 20 个标签页。',
     searchEngine: '搜索引擎',
     baidu: '百度',
     spoofVersion: '伪装版本',
@@ -199,6 +224,13 @@ const zhCN: BaseTranslation = {
     light: '亮色',
     dark: '暗色',
     system: '跟随系统',
+    diagnostics: '兼容性诊断',
+    openLocalSwf: '打开本地 SWF 游戏',
+    diagnosticsHint: '导出运行环境、组件哈希和最近日志。账号路径、网址参数、口令与令牌会被脱敏。',
+    diagnosticsExport: '导出脱敏诊断报告',
+    diagnosticsExporting: '正在生成报告…',
+    diagnosticsSaved: '诊断报告已保存',
+    diagnosticsFailed: '诊断报告导出失败',
     // 语言
     language: '语言',
   },

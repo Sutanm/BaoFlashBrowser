@@ -27,11 +27,11 @@ const builds = [
         assets: [
           {
             from: 'node_modules/@ruffle-rs/ruffle/**/*',
-            to: 'dist/lib/ruffle',
+            to: 'lib/ruffle',
           },
           {
             from: 'assets/simhei.ttf',
-            to: 'dist/lib/ruffle/simhei.ttf',
+            to: 'lib/ruffle/simhei.ttf',
           },
         ],
       }),
@@ -63,6 +63,7 @@ async function run() {
     }
   } catch (e) {
     console.error('[esbuild] build failed:', e);
+    if (!isWatch) process.exitCode = 1;
   }
 }
 

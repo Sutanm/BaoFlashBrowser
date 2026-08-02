@@ -16,6 +16,7 @@ import type { BookmarkEntry } from '@shared/types/bookmarks';
 import { isNewtabUrl } from './services/url-utils';
 import TypesafeI18n, { useI18nContext } from './i18n/i18n-react';
 import { loadAllLocales } from './i18n/i18n-util.sync';
+import { isLocale } from './i18n/i18n-util';
 
 const AppInner: React.FC = () => {
   const { LL, setLocale } = useI18nContext() as any;
@@ -25,10 +26,12 @@ const AppInner: React.FC = () => {
   const settings = useDataStore((s) => s.settings);
 
   const setFavorites = useDataStore((s) => s.setFavorites);
+  const setDownloads = useDataStore((s) => s.setDownloads);
   const pushToast = useDataStore((s) => s.pushToast);
 
   const activePanel = useDataStore((s) => s.activePanel);
   const setActivePanel = useDataStore((s) => s.setActivePanel);
+  const downloadSyncDoneRef = useRef(false);
 
   // L36: useLiveQuery 自动订阅 db 变化，启动时水合 + 持续同步到 store
   // 写操作在 store 的 setX 内部直接写 db，db 变化触发 useLiveQuery → hydrateFromDb 注入 store
@@ -42,7 +45,11 @@ const AppInner: React.FC = () => {
       db.meta.get('themeMode'),
     ]);
     // L36: 过滤历史遗留的无效下载项（无 filename），不写回 db，下次 setDownloads 时自动清理
-    const dlsFiltered = dls.filter((d) => d.filename);
+    const dlsFiltered = dls.filter((d) => d.filename).map((download) =>
+      download.state === 'progressing' || download.state === 'paused'
+        ? { ...download, state: 'interrupted' as const, speed: 0 }
+        : download
+    );
     favs.sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0));
     dlsFiltered.sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0));
     return {
@@ -61,10 +68,16 @@ const AppInner: React.FC = () => {
       history: dbSnapshot.history,
       downloads: dbSnapshot.downloads,
     };
-    if (dbSnapshot.settings) patch.settings = dbSnapshot.settings;
+    if (dbSnapshot.settings) patch.settings = { ...useDataStore.getState().settings, ...dbSnapshot.settings };
     if (dbSnapshot.themeMode) patch.themeMode = dbSnapshot.themeMode;
     hydrateFromDb(patch);
-  }, [dbSnapshot]);
+    if (!downloadSyncDoneRef.current) {
+      downloadSyncDoneRef.current = true;
+      window.electronAPI.dl.syncRecords(dbSnapshot.downloads).then((records) => {
+        setDownloads(records);
+      }).catch((error) => console.warn('[Download] main-process state sync failed:', error));
+    }
+  }, [dbSnapshot, setDownloads]);
 
   // L36: localStorage → IndexedDB 一次性迁移（仅首次启动执行）
   useEffect(() => {
@@ -73,7 +86,7 @@ const AppInner: React.FC = () => {
 
   // Sync i18n locale when settings.language changes
   useEffect(() => {
-    if (settings.language) {
+    if (isLocale(settings.language)) {
       setLocale(settings.language);
     }
   }, [settings.language, setLocale]);
@@ -245,28 +258,21 @@ const AppInner: React.FC = () => {
           const url = activeTab.url;
           const rawTitle = activeTab.title || url;
           const title = /^https?:\/\//.test(rawTitle) ? (() => { try { return new URL(rawTitle).hostname; } catch { return rawTitle; } })() : rawTitle;
-          setFavorites((prev) => {
-            const exists = prev.some((f) => f.url === url);
-            if (exists) {
-              pushToast({ message: LL.bookmark.removed({ title }), type: 'info' });
-              return prev.filter((f) => f.url !== url);
-            }
-            pushToast({ message: LL.bookmark.added({ title }), type: 'success' });
-            return [{ url, title, favicon: activeTab.favicon, addedAt: Date.now() } as BookmarkEntry, ...prev];
+          const exists = favorites.some((favorite) => favorite.url === url);
+          setFavorites((prev) => exists
+            ? prev.filter((favorite) => favorite.url !== url)
+            : [{ url, title, favicon: activeTab.favicon, addedAt: Date.now() } as BookmarkEntry, ...prev]);
+          pushToast({
+            key: `bookmark:${url}`,
+            message: exists ? LL.bookmark.removed({ title }) : LL.bookmark.added({ title }),
+            type: exists ? 'info' : 'success',
           });
         }}
         isBookmarked={favorites.some((f) => f.url === activeTab?.url && activeTab?.url && activeTab.url !== 'about:newtab')}
         onZoomIn={zoomIn}
         onZoomOut={zoomOut}
         onZoomReset={zoomReset}
-        onReorder={(from, to) => {
-          tm.setTabs((prev) => {
-            const next = [...prev];
-            const [moved] = next.splice(from, 1);
-            next.splice(to, 0, moved);
-            return next;
-          });
-        }}
+        onReorder={tm.reorderTabs}
       />
 
       {/* Content area: sidebar icon strip + drawer panel + main content */}
@@ -276,7 +282,7 @@ const AppInner: React.FC = () => {
           currentUrl={activeTab?.url || ''}
           onOpenUrl={(url, newTab) => {
             setActivePanel(null);
-            if (newTab || activeTab?.url !== 'about:newtab') {
+            if (settings.linkBehavior === 'new-tab' && (newTab || activeTab?.url !== 'about:newtab')) {
               createTab(url);
             } else {
               handleNavigate(url);
@@ -317,7 +323,7 @@ const App: React.FC = () => {
     try { loadAllLocales(); } catch (e) { console.error('[i18n] loadAllLocales failed:', e); }
   }
   return (
-    <TypesafeI18n locale={(settings.language || 'zh-CN')}>
+    <TypesafeI18n locale={isLocale(settings.language) ? settings.language : 'zh-CN'}>
       <AppInner />
     </TypesafeI18n>
   );

@@ -41,7 +41,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
       case 'today': return LL.history.today();
       case 'yesterday': return LL.history.yesterday();
       case 'thisWeek': return LL.history.thisWeek();
-      case 'older': return LL.history.older();
+      case 'older': return LL.history.earlier();
     }
   }
   const history = useDataStore((s) => s.history);

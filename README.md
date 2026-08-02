@@ -39,10 +39,11 @@ BrowserView 为每个标签页创建独立的渲染进程，从根本上隔离�
 
 - **PPAPI + Ruffle 双核引擎**：原生 Flash 插件和 WASM 模拟器，标签页级别独立切换
 - **标签页管理**：多标签、拖拽排序、Chrome 风格压缩、完整的导航控制
-- **密码管理器**：CDP 自动捕获登录凭据、AES-256-GCM 加密存储、主密码保护
+- **密码管理器**：可选自动捕获、锁定状态自动填充、AES-256-GCM 加密存储、主密码保护
 - **下载管理器**：aria2 多线程引擎、三级启动保底、路径安全校验
 - **侧边栏面板**：收藏夹、历史记录、下载、密码本、设置
 - **淘米 61.com 兼容**：SWFObject 网络层绕过、Flash 版本伪装
+- **安全会话恢复**：仅在上次异常退出后询问是否恢复标签页，正常关闭不会提示
 - **跨平台**：Windows / Linux 双平台（WSL 可用）
 
 ## 技术架构
@@ -91,7 +92,7 @@ BrowserView 为每个标签页创建独立的渲染进程，从根本上隔离�
 # 安装依赖
 npm install
 
-# 开发模式（热更新）
+# 监听构建（不会自动启动或重启 Electron）
 npm run dev
 
 # 构建 + 启动
@@ -138,7 +139,9 @@ Ruffle 配置项：画质（`best`）、强制缩放（`forceScale`）、中文�
 
 ### 密码管理器
 
-采用 CDP（Chrome DevTools Protocol）捕获登录凭据，支持 8 种捕获策略：
+采用 CDP（Chrome DevTools Protocol）捕获登录凭据，并在主文档及跨域登录框中自动填充。自动捕获和自动填充均可在设置中分别关闭，也可配置排除站点；自动填充只写入字段，绝不会自动提交表单。
+
+捕获覆盖以下登录方式：
 
 | 策略 | 适用场景 |
 |------|----------|
@@ -155,6 +158,8 @@ Ruffle 配置项：画质（`best`）、强制缩放（`forceScale`）、中文�
 - DEK（数据加密密钥）用 KEK 加密存储
 - 每条密码用 DEK 通过 AES-256-GCM 加密
 - 主密码要求：8 字符以上，含大小写字母和数字
+
+为了实现类似 Chrome 的体验，密码本锁定后仍可自动填充。首次创建密码本会登记设备本地自动填充密钥；旧密码本需要成功解锁一次完成迁移。锁定状态不能查看、编辑、导出或新增密码。自动填充仅匹配准确主机名（只忽略 `www.`），不会把 HTTPS 保存的密码降级填充到 HTTP，也会避开注册、修改密码、多密码框和已有不同账号的表单。
 
 ### 下载管理器
 
@@ -173,10 +178,10 @@ aria2 启动三级保底：捆绑二进制 → 系统已安装 → 降级为 Chr
 
 ### 消息通知
 
-采用地址栏翻转动画作为 Toast 通知——因 BrowserView 始终处于最顶层，传统浮动 Toast 会被其遮挡。支持两种模式：
+采用地址栏翻转动画作为 Toast 通知——因 BrowserView 始终处于最顶层，传统浮动 Toast 会被其遮挡。通知带消失倒计时进度条，可点击通知主体或右侧 × 立即关闭；执行“保存/忽略”等操作后会先关闭当前通知，再处理后续工作。
 
-- **纯文本消息**：自动消失（如「已复制到剪贴板」）
-- **交互式覆盖层**：需要用户操作（如「保存密码？」保存/忽略按钮）
+- **纯文本消息**：按类型使用较短时长自动消失
+- **交互式消息**：默认等待用户操作，同时仍可点击主体或 × 关闭
 
 ### 主题系统
 
@@ -214,10 +219,12 @@ BaoFlashBrowser/
 │   │   │   ├── window.ts              # BrowserWindow 创建（ready-to-show）
 │   │   │   ├── tabs.ts                # TabManager：BrowserView 生命周期
 │   │   │   ├── flash.ts               # PPAPI 插件加载 + mms.cfg
-│   │   │   ├── session-manager.ts     # UA、crossdomain.xml、SWFObject 补丁、CORS
+│   │   │   ├── session-manager.ts     # UA、SWFObject 补丁、SWF CORS（保留原站 crossdomain.xml）
 │   │   │   ├── download.ts            # aria2 下载管理器
 │   │   │   ├── password-capture.ts    # CDP 密码捕获
+│   │   │   ├── password-fill.ts       # 主文档及跨域 iframe 自动填充
 │   │   │   ├── password-store.ts      # AES-256-GCM 加密密码存储
+│   │   │   ├── session-recovery.ts    # 正常/异常退出识别
 │   │   │   ├── crypto-helper.ts       # 密码学工具
 │   │   │   ├── config.ts              # electron-store 主配置
 │   │   │   └── ruffle-bundle.ts       # Ruffle JS 懒加载
@@ -245,7 +252,7 @@ BaoFlashBrowser/
 │   │   │   └── ErrorBoundary.tsx      # 错误边界
 │   │   ├── hooks/                     # useTabManager / useTheme / useShortcut 等
 │   │   ├── store/                     # Zustand stores（useDataStore / useTabsStore）
-│   │   ├── services/                  # db.ts（Dexie）/ keyboard / url / id
+│   │   ├── services/                  # db / toast / tab-session / keyboard / url / id
 │   │   └── types/                     # electron.d.ts 类型声明
 │   ├── preload/index.ts               # 主窗口 preload（contextBridge + IPC 白名单）
 │   ├── webview-preload/index.ts       # 页面 preload（Ruffle + 登录识别 + 自动填充）
@@ -264,7 +271,7 @@ BaoFlashBrowser/
 ├── docs/
 │   ├── PACKAGE.md                     # 打包手册
 │   └── lessons-learned.md             # v2 开发经验总结
-├── test/                              # 独立测试脚本
+├── tests/                             # Vitest 单元测试 + Electron 冒烟测试
 ├── build/                             # 图标资源
 ├── esbuild.main.config.mjs            # esbuild 主进程构建配置
 ├── vite.renderer.config.ts            # Vite 渲染进程构建配置
@@ -289,13 +296,15 @@ BaoFlashBrowser/
 4. **Linux 必须加 `--no-sandbox`**；WSLg 需三个 GPU flag：`--ignore-gpu-blacklist`、`--enable-gpu-rasterization`、`--enable-zero-copy`
 5. **`did-fail-load` 不要调用 `wc.stop()`**：会杀死登录后重定向
 6. **BrowserView 始终在最顶层**：DOM 元素无法覆盖它，Toast 等 UI 需特殊处理
+7. **禁止把 `crossdomain.xml` 重定向到 `data:`**：PPAPI 会将其视为 `ERR_ABORTED`，常表现为启动器正常、登录后白屏。必须保留游戏服务器原始策略文件；`.swf` 的 CORS 响应头只服务于 Ruffle
+8. **导航前先拆除密码捕获 CDP**：在 `reload`、`loadURL`、前进或后退前调用 `teardownCapture`，否则附着的 debugger 可能让标签页永久停在加载状态
 
 ### 调试流程
 
 1. 先理清完整链路再动手
-2. 先用独立测试脚本验证（参考 `test/` 目录）
+2. 先用与主项目相同 BrowserView、PPAPI 和 Session 配置的独立探针验证
 3. 测试通过后再集成到主项目
-4. 站点特有问题：用 Python/Node.js + Playwright 探测实际网络请求和 DOM 行为
+4. 站点特有问题：做控制组与逐项加入项目策略的 A/B 探测，记录网络失败、SWF 请求和截图，并从日志中移除令牌及查询参数
 
 ## Flash 插件版本
 
@@ -303,9 +312,9 @@ BaoFlashBrowser/
 |------|------|------|------|
 | 29.0.0.171 | Windows | Adobe 官方 | 无时间炸弹、无调试弹窗、稳定 |
 | 32.0.0.371 | Linux | Adobe 官方 | EOL 前最后一版 |
-| ~~34.0.0.330~~ | ~~Windows~~ | ~~重橙网络~~ | 内置调试器、弹 AS3 错误，不使用 |
+| 34.0.0.330 | Windows（仅对网站声明） | 版本伪装 | 默认广告版本，用于通过旧站点版本门槛；不是实际加载的 DLL |
 
-版本 29 不被淘米 `checkUpgrade` 拦截（只拦截 `major === 32`），配合版本伪装 34 + SWFObject bypass 三重保障。
+Windows 实际加载稳定的 29.0.0.171 DLL，但默认向网页声明 34.0.0.330；两者不同是有意设计。淘米兼容还依赖精确限定到 `webres.61.com/common/js/swfobject.js` 的补丁。不要以修复白屏为由取消版本伪装，也不要全局伪造 Flash `crossdomain.xml`。
 
 ## License
 

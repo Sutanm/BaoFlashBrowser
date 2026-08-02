@@ -5,9 +5,10 @@ import type { FindInPageOptions } from 'electron';
 // --- L04: IPC 通道白名单 ---
 const ALLOWED_ON_CHANNELS = new Set([
   'tab:updated', 'tab:found', 'tab:load-error', 'tab:crashed', 'tab:newwindow',
+  'ruffle:diagnostic',
   'download:progress', 'aria2:status', 'navigate-url',
   'shortcut',
-  'password:captured', 'password:changed',
+  'password:captured', 'password:changed', 'password:filled',
 ]);
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
@@ -16,10 +17,14 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'tab:setBounds', 'tab:setRuffleMode',
   'load-config', 'save-config',
   'download:aria2-status', 'download:get-dir', 'download:set-dir', 'download:delete-file',
+  'download:list', 'download:sync-records', 'download:remove-record', 'download:clear-finished',
   'password:status', 'password:setup', 'password:unlock', 'password:lock',
-  'password:toggle-enabled', 'password:list', 'password:save-confirm',
+  'password:toggle-enabled', 'password:set-auto-capture', 'password:set-auto-fill', 'password:set-excluded-sites', 'password:list', 'password:save-confirm',
   'password:ignore', 'password:delete', 'password:get-password', 'password:set-default',
-  'password:reset',
+  'password:reset', 'password:fill',
+  'diagnostics:export',
+  'file:open-swf',
+  'session:recovery-status', 'session:resolve-recovery',
   'win:minimize', 'win:maximize', 'win:unmaximize', 'win:close', 'win:setFullscreen', 'win:toggleFullscreen', 'win:isMaximized',
 ]);
 
@@ -62,7 +67,8 @@ const electronAPI = {
   webviewPreloadPath: path.join(__dirname, 'webview-preload.js'),
 
   tab: {
-    create: (tabId: string, url: string) => safeInvoke('tab:create', { tabId, url }),
+    create: (tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }) =>
+      safeInvoke('tab:create', { tabId, url, ruffleConfig }),
     close: (tabId: string) => safeInvoke('tab:close', { tabId }),
     activate: (tabId: string) => safeInvoke('tab:activate', { tabId }),
     navigate: (tabId: string, url: string) => safeInvoke('tab:navigate', { tabId, url }),
@@ -94,6 +100,10 @@ const electronAPI = {
     getDir: () => safeInvoke('download:get-dir'),
     setDir: () => safeInvoke('download:set-dir'),
     deleteFile: (savePath: string) => safeInvoke('download:delete-file', { savePath }),
+    list: () => safeInvoke('download:list'),
+    syncRecords: (records: import('@shared/types/downloads').DownloadItem[]) => safeInvoke('download:sync-records', { records }),
+    removeRecord: (id: string) => safeInvoke('download:remove-record', { id }),
+    clearFinished: () => safeInvoke('download:clear-finished'),
   },
 
   pwd: {
@@ -102,13 +112,30 @@ const electronAPI = {
     unlock: (password: string) => safeInvoke('password:unlock', { password }),
     lock: () => safeInvoke('password:lock'),
     toggleEnabled: () => safeInvoke('password:toggle-enabled'),
+    setAutoCapture: (enabled: boolean) => safeInvoke('password:set-auto-capture', { enabled }),
+    setAutoFill: (enabled: boolean) => safeInvoke('password:set-auto-fill', { enabled }),
+    setExcludedSites: (sites: string[]) => safeInvoke('password:set-excluded-sites', { sites }),
     list: () => safeInvoke('password:list'),
     saveConfirm: (captureId: string) => safeInvoke('password:save-confirm', { captureId }),
     ignore: (captureId: string) => safeInvoke('password:ignore', { captureId }),
     delete: (id: string) => safeInvoke('password:delete', { id }),
     getPassword: (id: string) => safeInvoke('password:get-password', { id }),
     setDefault: (id: string) => safeInvoke('password:set-default', { id }),
+    fill: (tabId: string, id: string) => safeInvoke('password:fill', { tabId, id }),
     resetAll: () => safeInvoke('password:reset'),
+  },
+
+  diagnostics: {
+    export: () => safeInvoke('diagnostics:export'),
+  },
+
+  file: {
+    openSwf: () => safeInvoke('file:open-swf'),
+  },
+
+  session: {
+    recoveryStatus: () => safeInvoke('session:recovery-status'),
+    resolveRecovery: () => safeInvoke('session:resolve-recovery'),
   },
 
   win: {

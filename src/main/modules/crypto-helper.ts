@@ -19,8 +19,13 @@ export function unb64(s: string): Buffer {
   return Buffer.from(s, 'base64');
 }
 
-export function deriveKek(masterPwd: string, salt: Buffer): Buffer {
-  return crypto.pbkdf2Sync(masterPwd, salt, PBKDF2_ITER, KEY_LEN, 'sha256');
+export function deriveKek(masterPwd: string, salt: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(masterPwd, salt, PBKDF2_ITER, KEY_LEN, 'sha256', (error, key) => {
+      if (error) reject(error);
+      else resolve(key);
+    });
+  });
 }
 
 export function encryptStr(key: Buffer, plaintext: string): EncBlob {

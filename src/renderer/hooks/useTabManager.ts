@@ -5,6 +5,8 @@ import { useI18nContext } from '../i18n/i18n-react';
 import { normalizeUrl, generateId } from '../services/id.service';
 import type { TabState } from '../store/useTabsStore';
 import type { HistoryEntry } from '@shared/types/history';
+import { db, loadMeta, saveMeta } from '../services/db';
+import { createTabSession, selectCrashRecoverySession, TAB_SESSION_META_KEY } from '../services/tab-session';
 
 const NEWTAB_URL = 'about:newtab';
 
@@ -18,6 +20,7 @@ export interface UseTabManagerReturn {
   activeTab: TabState | null;
   addressUrl: string;
   setAddressUrl: React.Dispatch<React.SetStateAction<string>>;
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
   createTab: (url?: string) => void;
   closeTab: (tabId: string) => void;
   switchTab: (tabId: string) => void;
@@ -39,8 +42,10 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const setActiveTabId = useTabsStore((s) => s.setActiveTabId);
   const [addressUrl, setAddressUrl] = useState('');
+  const [sessionReady, setSessionReady] = useState(false);
   const setHistory = useDataStore((s) => s.setHistory);
   const tabsRef = useRef(tabs);
+  const ruffleErrorsRef = useRef(new Set<string>());
   useEffect(() => { tabsRef.current = tabs; });
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
@@ -58,21 +63,33 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
 
   const createTab = useCallback((url?: string) => {
     const id = generateId();
-    const ruffleMode: 'ppapi' | 'ruffle' = settings.flashEngineMode === 'prefer-ruffle' ? 'ruffle' : 'ppapi';
+    const initialUrl = url || settings.homepage || NEWTAB_URL;
+    let engineMode = settings.flashEngineMode;
+    if (!isNewtabUrl(initialUrl)) {
+      try {
+        const host = new URL(initialUrl).hostname.toLowerCase();
+        const rule = settings.flashEngineRules.find((item) => {
+          const domain = item.domain.trim().toLowerCase().replace(/^\./, '');
+          return domain.length > 0 && (host === domain || host.endsWith('.' + domain));
+        });
+        if (rule) engineMode = rule.mode;
+      } catch { /* normalized navigation will handle invalid input */ }
+    }
+    const ruffleMode: 'ppapi' | 'ruffle' = engineMode === 'prefer-ruffle' ? 'ruffle' : 'ppapi';
     const tab: TabState = {
-      id, url: url || NEWTAB_URL, title: LLRef.current.tab.newTab(),
+      id, url: initialUrl, title: LLRef.current.tab.newTab(),
       zoomFactor: 1, isLoading: false, isAudible: false, isMuted: false,
       canGoBack: false, canGoForward: false, createdAt: Date.now(),
       ruffleMode,
     };
     setTabs((prev) => [...prev, tab]);
     const useRuffle = ruffleMode === 'ruffle';
-    window.electronAPI.tab.create(id, url || NEWTAB_URL, {
+    window.electronAPI.tab.create(id, initialUrl, {
       enabled: useRuffle,
       source: settings.ruffleSource,
-    } as any);
+    });
     switchTab(id);
-  }, [setTabs, switchTab, settings.flashEngineMode, settings.ruffleSource]);
+  }, [setTabs, switchTab, settings.flashEngineMode, settings.flashEngineRules, settings.homepage, settings.ruffleSource]);
 
   const historyTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const pendingHistoryRef = useRef<{ tabId: string; url: string; title?: string } | null>(null);
@@ -189,21 +206,61 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     });
     const unsubErr = window.electronAPI.on('tab:load-error', (payload: any) => {
       const msg = payload.errorCode === -105 ? LLRef.current.error.dnsFail() : LLRef.current.error.pageLoadFail();
-      pushToast({ message: `${msg} (-${payload.errorCode})`, type: 'error' });
+      pushToast({
+        key: `tab-load-error:${payload.tabId}:${payload.errorCode}`,
+        message: `${msg} (${payload.errorCode})`,
+        type: 'error',
+      });
     });
-    return () => { try { unsub(); unsubErr(); } catch (e) { console.warn('[App] tab event cleanup failed:', e); } };
+    const unsubRuffle = window.electronAPI.on('ruffle:diagnostic', (payload: any) => {
+      if (payload.phase === 'runtime-ready') {
+        for (const key of ruffleErrorsRef.current) {
+          if (key.startsWith(`${payload.tabId}:`)) ruffleErrorsRef.current.delete(key);
+        }
+        return;
+      }
+      if (!['bundled-eval-error', 'cdn-error', 'runtime-error', 'component-error'].includes(payload.phase)) return;
+      const detail = String(payload.detail || payload.phase).slice(0, 300);
+      const key = `${payload.tabId}:${payload.phase}:${detail}`;
+      if (ruffleErrorsRef.current.has(key)) return;
+      ruffleErrorsRef.current.add(key);
+      pushToast({
+        key: `ruffle-error:${payload.tabId}:${payload.phase}`,
+        message: LLRef.current.ruffle.loadFailed({ detail }),
+        type: 'error',
+        duration: null,
+        actions: payload.source === 'cdn' ? [{
+          label: LLRef.current.ruffle.retryBundled(),
+          primary: true,
+          onClick: () => {
+            const state = useDataStore.getState();
+            state.setSettings({ ...state.settings, ruffleSource: 'bundled' });
+            window.electronAPI.tab.setRuffleMode(payload.tabId, true, 'bundled');
+          },
+        }] : undefined,
+      });
+    });
+    return () => {
+      try { unsub(); unsubErr(); unsubRuffle(); }
+      catch (e) { console.warn('[App] tab event cleanup failed:', e); }
+    };
   }, []);
 
   useEffect(() => {
     const u1 = window.electronAPI.on('tab:newwindow', (payload: any) => {
-      createTab(String((payload as any).url || payload));
+      const url = String((payload as any).url || payload);
+      if (settings.linkBehavior === 'current-page' && activeTabId) {
+        window.electronAPI.tab.navigate(activeTabId, url);
+      } else {
+        createTab(url);
+      }
     });
     const u2 = window.electronAPI.on('tab:crashed', (payload: any) => {
       updateTabRef.current(payload.tabId, { url: 'about:crash', title: LLRef.current.error.pageCrashed() });
-      pushToast({ message: LLRef.current.error.pageCrashed(), type: 'error' });
+      pushToast({ key: `tab-crashed:${payload.tabId}`, message: LLRef.current.error.pageCrashed(), type: 'error' });
     });
     return () => { try { u1(); u2(); } catch { /* ignore */ } };
-  }, [createTab, pushToast]);
+  }, [activeTabId, createTab, pushToast, settings.linkBehavior]);
 
   // External URL open
   useEffect(() => {
@@ -224,16 +281,119 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     };
   }, [createTab, activeTab]);
 
-  // Initial tab
+  // Keep crash snapshots continuously, but only offer them after an abnormal
+  // process exit. A normal window close never restores tabs on the next launch.
+  const restoreStartedRef = useRef(false);
   useEffect(() => {
-    if (tabs.length === 0 || activeTabId === null) {
-      if (tabs.length === 0) {
+    if (restoreStartedRef.current) return;
+    restoreStartedRef.current = true;
+
+    void (async () => {
+      try {
+        const [rawSession, storedSettings, recoveryStatus] = await Promise.all([
+          loadMeta(TAB_SESSION_META_KEY),
+          db.settings.toArray(),
+          window.electronAPI.session.recoveryStatus(),
+        ]);
+        const restoreEnabled = storedSettings[0]?.restoreSession !== false;
+        const restoredRuffleSource = storedSettings[0]?.ruffleSource || useDataStore.getState().settings.ruffleSource;
+        const snapshot = selectCrashRecoverySession(rawSession, recoveryStatus.abnormalExit, restoreEnabled);
+        if (!snapshot) {
+          await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});
+          await window.electronAPI.session.resolveRecovery().catch(() => {});
+          createTab();
+          setSessionReady(true);
+          return;
+        }
+
+        // Show a usable new tab while the old crash snapshot remains untouched.
+        // Snapshot persistence stays paused until the user makes a choice.
         createTab();
-      } else {
-        setActiveTabId(tabs[0].id);
+        let choiceHandled = false;
+
+        const ignoreRecovery = async () => {
+          if (choiceHandled) return;
+          choiceHandled = true;
+          await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});
+          await window.electronAPI.session.resolveRecovery().catch(() => {});
+          setSessionReady(true);
+        };
+
+        const restoreRecovery = async () => {
+          if (choiceHandled) return;
+          choiceHandled = true;
+          const createdIds: string[] = [];
+          try {
+            const currentTabs = useTabsStore.getState().tabs;
+            await Promise.all(currentTabs.map((tab) => window.electronAPI.tab.close(tab.id)));
+            setTabs(snapshot.tabs);
+            for (const tab of snapshot.tabs) {
+              await window.electronAPI.tab.create(tab.id, tab.url, {
+                enabled: tab.ruffleMode === 'ruffle',
+                source: restoredRuffleSource,
+              });
+              createdIds.push(tab.id);
+              if (tab.zoomFactor !== 1) await window.electronAPI.tab.zoom(tab.id, tab.zoomFactor);
+              if (tab.isMuted) await window.electronAPI.tab.mute(tab.id, true);
+            }
+            const restoredActiveId = snapshot.activeTabId || snapshot.tabs[0].id;
+            setActiveTabId(restoredActiveId);
+            await window.electronAPI.tab.activate(restoredActiveId);
+          } catch (error) {
+            console.warn('[Tabs] crash session restore failed:', error);
+            await Promise.all(createdIds.map((id) => window.electronAPI.tab.close(id).catch(() => {})));
+            setTabs([]);
+            createTab();
+            pushToast({ key: 'session-restore-failed', message: LLRef.current.session.restoreFailed(), type: 'error' });
+          } finally {
+            await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});
+            await window.electronAPI.session.resolveRecovery().catch(() => {});
+            setSessionReady(true);
+          }
+        };
+
+        pushToast({
+          key: 'session-recovery',
+          message: LLRef.current.session.restorePrompt({ count: snapshot.tabs.length }),
+          type: 'warning',
+          duration: null,
+          actions: [
+            { label: LLRef.current.session.restore(), primary: true, onClick: restoreRecovery },
+            { label: LLRef.current.session.ignore(), onClick: ignoreRecovery },
+          ],
+          onDismiss: (reason) => {
+            if (reason !== 'action') void ignoreRecovery();
+          },
+        });
+      } catch (error) {
+        console.warn('[Tabs] session recovery check failed:', error);
+        await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});
+        await window.electronAPI.session.resolveRecovery().catch(() => {});
+        if (tabsRef.current.length === 0) createTab();
+        setSessionReady(true);
       }
-    }
-  }, [tabs.length, activeTabId, createTab, setActiveTabId, tabs]);
+    })();
+  }, [createTab, pushToast, setActiveTabId, setTabs]);
+
+  // Keep a bounded, validated snapshot. Transient loading/navigation flags are
+  // normalized by createTabSession and never trusted when restoring.
+  useEffect(() => {
+    if (!sessionReady) return;
+    const timer = setTimeout(() => {
+      if (!settings.restoreSession) {
+        void db.meta.delete(TAB_SESSION_META_KEY);
+        return;
+      }
+      const snapshot = createTabSession(tabs, activeTabId);
+      if (snapshot) void saveMeta(TAB_SESSION_META_KEY, snapshot);
+      else void db.meta.delete(TAB_SESSION_META_KEY);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [sessionReady, tabs, activeTabId, settings.restoreSession]);
+
+  useEffect(() => {
+    if (sessionReady && tabs.length === 0) createTab();
+  }, [sessionReady, tabs.length, createTab]);
 
   // Sync address bar when active tab changes
   useEffect(() => {
@@ -270,6 +430,16 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     updateTab(activeTab.id, { zoomFactor: 1 });
   }, [activeTab, updateTab, activeTabId]);
 
+  const reorderTabs = useCallback((fromIndex: number, toIndex: number) => {
+    setTabs((prev) => {
+      if (fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, [setTabs]);
+
   // Ctrl+wheel zoom (chrome UI area)
   useEffect(() => {
     const handler = (e: WheelEvent) => {
@@ -299,7 +469,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   return {
     tabs, activeTabId, activeTab,
     addressUrl, setAddressUrl,
-    createTab, closeTab, switchTab, updateTab,
+    createTab, closeTab, switchTab, updateTab, reorderTabs,
     handleNavigate,
     zoomIn, zoomOut, zoomReset,
   };

@@ -11,6 +11,10 @@ export interface PasswordStoreStatus {
   initialized: boolean;
   unlocked: boolean;
   enabled: boolean;
+  autoCapture: boolean;
+  autoFill: boolean;
+  autoFillReady: boolean;
+  excludedSites: string[];
 }
 
 /** Sent from main → renderer via password:captured. Does NOT contain password. */

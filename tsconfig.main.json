@@ -9,8 +9,6 @@
   },
   "include": [
     "src/main/**/*",
-    "src/shared/**/*",
-    "src/preload/**/*",
-    "src/webview-preload/**/*"
+    "src/shared/**/*"
   ]
 }

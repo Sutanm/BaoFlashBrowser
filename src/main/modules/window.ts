@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import log from 'electron-log';
 import { app, BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
+import { markCleanShutdown } from './session-recovery';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -23,10 +24,10 @@ export function createWindow(): BrowserWindow {
     frame: false,
     webPreferences: {
       preload: preloadPath,
-      plugins: true,
+      plugins: false,
       contextIsolation: true,
       nodeIntegration: false,
-      webviewTag: true,
+      webviewTag: false,
     },
   };
 
@@ -50,6 +51,15 @@ export function createWindow(): BrowserWindow {
 
   mainWindow.setMenu(null);
 
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const allowedDevUrl = !app.isPackaged && url.startsWith('http://localhost:5173/');
+    const allowedFileUrl = app.isPackaged && url.startsWith('file:');
+    if (!allowedDevUrl && !allowedFileUrl) {
+      event.preventDefault();
+      log.warn('[Window] blocked main renderer navigation:', url);
+    }
+  });
+
   // ready-to-show 机制：等首帧渲染完毕再显示窗口，消除白屏/灰色背景
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -57,6 +67,14 @@ export function createWindow(): BrowserWindow {
 
   mainWindow.on('page-title-updated', (e) => {
     e.preventDefault();
+  });
+
+  mainWindow.on('close', () => {
+    markCleanShutdown();
+  });
+
+  mainWindow.on('session-end', () => {
+    markCleanShutdown();
   });
 
   mainWindow.on('closed', () => {

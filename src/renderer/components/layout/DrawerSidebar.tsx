@@ -151,6 +151,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   onZoomIn={onZoomIn}
                   onZoomOut={onZoomOut}
                   onZoomReset={onZoomReset}
+                  onOpenUrl={onOpenUrl}
                 />
               )}
             </div>

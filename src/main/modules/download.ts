@@ -1,4 +1,4 @@
-import { BrowserWindow, DownloadItem, app } from 'electron';
+import { BrowserWindow, DownloadItem, app, session } from 'electron';
 import log from 'electron-log';
 import { spawn, ChildProcess } from 'child_process';
 import http from 'http';
@@ -9,6 +9,9 @@ import { execSync } from 'child_process';
 import { nanoid } from 'nanoid';
 import { loadConfig } from './config';
 import { getMainWindow } from './window';
+import { availableSavePath, isPathWithinDirectory, sanitizeDownloadFilename } from '../utils/download-path';
+import { flushDownloadState, getDownloadRecord, updateDownloadRecord } from './download-state';
+import type { DownloadItem as DownloadRecord } from '@shared/types/downloads';
 
 // ─── aria2 configuration ────────────────────────────────────────────
 const ARIA2_RPC_PORT = 16800;
@@ -25,8 +28,9 @@ export function getDownloadDir(): string {
 let aria2Process: ChildProcess | null = null;
 let aria2Ready = false;
 const aria2Gids = new Map<string, string>(); // dlId -> aria2 GID
+const aria2PollTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const chromiumItems = new Map<string, DownloadItem>(); // dlId -> DownloadItem
-let aria2StatusSent = false;
+const pendingChromiumRetries = new Map<string, DownloadRecord[]>();
 
 // ─── aria2 binary path detection ────────────────────────────────────
 // Returns a prioritized list of aria2 candidates:
@@ -96,7 +100,7 @@ function getAria2LibDir(): string | null {
 }
 
 // ─── IPC send helper ────────────────────────────────────────────────
-function send(channel: string, payload: Record<string, unknown>): void {
+function send(channel: string, payload: unknown): void {
   const win = getMainWindow();
   if (win && !win.isDestroyed()) {
     win.webContents.send(channel, payload);
@@ -105,6 +109,11 @@ function send(channel: string, payload: Record<string, unknown>): void {
 
 function sendLog(tag: string, msg: string): void {
   send('log', { tag, msg, ts: Date.now() });
+}
+
+function emitDownload(patch: Partial<DownloadRecord> & Pick<DownloadRecord, 'id' | 'state'>): void {
+  const record = updateDownloadRecord(patch);
+  if (record) send('download:progress', record);
 }
 
 // ─── aria2 RPC ──────────────────────────────────────────────────────
@@ -177,7 +186,7 @@ async function startAria2(): Promise<boolean> {
 async function tryStartCandidate(candidate: { path: string; bundled: boolean }): Promise<boolean> {
   sendLog('aria2', `trying ${candidate.bundled ? 'bundled' : 'system'}: ${candidate.path}`);
 
-  const env = { ...process.env, LANG: 'C', LC_ALL: 'C' };
+  const env: NodeJS.ProcessEnv = { ...process.env, LANG: 'C', LC_ALL: 'C' };
   // Bundled Linux aria2 may need libaria2.so.0 on LD_LIBRARY_PATH
   if (process.platform === 'linux' && candidate.bundled) {
     const libDir = getAria2LibDir();
@@ -198,8 +207,8 @@ async function tryStartCandidate(candidate: { path: string; bundled: boolean }):
       '--split=16',
       '--min-split-size=1M',
       '--continue=true',
-      '--auto-file-renaming=false',
-      '--allow-overwrite=true',
+      '--auto-file-renaming=true',
+      '--allow-overwrite=false',
       '--console-log-level=error',
     ], { stdio: ['ignore', 'ignore', 'ignore'], env, windowsHide: true });
   } catch (err: any) {
@@ -243,6 +252,13 @@ async function tryStartCandidate(candidate: { path: string; bundled: boolean }):
   });
   child.on('exit', (code) => {
     aria2Ready = false;
+    for (const id of aria2Gids.keys()) {
+      const timer = aria2PollTimers.get(id);
+      if (timer) clearTimeout(timer);
+      emitDownload({ id, state: 'interrupted', speed: 0, engine: 'aria2' });
+    }
+    aria2PollTimers.clear();
+    aria2Gids.clear();
     sendLog('aria2', `exited code=${code}`);
   });
 
@@ -264,19 +280,26 @@ async function waitAria2Ready(retries = 20): Promise<boolean> {
 }
 
 function killAria2(): void {
+  for (const timer of aria2PollTimers.values()) clearTimeout(timer);
+  aria2PollTimers.clear();
+  aria2Gids.clear();
   if (aria2Process) {
     aria2Process.kill();
     aria2Process = null;
   }
+  flushDownloadState();
 }
 
 // ─── Chromium download tracking ─────────────────────────────────────
-function trackChromiumDownload(item: DownloadItem): void {
-  const dlId = 'cr_' + nanoid(8);
-  const filename = item.getFilename() || 'download';
+function trackChromiumDownload(item: DownloadItem, retry?: DownloadRecord): void {
+  const dlId = retry?.id || 'cr_' + nanoid(8);
+  const filename = sanitizeDownloadFilename(retry?.filename || item.getFilename() || 'download');
   const dir = getDownloadDir();
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const savePath = path.join(dir, filename);
+  const requestedPath = retry?.savePath && isPathWithinDirectory(dir, retry.savePath)
+    ? retry.savePath
+    : path.join(dir, filename);
+  const savePath = fs.existsSync(requestedPath) ? availableSavePath(dir, filename) : requestedPath;
   item.setSavePath(savePath);
   let lastBytes = 0;
   let lastTime = Date.now();
@@ -284,7 +307,7 @@ function trackChromiumDownload(item: DownloadItem): void {
   chromiumItems.set(dlId, item);
   log.info('[Download] chromium start:', filename, '->', savePath);
 
-  send('download:progress', {
+  emitDownload({
     id: dlId,
     url: item.getURL(),
     filename,
@@ -308,7 +331,7 @@ function trackChromiumDownload(item: DownloadItem): void {
     lastBytes = received;
     lastTime = now;
 
-    send('download:progress', {
+    emitDownload({
       id: dlId,
       filename,
       state: 'progressing',
@@ -329,7 +352,7 @@ function trackChromiumDownload(item: DownloadItem): void {
     chromiumItems.delete(dlId);
     log.info('[Download] chromium done:', filename, '->', finalState);
 
-    send('download:progress', {
+    emitDownload({
       id: dlId,
       filename,
       url: item.getURL(),
@@ -345,12 +368,16 @@ function trackChromiumDownload(item: DownloadItem): void {
 }
 
 // ─── aria2 download ─────────────────────────────────────────────────
-async function aria2Download(url: string, filename: string): Promise<void> {
-  const dlId = 'a2_' + nanoid(8);
-  const dir = getDownloadDir();
+async function aria2Download(url: string, filename: string, retry?: DownloadRecord): Promise<void> {
+  filename = sanitizeDownloadFilename(filename);
+  const dlId = retry?.id || 'a2_' + nanoid(8);
+  const configuredDir = getDownloadDir();
+  const retryPath = retry?.savePath && isPathWithinDirectory(configuredDir, retry.savePath) ? retry.savePath : '';
+  const dir = retryPath ? path.dirname(retryPath) : configuredDir;
+  if (retryPath) filename = path.basename(retryPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  send('download:progress', {
+  emitDownload({
     id: dlId,
     url,
     filename,
@@ -370,7 +397,7 @@ async function aria2Download(url: string, filename: string): Promise<void> {
     pollAria2Status(dlId, gid, filename, url);
   } catch (err: any) {
     log.error('[Download] aria2 addUri FAILED:', err.message);
-    send('download:progress', {
+    emitDownload({
       id: dlId,
       filename,
       state: 'interrupted',
@@ -383,6 +410,11 @@ async function aria2Download(url: string, filename: string): Promise<void> {
 
 async function pollAria2Status(dlId: string, gid: string, filename: string, url: string): Promise<void> {
   let errorCount = 0;
+  const schedule = (delay: number) => {
+    const existing = aria2PollTimers.get(dlId);
+    if (existing) clearTimeout(existing);
+    aria2PollTimers.set(dlId, setTimeout(poll, delay));
+  };
   const poll = async () => {
     try {
       const status = await aria2Rpc('aria2.tellStatus', gid, [
@@ -394,7 +426,7 @@ async function pollAria2Status(dlId: string, gid: string, filename: string, url:
       const speed = parseInt(status.downloadSpeed) || 0;
       const progress = total > 0 ? (completed / total) * 100 : 0;
 
-      let state: string = 'progressing';
+      let state: DownloadRecord['state'] = 'progressing';
       if (status.status === 'complete') state = 'completed';
       else if (status.status === 'error') state = 'interrupted';
       else if (status.status === 'removed') state = 'cancelled';
@@ -402,7 +434,7 @@ async function pollAria2Status(dlId: string, gid: string, filename: string, url:
 
       const savePath = status.files?.[0]?.path || path.join(getDownloadDir(), gid);
 
-      send('download:progress', {
+      emitDownload({
         id: dlId,
         filename,
         url,
@@ -416,11 +448,14 @@ async function pollAria2Status(dlId: string, gid: string, filename: string, url:
       });
 
       if (state === 'progressing') {
-        setTimeout(poll, 500);
+        schedule(500);
       } else if (state === 'paused') {
-        setTimeout(poll, 1000);
+        schedule(1000);
       } else {
         log.info('[Download] aria2 finished:', gid, state);
+        const timer = aria2PollTimers.get(dlId);
+        if (timer) clearTimeout(timer);
+        aria2PollTimers.delete(dlId);
         aria2Gids.delete(dlId);
       }
     } catch (err: any) {
@@ -428,11 +463,12 @@ async function pollAria2Status(dlId: string, gid: string, filename: string, url:
       errorCount++;
       if (errorCount > 5) {
         aria2Gids.delete(dlId);
-        send('download:progress', { id: dlId, state: 'interrupted', speed: 0, engine: 'aria2', filename, url });
+        aria2PollTimers.delete(dlId);
+        emitDownload({ id: dlId, state: 'interrupted', speed: 0, engine: 'aria2', filename, url });
         return;
       }
       log.warn('[Download] aria2 poll retry:', errorCount, err.message);
-      setTimeout(poll, 1000);
+      schedule(1000);
     }
   };
 
@@ -455,7 +491,6 @@ export function initDownloadManager(): void {
   // temporarily use Chromium until aria2:status is broadcast.
   startAria2().then((ready) => {
     aria2Ready = ready;
-    aria2StatusSent = true;
     send('aria2:status', { ready, port: ARIA2_RPC_PORT, dir: getDownloadDir() });
   });
 
@@ -477,8 +512,12 @@ export function setupDownloadHandlers(sess: Electron.Session): void {
       log.warn('[Download] aria2 selected but NOT ready — falling back to Chromium');
     }
 
-    // Chromium mode — track with real-time progress
-    trackChromiumDownload(item);
+    // Chromium mode — track with real-time progress. A restart retry keeps the
+    // existing record id, but never overwrites a completed file.
+    const retryQueue = pendingChromiumRetries.get(item.getURL());
+    const retry = retryQueue?.shift();
+    if (retryQueue && retryQueue.length === 0) pendingChromiumRetries.delete(item.getURL());
+    trackChromiumDownload(item, retry);
   });
 }
 
@@ -486,12 +525,15 @@ export function cancelDownload(id: string): void {
   if (id.startsWith('a2_')) {
     const gid = aria2Gids.get(id);
     aria2Gids.delete(id);
+    const timer = aria2PollTimers.get(id);
+    if (timer) clearTimeout(timer);
+    aria2PollTimers.delete(id);
     if (gid && aria2Ready) {
       aria2Rpc('aria2.remove', gid).catch((err) => {
         log.error('[Download] aria2 remove failed:', err.message);
       });
     }
-    send('download:progress', { id, state: 'cancelled', speed: 0 });
+    emitDownload({ id, state: 'cancelled', speed: 0 });
   } else if (id.startsWith('cr_')) {
     const item = chromiumItems.get(id);
     if (item) {
@@ -512,12 +554,12 @@ export function pauseDownload(id: string): void {
         log.error('[Download] aria2 pause failed:', err.message);
       });
     }
-    send('download:progress', { id, state: 'paused', speed: 0 });
+    emitDownload({ id, state: 'paused', speed: 0 });
   } else if (id.startsWith('cr_')) {
     const item = chromiumItems.get(id);
     if (item) {
       item.pause();
-      send('download:progress', { id, state: 'paused', speed: 0 });
+      emitDownload({ id, state: 'paused', speed: 0 });
       log.info('[Download] chromium paused:', id);
     }
   }
@@ -530,14 +572,34 @@ export function resumeDownload(id: string): void {
       aria2Rpc('aria2.unpause', gid).catch((err) => {
         log.error('[Download] aria2 unpause failed:', err.message);
       });
+      emitDownload({ id, state: 'progressing', speed: 0 });
+      return;
     }
-    send('download:progress', { id, state: 'progressing', speed: 0 });
+    const record = getDownloadRecord(id);
+    if (record?.url && aria2Ready) {
+      aria2Download(record.url, record.filename, record).catch((err) => {
+        log.error('[Download] aria2 restart retry failed:', err.message);
+        emitDownload({ id, state: 'interrupted', speed: 0 });
+      });
+    } else {
+      log.warn('[Download] aria2 resume unavailable:', id, 'ready=' + aria2Ready);
+      emitDownload({ id, state: 'interrupted', speed: 0 });
+    }
   } else if (id.startsWith('cr_')) {
     const item = chromiumItems.get(id);
     if (item) {
       item.resume();
-      send('download:progress', { id, state: 'progressing', speed: 0 });
+      emitDownload({ id, state: 'progressing', speed: 0 });
       log.info('[Download] chromium resumed:', id);
+      return;
+    }
+    const record = getDownloadRecord(id);
+    if (record?.url) {
+      const queue = pendingChromiumRetries.get(record.url) || [];
+      queue.push(record);
+      pendingChromiumRetries.set(record.url, queue);
+      session.defaultSession.downloadURL(record.url);
+      log.info('[Download] chromium restart retry:', id);
     }
   }
 }

@@ -11,6 +11,7 @@ export interface FlashEngineRule {
 
 export interface Settings {
   homepage: string;
+  restoreSession: boolean;
   searchEngine: SearchEngine;
   linkBehavior: LinkBehavior;
   flashEngineMode: FlashEngineMode;

@@ -1,8 +1,9 @@
 import React from 'react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
+import type { FlashEngineMode } from '@shared/types/settings';
 
 interface RuffleToggleProps {
-  engineMode: 'auto' | 'prefer-ruffle';
+  engineMode: FlashEngineMode;
   ruffleSource: 'bundled' | 'cdn';
   onToggle: () => void;
 }

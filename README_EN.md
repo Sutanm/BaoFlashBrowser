@@ -39,10 +39,11 @@ BrowserView creates an independent renderer process per tab, isolating Flash's r
 
 - **PPAPI + Ruffle Dual Engine**: Native Flash plugin and WASM emulator, switchable per tab
 - **Tab Management**: Multi-tab, drag-to-reorder, Chrome-style collapsing, full navigation controls
-- **Password Manager**: CDP-based credential capture, AES-256-GCM encryption, master password protection
+- **Password Manager**: Optional capture, locked-vault autofill, AES-256-GCM encryption, master password protection
 - **Download Manager**: aria2 multi-threaded engine, three-tier fallback, path traversal protection
 - **Sidebar Panels**: Bookmarks, History, Downloads, Passwords, Settings
 - **Taomee 61.com Compatibility**: SWFObject network-layer bypass, Flash version spoofing
+- **Safe Session Recovery**: Offers tab recovery only after an abnormal exit; normal window closure does not prompt
 - **Cross-platform**: Windows / Linux (WSL compatible)
 
 ## Tech Stack
@@ -91,7 +92,7 @@ Architecture overview:
 # Install dependencies
 npm install
 
-# Development mode (HMR)
+# Watch builds (does not launch or restart Electron automatically)
 npm run dev
 
 # Build + launch
@@ -138,7 +139,9 @@ Ruffle options: quality (`best`), forced scaling (`forceScale`), Chinese font fa
 
 ### Password Manager
 
-Uses CDP (Chrome DevTools Protocol) to capture login credentials with 8 capture strategies:
+Uses CDP (Chrome DevTools Protocol) to capture credentials and autofill both main documents and cross-origin login frames. Capture and autofill have separate settings and an excluded-site list. Autofill only populates fields and never submits a form.
+
+Capture covers these login patterns:
 
 | Strategy | Use Case |
 |----------|----------|
@@ -155,6 +158,8 @@ Encryption scheme:
 - DEK (Data Encryption Key) stored encrypted with KEK
 - Each password encrypted with DEK via AES-256-GCM
 - Master password requirements: 8+ characters, uppercase + lowercase + digits
+
+For a Chrome-like experience, autofill remains available while the vault UI is locked. New vaults enroll a device-local autofill wrapping key during setup; an existing vault must be successfully unlocked once to migrate. A locked vault still cannot reveal, edit, export, or add credentials. Autofill uses exact host matching (ignoring only `www.`), never downgrades an HTTPS credential to HTTP, and skips registration, password-change, multi-password, and conflicting prefilled-account forms.
 
 ### Download Manager
 
@@ -173,10 +178,10 @@ Security measures: directory traversal prevention, dangerous extension blacklist
 
 ### Notifications
 
-Uses an address bar flip animation as Toast notifications — since BrowserView always renders on top, traditional floating Toasts would be hidden behind it. Two modes:
+Uses an address bar flip animation for Toast notifications because BrowserView renders above normal DOM overlays. Toasts include a countdown progress bar and can be dismissed immediately by clicking the body or the × button. Save/Ignore actions dismiss first, so they do not appear stuck while work completes.
 
-- **Text-only messages**: Auto-dismiss (e.g., "Copied to clipboard")
-- **Interactive overlays**: Require user action (e.g., "Save password?" with Save/Ignore buttons)
+- **Text-only messages**: Auto-dismiss with short type-specific durations
+- **Interactive messages**: Wait for an action by default, but remain manually dismissible
 
 ### Theme System
 
@@ -214,10 +219,12 @@ BaoFlashBrowser/
 │   │   │   ├── window.ts              # BrowserWindow (ready-to-show optimization)
 │   │   │   ├── tabs.ts                # TabManager: BrowserView lifecycle
 │   │   │   ├── flash.ts               # PPAPI plugin loader + mms.cfg
-│   │   │   ├── session-manager.ts     # UA, crossdomain.xml, SWFObject patch, CORS
+│   │   │   ├── session-manager.ts     # UA, SWFObject patch, SWF CORS; native crossdomain.xml preserved
 │   │   │   ├── download.ts            # aria2 download manager
 │   │   │   ├── password-capture.ts    # CDP credential capture
+│   │   │   ├── password-fill.ts       # Main-frame and cross-origin-frame autofill
 │   │   │   ├── password-store.ts      # AES-256-GCM encrypted storage
+│   │   │   ├── session-recovery.ts    # Clean/abnormal shutdown detection
 │   │   │   ├── crypto-helper.ts       # Cryptographic utilities
 │   │   │   ├── config.ts              # electron-store configuration
 │   │   │   └── ruffle-bundle.ts       # Ruffle JS lazy loader
@@ -245,7 +252,7 @@ BaoFlashBrowser/
 │   │   │   └── ErrorBoundary.tsx      # Error boundary
 │   │   ├── hooks/                     # useTabManager / useTheme / useShortcut etc.
 │   │   ├── store/                     # Zustand stores (useDataStore / useTabsStore)
-│   │   ├── services/                  # db.ts (Dexie) / keyboard / url / id
+│   │   ├── services/                  # db / toast / tab-session / keyboard / url / id
 │   │   └── types/                     # Type declarations (electron.d.ts)
 │   ├── preload/index.ts               # Main window preload (contextBridge + IPC allowlist)
 │   ├── webview-preload/index.ts       # Page preload (Ruffle + login detection + autofill)
@@ -264,7 +271,7 @@ BaoFlashBrowser/
 ├── docs/
 │   ├── PACKAGE.md                     # Packaging guide
 │   └── lessons-learned.md             # v2 development lessons learned
-├── test/                              # Standalone test scripts
+├── tests/                             # Vitest unit tests + Electron smoke tests
 ├── build/                             # Icon resources
 ├── esbuild.main.config.mjs            # esbuild main process config
 ├── vite.renderer.config.ts            # Vite renderer config
@@ -289,13 +296,15 @@ This project is locked to Electron 11 / Chromium 87. **Never upgrade any kernel-
 4. **Linux requires `--no-sandbox`**; WSLg needs three GPU flags: `--ignore-gpu-blacklist`, `--enable-gpu-rasterization`, `--enable-zero-copy`
 5. **Never call `wc.stop()` in `did-fail-load`**: It kills post-login redirects
 6. **BrowserView always renders on top**: DOM elements cannot cover it; notifications require special handling
+7. **Never redirect `crossdomain.xml` to `data:`**: PPAPI treats it as `ERR_ABORTED`, often showing a working launcher followed by a white screen after login. Preserve the game server's native policy; SWF CORS headers are for Ruffle only
+8. **Detach password-capture CDP before navigation**: Call `teardownCapture` before reload, loadURL, back, or forward, or the attached debugger can leave a tab permanently loading
 
 ### Debugging Workflow
 
 1. Map the full chain before touching code
-2. Validate with standalone test scripts first (see `test/` directory)
+2. Validate with a standalone probe using the same BrowserView, PPAPI, and Session setup as the application
 3. Port to main project only after tests pass
-4. For site-specific issues: probe actual network requests and DOM behavior with Python/Node.js + Playwright
+4. For site-specific failures, A/B test a clean control against project policies added one at a time; record network failures, SWF requests, and screenshots while stripping tokens and query strings from logs
 
 ## Flash Plugin Versions
 
@@ -303,9 +312,9 @@ This project is locked to Electron 11 / Chromium 87. **Never upgrade any kernel-
 |---------|----------|--------|-------|
 | 29.0.0.171 | Windows | Official Adobe | No time bomb, no debug popups, stable |
 | 32.0.0.371 | Linux | Official Adobe | Final pre-EOL release |
-| ~~34.0.0.330~~ | ~~Windows~~ | ~~Zhongcheng~~ | Embedded debugger, AS3 error popups — not used |
+| 34.0.0.330 | Windows (advertised only) | Version spoof | Default advertised version for legacy site gates; not the loaded DLL |
 
-Version 29 is not blocked by Taomee's `checkUpgrade` (which only blocks `major === 32`). Combined with version spoofing (34) and SWFObject bypass, this provides triple-layer compatibility.
+Windows loads the stable 29.0.0.171 DLL while advertising 34.0.0.330 to pages by default; this difference is intentional. Taomee compatibility also relies on a narrowly scoped patch for `webres.61.com/common/js/swfobject.js`. Do not remove version spoofing as a white-screen fix, and never synthesize Flash `crossdomain.xml` policies globally.
 
 ## License
 

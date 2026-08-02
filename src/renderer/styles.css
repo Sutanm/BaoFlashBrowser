@@ -804,15 +804,18 @@ body.dark ::-webkit-scrollbar-thumb { background: #45475a; }
   gap: 8px;
 }
 
-/* ===== Toast 地址栏翻转动画 ===== */
-@keyframes address-flip {
-  0%   { transform: scaleY(1); }
-  50%  { transform: scaleY(0.02); }
-  100% { transform: scaleY(1); }
+/* ===== Toast 地址栏动画 ===== */
+@keyframes toast-enter {
+  from { transform: translateY(-8px) scaleY(0.75); opacity: 0; }
+  to { transform: translateY(0) scaleY(1); opacity: 1; }
 }
-.address-flip {
-  animation: address-flip 300ms ease-in-out;
-  transform-origin: center;
+@keyframes toast-exit {
+  from { transform: scaleY(1); opacity: 1; }
+  to { transform: scaleY(0.05); opacity: 0; }
+}
+@keyframes toast-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
 }
 
 /* Toast Overlay 覆盖在地址栏上，不挤压 BrowserView */
@@ -830,6 +833,30 @@ body.dark ::-webkit-scrollbar-thumb { background: #45475a; }
   font-weight: 500;
   cursor: pointer;
   overflow: hidden;
+  transform-origin: center;
+  -webkit-app-region: no-drag;
+}
+
+.toast-entering {
+  transform: translateY(-8px) scaleY(0.75);
+  opacity: 0;
+}
+
+.toast-visible {
+  animation: toast-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.toast-exiting {
+  animation: toast-exit 110ms ease-in forwards;
+  pointer-events: none;
+}
+
+.toast-message {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toast-actions {
@@ -849,6 +876,8 @@ body.dark ::-webkit-scrollbar-thumb { background: #45475a; }
   white-space: nowrap;
 }
 .toast-btn:hover { background: rgba(255, 255, 255, 0.15); }
+.toast-btn:disabled,
+.toast-close:disabled { cursor: default; }
 
 .toast-btn-primary {
   background: rgba(255, 255, 255, 0.95);
@@ -857,6 +886,47 @@ body.dark ::-webkit-scrollbar-thumb { background: #45475a; }
   font-weight: 600;
 }
 .toast-btn-primary:hover { background: #fff; }
+
+.toast-close {
+  width: 24px;
+  height: 24px;
+  margin-left: 6px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+.toast-close:hover { background: rgba(255, 255, 255, 0.18); }
+
+.toast-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.75);
+  transform-origin: left center;
+  animation-name: toast-countdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  pointer-events: none;
+}
+.toast-progress.paused { animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-entering,
+  .toast-exiting {
+    animation-duration: 1ms;
+  }
+  .toast-progress {
+    animation-timing-function: steps(20, end);
+  }
+}
 
 /* ===== 可访问性：focus-visible 轮廓 ===== */
 button:focus-visible,

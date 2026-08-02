@@ -11,29 +11,42 @@ export function useDownloadListener(): void {
   useEffect(() => {
     const cleanup = window.electronAPI?.on('download:progress', (payload) => {
       const name = payload.filename || LL.download.file();
+      const isNewDownload = !useDataStore.getState().downloads.some((download) => download.id === payload.id);
+      if (isNewDownload) {
+        pushToast({ key: `download-start:${payload.id}`, message: LL.download.started({ name }), type: 'info' });
+      }
 
       setDownloads((prev: DownloadItem[]) => {
         const exists = prev.find((d) => d.id === payload.id);
         if (exists) {
           return prev.map((d) => {
             if (d.id !== payload.id) return d;
-            const merged = { ...d } as any;
-            for (const key of Object.keys(payload)) {
-              if (payload[key] !== undefined) merged[key] = payload[key];
-            }
-            return merged as DownloadItem;
+            return {
+              ...d,
+              ...Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined)),
+            } as DownloadItem;
           });
         }
-        pushToast({ message: LL.download.started({ name }), type: 'info' });
-        return [{ ...payload, id: payload.id }, ...prev];
+        return [{
+          id: payload.id,
+          url: payload.url || '',
+          filename: payload.filename || name,
+          state: payload.state,
+          progress: payload.progress,
+          speed: payload.speed,
+          receivedBytes: payload.receivedBytes || 0,
+          totalBytes: payload.totalBytes || 0,
+          savePath: payload.savePath || '',
+          engine: payload.engine,
+        }, ...prev];
       });
 
       if (payload.state === 'completed') {
-        pushToast({ message: LL.download.completed({ name }), type: 'success' });
+        pushToast({ key: `download-result:${payload.id}`, message: LL.download.completed({ name }), type: 'success' });
       } else if (payload.state === 'cancelled') {
-        pushToast({ message: LL.download.cancelledNotify({ name }), type: 'warning' });
+        pushToast({ key: `download-result:${payload.id}`, message: LL.download.cancelledNotify({ name }), type: 'warning' });
       } else if (payload.state === 'interrupted') {
-        pushToast({ message: LL.download.failed({ name }), type: 'error' });
+        pushToast({ key: `download-result:${payload.id}`, message: LL.download.failed({ name }), type: 'error' });
       }
     });
     return () => { cleanup?.(); };

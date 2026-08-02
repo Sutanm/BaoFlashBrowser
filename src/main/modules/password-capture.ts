@@ -2,7 +2,7 @@
 import type { WebContents } from 'electron';
 import log from 'electron-log';
 import { getMainWindow } from './window';
-import { getMetaForHost } from './password-store';
+import { getMetaForHost, isAutoCaptureEnabled, isCaptureExcluded } from './password-store';
 
 interface CaptureState {
   wc: WebContents;
@@ -14,6 +14,13 @@ interface CaptureState {
 }
 
 const captures = new Map<number, CaptureState>();
+
+/** Snapshot of frame execution contexts already discovered by the capture CDP session. */
+export function getCaptureContextIds(wc: WebContents): number[] {
+  const state = captures.get(wc.id);
+  if (!state || state.destroyed) return [];
+  return [...state.contexts];
+}
 
 // 待保存凭据 —— 模块级全局，不受 state 重建影响（JSONP 捕获后 detach → teardown → setupCapture，旧 state 的 pendingCreds 不丢）
 const globalPendingCredentials = new Map<string, { host: string; username: string; password: string; origin: string; title: string; timestamp: number }>();
@@ -345,8 +352,26 @@ async function injectAllFrames(state: CaptureState): Promise<void> {
   }
 }
 
+function scheduleFrameReinjection(state: CaptureState, delay: number): void {
+  if (state.destroyed || state.wc.isDestroyed()) return;
+  state.injectTimer = setTimeout(async () => {
+    if (state.destroyed || state.wc.isDestroyed()) return;
+    await injectAllFrames(state);
+    scheduleFrameReinjection(state, 4000);
+  }, delay);
+}
+
 export function setupCapture(wc: WebContents): void {
   if (!wc || wc.isDestroyed()) return;
+  if (!isAutoCaptureEnabled()) {
+    teardownCapture(wc);
+    return;
+  }
+  if (isCaptureExcluded(wc.getURL())) {
+    log.info('[PasswordCapture] excluded site, wc.id=' + wc.id + ' url=' + wc.getURL());
+    teardownCapture(wc);
+    return;
+  }
 
   log.info('[PasswordCapture] setupCapture wc=' + wc.id + ' url=' + wc.getURL());
 
@@ -385,6 +410,7 @@ export function setupCapture(wc: WebContents): void {
         }
         if (data._type !== 'baop_capture') continue;
         if (!data.user || !data.pass || data.pass.length < 2) continue;
+        if (isCaptureExcluded(String(data.origin || data.host || ''))) continue;
         const key = `${data.host}/${data.user}`;
         if (state.capturedSet.has(key)) continue;
 
@@ -440,7 +466,7 @@ export function setupCapture(wc: WebContents): void {
     log.warn('[PasswordCapture] Runtime.enable failed:', e?.message);
   });
 
-  state.injectTimer = setTimeout(() => { injectAllFrames(state); state.injectTimer = setTimeout(() => injectAllFrames(state), 4000); }, 3000);
+  scheduleFrameReinjection(state, 3000);
 
   captures.set(wc.id, state);
 }

@@ -1,8 +1,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { X as XIcon, File, FileArchive, FileCode, Play as PlayIcon, Pause, FolderOpen, Trash2 } from 'lucide-react';
 import { useDataStore } from '@renderer/store/useDataStore';
-import type { DownloadItem } from '@shared/types/downloads';
-import type { DownloadEngine } from '@shared/types/settings';
+import type { DownloadItem, DownloadEngine } from '@shared/types/downloads';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 
 function formatSpeed(bytesPerSec: number): string {
@@ -56,10 +55,10 @@ const DownloadsPanel: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const cleanup = window.electronAPI?.on('aria2:status', (data: any) => {
+    const cleanup = window.electronAPI?.on('aria2:status', (data) => {
       setAria2Status(data);
     });
-    window.electronAPI?.invoke('download:aria2-status').then((data: any) => {
+    window.electronAPI?.invoke('download:aria2-status').then((data) => {
       if (data) setAria2Status(data);
     }).catch(() => {});
     return () => { cleanup?.(); };
@@ -73,6 +72,7 @@ const DownloadsPanel: React.FC = () => {
 
   const removeEntry = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    window.electronAPI.dl.removeRecord(id).catch(() => {});
     setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== id));
   }, [setDownloads]);
 
@@ -105,6 +105,7 @@ const DownloadsPanel: React.FC = () => {
     // L42: 校验 deleteFile 返回值，失败时不移除条目
     const success = await window.electronAPI?.dl?.deleteFile(entry.savePath);
     if (success) {
+      await window.electronAPI.dl.removeRecord(entry.id).catch(() => ({ success: false }));
       setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== entry.id));
       pushToast({ message: LL.download.deleted({ filename: entry.filename || LL.download.file() }), type: 'error' });
     } else {
@@ -121,7 +122,8 @@ const DownloadsPanel: React.FC = () => {
   }, [pushToast, LL]);
 
   const clearCompleted = useCallback(() => {
-    setDownloads((prev) => prev.filter((d: DownloadItem) => d.state === 'progressing'));
+    window.electronAPI.dl.clearFinished().catch(() => {});
+    setDownloads((prev) => prev.filter((d: DownloadItem) => d.state === 'progressing' || d.state === 'paused'));
     pushToast({ message: LL.download.cleared(), type: 'info' });
   }, [setDownloads, pushToast, LL]);
 
@@ -132,7 +134,7 @@ const DownloadsPanel: React.FC = () => {
   }, [openFile]);
 
   const sorted = [...downloads].reverse();
-  const hasCompleted = sorted.some((d: DownloadItem) => d.state !== 'progressing');
+  const hasCompleted = sorted.some((d: DownloadItem) => !['progressing', 'paused'].includes(d.state));
 
   return (
     <>
@@ -189,6 +191,7 @@ const DownloadsPanel: React.FC = () => {
             const isProgress = entry.state === 'progressing';
             const isPaused = entry.state === 'paused';
             const isDone = entry.state === 'completed';
+            const isInterrupted = entry.state === 'interrupted';
             const dlEngine = entry.engine || 'chromium';
 
             return (
@@ -246,6 +249,11 @@ const DownloadsPanel: React.FC = () => {
                     </button>
                   )}
                   {isPaused && (
+                    <button onClick={(e) => resumeDl(e, entry.id)} className="fav-remove" title={LL.download.resume()}>
+                      <PlayIcon className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {isInterrupted && (
                     <button onClick={(e) => resumeDl(e, entry.id)} className="fav-remove" title={LL.download.resume()}>
                       <PlayIcon className="w-3.5 h-3.5" />
                     </button>

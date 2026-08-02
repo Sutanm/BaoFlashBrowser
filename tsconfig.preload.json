@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2019",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "outDir": "dist/preload"
+  },
+  "include": [
+    "src/preload/**/*",
+    "src/webview-preload/**/*",
+    "src/shared/**/*"
+  ]
+}

@@ -5,6 +5,8 @@ import path from 'path';
 import { getMainWindow } from './window';
 import { setupSessionOnce } from './session-manager';
 import { setupCapture, teardownCapture } from './password-capture';
+import { fillPasswordsInWebContents, PasswordFillResult } from './password-fill';
+import { getFillCredentialForUrl, isAutoFillEnabled } from './password-store';
 
 interface TabEntry {
   id: string;
@@ -21,19 +23,24 @@ interface ContainerRect {
   height: number;
 }
 
+// BrowserView is a native content layer and can cover the React new-tab page even when
+// the DOM is hidden. Electron 11 therefore requires inactive views to be moved off-screen.
+const HIDDEN_BOUNDS: ContainerRect = Object.freeze({ x: -9999, y: -9999, width: 1, height: 1 });
+
 class TabManager {
   private tabs = new Map<string, TabEntry>();
   private wcToId = new Map<number, string>();
   private activeId: string | null = null;
   private rect: ContainerRect = { x: 0, y: 0, width: 0, height: 0 };
   private preloadPath = '';
+  private passwordFillTimers = new Map<number, Set<ReturnType<typeof setTimeout>>>();
 
-  getRuffleForWC(wcId: number): { enabled: boolean; source?: 'bundled' | 'cdn' } | null {
+  getRuffleForWC(wcId: number): { tabId: string; enabled: boolean; source?: 'bundled' | 'cdn' } | null {
     const tabId = this.wcToId.get(wcId);
     if (!tabId) return null;
     const tab = this.tabs.get(tabId);
     if (!tab) return null;
-    return { enabled: tab.isRuffle, source: tab.ruffleSource };
+    return { tabId, enabled: tab.isRuffle, source: tab.ruffleSource };
   }
 
   setPreload(path: string): void {
@@ -65,7 +72,7 @@ class TabManager {
       },
     });
     win.addBrowserView(view);
-    view.setBounds(this.rect.width > 0 ? this.rect : { x: -9999, y: -9999, width: 1, height: 1 });
+    view.setBounds(this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
     view.setAutoResize({ width: false, height: false });
 
     const wc = view.webContents;
@@ -93,7 +100,10 @@ class TabManager {
     wc.on('page-favicon-updated', (_e, favicons) => {
       if (favicons && favicons.length > 0) this.send('tab:updated', { tabId, favicon: favicons[0] });
     });
-    wc.on('did-start-loading', () => this.send('tab:updated', { tabId, isLoading: true }));
+    wc.on('did-start-loading', () => {
+      this._clearPasswordFillTimers(wc.id);
+      this.send('tab:updated', { tabId, isLoading: true });
+    });
     wc.on('did-stop-loading', () => {
       this.send('tab:updated', { tabId, isLoading: false });
       setTimeout(() => {
@@ -113,6 +123,7 @@ class TabManager {
         } catch (e: any) { log.warn('[TabManager] fallback title/favicon failed:', e?.message); }
       }, 500);
       setupCapture(wc);
+      this._schedulePasswordFill(wc, tabId);
     });
 
     wc.on('did-navigate', (_e, navUrl) => {
@@ -202,7 +213,7 @@ class TabManager {
     });
     const win = getMainWindow();
     win?.addBrowserView(view);
-    view.setBounds(this.rect.width > 0 ? this.rect : { x: -9999, y: -9999, width: 1, height: 1 });
+    view.setBounds(this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
     view.setAutoResize({ width: false, height: false });
 
     const wc = view.webContents;
@@ -220,7 +231,7 @@ class TabManager {
     if (wasActive) {
       if (this.activeId) {
         const old = this.tabs.get(this.activeId);
-        if (old) old.browserView.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
+        if (old) old.browserView.setBounds(HIDDEN_BOUNDS);
       }
       view.setBounds(this.rect);
       this.activeId = tabId;
@@ -231,7 +242,7 @@ class TabManager {
     if (tabId === this.activeId) return;
     if (this.activeId) {
       const old = this.tabs.get(this.activeId);
-      if (old) old.browserView.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
+      if (old) old.browserView.setBounds(HIDDEN_BOUNDS);
     }
     const tab = this.tabs.get(tabId);
     if (tab) tab.browserView.setBounds(this.rect);
@@ -248,11 +259,12 @@ class TabManager {
 
   // L12: 安全销毁 BrowserView，防止内存泄漏
   private _destroyView(tab: TabEntry): void {
+    this._clearPasswordFillTimers(tab.browserView.webContents.id);
     teardownCapture(tab.browserView.webContents);
     this.wcToId.delete(tab.browserView.webContents.id);
     const win = getMainWindow();
     win?.removeBrowserView(tab.browserView);
-    try { (tab.browserView.webContents as Electron.WebContents).destroy(); } catch { /* ignore */ }
+    try { (tab.browserView.webContents as unknown as { destroy(): void }).destroy(); } catch { /* ignore */ }
     try { (tab.browserView as any).destroy(); } catch { /* ignore */ }
   }
 
@@ -264,6 +276,79 @@ class TabManager {
     this.tabs.clear();
     this.wcToId.clear();
     this.activeId = null;
+  }
+
+  refreshPasswordCapture(enabled: boolean): void {
+    for (const [, tab] of this.tabs) {
+      const wc = tab.browserView.webContents;
+      if (enabled) setupCapture(wc);
+      else teardownCapture(wc);
+    }
+  }
+
+  private _clearPasswordFillTimers(wcId: number): void {
+    const timers = this.passwordFillTimers.get(wcId);
+    if (timers) {
+      for (const timer of timers) clearTimeout(timer);
+    }
+    this.passwordFillTimers.delete(wcId);
+  }
+
+  private _schedulePasswordFill(wc: Electron.WebContents, tabId: string): void {
+    this._clearPasswordFillTimers(wc.id);
+    if (!isAutoFillEnabled()) return;
+    let completed = false;
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    this.passwordFillTimers.set(wc.id, timers);
+    for (const delay of [120, 1000, 3000]) {
+      const timer = setTimeout(async () => {
+        timers.delete(timer);
+        if (completed || wc.isDestroyed()) return;
+        const result = await fillPasswordsInWebContents(
+          wc,
+          (frameUrl) => getFillCredentialForUrl(frameUrl, undefined, true),
+        );
+        if (result.success) {
+          completed = true;
+          this._clearPasswordFillTimers(wc.id);
+          this.send('password:filled', {
+            tabId,
+            username: result.usernames[0] || '',
+            count: result.filledCredentials,
+            automatic: true,
+          });
+        } else if (timers.size === 0) {
+          this.passwordFillTimers.delete(wc.id);
+        }
+      }, delay);
+      timers.add(timer);
+    }
+  }
+
+  refreshPasswordFill(): void {
+    for (const [tabId, tab] of this.tabs) {
+      this._schedulePasswordFill(tab.browserView.webContents, tabId);
+    }
+  }
+
+  async fillPassword(tabId: string, entryId: string): Promise<PasswordFillResult> {
+    const tab = this.tabs.get(tabId);
+    if (!tab) {
+      return { success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'destroyed' };
+    }
+    const result = await fillPasswordsInWebContents(
+      tab.browserView.webContents,
+      (frameUrl) => getFillCredentialForUrl(frameUrl, entryId, false),
+    );
+    if (result.success) {
+      this.send('password:filled', {
+        tabId,
+        username: result.usernames[0] || '',
+        count: result.filledCredentials,
+        automatic: false,
+      });
+    }
+    return result;
   }
 
   // L: 导航前卸载 CDP debugger，防止已附着的 debugger 阻塞 <script> onload

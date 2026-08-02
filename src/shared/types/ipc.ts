@@ -35,7 +35,14 @@ export type ShortcutAction =
 
 export interface TabUpdatedPayload {
   tabId: string;
-  changes: Partial<Tab>;
+  changes?: Partial<Tab>;
+  title?: string;
+  url?: string;
+  favicon?: string;
+  isLoading?: boolean;
+  isAudible?: boolean;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
 }
 
 export interface DownloadProgressPayload {
@@ -61,7 +68,7 @@ export interface ContextMenuPayload {
 
 export interface NewWindowPayload {
   url: string;
-  disposition: 'default' | 'foreground-tab' | 'background-tab' | 'new-window' | 'save-to-disk';
+  disposition?: 'default' | 'foreground-tab' | 'background-tab' | 'new-window' | 'save-to-disk';
 }
 
 export interface TabFoundPayload {
@@ -78,7 +85,7 @@ export interface TabLoadErrorPayload {
 
 export interface TabCrashedPayload {
   tabId: string;
-  reason: string;
+  reason?: string;
 }
 
 export interface Aria2StatusPayload {
@@ -97,6 +104,13 @@ export interface PasswordChangedPayload {
   ts: number;
 }
 
+export interface PasswordFilledPayload {
+  tabId: string;
+  username: string;
+  count: number;
+  automatic: boolean;
+}
+
 export interface IPCMainToRenderer {
   shortcut: (action: ShortcutAction) => void;
   'tab:updated': (payload: TabUpdatedPayload) => void;
@@ -109,6 +123,7 @@ export interface IPCMainToRenderer {
   'navigate-url': (url: string) => void;
   'password:captured': (payload: PasswordCapturedPayload) => void;
   'password:changed': (payload: PasswordChangedPayload) => void;
+  'password:filled': (payload: PasswordFilledPayload) => void;
   'webview:context-menu': (payload: ContextMenuPayload) => void;
   'webview:new-window': (payload: NewWindowPayload) => void;
 }
@@ -119,4 +134,4 @@ export type { Tab, TabCreateOptions } from './tab';
 export type { BookmarkEntry } from './bookmarks';
 export type { HistoryEntry } from './history';
 export type { DownloadItem, DownloadState, DownloadEngine } from './downloads';
-export type { Settings, LinkBehavior, FlashEngineMode, FlashEngineRule, SearchEngine, DownloadEngine } from './settings';
+export type { Settings, LinkBehavior, FlashEngineMode, FlashEngineRule, SearchEngine } from './settings';

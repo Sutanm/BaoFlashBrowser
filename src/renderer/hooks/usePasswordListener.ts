@@ -19,18 +19,21 @@ export function usePasswordListener(): void {
     const api = window.electronAPI;
     if (!api) return;
 
-    const unsub = api.on('password:captured', (data) => {
+    const unsubCapture = api.on('password:captured', (data) => {
       const { captureId, host } = data as CaptureNotification;
 
       api.pwd?.status().then((s) => {
         if (!s || !s.initialized) {
           pushToast({
+            key: `password-capture:${host}`,
             message: LL.password.captureNotify(),
             type: 'info',
+            duration: null,
+            onDismiss: (reason) => { if (reason !== 'action') void api.pwd.ignore(captureId); },
             actions: [{
               label: LL.password.enableBtn(),
               primary: true,
-              onClick: () => { setActivePanel('passwords'); },
+              onClick: () => { void api.pwd.ignore(captureId); setActivePanel('passwords'); },
             }],
           });
           return;
@@ -42,24 +45,45 @@ export function usePasswordListener(): void {
         }
 
         pushToast({
+          key: `password-capture:${host}`,
           message: LL.password.savePrompt({ host }),
           type: 'info',
           duration: null,
+          onDismiss: (reason) => { if (reason !== 'action') void api.pwd.ignore(captureId); },
           actions: [
             {
               label: LL.save(),
               primary: true,
-              onClick: async () => { await api.pwd?.saveConfirm(captureId); },
+              onClick: async () => {
+                try {
+                  const result = await api.pwd.saveConfirm(captureId);
+                  if (result.success) return;
+                } catch {
+                  // The original prompt has already closed; report failure separately below.
+                }
+                pushToast({ key: `password-save-error:${host}`, message: LL.password.saveFailed(), type: 'error' });
+              },
             },
             {
               label: LL.password.ignore(),
-              onClick: () => { api.pwd?.ignore(captureId); },
+              onClick: () => { void api.pwd.ignore(captureId); },
             },
           ],
         });
       }).catch(() => {});
     });
 
-    return () => { if (unsub) unsub(); };
+    const unsubFilled = api.on('password:filled', () => {
+      pushToast({
+        key: 'password-filled',
+        message: LL.password.filled(),
+        type: 'success',
+      });
+    });
+
+    return () => {
+      if (unsubCapture) unsubCapture();
+      if (unsubFilled) unsubFilled();
+    };
   }, [setStoreStatus, setActivePanel, pushToast, LL]);
 }

@@ -1,10 +1,10 @@
 import Store from 'electron-store';
 import log from 'electron-log';
-import type { DownloadEngine } from '@shared/types/settings';
+import type { DownloadEngine } from '@shared/types/downloads';
 
 export const DEFAULT_FLASH_VERSION = '34.0.0.330';
 
-interface Config {
+export interface Config {
   flashVersion: string;
   lowEndMode: boolean;
   downloadEngine: DownloadEngine;

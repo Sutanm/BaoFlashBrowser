@@ -35,6 +35,13 @@ const en: Translation = {
     newTabHint: 'New Tab (Ctrl+T)',
   },
 
+  session: {
+    restorePrompt: 'The browser did not close normally. Restore {count} tabs?',
+    restore: 'Restore',
+    ignore: 'Ignore',
+    restoreFailed: 'Tabs could not be restored. A new tab has been opened.',
+  },
+
   sidebar: {
     favorites: 'Favorites',
     history: 'History',
@@ -63,6 +70,8 @@ const en: Translation = {
     switchToFlash: 'Ruffle Mode — Click to Switch to Flash',
     flash: 'Flash',
     ruffle: 'Ruffle',
+    loadFailed: 'Ruffle failed to load: {detail}',
+    retryBundled: 'Retry with bundled Ruffle',
   },
 
   favorites: {
@@ -143,8 +152,22 @@ const en: Translation = {
     captureNotify: 'Login Detected. Enable Password Store to Save.',
     enableBtn: 'Enable Password Store',
     savePrompt: 'Save Password for {host}?',
+    saveFailed: 'Failed to save password. Unlock the password store and try again.',
     ignore: 'Ignore',
     deleted: 'Deleted',
+    autoCapture: 'Detect Login Information Automatically',
+    autoCaptureHint: 'Enabled by default. When disabled, the password capture helper is not attached to pages.',
+    autoFill: 'Fill Saved Passwords Automatically',
+    autoFillHint: 'Works while the password store is locked, but never submits the form.',
+    autoFillNeedsUnlock: 'Unlock this existing password store once to enable filling while locked.',
+    filled: 'Login details filled. Review them before signing in.',
+    fill: 'Fill This Page',
+    fillFailed: 'No matching login form could be filled safely on this page.',
+    excludedSites: 'Never capture on these sites',
+    excludedSitesHint: 'Enter one domain per line. Subdomains are excluded too, and changes apply to open tabs immediately.',
+    saveExcludedSites: 'Save exclusion list',
+    excludedSitesSaved: 'Password capture exclusion list saved',
+    excludedSitesSaveFailed: 'Failed to save the exclusion list',
   },
 
   settings: {
@@ -156,6 +179,8 @@ const en: Translation = {
     savedRestartBtn: 'Saved — Restart Required',
     general: 'General',
     homepage: 'Homepage',
+    restoreSession: 'Offer Tab Recovery After a Crash',
+    restoreSessionHint: 'Normal exits start fresh. Recovery is offered only after a crash, power loss, or forced termination, for up to 20 tabs.',
     searchEngine: 'Search Engine',
     baidu: 'Baidu',
     spoofVersion: 'Spoof Flash Version',
@@ -183,6 +208,13 @@ const en: Translation = {
     light: 'Light',
     dark: 'Dark',
     system: 'System',
+    diagnostics: 'Compatibility Diagnostics',
+    openLocalSwf: 'Open Local SWF Game',
+    diagnosticsHint: 'Exports runtime details, component hashes, and recent logs. Account paths, URL parameters, passwords, and tokens are redacted.',
+    diagnosticsExport: 'Export Redacted Diagnostic Report',
+    diagnosticsExporting: 'Generating Report…',
+    diagnosticsSaved: 'Diagnostic Report Saved',
+    diagnosticsFailed: 'Failed to Export Diagnostic Report',
     language: 'Language',
   },
 

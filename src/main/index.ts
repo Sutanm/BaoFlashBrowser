@@ -1,21 +1,23 @@
 import path from 'path';
-import fs from 'fs';
-import { app, BrowserWindow, protocol } from 'electron';
+import { app, protocol, session } from 'electron';
 import log from 'electron-log';
 
 import { setupFlash } from './modules/flash';
 import { initSession } from './modules/session-manager';
 import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow } from './modules/window';
-import { registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
+import { handleWebviewBeforeInputEvent, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
 import { registerConfigIPC } from './ipc/config.ipc';
 import { registerTabsIPC } from './ipc/tabs.ipc';
 import { registerDownloadIPC } from './ipc/download.ipc';
 import { registerPasswordIPC } from './ipc/password.ipc';
+import { registerDiagnosticsIPC } from './ipc/diagnostics.ipc';
 import { init as initPasswordStore } from './modules/password-store';
 import { tabManager } from './modules/tabs';
 import { initDownloadManager, killAria2 } from './modules/download';
+import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
+import { initializeSessionRecovery, preventCleanShutdownMark } from './modules/session-recovery';
 
 function bootstrap(): void {
   if (!app.requestSingleInstanceLock()) {
@@ -32,6 +34,7 @@ function bootstrap(): void {
   });
 
   const config = loadConfig();
+  initializeSessionRecovery();
 
   if (process.platform === 'linux') {
     app.commandLine.appendSwitch('no-sandbox');
@@ -71,6 +74,16 @@ function bootstrap(): void {
   }
 
   app.whenReady().then(() => {
+    // Custom protocols are session-scoped. BrowserView tabs use persist:, while
+    // the main renderer uses defaultSession, so both must be registered before
+    // any page can request Ruffle's JS/WASM components.
+    try {
+      registerRuffleProtocol(session.defaultSession, 'defaultSession');
+      registerRuffleProtocol(session.fromPartition('persist:'), 'persist:');
+    } catch (e: any) {
+      log.error('[Ruffle] resource protocol registration failed:', e?.message || e);
+    }
+
     // 窗口优先创建，首屏最快展示
     createWindow();
     tabManager.setPreload(path.join(__dirname, 'webview-preload.js'));
@@ -83,40 +96,10 @@ function bootstrap(): void {
     registerDownloadIPC();
     initPasswordStore().catch((e: any) => log.warn('[App] password store init failed:', e?.message));
     registerPasswordIPC();
+    registerDiagnosticsIPC();
 
     // 重任务延迟到首渲染后执行，不阻塞首屏展示
      setImmediate(() => {
-       // Register custom protocol for Ruffle self-hosted resources
-       try {
-         protocol.registerBufferProtocol('ruffle-resource', (req, cb) => {
-           const stripped = req.url.replace(/^ruffle-resource:\/\//, '');
-           const cleanName = stripped.split('?')[0].split('#')[0];
-           const fileName = decodeURIComponent(cleanName);
-           const fullPath = path.join(__dirname, 'lib', 'ruffle', fileName);
-           fs.readFile(fullPath, (err, data) => {
-             if (err) {
-               log.warn('[Ruffle] resource not found: ' + fullPath + ' (' + err.message + ')');
-               cb({ error: -6 });
-               return;
-             }
-             let mimeType = 'application/octet-stream';
-             const ext = path.extname(fullPath).toLowerCase();
-             if (ext === '.js') mimeType = 'application/javascript';
-             else if (ext === '.wasm') mimeType = 'application/wasm';
-             else if (ext === '.map') mimeType = 'application/json';
-             cb({
-               mimeType,
-               data,
-               headers: {
-                 'Cache-Control': 'public, max-age=31536000, immutable',
-                 'Access-Control-Allow-Origin': '*',
-               },
-             });
-           });
-         });
-         log.info('[Ruffle] protocol ruffle-resource registered (buffer mode)');
-      } catch (e: any) { log.warn('[Ruffle] protocol registration failed:', e?.message); }
-
       initDownloadManager();
      });
 
@@ -133,8 +116,6 @@ function bootstrap(): void {
 
     app.on('web-contents-created', (_event, wc) => {
       wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { handleWebviewBeforeInputEvent } = require('./ipc/shortcut.ipc');
         handleWebviewBeforeInputEvent(event, input);
       });
 
@@ -162,7 +143,11 @@ function bootstrap(): void {
       crashCount++;
       if (crashResetTimer) clearTimeout(crashResetTimer);
       crashResetTimer = setTimeout(() => { crashCount = 0; }, 30000);
-      if (crashCount > 3) { app.quit(); return; }
+      if (crashCount > 3) {
+        preventCleanShutdownMark();
+        app.quit();
+        return;
+      }
       setTimeout(() => win?.reload(), 500);
     }
   });

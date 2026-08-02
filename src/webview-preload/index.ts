@@ -1,38 +1,69 @@
-// webview 注入脚本（guest 页面内运行）
-// 职责：1) Ruffle 注入 (contextIsolation:false → eval 到页面上下文)
-//       2) 识别登录表单/捕获账号密码/自动填充
-// 通信：guest→host 用 ipcRenderer.sendToHost；host→guest 用 webview.send → ipcRenderer.on
+// BrowserView preload: Ruffle injection and PPAPI compatibility shims.
+// Password capture and filling live in the main process CDP modules so that
+// cross-origin frames work and plaintext credentials never enter renderer IPC.
 
-declare function require(name: 'electron'): { ipcRenderer: Electron.IpcRenderer };
+export {};
 
 interface RuffleModeConfig {
   enabled: boolean;
   source?: 'bundled' | 'cdn';
   js?: string;
+  bundle?: { version: string; bytes: number; sha256: string } | null;
 }
 
-interface LoginFormData {
-  form: HTMLFormElement | null;
-  userInput: HTMLInputElement | null;
-  pwInput: HTMLInputElement;
+interface RuffleRuntimeConfig {
+  favorFlash: boolean;
+  quality: string;
+  forceScale: boolean;
+  fontSources: string[];
+  defaultFonts: Record<string, string>;
+  publicPath?: string;
 }
 
-interface Credentials {
-  username: string;
-  password: string;
-  formAction: string;
+declare global {
+  interface Window {
+    RufflePlayer?: {
+      config: RuffleRuntimeConfig;
+      newest?: () => { version?: string } | null;
+    };
+    __baoflash_preload?: number;
+  }
 }
 
 // --- Ruffle 模式检测与注入（contextIsolation: false 时直接 eval 到页面上下文）---
 (function() {
   if (window.top !== window.self) return;
   try {
+    // Electron 11 preload runtime requires CommonJS here; static import changes page-world timing.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const _e = require('electron');
     const _ipc = _e.ipcRenderer;
     if (!_ipc) return;
     const _cfg = _ipc.sendSync('get-ruffle-mode') as RuffleModeConfig;
     if (_cfg && _cfg.enabled) {
-      const _config = {
+      const _report = (phase: string, detail?: string) => {
+        try { _ipc.send('ruffle:diagnostic', { phase, detail }); } catch { /* diagnostics must not affect bootstrap */ }
+      };
+      const _reportRuntime = () => {
+        try {
+          const runtime = window.RufflePlayer?.newest?.();
+          if (runtime) _report('runtime-ready', runtime.version || 'unknown version');
+          else _report('runtime-error', 'Ruffle source was not registered');
+        } catch (error) {
+          _report('runtime-error', error instanceof Error ? error.message : String(error));
+        }
+      };
+      const _reportComponentFailure = (reason: unknown) => {
+        const detail = reason instanceof Error ? reason.message : String(reason || 'unknown error');
+        if (/ruffle|wasm|webassembly|chunk|component/i.test(detail)) _report('component-error', detail);
+      };
+      window.addEventListener('error', (event) => _reportComponentFailure(event.error || event.message));
+      window.addEventListener('unhandledrejection', (event) => _reportComponentFailure(event.reason));
+      const bundleDetail = _cfg.bundle
+        ? ', version=' + _cfg.bundle.version + ', bytes=' + _cfg.bundle.bytes + ', sha256=' + _cfg.bundle.sha256
+        : ', bytes=' + (_cfg.js?.length || 0);
+      _report('config', 'source=' + (_cfg.source || 'bundled') + bundleDetail);
+      const _config: RuffleRuntimeConfig = {
         favorFlash: false,
         quality: 'best',
         forceScale: true,
@@ -51,17 +82,25 @@ interface Credentials {
       if (_cfg.js) _config.publicPath = 'ruffle-resource://';
       window.RufflePlayer = { config: _config };
       if (_cfg.js) {
-        eval(_cfg.js);
-        console.log('[PRELOAD] Ruffle eval\'d (' + (_cfg.js.length / 1024).toFixed(0) + 'KB)');
+        try {
+          eval(_cfg.js);
+          _report('bundled-eval-ok');
+          _reportRuntime();
+          console.log('[PRELOAD] Ruffle eval\'d (' + (_cfg.js.length / 1024).toFixed(0) + 'KB)');
+        } catch (error) {
+          _report('bundled-eval-error', error instanceof Error ? error.message : String(error));
+          throw error;
+        }
       } else {
         const _doCdn = () => {
           const parent = document.head || document.documentElement;
           if (parent) {
             const s = document.createElement('script');
             s.src = 'https://unpkg.com/@ruffle-rs/ruffle@latest/ruffle.js';
-            s.onload = () => { console.log('[PRELOAD] Ruffle CDN loaded'); };
-            s.onerror = () => { console.error('[PRELOAD] Ruffle CDN failed'); };
+            s.onload = () => { _report('cdn-loaded'); _reportRuntime(); console.log('[PRELOAD] Ruffle CDN loaded'); };
+            s.onerror = () => { _report('cdn-error', s.src); console.error('[PRELOAD] Ruffle CDN failed'); };
             parent.appendChild(s);
+            _report('cdn-loading', s.src);
             console.log('[PRELOAD] Ruffle CDN loading...');
           } else {
             requestAnimationFrame(_doCdn);
@@ -73,9 +112,7 @@ interface Credentials {
     }
   } catch { /* Ruffle mode disabled or failed, fall through to PPAPI */ }
 })();
-
-// --- PPAPI 模式：existing fake plugin injection + login capture ---
-let preloadLog = (_msg: string) => {};
+// --- PPAPI mode: fake plugin detection compatibility ---
 window.__baoflash_preload = 1;
 try { document.body.setAttribute('data-preload', '1'); } catch { /* body not ready */ }
 console.log('[PRELOAD] webview-preload running');
@@ -153,159 +190,3 @@ console.log('[PRELOAD] webview-preload running');
     Object.defineProperty(navigator, 'mimeTypes', { value: fakeMimeTypes, configurable: true });
   } catch { /* plugin injection failed */ }
 })();
-
-let ipcRenderer: Electron.IpcRenderer | null = null;
-try {
-  const electron = require('electron');
-  ipcRenderer = electron.ipcRenderer;
-  if (ipcRenderer && ipcRenderer.sendToHost) {
-    preloadLog = (msg: string) => { try { ipcRenderer!.sendToHost('preload-log', msg); } catch { /* ipc closed */ } };
-    preloadLog('loaded:' + location.href);
-  }
-} catch { /* preloadLog stays as no-op */ }
-
-// 仅主框架生效，避免嵌套 iframe 重复触发
-if (window.top === window.self && ipcRenderer) {
-try {
-  preloadLog('topframe:' + location.href);
-
-  // --- 登录表单识别 ---
-  function findLoginInputs(): LoginFormData | null {
-    const pwInputs = document.querySelectorAll<HTMLInputElement>('input[type=password]');
-    if (!pwInputs.length) return null;
-    const pwInput = pwInputs[pwInputs.length - 1];
-    let form: HTMLFormElement | null = null;
-    if (pwInput.form) {
-      form = pwInput.form;
-    } else if (pwInput.closest) {
-      form = pwInput.closest('form');
-    }
-    // 用户名输入框：同 form 内优先 email / name 含 user|login|email|account 的 text 输入
-    let userInput: HTMLInputElement | null = null;
-    const scope: ParentNode = form || document;
-    const candidates = scope.querySelectorAll<HTMLInputElement>('input[type=email], input[type=text], input[type=tel]');
-    for (let i = 0; i < candidates.length; i++) {
-      const el = candidates[i];
-      const nm = (el.name || '') + ' ' + (el.id || '') + ' ' + (el.placeholder || '');
-      if (/user|login|email|account|name|acct/i.test(nm)) { userInput = el; break; }
-    }
-    if (!userInput && candidates.length) userInput = candidates[0];
-    return { form: form, userInput: userInput, pwInput: pwInput };
-  }
-
-  function readCredentials(): Credentials | null {
-    const lf = findLoginInputs();
-    if (!lf || !lf.pwInput) return null;
-    const username = lf.userInput ? (lf.userInput.value || '') : '';
-    const password = lf.pwInput.value || '';
-    if (!password) return null;
-    return {
-      username: username,
-      password: password,
-      formAction: lf.form ? (lf.form.action || '') : ''
-    };
-  }
-
-  function reportCapture() {
-    if (!ipcRenderer) return;
-    try {
-      const creds = readCredentials();
-      if (!creds) return;
-      ipcRenderer.sendToHost('login-submitted', {
-        url: location.href,
-        username: creds.username,
-        password: creds.password,
-        formAction: creds.formAction
-      });
-    } catch (err) {
-      ipcRenderer.sendToHost('preload-log', 'capture-error: ' + err);
-    }
-  }
-
-  preloadLog('listeners-attached:' + location.href);
-
-  // 捕获 1：表单 submit（传统表单）
-  document.addEventListener('submit', (e: Event) => {
-    const t = e.target as HTMLElement | null;
-    if (!t || t.tagName !== 'FORM') return;
-    if (!t.querySelector('input[type=password]')) return;
-    reportCapture();
-  }, true);
-
-  // 捕获 2：密码框内回车（覆盖 AJAX 登录）
-  document.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key !== 'Enter') return;
-    const lf = findLoginInputs();
-    if (!lf || !lf.pwInput) return;
-    const active = document.activeElement;
-    if (!active) return;
-    if (lf.form && !lf.form.contains(active)) return;
-    // 延迟到表单处理之后再捕获，确保 value 已就位
-    setTimeout(reportCapture, 0);
-  }, true);
-
-  // --- 自动填充 ---
-  function setInputValue(el: HTMLInputElement | null, val: string) {
-    if (!el) return;
-    try {
-      // 直接设置 value（DOM 跨隔离世界共享）
-      el.focus();
-      el.value = val;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      el.blur();
-    } catch (err) {
-      if (ipcRenderer) ipcRenderer.sendToHost('preload-log', 'fill-set-error: ' + err);
-    }
-  }
-
-  ipcRenderer.on('fill-credentials', (_event, data: { username?: string; password?: string }) => {
-    try {
-      const lf = findLoginInputs();
-      if (!lf) {
-        ipcRenderer!.sendToHost('fill-result', { ok: false, reason: 'no-form' });
-        return;
-      }
-      if (data && data.username && lf.userInput) {
-        setInputValue(lf.userInput, data.username);
-      }
-      if (data && data.password && lf.pwInput) {
-        setInputValue(lf.pwInput, data.password);
-      }
-      ipcRenderer!.sendToHost('fill-result', { ok: true });
-    } catch (err) {
-      ipcRenderer!.sendToHost('fill-result', { ok: false, reason: String(err) });
-    }
-  });
-
-  // host 询问当前页面是否有可填充的登录表单
-  ipcRenderer.on('query-login-form', () => {
-    const lf = findLoginInputs();
-    ipcRenderer!.sendToHost('login-form-found', {
-      url: location.href,
-      hasForm: !!lf
-    });
-  });
-
-  // DOM 就绪后回报一次（便于 host 决定是否填充）
-  const notifyReady = () => {
-    try {
-      const lf = findLoginInputs();
-      ipcRenderer!.sendToHost('login-form-found', {
-        url: location.href,
-        hasForm: !!lf
-      });
-    } catch { /* ipc closed */ }
-  };
-
-  if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(notifyReady, 100);
-  } else {
-    document.addEventListener('DOMContentLoaded', () => { setTimeout(notifyReady, 100); });
-  }
-
-  // --- Ctrl+滚轮缩放 ---
-  // 缩放由 host 通过 executeJavaScript 注入，不在此处理（避免 file:// 页面 preload 限制）
-
-} catch { /* silently fail */ }
-}

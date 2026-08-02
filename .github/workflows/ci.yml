@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: BrowserView smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: npm run test:electron && npm run test:ruffle && npm run test:compat
+      - name: BrowserView smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:electron && xvfb-run -a npm run test:ruffle && xvfb-run -a npm run test:compat
+
+  package:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            command: build:win64
+          - os: windows-latest
+            command: build:win32
+          - os: ubuntu-latest
+            command: build:linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run ${{ matrix.command }}

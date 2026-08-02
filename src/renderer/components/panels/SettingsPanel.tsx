@@ -10,6 +10,7 @@ interface SettingsPanelProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
+  onOpenUrl: (url: string, newTab: boolean) => void;
 }
 
 interface MainConfigForm {
@@ -24,7 +25,7 @@ const DEFAULT_MAIN_CONFIG: MainConfigForm = {
   downloadEngine: 'aria2',
 };
 
-const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, onZoomOut, onZoomReset }) => {
+const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, onZoomOut, onZoomReset, onOpenUrl }) => {
   const settings = useDataStore((s) => s.settings);
   const setSettings = useDataStore((s) => s.setSettings);
   const setStoreStatus = useDataStore((s) => s.setPasswordStoreStatus);
@@ -36,12 +37,60 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
   const [mainForm, setMainForm] = useState<MainConfigForm>({ ...DEFAULT_MAIN_CONFIG });
   const [saved, setSaved] = useState<boolean | 'restart'>(false);
   const [resetConfirming, setResetConfirming] = useState(false);
+  const [autoCapture, setAutoCapture] = useState(true);
+  const [autoFill, setAutoFill] = useState(true);
+  const [autoFillReady, setAutoFillReady] = useState(false);
+  const [passwordStoreInitialized, setPasswordStoreInitialized] = useState(false);
+  const [excludedSitesText, setExcludedSitesText] = useState('');
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
 
   useEffect(() => {
     window.electronAPI?.config?.get().then((cfg) => {
       if (cfg) setMainForm({ flashVersion: cfg.flashVersion, lowEndMode: cfg.lowEndMode, downloadEngine: cfg.downloadEngine });
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    window.electronAPI?.pwd?.status().then((status) => {
+      setAutoCapture(status.autoCapture);
+      setAutoFill(status.autoFill);
+      setAutoFillReady(status.autoFillReady);
+      setPasswordStoreInitialized(status.initialized);
+      setExcludedSitesText(status.excludedSites.join('\n'));
+    }).catch(() => {});
+  }, []);
+
+  const handleAutoCaptureChange = useCallback(async (enabled: boolean) => {
+    setAutoCapture(enabled);
+    try {
+      const result = await window.electronAPI.pwd.setAutoCapture(enabled);
+      setAutoCapture(result.enabled);
+    } catch {
+      setAutoCapture(!enabled);
+    }
+  }, []);
+
+  const handleAutoFillChange = useCallback(async (enabled: boolean) => {
+    setAutoFill(enabled);
+    try {
+      const result = await window.electronAPI.pwd.setAutoFill(enabled);
+      setAutoFill(result.enabled);
+      setAutoFillReady(result.ready);
+    } catch {
+      setAutoFill(!enabled);
+    }
+  }, []);
+
+  const handleExcludedSitesSave = useCallback(async () => {
+    const sites = excludedSitesText.split(/[\s,;]+/).map((site) => site.trim()).filter(Boolean);
+    try {
+      const result = await window.electronAPI.pwd.setExcludedSites(sites);
+      setExcludedSitesText(result.excludedSites.join('\n'));
+      pushToast({ message: LL.password.excludedSitesSaved(), type: 'success' });
+    } catch {
+      pushToast({ message: LL.password.excludedSitesSaveFailed(), type: 'error' });
+    }
+  }, [excludedSitesText, pushToast, LL]);
 
   // Eagerly sync locale when language dropdown changes (before save)
   useEffect(() => {
@@ -83,9 +132,32 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
     if (!resetConfirming) { setResetConfirming(true); return; }
     setResetConfirming(false);
     await window.electronAPI?.pwd?.resetAll();
-    setStoreStatus({ initialized: false, unlocked: false, enabled: false });
+    const status = await window.electronAPI.pwd.status();
+    setStoreStatus(status);
+    setAutoCapture(status.autoCapture);
+    setAutoFill(status.autoFill);
+    setAutoFillReady(status.autoFillReady);
+    setPasswordStoreInitialized(status.initialized);
+    setExcludedSitesText(status.excludedSites.join('\n'));
     pushToast({ message: LL.password.resetDone(), type: 'info' });
   }, [resetConfirming, setStoreStatus, pushToast, LL]);
+
+  const handleExportDiagnostics = useCallback(async () => {
+    setExportingDiagnostics(true);
+    try {
+      const result = await window.electronAPI.diagnostics.export();
+      if (result.saved) pushToast({ message: LL.settings.diagnosticsSaved(), type: 'success' });
+    } catch {
+      pushToast({ message: LL.settings.diagnosticsFailed(), type: 'error' });
+    } finally {
+      setExportingDiagnostics(false);
+    }
+  }, [pushToast, LL]);
+
+  const handleOpenSwf = useCallback(async () => {
+    const url = await window.electronAPI.file.openSwf();
+    if (url) onOpenUrl(url, true);
+  }, [onOpenUrl]);
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -101,6 +173,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
             onChange={(e) => handleChange('homepage', e.target.value)}
             placeholder="about:newtab"
           />
+        </div>
+        <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>
+            <span className="field-label" style={{ display: 'block' }}>{LL.settings.restoreSession()}</span>
+            <span className="field-hint">{LL.settings.restoreSessionHint()}</span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.restoreSession}
+            className={`toggle-switch ${form.restoreSession ? 'on' : ''}`}
+            onClick={() => handleChange('restoreSession', !form.restoreSession)}
+          >
+            <span className="toggle-knob" />
+          </button>
         </div>
         <div className="field">
           <div className="field-label">{LL.settings.searchEngine()}</div>
@@ -194,6 +281,53 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
 
       <div className="panel-card">
         <div className="panel-card-title">{LL.sidebar.passwords()}</div>
+        <label className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+          <span>
+            <span className="field-label" style={{ display: 'block' }}>{LL.password.autoCapture()}</span>
+            <span className="field-hint">{LL.password.autoCaptureHint()}</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={autoCapture}
+            onChange={(event) => handleAutoCaptureChange(event.target.checked)}
+          />
+        </label>
+        <label className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+          <span>
+            <span className="field-label" style={{ display: 'block' }}>{LL.password.autoFill()}</span>
+            <span className="field-hint">{LL.password.autoFillHint()}</span>
+            {passwordStoreInitialized && autoFill && !autoFillReady && (
+              <span className="field-hint" style={{ display: 'block', color: '#e67e22', marginTop: 3 }}>
+                {LL.password.autoFillNeedsUnlock()}
+              </span>
+            )}
+          </span>
+          <input
+            type="checkbox"
+            checked={autoFill}
+            onChange={(event) => handleAutoFillChange(event.target.checked)}
+          />
+        </label>
+        <div className="field">
+          <div className="field-label">{LL.password.excludedSites()}</div>
+          <div className="field-hint" style={{ marginBottom: 6 }}>{LL.password.excludedSitesHint()}</div>
+          <textarea
+            className="input-text"
+            style={{ width: '100%', minHeight: 72, resize: 'vertical' }}
+            value={excludedSitesText}
+            onChange={(event) => setExcludedSitesText(event.target.value)}
+            placeholder="example.com"
+          />
+          <button
+            style={{
+              width: '100%', marginTop: 6, padding: 8, borderRadius: 6, border: 'none',
+              background: 'var(--bg-hover)', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer',
+            }}
+            onClick={handleExcludedSitesSave}
+          >
+            {LL.password.saveExcludedSites()}
+          </button>
+        </div>
         <div className="field-hint" style={{ marginBottom: 8 }}>{LL.password.resetDesc()}</div>
         <button
           onClick={handleResetPassword}
@@ -248,6 +382,31 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="panel-card">
+        <div className="panel-card-title">{LL.settings.diagnostics()}</div>
+        <button
+          onClick={handleOpenSwf}
+          style={{
+            width: '100%', padding: 8, marginBottom: 8, borderRadius: 6, border: 'none',
+            background: 'var(--accent)', color: '#fff', fontSize: 13, cursor: 'pointer',
+          }}
+        >
+          {LL.settings.openLocalSwf()}
+        </button>
+        <div className="field-hint" style={{ marginBottom: 8 }}>{LL.settings.diagnosticsHint()}</div>
+        <button
+          disabled={exportingDiagnostics}
+          onClick={handleExportDiagnostics}
+          style={{
+            width: '100%', padding: 8, borderRadius: 6, border: 'none',
+            background: 'var(--bg-hover)', color: 'var(--text-primary)', fontSize: 13,
+            cursor: exportingDiagnostics ? 'wait' : 'pointer', opacity: exportingDiagnostics ? 0.7 : 1,
+          }}
+        >
+          {exportingDiagnostics ? LL.settings.diagnosticsExporting() : LL.settings.diagnosticsExport()}
+        </button>
       </div>
 
       <button

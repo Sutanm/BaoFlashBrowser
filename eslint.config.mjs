@@ -13,7 +13,7 @@ export default [
       ecmaVersion: 2020,
       sourceType: 'module',
       parserOptions: {
-        project: ['./tsconfig.main.json', './tsconfig.renderer.json'],
+          project: ['./tsconfig.main.json', './tsconfig.renderer.json', './tsconfig.preload.json'],
       },
     },
     plugins: { react, 'react-hooks': reactHooks },
@@ -24,5 +24,5 @@ export default [
     },
   },
   prettier,
-  { ignores: ['dist/', 'src/dist/', 'node_modules/', '.old/', 'release/'] },
+  { ignores: ['dist/', 'src/dist/', 'src/i18n/', 'node_modules/', '.old/', 'release/'] },
 ];

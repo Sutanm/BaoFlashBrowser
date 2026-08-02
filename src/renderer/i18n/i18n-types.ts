@@ -126,6 +126,25 @@ type RootTranslation = {
 		 */
 		newTabHint: string
 	}
+	session: {
+		/**
+		 * 浏​览​器​上​次​未​正​常​关​闭​，​是​否​恢​复​ ​{​c​o​u​n​t​}​ ​个​标​签​页​？
+		 * @param {unknown} count
+		 */
+		restorePrompt: RequiredParams<'count'>
+		/**
+		 * 恢​复
+		 */
+		restore: string
+		/**
+		 * 忽​略
+		 */
+		ignore: string
+		/**
+		 * 标​签​页​恢​复​失​败​，​已​打​开​新​的​标​签​页
+		 */
+		restoreFailed: string
+	}
 	sidebar: {
 		/**
 		 * 收​藏​夹
@@ -215,6 +234,15 @@ type RootTranslation = {
 		 * R​u​f​f​l​e
 		 */
 		ruffle: string
+		/**
+		 * R​u​f​f​l​e​ ​加​载​失​败​：​{​d​e​t​a​i​l​}
+		 * @param {unknown} detail
+		 */
+		loadFailed: RequiredParams<'detail'>
+		/**
+		 * 切​回​内​置​版​并​重​试
+		 */
+		retryBundled: string
 	}
 	favorites: {
 		/**
@@ -505,6 +533,10 @@ type RootTranslation = {
 		 */
 		savePrompt: RequiredParams<'host'>
 		/**
+		 * 密​码​保​存​失​败​，​请​解​锁​密​码​本​后​重​试
+		 */
+		saveFailed: string
+		/**
 		 * 忽​略
 		 */
 		ignore: string
@@ -512,6 +544,58 @@ type RootTranslation = {
 		 * 已​删​除
 		 */
 		deleted: string
+		/**
+		 * 自​动​检​测​登​录​信​息
+		 */
+		autoCapture: string
+		/**
+		 * 默​认​开​启​；​关​闭​后​不​再​向​网​页​附​加​密​码​捕​获​器​。
+		 */
+		autoCaptureHint: string
+		/**
+		 * 自​动​填​充​保​存​的​密​码
+		 */
+		autoFill: string
+		/**
+		 * 密​码​本​锁​定​时​也​可​填​充​，​但​不​会​自​动​提​交​表​单​。
+		 */
+		autoFillHint: string
+		/**
+		 * 旧​密​码​本​需​成​功​解​锁​一​次​，​之​后​才​能​在​锁​定​状​态​下​自​动​填​充​。
+		 */
+		autoFillNeedsUnlock: string
+		/**
+		 * 已​填​充​登​录​信​息​，​请​确​认​后​登​录
+		 */
+		filled: string
+		/**
+		 * 填​充​当​前​页​面
+		 */
+		fill: string
+		/**
+		 * 当​前​页​面​没​有​可​安​全​填​充​的​匹​配​登​录​表​单
+		 */
+		fillFailed: string
+		/**
+		 * 不​捕​获​的​网​站
+		 */
+		excludedSites: string
+		/**
+		 * 每​行​填​写​一​个​域​名​，​同​时​排​除​其​子​域​名​。​修​改​后​立​即​对​已​打​开​标​签​生​效​。
+		 */
+		excludedSitesHint: string
+		/**
+		 * 保​存​排​除​列​表
+		 */
+		saveExcludedSites: string
+		/**
+		 * 密​码​捕​获​排​除​列​表​已​保​存
+		 */
+		excludedSitesSaved: string
+		/**
+		 * 排​除​列​表​保​存​失​败
+		 */
+		excludedSitesSaveFailed: string
 	}
 	settings: {
 		/**
@@ -546,6 +630,14 @@ type RootTranslation = {
 		 * 主​页​地​址
 		 */
 		homepage: string
+		/**
+		 * 异​常​关​闭​后​询​问​恢​复​标​签
+		 */
+		restoreSession: string
+		/**
+		 * 正​常​关​闭​不​会​恢​复​；​仅​在​崩​溃​、​断​电​或​强​制​结​束​后​询​问​，​最​多​恢​复​ ​2​0​ ​个​标​签​页​。
+		 */
+		restoreSessionHint: string
 		/**
 		 * 搜​索​引​擎
 		 */
@@ -654,6 +746,34 @@ type RootTranslation = {
 		 * 跟​随​系​统
 		 */
 		system: string
+		/**
+		 * 兼​容​性​诊​断
+		 */
+		diagnostics: string
+		/**
+		 * 打​开​本​地​ ​S​W​F​ ​游​戏
+		 */
+		openLocalSwf: string
+		/**
+		 * 导​出​运​行​环​境​、​组​件​哈​希​和​最​近​日​志​。​账​号​路​径​、​网​址​参​数​、​口​令​与​令​牌​会​被​脱​敏​。
+		 */
+		diagnosticsHint: string
+		/**
+		 * 导​出​脱​敏​诊​断​报​告
+		 */
+		diagnosticsExport: string
+		/**
+		 * 正​在​生​成​报​告​…
+		 */
+		diagnosticsExporting: string
+		/**
+		 * 诊​断​报​告​已​保​存
+		 */
+		diagnosticsSaved: string
+		/**
+		 * 诊​断​报​告​导​出​失​败
+		 */
+		diagnosticsFailed: string
 		/**
 		 * 语​言
 		 */
@@ -828,6 +948,24 @@ export type TranslationFunctions = {
 		 */
 		newTabHint: () => LocalizedString
 	}
+	session: {
+		/**
+		 * 浏览器上次未正常关闭，是否恢复 {count} 个标签页？
+		 */
+		restorePrompt: (arg: { count: unknown }) => LocalizedString
+		/**
+		 * 恢复
+		 */
+		restore: () => LocalizedString
+		/**
+		 * 忽略
+		 */
+		ignore: () => LocalizedString
+		/**
+		 * 标签页恢复失败，已打开新的标签页
+		 */
+		restoreFailed: () => LocalizedString
+	}
 	sidebar: {
 		/**
 		 * 收藏夹
@@ -917,6 +1055,14 @@ export type TranslationFunctions = {
 		 * Ruffle
 		 */
 		ruffle: () => LocalizedString
+		/**
+		 * Ruffle 加载失败：{detail}
+		 */
+		loadFailed: (arg: { detail: unknown }) => LocalizedString
+		/**
+		 * 切回内置版并重试
+		 */
+		retryBundled: () => LocalizedString
 	}
 	favorites: {
 		/**
@@ -1198,6 +1344,10 @@ export type TranslationFunctions = {
 		 */
 		savePrompt: (arg: { host: unknown }) => LocalizedString
 		/**
+		 * 密码保存失败，请解锁密码本后重试
+		 */
+		saveFailed: () => LocalizedString
+		/**
 		 * 忽略
 		 */
 		ignore: () => LocalizedString
@@ -1205,6 +1355,58 @@ export type TranslationFunctions = {
 		 * 已删除
 		 */
 		deleted: () => LocalizedString
+		/**
+		 * 自动检测登录信息
+		 */
+		autoCapture: () => LocalizedString
+		/**
+		 * 默认开启；关闭后不再向网页附加密码捕获器。
+		 */
+		autoCaptureHint: () => LocalizedString
+		/**
+		 * 自动填充保存的密码
+		 */
+		autoFill: () => LocalizedString
+		/**
+		 * 密码本锁定时也可填充，但不会自动提交表单。
+		 */
+		autoFillHint: () => LocalizedString
+		/**
+		 * 旧密码本需成功解锁一次，之后才能在锁定状态下自动填充。
+		 */
+		autoFillNeedsUnlock: () => LocalizedString
+		/**
+		 * 已填充登录信息，请确认后登录
+		 */
+		filled: () => LocalizedString
+		/**
+		 * 填充当前页面
+		 */
+		fill: () => LocalizedString
+		/**
+		 * 当前页面没有可安全填充的匹配登录表单
+		 */
+		fillFailed: () => LocalizedString
+		/**
+		 * 不捕获的网站
+		 */
+		excludedSites: () => LocalizedString
+		/**
+		 * 每行填写一个域名，同时排除其子域名。修改后立即对已打开标签生效。
+		 */
+		excludedSitesHint: () => LocalizedString
+		/**
+		 * 保存排除列表
+		 */
+		saveExcludedSites: () => LocalizedString
+		/**
+		 * 密码捕获排除列表已保存
+		 */
+		excludedSitesSaved: () => LocalizedString
+		/**
+		 * 排除列表保存失败
+		 */
+		excludedSitesSaveFailed: () => LocalizedString
 	}
 	settings: {
 		/**
@@ -1239,6 +1441,14 @@ export type TranslationFunctions = {
 		 * 主页地址
 		 */
 		homepage: () => LocalizedString
+		/**
+		 * 异常关闭后询问恢复标签
+		 */
+		restoreSession: () => LocalizedString
+		/**
+		 * 正常关闭不会恢复；仅在崩溃、断电或强制结束后询问，最多恢复 20 个标签页。
+		 */
+		restoreSessionHint: () => LocalizedString
 		/**
 		 * 搜索引擎
 		 */
@@ -1347,6 +1557,34 @@ export type TranslationFunctions = {
 		 * 跟随系统
 		 */
 		system: () => LocalizedString
+		/**
+		 * 兼容性诊断
+		 */
+		diagnostics: () => LocalizedString
+		/**
+		 * 打开本地 SWF 游戏
+		 */
+		openLocalSwf: () => LocalizedString
+		/**
+		 * 导出运行环境、组件哈希和最近日志。账号路径、网址参数、口令与令牌会被脱敏。
+		 */
+		diagnosticsHint: () => LocalizedString
+		/**
+		 * 导出脱敏诊断报告
+		 */
+		diagnosticsExport: () => LocalizedString
+		/**
+		 * 正在生成报告…
+		 */
+		diagnosticsExporting: () => LocalizedString
+		/**
+		 * 诊断报告已保存
+		 */
+		diagnosticsSaved: () => LocalizedString
+		/**
+		 * 诊断报告导出失败
+		 */
+		diagnosticsFailed: () => LocalizedString
 		/**
 		 * 语言
 		 */

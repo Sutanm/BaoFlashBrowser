@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Key } from 'lucide-react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { PasswordEntry } from '@shared/types/passwords';
+import { useTabsStore } from '@renderer/store/useTabsStore';
+import { useDataStore } from '@renderer/store/useDataStore';
 
 function maskMiddle(str: string, keepStart: number, keepEnd: number): string {
   if (str.length <= keepStart + keepEnd + 2) return str;
@@ -21,6 +23,8 @@ const PasswordsPanel: React.FC = () => {
   const [setupError, setSetupError] = useState('');
   const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set());
   const [decryptedPasswords, setDecryptedPasswords] = useState<Map<string, string>>(new Map());
+  const activeTabId = useTabsStore((state) => state.activeTabId);
+  const pushToast = useDataStore((state) => state.pushToast);
 
   const api = window.electronAPI?.pwd;
 
@@ -84,6 +88,19 @@ const PasswordsPanel: React.FC = () => {
   };
 
   const handleCopy = (text: string) => { navigator.clipboard.writeText(text).catch(() => {}); };
+
+  const handleFill = async (id: string) => {
+    if (!activeTabId) {
+      pushToast({ message: LL.password.fillFailed(), type: 'warning' });
+      return;
+    }
+    try {
+      const result = await api.fill(activeTabId, id);
+      if (!result.success) pushToast({ message: LL.password.fillFailed(), type: 'warning' });
+    } catch {
+      pushToast({ message: LL.password.fillFailed(), type: 'error' });
+    }
+  };
 
   const toggleHost = (host: string) => {
     setExpandedHosts((prev) => { const next = new Set(prev); if (next.has(host)) next.delete(host); else next.add(host); return next; });
@@ -169,6 +186,7 @@ const PasswordsPanel: React.FC = () => {
                       <button className="btn-secondary pwd-btn-action" onClick={() => handleCopy(decryptedPasswords.get(entry.id)!)}>{LL.copy()}</button>
                     )}
                     <button className="btn-secondary pwd-btn-action" onClick={async () => { await api.setDefault(entry.id); refreshStatus(); }}>{LL.password.setDefault()}</button>
+                    <button className="btn-secondary pwd-btn-action" onClick={() => handleFill(entry.id)}>{LL.password.fill()}</button>
                     <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={() => handleDelete(entry.id)}>{LL.delete()}</button>
                   </div>
                 </div>

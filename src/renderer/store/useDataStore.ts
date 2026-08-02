@@ -5,24 +5,13 @@ import type { HistoryEntry } from '@shared/types/history';
 import type { DownloadItem } from '@shared/types/downloads';
 import type { Settings, FlashEngineMode, FlashEngineRule, RuffleSource, ThemeMode } from '@shared/types/settings';
 import type { PasswordEntry, PasswordStoreStatus, ActivePanel } from '@shared/types/passwords';
+import { enqueueToast, type AddressToast, type ToastDismissReason, type ToastInput } from '../services/toast';
 
-export interface ToastAction {
-  label: string;
-  onClick: () => void;
-  primary?: boolean;
-}
-
-export interface AddressToast {
-  id?: number;
-  message: string;
-  type: 'success' | 'info' | 'warning' | 'error';
-  color?: string;
-  duration?: number | null;
-  actions?: ToastAction[];
-}
+export type { AddressToast, ToastAction, ToastDismissReason, ToastInput } from '../services/toast';
 
 export const defaultSettings: Settings = {
   homepage: 'about:newtab',
+  restoreSession: true,
   searchEngine: 'bing',
   linkBehavior: 'new-tab',
   flashEngineMode: 'auto' as FlashEngineMode,
@@ -51,20 +40,43 @@ export interface DataState {
   setPasswords: (p: PasswordEntry[] | ((prev: PasswordEntry[]) => PasswordEntry[])) => void;
   setPasswordStoreStatus: (s: PasswordStoreStatus | ((prev: PasswordStoreStatus) => PasswordStoreStatus)) => void;
   setActivePanel: (p: ActivePanel | ((prev: ActivePanel) => ActivePanel)) => void;
-  setToastQueue: (t: AddressToast[] | ((prev: AddressToast[]) => AddressToast[])) => void;
-  pushToast: (toast: AddressToast) => void;
+  pushToast: (toast: ToastInput) => void;
+  dismissToast: (id: number, reason: ToastDismissReason) => void;
 }
 
 // L36: history 写入 debounce，合并频繁的 URL 变化触发
 let histPersistTimer: ReturnType<typeof setTimeout> | undefined;
+let downloadsPersistTimer: ReturnType<typeof setTimeout> | undefined;
 
 // L36: 注入标志 — useLiveQuery 回灌 store 时跳过 db 写入，避免循环
 let skipPersist = false;
 
+async function replaceFavorites(next: BookmarkEntry[]): Promise<void> {
+  await db.transaction('rw', db.favorites, async () => {
+    await db.favorites.clear();
+    if (next.length > 0) await db.favorites.bulkPut(next.map((item, index) => ({ ...item, _idx: index })));
+  });
+}
+
+async function replaceHistory(next: HistoryEntry[]): Promise<void> {
+  await db.transaction('rw', db.history, async () => {
+    await db.history.clear();
+    if (next.length > 0) await db.history.bulkPut(next);
+  });
+}
+
+async function replaceDownloads(next: DownloadItem[]): Promise<void> {
+  await db.transaction('rw', db.downloads, async () => {
+    await db.downloads.clear();
+    if (next.length > 0) await db.downloads.bulkPut(next.map((item, index) => ({ ...item, _idx: index })));
+  });
+}
+
 /** 内部使用：useLiveQuery 把 db 数据注入 store 时调用，不触发持久化 */
 export function hydrateFromDb(patch: Partial<Pick<DataState, 'favorites' | 'history' | 'downloads' | 'settings' | 'themeMode'>>) {
   skipPersist = true;
-  useDataStore.setState(patch);
+  const normalized = patch.settings?.themeMode ? { ...patch, themeMode: patch.settings.themeMode } : patch;
+  useDataStore.setState(normalized);
   skipPersist = false;
 }
 
@@ -79,6 +91,10 @@ export const useDataStore = create<DataState>((set) => ({
     initialized: false,
     unlocked: false,
     enabled: false,
+    autoCapture: true,
+    autoFill: true,
+    autoFillReady: false,
+    excludedSites: [],
   },
   activePanel: null,
   toastQueue: [],
@@ -87,14 +103,7 @@ export const useDataStore = create<DataState>((set) => ({
     set((state) => {
       const next = typeof f === 'function' ? f(state.favorites) : f;
       if (!skipPersist) {
-        if (next.length === 0) {
-          db.favorites.clear().catch((e) => console.error('[DB] favorites clear failed:', e));
-        } else {
-          db.favorites
-            .clear()
-            .then(() => db.favorites.bulkPut(next.map((x, i) => ({ ...x, _idx: i }))))
-            .catch((e) => console.error('[DB] favorites persist failed:', e));
-        }
+        replaceFavorites(next).catch((e) => console.error('[DB] favorites persist failed:', e));
       }
       return { favorites: next };
     }),
@@ -106,10 +115,7 @@ export const useDataStore = create<DataState>((set) => ({
         if (histPersistTimer) clearTimeout(histPersistTimer);
         histPersistTimer = setTimeout(() => {
           // history 使用 clear + bulkPut 全量替换，确保单项删除也能真正生效
-          db.history
-            .clear()
-            .then(() => { if (next.length > 0) return db.history.bulkPut(next); })
-            .catch((e) => console.error('[DB] history persist failed:', e));
+          replaceHistory(next).catch((e) => console.error('[DB] history persist failed:', e));
         }, 500);
       }
       return { history: next };
@@ -119,23 +125,33 @@ export const useDataStore = create<DataState>((set) => ({
     set((state) => {
       const next = typeof d === 'function' ? d(state.downloads) : d;
       if (!skipPersist) {
-        if (next.length === 0) {
-          db.downloads.clear().catch((e) => console.error('[DB] downloads clear failed:', e));
+        const terminalChanged = next.length !== state.downloads.length || next.some((item) => {
+          const previous = state.downloads.find((entry) => entry.id === item.id);
+          return previous && previous.state !== item.state && ['completed', 'cancelled', 'interrupted'].includes(item.state);
+        });
+        if (downloadsPersistTimer) clearTimeout(downloadsPersistTimer);
+        if (terminalChanged) {
+          downloadsPersistTimer = undefined;
+          replaceDownloads(next).catch((e) => console.error('[DB] downloads persist failed:', e));
         } else {
-          db.downloads
-            .clear()
-            .then(() => db.downloads.bulkPut(next.map((x, i) => ({ ...x, _idx: i }))))
-            .catch((e) => console.error('[DB] downloads persist failed:', e));
+          downloadsPersistTimer = setTimeout(() => {
+            downloadsPersistTimer = undefined;
+            replaceDownloads(next).catch((e) => console.error('[DB] downloads persist failed:', e));
+          }, 1000);
         }
       }
       return { downloads: next };
     }),
 
   setThemeMode: (t) => {
-    set({ themeMode: t });
-    if (!skipPersist) {
-      saveMeta('themeMode', t).catch((e) => console.error('[DB] themeMode persist failed:', e));
-    }
+    set((state) => {
+      const nextSettings = { ...state.settings, themeMode: t };
+      if (!skipPersist) {
+        db.settings.put(nextSettings, 'default').catch((e) => console.error('[DB] themeMode persist failed:', e));
+        saveMeta('themeMode', t).catch((e) => console.error('[DB] legacy themeMode persist failed:', e));
+      }
+      return { themeMode: t, settings: nextSettings };
+    });
   },
 
   setSettings: (s) =>
@@ -146,7 +162,7 @@ export const useDataStore = create<DataState>((set) => ({
           .put(next, 'default')
           .catch((e) => console.error('[DB] settings persist failed:', e));
       }
-      return { settings: next };
+      return { settings: next, themeMode: next.themeMode };
     }),
 
   setPasswords: (p) =>
@@ -164,13 +180,28 @@ export const useDataStore = create<DataState>((set) => ({
         typeof p === 'function' ? p(state.activePanel) : p,
     })),
 
-  setToastQueue: (t) =>
-    set((state) => ({
-      toastQueue: typeof t === 'function' ? (t as any)(state.toastQueue) : t,
-    })),
+  pushToast: (toast) => {
+    const id = nextToastId++;
+    let dismissed: ReturnType<typeof enqueueToast>['dismissed'] = [];
+    set((state) => {
+      const result = enqueueToast(state.toastQueue, { ...toast, id });
+      dismissed = result.dismissed;
+      return { toastQueue: result.queue };
+    });
+    for (const item of dismissed) item.toast.onDismiss?.(item.reason);
+  },
 
-  pushToast: (toast) =>
+  dismissToast: (id, reason) => {
+    let removed: AddressToast | undefined;
     set((state) => ({
-      toastQueue: [...state.toastQueue, { ...toast, id: Date.now() + Math.random() }],
-    })),
+      toastQueue: state.toastQueue.filter((toast) => {
+        if (toast.id !== id) return true;
+        removed = toast;
+        return false;
+      }),
+    }));
+    removed?.onDismiss?.(reason);
+  },
 }));
+
+let nextToastId = 1;

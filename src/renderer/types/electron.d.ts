@@ -1,10 +1,11 @@
 import type {
   ShortcutAction, TabUpdatedPayload, DownloadProgressPayload, NewWindowPayload,
   TabFoundPayload, TabLoadErrorPayload, TabCrashedPayload,
-  Aria2StatusPayload, PasswordCapturedPayload, PasswordChangedPayload,
+  Aria2StatusPayload, PasswordCapturedPayload, PasswordChangedPayload, PasswordFilledPayload,
 } from '@shared/types/ipc';
 import type { PasswordStoreStatus } from '@shared/types/passwords';
-import type { DownloadEngine } from '@shared/types/settings';
+import type { DownloadEngine, DownloadItem } from '@shared/types/downloads';
+import type { SessionRecoveryStatus } from '@shared/types/session';
 
 interface MainConfig {
   flashVersion: string;
@@ -28,6 +29,22 @@ interface PasswordSaveResult {
   id?: string;
 }
 
+interface PasswordOperationResult {
+  success: boolean;
+  error?: string;
+}
+
+interface PasswordEnabledResult {
+  enabled: boolean;
+}
+
+interface PasswordFillOperationResult {
+  success: boolean;
+  filledFields: number;
+  filledCredentials: number;
+  reason?: 'no-credential' | 'no-form' | 'debugger-unavailable' | 'destroyed';
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -42,6 +59,7 @@ declare global {
       on(channel: 'navigate-url', cb: (url: string) => void): () => void;
       on(channel: 'password:captured', cb: (payload: PasswordCapturedPayload) => void): () => void;
       on(channel: 'password:changed', cb: (payload: PasswordChangedPayload) => void): () => void;
+      on(channel: 'password:filled', cb: (payload: PasswordFilledPayload) => void): () => void;
       on(channel: string, cb: (...args: unknown[]) => void): () => void;
 
       invoke(channel: 'load-config'): Promise<MainConfig | null>;
@@ -50,6 +68,7 @@ declare global {
       invoke(channel: 'download:get-dir'): Promise<string>;
       invoke(channel: 'download:set-dir'): Promise<string>;
       invoke(channel: 'download:delete-file', payload: { savePath: string }): Promise<boolean>;
+      invoke(channel: 'download:list'): Promise<DownloadItem[]>;
       invoke(channel: 'tab:create', payload: { tabId: string; url: string }): Promise<void>;
       invoke(channel: 'tab:close' | 'tab:activate' | 'tab:goBack' | 'tab:goForward' | 'tab:reload' | 'tab:stop' | 'tab:devtools', payload: { tabId: string }): Promise<void>;
       invoke(channel: 'tab:navigate', payload: { tabId: string; url: string }): Promise<void>;
@@ -60,17 +79,24 @@ declare global {
       invoke(channel: 'tab:setBounds', payload: { x: number; y: number; w: number; h: number }): Promise<void>;
       invoke(channel: 'tab:setRuffleMode', payload: { tabId: string; enabled: boolean; source: 'bundled' | 'cdn' }): Promise<void>;
       invoke(channel: 'password:status'): Promise<PasswordStoreStatus>;
-      invoke(channel: 'password:setup', payload: { password: string }): Promise<boolean>;
-      invoke(channel: 'password:unlock', payload: { password: string }): Promise<boolean>;
-      invoke(channel: 'password:lock'): Promise<void>;
-      invoke(channel: 'password:toggle-enabled'): Promise<boolean>;
+      invoke(channel: 'password:setup', payload: { password: string }): Promise<PasswordOperationResult>;
+      invoke(channel: 'password:unlock', payload: { password: string }): Promise<PasswordOperationResult>;
+      invoke(channel: 'password:lock'): Promise<PasswordOperationResult>;
+      invoke(channel: 'password:toggle-enabled'): Promise<PasswordEnabledResult>;
+      invoke(channel: 'password:set-auto-capture', payload: { enabled: boolean }): Promise<{ enabled: boolean }>;
+      invoke(channel: 'password:set-auto-fill', payload: { enabled: boolean }): Promise<{ enabled: boolean; ready: boolean }>;
       invoke(channel: 'password:list'): Promise<PasswordEntryMeta[]>;
       invoke(channel: 'password:save-confirm', payload: { captureId: string }): Promise<PasswordSaveResult>;
-      invoke(channel: 'password:ignore', payload: { captureId: string }): Promise<boolean>;
-      invoke(channel: 'password:delete', payload: { id: string }): Promise<boolean>;
+      invoke(channel: 'password:ignore', payload: { captureId: string }): Promise<PasswordOperationResult>;
+      invoke(channel: 'password:delete', payload: { id: string }): Promise<PasswordOperationResult>;
       invoke(channel: 'password:get-password', payload: { id: string }): Promise<string | null>;
-      invoke(channel: 'password:set-default', payload: { id: string }): Promise<void>;
-      invoke(channel: 'password:reset'): Promise<boolean>;
+      invoke(channel: 'password:set-default', payload: { id: string }): Promise<PasswordOperationResult>;
+      invoke(channel: 'password:fill', payload: { tabId: string; id: string }): Promise<PasswordFillOperationResult>;
+      invoke(channel: 'password:reset'): Promise<PasswordOperationResult>;
+      invoke(channel: 'diagnostics:export'): Promise<{ saved: boolean; canceled: boolean }>;
+      invoke(channel: 'file:open-swf'): Promise<string | null>;
+      invoke(channel: 'session:recovery-status'): Promise<SessionRecoveryStatus>;
+      invoke(channel: 'session:resolve-recovery'): Promise<void>;
       invoke(channel: 'win:minimize' | 'win:maximize' | 'win:unmaximize' | 'win:close' | 'win:toggleFullscreen'): Promise<void>;
       invoke(channel: 'win:setFullscreen', fullscreen: boolean): Promise<void>;
       invoke(channel: 'win:isMaximized'): Promise<boolean>;
@@ -79,7 +105,7 @@ declare global {
       webviewPreloadPath: string;
 
       tab: {
-        create(tabId: string, url: string): Promise<void>;
+        create(tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }): Promise<void>;
         close(tabId: string): Promise<void>;
         activate(tabId: string): Promise<void>;
         navigate(tabId: string, url: string): Promise<void>;
@@ -110,21 +136,42 @@ declare global {
         getDir(): Promise<string>;
         setDir(): Promise<string>;
         deleteFile(savePath: string): Promise<boolean>;
+        list(): Promise<DownloadItem[]>;
+        syncRecords(records: DownloadItem[]): Promise<DownloadItem[]>;
+        removeRecord(id: string): Promise<{ success: boolean }>;
+        clearFinished(): Promise<{ success: boolean }>;
       };
 
       pwd: {
         status(): Promise<PasswordStoreStatus>;
-        setup(password: string): Promise<boolean>;
-        unlock(password: string): Promise<boolean>;
-        lock(): Promise<void>;
-        toggleEnabled(): Promise<boolean>;
+        setup(password: string): Promise<PasswordOperationResult>;
+        unlock(password: string): Promise<PasswordOperationResult>;
+        lock(): Promise<PasswordOperationResult>;
+        toggleEnabled(): Promise<PasswordEnabledResult>;
+        setAutoCapture(enabled: boolean): Promise<{ enabled: boolean }>;
+        setAutoFill(enabled: boolean): Promise<{ enabled: boolean; ready: boolean }>;
+        setExcludedSites(sites: string[]): Promise<{ excludedSites: string[] }>;
         list(): Promise<PasswordEntryMeta[]>;
         saveConfirm(captureId: string): Promise<PasswordSaveResult>;
-        ignore(captureId: string): Promise<boolean>;
-        delete(id: string): Promise<boolean>;
+        ignore(captureId: string): Promise<PasswordOperationResult>;
+        delete(id: string): Promise<PasswordOperationResult>;
         getPassword(id: string): Promise<string | null>;
-        setDefault(id: string): Promise<void>;
-        resetAll(): Promise<boolean>;
+        setDefault(id: string): Promise<PasswordOperationResult>;
+        fill(tabId: string, id: string): Promise<PasswordFillOperationResult>;
+        resetAll(): Promise<PasswordOperationResult>;
+      };
+
+      diagnostics: {
+        export(): Promise<{ saved: boolean; canceled: boolean }>;
+      };
+
+      file: {
+        openSwf(): Promise<string | null>;
+      };
+
+      session: {
+        recoveryStatus(): Promise<SessionRecoveryStatus>;
+        resolveRecovery(): Promise<void>;
       };
 
       win: {

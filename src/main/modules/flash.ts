@@ -5,7 +5,7 @@ import log from 'electron-log';
 import { App } from 'electron';
 import { DEFAULT_FLASH_VERSION } from './config';
 
-function getFlashPluginPath(app: App): string | null {
+export function getFlashPluginPath(app: App): string | null {
   const platform = process.platform;
   const arch = process.arch;
   const isPackaged = app.isPackaged;

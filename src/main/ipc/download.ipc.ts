@@ -2,15 +2,19 @@ import { BrowserWindow, ipcMain, shell, session, dialog } from 'electron';
 import log from 'electron-log';
 import fs from 'fs';
 import path from 'path';
+import { z } from 'zod';
 import { cancelDownload, pauseDownload, resumeDownload, getAria2Status, getDownloadDir } from '../modules/download';
 import { saveConfig } from '../modules/config';
 import { getMainWindow } from '../modules/window';
+import { createValidatedHandler, registerValidatedListener } from '../utils/ipc-wrapper';
+import { isPathWithinDirectory } from '../utils/download-path';
+import {
+  adoptDownloadRecords, clearFinishedDownloadRecords, getDownloadRecords, removeDownloadRecord,
+} from '../modules/download-state';
 
 // --- L02: 路径穿越校验 ---
 function isPathAllowed(savePath: string): boolean {
-  const allowed = path.resolve(getDownloadDir());
-  const target = path.resolve(savePath);
-  return target === allowed || target.startsWith(allowed + path.sep);
+  return isPathWithinDirectory(getDownloadDir(), savePath);
 }
 
 // --- L03: 危险扩展名黑名单 ---
@@ -27,6 +31,24 @@ export function registerDownloadIPC(): void {
   ipcMain.handle('download:get-dir', () => {
     return getDownloadDir();
   });
+
+  createValidatedHandler('download:list', z.undefined(), () => getDownloadRecords());
+
+  const downloadRecord = z.object({
+    id: z.string().min(1).max(128),
+    url: z.string().max(8192),
+    filename: z.string().min(1).max(255),
+    state: z.enum(['progressing', 'completed', 'cancelled', 'interrupted', 'paused']),
+    progress: z.number().finite().min(0).max(100),
+    speed: z.number().finite().min(0),
+    receivedBytes: z.number().finite().min(0),
+    totalBytes: z.number().finite().min(0),
+    savePath: z.string().max(32767),
+    engine: z.enum(['chromium', 'aria2']).optional(),
+  });
+  createValidatedHandler('download:sync-records', z.object({
+    records: z.array(downloadRecord).max(1000),
+  }).strict(), ({ records }) => adoptDownloadRecords(records));
 
   ipcMain.handle('download:set-dir', async () => {
     const win = BrowserWindow.getFocusedWindow() || getMainWindow();
@@ -45,13 +67,30 @@ export function registerDownloadIPC(): void {
     return null;
   });
 
-  ipcMain.handle('download:delete-file', (_event, { savePath }: { savePath: string }) => {
+  const pathArg = z.object({ savePath: z.string().min(1).max(32767) }).strict();
+  const idArg = z.object({ id: z.string().min(1).max(128) }).strict();
+
+  createValidatedHandler('download:remove-record', idArg, ({ id }) => {
+    removeDownloadRecord(id);
+    return { success: true };
+  });
+  createValidatedHandler('download:clear-finished', z.undefined(), () => {
+    clearFinishedDownloadRecords();
+    return { success: true };
+  });
+
+  createValidatedHandler('download:delete-file', pathArg, async ({ savePath }) => {
     if (!isPathAllowed(savePath)) {
       log.warn('[Download] path rejected (out of download dir):', savePath);
       return false;
     }
     try {
-      fs.unlinkSync(savePath);
+      const stat = await fs.promises.lstat(savePath);
+      if (!stat.isFile()) {
+        log.warn('[Download] delete rejected (not a regular file):', savePath);
+        return false;
+      }
+      await fs.promises.unlink(savePath);
       log.info('[Download] file deleted:', savePath);
       return true;
     } catch (e: any) {
@@ -64,22 +103,22 @@ export function registerDownloadIPC(): void {
     }
   });
 
-  ipcMain.on('download:cancel', (_event, { id }: { id: string }) => {
+  registerValidatedListener('download:cancel', idArg, (_event, { id }) => {
     log.info('[Download] cancel requested:', id);
     cancelDownload(id);
   });
 
-  ipcMain.on('download:pause', (_event, { id }: { id: string }) => {
+  registerValidatedListener('download:pause', idArg, (_event, { id }) => {
     log.info('[Download] pause requested:', id);
     pauseDownload(id);
   });
 
-  ipcMain.on('download:resume', (_event, { id }: { id: string }) => {
+  registerValidatedListener('download:resume', idArg, (_event, { id }) => {
     log.info('[Download] resume requested:', id);
     resumeDownload(id);
   });
 
-  ipcMain.on('download:open', (_event, { savePath }: { savePath: string }) => {
+  registerValidatedListener('download:open', pathArg, (_event, { savePath }) => {
     if (!savePath || !isPathAllowed(savePath)) {
       log.warn('[Download] open rejected (out of download dir):', savePath);
       return;
@@ -94,7 +133,7 @@ export function registerDownloadIPC(): void {
     }
   });
 
-  ipcMain.on('download:openDir', (_event, { savePath }: { savePath: string }) => {
+  registerValidatedListener('download:openDir', pathArg, (_event, { savePath }) => {
     if (!savePath || !isPathAllowed(savePath)) {
       log.warn('[Download] openDir rejected (out of download dir):', savePath);
       return;
@@ -103,7 +142,9 @@ export function registerDownloadIPC(): void {
     if (fs.existsSync(dir)) shell.openPath(dir);
   });
 
-  ipcMain.on('download:start', (_event, { url, filename: _filename }: { url: string; filename?: string }) => {
+  registerValidatedListener('download:start', z.object({
+    url: z.string().url().max(8192), filename: z.string().max(255).optional(),
+  }).strict(), (_event, { url, filename: _filename }) => {
     try {
       const proto = new URL(url).protocol;
       if (!ALLOWED_PROTOCOLS.has(proto)) {

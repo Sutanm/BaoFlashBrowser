@@ -3,11 +3,10 @@ import { Plus, ArrowLeft, ArrowRight, RotateCw, X, Volume2, VolumeX, Star, Panel
 import TabItem from '../tabs/TabItem';
 import WindowControls from '../shell/WindowControls';
 import RuffleToggle from '../navigation/RuffleToggle';
-import { useDataStore } from '@renderer/store/useDataStore';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
-import type { AddressToast } from '@renderer/store/useDataStore';
 import type { TabState } from '@renderer/store/useTabsStore';
 import type { FlashEngineMode } from '@shared/types/settings';
+import AddressToastHost from '../overlays/AddressToastHost';
 
 interface TopBarProps {
   tabs: TabState[];
@@ -75,42 +74,6 @@ const TopBar: React.FC<TopBarProps> = ({
   const { LL } = useI18nContext();
   const [addressValue, setAddressValue] = useState(url);
   const addressInputRef = useRef<HTMLInputElement>(null);
-
-  // --- Toast 队列：订阅 store，逐条消费，触发地址栏翻转 ---
-  const toastQueue = useDataStore((s) => s.toastQueue);
-  const setToastQueue = useDataStore((s) => s.setToastQueue);
-  const [currentToast, setCurrentToast] = useState<AddressToast | null>(null);
-  const [flipping, setFlipping] = useState(false);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const toastColorMap = { success: '#27ae60', info: '#3498db', warning: '#f39c12', error: '#e74c3c' };
-
-  // 队列推送新 toast 时，若当前无显示则立即消费
-  useEffect(() => {
-    if (toastQueue.length > 0 && !currentToast) {
-      const next = toastQueue[0];
-      setToastQueue((prev) => prev.slice(1));
-      setCurrentToast(next);
-      setFlipping(true);
-      const flipOff = setTimeout(() => setFlipping(false), 300);
-      // 有 actions 的 toast 不自动消失（等用户操作），其它按 duration 或默认 2500ms
-      const hasActions = next.actions && next.actions.length > 0;
-      const dur = hasActions ? null : (next.duration ?? 2500);
-      clearTimeout(toastTimerRef.current);
-      if (dur !== null) {
-        toastTimerRef.current = setTimeout(() => {
-          setFlipping(true);
-          setTimeout(() => { setFlipping(false); setCurrentToast(null); }, 300);
-        }, dur);
-      }
-      return () => clearTimeout(flipOff);
-    }
-  }, [toastQueue, currentToast, setToastQueue]);
-
-  const dismissToast = useCallback(() => {
-    clearTimeout(toastTimerRef.current);
-    setFlipping(true);
-    setTimeout(() => { setFlipping(false); setCurrentToast(null); }, 300);
-  }, []);
 
   useEffect(() => {
     setAddressValue(url);
@@ -243,36 +206,11 @@ const TopBar: React.FC<TopBarProps> = ({
             onChange={(e) => setAddressValue(e.target.value)}
             onKeyDown={handleAddressKeyDown}
             placeholder={LL.addressbar.placeholder()}
-            className={`input-text no-drag ${flipping ? 'address-flip' : ''}`}
+            className="input-text no-drag"
             spellCheck={false}
             autoComplete="off"
           />
-          {currentToast && (
-            <div
-              className={`toast-overlay ${flipping ? 'address-flip' : ''}`}
-              onClick={dismissToast}
-              style={{
-                background: currentToast.color || toastColorMap[currentToast.type],
-              }}
-            >
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {currentToast.message}
-              </span>
-              {currentToast.actions && currentToast.actions.length > 0 && (
-                <div className="toast-actions">
-                  {currentToast.actions.map((action, i) => (
-                    <button
-                      key={i}
-                      className={`toast-btn ${action.primary ? 'toast-btn-primary' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); action.onClick(); dismissToast(); }}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <AddressToastHost closeLabel={LL.close()} />
         </div>
         <button onClick={onZoomOut} className="btn-icon btn-icon-sm" title={LL.addressbar.zoomOut()}>
           <ZoomOut className="w-3.5 h-3.5" />
