@@ -739,17 +739,13 @@ type RootTranslation = {
 		 */
 		theme: string
 		/**
-		 * 主​题​模​式
+		 * 切​换​到​亮​色
 		 */
-		themeMode: string
+		themeSwitchToLight: string
 		/**
-		 * 亮​色
+		 * 切​换​到​暗​色
 		 */
-		light: string
-		/**
-		 * 暗​色
-		 */
-		dark: string
+		themeSwitchToDark: string
 		/**
 		 * 跟​随​系​统
 		 */
@@ -1558,17 +1554,13 @@ export type TranslationFunctions = {
 		 */
 		theme: () => LocalizedString
 		/**
-		 * 主题模式
+		 * 切换到亮色
 		 */
-		themeMode: () => LocalizedString
+		themeSwitchToLight: () => LocalizedString
 		/**
-		 * 亮色
+		 * 切换到暗色
 		 */
-		light: () => LocalizedString
-		/**
-		 * 暗色
-		 */
-		dark: () => LocalizedString
+		themeSwitchToDark: () => LocalizedString
 		/**
 		 * 跟随系统
 		 */

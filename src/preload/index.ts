@@ -12,7 +12,7 @@ const ALLOWED_ON_CHANNELS = new Set([
 ]);
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
-  'tab:create', 'tab:close', 'tab:activate', 'tab:navigate', 'tab:goBack', 'tab:goForward',
+    'tab:create', 'tab:close', 'tab:suspend', 'tab:activate', 'tab:navigate', 'tab:goBack', 'tab:goForward',
   'tab:reload', 'tab:stop', 'tab:zoom', 'tab:mute', 'tab:devtools', 'tab:find', 'tab:stopFind',
   'tab:setBounds', 'tab:setRuffleMode',
   'load-config', 'save-config',
@@ -70,6 +70,7 @@ const electronAPI = {
     create: (tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }) =>
       safeInvoke('tab:create', { tabId, url, ruffleConfig }),
     close: (tabId: string) => safeInvoke('tab:close', { tabId }),
+    suspend: (tabId: string) => safeInvoke('tab:suspend', { tabId }),
     activate: (tabId: string) => safeInvoke('tab:activate', { tabId }),
     navigate: (tabId: string, url: string) => safeInvoke('tab:navigate', { tabId, url }),
     goBack: (tabId: string) => safeInvoke('tab:goBack', { tabId }),

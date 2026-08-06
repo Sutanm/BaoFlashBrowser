@@ -6,6 +6,7 @@ import type { DownloadItem } from '@shared/types/downloads';
 import type { Settings, FlashEngineMode, FlashEngineRule, RuffleSource, ThemeMode } from '@shared/types/settings';
 import type { PasswordEntry, PasswordStoreStatus, ActivePanel } from '@shared/types/passwords';
 import { enqueueToast, type AddressToast, type ToastDismissReason, type ToastInput } from '../services/toast';
+import { applyHistoryVisit } from '../services/history-state';
 
 export type { AddressToast, ToastAction, ToastDismissReason, ToastInput } from '../services/toast';
 
@@ -34,7 +35,10 @@ export interface DataState {
   toastQueue: AddressToast[];
 
   setFavorites: (f: BookmarkEntry[] | ((prev: BookmarkEntry[]) => BookmarkEntry[])) => void;
-  setHistory: (h: HistoryEntry[] | ((prev: HistoryEntry[]) => HistoryEntry[])) => void;
+  recordHistory: (entry: HistoryEntry) => void;
+  updateHistoryByUrl: (url: string, patch: Partial<Pick<HistoryEntry, 'title' | 'favicon' | 'lastVisit'>>) => void;
+  removeHistory: (id: string) => void;
+  clearHistory: () => void;
   setDownloads: (d: DownloadItem[] | ((prev: DownloadItem[]) => DownloadItem[])) => void;
   setThemeMode: (t: ThemeMode) => void;
   setSettings: (s: Settings | ((prev: Settings) => Settings)) => void;
@@ -45,9 +49,7 @@ export interface DataState {
   dismissToast: (id: number, reason: ToastDismissReason) => void;
 }
 
-// L36: history 写入 debounce，合并频繁的 URL 变化触发
-let histPersistTimer: ReturnType<typeof setTimeout> | undefined;
-let downloadsPersistTimer: ReturnType<typeof setTimeout> | undefined;
+const downloadPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let persistenceQueue: Promise<void> = Promise.resolve();
 
 function enqueuePersistence(label: string, operation: () => Promise<void>): void {
@@ -66,18 +68,17 @@ async function replaceFavorites(next: BookmarkEntry[]): Promise<void> {
   });
 }
 
-async function replaceHistory(next: HistoryEntry[]): Promise<void> {
-  await db.transaction('rw', db.history, async () => {
-    await db.history.clear();
-    if (next.length > 0) await db.history.bulkPut(next);
-  });
-}
+type PersistedDownload = DownloadItem & { _idx?: number };
 
-async function replaceDownloads(next: DownloadItem[]): Promise<void> {
-  await db.transaction('rw', db.downloads, async () => {
-    await db.downloads.clear();
-    if (next.length > 0) await db.downloads.bulkPut(next.map((item, index) => ({ ...item, _idx: index })));
-  });
+function persistDownload(item: PersistedDownload, immediate: boolean): void {
+  const existing = downloadPersistTimers.get(item.id);
+  if (existing) clearTimeout(existing);
+  const write = () => {
+    downloadPersistTimers.delete(item.id);
+    enqueuePersistence('download', () => db.downloads.put(item).then(() => undefined));
+  };
+  if (immediate) write();
+  else downloadPersistTimers.set(item.id, setTimeout(write, 1000));
 }
 
 /** 内部使用：useLiveQuery 把 db 数据注入 store 时调用，不触发持久化 */
@@ -88,7 +89,7 @@ export function hydrateFromDb(patch: Partial<Pick<DataState, 'favorites' | 'hist
   skipPersist = false;
 }
 
-export const useDataStore = create<DataState>((set) => ({
+export const useDataStore = create<DataState>((set, get) => ({
   favorites: [],
   history: [],
   downloads: [],
@@ -116,36 +117,58 @@ export const useDataStore = create<DataState>((set) => ({
       return { favorites: next };
     }),
 
-  setHistory: (h) =>
-    set((state) => {
-      const next = typeof h === 'function' ? h(state.history) : h;
-      if (!skipPersist) {
-        if (histPersistTimer) clearTimeout(histPersistTimer);
-        histPersistTimer = setTimeout(() => {
-          // history 使用 clear + bulkPut 全量替换，确保单项删除也能真正生效
-          enqueuePersistence('history', () => replaceHistory(next));
-        }, 500);
-      }
-      return { history: next };
-    }),
+  recordHistory: (entry) => {
+    const previous = get().history;
+    const { history, record, removedIds } = applyHistoryVisit(previous, entry);
+    set({ history });
+    if (!skipPersist) enqueuePersistence('history upsert', async () => {
+      await db.transaction('rw', db.history, async () => {
+        await db.history.put(record);
+        if (removedIds.length) await db.history.bulkDelete(removedIds);
+      });
+    });
+  },
+
+  updateHistoryByUrl: (url, patch) => {
+    const existing = get().history.find((item) => item.url === url);
+    if (!existing) return;
+    const updated = { ...existing, ...patch };
+    set((state) => ({ history: state.history.map((item) => item.id === updated.id ? updated : item) }));
+    if (!skipPersist) enqueuePersistence('history update', () => db.history.put(updated).then(() => undefined));
+  },
+
+  removeHistory: (id) => {
+    set((state) => ({ history: state.history.filter((item) => item.id !== id) }));
+    if (!skipPersist) enqueuePersistence('history delete', () => db.history.delete(id));
+  },
+
+  clearHistory: () => {
+    set({ history: [] });
+    if (!skipPersist) enqueuePersistence('history clear', () => db.history.clear());
+  },
 
   setDownloads: (d) =>
     set((state) => {
-      const next = typeof d === 'function' ? d(state.downloads) : d;
+      const rawNext = typeof d === 'function' ? d(state.downloads) : d;
+      let nextIndex = Math.min(0, ...state.downloads.map((item) => (item as PersistedDownload)._idx ?? 0)) - 1;
+      const next = rawNext.map((item) => {
+        const previous = state.downloads.find((entry) => entry.id === item.id) as PersistedDownload | undefined;
+        return { ...item, _idx: (item as PersistedDownload)._idx ?? previous?._idx ?? nextIndex-- } as PersistedDownload;
+      });
       if (!skipPersist) {
-        const terminalChanged = next.length !== state.downloads.length || next.some((item) => {
+        for (const previous of state.downloads) {
+          if (!next.some((item) => item.id === previous.id)) {
+            const timer = downloadPersistTimers.get(previous.id); if (timer) clearTimeout(timer);
+            downloadPersistTimers.delete(previous.id);
+            enqueuePersistence('download delete', () => db.downloads.delete(previous.id));
+          }
+        }
+        for (const item of next) {
           const previous = state.downloads.find((entry) => entry.id === item.id);
-          return previous && previous.state !== item.state && ['completed', 'cancelled', 'interrupted'].includes(item.state);
-        });
-        if (downloadsPersistTimer) clearTimeout(downloadsPersistTimer);
-        if (terminalChanged) {
-          downloadsPersistTimer = undefined;
-          enqueuePersistence('downloads', () => replaceDownloads(next));
-        } else {
-          downloadsPersistTimer = setTimeout(() => {
-            downloadsPersistTimer = undefined;
-            enqueuePersistence('downloads', () => replaceDownloads(next));
-          }, 1000);
+          if (previous && JSON.stringify(previous) === JSON.stringify(item)) continue;
+          const stateChanged = !previous || previous.state !== item.state;
+          const terminal = ['completed', 'cancelled', 'interrupted'].includes(item.state);
+          persistDownload(item, stateChanged || terminal);
         }
       }
       return { downloads: next };

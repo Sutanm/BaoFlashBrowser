@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useDataStore, defaultSettings } from '@renderer/store/useDataStore';
-import { useTheme } from '@renderer/hooks/useTheme';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
+import ThemeToggle from './ThemeToggle';
 import type { Settings } from '@shared/types/settings';
 import type { DownloadEngine } from '@shared/types/downloads';
 
@@ -30,7 +30,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
   const setSettings = useDataStore((s) => s.setSettings);
   const setStoreStatus = useDataStore((s) => s.setPasswordStoreStatus);
   const pushToast = useDataStore((s) => s.pushToast);
-  const { themeMode, setThemeMode } = useTheme();
   const { LL, setLocale } = useI18nContext();
 
   const [form, setForm] = useState<Settings>({ ...defaultSettings, ...settings });
@@ -374,28 +373,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
       <div className="panel-card">
         <div className="panel-card-title">{LL.settings.theme()}</div>
         <div className="field">
-          <div className="field-label">{LL.settings.themeMode()}</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {(['light', 'dark', 'system'] as const).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setThemeMode(mode)}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                  border: `1px solid ${themeMode === mode ? 'var(--accent)' : 'var(--border)'}`,
-                  background: themeMode === mode ? 'var(--accent)' : 'var(--bg-input)',
-                  color: themeMode === mode ? '#fff' : 'var(--text-primary)',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                {mode === 'light' ? LL.settings.light() : mode === 'dark' ? LL.settings.dark() : LL.settings.system()}
-              </button>
-            ))}
-          </div>
+          <ThemeToggle />
         </div>
       </div>
 

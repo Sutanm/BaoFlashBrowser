@@ -1,6 +1,6 @@
 import Store from 'electron-store';
 import type { DownloadItem, DownloadState } from '@shared/types/downloads';
-import { mergeDownloadPatch, normalizeRestartedDownload, type StoredDownload } from '../utils/download-record';
+import { mergeDownloadPatch, normalizeRestartedDownload, selectRetainedDownloadRecords, type StoredDownload } from '../utils/download-record';
 
 interface DownloadStateSchema {
   records: StoredDownload[];
@@ -13,6 +13,7 @@ const store = new Store<DownloadStateSchema>({
 });
 
 const records = new Map<string, StoredDownload>();
+const MAX_TERMINAL_RECORDS = 1000;
 let loaded = false;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -20,12 +21,18 @@ function isTerminal(state: DownloadState): boolean {
   return state === 'completed' || state === 'cancelled' || state === 'interrupted';
 }
 
+function trimTerminalRecords(): void {
+  const retained = new Set(selectRetainedDownloadRecords([...records.values()], MAX_TERMINAL_RECORDS).map((item) => item.id));
+  for (const id of records.keys()) if (!retained.has(id)) records.delete(id);
+}
+
 function persistNow(): void {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = null;
-  const value = [...records.values()]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, 1000);
+  trimTerminalRecords();
+  const active = [...records.values()].filter((item) => !isTerminal(item.state));
+  const terminal = [...records.values()].filter((item) => isTerminal(item.state)).sort((a, b) => b.updatedAt - a.updatedAt);
+  const value = [...active, ...terminal];
   store.set('records', value);
 }
 
@@ -39,6 +46,7 @@ function ensureLoaded(): void {
     if (normalized !== item) changed = true;
     records.set(normalized.id, normalized);
   }
+  trimTerminalRecords();
   if (changed) persistNow();
 }
 
@@ -49,6 +57,7 @@ export function updateDownloadRecord(patch: Partial<DownloadItem> & Pick<Downloa
   const next = mergeDownloadPatch(previous, patch);
   if (!next) return null;
   records.set(next.id, next);
+  trimTerminalRecords();
   if (isTerminal(next.state)) persistNow();
   else {
     if (persistTimer) clearTimeout(persistTimer);
@@ -70,7 +79,7 @@ export function getDownloadRecords(): StoredDownload[] {
 export function adoptDownloadRecords(items: DownloadItem[]): StoredDownload[] {
   ensureLoaded();
   let timestamp = Date.now();
-  for (const item of items.slice(0, 1000)) {
+  for (const item of items) {
     if (!item.id || records.has(item.id)) continue;
     const adopted = mergeDownloadPatch(undefined, {
       ...item,
@@ -79,6 +88,7 @@ export function adoptDownloadRecords(items: DownloadItem[]): StoredDownload[] {
     }, timestamp++);
     if (adopted) records.set(adopted.id, adopted);
   }
+  trimTerminalRecords();
   persistNow();
   return getDownloadRecords();
 }

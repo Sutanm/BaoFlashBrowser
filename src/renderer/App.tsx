@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import TopBar from './components/layout/TopBar';
 import DrawerSidebar from './components/layout/DrawerSidebar';
 import NewTabPage from './components/newtab/NewTabPage';
@@ -9,9 +8,10 @@ import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { useTabManager } from './hooks/useTabManager';
 import { useDownloadListener } from './hooks/useDownloadListener';
-import { useDataStore, hydrateFromDb } from './store/useDataStore';
+import { useDataStore } from './store/useDataStore';
 import { usePasswordListener } from './hooks/usePasswordListener';
-import { migrateFromLocalStorage, db } from './services/db';
+import { migrateFromLocalStorage } from './services/db';
+import DatabaseHydrator from './components/data/DatabaseHydrator';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 import { isNewtabUrl } from './services/url-utils';
 import TypesafeI18n, { useI18nContext } from './i18n/i18n-react';
@@ -22,62 +22,14 @@ const AppInner: React.FC = () => {
   const { LL, setLocale } = useI18nContext();
   const { theme } = useTheme();
   const favorites = useDataStore((s) => s.favorites);
-  const downloads = useDataStore((s) => s.downloads);
+  const activeDownloadCount = useDataStore((s) => s.downloads.filter((d) => d.state === 'progressing' || d.state === 'paused').length);
   const settings = useDataStore((s) => s.settings);
 
   const setFavorites = useDataStore((s) => s.setFavorites);
-  const setDownloads = useDataStore((s) => s.setDownloads);
   const pushToast = useDataStore((s) => s.pushToast);
 
   const activePanel = useDataStore((s) => s.activePanel);
   const setActivePanel = useDataStore((s) => s.setActivePanel);
-  const downloadSyncDoneRef = useRef(false);
-
-  // L36: useLiveQuery 自动订阅 db 变化，启动时水合 + 持续同步到 store
-  // 写操作在 store 的 setX 内部直接写 db，db 变化触发 useLiveQuery → hydrateFromDb 注入 store
-  // hydrateFromDb 用 skipPersist 标志跳过 db 写入，避免循环
-  const dbSnapshot = useLiveQuery(async () => {
-    const [favs, hist, dls, settsArr, metaThemeMode] = await Promise.all([
-      db.favorites.toArray(),
-      db.history.orderBy('lastVisit').reverse().toArray(),
-      db.downloads.toArray(),
-      db.settings.toArray(),
-      db.meta.get('themeMode'),
-    ]);
-    // L36: 过滤历史遗留的无效下载项（无 filename），不写回 db，下次 setDownloads 时自动清理
-    const dlsFiltered = dls.filter((d) => d.filename).map((download) =>
-      download.state === 'progressing' || download.state === 'paused'
-        ? { ...download, state: 'interrupted' as const, speed: 0 }
-        : download
-    );
-    favs.sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0));
-    dlsFiltered.sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0));
-    return {
-      favorites: favs,
-      history: hist,
-      downloads: dlsFiltered,
-      settings: settsArr[0] || null,
-      themeMode: metaThemeMode?.value as 'light' | 'dark' | 'system' | undefined,
-    };
-  }, [], undefined);
-
-  useEffect(() => {
-    if (!dbSnapshot) return;
-    const patch: Parameters<typeof hydrateFromDb>[0] = {
-      favorites: dbSnapshot.favorites,
-      history: dbSnapshot.history,
-      downloads: dbSnapshot.downloads,
-    };
-    if (dbSnapshot.settings) patch.settings = { ...useDataStore.getState().settings, ...dbSnapshot.settings };
-    if (dbSnapshot.themeMode) patch.themeMode = dbSnapshot.themeMode;
-    hydrateFromDb(patch);
-    if (!downloadSyncDoneRef.current) {
-      downloadSyncDoneRef.current = true;
-      window.electronAPI.dl.syncRecords(dbSnapshot.downloads).then((records) => {
-        setDownloads(records);
-      }).catch((error) => console.warn('[Download] main-process state sync failed:', error));
-    }
-  }, [dbSnapshot, setDownloads]);
 
   // L36: localStorage → IndexedDB 一次性迁移（仅首次启动执行）
   useEffect(() => {
@@ -220,9 +172,11 @@ const AppInner: React.FC = () => {
   }, [ruffleMode, activeTabId, activeTab, updateTab, settings.ruffleSource]);
 
   const isOnNewTab = !activeTab || activeTab.url === 'about:newtab';
+  const isCrashed = activeTab?.crashed === true;
 
   return (
     <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>
+      <DatabaseHydrator />
       <TopBar
         tabs={tabs}
         activeTabId={activeTabId}
@@ -294,16 +248,26 @@ const AppInner: React.FC = () => {
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           onZoomReset={zoomReset}
-          downloadCount={downloads.filter((d) => d.state === 'progressing' || d.state === 'paused').length}
+          downloadCount={activeDownloadCount}
         />
 
         <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
           <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
         </div>
+        <div style={{ display: isCrashed ? 'flex' : 'none', flex: '1 1 0%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>
+          <button
+            type="button"
+            onClick={() => { if (activeTabId) window.electronAPI.tab.reload(activeTabId); }}
+            style={{ padding: '8px 18px', borderRadius: 8, background: 'var(--accent)', color: '#fff' }}
+          >
+            {LL.refresh()}
+          </button>
+        </div>
         <div
           id="browserview-area"
           ref={bvAreaRef}
-          style={{ display: isOnNewTab ? 'none' : 'flex', flex: '1 1 0%', position: 'relative', flexDirection: 'column' }}
+          style={{ display: isOnNewTab || isCrashed ? 'none' : 'flex', flex: '1 1 0%', position: 'relative', flexDirection: 'column' }}
         >
           <FindBar
             visible={findBarVisible && !isOnNewTab}

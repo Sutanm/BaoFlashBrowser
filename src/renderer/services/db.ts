@@ -20,6 +20,17 @@ class BaoDB extends Dexie {
       settings: 'searchEngine',
       meta: 'key',
     });
+    this.version(2).stores({
+      favorites: 'url',
+      history: 'id,lastVisit,url',
+      downloads: 'id',
+      settings: 'searchEngine',
+      meta: 'key',
+    }).upgrade(async (transaction) => {
+      const history = transaction.table<HistoryEntry, string>('history');
+      const entries = await history.orderBy('lastVisit').reverse().toArray();
+      if (entries.length > 5000) await history.bulkDelete(entries.slice(5000).map((entry) => entry.id));
+    });
   }
 }
 

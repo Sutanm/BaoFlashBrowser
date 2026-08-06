@@ -72,7 +72,7 @@ declare global {
       invoke(channel: 'download:delete-file', payload: { savePath: string }): Promise<boolean>;
       invoke(channel: 'download:list'): Promise<DownloadItem[]>;
       invoke(channel: 'tab:create', payload: { tabId: string; url: string }): Promise<void>;
-      invoke(channel: 'tab:close' | 'tab:activate' | 'tab:goBack' | 'tab:goForward' | 'tab:reload' | 'tab:stop' | 'tab:devtools', payload: { tabId: string }): Promise<void>;
+      invoke(channel: 'tab:close' | 'tab:suspend' | 'tab:activate' | 'tab:goBack' | 'tab:goForward' | 'tab:reload' | 'tab:stop' | 'tab:devtools', payload: { tabId: string }): Promise<void>;
       invoke(channel: 'tab:navigate', payload: { tabId: string; url: string }): Promise<void>;
       invoke(channel: 'tab:zoom', payload: { tabId: string; factor: number }): Promise<void>;
       invoke(channel: 'tab:mute', payload: { tabId: string; muted: boolean }): Promise<void>;
@@ -109,6 +109,7 @@ declare global {
       tab: {
         create(tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }): Promise<void>;
         close(tabId: string): Promise<void>;
+        suspend(tabId: string): Promise<void>;
         activate(tabId: string): Promise<void>;
         navigate(tabId: string, url: string): Promise<void>;
         goBack(tabId: string): Promise<void>;

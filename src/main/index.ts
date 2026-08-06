@@ -18,6 +18,7 @@ import { tabManager } from './modules/tabs';
 import { initDownloadManager, killAria2 } from './modules/download';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, preventCleanShutdownMark } from './modules/session-recovery';
+import { startMemoryMonitor, stopMemoryMonitor } from './modules/memory-monitor';
 
 function bootstrap(): void {
   if (!app.requestSingleInstanceLock()) {
@@ -97,6 +98,7 @@ function bootstrap(): void {
     initPasswordStore().catch((e: any) => log.warn('[App] password store init failed:', e?.message));
     registerPasswordIPC();
     registerDiagnosticsIPC();
+    startMemoryMonitor();
 
     // 重任务延迟到首渲染后执行，不阻塞首屏展示
      setImmediate(() => {
@@ -119,16 +121,11 @@ function bootstrap(): void {
         handleWebviewBeforeInputEvent(event, input);
       });
 
-      wc.on('new-window', (event: Electron.Event, url: string) => {
-        event.preventDefault();
-        if (wc.hostWebContents) {
-          wc.hostWebContents.send('navigate-url', url);
-        }
-      });
     });
   });
 
   app.on('window-all-closed', () => {
+    stopMemoryMonitor();
     killAria2();
     app.quit();
   });

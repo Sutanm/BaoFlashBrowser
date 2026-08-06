@@ -935,3 +935,64 @@ a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ===== 主题日/夜开关 ===== */
+.theme-toggle-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.theme-toggle {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: none;
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.theme-cloud {
+  position: absolute;
+  pointer-events: none;
+  animation-name: theme-cloud-float;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes theme-cloud-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.theme-stars {
+  position: absolute;
+  pointer-events: none;
+}
+
+.theme-star {
+  animation: theme-star-twinkle 3s ease-in-out infinite;
+}
+
+@keyframes theme-star-twinkle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.theme-orb {
+  animation: theme-orb-breathe 5s ease-in-out infinite;
+}
+
+@keyframes theme-orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-star,
+  .theme-cloud,
+  .theme-orb {
+    animation: none !important;
+  }
+}

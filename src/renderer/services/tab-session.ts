@@ -50,6 +50,7 @@ export function sanitizeTabSession(value: unknown): TabSessionSnapshot | null {
       createdAt: typeof tab.createdAt === 'number' ? tab.createdAt : Date.now(),
       ruffleMode: tab.ruffleMode === 'ruffle' ? 'ruffle' : 'ppapi',
       suspended: false,
+      crashed: false,
     });
   }
 
@@ -64,6 +65,21 @@ export function createTabSession(tabs: Tab[], activeTabId: string | null): TabSe
   const snapshot = sanitizeTabSession({ version: 1, savedAt: Date.now(), activeTabId, tabs });
   if (snapshot?.tabs.every((tab) => tab.url === 'about:newtab')) return null;
   return snapshot;
+}
+
+export function createTabSessionSignature(tabs: Tab[], activeTabId: string | null): string {
+  return JSON.stringify({
+    activeTabId,
+    tabs: tabs.slice(0, MAX_RESTORED_TABS).map((tab) => ({
+      id: tab.id,
+      url: sanitizeUrlForPersistence(tab.url),
+      ruffleMode: tab.ruffleMode,
+      zoomFactor: tab.zoomFactor,
+      isMuted: tab.isMuted,
+      suspended: Boolean(tab.suspended),
+      crashed: Boolean(tab.crashed),
+    })),
+  });
 }
 
 export function selectCrashRecoverySession(

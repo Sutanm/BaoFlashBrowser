@@ -114,8 +114,10 @@ export async function fillPasswordsInWebContents(
       attachedHere = true;
     }
     wc.debugger.on('message', onMessage);
-    await wc.debugger.sendCommand('Runtime.enable');
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    if (attachedHere) {
+      await wc.debugger.sendCommand('Runtime.enable');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
 
     const targets: Array<number | undefined> = contexts.size ? [...contexts] : [undefined];
     const usernames = new Set<string>();

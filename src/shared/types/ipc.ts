@@ -43,6 +43,7 @@ export interface TabUpdatedPayload {
   isAudible?: boolean;
   canGoBack?: boolean;
   canGoForward?: boolean;
+  crashed?: boolean;
 }
 
 export interface DownloadProgressPayload {
@@ -85,7 +86,7 @@ export interface TabLoadErrorPayload {
 
 export interface TabCrashedPayload {
   tabId: string;
-  reason?: string;
+  reason: string;
 }
 
 export interface Aria2StatusPayload {

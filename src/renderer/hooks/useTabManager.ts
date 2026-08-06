@@ -6,7 +6,7 @@ import { normalizeUrl, generateId } from '../services/id.service';
 import type { TabState } from '../store/useTabsStore';
 import type { HistoryEntry } from '@shared/types/history';
 import { db, loadMeta, saveMeta } from '../services/db';
-import { createTabSession, selectCrashRecoverySession, TAB_SESSION_META_KEY } from '../services/tab-session';
+import { createTabSession, createTabSessionSignature, selectCrashRecoverySession, TAB_SESSION_META_KEY } from '../services/tab-session';
 import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
 import { isTabEligibleForSuspension } from '../services/tab-suspension';
 
@@ -46,12 +46,15 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const setActiveTabId = useTabsStore((s) => s.setActiveTabId);
   const [addressUrl, setAddressUrl] = useState('');
   const [sessionReady, setSessionReady] = useState(false);
-  const setHistory = useDataStore((s) => s.setHistory);
+  const recordHistory = useDataStore((s) => s.recordHistory);
+  const updateHistoryByUrl = useDataStore((s) => s.updateHistoryByUrl);
   const tabsRef = useRef(tabs);
+  const activeTabIdRef = useRef(activeTabId);
+  const settingsRef = useRef(settings);
   const ruffleErrorsRef = useRef(new Set<string>());
   const suspensionTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const suspensionPromisesRef = useRef(new Map<string, Promise<void>>());
-  useEffect(() => { tabsRef.current = tabs; });
+  useEffect(() => { tabsRef.current = tabs; activeTabIdRef.current = activeTabId; settingsRef.current = settings; });
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
 
@@ -86,6 +89,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       });
     }, 50);
   }, [setActiveTabId, calcBoundsRef, ensureTabView, pushToast]);
+  const switchTabRef = useRef(switchTab);
+  useEffect(() => { switchTabRef.current = switchTab; }, [switchTab]);
 
   const createTab = useCallback((url?: string) => {
     const id = generateId();
@@ -107,6 +112,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       zoomFactor: 1, isLoading: false, isAudible: false, isMuted: false,
       canGoBack: false, canGoForward: false, createdAt: Date.now(),
       ruffleMode,
+      crashed: false,
     };
     setTabs((prev) => [...prev, tab]);
     const useRuffle = ruffleMode === 'ruffle';
@@ -158,17 +164,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       lastVisit: Date.now(),
       visitCount: 1,
     };
-    setHistory((prev) => {
-      const existing = prev.find((h) => h.url === entry.url);
-      if (existing) {
-        return prev.map((h) => h.url === entry.url
-          ? { ...h, lastVisit: Date.now(), visitCount: h.visitCount + 1, title: entry.title || h.title, favicon: entry.favicon || h.favicon }
-          : h
-        );
-      }
-      return [entry, ...prev];
-    });
-  }, [setHistory]);
+    recordHistory(entry);
+  }, [recordHistory]);
 
   const updateTab = useCallback((tabId: string, changes: Partial<TabState>) => {
     setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, ...changes } : t)));
@@ -198,13 +195,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       const rawTabUrl = tabsRef.current.find((t) => t.id === tabId)?.url;
       const tabUrl = rawTabUrl ? sanitizeUrlForPersistence(rawTabUrl) : '';
       if (tabUrl) {
-        setHistory((prev) => {
-          const idx = prev.findIndex((h) => h.url === tabUrl);
-          if (idx >= 0 && !prev[idx].favicon) {
-            return prev.map((h) => h.url === tabUrl ? { ...h, favicon: changes.favicon! } : h);
-          }
-          return prev;
-        });
+        const existing = useDataStore.getState().history.find((item) => item.url === tabUrl);
+        if (existing && !existing.favicon) updateHistoryByUrl(tabUrl, { favicon: changes.favicon! });
       }
     }
     // Update title in history
@@ -212,16 +204,10 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       const rawTabUrl = tabsRef.current.find((t) => t.id === tabId)?.url;
       const tabUrl = rawTabUrl ? sanitizeUrlForPersistence(rawTabUrl) : '';
       if (tabUrl && !isNewtabUrl(tabUrl)) {
-        setHistory((prev) => {
-          const idx = prev.findIndex((h) => h.url === tabUrl);
-          if (idx >= 0) {
-            return prev.map((h) => h.url === tabUrl ? { ...h, title: changes.title! } : h);
-          }
-          return prev;
-        });
+        updateHistoryByUrl(tabUrl, { title: changes.title! });
       }
     }
-  }, [setTabs, activeTabId, setHistory, commitHistory]);
+  }, [setTabs, activeTabId, updateHistoryByUrl, commitHistory]);
 
   const updateTabRef = useRef(updateTab);
   useEffect(() => { updateTabRef.current = updateTab; });
@@ -245,7 +231,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         const current = useTabsStore.getState();
         const tab = current.tabs.find((item) => item.id === tabId);
         if (!tab || current.activeTabId === tabId || tab.suspended || tab.isLoading || tab.isAudible) return;
-        const suspension = window.electronAPI.tab.close(tabId).then(() => {
+        const suspension = window.electronAPI.tab.suspend(tabId).then(() => {
           setTabs((previous) => previous.map((item) => item.id === tabId
             ? { ...item, suspended: true, isLoading: false, isAudible: false, canGoBack: false, canGoForward: false }
             : item));
@@ -311,21 +297,25 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     };
   }, []);
 
+  const createTabRef = useRef(createTab);
+  useEffect(() => { createTabRef.current = createTab; }, [createTab]);
+
   useEffect(() => {
     const u1 = window.electronAPI.on('tab:newwindow', (payload) => {
       const url = payload.url;
-      if (settings.linkBehavior === 'current-page' && activeTabId) {
-        window.electronAPI.tab.navigate(activeTabId, url);
+      const currentId = activeTabIdRef.current;
+      if (settingsRef.current.linkBehavior === 'current-page' && currentId) {
+        window.electronAPI.tab.navigate(currentId, url);
       } else {
-        createTab(url);
+        createTabRef.current(url);
       }
     });
     const u2 = window.electronAPI.on('tab:crashed', (payload) => {
-      updateTabRef.current(payload.tabId, { url: 'about:crash', title: LLRef.current.error.pageCrashed() });
+      updateTabRef.current(payload.tabId, { crashed: true, isLoading: false, isAudible: false, canGoBack: false, canGoForward: false, title: LLRef.current.error.pageCrashed() });
       pushToast({ key: `tab-crashed:${payload.tabId}`, message: LLRef.current.error.pageCrashed(), type: 'error' });
     });
     return () => { try { u1(); u2(); } catch { /* ignore */ } };
-  }, [activeTabId, createTab, pushToast, settings.linkBehavior]);
+  }, [pushToast]);
 
   // External URL open
   useEffect(() => {
@@ -335,7 +325,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       const delay = activeTab?.isLoading ? 600 : 0;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        createTab(String(url));
+        createTabRef.current(String(url));
         timer = null;
       }, delay);
     });
@@ -344,7 +334,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       try { unsub(); } catch { /* ignore */ }
       if (timer) clearTimeout(timer);
     };
-  }, [createTab, activeTab]);
+  }, []);
 
   // Keep crash snapshots continuously, but only offer them after an abnormal
   // process exit. A normal window close never restores tabs on the next launch.
@@ -442,6 +432,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
 
   // Keep a bounded, validated snapshot. Transient loading/navigation flags are
   // normalized by createTabSession and never trusted when restoring.
+  const sessionSignature = createTabSessionSignature(tabs, activeTabId);
   useEffect(() => {
     if (!sessionReady) return;
     const timer = setTimeout(() => {
@@ -449,12 +440,13 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         void db.meta.delete(TAB_SESSION_META_KEY);
         return;
       }
-      const snapshot = createTabSession(tabs, activeTabId);
+      const latest = useTabsStore.getState();
+      const snapshot = createTabSession(latest.tabs, latest.activeTabId);
       if (snapshot) void saveMeta(TAB_SESSION_META_KEY, snapshot);
       else void db.meta.delete(TAB_SESSION_META_KEY);
-    }, 300);
+    }, 1000);
     return () => clearTimeout(timer);
-  }, [sessionReady, tabs, activeTabId, settings.restoreSession]);
+  }, [sessionReady, sessionSignature, settings.restoreSession]);
 
   useEffect(() => {
     if (sessionReady && tabs.length === 0) createTab();
@@ -471,7 +463,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const handleNavigate = useCallback((input: string) => {
     const url = normalizeUrl(input, settings.searchEngine);
     if (!activeTabId) { createTab(url); return; }
-    updateTab(activeTabId, { url, title: url });
+    updateTab(activeTabId, { url, title: url, crashed: false, isLoading: true });
     setAddressUrl(url);
     if (activeTabId) {
       window.electronAPI.tab.stop(activeTabId);
@@ -486,6 +478,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     if (activeTabId) window.electronAPI.tab.zoom(activeTabId, lvl);
     updateTab(activeTab.id, { zoomFactor: lvl });
   }, [activeTab, updateTab, activeTabId]);
+  const doZoomRef = useRef(doZoom);
+  useEffect(() => { doZoomRef.current = doZoom; }, [doZoom]);
 
   const zoomIn = useCallback(() => doZoom(0.25), [doZoom]);
   const zoomOut = useCallback(() => doZoom(-0.25), [doZoom]);
@@ -510,26 +504,27 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     const handler = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      doZoom(e.deltaY < 0 ? 0.25 : -0.25);
+      doZoomRef.current(e.deltaY < 0 ? 0.25 : -0.25);
     };
     window.addEventListener('wheel', handler, { passive: false });
     return () => window.removeEventListener('wheel', handler);
-  }, [doZoom]);
+  }, []);
 
   // Ctrl+1..9 tab switching
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         const num = parseInt(e.key);
-        if (num >= 1 && num <= Math.min(9, tabs.length)) {
+        const currentTabs = tabsRef.current;
+        if (num >= 1 && num <= Math.min(9, currentTabs.length)) {
           e.preventDefault();
-          switchTab(tabs[num - 1].id);
+          switchTabRef.current(currentTabs[num - 1].id);
         }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [tabs, switchTab]);
+  }, []);
 
   return {
     tabs, activeTabId, activeTab,

@@ -8,6 +8,7 @@ import { loadConfig } from './config';
 import { getFlashPluginPath } from './flash';
 import { ruffleBundleInfo } from './ruffle-bundle';
 import { redactDiagnosticText } from '../utils/diagnostic-redaction';
+import { getMemoryDiagnostics } from './memory-monitor';
 
 interface ResourceDiagnostic {
   name: string;
@@ -84,7 +85,7 @@ export async function createDiagnosticReport(): Promise<Record<string, unknown>>
 
   return {
     format: 'BaoFlashBrowser diagnostics',
-    formatVersion: 1,
+    formatVersion: 2,
     generatedAt: new Date().toISOString(),
     app: {
       version: app.getVersion(),
@@ -107,6 +108,7 @@ export async function createDiagnosticReport(): Promise<Record<string, unknown>>
     },
     ruffle: ruffleBundleInfo(),
     resources,
+    memory: getMemoryDiagnostics(),
     logs: await recentSanitizedLogs(),
   };
 }

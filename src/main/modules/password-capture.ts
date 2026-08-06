@@ -10,6 +10,9 @@ interface CaptureState {
   destroyed: boolean;
   injectTimer: ReturnType<typeof setTimeout> | null;
   contexts: Set<number>;
+  injectedContexts: Set<number>;
+  retryContexts: Set<number>;
+  messageListener: (_event: Electron.Event, method: string, params: any) => void;
   capturedSet: Set<string>;
   pendingCredentials: Map<string, { host: string; username: string; password: string; origin: string; title: string }>;
 }
@@ -91,7 +94,7 @@ export const CAPTURE_SCRIPT = `
     if(_rawPass&&_rawPass.length>=2)report('beforeunload');
   });
 
-  // Strategy B: 200ms 轮询，检测密码框被清空或被加密值替换（适配 AJAX 登录）
+  // Strategy B: 500ms 轮询，检测密码框被清空或被加密值替换（适配 AJAX 登录）
   var _lastLen = 0;
   var _iter = 0;
   setInterval(function() {
@@ -120,7 +123,7 @@ export const CAPTURE_SCRIPT = `
       report('encrypted');
       _lastLen = 0;
     }
-  }, 200);
+  }, 500);
 
   // Strategy D: AJAX 登录拦截（fetch + XHR），捕获 SPA/AJAX 表单提交
   function tryReportFromBody(body, src) {
@@ -347,19 +350,38 @@ export const CAPTURE_SCRIPT = `
   }
 })()`;
 
-async function injectAllFrames(state: CaptureState): Promise<void> {
-  if (state.destroyed || state.wc.isDestroyed()) return;
-  for (const ctxId of state.contexts) {
-    state.wc.debugger.sendCommand('Runtime.evaluate', { expression: CAPTURE_SCRIPT, awaitPromise: false, contextId: ctxId }).catch(() => {});
+async function injectContext(state: CaptureState, contextId: number): Promise<void> {
+  if (state.destroyed || state.wc.isDestroyed() || !state.contexts.has(contextId) || state.injectedContexts.has(contextId)) return;
+  try {
+    await state.wc.debugger.sendCommand('Runtime.evaluate', {
+      expression: CAPTURE_SCRIPT,
+      awaitPromise: false,
+      contextId,
+    });
+    if (!state.destroyed && state.contexts.has(contextId)) {
+      state.injectedContexts.add(contextId);
+      state.retryContexts.delete(contextId);
+    }
+  } catch {
+    if (!state.destroyed && state.contexts.has(contextId) && state.wc.debugger.isAttached()) {
+      state.retryContexts.add(contextId);
+      scheduleFailedInjectionRetry(state, 4000);
+    }
   }
 }
 
-function scheduleFrameReinjection(state: CaptureState, delay: number): void {
-  if (state.destroyed || state.wc.isDestroyed()) return;
+function scheduleFailedInjectionRetry(state: CaptureState, delay: number): void {
+  if (state.destroyed || state.wc.isDestroyed() || state.injectTimer || state.retryContexts.size === 0) return;
   state.injectTimer = setTimeout(async () => {
+    state.injectTimer = null;
     if (state.destroyed || state.wc.isDestroyed()) return;
-    await injectAllFrames(state);
-    scheduleFrameReinjection(state, 4000);
+    if (!state.wc.debugger.isAttached()) {
+      state.retryContexts.clear();
+      return;
+    }
+    const failed = [...state.retryContexts];
+    await Promise.all(failed.map((contextId) => injectContext(state, contextId)));
+    if (state.retryContexts.size > 0) scheduleFailedInjectionRetry(state, 4000);
   }, delay);
 }
 
@@ -380,10 +402,21 @@ export function setupCapture(wc: WebContents): void {
   // 强制清理旧 state（对齐 bv demo 的 detach+reattach 模式）
   const existing = captures.get(wc.id);
   if (existing) {
+    if (!existing.destroyed && wc.debugger.isAttached()) return;
     teardownCapture(wc);
   }
 
-  const state: CaptureState = { wc, destroyed: false, injectTimer: null, contexts: new Set(), capturedSet: new Set(), pendingCredentials: globalPendingCredentials as any };
+  const state: CaptureState = {
+    wc,
+    destroyed: false,
+    injectTimer: null,
+    contexts: new Set(),
+    injectedContexts: new Set(),
+    retryContexts: new Set(),
+    messageListener: () => {},
+    capturedSet: new Set(),
+    pendingCredentials: globalPendingCredentials as any,
+  };
 
   try { wc.debugger.attach('1.3'); } catch (e: any) {
     log.warn('[PasswordCapture] attach failed:', e.message);
@@ -391,15 +424,24 @@ export function setupCapture(wc: WebContents): void {
   }
   log.info('[PasswordCapture] attached, wc.id=' + wc.id);
 
-  wc.debugger.on('message', (_event, method, params: any) => {
+  state.messageListener = (_event, method, params: any) => {
     if (state.destroyed) return;
     if (method === 'Runtime.executionContextCreated') {
       const ctxId = params.context.id;
       state.contexts.add(ctxId);
       log.info('[PasswordCapture] context created: ' + ctxId + ' (total=' + state.contexts.size + ')');
-      wc.debugger.sendCommand('Runtime.evaluate', { expression: CAPTURE_SCRIPT, awaitPromise: false, contextId: ctxId }).catch(() => {});
+      void injectContext(state, ctxId);
     }
-    if (method === 'Runtime.executionContextDestroyed') { state.contexts.delete(params.executionContextId); }
+    if (method === 'Runtime.executionContextDestroyed') {
+      state.contexts.delete(params.executionContextId);
+      state.injectedContexts.delete(params.executionContextId);
+      state.retryContexts.delete(params.executionContextId);
+    }
+    if (method === 'Runtime.executionContextsCleared') {
+      state.contexts.clear();
+      state.injectedContexts.clear();
+      state.retryContexts.clear();
+    }
     if (method !== 'Runtime.bindingCalled' || params.name !== '__baopReport') return;
     for (const text of [String(params.payload || '')]) {
       if (!text.startsWith('{"_type":"baop_')) continue;
@@ -465,7 +507,8 @@ export function setupCapture(wc: WebContents): void {
         if (globalPendingCredentials.size > 50) { const fk = globalPendingCredentials.keys().next().value; if (fk) globalPendingCredentials.delete(fk); }
       } catch { /* ignore detach errors */ }
     }
-  });
+  };
+  wc.debugger.on('message', state.messageListener);
 
   wc.debugger.sendCommand('Runtime.addBinding', { name: '__baopReport' }).then(() =>
     wc.debugger.sendCommand('Runtime.enable')).then(() => {
@@ -475,18 +518,23 @@ export function setupCapture(wc: WebContents): void {
     log.warn('[PasswordCapture] Runtime.enable failed:', e?.message);
   });
 
-  scheduleFrameReinjection(state, 3000);
-
   captures.set(wc.id, state);
 }
 
 export function teardownCapture(wc: WebContents): void {
-  if (!wc || wc.isDestroyed()) return;
+  if (!wc) return;
   const state = captures.get(wc.id); if (!state) return;
-  state.destroyed = true;
-  if (state.injectTimer) clearTimeout(state.injectTimer);
-  detachQuietly(state);
   captures.delete(wc.id);
+  state.destroyed = true;
+  if (state.injectTimer) {
+    clearTimeout(state.injectTimer);
+    state.injectTimer = null;
+  }
+  state.contexts.clear();
+  state.injectedContexts.clear();
+  state.retryContexts.clear();
+  try { state.wc.debugger.removeListener('message', state.messageListener); } catch { /* local cleanup best effort */ }
+  if (!state.wc.isDestroyed()) detachQuietly(state);
 }
 
 export function getPendingCredential(captureId: string): { host: string; username: string; password: string; origin: string; title: string; timestamp: number } | null {

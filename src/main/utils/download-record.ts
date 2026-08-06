@@ -29,3 +29,12 @@ export function mergeDownloadPatch(
     updatedAt: now,
   };
 }
+
+export function selectRetainedDownloadRecords(items: StoredDownload[], maxTerminal = 1000): StoredDownload[] {
+  const active = items.filter((item) => item.state === 'progressing' || item.state === 'paused');
+  const terminal = items
+    .filter((item) => item.state !== 'progressing' && item.state !== 'paused')
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, maxTerminal);
+  return [...active, ...terminal];
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTabSession, MAX_RESTORED_TABS, sanitizeTabSession, selectCrashRecoverySession } from '../src/renderer/services/tab-session';
+import { createTabSession, createTabSessionSignature, MAX_RESTORED_TABS, sanitizeTabSession, selectCrashRecoverySession } from '../src/renderer/services/tab-session';
 import type { Tab } from '../src/shared/types/tab';
 
 function tab(id: string, url = `https://example.com/${id}`): Tab {
@@ -15,6 +15,13 @@ describe('tab session snapshots', () => {
     expect(snapshot?.activeTabId).toBe('two');
     expect(snapshot?.tabs[0]).toMatchObject({ isLoading: false, isAudible: false, canGoBack: false, canGoForward: false });
     expect(snapshot?.tabs[1]).toMatchObject({ zoomFactor: 1.5, isMuted: true, ruffleMode: 'ruffle' });
+  });
+
+  it('ignores loading, sound and favicon churn when deciding whether to persist', () => {
+    const first = tab('one');
+    const changed = { ...first, isLoading: false, isAudible: false, favicon: 'https://example.com/icon.png' };
+    expect(createTabSessionSignature([first], 'one')).toBe(createTabSessionSignature([changed], 'one'));
+    expect(createTabSessionSignature([first], 'one')).not.toBe(createTabSessionSignature([{ ...first, isMuted: true }], 'one'));
   });
 
   it('does not create a recovery prompt for blank tabs only', () => {

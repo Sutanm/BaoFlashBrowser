@@ -45,15 +45,16 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
     }
   }
   const history = useDataStore((s) => s.history);
-  const setHistory = useDataStore((s) => s.setHistory);
+  const removeHistory = useDataStore((s) => s.removeHistory);
+  const clearHistory = useDataStore((s) => s.clearHistory);
   const pushToast = useDataStore((s) => s.pushToast);
   const [filter, setFilter] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
 
   const removeEntry = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setHistory((prev) => prev.filter((h) => h.id !== id));
-  }, [setHistory]);
+    removeHistory(id);
+  }, [removeHistory]);
 
   const sorted = [...history]
     .filter((h) => {
@@ -64,10 +65,10 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
     .sort((a, b) => b.lastVisit - a.lastVisit);
 
   const clearAll = useCallback(() => {
-    setHistory([]);
+    clearHistory();
     setConfirmClear(false);
     pushToast({ message: LL.history.cleared(), type: 'info' });
-  }, [setHistory, pushToast, LL]);
+  }, [clearHistory, pushToast, LL]);
 
   const groups = new Map<DateGroup, HistoryEntry[]>();
   for (const entry of sorted) {

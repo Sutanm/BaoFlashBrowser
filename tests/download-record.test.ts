@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeDownloadPatch, normalizeRestartedDownload, type StoredDownload } from '../src/main/utils/download-record';
+import { mergeDownloadPatch, normalizeRestartedDownload, selectRetainedDownloadRecords, type StoredDownload } from '../src/main/utils/download-record';
 
 const active: StoredDownload = {
   id: 'a2_demo', url: 'https://example.com/game.swf', filename: 'game.swf',
@@ -18,5 +18,15 @@ describe('download state recovery', () => {
       ...active, state: 'paused', speed: 0, updatedAt: 20,
     });
     expect(mergeDownloadPatch(undefined, { id: 'missing', state: 'interrupted' }, 20)).toBeNull();
+  });
+
+  it('keeps every active task while trimming only the oldest terminal records', () => {
+    const terminal = Array.from({ length: 1001 }, (_, index) => ({ ...active, id: `done_${index}`, state: 'completed' as const, updatedAt: index }));
+    const paused = { ...active, id: 'paused', state: 'paused' as const, updatedAt: 0 };
+    const retained = selectRetainedDownloadRecords([...terminal, active, paused]);
+    expect(retained).toHaveLength(1002);
+    expect(retained.map((item) => item.id)).toContain('a2_demo');
+    expect(retained.map((item) => item.id)).toContain('paused');
+    expect(retained.map((item) => item.id)).not.toContain('done_0');
   });
 });

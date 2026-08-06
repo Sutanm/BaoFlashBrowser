@@ -59,6 +59,9 @@ export function registerTabsIPC(): void {
   createValidatedHandler('tab:close', tabOnly, (args) =>
     tabManager.close(args.tabId));
 
+  createValidatedHandler('tab:suspend', tabOnly, (args) =>
+    tabManager.suspend(args.tabId));
+
   createValidatedHandler('tab:activate', tabOnly, (args) =>
     tabManager.activate(args.tabId));
 

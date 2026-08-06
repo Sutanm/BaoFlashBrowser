@@ -12,6 +12,7 @@ export interface Tab {
   createdAt: number;
   ruffleMode: 'ppapi' | 'ruffle';
   suspended?: boolean;
+  crashed?: boolean;
 }
 
 export interface TabCreateOptions {
