@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaoFlash Modern CSS Fixer
 // @namespace    bao-flash-browser
-// @version      0.5.3
+// @version      0.5.6
 // @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
 // @match        *://*.github.com/*
@@ -10959,15 +10959,104 @@ ${t5.join("\n")}`);
   // src/main/modules/userscripts/bundled-scripts/css-fixer-entry.ts
   var MARKER = "data-bf-css-fixed";
   var MAX_SHEETS = 150;
+  var CACHE_DB = "bf-css-fixer";
+  var CACHE_STORE = "sheets";
+  var CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
+  var CACHE_MAX_BYTES = 20 * 1024 * 1024;
+  var dbPromise = null;
+  function openCacheDb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve) => {
+      try {
+        const req = indexedDB.open(CACHE_DB, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(CACHE_STORE)) {
+            db.createObjectStore(CACHE_STORE, { keyPath: "url" });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+    return dbPromise;
+  }
+  function cacheGet(url) {
+    return openCacheDb().then((db) => {
+      if (!db) return null;
+      return new Promise((resolve) => {
+        try {
+          const req = db.transaction(CACHE_STORE, "readonly").objectStore(CACHE_STORE).get(url);
+          req.onsuccess = () => {
+            const row = req.result;
+            if (row && typeof row.text === "string" && row.ts && Date.now() - row.ts < CACHE_TTL_MS) {
+              resolve(row.text);
+            } else {
+              resolve(null);
+            }
+          };
+          req.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+  }
+  function cachePut(url, text) {
+    return openCacheDb().then((db) => {
+      if (!db) return;
+      try {
+        const tx = db.transaction(CACHE_STORE, "readwrite");
+        const store = tx.objectStore(CACHE_STORE);
+        store.put({ url, text, ts: Date.now(), bytes: text.length });
+        const allReq = store.getAll();
+        allReq.onsuccess = () => {
+          const rows = allReq.result || [];
+          const now = Date.now();
+          const expired = [];
+          let total = 0;
+          for (const row of rows) {
+            if (now - (row.ts || 0) > CACHE_TTL_MS) expired.push(row.url);
+            else total += row.bytes || 0;
+          }
+          if (expired.length > 0 || total > CACHE_MAX_BYTES) {
+            for (const url2 of expired) store.delete(url2);
+            const sorted = rows.filter((r2) => !expired.includes(r2.url)).sort((a2, b2) => (a2.ts || 0) - (b2.ts || 0));
+            let over = total - CACHE_MAX_BYTES;
+            for (const row of sorted) {
+              if (over <= 0) break;
+              store.delete(row.url);
+              over -= row.bytes || 0;
+            }
+          }
+        };
+      } catch {
+      }
+    });
+  }
   var HAS_ATTR_RE = /\[(csstools-has-[a-z0-9-]+)\]/;
   var HAS_INNER_RE = /:has\(([^()]*)\)/;
   function decodeHasAttr(encoded) {
     if (!encoded.startsWith("csstools-has-")) return "";
     return encoded.slice(13).split("-").map((x2) => String.fromCharCode(parseInt(x2, 36))).join("");
   }
+  function injectSkipHide() {
+    try {
+      const style = document.createElement("style");
+      style.setAttribute("data-bf-skip-hide", "1");
+      style.textContent = 'a.skip-navigation,a[href="#start-of-content"],.show-on-focus:not(:focus){position:absolute!important;clip:rect(1px,1px,1px,1px)!important;width:1px!important;height:1px!important;overflow:hidden!important}';
+      const head = document.head || document.documentElement;
+      head.insertBefore(style, head.firstChild);
+    } catch {
+    }
+  }
   function markHasInSheets() {
     try {
-      for (const sheet of document.styleSheets) {
+      const sheets = document.styleSheets;
+      for (let si = 0; si < sheets.length; si++) {
+        const sheet = sheets[si];
         let rules;
         try {
           rules = sheet.cssRules;
@@ -11098,21 +11187,31 @@ ${t5.join("\n")}`);
       if (!rel.includes("stylesheet")) return;
       const href = link.href;
       if (!href || /^data:/i.test(href)) return;
-      link.disabled = true;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      const cachedText = await cacheGet(href);
       let text;
-      try {
-        const res = await fetch(href, { credentials: "same-origin", cache: "force-cache", signal: controller.signal });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        text = await res.text();
-      } finally {
-        clearTimeout(timer);
+      if (cachedText !== null) {
+        text = cachedText;
+      } else {
+        link.disabled = true;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        try {
+          const res = await fetch(href, { credentials: "same-origin", cache: "force-cache", signal: controller.signal });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          text = await res.text();
+        } finally {
+          clearTimeout(timer);
+        }
+        const rewritten = rewriteCssText(text);
+        if (rewritten !== text) {
+          text = rewritten;
+          void cachePut(href, rewritten);
+        }
       }
       const style = document.createElement("style");
       style.setAttribute(MARKER, "1");
       style.setAttribute("data-bf-css-fix-source", href);
-      style.textContent = rewriteCssText(text);
+      style.textContent = text;
       (_a = link.parentNode) == null ? void 0 : _a.insertBefore(style, link.nextSibling);
       link.remove();
       scheduleMarkHas();
@@ -11178,6 +11277,7 @@ ${t5.join("\n")}`);
         }
       });
       const start = () => {
+        injectSkipHide();
         for (const style of toArray(document.querySelectorAll("style"))) handleStyle(style);
         for (const link of toArray(document.querySelectorAll('link[rel~="stylesheet"]'))) handleLink(link);
         fixNextImages(document);

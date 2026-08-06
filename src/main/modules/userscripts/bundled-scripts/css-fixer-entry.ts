@@ -28,6 +28,90 @@ const MARKER = 'data-bf-css-fixed';
 // (primer-react-css appears 6+ times per page); the cap must survive the
 // static sheets PLUS all dynamic insertions or late sheets stay unstyled.
 const MAX_SHEETS = 150;
+// --- IndexedDB cache for rewritten stylesheets ----------------------------
+// Modern sites content-hash their CSS URLs (Next.js, GitHub assets), so a
+// URL's payload never changes; persisting the rewrite skips fetch + postcss
+// on later visits to the same site. TTL bounds staleness for non-hashed
+// URLs; the store is capped by total bytes (oldest evicted first). Any
+// failure falls back to the normal fetch path.
+const CACHE_DB = 'bf-css-fixer';
+const CACHE_STORE = 'sheets';
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const CACHE_MAX_BYTES = 20 * 1024 * 1024;
+
+let dbPromise: Promise<IDBDatabase | null> | null = null;
+
+function openCacheDb(): Promise<IDBDatabase | null> {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(CACHE_DB, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(CACHE_STORE)) {
+          db.createObjectStore(CACHE_STORE, { keyPath: 'url' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch { resolve(null); }
+  });
+  return dbPromise;
+}
+
+function cacheGet(url: string): Promise<string | null> {
+  return openCacheDb().then((db) => {
+    if (!db) return null;
+    return new Promise<string | null>((resolve) => {
+      try {
+        const req = db.transaction(CACHE_STORE, 'readonly').objectStore(CACHE_STORE).get(url);
+        req.onsuccess = () => {
+          const row = req.result as { text?: string; ts?: number } | undefined;
+          if (row && typeof row.text === 'string' && row.ts && Date.now() - row.ts < CACHE_TTL_MS) {
+            resolve(row.text);
+          } else {
+            resolve(null);
+          }
+        };
+        req.onerror = () => resolve(null);
+      } catch { resolve(null); }
+    });
+  });
+}
+
+function cachePut(url: string, text: string): Promise<void> {
+  return openCacheDb().then((db) => {
+    if (!db) return;
+    try {
+      const tx = db.transaction(CACHE_STORE, 'readwrite');
+      const store = tx.objectStore(CACHE_STORE);
+      store.put({ url, text, ts: Date.now(), bytes: text.length });
+      // Opportunistic eviction: drop entries older than TTL, then oldest
+      // beyond the byte cap.
+      const allReq = store.getAll();
+      allReq.onsuccess = () => {
+        const rows = (allReq.result as Array<{ url: string; bytes: number; ts: number }>) || [];
+        const now = Date.now();
+        const expired: string[] = [];
+        let total = 0;
+        for (const row of rows) {
+          if (now - (row.ts || 0) > CACHE_TTL_MS) expired.push(row.url);
+          else total += row.bytes || 0;
+        }
+        if (expired.length > 0 || total > CACHE_MAX_BYTES) {
+          for (const url of expired) store.delete(url);
+          const sorted = rows.filter((r) => !expired.includes(r.url)).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+          let over = total - CACHE_MAX_BYTES;
+          for (const row of sorted) {
+            if (over <= 0) break;
+            store.delete(row.url);
+            over -= row.bytes || 0;
+          }
+        }
+      };
+    } catch { /* cache failure must not break the page */ }
+  });
+}
 // css-has-pseudo browser runtime queries the FULL encoded selector via
 // querySelectorAll — on Chromium 87 that throws for complex selectors
 // (compound + attribute + :has), so GitHub's real rules never get marked.
@@ -47,9 +131,25 @@ function decodeHasAttr(encoded: string): string {
     .join('');
 }
 
+function injectSkipHide(): void {
+  // Skip-navigation links render fully visible while the fixer fetches and
+  // rewrites the @layer-wrapped sheets (Chromium 87 drops those rules until
+  // then). Hide them immediately with the same visually-hidden recipe the
+  // sites use; focus still reveals the link (keyboard a11y preserved).
+  try {
+    const style = document.createElement('style');
+    style.setAttribute('data-bf-skip-hide', '1');
+    style.textContent = 'a.skip-navigation,a[href="#start-of-content"],.show-on-focus:not(:focus){position:absolute!important;clip:rect(1px,1px,1px,1px)!important;width:1px!important;height:1px!important;overflow:hidden!important}';
+    const head = document.head || document.documentElement;
+    head.insertBefore(style, head.firstChild);
+  } catch { /* never break the page */ }
+}
+
 function markHasInSheets(): void {
   try {
-    for (const sheet of document.styleSheets) {
+    const sheets = document.styleSheets;
+    for (let si = 0; si < sheets.length; si++) {
+      const sheet = sheets[si];
       let rules: CSSRuleList;
       try { rules = sheet.cssRules; } catch { continue; }
       for (let i = 0; i < rules.length; i++) {
@@ -192,25 +292,38 @@ async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
     const href = link.href;
     if (!href || /^data:/i.test(href)) return;
 
-    link.disabled = true;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    // Cache hit: the sheet was rewritten on an earlier visit to this site
+    // (CSS URLs are content-hashed on modern sites) — skip fetch + postcss.
+    const cachedText = await cacheGet(href);
     let text: string;
-    try {
-      const res = await fetch(href, { credentials: 'same-origin', cache: 'force-cache', signal: controller.signal });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      text = await res.text();
-    } finally {
-      clearTimeout(timer);
+    if (cachedText !== null) {
+      text = cachedText;
+    } else {
+      link.disabled = true;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const res = await fetch(href, { credentials: 'same-origin', cache: 'force-cache', signal: controller.signal });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        text = await res.text();
+      } finally {
+        clearTimeout(timer);
+      }
+      const rewritten = rewriteCssText(text);
+      if (rewritten !== text) {
+        text = rewritten;
+        void cachePut(href, rewritten);
+      }
     }
     // Replacing the <link> with a <style> (rewritten or verbatim) is more
     // reliable than re-enabling the link: Chromium 87 does not guarantee a
     // reload after disabled true->false. On fetch failure the original link
-    // is restored instead.
+    // is restored instead. `text` is already the final (rewritten) version
+    // on both the cache-hit and the rewrite path.
     const style = document.createElement('style');
     style.setAttribute(MARKER, '1');
     style.setAttribute('data-bf-css-fix-source', href);
-    style.textContent = rewriteCssText(text);
+    style.textContent = text;
     link.parentNode?.insertBefore(style, link.nextSibling);
     link.remove();
     scheduleMarkHas();
@@ -284,6 +397,7 @@ function main(): void {
     });
 
     const start = (): void => {
+      injectSkipHide();
       for (const style of toArray(document.querySelectorAll('style'))) handleStyle(style as HTMLStyleElement);
       for (const link of toArray(document.querySelectorAll('link[rel~="stylesheet"]'))) handleLink(link as HTMLLinkElement);
       fixNextImages(document);

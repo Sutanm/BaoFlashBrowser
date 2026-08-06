@@ -21,7 +21,7 @@ import { protocol } from 'electron';
 import http from 'http';
 import https from 'https';
 import log from 'electron-log';
-import { patchModernJs } from '../modules/userscripts/bundled-scripts/css-fixer-core';
+import { patchModernJsAsync, type PatchResult } from './js-patch-transform';
 import { isBlockedUrl } from '../modules/userscripts/userscript-request';
 
 const PROTOCOL = 'bf-js-patch';
@@ -33,11 +33,12 @@ let protocolRegistered = false;
 // request, so the protocol handler would otherwise re-fetch everything).
 const MAX_CACHE_ENTRIES = 200;
 const MAX_CACHE_BYTES = 64 * 1024 * 1024;
-const patchCache = new Map<string, { text: string; bytes: number }>();
+type PatchMode = PatchResult['mode'];
+const patchCache = new Map<string, { text: string; bytes: number; mode: PatchMode }>();
 
-function cachePut(src: string, text: string): void {
+function cachePut(src: string, text: string, mode: PatchMode): void {
   const bytes = text.length;
-  patchCache.set(src, { text, bytes });
+  patchCache.set(src, { text, bytes, mode });
   if (patchCache.size > MAX_CACHE_ENTRIES) {
     const oldest = patchCache.keys().next().value;
     if (oldest !== undefined) patchCache.delete(oldest);
@@ -93,6 +94,7 @@ export function registerJsPatchProtocol(): void {
     }
     const cached = patchCache.get(src);
     if (cached) {
+      log.info('[js-patch] cached', src.slice(0, 60), 'mode=' + cached.mode);
       callback({
         statusCode: 200,
         headers: { 'content-type': 'application/javascript' },
@@ -101,14 +103,15 @@ export function registerJsPatchProtocol(): void {
       return;
     }
     fetchText(src)
-      .then((text) => {
-        const patched = patchModernJs(text);
-        cachePut(src, patched ?? text);
-        log.info('[js-patch] served', src.slice(0, 60), 'patched=' + (patched !== null), 'bytes=' + (patched ?? text).length);
+      .then(async (text) => {
+        const { text: patched, mode } = await patchModernJsAsync(text);
+        const finalText = patched ?? text;
+        cachePut(src, finalText, mode);
+        log.info('[js-patch] served', src.slice(0, 60), 'mode=' + mode, 'bytes=' + finalText.length);
         callback({
           statusCode: 200,
           headers: { 'content-type': 'application/javascript' },
-          data: Buffer.from(patched ?? text, 'utf8'),
+          data: Buffer.from(finalText, 'utf8'),
         });
       })
       .catch((error) => {

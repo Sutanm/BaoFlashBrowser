@@ -9,7 +9,7 @@ const shared = {
   platform: 'node',
   format: 'cjs',
   target: 'node12',
-  external: ['electron', 'electron-log', 'electron-store'],
+  external: ['electron', 'electron-log', 'electron-store', 'esbuild'],
   alias: {
     '@shared': './src/shared',
     '@main': './src/main',
