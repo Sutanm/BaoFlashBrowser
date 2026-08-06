@@ -62,8 +62,34 @@ describe('css-fixer-core rewriteCssText', () => {
     expect(rewriteCssText(css)).toContain('.a { color: red }');
   });
 
-  it('keeps :has() rules unchanged (documented limitation)', () => {
+  it('converts :has() into a csstools-has marker attribute rule', () => {
     const css = '.m_88b62a41:has([data-mantine-scrollbar]) { max-width: 10px }';
+    const out = rewriteCssText(css);
+    expect(out).not.toContain(':has(');
+    expect(out).toContain('[csstools-has-');
+    expect(out).toContain(':not(.does-not-exist)');
+    expect(out).toContain('max-width: 10px');
+  });
+
+  it('needsRewrite detects :has(', () => {
+    expect(needsRewrite('.a:has(.b) { color: red }')).toBe(true);
+  });
+
+  it('unwraps :is before :has conversion so the encoded selector is C87-queryable', () => {
+    const css = ':is(.a .b):has(.c) { color: red }';
+    const out = rewriteCssText(css);
+    expect(out).not.toContain(':has(');
+    expect(out).not.toContain(':is(');
+    expect(out).toContain('[csstools-has-');
+    // decode the encoded selector and assert no :is remains
+    const enc = (out.match(/csstools-has-[a-z0-9-]+/) || [''])[0];
+    const decoded = enc.slice(13).split('-').map((x) => String.fromCharCode(parseInt(x, 36))).join('');
+    expect(decoded).not.toContain(':is(');
+    expect(decoded).toContain('.a .b');
+  });
+
+  it('keeps plain selectors without :has untouched', () => {
+    const css = '.a .b { color: red }';
     expect(rewriteCssText(css)).toBe(css);
   });
 

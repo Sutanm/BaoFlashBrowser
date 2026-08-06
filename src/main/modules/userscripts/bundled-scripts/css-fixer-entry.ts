@@ -21,12 +21,88 @@ import { needsRewrite, rewriteCssText } from './css-fixer-core';
 // the polyfill's async innerHTML writeback (which would otherwise clobber
 // the fixer's rewrite, since insertRule'd rules die on text replacement).
 import './vendor/container-query-polyfill.js';
+import './vendor/css-has-pseudo.js';
 
 const MARKER = 'data-bf-css-fixed';
 // React apps (github.com) re-insert shared stylesheet <link>s many times
 // (primer-react-css appears 6+ times per page); the cap must survive the
 // static sheets PLUS all dynamic insertions or late sheets stay unstyled.
 const MAX_SHEETS = 150;
+// css-has-pseudo browser runtime queries the FULL encoded selector via
+// querySelectorAll — on Chromium 87 that throws for complex selectors
+// (compound + attribute + :has), so GitHub's real rules never get marked.
+// Our own marker pass handles the common form: single :has(...) whose inner
+// is a plain (combinator-free) selector — query inner, climb to the host
+// with closest(E). Multi-:has / combinator / complex inner stay degraded
+// (the vendored runtime still covers trivial selectors).
+const HAS_ATTR_RE = /\[(csstools-has-[a-z0-9-]+)\]/;
+const HAS_INNER_RE = /:has\(([^()]*)\)/;
+
+function decodeHasAttr(encoded: string): string {
+  if (!encoded.startsWith('csstools-has-')) return '';
+  return encoded
+    .slice(13)
+    .split('-')
+    .map((x) => String.fromCharCode(parseInt(x, 36)))
+    .join('');
+}
+
+function markHasInSheets(): void {
+  try {
+    for (const sheet of document.styleSheets) {
+      let rules: CSSRuleList;
+      try { rules = sheet.cssRules; } catch { continue; }
+      for (let i = 0; i < rules.length; i++) {
+        const text = String(rules[i].cssText);
+        if (!text.includes('csstools-has-')) continue;
+        const am = text.match(HAS_ATTR_RE);
+        if (!am) continue;
+        const attr = am[1];
+        const F = decodeHasAttr(attr);
+        if (!F) continue;
+        const hasMatches = F.match(/:has\(/g) || [];
+        if (hasMatches.length !== 1) continue; // multi :has degraded
+        const innerMatch = F.match(HAS_INNER_RE);
+        if (!innerMatch) continue;
+        const inner = innerMatch[1].trim();
+        if (/^[>+~]/.test(inner)) continue; // combinator inner degraded
+        const hostSel = F.replace(HAS_INNER_RE, '').trim();
+        if (!hostSel) continue;
+        let els: NodeListOf<Element>;
+        try { els = document.querySelectorAll(inner); } catch { continue; }
+        for (let j = 0; j < els.length; j++) {
+          let host: Element | null = null;
+          try { host = els[j].closest(hostSel); } catch { break; }
+          if (host && host !== els[j]) host.setAttribute(attr, '');
+        }
+      }
+    }
+  } catch { /* never break the page */ }
+}
+
+let markHasTimer: number | null = null;
+function scheduleMarkHas(): void {
+  if (markHasTimer !== null) return;
+  markHasTimer = window.setTimeout(() => {
+    markHasTimer = null;
+    markHasInSheets();
+  }, 500);
+}
+
+function startHasReMarkLoop(): void {
+  // Components render asynchronously after their styles land (React); the
+  // one-shot pass at start() sees an empty DOM. Re-mark periodically for the
+  // first 60s, then stay interaction-driven (menus/dialogs open on click).
+  let rounds = 0;
+  const timer = window.setInterval(() => {
+    rounds += 1;
+    markHasInSheets();
+    if (rounds >= 20) window.clearInterval(timer);
+  }, 3000);
+  for (const ev of ['click', 'mouseenter'] as const) {
+    document.addEventListener(ev, () => scheduleMarkHas(), { capture: true, passive: true });
+  }
+}
 // React apps insert stylesheet <link>s while the page is still busy loading
 // (github.com: primer-react-css is 292KB, brand 694KB, inserted ~2s in).
 // 3s timed out on those during network peaks; 10s covers slow links while
@@ -100,6 +176,7 @@ function processStyle(el: HTMLStyleElement): void {
       el.setAttribute(MARKER, '1');
       (el as unknown as { __bfLastWrite?: string }).__bfLastWrite = out;
       el.textContent = out;
+      scheduleMarkHas();
     } else {
       (el as unknown as { __bfLastWrite?: string }).__bfLastWrite = text;
     }
@@ -136,6 +213,7 @@ async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
     style.textContent = rewriteCssText(text);
     link.parentNode?.insertBefore(style, link.nextSibling);
     link.remove();
+    scheduleMarkHas();
   } catch {
     try { link.disabled = false; } catch { /* element gone */ }
     // A fetch that aborted during the page's network peak (React-inserted
@@ -164,6 +242,10 @@ function main(): void {
       void processLink(link);
     };
 
+    // Style text changes invalidate :has markers (a rewritten <style> may
+    // gain/lose csstools-has- rules); re-run the marker pass debounced.
+    const scheduleReMark = (): void => scheduleMarkHas();
+
     const observer = new MutationObserver((mutations) => {
       if (processed >= MAX_SHEETS) {
         observer.disconnect();
@@ -176,6 +258,7 @@ function main(): void {
         const target = mutation.target;
         if (target && target.nodeType === 1 && (target as HTMLElement).tagName === 'STYLE') {
           handleStyle(target as HTMLStyleElement);
+          scheduleReMark();
         }
         const added = mutation.addedNodes;
         for (let i = 0; i < added.length; i++) {
@@ -184,13 +267,16 @@ function main(): void {
           const el = node as HTMLElement;
           if (el.tagName === 'STYLE') {
             handleStyle(el as HTMLStyleElement);
+            scheduleReMark();
           } else if (el.tagName === 'LINK') {
             handleLink(el as HTMLLinkElement);
+            scheduleReMark();
           } else if (el.tagName === 'IMG') {
             fixNextImage(el as HTMLImageElement);
           } else {
             for (const style of toArray(el.querySelectorAll('style'))) handleStyle(style as HTMLStyleElement);
             for (const link of toArray(el.querySelectorAll('link[rel~="stylesheet"]'))) handleLink(link as HTMLLinkElement);
+            if (el.querySelector('style, link[rel~="stylesheet"]')) scheduleReMark();
             fixNextImages(el);
           }
         }
@@ -201,6 +287,12 @@ function main(): void {
       for (const style of toArray(document.querySelectorAll('style'))) handleStyle(style as HTMLStyleElement);
       for (const link of toArray(document.querySelectorAll('link[rel~="stylesheet"]'))) handleLink(link as HTMLLinkElement);
       fixNextImages(document);
+      // Our own marker pass handles the :has forms the vendored runtime
+      // cannot query reliably on Chromium 87 (complex selectors); the
+      // vendored cssHasPseudo() transform is intentionally NOT started — its
+      // node-tracking pass would re-run later and strip our markers.
+      markHasInSheets();
+      startHasReMarkLoop();
       observer.observe(document.documentElement, { childList: true, subtree: true });
     };
 

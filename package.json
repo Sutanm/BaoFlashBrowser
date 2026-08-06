@@ -64,6 +64,7 @@
     "concurrently": "^10.0.4",
     "core-js": "^3.50.0",
     "cross-env": "^10.1.0",
+    "css-has-pseudo": "^8.0.1",
     "dexie": "^4.4.4",
     "electron": "11.5.0",
     "electron-builder": "^26.15.3",

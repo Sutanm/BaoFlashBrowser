@@ -9,6 +9,7 @@
 import postcss from 'postcss';
 import selectorParser, { type Selector } from 'postcss-selector-parser';
 import valueParser from 'postcss-value-parser';
+import postcssHasPseudo from 'css-has-pseudo';
 import { convertColorValue, needsColorRewrite } from './css-fixer-color';
 
 const PSEUDOS_TO_UNWRAP = new Set([':where', ':is']);
@@ -20,6 +21,7 @@ export function needsRewrite(css: string): boolean {
   return (
     css.includes(':where(') ||
     css.includes(':is(') ||
+    css.includes(':has(') ||
     css.includes('@layer') ||
     css.includes('@container') ||
     css.includes('&') ||
@@ -270,7 +272,43 @@ export function patchModernJs(text: string): string | null {
 
 export function rewriteCssText(css: string): string {
   if (!needsRewrite(css)) return css;
-  const root = postcss.parse(css);
+  // css-has-pseudo text-layer conversion (preserve: false — the original
+  // :has() rule is dropped by Chromium 87 anyway): E:has(F) becomes
+  // [csstools-has-<base36-encoded-F>]:not(does-not-exist). The browser
+  // runtime (vendor/css-has-pseudo.js) sets that marker attribute on
+  // matched elements.
+  let root = postcss.parse(css);
+  if (css.includes(':has(')) {
+    // Unwrap :is/:where FIRST: css-has-pseudo encodes the rule selector and
+    // its runtime queries it via querySelectorAll — Chromium 87 cannot parse
+    // :is() there, so every rule with an unwrapped :is would throw and stay
+    // unmarked. :is inside :has(...) args is left as-is (degradation).
+    const pre = postcss.parse(css);
+    pre.walkRules((rule) => {
+      try {
+        const rewritten = rewriteSelector(rule.selector);
+        if (rewritten !== rule.selector) rule.selector = rewritten;
+      } catch { /* keep the original selector */ }
+    });
+    const preCss = pre.toString();
+    if (preCss.includes(':has(')) {
+      try {
+        const converted = postcss([postcssHasPseudo({ preserve: false })]).process(preCss, { from: undefined });
+        // The plugin emits a `.js-has-pseudo ` ancestor prefix; the vendored
+        // browser runtime normally strips it from the CSSOM. We do not run
+        // that runtime (it fights our own marker pass), so strip the prefix
+        // at the text layer instead — the marker attribute rules then match
+        // without any ancestor class.
+        root = postcss.parse(converted.css.replace(/\.js-has-pseudo\s+/g, ''));
+      } catch {
+        // css-has-pseudo throws on exotic :has forms (nested :has, complex
+        // inner combinators); fall back so the rest of the sheet still gets
+        // rewritten. The :has rules stay dropped by Chromium 87 (documented
+        // degradation).
+        root = postcss.parse(preCss);
+      }
+    }
+  }
 
   flattenLayers(root);
   flattenNesting(root);

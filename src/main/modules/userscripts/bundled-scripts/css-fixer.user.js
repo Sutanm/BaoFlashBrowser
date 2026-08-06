@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaoFlash Modern CSS Fixer
 // @namespace    bao-flash-browser
-// @version      0.4.1
+// @version      0.5.3
 // @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
 // @match        *://*.github.com/*
@@ -19,8 +19,8 @@
   var __commonJS = (cb, mod) => function __require() {
     try {
       return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-    } catch (e2) {
-      throw mod = 0, e2;
+    } catch (e4) {
+      throw mod = 0, e4;
     }
   };
   var __copyProps = (to, from, except, desc) => {
@@ -1303,8 +1303,8 @@
             let result;
             try {
               result = callback(child, index);
-            } catch (e2) {
-              throw child.addToError(e2);
+            } catch (e4) {
+              throw child.addToError(e4);
             }
             if (result === false) {
               for (let opened of stack) {
@@ -3245,19 +3245,19 @@
         let parser = new Parser(input);
         try {
           parser.parse();
-        } catch (e2) {
+        } catch (e4) {
           if (true) {
-            if (e2.name === "CssSyntaxError" && opts && opts.from) {
+            if (e4.name === "CssSyntaxError" && opts && opts.from) {
               if (/\.scss$/i.test(opts.from)) {
-                e2.message += "\nYou tried to parse SCSS with the standard CSS parser; try again with the postcss-scss parser";
+                e4.message += "\nYou tried to parse SCSS with the standard CSS parser; try again with the postcss-scss parser";
               } else if (/\.sass/i.test(opts.from)) {
-                e2.message += "\nYou tried to parse Sass with the standard CSS parser; try again with the postcss-sass parser";
+                e4.message += "\nYou tried to parse Sass with the standard CSS parser; try again with the postcss-sass parser";
               } else if (/\.less$/i.test(opts.from)) {
-                e2.message += "\nYou tried to parse Less with the standard CSS parser; try again with the postcss-less parser";
+                e4.message += "\nYou tried to parse Less with the standard CSS parser; try again with the postcss-less parser";
               }
             }
           }
-          throw e2;
+          throw e4;
         }
         return parser.root;
       }
@@ -3631,9 +3631,9 @@
                 if (isPromise(promise)) {
                   try {
                     await promise;
-                  } catch (e2) {
+                  } catch (e4) {
                     let node = stack[stack.length - 1].node;
-                    throw this.handleError(e2, node);
+                    throw this.handleError(e4, node);
                   }
                 }
               }
@@ -3650,8 +3650,8 @@
                   } else {
                     await visitor(root2, this.helpers);
                   }
-                } catch (e2) {
-                  throw this.handleError(e2);
+                } catch (e4) {
+                  throw this.handleError(e4);
                 }
               }
             }
@@ -3756,8 +3756,8 @@
             let promise;
             try {
               promise = visitor(node, this.helpers);
-            } catch (e2) {
-              throw this.handleError(e2, node.proxyOf);
+            } catch (e4) {
+              throw this.handleError(e4, node.proxyOf);
             }
             if (node.type !== "root" && node.type !== "document" && !node.parent) {
               return true;
@@ -3784,8 +3784,8 @@
             this.result.lastPlugin = plugin2;
             try {
               return visitor(node.toProxy(), this.helpers);
-            } catch (e2) {
-              throw this.handleError(e2, node);
+            } catch (e4) {
+              throw this.handleError(e4, node);
             }
           }
           if (visit.iterator !== 0) {
@@ -3948,10 +3948,10 @@
           let str = stringify2;
           this.result = new Result2(this._processor, void 0, this._opts);
           this.result.css = css;
-          let self = this;
+          let self2 = this;
           Object.defineProperty(this.result, "root", {
             get() {
-              return self.root;
+              return self2.root;
             }
           });
           let map = new MapGenerator(str, void 0, this._opts, css);
@@ -4092,7 +4092,7 @@
       }
       postcss2.plugin = function plugin2(name, initializer) {
         let warningPrinted = false;
-        function creator(...args) {
+        function creator2(...args) {
           if (console && console.warn && !warningPrinted) {
             warningPrinted = true;
             console.warn(
@@ -4110,16 +4110,16 @@
           return transformer;
         }
         let cache;
-        Object.defineProperty(creator, "postcss", {
+        Object.defineProperty(creator2, "postcss", {
           get() {
-            if (!cache) cache = creator();
+            if (!cache) cache = creator2();
             return cache;
           }
         });
-        creator.process = function(css, processOpts, pluginOpts) {
-          return postcss2([creator(pluginOpts)]).process(css, processOpts);
+        creator2.process = function(css, processOpts, pluginOpts) {
+          return postcss2([creator2(pluginOpts)]).process(css, processOpts);
         };
-        return creator;
+        return creator2;
       };
       postcss2.stringify = stringify2;
       postcss2.parse = parse2;
@@ -4599,16 +4599,16 @@
       var __read = exports && exports.__read || function(o2, n2) {
         var m2 = typeof Symbol === "function" && o2[Symbol.iterator];
         if (!m2) return o2;
-        var i2 = m2.call(o2), r2, ar = [], e2;
+        var i2 = m2.call(o2), r2, ar = [], e4;
         try {
           while ((n2 === void 0 || n2-- > 0) && !(r2 = i2.next()).done) ar.push(r2.value);
         } catch (error) {
-          e2 = { error };
+          e4 = { error };
         } finally {
           try {
             if (r2 && !r2.done && (m2 = i2["return"])) m2.call(i2);
           } finally {
-            if (e2) throw e2.error;
+            if (e4) throw e4.error;
           }
         }
         return ar;
@@ -6241,9 +6241,9 @@
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.FIELDS = void 0;
       exports.default = tokenize;
-      var t2 = __importStar(require_tokenTypes());
-      var unescapable = (_a = {}, _a[t2.tab] = true, _a[t2.newline] = true, _a[t2.cr] = true, _a[t2.feed] = true, _a);
-      var wordDelimiters = (_b = {}, _b[t2.space] = true, _b[t2.tab] = true, _b[t2.newline] = true, _b[t2.cr] = true, _b[t2.feed] = true, _b[t2.ampersand] = true, _b[t2.asterisk] = true, _b[t2.bang] = true, _b[t2.comma] = true, _b[t2.colon] = true, _b[t2.semicolon] = true, _b[t2.openParenthesis] = true, _b[t2.closeParenthesis] = true, _b[t2.openSquare] = true, _b[t2.closeSquare] = true, _b[t2.singleQuote] = true, _b[t2.doubleQuote] = true, _b[t2.plus] = true, _b[t2.pipe] = true, _b[t2.tilde] = true, _b[t2.greaterThan] = true, _b[t2.equals] = true, _b[t2.dollar] = true, _b[t2.caret] = true, _b[t2.slash] = true, _b);
+      var t3 = __importStar(require_tokenTypes());
+      var unescapable = (_a = {}, _a[t3.tab] = true, _a[t3.newline] = true, _a[t3.cr] = true, _a[t3.feed] = true, _a);
+      var wordDelimiters = (_b = {}, _b[t3.space] = true, _b[t3.tab] = true, _b[t3.newline] = true, _b[t3.cr] = true, _b[t3.feed] = true, _b[t3.ampersand] = true, _b[t3.asterisk] = true, _b[t3.bang] = true, _b[t3.comma] = true, _b[t3.colon] = true, _b[t3.semicolon] = true, _b[t3.openParenthesis] = true, _b[t3.closeParenthesis] = true, _b[t3.openSquare] = true, _b[t3.closeSquare] = true, _b[t3.singleQuote] = true, _b[t3.doubleQuote] = true, _b[t3.plus] = true, _b[t3.pipe] = true, _b[t3.tilde] = true, _b[t3.greaterThan] = true, _b[t3.equals] = true, _b[t3.dollar] = true, _b[t3.caret] = true, _b[t3.slash] = true, _b);
       var hex = {};
       var hexChars = "0123456789abcdefABCDEF";
       for (i2 = 0; i2 < hexChars.length; i2++) {
@@ -6257,7 +6257,7 @@
           code = css.charCodeAt(next);
           if (wordDelimiters[code]) {
             return next - 1;
-          } else if (code === t2.backslash) {
+          } else if (code === t3.backslash) {
             next = consumeEscape(css, next) + 1;
           } else {
             next++;
@@ -6276,7 +6276,7 @@
             hexDigits++;
             code = css.charCodeAt(next + 1);
           } while (hex[code] && hexDigits < 6);
-          if (hexDigits < 6 && code === t2.space) {
+          if (hexDigits < 6 && code === t3.space) {
             next++;
           }
         } else {
@@ -6312,67 +6312,67 @@
         }
         while (start < length) {
           code = css.charCodeAt(start);
-          if (code === t2.newline) {
+          if (code === t3.newline) {
             offset = start;
             line += 1;
           }
           switch (code) {
-            case t2.space:
-            case t2.tab:
-            case t2.newline:
-            case t2.cr:
-            case t2.feed:
+            case t3.space:
+            case t3.tab:
+            case t3.newline:
+            case t3.cr:
+            case t3.feed:
               next = start;
               do {
                 next += 1;
                 code = css.charCodeAt(next);
-                if (code === t2.newline) {
+                if (code === t3.newline) {
                   offset = next;
                   line += 1;
                 }
-              } while (code === t2.space || code === t2.newline || code === t2.tab || code === t2.cr || code === t2.feed);
-              tokenType = t2.space;
+              } while (code === t3.space || code === t3.newline || code === t3.tab || code === t3.cr || code === t3.feed);
+              tokenType = t3.space;
               endLine = line;
               endColumn = next - offset - 1;
               end = next;
               break;
-            case t2.plus:
-            case t2.greaterThan:
-            case t2.tilde:
-            case t2.pipe:
+            case t3.plus:
+            case t3.greaterThan:
+            case t3.tilde:
+            case t3.pipe:
               next = start;
               do {
                 next += 1;
                 code = css.charCodeAt(next);
-              } while (code === t2.plus || code === t2.greaterThan || code === t2.tilde || code === t2.pipe);
-              tokenType = t2.combinator;
+              } while (code === t3.plus || code === t3.greaterThan || code === t3.tilde || code === t3.pipe);
+              tokenType = t3.combinator;
               endLine = line;
               endColumn = start - offset;
               end = next;
               break;
             // Consume these characters as single tokens.
-            case t2.asterisk:
-            case t2.ampersand:
-            case t2.bang:
-            case t2.comma:
-            case t2.equals:
-            case t2.dollar:
-            case t2.caret:
-            case t2.openSquare:
-            case t2.closeSquare:
-            case t2.colon:
-            case t2.semicolon:
-            case t2.openParenthesis:
-            case t2.closeParenthesis:
+            case t3.asterisk:
+            case t3.ampersand:
+            case t3.bang:
+            case t3.comma:
+            case t3.equals:
+            case t3.dollar:
+            case t3.caret:
+            case t3.openSquare:
+            case t3.closeSquare:
+            case t3.colon:
+            case t3.semicolon:
+            case t3.openParenthesis:
+            case t3.closeParenthesis:
               next = start;
               tokenType = code;
               endLine = line;
               endColumn = start - offset;
               end = next + 1;
               break;
-            case t2.singleQuote:
-            case t2.doubleQuote:
-              quote = code === t2.singleQuote ? "'" : '"';
+            case t3.singleQuote:
+            case t3.doubleQuote:
+              quote = code === t3.singleQuote ? "'" : '"';
               next = start;
               do {
                 escaped = false;
@@ -6381,18 +6381,18 @@
                   unclosed("quote", quote);
                 }
                 escapePos = next;
-                while (css.charCodeAt(escapePos - 1) === t2.backslash) {
+                while (css.charCodeAt(escapePos - 1) === t3.backslash) {
                   escapePos -= 1;
                   escaped = !escaped;
                 }
               } while (escaped);
-              tokenType = t2.str;
+              tokenType = t3.str;
               endLine = line;
               endColumn = start - offset;
               end = next + 1;
               break;
             default:
-              if (code === t2.slash && css.charCodeAt(start + 1) === t2.asterisk) {
+              if (code === t3.slash && css.charCodeAt(start + 1) === t3.asterisk) {
                 next = css.indexOf("*/", start + 2) + 1;
                 if (next === 0) {
                   unclosed("comment", "*/");
@@ -6407,11 +6407,11 @@
                   nextLine = line;
                   nextOffset = offset;
                 }
-                tokenType = t2.comment;
+                tokenType = t3.comment;
                 line = nextLine;
                 endLine = nextLine;
                 endColumn = next - nextOffset;
-              } else if (code === t2.slash) {
+              } else if (code === t3.slash) {
                 next = start;
                 tokenType = code;
                 endLine = line;
@@ -6419,7 +6419,7 @@
                 end = next + 1;
               } else {
                 next = consumeWord(css, start);
-                tokenType = t2.word;
+                tokenType = t3.word;
                 endLine = line;
                 endColumn = next - offset;
               }
@@ -6458,13 +6458,13 @@
     "node_modules/postcss-selector-parser/dist/parser.js"(exports) {
       "use strict";
       var __assign = exports && exports.__assign || function() {
-        __assign = Object.assign || function(t2) {
+        __assign = Object.assign || function(t3) {
           for (var s2, i2 = 1, n2 = arguments.length; i2 < n2; i2++) {
             s2 = arguments[i2];
             for (var p2 in s2) if (Object.prototype.hasOwnProperty.call(s2, p2))
-              t2[p2] = s2[p2];
+              t3[p2] = s2[p2];
           }
-          return t2;
+          return t3;
         };
         return __assign.apply(this, arguments);
       };
@@ -6508,16 +6508,16 @@
       var __read = exports && exports.__read || function(o2, n2) {
         var m2 = typeof Symbol === "function" && o2[Symbol.iterator];
         if (!m2) return o2;
-        var i2 = m2.call(o2), r2, ar = [], e2;
+        var i2 = m2.call(o2), r2, ar = [], e4;
         try {
           while ((n2 === void 0 || n2-- > 0) && !(r2 = i2.next()).done) ar.push(r2.value);
         } catch (error) {
-          e2 = { error };
+          e4 = { error };
         } finally {
           try {
             if (r2 && !r2.done && (m2 = i2["return"])) m2.call(i2);
           } finally {
-            if (e2) throw e2.error;
+            if (e4) throw e4.error;
           }
         }
         return ar;
@@ -7560,8 +7560,8 @@
                   }
                   return { transform, root: root_1, string };
                 }).then(resolve, reject);
-              } catch (e2) {
-                reject(e2);
+              } catch (e4) {
+                reject(e4);
                 return;
               }
             });
@@ -7695,7 +7695,7 @@
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.isUniversal = exports.isTag = exports.isString = exports.isSelector = exports.isRoot = exports.isPseudo = exports.isNesting = exports.isIdentifier = exports.isComment = exports.isCombinator = exports.isClassName = exports.isAttribute = void 0;
       exports.isNode = isNode;
-      exports.isPseudoElement = isPseudoElement;
+      exports.isPseudoElement = isPseudoElement2;
       exports.isPseudoClass = isPseudoClass;
       exports.isContainer = isContainer;
       exports.isNamespace = isNamespace;
@@ -7719,11 +7719,11 @@
       exports.isString = isNodeType.bind(null, types_1.STRING);
       exports.isTag = isNodeType.bind(null, types_1.TAG);
       exports.isUniversal = isNodeType.bind(null, types_1.UNIVERSAL);
-      function isPseudoElement(node) {
+      function isPseudoElement2(node) {
         return (0, exports.isPseudo)(node) && node.value && (node.value.startsWith("::") || node.value.toLowerCase() === ":before" || node.value.toLowerCase() === ":after" || node.value.toLowerCase() === ":first-letter" || node.value.toLowerCase() === ":first-line");
       }
       function isPseudoClass(node) {
-        return (0, exports.isPseudo)(node) && !isPseudoElement(node);
+        return (0, exports.isPseudo)(node) && !isPseudoElement2(node);
       }
       function isContainer(node) {
         return !!(isNode(node) && node.walk);
@@ -8273,11 +8273,220 @@
   var Node2 = import_postcss.default.Node;
 
   // src/main/modules/userscripts/bundled-scripts/css-fixer-core.ts
-  var import_postcss_selector_parser = __toESM(require_dist());
-  var import_postcss_value_parser2 = __toESM(require_lib());
+  var import_postcss_selector_parser3 = __toESM(require_dist());
+  var import_postcss_value_parser3 = __toESM(require_lib());
+
+  // node_modules/css-has-pseudo/dist/index.mjs
+  var import_postcss_selector_parser2 = __toESM(require_dist(), 1);
+  var import_postcss_value_parser = __toESM(require_lib(), 1);
+
+  // node_modules/@csstools/selector-specificity/dist/index.mjs
+  var import_postcss_selector_parser = __toESM(require_dist(), 1);
+  function compare(e4, t3) {
+    return e4.a === t3.a ? e4.b === t3.b ? e4.c - t3.c : e4.b - t3.b : e4.a - t3.a;
+  }
+  function selectorSpecificity(t3, s2) {
+    var _a, _b;
+    const i2 = (_a = s2 == null ? void 0 : s2.customSpecificity) == null ? void 0 : _a.call(s2, t3);
+    if (i2) return i2;
+    if (!t3) return { a: 0, b: 0, c: 0 };
+    let c2 = 0, n2 = 0, o2 = 0;
+    if ("universal" == t3.type) return { a: 0, b: 0, c: 0 };
+    if ("id" === t3.type) c2 += 1;
+    else if ("tag" === t3.type) o2 += 1;
+    else if ("class" === t3.type) n2 += 1;
+    else if ("attribute" === t3.type) n2 += 1;
+    else if (isPseudoElement(t3)) switch (t3.value.toLowerCase()) {
+      case "::slotted":
+        if (o2 += 1, t3.nodes && t3.nodes.length > 0) {
+          const e4 = specificityOfMostSpecificListItem(t3.nodes, s2);
+          c2 += e4.a, n2 += e4.b, o2 += e4.c;
+        }
+        break;
+      case "::view-transition-group":
+      case "::view-transition-image-pair":
+      case "::view-transition-old":
+      case "::view-transition-new":
+        return t3.nodes && 1 === t3.nodes.length && "selector" === t3.nodes[0].type && selectorNodeContainsNothingOrOnlyUniversal(t3.nodes[0]) ? { a: 0, b: 0, c: 0 } : { a: 0, b: 0, c: 1 };
+      default:
+        o2 += 1;
+    }
+    else if (import_postcss_selector_parser.default.isPseudoClass(t3)) switch (t3.value.toLowerCase()) {
+      case ":-webkit-any":
+      case ":any":
+      default:
+        n2 += 1;
+        break;
+      case ":-moz-any":
+      case ":has":
+      case ":is":
+      case ":matches":
+      case ":not":
+        if (t3.nodes && t3.nodes.length > 0) {
+          const e4 = specificityOfMostSpecificListItem(t3.nodes, s2);
+          c2 += e4.a, n2 += e4.b, o2 += e4.c;
+        }
+        break;
+      case ":where":
+        break;
+      case ":nth-child":
+      case ":nth-last-child":
+        if (n2 += 1, t3.nodes && t3.nodes.length > 0) {
+          const i3 = t3.nodes[0].nodes.findIndex((e4) => "tag" === e4.type && "of" === e4.value.toLowerCase());
+          if (i3 > -1) {
+            const a2 = import_postcss_selector_parser.default.selector({ nodes: [], value: "" });
+            t3.nodes[0].nodes.slice(i3 + 1).forEach((e4) => {
+              a2.append(e4.clone());
+            });
+            const r2 = [a2];
+            t3.nodes.length > 1 && r2.push(...t3.nodes.slice(1));
+            const l2 = specificityOfMostSpecificListItem(r2, s2);
+            c2 += l2.a, n2 += l2.b, o2 += l2.c;
+          }
+        }
+        break;
+      case ":local":
+      case ":global":
+        t3.nodes && t3.nodes.length > 0 && t3.nodes.forEach((e4) => {
+          const t4 = selectorSpecificity(e4, s2);
+          c2 += t4.a, n2 += t4.b, o2 += t4.c;
+        });
+        break;
+      case ":host":
+      case ":host-context":
+        if (n2 += 1, t3.nodes && t3.nodes.length > 0) {
+          const e4 = specificityOfMostSpecificListItem(t3.nodes, s2);
+          c2 += e4.a, n2 += e4.b, o2 += e4.c;
+        }
+        break;
+      case ":active-view-transition":
+      case ":active-view-transition-type":
+        return { a: 0, b: 1, c: 0 };
+    }
+    else import_postcss_selector_parser.default.isContainer(t3) && ((_b = t3.nodes) == null ? void 0 : _b.length) > 0 && t3.nodes.forEach((e4) => {
+      const t4 = selectorSpecificity(e4, s2);
+      c2 += t4.a, n2 += t4.b, o2 += t4.c;
+    });
+    return { a: c2, b: n2, c: o2 };
+  }
+  function specificityOfMostSpecificListItem(e4, t3) {
+    let s2 = { a: 0, b: 0, c: 0 };
+    return e4.forEach((e5) => {
+      const i2 = selectorSpecificity(e5, t3);
+      compare(i2, s2) < 0 || (s2 = i2);
+    }), s2;
+  }
+  function isPseudoElement(t3) {
+    return import_postcss_selector_parser.default.isPseudoElement(t3);
+  }
+  function selectorNodeContainsNothingOrOnlyUniversal(e4) {
+    if (!e4) return false;
+    if (!e4.nodes) return false;
+    const t3 = e4.nodes.filter((e5) => "comment" !== e5.type);
+    return 0 === t3.length || 1 === t3.length && "universal" === t3[0].type;
+  }
+
+  // node_modules/css-has-pseudo/dist/index.mjs
+  function encodeCSS(e4) {
+    if ("" === e4) return "";
+    for (var t3, s2 = "", o2 = 0; o2 < e4.length; o2++) t3 = e4.charCodeAt(o2).toString(36), s2 += 0 === o2 ? t3 : "-" + t3;
+    return "csstools-has-" + s2;
+  }
+  function isGuardedByAtSupportsFromAtRuleParams(e4) {
+    if (!e4.toLowerCase().includes(":has(")) return false;
+    let s2 = false;
+    try {
+      const o2 = /* @__PURE__ */ new Set();
+      (0, import_postcss_value_parser.default)(e4).walk((e5) => {
+        if ("function" === e5.type && "selector" === e5.value.toLowerCase()) return o2.add(import_postcss_value_parser.default.stringify(e5.nodes)), false;
+      }), o2.forEach((e5) => {
+        selectorContainsHasPseudo(e5) && (s2 = true);
+      });
+    } catch {
+    }
+    return s2;
+  }
+  function selectorContainsHasPseudo(t3) {
+    if (!t3.toLowerCase().includes(":has(")) return false;
+    let s2 = false;
+    try {
+      (0, import_postcss_selector_parser2.default)().astSync(t3).walk((e4) => {
+        if ("pseudo" === e4.type && ":has" === e4.value.toLowerCase() && e4.nodes && e4.nodes.length > 0) return s2 = true, false;
+      });
+    } catch {
+    }
+    return s2;
+  }
+  var creator = (t3) => {
+    const o2 = { preserve: true, specificityMatchingName: "does-not-exist", ...t3 || {} }, r2 = ":not(#" + o2.specificityMatchingName + ")", n2 = ":not(." + o2.specificityMatchingName + ")", a2 = ":not(" + o2.specificityMatchingName + ")";
+    return { postcssPlugin: "css-has-pseudo", prepare() {
+      const t4 = /* @__PURE__ */ new WeakSet();
+      return { postcssPlugin: "css-has-pseudo", RuleExit(c2, { result: i2 }) {
+        if (t4.has(c2)) return;
+        if (!c2.selector.toLowerCase().includes(":has(") || isWithinSupportCheck(c2)) return;
+        const l2 = c2.selectors.map((t5) => {
+          if (!t5.toLowerCase().includes(":has(")) return t5;
+          let l3;
+          try {
+            l3 = (0, import_postcss_selector_parser2.default)().astSync(t5);
+          } catch (e4) {
+            return c2.warn(i2, `Failed to parse selector : "${t5}" with message: "${e4 instanceof Error ? e4.message : e4}"`), t5;
+          }
+          if (void 0 === l3) return t5;
+          l3.walkPseudos((t6) => {
+            let s2 = t6.parent, r3 = false;
+            for (; s2; ) import_postcss_selector_parser2.default.isPseudoClass(s2) && ":has" === s2.value.toLowerCase() && (r3 = true), s2 = s2.parent;
+            r3 && (":visited" === t6.value.toLowerCase() && t6.replaceWith(import_postcss_selector_parser2.default.className({ value: o2.specificityMatchingName })), ":any-link" === t6.value.toLowerCase() && (t6.value = ":link"));
+          }), l3.walkPseudos((t6) => {
+            if (":has" !== t6.value.toLowerCase() || !t6.nodes) return;
+            const o3 = t6.parent;
+            if (!o3) return;
+            const c3 = import_postcss_selector_parser2.default.selector({ value: "", nodes: [] });
+            {
+              let t7 = o3.nodes.length;
+              e: for (let s2 = 0; s2 < o3.nodes.length; s2++) {
+                const r3 = o3.nodes[s2];
+                if (import_postcss_selector_parser2.default.isPseudoElement(r3)) {
+                  for (let e4 = s2 - 1; e4 >= 0; e4--) if ("combinator" !== o3.nodes[s2].type && "comment" !== o3.nodes[s2].type) {
+                    t7 = e4 + 1;
+                    break e;
+                  }
+                }
+              }
+              o3.nodes.slice(0, t7).forEach((e4) => {
+                e4.remove(), "selector" === e4.type ? e4.nodes.forEach((e5) => {
+                  delete e5.parent, c3.append(e5);
+                }) : (delete e4.parent, c3.append(e4));
+              });
+            }
+            const i3 = "[" + encodeCSS(c3.toString()) + "]", l4 = selectorSpecificity(c3);
+            let u3 = i3;
+            for (let e4 = 0; e4 < l4.a; e4++) u3 += r2;
+            const p2 = Math.max(1, l4.b) - 1;
+            for (let e4 = 0; e4 < p2; e4++) u3 += n2;
+            for (let e4 = 0; e4 < l4.c; e4++) u3 += a2;
+            const d2 = (0, import_postcss_selector_parser2.default)().astSync(u3).nodes[0].nodes;
+            for (let e4 = d2.length - 1; e4 >= 0; e4--) o3.prepend(d2[e4]);
+          });
+          const u2 = l3.toString();
+          return u2 !== t5 ? ".js-has-pseudo " + u2 : t5;
+        });
+        l2.join(",") !== c2.selectors.join(",") && (t4.add(c2), c2.cloneBefore({ selectors: l2 }), o2.preserve || c2.remove());
+      } };
+    } };
+  };
+  function isWithinSupportCheck(e4) {
+    let t3 = e4.parent;
+    for (; t3; ) {
+      if ("atrule" === t3.type && isGuardedByAtSupportsFromAtRuleParams(t3.params)) return true;
+      t3 = t3.parent;
+    }
+    return false;
+  }
+  creator.postcss = true;
 
   // src/main/modules/userscripts/bundled-scripts/css-fixer-color.ts
-  var import_postcss_value_parser = __toESM(require_lib());
+  var import_postcss_value_parser2 = __toESM(require_lib());
   var MODERN_COLOR_RE = /\b(oklch|oklab|lch|lab|hwb|color-mix|color)\(/i;
   var CONVERTIBLE_FUNCS = /* @__PURE__ */ new Set(["oklch", "oklab", "lch", "lab", "hwb", "color", "color-mix"]);
   function needsColorRewrite(value) {
@@ -8301,16 +8510,16 @@
     return c2 <= 31308e-7 ? 12.92 * c2 : 1.055 * Math.pow(c2, 1 / 2.4) - 0.055;
   }
   function xyzToLab(x2, y2, z2) {
-    const f2 = (t2) => t2 > 8856e-6 ? Math.cbrt(t2) : 7.787 * t2 + 16 / 116;
+    const f2 = (t3) => t3 > 8856e-6 ? Math.cbrt(t3) : 7.787 * t3 + 16 / 116;
     const fx = f2(x2 / D65.X);
     const fy = f2(y2);
     const fz = f2(z2 / D65.Z);
     return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
   }
   function labToXyz(l2, a2, b2) {
-    const fInv = (t2) => {
-      const t3 = t2 * t2 * t2;
-      return t3 > 8856e-6 ? t3 : (t2 - 16 / 116) / 7.787;
+    const fInv = (t3) => {
+      const t32 = t3 * t3 * t3;
+      return t32 > 8856e-6 ? t32 : (t3 - 16 / 116) / 7.787;
     };
     const fy = (l2 + 16) / 116;
     const fx = fy + a2 / 500;
@@ -8707,7 +8916,7 @@
   }
   function convertColorValue(value) {
     if (!needsColorRewrite(value)) return null;
-    const parsed = (0, import_postcss_value_parser.default)(value);
+    const parsed = (0, import_postcss_value_parser2.default)(value);
     let changed = false;
     let blocked = false;
     parsed.walk((node) => {
@@ -8734,7 +8943,7 @@
   var DVH_REPLACE_RE = /(\d+(?:\.\d+)?)dvh\b/g;
   var CQ_DUMMY = "container-query-polyfill";
   function needsRewrite(css) {
-    return css.includes(":where(") || css.includes(":is(") || css.includes("@layer") || css.includes("@container") || css.includes("&") || DVH_RE.test(css) || needsColorRewrite(css);
+    return css.includes(":where(") || css.includes(":is(") || css.includes(":has(") || css.includes("@layer") || css.includes("@container") || css.includes("&") || DVH_RE.test(css) || needsColorRewrite(css);
   }
   function flattenLayers(root2) {
     const layers = [];
@@ -8827,11 +9036,11 @@
     }
   }
   function appendDummyToSelector(selectorText) {
-    const root2 = (0, import_postcss_selector_parser.default)().astSync(selectorText);
+    const root2 = (0, import_postcss_selector_parser3.default)().astSync(selectorText);
     const makeDummy = () => {
-      const inner = import_postcss_selector_parser.default.selector({ value: "" });
-      inner.append(import_postcss_selector_parser.default.className({ value: CQ_DUMMY }));
-      const pseudo = import_postcss_selector_parser.default.pseudo({ value: ":not" });
+      const inner = import_postcss_selector_parser3.default.selector({ value: "" });
+      inner.append(import_postcss_selector_parser3.default.className({ value: CQ_DUMMY }));
+      const pseudo = import_postcss_selector_parser3.default.pseudo({ value: ":not" });
       pseudo.append(inner);
       return pseudo;
     };
@@ -8891,7 +9100,7 @@
       if (children.length === 1) {
         const branches = [];
         for (const branch of inner) {
-          const copy = import_postcss_selector_parser.default.selector({ value: "" });
+          const copy = import_postcss_selector_parser3.default.selector({ value: "" });
           branch.nodes.forEach((node, idx) => {
             if (idx === 0) {
               copy.append(unwrapClone(node));
@@ -8908,14 +9117,14 @@
     return [selNode];
   }
   function rewriteSelector(selectorText) {
-    const root2 = (0, import_postcss_selector_parser.default)().astSync(selectorText);
+    const root2 = (0, import_postcss_selector_parser3.default)().astSync(selectorText);
     const branches = root2.nodes.flatMap((selNode) => processSelectorNode(selNode));
     const rewritten = branches.map((branch) => branch.toString()).join(", ");
     return rewritten === selectorText ? selectorText : rewritten;
   }
   function rewriteDvh(value) {
     if (!DVH_RE.test(value)) return value;
-    const parsed = (0, import_postcss_value_parser2.default)(value);
+    const parsed = (0, import_postcss_value_parser3.default)(value);
     parsed.walk((node) => {
       if (node.type === "word") {
         node.value = node.value.replace(DVH_REPLACE_RE, "$1vh");
@@ -8925,7 +9134,26 @@
   }
   function rewriteCssText(css) {
     if (!needsRewrite(css)) return css;
-    const root2 = postcss_default.parse(css);
+    let root2 = postcss_default.parse(css);
+    if (css.includes(":has(")) {
+      const pre = postcss_default.parse(css);
+      pre.walkRules((rule2) => {
+        try {
+          const rewritten = rewriteSelector(rule2.selector);
+          if (rewritten !== rule2.selector) rule2.selector = rewritten;
+        } catch {
+        }
+      });
+      const preCss = pre.toString();
+      if (preCss.includes(":has(")) {
+        try {
+          const converted = postcss_default([creator({ preserve: false })]).process(preCss, { from: void 0 });
+          root2 = postcss_default.parse(converted.css.replace(/\.js-has-pseudo\s+/g, ""));
+        } catch {
+          root2 = postcss_default.parse(preCss);
+        }
+      }
+    }
     flattenLayers(root2);
     flattenNesting(root2);
     addContainerDummies(root2);
@@ -8952,18 +9180,18 @@
   }
 
   // src/main/modules/userscripts/bundled-scripts/vendor/container-query-polyfill.js
-  function e() {
-    return e = Object.assign ? Object.assign.bind() : function(e2) {
-      for (var t2 = 1; t2 < arguments.length; t2++) {
-        var n2 = arguments[t2];
-        for (var r2 in n2) Object.prototype.hasOwnProperty.call(n2, r2) && (e2[r2] = n2[r2]);
+  function e3() {
+    return e3 = Object.assign ? Object.assign.bind() : function(e4) {
+      for (var t3 = 1; t3 < arguments.length; t3++) {
+        var n2 = arguments[t3];
+        for (var r2 in n2) Object.prototype.hasOwnProperty.call(n2, r2) && (e4[r2] = n2[r2]);
       }
-      return e2;
-    }, e.apply(this, arguments);
+      return e4;
+    }, e3.apply(this, arguments);
   }
-  function t(e2, t2) {
-    const n2 = t2.width, r2 = t2.height, u2 = t2.inlineSize, o2 = t2.blockSize;
-    switch (e2) {
+  function t2(e4, t3) {
+    const n2 = t3.width, r2 = t3.height, u2 = t3.inlineSize, o2 = t3.blockSize;
+    switch (e4) {
       case 1:
         return null != n2 ? { type: 3, value: n2, unit: "px" } : { type: 1 };
       case 3:
@@ -8978,127 +9206,127 @@
         return null != n2 && null != r2 ? { type: 4, value: r2 >= n2 ? "portrait" : "landscape" } : { type: 1 };
     }
   }
-  function n(e2, t2) {
-    switch (e2.type) {
+  function n(e4, t3) {
+    switch (e4.type) {
       case 1:
       case 2:
       case 3:
       case 4:
-        return i(e2, t2);
+        return i(e4, t3);
       case 5: {
-        const n2 = t2.sizeFeatures.get(e2.feature);
+        const n2 = t3.sizeFeatures.get(e4.feature);
         return null == n2 ? { type: 1 } : n2;
       }
       case 6:
-        return e2.value;
+        return e4.value;
     }
   }
-  function r(e2) {
-    return { type: 5, value: e2 };
+  function r(e4) {
+    return { type: 5, value: e4 };
   }
-  function u(e2, t2, n2) {
-    return r((function(e3, t3, n3) {
+  function u(e4, t3, n2) {
+    return r((function(e5, t4, n3) {
       switch (n3) {
         case 1:
-          return e3 === t3;
+          return e5 === t4;
         case 2:
-          return e3 > t3;
+          return e5 > t4;
         case 3:
-          return e3 >= t3;
+          return e5 >= t4;
         case 4:
-          return e3 < t3;
+          return e5 < t4;
         case 5:
-          return e3 <= t3;
+          return e5 <= t4;
       }
-    })(e2, t2, n2));
+    })(e4, t3, n2));
   }
-  function o(e2, t2, n2) {
-    return null == e2 ? t2 : null == t2 ? e2 : n2(e2, t2);
+  function o(e4, t3, n2) {
+    return null == e4 ? t3 : null == t3 ? e4 : n2(e4, t3);
   }
-  function s(e2, t2) {
-    switch (e2) {
+  function s(e4, t3) {
+    switch (e4) {
       case "cqw":
-        return t2.cqw;
+        return t3.cqw;
       case "cqh":
-        return t2.cqh;
+        return t3.cqh;
       case "cqi":
-        return 0 === t2.writingAxis ? t2.cqw : t2.cqh;
+        return 0 === t3.writingAxis ? t3.cqw : t3.cqh;
       case "cqb":
-        return 1 === t2.writingAxis ? t2.cqw : t2.cqh;
+        return 1 === t3.writingAxis ? t3.cqw : t3.cqh;
       case "cqmin":
-        return o(s("cqi", t2), s("cqb", t2), Math.min);
+        return o(s("cqi", t3), s("cqb", t3), Math.min);
       case "cqmax":
-        return o(s("cqi", t2), s("cqb", t2), Math.max);
+        return o(s("cqi", t3), s("cqb", t3), Math.max);
     }
   }
-  function l(e2, { treeContext: t2 }) {
-    switch (e2.unit) {
+  function l(e4, { treeContext: t3 }) {
+    switch (e4.unit) {
       case "px":
-        return e2.value;
+        return e4.value;
       case "rem":
-        return e2.value * t2.rootFontSize;
+        return e4.value * t3.rootFontSize;
       case "em":
-        return e2.value * t2.fontSize;
+        return e4.value * t3.fontSize;
       case "cqw":
       case "cqh":
       case "cqi":
       case "cqb":
       case "cqmin":
       case "cqmax":
-        return o(e2.value, s(e2.unit, t2), (e3, t3) => e3 * t3);
+        return o(e4.value, s(e4.unit, t3), (e5, t4) => e5 * t4);
     }
     return null;
   }
-  function c(e2, t2) {
-    switch (e2.type) {
+  function c(e4, t3) {
+    switch (e4.type) {
       case 2:
-        return 0 === e2.value ? 0 : null;
+        return 0 === e4.value ? 0 : null;
       case 3:
-        return l(e2, t2);
+        return l(e4, t3);
     }
     return null;
   }
-  function i(e2, t2) {
-    switch (e2.type) {
+  function i(e4, t3) {
+    switch (e4.type) {
       case 4:
-        return (function(e3, t3) {
-          const o2 = n(e3.left, t3), s2 = n(e3.right, t3), l2 = e3.operator;
-          if (4 === o2.type && 4 === s2.type || 5 === o2.type && 5 === s2.type) return (function(e4, t4, n2) {
-            return 1 === n2 ? r(e4.value === t4.value) : { type: 1 };
+        return (function(e5, t4) {
+          const o2 = n(e5.left, t4), s2 = n(e5.right, t4), l2 = e5.operator;
+          if (4 === o2.type && 4 === s2.type || 5 === o2.type && 5 === s2.type) return (function(e6, t5, n2) {
+            return 1 === n2 ? r(e6.value === t5.value) : { type: 1 };
           })(o2, s2, l2);
           if (3 === o2.type || 3 === s2.type) {
-            const e4 = c(o2, t3), n2 = c(s2, t3);
-            if (null != e4 && null != n2) return u(e4, n2, l2);
+            const e6 = c(o2, t4), n2 = c(s2, t4);
+            if (null != e6 && null != n2) return u(e6, n2, l2);
           } else if (2 === o2.type && 2 === s2.type) return u(o2.value, s2.value, l2);
           return { type: 1 };
-        })(e2, t2);
+        })(e4, t3);
       case 2:
-        return (function(e3, t3) {
-          const n2 = i(e3.left, t3);
-          return 5 !== n2.type || true !== n2.value ? n2 : i(e3.right, t3);
-        })(e2, t2);
+        return (function(e5, t4) {
+          const n2 = i(e5.left, t4);
+          return 5 !== n2.type || true !== n2.value ? n2 : i(e5.right, t4);
+        })(e4, t3);
       case 3:
-        return (function(e3, t3) {
-          const n2 = i(e3.left, t3);
-          return 5 === n2.type && true === n2.value ? n2 : i(e3.right, t3);
-        })(e2, t2);
+        return (function(e5, t4) {
+          const n2 = i(e5.left, t4);
+          return 5 === n2.type && true === n2.value ? n2 : i(e5.right, t4);
+        })(e4, t3);
       case 1: {
-        const n2 = i(e2.value, t2);
+        const n2 = i(e4.value, t3);
         return 5 === n2.type ? { type: 5, value: !n2.value } : { type: 1 };
       }
       case 5:
-        return a(n(e2, t2));
+        return a(n(e4, t3));
       case 6:
-        return a(e2.value);
+        return a(e4.value);
     }
   }
-  function a(e2) {
-    switch (e2.type) {
+  function a(e4) {
+    switch (e4.type) {
       case 5:
-        return e2;
+        return e4;
       case 2:
       case 3:
-        return { type: 5, value: e2.value > 0 };
+        return { type: 5, value: e4.value > 0 };
     }
     return { type: 1 };
   }
@@ -9112,32 +9340,32 @@
   var w = S("cqh");
   var g = S("cqi");
   var b = S("cqb");
-  function S(e2) {
-    return `--cq-${e2}-${f}`;
+  function S(e4) {
+    return `--cq-${e4}-${f}`;
   }
   var x = /* @__PURE__ */ Symbol();
-  function q(e2, t2) {
-    const n2 = { value: t2, errorIndices: [], index: -1, at(r2) {
+  function q(e4, t3) {
+    const n2 = { value: t3, errorIndices: [], index: -1, at(r2) {
       const u2 = n2.index + r2;
-      return u2 >= e2.length ? t2 : e2[u2];
-    }, consume: (e3) => (n2.index += e3, n2.value = n2.at(0), n2.value), reconsume() {
+      return u2 >= e4.length ? t3 : e4[u2];
+    }, consume: (e5) => (n2.index += e5, n2.value = n2.at(0), n2.value), reconsume() {
       n2.index -= 1;
     }, error() {
       n2.errorIndices.push(n2.index);
     } };
     return n2;
   }
-  function C(e2) {
-    return q(e2, { type: 0 });
+  function C(e4) {
+    return q(e4, { type: 0 });
   }
-  function* $(e2) {
-    const t2 = [];
+  function* $(e4) {
+    const t3 = [];
     let n2 = false;
-    for (const r3 of e2) {
-      const e3 = r3.codePointAt(0);
-      n2 && 10 !== e3 && (n2 = false, t2.push(10)), 0 === e3 || e3 >= 55296 && e3 <= 57343 ? t2.push(65533) : 13 === e3 ? n2 = true : t2.push(e3);
+    for (const r3 of e4) {
+      const e5 = r3.codePointAt(0);
+      n2 && 10 !== e5 && (n2 = false, t3.push(10)), 0 === e5 || e5 >= 55296 && e5 <= 57343 ? t3.push(65533) : 13 === e5 ? n2 = true : t3.push(e5);
     }
-    const r2 = q(t2, -1), { at: u2, consume: o2, error: s2, reconsume: l2 } = r2;
+    const r2 = q(t3, -1), { at: u2, consume: o2, error: s2, reconsume: l2 } = r2;
     function c2() {
       return String.fromCodePoint(r2.value);
     }
@@ -9152,337 +9380,337 @@
       s2();
     }
     function p2() {
-      const [e3, t3] = (function() {
-        let e4 = 0, t4 = "", n4 = u2(1);
-        for (43 !== n4 && 45 !== n4 || (o2(1), t4 += c2()); k(u2(1)); ) o2(1), t4 += c2();
-        if (46 === u2(1) && k(u2(2))) for (e4 = 1, o2(1), t4 += c2(); k(u2(1)); ) o2(1), t4 += c2();
+      const [e5, t4] = (function() {
+        let e6 = 0, t5 = "", n4 = u2(1);
+        for (43 !== n4 && 45 !== n4 || (o2(1), t5 += c2()); k(u2(1)); ) o2(1), t5 += c2();
+        if (46 === u2(1) && k(u2(2))) for (e6 = 1, o2(1), t5 += c2(); k(u2(1)); ) o2(1), t5 += c2();
         if (n4 = u2(1), 69 === n4 || 101 === n4) {
           const n5 = u2(2);
-          if (k(n5)) for (e4 = 1, o2(1), t4 += c2(); k(u2(1)); ) o2(1), t4 += c2();
-          else if ((45 === n5 || 43 === n5) && k(u2(3))) for (e4 = 1, o2(1), t4 += c2(), o2(1), t4 += c2(); k(u2(1)); ) o2(1), t4 += c2();
+          if (k(n5)) for (e6 = 1, o2(1), t5 += c2(); k(u2(1)); ) o2(1), t5 += c2();
+          else if ((45 === n5 || 43 === n5) && k(u2(3))) for (e6 = 1, o2(1), t5 += c2(), o2(1), t5 += c2(); k(u2(1)); ) o2(1), t5 += c2();
         }
-        return [t4, e4];
+        return [t5, e6];
       })(), n3 = u2(1);
-      return d2(n3, u2(1), u2(2)) ? { type: 15, value: e3, flag: t3, unit: w2() } : 37 === n3 ? (o2(1), { type: 16, value: e3 }) : { type: 17, value: e3, flag: t3 };
+      return d2(n3, u2(1), u2(2)) ? { type: 15, value: e5, flag: t4, unit: w2() } : 37 === n3 ? (o2(1), { type: 16, value: e5 }) : { type: 17, value: e5, flag: t4 };
     }
     function y2() {
-      const e3 = w2();
-      let t3 = u2(1);
-      if ("url" === e3.toLowerCase() && 40 === t3) {
+      const e5 = w2();
+      let t4 = u2(1);
+      if ("url" === e5.toLowerCase() && 40 === t4) {
         for (o2(1); z(u2(1)) && z(u2(2)); ) o2(1);
-        t3 = u2(1);
+        t4 = u2(1);
         const n3 = u2(2);
-        return 34 === t3 || 39 === t3 ? { type: 23, value: e3 } : !z(t3) || 34 !== n3 && 39 !== n3 ? (function() {
-          let e4 = "";
+        return 34 === t4 || 39 === t4 ? { type: 23, value: e5 } : !z(t4) || 34 !== n3 && 39 !== n3 ? (function() {
+          let e6 = "";
           for (a2(); ; ) {
             const n4 = o2(1);
-            if (41 === n4) return { type: 20, value: e4 };
-            if (-1 === n4) return s2(), { type: 20, value: e4 };
+            if (41 === n4) return { type: 20, value: e6 };
+            if (-1 === n4) return s2(), { type: 20, value: e6 };
             if (z(n4)) {
               a2();
-              const t5 = u2(1);
-              return 41 === t5 || -1 === t5 ? (o2(1), -1 === n4 && s2(), { type: 20, value: e4 }) : (g2(), { type: 21 });
+              const t6 = u2(1);
+              return 41 === t6 || -1 === t6 ? (o2(1), -1 === n4 && s2(), { type: 20, value: e6 }) : (g2(), { type: 21 });
             }
-            if (34 === n4 || 39 === n4 || 40 === n4 || (t4 = n4) >= 0 && t4 <= 8 || 11 === t4 || t4 >= 14 && t4 <= 31 || 127 === t4) return s2(), g2(), { type: 21 };
+            if (34 === n4 || 39 === n4 || 40 === n4 || (t5 = n4) >= 0 && t5 <= 8 || 11 === t5 || t5 >= 14 && t5 <= 31 || 127 === t5) return s2(), g2(), { type: 21 };
             if (92 === n4) {
               if (!j(n4, u2(1))) return s2(), { type: 21 };
-              e4 += v2();
-            } else e4 += c2();
+              e6 += v2();
+            } else e6 += c2();
           }
-          var t4;
-        })() : { type: 23, value: e3 };
+          var t5;
+        })() : { type: 23, value: e5 };
       }
-      return 40 === t3 ? (o2(1), { type: 23, value: e3 }) : { type: 24, value: e3 };
+      return 40 === t4 ? (o2(1), { type: 23, value: e5 }) : { type: 24, value: e5 };
     }
-    function h2(e3) {
-      let t3 = "";
+    function h2(e5) {
+      let t4 = "";
       for (; ; ) {
         const n3 = o2(1);
-        if (-1 === n3 || n3 === e3) return -1 === n3 && s2(), { type: 2, value: t3 };
+        if (-1 === n3 || n3 === e5) return -1 === n3 && s2(), { type: 2, value: t4 };
         if (E(n3)) return s2(), l2(), { type: 3 };
         if (92 === n3) {
-          const e4 = u2(1);
-          if (-1 === e4) continue;
-          E(e4) ? o2(1) : t3 += v2();
-        } else t3 += c2();
+          const e6 = u2(1);
+          if (-1 === e6) continue;
+          E(e6) ? o2(1) : t4 += v2();
+        } else t4 += c2();
       }
     }
     function v2() {
-      const e3 = o2(1);
-      if (A(e3)) {
-        const t3 = [e3];
-        for (let e4 = 0; e4 < 5; e4++) {
-          const e5 = u2(1);
-          if (!A(e5)) break;
-          t3.push(e5), o2(1);
+      const e5 = o2(1);
+      if (A(e5)) {
+        const t4 = [e5];
+        for (let e6 = 0; e6 < 5; e6++) {
+          const e7 = u2(1);
+          if (!A(e7)) break;
+          t4.push(e7), o2(1);
         }
         z(u2(1)) && o2(1);
-        let n3 = parseInt(String.fromCodePoint(...t3), 16);
+        let n3 = parseInt(String.fromCodePoint(...t4), 16);
         return (0 === n3 || n3 >= 55296 && n3 <= 57343 || n3 > 1114111) && (n3 = 65533), String.fromCodePoint(n3);
       }
-      return -1 === e3 ? (s2(), String.fromCodePoint(65533)) : c2();
+      return -1 === e5 ? (s2(), String.fromCodePoint(65533)) : c2();
     }
-    function d2(e3, t3, n3) {
-      return 45 === e3 ? L(t3) || 45 === t3 || j(t3, n3) : !!L(e3);
+    function d2(e5, t4, n3) {
+      return 45 === e5 ? L(t4) || 45 === t4 || j(t4, n3) : !!L(e5);
     }
-    function m2(e3, t3, n3) {
-      return 43 === e3 || 45 === e3 ? k(t3) || 46 === t3 && k(n3) : !(46 !== e3 || !k(t3)) || !!k(e3);
+    function m2(e5, t4, n3) {
+      return 43 === e5 || 45 === e5 ? k(t4) || 46 === t4 && k(n3) : !(46 !== e5 || !k(t4)) || !!k(e5);
     }
     function w2() {
-      let e3 = "";
+      let e5 = "";
       for (; ; ) {
-        const t3 = o2(1);
-        if (M(t3)) e3 += c2();
+        const t4 = o2(1);
+        if (M(t4)) e5 += c2();
         else {
-          if (!j(t3, u2(1))) return l2(), e3;
-          e3 += v2();
+          if (!j(t4, u2(1))) return l2(), e5;
+          e5 += v2();
         }
       }
     }
     function g2() {
       for (; ; ) {
-        const e3 = o2(1);
-        if (-1 === e3) return;
-        j(e3, u2(1)) && v2();
+        const e5 = o2(1);
+        if (-1 === e5) return;
+        j(e5, u2(1)) && v2();
       }
     }
     for (; ; ) {
-      const e3 = o2(1);
-      if (47 === e3 && 42 === u2(1)) o2(2), f2();
-      else if (z(e3)) a2(), yield { type: 1 };
-      else if (34 === e3) yield h2(e3);
-      else if (35 === e3) {
-        const e4 = u2(1);
-        M(e4) || j(e4, u2(2)) ? yield { type: 14, flag: d2(u2(1), u2(2), u2(3)) ? 1 : 0, value: w2() } : yield i2();
-      } else if (39 === e3) yield h2(e3);
-      else if (40 === e3) yield { type: 4 };
-      else if (41 === e3) yield { type: 5 };
-      else if (43 === e3) m2(e3, u2(1), u2(2)) ? (l2(), yield p2()) : yield i2();
-      else if (44 === e3) yield { type: 6 };
-      else if (45 === e3) {
-        const t3 = u2(1), n3 = u2(2);
-        m2(e3, t3, n3) ? (l2(), yield p2()) : 45 === t3 && 62 === n3 ? (o2(2), yield { type: 19 }) : d2(e3, t3, n3) ? (l2(), yield y2()) : yield i2();
-      } else if (46 === e3) m2(e3, u2(1), u2(2)) ? (l2(), yield p2()) : yield i2();
-      else if (58 === e3) yield { type: 7 };
-      else if (59 === e3) yield { type: 8 };
-      else if (60 === e3) 33 === u2(1) && 45 === u2(2) && 45 === u2(3) ? yield { type: 18 } : yield i2();
-      else if (64 === e3) if (d2(u2(1), u2(2), u2(3))) {
-        const e4 = w2();
-        yield { type: 22, value: e4 };
+      const e5 = o2(1);
+      if (47 === e5 && 42 === u2(1)) o2(2), f2();
+      else if (z(e5)) a2(), yield { type: 1 };
+      else if (34 === e5) yield h2(e5);
+      else if (35 === e5) {
+        const e6 = u2(1);
+        M(e6) || j(e6, u2(2)) ? yield { type: 14, flag: d2(u2(1), u2(2), u2(3)) ? 1 : 0, value: w2() } : yield i2();
+      } else if (39 === e5) yield h2(e5);
+      else if (40 === e5) yield { type: 4 };
+      else if (41 === e5) yield { type: 5 };
+      else if (43 === e5) m2(e5, u2(1), u2(2)) ? (l2(), yield p2()) : yield i2();
+      else if (44 === e5) yield { type: 6 };
+      else if (45 === e5) {
+        const t4 = u2(1), n3 = u2(2);
+        m2(e5, t4, n3) ? (l2(), yield p2()) : 45 === t4 && 62 === n3 ? (o2(2), yield { type: 19 }) : d2(e5, t4, n3) ? (l2(), yield y2()) : yield i2();
+      } else if (46 === e5) m2(e5, u2(1), u2(2)) ? (l2(), yield p2()) : yield i2();
+      else if (58 === e5) yield { type: 7 };
+      else if (59 === e5) yield { type: 8 };
+      else if (60 === e5) 33 === u2(1) && 45 === u2(2) && 45 === u2(3) ? yield { type: 18 } : yield i2();
+      else if (64 === e5) if (d2(u2(1), u2(2), u2(3))) {
+        const e6 = w2();
+        yield { type: 22, value: e6 };
       } else yield i2();
-      else if (91 === e3) yield { type: 9 };
-      else if (92 === e3) j(e3, u2(1)) ? (l2(), yield y2()) : (s2(), yield i2());
-      else if (93 === e3) yield { type: 10 };
-      else if (123 === e3) yield { type: 11 };
-      else if (125 === e3) yield { type: 12 };
-      else if (k(e3)) l2(), yield p2();
-      else if (L(e3)) l2(), yield y2();
+      else if (91 === e5) yield { type: 9 };
+      else if (92 === e5) j(e5, u2(1)) ? (l2(), yield y2()) : (s2(), yield i2());
+      else if (93 === e5) yield { type: 10 };
+      else if (123 === e5) yield { type: 11 };
+      else if (125 === e5) yield { type: 12 };
+      else if (k(e5)) l2(), yield p2();
+      else if (L(e5)) l2(), yield y2();
       else {
-        if (-1 === e3) return yield { type: 0 }, r2.errorIndices;
+        if (-1 === e5) return yield { type: 0 }, r2.errorIndices;
         yield { type: 13, value: c2() };
       }
     }
   }
-  function k(e2) {
-    return e2 >= 48 && e2 <= 57;
+  function k(e4) {
+    return e4 >= 48 && e4 <= 57;
   }
-  function A(e2) {
-    return k(e2) || e2 >= 65 && e2 <= 70 || e2 >= 97 && e2 <= 102;
+  function A(e4) {
+    return k(e4) || e4 >= 65 && e4 <= 70 || e4 >= 97 && e4 <= 102;
   }
-  function E(e2) {
-    return 10 === e2 || 13 === e2 || 12 === e2;
+  function E(e4) {
+    return 10 === e4 || 13 === e4 || 12 === e4;
   }
-  function z(e2) {
-    return E(e2) || 9 === e2 || 32 === e2;
+  function z(e4) {
+    return E(e4) || 9 === e4 || 32 === e4;
   }
-  function L(e2) {
-    return e2 >= 65 && e2 <= 90 || e2 >= 97 && e2 <= 122 || e2 >= 128 || 95 === e2;
+  function L(e4) {
+    return e4 >= 65 && e4 <= 90 || e4 >= 97 && e4 <= 122 || e4 >= 128 || 95 === e4;
   }
-  function j(e2, t2) {
-    return 92 === e2 && !E(t2);
+  function j(e4, t3) {
+    return 92 === e4 && !E(t3);
   }
-  function M(e2) {
-    return L(e2) || k(e2) || 45 === e2;
+  function M(e4) {
+    return L(e4) || k(e4) || 45 === e4;
   }
   var T = { 11: 12, 9: 10, 4: 5 };
-  function P(t2, n2) {
-    const r2 = (function(e2, t3) {
+  function P(t3, n2) {
+    const r2 = (function(e4, t4) {
       const n3 = [];
-      for (; ; ) switch (e2.consume(1).type) {
+      for (; ; ) switch (e4.consume(1).type) {
         case 1:
           break;
         case 0:
           return { type: 3, value: n3 };
         case 18:
         case 19:
-          if (false !== t3) {
-            e2.reconsume();
-            const t4 = R(e2);
-            t4 !== x && n3.push(t4);
+          if (false !== t4) {
+            e4.reconsume();
+            const t5 = R(e4);
+            t5 !== x && n3.push(t5);
           }
           break;
         case 22:
-          e2.reconsume(), n3.push(U(e2));
+          e4.reconsume(), n3.push(U(e4));
           break;
         default: {
-          e2.reconsume();
-          const t4 = R(e2);
-          t4 !== x && n3.push(t4);
+          e4.reconsume();
+          const t5 = R(e4);
+          t5 !== x && n3.push(t5);
           break;
         }
       }
-    })(C(t2), true === n2);
-    return e({}, r2, { value: r2.value.map((t3) => 26 === t3.type ? (function(t4, n3) {
-      return 0 === t4.value.value.type ? e({}, t4, { value: e({}, t4.value, { value: O(t4.value.value.value) }) }) : t4;
-    })(t3) : t3) });
+    })(C(t3), true === n2);
+    return e3({}, r2, { value: r2.value.map((t4) => 26 === t4.type ? (function(t5, n3) {
+      return 0 === t5.value.value.type ? e3({}, t5, { value: e3({}, t5.value, { value: O(t5.value.value.value) }) }) : t5;
+    })(t4) : t4) });
   }
-  function N(e2) {
-    const t2 = C(e2), n2 = [];
+  function N(e4) {
+    const t3 = C(e4), n2 = [];
     for (; ; ) {
-      if (0 === t2.consume(1).type) return n2;
-      t2.reconsume(), n2.push(Q(t2));
+      if (0 === t3.consume(1).type) return n2;
+      t3.reconsume(), n2.push(Q(t3));
     }
   }
-  function O(e2) {
-    return (function(e3) {
-      const t2 = [], n2 = [];
+  function O(e4) {
+    return (function(e5) {
+      const t3 = [], n2 = [];
       for (; ; ) {
-        const r2 = e3.consume(1);
+        const r2 = e5.consume(1);
         switch (r2.type) {
           case 1:
           case 8:
             break;
           case 0:
-            return { type: 1, value: [...n2, ...t2] };
+            return { type: 1, value: [...n2, ...t3] };
           case 22:
-            e3.reconsume(), t2.push(U(e3));
+            e5.reconsume(), t3.push(U(e5));
             break;
           case 24: {
-            const t3 = [r2];
-            let u2 = e3.at(1);
-            for (; 8 !== u2.type && 0 !== u2.type; ) t3.push(Q(e3)), u2 = e3.at(1);
-            const o2 = I(C(t3));
+            const t4 = [r2];
+            let u2 = e5.at(1);
+            for (; 8 !== u2.type && 0 !== u2.type; ) t4.push(Q(e5)), u2 = e5.at(1);
+            const o2 = I(C(t4));
             o2 !== x && n2.push(o2);
             break;
           }
           case 13:
             if ("&" === r2.value) {
-              e3.reconsume();
-              const n3 = R(e3);
-              n3 !== x && t2.push(n3);
+              e5.reconsume();
+              const n3 = R(e5);
+              n3 !== x && t3.push(n3);
               break;
             }
           default: {
-            e3.error(), e3.reconsume();
-            let t3 = e3.at(1);
-            for (; 8 !== t3.type && 0 !== t3.type; ) Q(e3), t3 = e3.at(1);
+            e5.error(), e5.reconsume();
+            let t4 = e5.at(1);
+            for (; 8 !== t4.type && 0 !== t4.type; ) Q(e5), t4 = e5.at(1);
             break;
           }
         }
       }
-    })(C(e2));
+    })(C(e4));
   }
-  function F(e2) {
-    for (; 1 === e2.at(1).type; ) e2.consume(1);
+  function F(e4) {
+    for (; 1 === e4.at(1).type; ) e4.consume(1);
   }
-  function U(e2) {
-    let t2 = e2.consume(1);
-    if (22 !== t2.type) throw new Error(`Unexpected type ${t2.type}`);
-    const n2 = t2.value, r2 = [];
-    for (; ; ) switch (t2 = e2.consume(1), t2.type) {
+  function U(e4) {
+    let t3 = e4.consume(1);
+    if (22 !== t3.type) throw new Error(`Unexpected type ${t3.type}`);
+    const n2 = t3.value, r2 = [];
+    for (; ; ) switch (t3 = e4.consume(1), t3.type) {
       case 8:
         return { type: 25, name: n2, prelude: r2, value: null };
       case 0:
-        return e2.error(), { type: 25, name: n2, prelude: r2, value: null };
+        return e4.error(), { type: 25, name: n2, prelude: r2, value: null };
       case 11:
-        return { type: 25, name: n2, prelude: r2, value: H(e2) };
+        return { type: 25, name: n2, prelude: r2, value: H(e4) };
       case 28:
-        if (11 === t2.source.type) return { type: 25, name: n2, prelude: r2, value: t2 };
+        if (11 === t3.source.type) return { type: 25, name: n2, prelude: r2, value: t3 };
       default:
-        e2.reconsume(), r2.push(Q(e2));
+        e4.reconsume(), r2.push(Q(e4));
     }
   }
-  function R(e2) {
-    let t2 = e2.value;
+  function R(e4) {
+    let t3 = e4.value;
     const n2 = [];
-    for (; ; ) switch (t2 = e2.consume(1), t2.type) {
+    for (; ; ) switch (t3 = e4.consume(1), t3.type) {
       case 0:
-        return e2.error(), x;
+        return e4.error(), x;
       case 11:
-        return { type: 26, prelude: n2, value: H(e2) };
+        return { type: 26, prelude: n2, value: H(e4) };
       case 28:
-        if (11 === t2.source.type) return { type: 26, prelude: n2, value: t2 };
+        if (11 === t3.source.type) return { type: 26, prelude: n2, value: t3 };
       default:
-        e2.reconsume(), n2.push(Q(e2));
+        e4.reconsume(), n2.push(Q(e4));
     }
   }
-  function I(e2) {
-    const t2 = e2.consume(1);
-    if (24 !== t2.type) throw new Error(`Unexpected type ${t2.type}`);
-    const n2 = t2.value, r2 = [];
+  function I(e4) {
+    const t3 = e4.consume(1);
+    if (24 !== t3.type) throw new Error(`Unexpected type ${t3.type}`);
+    const n2 = t3.value, r2 = [];
     let u2 = false;
-    if (F(e2), 7 !== e2.at(1).type) return e2.error(), x;
-    for (e2.consume(1), F(e2); 0 !== e2.at(1).type; ) r2.push(Q(e2));
+    if (F(e4), 7 !== e4.at(1).type) return e4.error(), x;
+    for (e4.consume(1), F(e4); 0 !== e4.at(1).type; ) r2.push(Q(e4));
     const o2 = r2[r2.length - 2], s2 = r2[r2.length - 1];
     return o2 && 13 === o2.type && "!" === o2.value && 24 === s2.type && "important" === s2.value.toLowerCase() && (u2 = true, r2.splice(r2.length - 2)), { type: 29, name: n2, value: r2, important: u2 };
   }
-  function Q(e2) {
-    const t2 = e2.consume(1);
-    switch (t2.type) {
+  function Q(e4) {
+    const t3 = e4.consume(1);
+    switch (t3.type) {
       case 11:
       case 9:
       case 4:
-        return H(e2);
+        return H(e4);
       case 23:
-        return (function(e3) {
-          let t3 = e3.value;
-          if (23 !== t3.type) throw new Error(`Unexpected type ${t3.type}`);
-          const n2 = t3.value, r2 = [];
-          for (; ; ) switch (t3 = e3.consume(1), t3.type) {
+        return (function(e5) {
+          let t4 = e5.value;
+          if (23 !== t4.type) throw new Error(`Unexpected type ${t4.type}`);
+          const n2 = t4.value, r2 = [];
+          for (; ; ) switch (t4 = e5.consume(1), t4.type) {
             case 5:
               return { type: 27, name: n2, value: r2 };
             case 0:
-              return e3.error(), { type: 27, name: n2, value: r2 };
+              return e5.error(), { type: 27, name: n2, value: r2 };
             default:
-              e3.reconsume(), r2.push(Q(e3));
+              e5.reconsume(), r2.push(Q(e5));
           }
-        })(e2);
+        })(e4);
       default:
-        return t2;
+        return t3;
     }
   }
-  function H(e2) {
-    let t2 = e2.value;
-    const n2 = t2, r2 = T[n2.type];
-    if (!r2) throw new Error(`Unexpected type ${t2.type}`);
+  function H(e4) {
+    let t3 = e4.value;
+    const n2 = t3, r2 = T[n2.type];
+    if (!r2) throw new Error(`Unexpected type ${t3.type}`);
     const u2 = [];
-    for (; ; ) switch (t2 = e2.consume(1), t2.type) {
+    for (; ; ) switch (t3 = e4.consume(1), t3.type) {
       case r2:
         return { type: 28, source: n2, value: { type: 0, value: u2 } };
       case 0:
-        return e2.error(), { type: 28, source: n2, value: { type: 0, value: u2 } };
+        return e4.error(), { type: 28, source: n2, value: { type: 0, value: u2 } };
       default:
-        e2.reconsume(), u2.push(Q(e2));
+        e4.reconsume(), u2.push(Q(e4));
     }
   }
-  function V(e2) {
-    return F(e2), 0 === e2.at(1).type;
+  function V(e4) {
+    return F(e4), 0 === e4.at(1).type;
   }
   var D = { 11: ["{", "}"], 9: ["[", "]"], 4: ["(", ")"] };
-  function W(e2, t2) {
-    switch (e2.type) {
+  function W(e4, t3) {
+    switch (e4.type) {
       case 25:
-        return `@${CSS.escape(e2.name)} ${e2.prelude.map((e3) => W(e3)).join("")}${e2.value ? W(e2.value) : ";"}`;
+        return `@${CSS.escape(e4.name)} ${e4.prelude.map((e5) => W(e5)).join("")}${e4.value ? W(e4.value) : ";"}`;
       case 26:
-        return `${e2.prelude.map((e3) => W(e3)).join("")}${W(e2.value)}`;
+        return `${e4.prelude.map((e5) => W(e5)).join("")}${W(e4.value)}`;
       case 28: {
-        const [t3, n2] = D[e2.source.type];
-        return `${t3}${_(e2.value)}${n2}`;
+        const [t4, n2] = D[e4.source.type];
+        return `${t4}${_(e4.value)}${n2}`;
       }
       case 27:
-        return `${CSS.escape(e2.name)}(${e2.value.map((e3) => W(e3)).join("")})`;
+        return `${CSS.escape(e4.name)}(${e4.value.map((e5) => W(e5)).join("")})`;
       case 29:
-        return `${CSS.escape(e2.name)}:${e2.value.map((e3) => W(e3)).join("")}${e2.important ? " !important" : ""}`;
+        return `${CSS.escape(e4.name)}:${e4.value.map((e5) => W(e5)).join("")}${e4.important ? " !important" : ""}`;
       case 1:
         return " ";
       case 8:
@@ -9490,129 +9718,129 @@
       case 7:
         return ":";
       case 14:
-        return "#" + CSS.escape(e2.value);
+        return "#" + CSS.escape(e4.value);
       case 24:
-        return CSS.escape(e2.value);
+        return CSS.escape(e4.value);
       case 15:
-        return e2.value + CSS.escape(e2.unit);
+        return e4.value + CSS.escape(e4.unit);
       case 13:
       case 17:
-        return e2.value;
+        return e4.value;
       case 2:
-        return `"${CSS.escape(e2.value)}"`;
+        return `"${CSS.escape(e4.value)}"`;
       case 6:
         return ",";
       case 20:
-        return "url(" + CSS.escape(e2.value) + ")";
+        return "url(" + CSS.escape(e4.value) + ")";
       case 22:
-        return "@" + CSS.escape(e2.value);
+        return "@" + CSS.escape(e4.value);
       case 16:
-        return e2.value + "%";
+        return e4.value + "%";
       default:
-        throw new Error(`Unsupported token ${e2.type}`);
+        throw new Error(`Unsupported token ${e4.type}`);
     }
   }
-  function _(e2, t2) {
-    return e2.value.map((t3) => {
-      let n2 = W(t3);
-      return 29 === t3.type && 0 !== e2.type && (n2 += ";"), n2;
+  function _(e4, t3) {
+    return e4.value.map((t4) => {
+      let n2 = W(t4);
+      return 29 === t4.type && 0 !== e4.type && (n2 += ";"), n2;
     }).join("");
   }
-  function B(e2) {
-    return W(e2);
+  function B(e4) {
+    return W(e4);
   }
-  function G(e2) {
-    const t2 = e2.at(1);
-    return 13 === t2.type && "=" === t2.value && (e2.consume(1), true);
+  function G(e4) {
+    const t3 = e4.at(1);
+    return 13 === t3.type && "=" === t3.value && (e4.consume(1), true);
   }
-  function Y(e2, t2) {
+  function Y(e4, t3) {
     const n2 = [];
     for (; ; ) {
-      const r2 = e2.at(1);
-      if (0 === r2.type || t2 && 7 === r2.type || 13 === r2.type && (">" === r2.value || "<" === r2.value || "=" === r2.value)) break;
-      n2.push(e2.consume(1));
+      const r2 = e4.at(1);
+      if (0 === r2.type || t3 && 7 === r2.type || 13 === r2.type && (">" === r2.value || "<" === r2.value || "=" === r2.value)) break;
+      n2.push(e4.consume(1));
     }
     return n2;
   }
-  function J(e2) {
-    F(e2);
-    const t2 = e2.consume(1);
-    return 13 !== t2.type ? x : ">" === t2.value ? G(e2) ? 3 : 2 : "<" === t2.value ? G(e2) ? 5 : 4 : "=" === t2.value ? 1 : x;
+  function J(e4) {
+    F(e4);
+    const t3 = e4.consume(1);
+    return 13 !== t3.type ? x : ">" === t3.value ? G(e4) ? 3 : 2 : "<" === t3.value ? G(e4) ? 5 : 4 : "=" === t3.value ? 1 : x;
   }
-  function K(e2) {
-    return 4 === e2 || 5 === e2;
+  function K(e4) {
+    return 4 === e4 || 5 === e4;
   }
-  function X(e2) {
-    return 2 === e2 || 3 === e2;
+  function X(e4) {
+    return 2 === e4 || 3 === e4;
   }
-  function Z(e2, t2, n2) {
-    const r2 = (function(e3) {
-      F(e3);
-      const t3 = e3.consume(1);
-      return F(e3), 24 !== t3.type || 0 !== e3.at(1).type ? x : t3.value;
-    })(C(e2));
+  function Z(e4, t3, n2) {
+    const r2 = (function(e5) {
+      F(e5);
+      const t4 = e5.consume(1);
+      return F(e5), 24 !== t4.type || 0 !== e5.at(1).type ? x : t4.value;
+    })(C(e4));
     if (r2 === x) return x;
     let u2 = r2.toLowerCase();
-    return u2 = n2 ? n2(u2) : u2, t2.has(u2) ? u2 : x;
+    return u2 = n2 ? n2(u2) : u2, t3.has(u2) ? u2 : x;
   }
-  function ee(e2) {
-    return { type: 13, value: e2 };
+  function ee(e4) {
+    return { type: 13, value: e4 };
   }
-  function te(e2, t2) {
-    return { type: 29, name: e2, value: t2, important: false };
+  function te(e4, t3) {
+    return { type: 29, name: e4, value: t3, important: false };
   }
-  function ne(e2) {
-    return { type: 24, value: e2 };
+  function ne(e4) {
+    return { type: 24, value: e4 };
   }
-  function re(e2, t2) {
-    return { type: 27, name: e2, value: t2 };
+  function re(e4, t3) {
+    return { type: 27, name: e4, value: t3 };
   }
-  function ue(e2) {
-    return re("var", [ne(e2)]);
+  function ue(e4) {
+    return re("var", [ne(e4)]);
   }
-  function oe(e2, t2) {
-    F(e2);
-    let n2 = false, r2 = e2.at(1);
+  function oe(e4, t3) {
+    F(e4);
+    let n2 = false, r2 = e4.at(1);
     if (24 === r2.type) {
       if ("not" !== r2.value.toLowerCase()) return x;
-      e2.consume(1), F(e2), n2 = true;
+      e4.consume(1), F(e4), n2 = true;
     }
-    let u2 = (function(e3) {
-      const t3 = e3.consume(1);
-      switch (t3.type) {
+    let u2 = (function(e5) {
+      const t4 = e5.consume(1);
+      switch (t4.type) {
         case 28: {
-          if (4 !== t3.source.type) return x;
-          const e4 = oe(C(t3.value.value), null);
-          return e4 !== x ? e4 : { type: 4, value: t3 };
+          if (4 !== t4.source.type) return x;
+          const e6 = oe(C(t4.value.value), null);
+          return e6 !== x ? e6 : { type: 4, value: t4 };
         }
         case 27:
-          return { type: 4, value: t3 };
+          return { type: 4, value: t4 };
         default:
           return x;
       }
-    })(e2);
+    })(e4);
     if (u2 === x) return x;
-    u2 = n2 ? { type: 1, value: u2 } : u2, F(e2), r2 = e2.at(1);
+    u2 = n2 ? { type: 1, value: u2 } : u2, F(e4), r2 = e4.at(1);
     const o2 = 24 === r2.type ? r2.value.toLowerCase() : null;
     if (null !== o2) {
-      if (e2.consume(1), F(e2), "and" !== o2 && "or" !== o2 || null !== t2 && o2 !== t2) return x;
-      const n3 = oe(e2, o2);
+      if (e4.consume(1), F(e4), "and" !== o2 && "or" !== o2 || null !== t3 && o2 !== t3) return x;
+      const n3 = oe(e4, o2);
       return n3 === x ? x : { type: "and" === o2 ? 2 : 3, left: u2, right: n3 };
     }
-    return V(e2) ? u2 : x;
+    return V(e4) ? u2 : x;
   }
-  function se(e2) {
-    return oe(e2, null);
+  function se(e4) {
+    return oe(e4, null);
   }
-  function le(e2) {
-    switch (e2.type) {
+  function le(e4) {
+    switch (e4.type) {
       case 1:
-        return [ne("not"), { type: 1 }, ...le(e2.value)];
+        return [ne("not"), { type: 1 }, ...le(e4.value)];
       case 2:
       case 3:
-        return [...le(e2.left), { type: 1 }, ne(2 === e2.type ? "and" : "or"), { type: 1 }, ...le(e2.right)];
+        return [...le(e4.left), { type: 1 }, ne(2 === e4.type ? "and" : "or"), { type: 1 }, ...le(e4.right)];
       case 4:
-        return [e2.value];
+        return [e4.value];
     }
   }
   var ce = { width: 1, height: 2, "inline-size": 3, "block-size": 4, "aspect-ratio": 5, orientation: 6 };
@@ -9620,180 +9848,180 @@
   var ae = /* @__PURE__ */ new Set(["none", "and", "not", "or", "normal", "auto"]);
   var fe = /* @__PURE__ */ new Set(["initial", "inherit", "revert", "revert-layer", "unset"]);
   var pe = /* @__PURE__ */ new Set(["size", "inline-size"]);
-  function ye(e2, t2, n2, r2) {
+  function ye(e4, t3, n2, r2) {
     const u2 = n2();
     if (u2 === x) return x;
     let o2 = [u2, null];
-    F(e2);
-    const s2 = e2.at(1);
+    F(e4);
+    const s2 = e4.at(1);
     if (13 === s2.type) {
-      if (s2.value !== t2) return x;
-      e2.consume(1), F(e2);
+      if (s2.value !== t3) return x;
+      e4.consume(1), F(e4);
       const n3 = r2();
-      F(e2), n3 !== x && (o2 = [u2, n3]);
+      F(e4), n3 !== x && (o2 = [u2, n3]);
     }
-    return V(e2) ? o2 : x;
+    return V(e4) ? o2 : x;
   }
-  function he(e2) {
-    const t2 = e2.consume(1);
-    return 17 === t2.type ? parseInt(t2.value) : x;
+  function he(e4) {
+    const t3 = e4.consume(1);
+    return 17 === t3.type ? parseInt(t3.value) : x;
   }
-  function ve(e2) {
-    const t2 = C(e2);
-    F(t2);
-    const n2 = t2.consume(1);
+  function ve(e4) {
+    const t3 = C(e4);
+    F(t3);
+    const n2 = t3.consume(1);
     let r2 = x;
     switch (n2.type) {
       case 17:
-        t2.reconsume(), r2 = (function(e3) {
-          const t3 = ye(e3, "/", () => he(e3), () => he(e3));
-          return t3 === x ? x : { type: 2, value: t3[0] / (null !== t3[1] ? t3[1] : 1) };
-        })(t2);
+        t3.reconsume(), r2 = (function(e5) {
+          const t4 = ye(e5, "/", () => he(e5), () => he(e5));
+          return t4 === x ? x : { type: 2, value: t4[0] / (null !== t4[1] ? t4[1] : 1) };
+        })(t3);
         break;
       case 15:
         r2 = { type: 3, value: parseInt(n2.value), unit: n2.unit.toLowerCase() };
         break;
       case 24: {
-        const e3 = n2.value.toLowerCase();
-        switch (e3) {
+        const e5 = n2.value.toLowerCase();
+        switch (e5) {
           case "landscape":
           case "portrait":
-            r2 = { type: 4, value: e3 };
+            r2 = { type: 4, value: e5 };
         }
       }
     }
-    return r2 === x ? x : V(t2) ? { type: 6, value: r2 } : x;
+    return r2 === x ? x : V(t3) ? { type: 6, value: r2 } : x;
   }
-  function de(e2) {
-    return !ge(e2 = e2.toLowerCase()) && !ae.has(e2);
+  function de(e4) {
+    return !ge(e4 = e4.toLowerCase()) && !ae.has(e4);
   }
-  function me(e2, t2) {
+  function me(e4, t3) {
     const n2 = [];
     for (; ; ) {
-      F(e2);
-      const r2 = e2.at(1);
-      if (24 !== r2.type || !t2(r2.value)) return n2;
-      e2.consume(1), n2.push(r2.value);
+      F(e4);
+      const r2 = e4.at(1);
+      if (24 !== r2.type || !t3(r2.value)) return n2;
+      e4.consume(1), n2.push(r2.value);
     }
   }
-  function we(e2) {
-    const t2 = [];
+  function we(e4) {
+    const t3 = [];
     for (; ; ) {
-      F(e2);
-      const n2 = e2.at(1);
+      F(e4);
+      const n2 = e4.at(1);
       if (24 !== n2.type) break;
       const r2 = n2.value;
       if (!de(r2)) break;
-      e2.consume(1), t2.push(r2);
+      e4.consume(1), t3.push(r2);
     }
-    return t2;
+    return t3;
   }
-  function ge(e2) {
-    return fe.has(e2);
+  function ge(e4) {
+    return fe.has(e4);
   }
-  function be(e2) {
-    return e2.map((e3) => "cq-" + e3);
+  function be(e4) {
+    return e4.map((e5) => "cq-" + e5);
   }
-  function Se(e2) {
-    const t2 = me(e2, (e3) => ge(e3));
-    return 1 === t2.length ? be(t2) : x;
+  function Se(e4) {
+    const t3 = me(e4, (e5) => ge(e5));
+    return 1 === t3.length ? be(t3) : x;
   }
-  function xe(e2, t2) {
-    const n2 = me(e2, (e3) => "none" === e3);
+  function xe(e4, t3) {
+    const n2 = me(e4, (e5) => "none" === e5);
     if (1 === n2.length) return be(n2);
     if (0 !== n2.length) return x;
-    if (t2) {
-      const t3 = Se(e2);
-      if (t3 !== x) return t3;
+    if (t3) {
+      const t4 = Se(e4);
+      if (t4 !== x) return t4;
     }
-    const r2 = we(e2);
-    return r2.length > 0 && (!t2 || V(e2)) ? r2 : x;
+    const r2 = we(e4);
+    return r2.length > 0 && (!t3 || V(e4)) ? r2 : x;
   }
-  function qe(e2, t2) {
-    if (t2) {
-      const t3 = Se(e2);
-      if (t3 !== x) return t3;
+  function qe(e4, t3) {
+    if (t3) {
+      const t4 = Se(e4);
+      if (t4 !== x) return t4;
     }
-    return (function(e3) {
-      const t3 = me(e3, (e4) => "normal" === e4);
-      if (1 === t3.length) return be(t3);
-      if (0 !== t3.length) return x;
-      const n2 = me(e3, (e4) => pe.has(e4));
-      return n2.length > 0 && V(e3) ? n2 : x;
-    })(e2);
+    return (function(e5) {
+      const t4 = me(e5, (e6) => "normal" === e6);
+      if (1 === t4.length) return be(t4);
+      if (0 !== t4.length) return x;
+      const n2 = me(e5, (e6) => pe.has(e6));
+      return n2.length > 0 && V(e5) ? n2 : x;
+    })(e4);
   }
-  function Ce(e2) {
-    const t2 = C(e2), n2 = Se(t2);
+  function Ce(e4) {
+    const t3 = C(e4), n2 = Se(t3);
     if (n2 !== x) return [n2, n2];
-    const r2 = ye(t2, "/", () => xe(t2, false), () => qe(t2, false));
-    return r2 !== x && V(t2) ? [r2[0], r2[1] || []] : x;
+    const r2 = ye(t3, "/", () => xe(t3, false), () => qe(t3, false));
+    return r2 !== x && V(t3) ? [r2[0], r2[1] || []] : x;
   }
-  function $e(e2) {
-    const t2 = C(e2), n2 = we(t2);
+  function $e(e4) {
+    const t3 = C(e4), n2 = we(t3);
     if (!n2 || n2.length > 1) return x;
-    const r2 = se(t2);
+    const r2 = se(t3);
     if (r2 === x) return x;
     const u2 = { features: /* @__PURE__ */ new Set() }, o2 = ke(r2, u2);
-    return V(t2) ? { name: n2.length > 0 ? n2[0] : null, condition: o2, features: u2.features } : x;
+    return V(t3) ? { name: n2.length > 0 ? n2[0] : null, condition: o2, features: u2.features } : x;
   }
-  function ke(e2, t2) {
-    switch (e2.type) {
+  function ke(e4, t3) {
+    switch (e4.type) {
       case 1:
-        return { type: 1, value: ke(e2.value, t2) };
+        return { type: 1, value: ke(e4.value, t3) };
       case 2:
       case 3:
-        return { type: 2 === e2.type ? 2 : 3, left: ke(e2.left, t2), right: ke(e2.right, t2) };
+        return { type: 2 === e4.type ? 2 : 3, left: ke(e4.left, t3), right: ke(e4.right, t3) };
       case 4:
-        if (28 === e2.value.type) {
-          const n2 = (function(e3, t3) {
-            const n3 = (function(e4, t4) {
-              const n4 = Y(e4, true), r3 = e4.at(1);
+        if (28 === e4.value.type) {
+          const n2 = (function(e5, t4) {
+            const n3 = (function(e6, t5) {
+              const n4 = Y(e6, true), r3 = e6.at(1);
               if (0 === r3.type) {
-                const e5 = Z(n4, t4);
-                return e5 !== x && t4.has(e5) ? { type: 1, feature: e5 } : x;
+                const e7 = Z(n4, t5);
+                return e7 !== x && t5.has(e7) ? { type: 1, feature: e7 } : x;
               }
               if (7 === r3.type) {
-                e4.consume(1);
-                const r4 = Y(e4, false);
+                e6.consume(1);
+                const r4 = Y(e6, false);
                 let u3 = 1;
-                const o3 = Z(n4, t4, (e5) => e5.startsWith("min-") ? (u3 = 3, e5.substring(4)) : e5.startsWith("max-") ? (u3 = 5, e5.substring(4)) : e5);
+                const o3 = Z(n4, t5, (e7) => e7.startsWith("min-") ? (u3 = 3, e7.substring(4)) : e7.startsWith("max-") ? (u3 = 5, e7.substring(4)) : e7);
                 return o3 !== x ? { type: 2, feature: o3, bounds: [null, [u3, r4]] } : x;
               }
-              const u2 = J(e4);
+              const u2 = J(e6);
               if (u2 === x) return x;
-              const o2 = Y(e4, false);
-              if (0 === e4.at(1).type) {
-                const e5 = Z(n4, t4);
-                if (e5 !== x) return { type: 2, feature: e5, bounds: [null, [u2, o2]] };
-                const r4 = Z(o2, t4);
+              const o2 = Y(e6, false);
+              if (0 === e6.at(1).type) {
+                const e7 = Z(n4, t5);
+                if (e7 !== x) return { type: 2, feature: e7, bounds: [null, [u2, o2]] };
+                const r4 = Z(o2, t5);
                 return r4 !== x ? { type: 2, feature: r4, bounds: [[u2, n4], null] } : x;
               }
-              const s2 = J(e4);
+              const s2 = J(e6);
               if (s2 === x || !(X(u2) && X(s2) || K(u2) && K(s2))) return x;
-              const l2 = Y(e4, false), c2 = Z(o2, t4);
+              const l2 = Y(e6, false), c2 = Z(o2, t5);
               return c2 !== x ? { type: 2, feature: c2, bounds: [[u2, n4], [s2, l2]] } : x;
-            })(e3, ie);
+            })(e5, ie);
             if (n3 === x) return x;
             const r2 = ce[n3.feature];
             if (null == r2) return x;
-            if (t3.features.add(r2), 1 === n3.type) return { type: 5, feature: r2 };
+            if (t4.features.add(r2), 1 === n3.type) return { type: 5, feature: r2 };
             {
-              const e4 = { type: 5, feature: r2 };
-              let t4 = x;
+              const e6 = { type: 5, feature: r2 };
+              let t5 = x;
               if (null !== n3.bounds[0]) {
                 const r3 = ve(n3.bounds[0][1]);
                 if (r3 === x) return x;
-                t4 = { type: 4, operator: n3.bounds[0][0], left: r3, right: e4 };
+                t5 = { type: 4, operator: n3.bounds[0][0], left: r3, right: e6 };
               }
               if (null !== n3.bounds[1]) {
                 const r3 = ve(n3.bounds[1][1]);
                 if (r3 === x) return x;
-                const u2 = { type: 4, operator: n3.bounds[1][0], left: e4, right: r3 };
-                t4 = t4 !== x ? { type: 2, left: t4, right: u2 } : u2;
+                const u2 = { type: 4, operator: n3.bounds[1][0], left: e6, right: r3 };
+                t5 = t5 !== x ? { type: 2, left: t5, right: u2 } : u2;
               }
-              return t4;
+              return t5;
             }
-          })(C(e2.value.value.value), t2);
+          })(C(e4.value.value.value), t3);
           if (n2 !== x) return n2;
         }
         return { type: 6, value: { type: 1 } };
@@ -9806,202 +10034,202 @@
   N(Array.from($(Le)));
   var je = document.createElement("div");
   var Me = /* @__PURE__ */ new Set(["before", "after", "first-line", "first-letter"]);
-  function Te(e2, t2) {
-    return re("calc", [{ type: 17, flag: e2.flag, value: e2.value }, ee("*"), t2]);
+  function Te(e4, t3) {
+    return re("calc", [{ type: 17, flag: e4.flag, value: e4.value }, ee("*"), t3]);
   }
-  function Pe(t2) {
-    return t2.map((t3) => {
-      switch (t3.type) {
+  function Pe(t3) {
+    return t3.map((t4) => {
+      switch (t4.type) {
         case 15:
-          return (function(e2) {
-            const t4 = e2.unit, n2 = Ee[t4];
-            return null != n2 ? Te(e2, ue(n2)) : "cqmin" === t4 || "cqmax" === t4 ? Te(e2, re(e2.unit.slice(2), [ue(g), { type: 6 }, ue(b)])) : e2;
-          })(t3);
+          return (function(e4) {
+            const t5 = e4.unit, n2 = Ee[t5];
+            return null != n2 ? Te(e4, ue(n2)) : "cqmin" === t5 || "cqmax" === t5 ? Te(e4, re(e4.unit.slice(2), [ue(g), { type: 6 }, ue(b)])) : e4;
+          })(t4);
         case 27:
-          return e({}, t3, { value: Pe(t3.value) });
+          return e3({}, t4, { value: Pe(t4.value) });
       }
-      return t3;
+      return t4;
     });
   }
-  function Ne(t2) {
-    switch (t2.name) {
+  function Ne(t3) {
+    switch (t3.name) {
       case "container":
-        return Ce(t2.value) ? e({}, t2, { name: p }) : t2;
+        return Ce(t3.value) ? e3({}, t3, { name: p }) : t3;
       case "container-name":
-        return xe(C(t2.value), true) ? e({}, t2, { name: h }) : t2;
+        return xe(C(t3.value), true) ? e3({}, t3, { name: h }) : t3;
       case "container-type":
-        return null != qe(C(t2.value), true) ? e({}, t2, { name: y }) : t2;
+        return null != qe(C(t3.value), true) ? e3({}, t3, { name: y }) : t3;
     }
-    return e({}, t2, { value: Pe(t2.value) });
+    return e3({}, t3, { value: Pe(t3.value) });
   }
-  function Oe(t2, n2) {
-    return e({}, t2, { value: t2.value.map((t3) => {
-      switch (t3.type) {
+  function Oe(t3, n2) {
+    return e3({}, t3, { value: t3.value.map((t4) => {
+      switch (t4.type) {
         case 25:
-          return He(t3, n2);
+          return He(t4, n2);
         case 26:
-          return (function(t4, n3) {
-            return n3.transformStyleRule(e({}, t4, { value: Re(t4.value, n3) }));
-          })(t3, n2);
+          return (function(t5, n3) {
+            return n3.transformStyleRule(e3({}, t5, { value: Re(t5.value, n3) }));
+          })(t4, n2);
         default:
-          return t3;
+          return t4;
       }
     }) });
   }
-  function Fe(e2) {
-    return 0 === e2.type || 6 === e2.type;
+  function Fe(e4) {
+    return 0 === e4.type || 6 === e4.type;
   }
-  function Ue(e2) {
-    for (let t2 = e2.length - 1; t2 >= 0; t2--) if (1 !== e2[t2].type) return e2.slice(0, t2 + 1);
-    return e2;
+  function Ue(e4) {
+    for (let t3 = e4.length - 1; t3 >= 0; t3--) if (1 !== e4[t3].type) return e4.slice(0, t3 + 1);
+    return e4;
   }
-  function Re(t2, n2) {
-    return (function(t3, n3) {
+  function Re(t3, n2) {
+    return (function(t4, n3) {
       const r2 = [];
       let u2 = null, o2 = null;
-      for (const e2 of t3.value.value) switch (e2.type) {
+      for (const e4 of t4.value.value) switch (e4.type) {
         case 25:
           {
-            const t4 = n3 ? n3(e2) : e2;
-            t4 && r2.push(t4);
+            const t5 = n3 ? n3(e4) : e4;
+            t5 && r2.push(t5);
           }
           break;
         case 29: {
-          const t4 = Ne(e2);
-          switch (t4.name) {
+          const t5 = Ne(e4);
+          switch (t5.name) {
             case p: {
-              const t5 = Ce(e2.value);
-              t5 !== x && (u2 = t5[0], o2 = t5[1]);
+              const t6 = Ce(e4.value);
+              t6 !== x && (u2 = t6[0], o2 = t6[1]);
               break;
             }
             case h: {
-              const t5 = xe(C(e2.value), true);
-              t5 !== x && (u2 = t5);
+              const t6 = xe(C(e4.value), true);
+              t6 !== x && (u2 = t6);
               break;
             }
             case y: {
-              const t5 = qe(C(e2.value), true);
-              t5 !== x && (o2 = t5);
+              const t6 = qe(C(e4.value), true);
+              t6 !== x && (o2 = t6);
               break;
             }
             default:
-              r2.push(t4);
+              r2.push(t5);
           }
         }
       }
-      return u2 && u2.length > 0 && r2.push(te(h, [ne(u2.join(" "))])), o2 && o2.length > 0 && r2.push(te(y, [ne(o2.join(" "))])), e({}, t3, { value: { type: 2, value: r2 } });
-    })(t2, (e2) => He(e2, n2));
+      return u2 && u2.length > 0 && r2.push(te(h, [ne(u2.join(" "))])), o2 && o2.length > 0 && r2.push(te(y, [ne(o2.join(" "))])), e3({}, t4, { value: { type: 2, value: r2 } });
+    })(t3, (e4) => He(e4, n2));
   }
-  function Ie(t2) {
-    if (1 === t2.type) return e({}, t2, { value: Ie(t2.value) });
-    if (2 === t2.type || 3 === t2.type) return e({}, t2, { left: Ie(t2.left), right: Ie(t2.right) });
-    if (4 === t2.type && 28 === t2.value.type) {
-      const n2 = (function(e2) {
-        const t3 = C(e2);
-        return F(t3), 24 !== t3.at(1).type ? x : I(t3) || x;
-      })(t2.value.value.value);
-      if (n2 !== x) return e({}, t2, { value: e({}, t2.value, { value: { type: 0, value: [Ne(n2)] } }) });
+  function Ie(t3) {
+    if (1 === t3.type) return e3({}, t3, { value: Ie(t3.value) });
+    if (2 === t3.type || 3 === t3.type) return e3({}, t3, { left: Ie(t3.left), right: Ie(t3.right) });
+    if (4 === t3.type && 28 === t3.value.type) {
+      const n2 = (function(e4) {
+        const t4 = C(e4);
+        return F(t4), 24 !== t4.at(1).type ? x : I(t4) || x;
+      })(t3.value.value.value);
+      if (n2 !== x) return e3({}, t3, { value: e3({}, t3.value, { value: { type: 0, value: [Ne(n2)] } }) });
     }
-    return t2;
+    return t3;
   }
-  function Qe(t2, n2) {
-    let r2 = se(C(t2.prelude));
-    return r2 = r2 !== x ? Ie(r2) : x, e({}, t2, { prelude: r2 !== x ? le(r2) : t2.prelude, value: t2.value ? e({}, t2.value, { value: Oe(P(t2.value.value.value), n2) }) : null });
+  function Qe(t3, n2) {
+    let r2 = se(C(t3.prelude));
+    return r2 = r2 !== x ? Ie(r2) : x, e3({}, t3, { prelude: r2 !== x ? le(r2) : t3.prelude, value: t3.value ? e3({}, t3.value, { value: Oe(P(t3.value.value.value), n2) }) : null });
   }
-  function He(t2, n2) {
-    switch (t2.name.toLocaleLowerCase()) {
+  function He(t3, n2) {
+    switch (t3.name.toLocaleLowerCase()) {
       case "media":
       case "layer":
-        return (function(t3, n3) {
-          return e({}, t3, { value: t3.value ? e({}, t3.value, { value: Oe(P(t3.value.value.value), n3) }) : null });
-        })(t2, n2);
+        return (function(t4, n3) {
+          return e3({}, t4, { value: t4.value ? e3({}, t4.value, { value: Oe(P(t4.value.value.value), n3) }) : null });
+        })(t3, n2);
       case "keyframes":
-        return (function(t3, n3) {
+        return (function(t4, n3) {
           let r2 = null;
-          return t3.value && (r2 = e({}, t3.value, { value: { type: 3, value: P(t3.value.value.value).value.map((t4) => {
-            switch (t4.type) {
+          return t4.value && (r2 = e3({}, t4.value, { value: { type: 3, value: P(t4.value.value.value).value.map((t5) => {
+            switch (t5.type) {
               case 26:
-                return (function(t5, n4) {
-                  return e({}, t5, { value: Re(t5.value, n4) });
-                })(t4, n3);
+                return (function(t6, n4) {
+                  return e3({}, t6, { value: Re(t6.value, n4) });
+                })(t5, n3);
               case 25:
-                return He(t4, n3);
+                return He(t5, n3);
             }
-          }) } })), e({}, t3, { value: r2 });
-        })(t2, n2);
+          }) } })), e3({}, t4, { value: r2 });
+        })(t3, n2);
       case "supports":
-        return Qe(t2, n2);
+        return Qe(t3, n2);
       case "container":
-        return (function(t3, n3) {
-          if (t3.value) {
-            const r2 = $e(t3.prelude);
+        return (function(t4, n3) {
+          if (t4.value) {
+            const r2 = $e(t4.prelude);
             if (r2 !== x) {
-              const u2 = { rule: r2, selector: null, parent: n3.parent, uid: "c" + Ae++ }, o2 = /* @__PURE__ */ new Set(), s2 = [], l2 = Oe(P(t3.value.value.value), { descriptors: n3.descriptors, parent: u2, transformStyleRule: (t4) => {
-                const [n4, r3] = (function(e2, t5, n5) {
-                  const r4 = C(e2), u3 = [], o3 = [];
+              const u2 = { rule: r2, selector: null, parent: n3.parent, uid: "c" + Ae++ }, o2 = /* @__PURE__ */ new Set(), s2 = [], l2 = Oe(P(t4.value.value.value), { descriptors: n3.descriptors, parent: u2, transformStyleRule: (t5) => {
+                const [n4, r3] = (function(e4, t6, n5) {
+                  const r4 = C(e4), u3 = [], o3 = [];
                   for (; ; ) {
                     if (0 === r4.at(1).type) return [u3, o3];
                     const n6 = Math.max(0, r4.index);
                     for (; l4 = r4.at(1), c2 = r4.at(2), !(Fe(l4) || 7 === l4.type && (7 === c2.type || 24 === c2.type && Me.has(c2.value.toLowerCase()))); ) r4.consume(1);
-                    const i2 = r4.index + 1, a2 = e2.slice(n6, i2), f2 = a2.length > 0 ? Ue(a2) : [ee("*")];
+                    const i2 = r4.index + 1, a2 = e4.slice(n6, i2), f2 = a2.length > 0 ? Ue(a2) : [ee("*")];
                     for (; !Fe(r4.at(1)); ) r4.consume(1);
-                    const p2 = e2.slice(i2, Math.max(0, r4.index + 1));
-                    let y2 = f2, h2 = [{ type: 28, source: { type: 9 }, value: { type: 0, value: [ne(p2.length > 0 ? v : d), ee("~"), ee("="), { type: 2, value: t5 }] } }];
+                    const p2 = e4.slice(i2, Math.max(0, r4.index + 1));
+                    let y2 = f2, h2 = [{ type: 28, source: { type: 9 }, value: { type: 0, value: [ne(p2.length > 0 ? v : d), ee("~"), ee("="), { type: 2, value: t6 }] } }];
                     if (ze) h2 = [ee(":"), re("where", h2)];
                     else {
-                      const e3 = f2.map(B).join("");
-                      e3.endsWith(Le) ? y2 = N(Array.from($(e3.substring(0, e3.length - Le.length)))) : s2.push({ actual: e3, expected: e3 + Le });
+                      const e5 = f2.map(B).join("");
+                      e5.endsWith(Le) ? y2 = N(Array.from($(e5.substring(0, e5.length - Le.length)))) : s2.push({ actual: e5, expected: e5 + Le });
                     }
                     u3.push(...f2), o3.push(...y2), o3.push(...h2), o3.push(...p2), r4.consume(1);
                   }
                   var l4, c2;
-                })(t4.prelude, u2.uid);
-                if (s2.length > 0) return t4;
+                })(t5.prelude, u2.uid);
+                if (s2.length > 0) return t5;
                 const l3 = n4.map(B).join("");
                 try {
                   je.matches(l3), o2.add(l3);
-                } catch (e2) {
+                } catch (e4) {
                 }
-                return e({}, t4, { prelude: r3 });
+                return e3({}, t5, { prelude: r3 });
               } }).value;
               if (s2.length > 0) {
-                const e2 = /* @__PURE__ */ new Set(), t4 = [];
+                const e4 = /* @__PURE__ */ new Set(), t5 = [];
                 let n4 = 0;
-                for (const { actual: e3 } of s2) n4 = Math.max(n4, e3.length);
+                for (const { actual: e5 } of s2) n4 = Math.max(n4, e5.length);
                 const r3 = Array.from({ length: n4 }, () => " ").join("");
-                for (const { actual: u3, expected: o3 } of s2) e2.has(u3) || (t4.push(`${u3}${r3.substring(0, n4 - u3.length)} => ${o3}`), e2.add(u3));
+                for (const { actual: u3, expected: o3 } of s2) e4.has(u3) || (t5.push(`${u3}${r3.substring(0, n4 - u3.length)} => ${o3}`), e4.add(u3));
                 console.warn(`The :where() pseudo-class is not supported by this browser. To use the Container Query Polyfill, you must modify the selectors under your @container rules:
 
-${t4.join("\n")}`);
+${t5.join("\n")}`);
               }
-              return o2.size > 0 && (u2.selector = Array.from(o2).join(", ")), n3.descriptors.push(u2), { type: 25, name: "media", prelude: [ne("all")], value: e({}, t3.value, { value: { type: 3, value: l2 } }) };
+              return o2.size > 0 && (u2.selector = Array.from(o2).join(", ")), n3.descriptors.push(u2), { type: 25, name: "media", prelude: [ne("all")], value: e3({}, t4.value, { value: { type: 3, value: l2 } }) };
             }
           }
-          return t3;
-        })(t2, n2);
+          return t4;
+        })(t3, n2);
     }
-    return t2;
+    return t3;
   }
   var Ve = class {
-    constructor(e2) {
-      this.value = void 0, this.value = e2;
+    constructor(e4) {
+      this.value = void 0, this.value = e4;
     }
   };
-  function De(e2, t2) {
-    if (e2 === t2) return true;
-    if (typeof e2 == typeof t2 && null !== e2 && null !== t2 && "object" == typeof e2) {
-      if (Array.isArray(e2)) {
-        if (!Array.isArray(t2) || t2.length !== e2.length) return false;
-        for (let n2 = 0, r2 = e2.length; n2 < r2; n2++) if (!De(e2[n2], t2[n2])) return false;
+  function De(e4, t3) {
+    if (e4 === t3) return true;
+    if (typeof e4 == typeof t3 && null !== e4 && null !== t3 && "object" == typeof e4) {
+      if (Array.isArray(e4)) {
+        if (!Array.isArray(t3) || t3.length !== e4.length) return false;
+        for (let n2 = 0, r2 = e4.length; n2 < r2; n2++) if (!De(e4[n2], t3[n2])) return false;
         return true;
       }
-      if (e2 instanceof Ve) return t2 instanceof Ve && e2.value === t2.value;
+      if (e4 instanceof Ve) return t3 instanceof Ve && e4.value === t3.value;
       {
-        const n2 = Object.keys(e2);
-        if (n2.length !== Object.keys(t2).length) return false;
+        const n2 = Object.keys(e4);
+        if (n2.length !== Object.keys(t3).length) return false;
         for (let r2 = 0, u2 = n2.length; r2 < u2; r2++) {
           const u3 = n2[r2];
-          if (!De(e2[u3], t2[u3])) return false;
+          if (!De(e4[u3], t3[u3])) return false;
         }
         return true;
       }
@@ -10016,8 +10244,8 @@ ${t4.join("\n")}`);
   var Je = ["padding-top", "padding-bottom", "border-top-width", "border-bottom-width"];
   var Ke = /(\w*(\s|-))?(table|ruby)(-\w*)?/;
   var Xe = class {
-    constructor(e2) {
-      this.node = void 0, this.node = e2;
+    constructor(e4) {
+      this.node = void 0, this.node = e4;
     }
     connected() {
     }
@@ -10027,151 +10255,151 @@ ${t4.join("\n")}`);
     }
   };
   var Ze = class extends Xe {
-    constructor(e2, t2) {
-      super(e2), this.context = void 0, this.controller = null, this.styleSheet = null, this.context = t2;
+    constructor(e4, t3) {
+      super(e4), this.context = void 0, this.controller = null, this.styleSheet = null, this.context = t3;
     }
     connected() {
-      var e2 = this;
-      const t2 = this.node;
-      if ("stylesheet" === t2.rel) {
-        const n2 = new URL(t2.href, document.baseURI);
+      var e4 = this;
+      const t3 = this.node;
+      if ("stylesheet" === t3.rel) {
+        const n2 = new URL(t3.href, document.baseURI);
         n2.origin === location.origin && (this.controller = rt(async function(r2) {
-          const u2 = await fetch(n2.toString(), { signal: r2 }), o2 = await u2.text(), s2 = e2.styleSheet = await e2.context.registerStyleSheet({ source: o2, url: n2, signal: r2 }), l2 = new Blob([s2.source], { type: "text/css" }), c2 = new Image();
-          c2.onload = c2.onerror = s2.refresh, c2.src = t2.href = URL.createObjectURL(l2);
+          const u2 = await fetch(n2.toString(), { signal: r2 }), o2 = await u2.text(), s2 = e4.styleSheet = await e4.context.registerStyleSheet({ source: o2, url: n2, signal: r2 }), l2 = new Blob([s2.source], { type: "text/css" }), c2 = new Image();
+          c2.onload = c2.onerror = s2.refresh, c2.src = t3.href = URL.createObjectURL(l2);
         }));
       }
     }
     disconnected() {
-      var e2, t2;
-      null == (e2 = this.controller) || e2.abort(), this.controller = null, null == (t2 = this.styleSheet) || t2.dispose(), this.styleSheet = null;
+      var e4, t3;
+      null == (e4 = this.controller) || e4.abort(), this.controller = null, null == (t3 = this.styleSheet) || t3.dispose(), this.styleSheet = null;
     }
   };
   var et = class extends Xe {
-    constructor(e2, t2) {
-      super(e2), this.context = void 0, this.controller = null, this.styleSheet = null, this.context = t2;
+    constructor(e4, t3) {
+      super(e4), this.context = void 0, this.controller = null, this.styleSheet = null, this.context = t3;
     }
     connected() {
-      var e2 = this;
+      var e4 = this;
       const n2 = this.node;
       if (!/@container|container-type|container-name|(?:cqw|cqh|cqi|cqb|cqmin|cqmax)/.test(n2.innerHTML || "")) return;
-      this.controller = rt(async function(t2) {
-        const n3 = e2.node, r2 = e2.styleSheet = await e2.context.registerStyleSheet({ source: n3.innerHTML, signal: t2 });
+      this.controller = rt(async function(t3) {
+        const n3 = e4.node, r2 = e4.styleSheet = await e4.context.registerStyleSheet({ source: n3.innerHTML, signal: t3 });
         n3.innerHTML = r2.source, r2.refresh();
       });
     }
     disconnected() {
-      var e2, t2;
-      null == (e2 = this.controller) || e2.abort(), this.controller = null, null == (t2 = this.styleSheet) || t2.dispose(), this.styleSheet = null;
+      var e4, t3;
+      null == (e4 = this.controller) || e4.abort(), this.controller = null, null == (t3 = this.styleSheet) || t3.dispose(), this.styleSheet = null;
     }
   };
   var tt = class extends Xe {
     connected() {
-      const e2 = `* { ${y}: cq-normal; ${h}: cq-none; }`;
-      this.node.innerHTML = void 0 === window.CSSLayerBlockRule ? e2 : `@layer cq-polyfill-${f} { ${e2} }`;
+      const e4 = `* { ${y}: cq-normal; ${h}: cq-none; }`;
+      this.node.innerHTML = void 0 === window.CSSLayerBlockRule ? e4 : `@layer cq-polyfill-${f} { ${e4} }`;
     }
   };
   var nt = class extends Xe {
-    constructor(e2, t2) {
-      super(e2), this.context = void 0, this.styles = void 0, this.context = t2, this.styles = window.getComputedStyle(e2);
+    constructor(e4, t3) {
+      super(e4), this.context = void 0, this.styles = void 0, this.context = t3, this.styles = window.getComputedStyle(e4);
     }
     connected() {
       this.node.style.cssText = "position: fixed; top: 0; left: 0; visibility: hidden; " + (Be ? "width: 1svw; height: 1svh;" : "width: 1%; height: 1%;");
     }
     updated() {
-      const e2 = ct((e3) => this.styles.getPropertyValue(e3));
-      this.context.viewportChanged({ width: e2.width, height: e2.height });
+      const e4 = ct((e5) => this.styles.getPropertyValue(e5));
+      this.context.viewportChanged({ width: e4.width, height: e4.height });
     }
   };
-  function rt(e2) {
-    const t2 = new AbortController();
-    return e2(t2.signal).catch((e3) => {
-      if (!(e3 instanceof DOMException && "AbortError" === e3.message)) throw e3;
-    }), t2;
+  function rt(e4) {
+    const t3 = new AbortController();
+    return e4(t3.signal).catch((e5) => {
+      if (!(e5 instanceof DOMException && "AbortError" === e5.message)) throw e5;
+    }), t3;
   }
-  function ut(e2) {
-    let t2 = 0;
-    if (0 === e2.length) return t2;
-    if (e2.startsWith("cq-") && ("normal" === (e2 = e2.substring("cq-".length)) || ge(e2))) return t2;
-    const n2 = e2.split(" ");
-    for (const e3 of n2) switch (e3) {
+  function ut(e4) {
+    let t3 = 0;
+    if (0 === e4.length) return t3;
+    if (e4.startsWith("cq-") && ("normal" === (e4 = e4.substring("cq-".length)) || ge(e4))) return t3;
+    const n2 = e4.split(" ");
+    for (const e5 of n2) switch (e5) {
       case "size":
-        t2 |= 3;
+        t3 |= 3;
         break;
       case "inline-size":
-        t2 |= 1;
+        t3 |= 1;
         break;
       default:
         return 0;
     }
-    return t2;
+    return t3;
   }
-  function ot(e2) {
-    let t2 = 0;
-    return "none" !== e2 && (t2 |= 1, "contents" === e2 || "inline" === e2 || Ke.test(e2) || (t2 |= 2)), t2;
+  function ot(e4) {
+    let t3 = 0;
+    return "none" !== e4 && (t3 |= 1, "contents" === e4 || "inline" === e4 || Ke.test(e4) || (t3 |= 2)), t3;
   }
-  function st(e2, t2) {
-    return parseFloat(e2(t2));
+  function st(e4, t3) {
+    return parseFloat(e4(t3));
   }
-  function lt(e2, t2) {
-    return t2.reduce((t3, n2) => t3 + st(e2, n2), 0);
+  function lt(e4, t3) {
+    return t3.reduce((t4, n2) => t4 + st(e4, n2), 0);
   }
-  function ct(e2) {
-    let t2 = 0, n2 = 0;
-    return "border-box" === e2("box-sizing") && (t2 = lt(e2, Ye), n2 = lt(e2, Je)), { fontSize: st(e2, "font-size"), width: st(e2, "width") - t2, height: st(e2, "height") - n2 };
+  function ct(e4) {
+    let t3 = 0, n2 = 0;
+    return "border-box" === e4("box-sizing") && (t3 = lt(e4, Ye), n2 = lt(e4, Je)), { fontSize: st(e4, "font-size"), width: st(e4, "width") - t3, height: st(e4, "height") - n2 };
   }
-  function it(e2) {
-    return { containerType: ut(e2(y).trim()), containerNames: (n2 = e2(h).trim(), n2.startsWith("cq-") && ("none" === (n2 = n2.substring("cq-".length)) || ge(n2)) ? /* @__PURE__ */ new Set([]) : new Set(0 === n2.length ? [] : n2.split(" "))), writingAxis: (t2 = e2("writing-mode").trim(), Ge.has(t2) ? 1 : 0), displayFlags: ot(e2("display").trim()) };
-    var t2, n2;
+  function it(e4) {
+    return { containerType: ut(e4(y).trim()), containerNames: (n2 = e4(h).trim(), n2.startsWith("cq-") && ("none" === (n2 = n2.substring("cq-".length)) || ge(n2)) ? /* @__PURE__ */ new Set([]) : new Set(0 === n2.length ? [] : n2.split(" "))), writingAxis: (t3 = e4("writing-mode").trim(), Ge.has(t3) ? 1 : 0), displayFlags: ot(e4("display").trim()) };
+    var t3, n2;
   }
-  function at(e2, t2, n2) {
-    null != n2 ? n2 != e2.getPropertyValue(t2) && e2.setProperty(t2, n2) : e2.removeProperty(t2);
+  function at(e4, t3, n2) {
+    null != n2 ? n2 != e4.getPropertyValue(t3) && e4.setProperty(t3, n2) : e4.removeProperty(t3);
   }
-  function ft(e2) {
-    const t2 = e2[_e];
-    return null != t2 ? t2 : [];
+  function ft(e4) {
+    const t3 = e4[_e];
+    return null != t3 ? t3 : [];
   }
-  function pt(e2, t2) {
-    e2[_e] = t2;
+  function pt(e4, t3) {
+    e4[_e] = t3;
   }
-  new Promise((e2) => {
+  new Promise((e4) => {
   }), window.CQPolyfill = { version: "1.0.2" }, "container" in document.documentElement.style || (function(n2) {
-    function r2(e2) {
-      return e2[We] || null;
+    function r2(e4) {
+      return e4[We] || null;
     }
     const u2 = document.documentElement;
     if (r2(u2)) return;
     const o2 = document.createElement(`cq-polyfill-${f}`), s2 = document.createElement("style");
-    new MutationObserver((e2) => {
-      for (const t2 of e2) {
-        for (const e3 of t2.removedNodes) {
-          const t3 = r2(e3);
-          null == t3 || t3.disconnect();
+    new MutationObserver((e4) => {
+      for (const t3 of e4) {
+        for (const e5 of t3.removedNodes) {
+          const t4 = r2(e5);
+          null == t4 || t4.disconnect();
         }
-        t2.target.nodeType !== Node.DOCUMENT_NODE && t2.target.nodeType !== Node.DOCUMENT_FRAGMENT_NODE && null === t2.target.parentNode || "attributes" === t2.type && t2.attributeName && (t2.attributeName === v || t2.attributeName === d || t2.target instanceof Element && t2.target.getAttribute(t2.attributeName) === t2.oldValue) || (A2(t2.target).mutate(), S2());
+        t3.target.nodeType !== Node.DOCUMENT_NODE && t3.target.nodeType !== Node.DOCUMENT_FRAGMENT_NODE && null === t3.target.parentNode || "attributes" === t3.type && t3.attributeName && (t3.attributeName === v || t3.attributeName === d || t3.target instanceof Element && t3.target.getAttribute(t3.attributeName) === t3.oldValue) || (A2(t3.target).mutate(), S2());
       }
     }).observe(u2, { childList: true, subtree: true, attributes: true, attributeOldValue: true });
-    const l2 = new ResizeObserver((e2) => {
-      for (const t2 of e2) A2(t2.target).resize();
+    const l2 = new ResizeObserver((e4) => {
+      for (const t3 of e4) A2(t3.target).resize();
       A2(u2).update(C2());
     }), c2 = new Xe(u2);
-    async function a2(e2, { source: t2, url: n3, signal: r3 }) {
-      const o3 = (function(e3, t3) {
+    async function a2(e4, { source: t3, url: n3, signal: r3 }) {
+      const o3 = (function(e5, t4) {
         try {
-          const n4 = Array.from($(e3));
-          if (t3) for (let e4 = 0; e4 < n4.length; e4++) {
-            const r5 = n4[e4];
-            if (20 === r5.type) r5.value = new URL(r5.value, t3).toString();
+          const n4 = Array.from($(e5));
+          if (t4) for (let e6 = 0; e6 < n4.length; e6++) {
+            const r5 = n4[e6];
+            if (20 === r5.type) r5.value = new URL(r5.value, t4).toString();
             else if (23 === r5.type && "url" === r5.value.toLowerCase()) {
-              const r6 = e4 + 1 < n4.length ? n4[e4 + 1] : null;
-              r6 && 2 === r6.type && (r6.value = new URL(r6.value, t3).toString());
+              const r6 = e6 + 1 < n4.length ? n4[e6 + 1] : null;
+              r6 && 2 === r6.type && (r6.value = new URL(r6.value, t4).toString());
             }
           }
-          const r4 = { descriptors: [], parent: null, transformStyleRule: (e4) => e4 };
+          const r4 = { descriptors: [], parent: null, transformStyleRule: (e6) => e6 };
           return { source: _(Oe(P(n4, true), r4)), descriptors: r4.descriptors };
-        } catch (t4) {
-          return console.warn("An error occurred while transpiling stylesheet: " + t4), { source: e3, descriptors: [] };
+        } catch (t5) {
+          return console.warn("An error occurred while transpiling stylesheet: " + t5), { source: e5, descriptors: [] };
         }
-      })(t2, n3 ? n3.toString() : void 0);
+      })(t3, n3 ? n3.toString() : void 0);
       let s3 = () => {
       }, l3 = () => {
       };
@@ -10179,43 +10407,43 @@ ${t4.join("\n")}`);
       let i2 = false;
       return null != r3 && r3.aborted || (l3 = () => {
         if (!i2) {
-          const { sheet: t3 } = e2;
-          null != t3 && (pt(t3, o3.descriptors), i2 = true, s3 = () => {
-            pt(t3), c3.mutate(), S2();
+          const { sheet: t4 } = e4;
+          null != t4 && (pt(t4, o3.descriptors), i2 = true, s3 = () => {
+            pt(t4), c3.mutate(), S2();
           }, c3.mutate(), S2());
         }
       }), { source: o3.source, dispose: s3, refresh: l3 };
     }
     const p2 = { cqw: null, cqh: null };
-    function y2({ width: e2, height: t2 }) {
-      p2.cqw = e2, p2.cqh = t2;
+    function y2({ width: e4, height: t3 }) {
+      p2.cqw = e4, p2.cqh = t3;
     }
-    function h2(e2, t2, n3) {
-      if (e2 instanceof Element && t2) {
+    function h2(e4, t3, n3) {
+      if (e4 instanceof Element && t3) {
         let r3 = "";
-        for (const [n4, u3] of t2.conditions) {
-          const t3 = n4.value;
-          null != t3.selector && null != u3 && 2 == (2 & u3) && e2.matches(t3.selector) && (r3.length > 0 && (r3 += " "), r3 += t3.uid);
+        for (const [n4, u3] of t3.conditions) {
+          const t4 = n4.value;
+          null != t4.selector && null != u3 && 2 == (2 & u3) && e4.matches(t4.selector) && (r3.length > 0 && (r3 += " "), r3 += t4.uid);
         }
-        r3.length > 0 ? e2.setAttribute(n3, r3) : e2.removeAttribute(n3);
+        r3.length > 0 ? e4.setAttribute(n3, r3) : e4.removeAttribute(n3);
       }
     }
     function S2() {
       l2.unobserve(u2), l2.observe(u2);
     }
     const x2 = () => {
-      const e2 = [];
-      for (const t2 of document.styleSheets) for (const n3 of ft(t2)) e2.push([new Ve(n3), 0]);
-      return e2;
+      const e4 = [];
+      for (const t3 of document.styleSheets) for (const n3 of ft(t3)) e4.push([new Ve(n3), 0]);
+      return e4;
     }, q2 = window.getComputedStyle(u2), C2 = () => {
-      const t2 = (e2) => q2.getPropertyValue(e2), n3 = it(t2), r3 = ct(t2);
-      return { parentState: null, conditions: x2(), context: e({}, p2, { fontSize: r3.fontSize, rootFontSize: r3.fontSize, writingAxis: n3.writingAxis }), displayFlags: n3.displayFlags, isQueryContainer: false };
-    }, k2 = (e2) => e2;
+      const t3 = (e4) => q2.getPropertyValue(e4), n3 = it(t3), r3 = ct(t3);
+      return { parentState: null, conditions: x2(), context: e3({}, p2, { fontSize: r3.fontSize, rootFontSize: r3.fontSize, writingAxis: n3.writingAxis }), displayFlags: n3.displayFlags, isQueryContainer: false };
+    }, k2 = (e4) => e4;
     function A2(n3) {
       let f2 = r2(n3);
       if (!f2) {
         let p3, S3 = null, x3 = false;
-        n3 === u2 ? (p3 = c2, S3 = k2) : n3 === o2 ? (x3 = true, p3 = new nt(o2, { viewportChanged: y2 })) : p3 = n3 === s2 ? new tt(s2) : n3 instanceof HTMLLinkElement ? new Ze(n3, { registerStyleSheet: (t2) => a2(n3, e({}, t2)) }) : n3 instanceof HTMLStyleElement ? new et(n3, { registerStyleSheet: (t2) => a2(n3, e({}, t2)) }) : new Xe(n3);
+        n3 === u2 ? (p3 = c2, S3 = k2) : n3 === o2 ? (x3 = true, p3 = new nt(o2, { viewportChanged: y2 })) : p3 = n3 === s2 ? new tt(s2) : n3 instanceof HTMLLinkElement ? new Ze(n3, { registerStyleSheet: (t3) => a2(n3, e3({}, t3)) }) : n3 instanceof HTMLStyleElement ? new et(n3, { registerStyleSheet: (t3) => a2(n3, e3({}, t3)) }) : new Xe(n3);
         let q3 = /* @__PURE__ */ Symbol();
         if (null == S3 && n3 instanceof Element) {
           const r3 = (function(n4) {
@@ -10225,45 +10453,45 @@ ${t4.join("\n")}`);
               return (...n6) => {
                 if (null == u3 || !De(u3[0], n6)) {
                   const o3 = ((n7, u4) => {
-                    const { context: o4, conditions: s3 } = n7, l3 = (e2) => r4.getPropertyValue(e2), c3 = it(l3), a3 = e({}, o4, { writingAxis: c3.writingAxis });
+                    const { context: o4, conditions: s3 } = n7, l3 = (e4) => r4.getPropertyValue(e4), c3 = it(l3), a3 = e3({}, o4, { writingAxis: c3.writingAxis });
                     let f3 = s3, p4 = false, y3 = c3.displayFlags;
                     0 == (1 & n7.displayFlags) && (y3 = 0);
                     const { containerType: h3, containerNames: v2 } = c3;
                     if (h3 > 0) {
-                      const e2 = h3 > 0 && 2 == (2 & y3), n8 = new Map(s3.map((e3) => [e3[0].value, e3[1]]));
-                      if (f3 = [], p4 = true, e2) {
-                        const e3 = ct(l3);
-                        a3.fontSize = e3.fontSize;
-                        const r5 = (function(e4, t2) {
-                          const n9 = { value: t2.width }, r6 = { value: t2.height };
+                      const e4 = h3 > 0 && 2 == (2 & y3), n8 = new Map(s3.map((e5) => [e5[0].value, e5[1]]));
+                      if (f3 = [], p4 = true, e4) {
+                        const e5 = ct(l3);
+                        a3.fontSize = e5.fontSize;
+                        const r5 = (function(e6, t3) {
+                          const n9 = { value: t3.width }, r6 = { value: t3.height };
                           let u6 = n9, o5 = r6;
-                          if (1 === e4.writingAxis) {
-                            const e5 = u6;
-                            u6 = o5, o5 = e5;
+                          if (1 === e6.writingAxis) {
+                            const e7 = u6;
+                            u6 = o5, o5 = e7;
                           }
-                          return 2 != (2 & e4.containerType) && (o5.value = void 0), { width: n9.value, height: r6.value, inlineSize: u6.value, blockSize: o5.value };
-                        })(c3, e3), u5 = { sizeFeatures: r5, treeContext: a3 }, p5 = (e4) => {
-                          const { rule: r6 } = e4, o5 = r6.name, s4 = null == o5 || v2.has(o5) ? (function(e5, n9) {
+                          return 2 != (2 & e6.containerType) && (o5.value = void 0), { width: n9.value, height: r6.value, inlineSize: u6.value, blockSize: o5.value };
+                        })(c3, e5), u5 = { sizeFeatures: r5, treeContext: a3 }, p5 = (e6) => {
+                          const { rule: r6 } = e6, o5 = r6.name, s4 = null == o5 || v2.has(o5) ? (function(e7, n9) {
                             const r7 = /* @__PURE__ */ new Map(), u6 = n9.sizeFeatures;
-                            for (const n10 of e5.features) {
-                              const e6 = t(n10, u6);
-                              if (1 === e6.type) return null;
-                              r7.set(n10, e6);
+                            for (const n10 of e7.features) {
+                              const e8 = t2(n10, u6);
+                              if (1 === e8.type) return null;
+                              r7.set(n10, e8);
                             }
-                            const o6 = i(e5.condition, { sizeFeatures: r7, treeContext: n9.treeContext });
+                            const o6 = i(e7.condition, { sizeFeatures: r7, treeContext: n9.treeContext });
                             return 5 === o6.type ? o6.value : null;
                           })(r6, u5) : null;
                           var l4;
-                          return null == s4 ? 1 === ((null != (l4 = n8.get(e4)) ? l4 : 0) && 1) : true === s4;
-                        }, y4 = (e4, t2) => {
-                          let n9 = e4.get(t2);
+                          return null == s4 ? 1 === ((null != (l4 = n8.get(e6)) ? l4 : 0) && 1) : true === s4;
+                        }, y4 = (e6, t3) => {
+                          let n9 = e6.get(t3);
                           if (null == n9) {
-                            const r6 = p5(t2);
-                            n9 = (r6 ? 1 : 0) | (true !== r6 || null != t2.parent && 1 != (1 & y4(e4, t2.parent)) ? 0 : 2), e4.set(t2, n9);
+                            const r6 = p5(t3);
+                            n9 = (r6 ? 1 : 0) | (true !== r6 || null != t3.parent && 1 != (1 & y4(e6, t3.parent)) ? 0 : 2), e6.set(t3, n9);
                           }
                           return n9;
                         }, h4 = /* @__PURE__ */ new Map();
-                        for (const e4 of s3) f3.push([e4[0], y4(h4, e4[0].value)]);
+                        for (const e6 of s3) f3.push([e6[0], y4(h4, e6[0].value)]);
                         a3.cqw = null != r5.width ? r5.width / 100 : o4.cqw, a3.cqh = null != r5.height ? r5.height / 100 : o4.cqh;
                       }
                     }
@@ -10275,45 +10503,45 @@ ${t4.join("\n")}`);
               };
             })();
           })(n3);
-          S3 = (e2) => r3(e2, q3);
+          S3 = (e4) => r3(e4, q3);
         }
         const C3 = S3 || k2;
         let $2 = null;
-        const E2 = (e2) => {
-          const t2 = $2, n4 = C3(e2);
-          return $2 = n4, [$2, $2 !== t2];
+        const E2 = (e4) => {
+          const t3 = $2, n4 = C3(e4);
+          return $2 = n4, [$2, $2 !== t3];
         }, z2 = n3 instanceof HTMLElement || n3 instanceof SVGElement ? n3.style : null;
         let L2 = false;
         f2 = { connect() {
-          for (let e2 = n3.firstChild; null != e2; e2 = e2.nextSibling) A2(e2);
+          for (let e4 = n3.firstChild; null != e4; e4 = e4.nextSibling) A2(e4);
           p3.connected();
         }, disconnect() {
           n3 instanceof Element && (l2.unobserve(n3), n3.removeAttribute(v), n3.removeAttribute(d)), z2 && (z2.removeProperty(g), z2.removeProperty(b), z2.removeProperty(m), z2.removeProperty(w));
-          for (let e2 = n3.firstChild; null != e2; e2 = e2.nextSibling) {
-            const t2 = r2(e2);
-            null == t2 || t2.disconnect();
+          for (let e4 = n3.firstChild; null != e4; e4 = e4.nextSibling) {
+            const t3 = r2(e4);
+            null == t3 || t3.disconnect();
           }
           p3.disconnected(), delete n3[We];
-        }, update(e2) {
-          const [t2, r3] = E2(e2);
+        }, update(e4) {
+          const [t3, r3] = E2(e4);
           if (r3) {
-            if (h2(n3, e2, d), h2(n3, t2, v), n3 instanceof Element) {
-              const e3 = x3 || t2.isQueryContainer;
-              e3 && !L2 ? (l2.observe(n3), L2 = true) : !e3 && L2 && (l2.unobserve(n3), L2 = false);
+            if (h2(n3, e4, d), h2(n3, t3, v), n3 instanceof Element) {
+              const e5 = x3 || t3.isQueryContainer;
+              e5 && !L2 ? (l2.observe(n3), L2 = true) : !e5 && L2 && (l2.unobserve(n3), L2 = false);
             }
             if (z2) {
-              const n4 = t2.context, r4 = n4.writingAxis;
+              const n4 = t3.context, r4 = n4.writingAxis;
               let u3 = null, o3 = null, s3 = null, l3 = null;
-              (r4 !== e2.context.writingAxis || t2.isQueryContainer) && (u3 = `var(${0 === r4 ? m : w})`, o3 = `var(${1 === r4 ? m : w})`), e2 && !t2.isQueryContainer || (n4.cqw && (s3 = n4.cqw + "px"), n4.cqh && (l3 = n4.cqh + "px")), at(z2, g, u3), at(z2, b, o3), at(z2, m, s3), at(z2, w, l3);
+              (r4 !== e4.context.writingAxis || t3.isQueryContainer) && (u3 = `var(${0 === r4 ? m : w})`, o3 = `var(${1 === r4 ? m : w})`), e4 && !t3.isQueryContainer || (n4.cqw && (s3 = n4.cqw + "px"), n4.cqh && (l3 = n4.cqh + "px")), at(z2, g, u3), at(z2, b, o3), at(z2, m, s3), at(z2, w, l3);
             }
             p3.updated();
           }
-          for (let e3 = n3.firstChild; null != e3; e3 = e3.nextSibling) A2(e3).update(t2);
+          for (let e5 = n3.firstChild; null != e5; e5 = e5.nextSibling) A2(e5).update(t3);
         }, resize() {
           q3 = /* @__PURE__ */ Symbol();
         }, mutate() {
           q3 = /* @__PURE__ */ Symbol();
-          for (let e2 = n3.firstChild; null != e2; e2 = e2.nextSibling) A2(e2).mutate();
+          for (let e4 = n3.firstChild; null != e4; e4 = e4.nextSibling) A2(e4).mutate();
         } }, n3[We] = f2, f2.connect();
       }
       return f2;
@@ -10321,9 +10549,486 @@ ${t4.join("\n")}`);
     u2.prepend(s2, o2), A2(u2), S2();
   })();
 
+  // src/main/modules/userscripts/bundled-scripts/vendor/css-has-pseudo.js
+  !(function() {
+    function decodeCSS(e4) {
+      if ("csstools-has-" !== e4.slice(0, 13)) return "";
+      for (var t3 = (e4 = e4.slice(13)).split("-"), r2 = "", o2 = 0; o2 < t3.length; o2++) r2 += String.fromCharCode(parseInt(t3[o2], 36));
+      return r2;
+    }
+    function extractEncodedSelectors(e4) {
+      for (var t3, r2, o2 = [], n2 = 0, s2 = false, l2 = false, i2 = 0; i2 < e4.length; i2++) {
+        var c2 = e4[i2];
+        switch (c2) {
+          case "[":
+            if (s2) {
+              t3 += c2;
+              continue;
+            }
+            0 === n2 ? t3 = "" : t3 += c2, n2++;
+            continue;
+          case "]":
+            if (s2) {
+              t3 += c2;
+              continue;
+            }
+            0 === --n2 ? l2 && o2.push(decodeCSS(t3)) : t3 += c2;
+            continue;
+          case "\\":
+            t3 += e4[i2], t3 += e4[i2 + 1], i2++;
+            continue;
+          case '"':
+          case "'":
+            if (s2 && c2 === r2) {
+              s2 = false;
+              continue;
+            }
+            if (s2) {
+              t3 += c2;
+              continue;
+            }
+            s2 = true, r2 = c2;
+            continue;
+          default:
+            "" === t3 && 1 === n2 && "csstools-has-" === e4.slice(i2, i2 + 13) && (l2 = true), t3 += c2;
+            continue;
+        }
+      }
+      for (var a2 = [], u2 = 0; u2 < o2.length; u2++) -1 === a2.indexOf(o2[u2]) && a2.push(o2[u2]);
+      return a2;
+    }
+    function encodeCSS2(e4) {
+      if ("" === e4) return "";
+      for (var t3, r2 = "", o2 = 0; o2 < e4.length; o2++) t3 = e4.charCodeAt(o2).toString(36), r2 += 0 === o2 ? t3 : "-" + t3;
+      return "csstools-has-" + r2;
+    }
+    function hasNativeSupport() {
+      try {
+        if (!("CSS" in self) || !("supports" in self.CSS) || !self.CSS.supports("selector(:has(div))")) return false;
+      } catch (e4) {
+        return false;
+      }
+      return true;
+    }
+    function cssHasPseudo(e4, t3) {
+      var r2 = false;
+      t3 || (t3 = {}), (t3 = { hover: !!t3.hover || false, debug: !!t3.debug || false, observedAttributes: t3.observedAttributes || [], forcePolyfill: !!t3.forcePolyfill || false }).mustPolyfill = t3.forcePolyfill || !hasNativeSupport(), Array.isArray(t3.observedAttributes) || (t3.observedAttributes = []), t3.observedAttributes = t3.observedAttributes.filter(function(e5) {
+        return "string" == typeof e5;
+      }), t3.observedAttributes = t3.observedAttributes.concat(["accept", "accept-charset", "accesskey", "action", "align", "allow", "alt", "async", "autocapitalize", "autocomplete", "autofocus", "autoplay", "buffered", "capture", "challenge", "charset", "checked", "cite", "class", "code", "codebase", "cols", "colspan", "content", "contenteditable", "contextmenu", "controls", "coords", "crossorigin", "csp", "data", "datetime", "decoding", "default", "defer", "dir", "dirname", "disabled", "download", "draggable", "enctype", "enterkeyhint", "for", "form", "formaction", "formenctype", "formmethod", "formnovalidate", "formtarget", "headers", "hidden", "high", "href", "hreflang", "http-equiv", "icon", "id", "importance", "integrity", "intrinsicsize", "inputmode", "ismap", "itemprop", "keytype", "kind", "label", "lang", "language", "list", "loop", "low", "manifest", "max", "maxlength", "minlength", "media", "method", "min", "multiple", "muted", "name", "novalidate", "open", "optimum", "pattern", "ping", "placeholder", "poster", "preload", "radiogroup", "readonly", "referrerpolicy", "rel", "required", "reversed", "rows", "rowspan", "sandbox", "scope", "scoped", "selected", "shape", "size", "sizes", "slot", "span", "spellcheck", "src", "srcdoc", "srclang", "srcset", "start", "step", "summary", "tabindex", "target", "title", "translate", "type", "usemap", "value", "width", "wrap"]);
+      var o2 = [], n2 = e4.createElement("x");
+      if ([].forEach.call(e4.styleSheets, walkStyleSheet), t3.mustPolyfill) {
+        if (transformObservedItemsThrottled(), "MutationObserver" in self) {
+          var s2 = new MutationObserver(function(t4) {
+            t4.forEach(function(t5) {
+              [].forEach.call(t5.addedNodes || [], function(e5) {
+                1 === e5.nodeType && (e5.sheet ? walkStyleSheet(e5.sheet) : e5.addEventListener("load", function(e6) {
+                  e6.target && e6.target.sheet && walkStyleSheet(e6.target.sheet);
+                }));
+              }), [].push.apply(o2, o2.splice(0).filter(function(t6) {
+                return t6.rule.parentStyleSheet && t6.rule.parentStyleSheet.ownerNode && e4.documentElement.contains(t6.rule.parentStyleSheet.ownerNode);
+              })), transformObservedItemsThrottled();
+            });
+          });
+          s2.observe(e4, { childList: true, subtree: true, attributes: true, attributeFilter: t3.observedAttributes });
+        }
+        if (e4.addEventListener("focus", transformObservedItemsThrottled, true), e4.addEventListener("blur", transformObservedItemsThrottled, true), e4.addEventListener("input", transformObservedItemsThrottled), e4.addEventListener("change", transformObservedItemsThrottled, true), t3.hover && ("onpointerenter" in e4 ? (e4.addEventListener("pointerenter", transformObservedItemsThrottled, true), e4.addEventListener("pointerleave", transformObservedItemsThrottled, true)) : (e4.addEventListener("mouseover", transformObservedItemsThrottled, true), e4.addEventListener("mouseout", transformObservedItemsThrottled, true))), "defineProperty" in Object && "getOwnPropertyDescriptor" in Object && "hasOwnProperty" in Object) try {
+          let observeProperty2 = function(e5, t4) {
+            if (e5.hasOwnProperty(t4)) {
+              var r3 = Object.getOwnPropertyDescriptor(e5, t4);
+              r3 && r3.configurable && "set" in r3 && Object.defineProperty(e5, t4, { configurable: r3.configurable, enumerable: r3.enumerable, get: function() {
+                return r3.get.apply(this, arguments);
+              }, set: function() {
+                r3.set.apply(this, arguments);
+                try {
+                  transformObservedItemsThrottled();
+                } catch (e6) {
+                }
+              } });
+            }
+          };
+          var observeProperty = observeProperty2;
+          "HTMLElement" in self && HTMLElement.prototype && observeProperty2(HTMLElement.prototype, "disabled"), ["checked", "selected", "readOnly", "required"].forEach(function(e5) {
+            ["HTMLButtonElement", "HTMLFieldSetElement", "HTMLInputElement", "HTMLMeterElement", "HTMLOptGroupElement", "HTMLOptionElement", "HTMLOutputElement", "HTMLProgressElement", "HTMLSelectElement", "HTMLTextAreaElement"].forEach(function(t4) {
+              t4 in self && self[t4].prototype && observeProperty2(self[t4].prototype, e5);
+            });
+          });
+        } catch (l2) {
+          t3.debug && console.error(l2);
+        }
+      }
+      function transformObservedItemsThrottled() {
+        r2 && clearTimeout(r2), r2 = setTimeout(function() {
+          o2.forEach(function(r3) {
+            var o3 = [], s3 = [];
+            if (r3.selector) try {
+              s3 = e4.querySelectorAll(r3.selector);
+            } catch (l2) {
+              return void (t3.debug && console.error(l2));
+            }
+            [].forEach.call(s3, function(t4) {
+              o3.push(t4), n2.innerHTML = "<x " + r3.attributeName + ">", t4.setAttributeNode(n2.children[0].attributes[0].cloneNode()), e4.documentElement.style.zoom = 1, e4.documentElement.style.zoom = null;
+            }), r3.nodes.forEach(function(t4) {
+              -1 === o3.indexOf(t4) && (t4.removeAttribute(r3.attributeName), e4.documentElement.style.zoom = 1, e4.documentElement.style.zoom = null);
+            }), r3.nodes = o3;
+          });
+        });
+      }
+      function walkStyleSheet(e5) {
+        try {
+          for (var r3 = e5.cssRules.length - 1; r3 >= 0; r3--) {
+            var n3 = e5.cssRules[r3];
+            if (n3.selectorText) {
+              n3.selectorText = n3.selectorText.replace(/\.js-has-pseudo\s/g, "");
+              try {
+                var s3 = extractEncodedSelectors(n3.selectorText.toString());
+                if (0 === s3.length) continue;
+                if (!t3.mustPolyfill) {
+                  e5.deleteRule(r3);
+                  continue;
+                }
+                for (var i2 = 0; i2 < s3.length; i2++) {
+                  var c2 = s3[i2];
+                  c2 && o2.push({ rule: n3, selector: c2, attributeName: encodeCSS2(c2), nodes: [] });
+                }
+              } catch (l2) {
+                t3.debug && console.error(l2);
+              }
+            } else walkStyleSheet(n3);
+          }
+        } catch (l2) {
+          t3.debug && console.error(l2);
+        }
+      }
+    }
+    !(function(e4) {
+      try {
+        if (e4.document.querySelector(":has(*, :does-not-exist, > *)"), !e4.document.querySelector(":has(:scope *)") && CSS.supports("selector(:has(div))")) return;
+      } catch (a2) {
+      }
+      var t3 = polyfill(e4.Element.prototype.querySelector);
+      e4.Element.prototype.querySelector = function querySelector(e5) {
+        return t3.apply(this, arguments);
+      };
+      var r2 = polyfill(e4.Element.prototype.querySelectorAll);
+      if (e4.Element.prototype.querySelectorAll = function querySelectorAll(e5) {
+        return r2.apply(this, arguments);
+      }, e4.Element.prototype.matches) {
+        var o2 = polyfill(e4.Element.prototype.matches);
+        e4.Element.prototype.matches = function matches(e5) {
+          return o2.apply(this, arguments);
+        };
+      }
+      if (e4.Element.prototype.closest) {
+        var n2 = polyfill(e4.Element.prototype.closest);
+        e4.Element.prototype.closest = function closest(e5) {
+          return n2.apply(this, arguments);
+        };
+      }
+      if ("Document" in e4 && "prototype" in e4.Document) {
+        var s2 = polyfill(e4.Document.prototype.querySelector);
+        e4.Document.prototype.querySelector = function querySelector(e5) {
+          return s2.apply(this, arguments);
+        };
+        var l2 = polyfill(e4.Document.prototype.querySelectorAll);
+        if (e4.Document.prototype.querySelectorAll = function querySelectorAll(e5) {
+          return l2.apply(this, arguments);
+        }, e4.Document.prototype.matches) {
+          var i2 = polyfill(e4.Document.prototype.matches);
+          e4.Document.prototype.matches = function matches(e5) {
+            return i2.apply(this, arguments);
+          };
+        }
+        if (e4.Document.prototype.closest) {
+          var c2 = polyfill(e4.Document.prototype.closest);
+          e4.Document.prototype.closest = function closest(e5) {
+            return c2.apply(this, arguments);
+          };
+        }
+      }
+      function pseudoClassHasInnerQuery(e5) {
+        for (var t4 = "", r3 = 0, o3 = 0, n3 = false, s3 = false, l3 = false, i3 = false, c3 = 0; c3 < e5.length; c3++) {
+          var a2 = e5[c3];
+          if (n3) t4 += a2, n3 = false;
+          else if (s3) a2 === l3 && (s3 = false), t4 += a2;
+          else switch (":has(" !== t4.toLowerCase() || i3 || (i3 = true, r3 = c3, t4 = ""), a2) {
+            case ":":
+              i3 || (t4 = ""), t4 += a2;
+              continue;
+            case "(":
+              i3 && o3++, t4 += a2;
+              continue;
+            case ")":
+              if (i3) {
+                if (0 === o3) return { innerQuery: t4, start: r3, end: c3 - 1 };
+                o3--;
+              }
+              t4 += a2;
+              continue;
+            case "\\":
+              t4 += a2, n3 = true;
+              continue;
+            case '"':
+            case "'":
+              t4 += a2, s3 = true, l3 = a2;
+              continue;
+            default:
+              t4 += a2;
+              continue;
+          }
+        }
+        return false;
+      }
+      function replaceScopeWithAttr(e5, t4) {
+        for (var r3 = [], o3 = "", n3 = false, s3 = false, l3 = false, i3 = 0, c3 = 0; c3 < e5.length; c3++) {
+          var a2 = e5[c3];
+          if (n3) o3 += a2, n3 = false;
+          else if (s3) a2 === l3 && (s3 = false), o3 += a2;
+          else switch (":scope" === o3.toLowerCase() && !i3 && /^[\[\.\:\\"\s|+>~#&,)]/.test(a2 || "") && (r3.push(o3.slice(0, o3.length - 6)), r3.push("[" + t4 + "]"), o3 = ""), a2) {
+            case ":":
+              r3.push(o3), o3 = "", o3 += a2;
+              continue;
+            case "\\":
+              o3 += a2, n3 = true;
+              continue;
+            case '"':
+            case "'":
+              o3 += a2, s3 = true, l3 = a2;
+              continue;
+            case "[":
+              o3 += a2, i3++;
+              continue;
+            case "]":
+              o3 += a2, i3 > 0 && i3--;
+              continue;
+            default:
+              o3 += a2;
+              continue;
+          }
+        }
+        return ":scope" === o3.toLowerCase() && (r3.push(o3.slice(0, o3.length - 6)), r3.push("[" + t4 + "]"), o3 = ""), 0 === r3.length ? e5 : r3.join("") + o3;
+      }
+      function charIsNestedMarkMirror(e5, t4) {
+        return "(" === t4 && ")" === e5 || "[" === t4 && "]" === e5;
+      }
+      function splitSelector(e5) {
+        for (var t4 = [], r3 = "", o3 = false, n3 = false, s3 = false, l3 = false, i3 = 0, c3 = 0; c3 < e5.length; c3++) {
+          var a2 = e5[c3];
+          if (o3) r3 += a2, o3 = false;
+          else switch (a2) {
+            case ",":
+              if (n3) {
+                r3 += a2;
+                continue;
+              }
+              if (i3 > 0) {
+                r3 += a2;
+                continue;
+              }
+              t4.push(r3), r3 = "";
+              continue;
+            case "\\":
+              r3 += a2, o3 = true;
+              continue;
+            case '"':
+            case "'":
+              if (n3 && a2 === s3) {
+                r3 += a2, n3 = false;
+                continue;
+              }
+              r3 += a2, n3 = true, s3 = a2;
+              continue;
+            case "(":
+            case ")":
+            case "[":
+            case "]":
+              if (n3) {
+                r3 += a2;
+                continue;
+              }
+              if (charIsNestedMarkMirror(a2, l3)) {
+                r3 += a2, 0 === --i3 && (l3 = false);
+                continue;
+              }
+              if (a2 === l3) {
+                r3 += a2, i3++;
+                continue;
+              }
+              r3 += a2, i3++, l3 = a2;
+              continue;
+            default:
+              r3 += a2;
+              continue;
+          }
+        }
+        return t4.push(r3), t4;
+      }
+      function replaceAllWithTempAttr(e5, t4, r3) {
+        var o3 = pseudoClassHasInnerQuery(e5);
+        if (!o3) return e5;
+        if (t4) return false;
+        var n3 = o3.innerQuery, s3 = "q-has" + (Math.floor(9e6 * Math.random()) + 1e6), l3 = "[" + s3 + "]", i3 = e5;
+        if (o3.innerQuery.toLowerCase().indexOf(":has(") > -1) {
+          for (var c3 = splitSelector(o3.innerQuery), a2 = [], u2 = 0; u2 < c3.length; u2++) {
+            var p2 = c3[u2];
+            if (!replaceAllWithTempAttr(p2, true, function() {
+            })) throw new Error("Nested :has() is not supported");
+            a2.push(p2);
+          }
+          var f2 = i3.substring(0, o3.start - 5), d2 = i3.substring(o3.end + 2);
+          return f2 + a2.join(", ") + d2;
+        }
+        f2 = i3.substring(0, o3.start - 5), d2 = i3.substring(o3.end + 2);
+        if (i3 = f2 + l3 + d2, r3(n3, s3), i3.toLowerCase().indexOf(":has(") > -1) {
+          var h2 = replaceAllWithTempAttr(i3, false, r3);
+          if (h2) return h2;
+        }
+        return i3;
+      }
+      function walkNode(e5, t4) {
+        if ("setAttribute" in e5 && "querySelector" in e5 && t4(e5), e5.hasChildNodes()) for (var r3 = e5.childNodes, o3 = 0; o3 < r3.length; ++o3) walkNode(r3[o3], t4);
+      }
+      function polyfill(t4) {
+        return function(r3) {
+          if (!r3) return t4.apply(this, arguments);
+          var o3, n3 = String(r3);
+          if (!n3 || -1 === n3.toLowerCase().indexOf(":has(") || !pseudoClassHasInnerQuery(n3)) return t4.apply(this, arguments);
+          if ("getRootNode" in this) o3 = this.getRootNode();
+          else for (var s3 = this; s3; ) o3 = s3, s3 = s3.parentNode;
+          var l3 = this;
+          l3 === e4.document && (l3 = e4.document.documentElement);
+          var i3 = "q-has-scope" + (Math.floor(9e6 * Math.random()) + 1e6);
+          l3.setAttribute(i3, "");
+          try {
+            n3 = replaceScopeWithAttr(n3, i3);
+            var c3 = [i3], u2 = replaceAllWithTempAttr(n3, false, function(e5, t5) {
+              c3.push(t5);
+              for (var r4 = splitSelector(e5), n4 = 0; n4 < r4.length; n4++) {
+                var s4 = r4[n4].trim(), l4 = s4;
+                l4 = ">" === s4[0] || "+" === s4[0] || "~" === s4[0] ? s4.slice(1).trim() : ":scope " + s4, walkNode(o3, function(e6) {
+                  if (e6.querySelector(l4)) switch (s4[0]) {
+                    case "~":
+                    case "+":
+                      for (var r5 = e6.childNodes, o4 = 0; o4 < r5.length; o4++) {
+                        var n5 = r5[o4];
+                        if ("setAttribute" in n5) {
+                          var i4 = "q-has-id" + (Math.floor(9e6 * Math.random()) + 1e6);
+                          n5.setAttribute(i4, ""), e6.querySelector(":scope [" + i4 + "] " + s4) && n5.setAttribute(t5, ""), n5.removeAttribute(i4);
+                        }
+                      }
+                      break;
+                    case ">":
+                      i4 = "q-has-id" + (Math.floor(9e6 * Math.random()) + 1e6);
+                      e6.setAttribute(i4, ""), e6.querySelector(":scope[" + i4 + "] " + s4) && e6.setAttribute(t5, ""), e6.removeAttribute(i4);
+                      break;
+                    default:
+                      e6.setAttribute(t5, "");
+                  }
+                });
+              }
+            });
+            arguments[0] = u2;
+            var p2 = t4.apply(this, arguments);
+            if (l3.removeAttribute(i3), c3.length > 0) {
+              for (var f2 = [], d2 = 0; d2 < c3.length; d2++) f2.push("[" + c3[d2] + "]");
+              for (var h2 = e4.document.querySelectorAll(f2.join(",")), m2 = 0; m2 < h2.length; m2++) for (var y2 = h2[m2], v2 = 0; v2 < c3.length; v2++) y2.removeAttribute(c3[v2]);
+            }
+            return p2;
+          } catch (g2) {
+            if (l3.removeAttribute(i3), c3.length > 0) {
+              for (f2 = [], d2 = 0; d2 < c3.length; d2++) f2.push("[" + c3[d2] + "]");
+              for (h2 = e4.document.querySelectorAll(f2.join(",")), m2 = 0; m2 < h2.length; m2++) for (y2 = h2[m2], v2 = 0; v2 < c3.length; v2++) y2.removeAttribute(c3[v2]);
+            }
+            var b2 = "";
+            try {
+              t4.apply(this, [":core-web-does-not-exist"]);
+            } catch (S2) {
+              b2 = S2.message, b2 && (b2 = b2.replace(":core-web-does-not-exist", n3));
+            }
+            b2 || (b2 = "Failed to execute 'querySelector' on 'Document': '" + n3 + "' is not a valid selector.");
+            try {
+              throw new DOMException(b2);
+            } catch (a2) {
+              throw new Error(b2);
+            }
+          }
+        };
+      }
+    })(self), ("object" == typeof window && window || "object" == typeof self && self || {}).cssHasPseudo = cssHasPseudo;
+  })();
+
   // src/main/modules/userscripts/bundled-scripts/css-fixer-entry.ts
   var MARKER = "data-bf-css-fixed";
   var MAX_SHEETS = 150;
+  var HAS_ATTR_RE = /\[(csstools-has-[a-z0-9-]+)\]/;
+  var HAS_INNER_RE = /:has\(([^()]*)\)/;
+  function decodeHasAttr(encoded) {
+    if (!encoded.startsWith("csstools-has-")) return "";
+    return encoded.slice(13).split("-").map((x2) => String.fromCharCode(parseInt(x2, 36))).join("");
+  }
+  function markHasInSheets() {
+    try {
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try {
+          rules = sheet.cssRules;
+        } catch {
+          continue;
+        }
+        for (let i2 = 0; i2 < rules.length; i2++) {
+          const text = String(rules[i2].cssText);
+          if (!text.includes("csstools-has-")) continue;
+          const am = text.match(HAS_ATTR_RE);
+          if (!am) continue;
+          const attr = am[1];
+          const F2 = decodeHasAttr(attr);
+          if (!F2) continue;
+          const hasMatches = F2.match(/:has\(/g) || [];
+          if (hasMatches.length !== 1) continue;
+          const innerMatch = F2.match(HAS_INNER_RE);
+          if (!innerMatch) continue;
+          const inner = innerMatch[1].trim();
+          if (/^[>+~]/.test(inner)) continue;
+          const hostSel = F2.replace(HAS_INNER_RE, "").trim();
+          if (!hostSel) continue;
+          let els;
+          try {
+            els = document.querySelectorAll(inner);
+          } catch {
+            continue;
+          }
+          for (let j2 = 0; j2 < els.length; j2++) {
+            let host = null;
+            try {
+              host = els[j2].closest(hostSel);
+            } catch {
+              break;
+            }
+            if (host && host !== els[j2]) host.setAttribute(attr, "");
+          }
+        }
+      }
+    } catch {
+    }
+  }
+  var markHasTimer = null;
+  function scheduleMarkHas() {
+    if (markHasTimer !== null) return;
+    markHasTimer = window.setTimeout(() => {
+      markHasTimer = null;
+      markHasInSheets();
+    }, 500);
+  }
+  function startHasReMarkLoop() {
+    let rounds = 0;
+    const timer = window.setInterval(() => {
+      rounds += 1;
+      markHasInSheets();
+      if (rounds >= 20) window.clearInterval(timer);
+    }, 3e3);
+    for (const ev of ["click", "mouseenter"]) {
+      document.addEventListener(ev, () => scheduleMarkHas(), { capture: true, passive: true });
+    }
+  }
   var FETCH_TIMEOUT_MS = 1e4;
   var MAX_FETCH_ATTEMPTS = 2;
   function toArray(list2) {
@@ -10377,6 +11082,7 @@ ${t4.join("\n")}`);
         el.setAttribute(MARKER, "1");
         el.__bfLastWrite = out;
         el.textContent = out;
+        scheduleMarkHas();
       } else {
         el.__bfLastWrite = text;
       }
@@ -10409,6 +11115,7 @@ ${t4.join("\n")}`);
       style.textContent = rewriteCssText(text);
       (_a = link.parentNode) == null ? void 0 : _a.insertBefore(style, link.nextSibling);
       link.remove();
+      scheduleMarkHas();
     } catch {
       try {
         link.disabled = false;
@@ -10436,6 +11143,7 @@ ${t4.join("\n")}`);
         processed += 1;
         void processLink(link);
       };
+      const scheduleReMark = () => scheduleMarkHas();
       const observer = new MutationObserver((mutations) => {
         if (processed >= MAX_SHEETS) {
           observer.disconnect();
@@ -10445,6 +11153,7 @@ ${t4.join("\n")}`);
           const target = mutation.target;
           if (target && target.nodeType === 1 && target.tagName === "STYLE") {
             handleStyle(target);
+            scheduleReMark();
           }
           const added = mutation.addedNodes;
           for (let i2 = 0; i2 < added.length; i2++) {
@@ -10453,13 +11162,16 @@ ${t4.join("\n")}`);
             const el = node;
             if (el.tagName === "STYLE") {
               handleStyle(el);
+              scheduleReMark();
             } else if (el.tagName === "LINK") {
               handleLink(el);
+              scheduleReMark();
             } else if (el.tagName === "IMG") {
               fixNextImage(el);
             } else {
               for (const style of toArray(el.querySelectorAll("style"))) handleStyle(style);
               for (const link of toArray(el.querySelectorAll('link[rel~="stylesheet"]'))) handleLink(link);
+              if (el.querySelector('style, link[rel~="stylesheet"]')) scheduleReMark();
               fixNextImages(el);
             }
           }
@@ -10469,6 +11181,8 @@ ${t4.join("\n")}`);
         for (const style of toArray(document.querySelectorAll("style"))) handleStyle(style);
         for (const link of toArray(document.querySelectorAll('link[rel~="stylesheet"]'))) handleLink(link);
         fixNextImages(document);
+        markHasInSheets();
+        startHasReMarkLoop();
         observer.observe(document.documentElement, { childList: true, subtree: true });
       };
       if (document.documentElement) {

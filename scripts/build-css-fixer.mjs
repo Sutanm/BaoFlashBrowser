@@ -15,7 +15,7 @@ const OUT = path.join(__dirname, '..', 'src', 'main', 'modules', 'userscripts', 
 const METADATA = `// ==UserScript==
 // @name         BaoFlash Modern CSS Fixer
 // @namespace    bao-flash-browser
-// @version      0.4.1
+// @version      0.5.3
 // @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
 // @match        *://*.github.com/*

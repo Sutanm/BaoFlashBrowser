@@ -43,6 +43,10 @@ const FIXTURE_HTML = `<!doctype html>
     .color-hwb { color: hwb(0 0% 0%) }
     .color-oklch { background-color: oklch(1 0 0) }
   </style>
+  <style id="has-css">
+    .m_has:has(.m_has-child) { color: rgb(1, 2, 3) }
+    .m_has-wrap:has(.m_has-child) { background-color: rgb(4, 5, 6) }
+  </style>
 </head>
 <body>
   <div id="container" class="m_container" data-strategy="block">
@@ -50,6 +54,8 @@ const FIXTURE_HTML = `<!doctype html>
     <div id="ext" class="m_ext" data-x>external</div>
     <div id="plain" class="plain">plain</div>
   </div>
+  <div id="hasbox" class="m_has"><span class="m_has-child">has-child</span></div>
+  <div id="hasbox2" class="m_has-wrap"><span class="m_has-child">has-child2</span></div>
   <div id="nest" class="nest-base"><span class="nest-child">nested</span></div>
   <div id="chwb" class="color-hwb">hwb</div>
   <div id="coklch" class="color-oklch">oklch</div>
@@ -122,6 +128,27 @@ const ASSERT_SCRIPT = `(() => {
     uuidPolyfill: window.__uuidPolyfill || null,
     atPolyfill: window.__atPolyfill || null,
     corePolyfills: window.__corePolyfills || null,
+    hasMarker: (() => {
+      const el = document.getElementById('hasbox');
+      if (!el) return null;
+      const attrs = [];
+      for (let i = 0; i < el.attributes.length; i++) attrs.push(el.attributes[i].name);
+      return attrs.some((a) => a.startsWith('csstools-has-')) ? 'marked' : attrs.join(',');
+    })(),
+    hasColor: (() => {
+      const el = document.getElementById('hasbox');
+      return el ? getComputedStyle(el).color : 'no-el';
+    })(),
+    hasBox2Bg: (() => {
+      const el = document.getElementById('hasbox2');
+      return el ? getComputedStyle(el).backgroundColor : 'no-el';
+    })(),
+    hasRuleInCssom: (() => {
+      for (const s of document.styleSheets) {
+        try { for (const r of s.cssRules) if (String(r.cssText).includes('csstools-has-')) return true; } catch { /* ignore */ }
+      }
+      return false;
+    })(),
     inlineMarked: (document.getElementById('inline-css') || {}).getAttribute ? document.getElementById('inline-css').getAttribute('data-bf-css-fixed') : null,
     inlineHead: (document.getElementById('inline-css') || {}).textContent ? (document.getElementById('inline-css').textContent || '').slice(0, 400) : null,
     links,
@@ -241,7 +268,9 @@ app.whenReady().then(async () => {
       && result?.cq?.color === 'rgb(10, 20, 30)'
       && result?.nextImg?.w === 218 && result?.nextImg?.h === 66
       && (result?.uuidPolyfill ?? null) !== null
-      && (result?.atPolyfill ?? null) !== null;
+      && (result?.atPolyfill ?? null) !== null
+      && result?.hasColor === 'rgb(1, 2, 3)'
+      && result?.hasBox2Bg === 'rgb(4, 5, 6)';
     if (done) break;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
@@ -270,6 +299,10 @@ app.whenReady().then(async () => {
       && result?.corePolyfills?.groupBy === '{"odd":[1,3],"even":[2]}',
     result?.corePolyfills);
   check('inline style fully fixed (no :where remains after polyfill cooperation)', !(result?.inlineHead || '').includes(':where('), result?.inlineHead);
+  check('has polyfill marker applied', result?.hasMarker === 'marked', result?.hasMarker);
+  check('has polyfill rule in cssom', result?.hasRuleInCssom === true, result?.hasRuleInCssom);
+  check('has polyfill style applied', result?.hasColor === 'rgb(1, 2, 3)', result?.hasColor);
+  check('has polyfill second rule applied', result?.hasBox2Bg === 'rgb(4, 5, 6)', result?.hasBox2Bg);
 
   host.destroy();
   srv.close();
