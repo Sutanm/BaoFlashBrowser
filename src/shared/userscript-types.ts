@@ -34,6 +34,9 @@ export interface InstalledUserscript {
   installedAt: number;
   updatedAt: number;
   revision: number;
+  /** Set when the user saves an edit through the editor; built-in scripts
+   *  with this flag are never overwritten by bundled version updates. */
+  edited?: boolean;
 }
 
 export type GMSerializable =
@@ -96,4 +99,5 @@ export interface ScriptCommand {
   scriptId: string;
   documentId: string;
   title: string;
+  isMainFrame: boolean;
 }

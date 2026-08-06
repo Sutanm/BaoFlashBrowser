@@ -46,7 +46,8 @@ app.whenReady().then(async () => {
 
   // 2. Manager sees it and a matching page snapshot includes it.
   const listed = mod.listUserscripts();
-  check('list returns the script', listed.length === 1 && listed[0].id === installed.script.id);
+  check('list returns the script', listed.some((s) => s.id === installed.script.id), listed.map((s) => s.id));
+  check('built-in css fixer auto-installed', listed.some((s) => s.metadata.name === 'BaoFlash Modern CSS Fixer'), listed.map((s) => s.metadata.name));
 
   const srv = http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -90,15 +91,16 @@ app.whenReady().then(async () => {
   check('script id matches installed id', complete?.detail?.scriptId === installed.script.id, { reportScriptId: complete?.detail?.scriptId, installedId: installed.script.id });
 
   // 4. Toggle disable then re-enable.
-  check('disable', mod.setUserscriptEnabled(installed.script.id, false) === true && mod.listUserscripts()[0].enabled === false);
-  check('enable', mod.setUserscriptEnabled(installed.script.id, true) === true && mod.listUserscripts()[0].enabled === true);
+  const byId = (id) => mod.listUserscripts().find((s) => s.id === id);
+  check('disable', mod.setUserscriptEnabled(installed.script.id, false) === true && byId(installed.script.id)?.enabled === false);
+  check('enable', mod.setUserscriptEnabled(installed.script.id, true) === true && byId(installed.script.id)?.enabled === true);
 
   // 5. Persistence: "restart" by re-reading the store from disk.
   const restarted = mod.listUserscripts();
-  check('persists across restart', restarted.length === 1 && restarted[0].id === installed.script.id);
+  check('persists across restart', restarted.some((s) => s.id === installed.script.id), restarted.map((s) => s.id));
 
   // 6. Uninstall.
-  check('uninstall', mod.uninstallUserscript(installed.script.id) === true && mod.listUserscripts().length === 0);
+  check('uninstall', mod.uninstallUserscript(installed.script.id) === true && !mod.listUserscripts().some((s) => s.id === installed.script.id), mod.listUserscripts().map((s) => s.id));
 
   host.destroy();
   srv.close();

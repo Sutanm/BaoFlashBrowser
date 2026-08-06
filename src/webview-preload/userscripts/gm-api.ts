@@ -14,6 +14,7 @@ export interface GmApiBridge {
 export interface GmApiContext {
   script: SnapshotScript;
   documentId: string;
+  isMainFrame: boolean;
   values: Record<string, GMSerializable>;
   resources?: Record<string, { text: string; url: string }>;
   bridge: GmApiBridge;
@@ -56,7 +57,7 @@ function applyAttributes(element: HTMLElement, attributes: Record<string, unknow
 }
 
 export function createGmApi(context: GmApiContext): GmApi {
-  const { script, documentId, values, resources, bridge } = context;
+  const { script, documentId, isMainFrame, values, resources, bridge } = context;
   let nextCommandId = 1;
   const menuCallbacks = new Map<number, () => void>();
   let openInTabCalled = false;
@@ -233,6 +234,7 @@ export function createGmApi(context: GmApiContext): GmApi {
       commandId,
       scriptId: script.id,
       documentId,
+      isMainFrame,
       title: String(title).slice(0, 200),
     });
     return localId;

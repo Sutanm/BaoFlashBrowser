@@ -66,15 +66,14 @@ export class UserscriptManager {
     this.sendToWc = options?.sendToWc;
   }
 
+  // Rebuilds the script index from the given list (scriptStore is the single
+  // source of truth). MUST clear first: incremental merging would leave
+  // disabled/uninstalled scripts matching forever (disable/enable then only
+  // taking effect after a restart — reproduced).
   loadScripts(scripts: InstalledUserscript[]): void {
-    // Clear before re-populating: a script whose metadata/enabled flag
-    // changed since the last load must not linger with the stale value.
-    // Disabled scripts ARE kept in the index so matchingFor() can surface
-    // them in the sidebar with an "enable" button; snapshotFor() is the
-    // gate that skips disabled scripts at injection time.
     this.scripts.clear();
-    this.requireGaps.clear();
     for (const script of scripts) {
+      if (!script.enabled) continue;
       const metadata = script.metadata;
       this.scripts.set(script.id, { ...script, rules: compileRules(metadata) });
     }
@@ -124,7 +123,6 @@ export class UserscriptManager {
     const matched: SnapshotScript[] = [];
     let sourceBytes = 0;
     for (const script of this.scripts.values()) {
-      if (!script.enabled) continue;
       if (!matchesUrl(script.rules, frameUrl)) continue;
       if (script.metadata.noframes && !isMainFrame) continue;
       let source = script.source;
@@ -207,7 +205,6 @@ export class UserscriptManager {
     if (!this.requireCache) return;
     const urls = new Set<string>();
     for (const script of this.scripts.values()) {
-      if (!script.enabled) continue;
       for (const requireUrl of script.metadata.require) urls.add(requireUrl);
       for (const res of script.metadata.resource) urls.add(res.url);
     }
@@ -215,7 +212,6 @@ export class UserscriptManager {
       this.requireCache!.ensure(url).then((result) => {
         if (result.ok) return;
         for (const script of this.scripts.values()) {
-          if (!script.enabled) continue;
           if (!script.metadata.require.includes(url)) continue;
           const gaps = this.requireGaps.get(script.id) ?? [];
           if (!gaps.includes(url)) gaps.push(url);
@@ -349,13 +345,26 @@ export class UserscriptManager {
   // so it is unique across frames, documents and scripts without a main-process
   // round trip. The main process validates the full shape — documentId prefix,
   // scriptId match and positive integer localId — and adopts it as-is.
-  registerMenuCommand(wcId: number, scriptId: string, documentId: string, title: string, commandId: string): boolean {
+  //
+  // Dedupe: the same script registers identical titles in every matching frame
+  // (main frame and sub-frames). webContents.send() only reaches the MAIN-frame
+  // preload, so sub-frame registrations can never be invoked — listing them
+  // duplicates commands and makes clicks silently dead. Keep exactly one entry
+  // per script+title on a view, preferring the main-frame registration.
+  registerMenuCommand(wcId: number, scriptId: string, documentId: string, title: string, commandId: string, isMainFrame: boolean): boolean {
     if (!this.views.has(wcId)) return false;
     const expectedPrefix = `${documentId}:${scriptId}:`;
     if (!commandId || commandId.length > 200 || !commandId.startsWith(expectedPrefix)) return false;
     const localId = Number(commandId.slice(expectedPrefix.length));
     if (!Number.isInteger(localId) || localId < 1) return false;
-    this.commands.set(commandId, { commandId, scriptId, documentId, title });
+    for (const existing of this.commands.values()) {
+      if (existing.scriptId !== scriptId || existing.title !== title) continue;
+      if (existing.isMainFrame || !isMainFrame) return true;
+      this.commands.delete(existing.commandId);
+      this.commandsByWc.get(wcId)?.delete(existing.commandId);
+      break;
+    }
+    this.commands.set(commandId, { commandId, scriptId, documentId, title, isMainFrame });
     let bucket = this.commandsByWc.get(wcId);
     if (!bucket) {
       bucket = new Set();

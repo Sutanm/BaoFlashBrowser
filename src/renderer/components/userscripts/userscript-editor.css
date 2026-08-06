@@ -1,0 +1,61 @@
+/* CodeMirror 5 theming for the userscript editor — adapts to the app's
+   light/dark CSS variables (body.dark flips the token palette). */
+
+.userscript-editor {
+  height: calc(100% - 60px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.userscript-editor .CodeMirror {
+  height: 100%;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.userscript-editor .CodeMirror-gutters {
+  background: var(--bg-tertiary);
+  border-right: 1px solid var(--border);
+}
+
+.userscript-editor .CodeMirror-linenumber {
+  color: var(--text-secondary);
+}
+
+.userscript-editor .CodeMirror-cursor {
+  border-left: 2px solid var(--accent);
+}
+
+.userscript-editor .CodeMirror-selected {
+  background: rgba(0, 113, 227, 0.2);
+}
+
+.userscript-editor .CodeMirror-matchingbracket {
+  outline: 1px solid var(--accent);
+  color: inherit !important;
+}
+
+/* syntax tokens: light */
+body:not(.dark) .userscript-editor .cm-keyword { color: #0550ae; }
+body:not(.dark) .userscript-editor .cm-string, body:not(.dark) .userscript-editor .cm-string-2 { color: #0a3069; }
+body:not(.dark) .userscript-editor .cm-comment { color: #6e7781; font-style: italic; }
+body:not(.dark) .userscript-editor .cm-number, body:not(.dark) .userscript-editor .cm-atom { color: #0550ae; }
+body:not(.dark) .userscript-editor .cm-def { color: #8250df; }
+body:not(.dark) .userscript-editor .cm-variable { color: #1d1d1f; }
+body:not(.dark) .userscript-editor .cm-property { color: #0550ae; }
+body:not(.dark) .userscript-editor .cm-operator { color: #1d1d1f; }
+
+/* syntax tokens: dark */
+body.dark .userscript-editor .cm-keyword { color: #c586c0; }
+body.dark .userscript-editor .cm-string, body.dark .userscript-editor .cm-string-2 { color: #ce9178; }
+body.dark .userscript-editor .cm-comment { color: #6a737d; font-style: italic; }
+body.dark .userscript-editor .cm-number, body.dark .userscript-editor .cm-atom { color: #b5cea8; }
+body.dark .userscript-editor .cm-def { color: #82aaff; }
+body.dark .userscript-editor .cm-variable { color: #cdd6f4; }
+body.dark .userscript-editor .cm-property { color: #89b4fa; }
+body.dark .userscript-editor .cm-operator { color: #cdd6f4; }

@@ -4,7 +4,7 @@
 
 ```bash
 npm start          # i18n generate → esbuild main + Vite renderer → electron
-npm run build      # esbuild main + Vite renderer only (no i18n)
+npm run build      # build:css-fixer (bundled userscripts) + esbuild main + Vite renderer (no i18n)
 npm run dev        # concurrently watch esbuild main + Vite renderer (no auto-restart)
 npm run i18n       # typesafe-i18n one-shot codegen (run before build if strings changed)
 npm run lint       # eslint src/ --ext .ts,.tsx
@@ -15,6 +15,7 @@ npm run test:electron # BrowserView lifecycle smoke
 npm run test:ruffle   # bundled Ruffle protocol smoke
 npm run test:userscripts      # runtime smoke (builds release/tests preload first)
 npm run test:userscripts-admin# admin E2E smoke (builds release/tests module first)
+npm run test:css-fixer        # built-in CSS fixer smoke (fixture page, both injection paths)
 npm run probe       # tools/probe quick health probes (pure Node, seconds)
 npm run probe:deep  # tools/probe Electron probes (manager + BrowserView runtime health)
 npm run check      # i18n + typecheck + lint + tests + production build
@@ -89,6 +90,7 @@ code (reproduced: command-dedupe fix "not working" because the admin module was 
 - **SPA soft navigation never creates a document** — scripts must not re-run; URL changes are recorded via `did-navigate-in-page` → `manager.spaNavigate` (do not patch `history` in the preload).
 - **`webContents.send` reaches only the MAIN-frame preload** — `GM_registerMenuCommand` registrations from sub-frames can never be invoked (the main-frame preload drops them by `documentId` mismatch), so the sidebar would list dead duplicate commands. Fix: dedupe commands per script+title in the manager and keep only the main-frame entry (preload sends `isMainFrame` with the registration).
 - **No-arg IPC channels must be validated with `z.object({}).optional()`** — a bare `z.object({})` rejects `undefined` payloads, so channels like `userscripts:list` / `userscripts:install-file` (called with no arguments) fail validation.
+- **Bundled userscripts are embedded as TEXT at build time** — edit `bundled-scripts/css-fixer-entry.ts` then run `npm run build:css-fixer` to regenerate `css-fixer.user.js` (checked in), or the main bundle and `test:css-fixer`/admin smokes test STALE code. The snapshot source budget is 512KB/page (`maxSourceBytesPerPage`), not the 64KB value budget. Chromium 87 `link.disabled = true → false` does not reliably reload a stylesheet — always replace the `<link>` with a rewritten/verbatim `<style>`. CSS rules dropped by unsupported pseudo-classes never exist in the CSSOM; rewriting must happen at the CSS text layer.
 - **Standalone Electron smoke scripts must mock every preload channel and pin userData** — `tests/electron/*.cjs` do NOT load `userscripts.ipc.ts`, so the preload's `get-config`/`report`/`menu-register` sends are silently dropped unless the script registers its own `ipcMain.on` handlers. They must also `app.setPath('userData', .../bao-flash-browser)`, else electron-store reads `%APPDATA%\Electron` (reproduced: script "installed" in the wrong store).
 - **Sub-frame script execution works in BOTH modes** — verified by `tests/electron/ruffle-iframe-smoke.cjs` (Ruffle/contextIsolation:false). If a Ruffle game shows no iframe badge, the game is inline in the main document (Ruffle replaces `<embed>/<object>` in-place), not a missing preload.
 - **Never attempt to override or upgrade Electron version.** Everything depends on Chromium 87.

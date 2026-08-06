@@ -7,11 +7,11 @@ interface NewTabPageProps {
   bookmarks: BookmarkEntry[];
 }
 
-const COLORS = ['#e74c3c', '#e67e22', '#3498db', '#27ae60', '#9b59b6', '#1abc9c'];
+const COLORS = ['#e67e22', '#e74c3c', '#3498db', '#27ae60', '#9b59b6', '#1abc9c'];
 
 const QUICK_LINKS = [
-  { title: '4399', url: 'https://www.4399.com/', icon: '4', bg: '#e74c3c' },
   { title: '7k7k', url: 'https://www.7k7k.com/', icon: '7', bg: '#e67e22' },
+  { title: '4399', url: 'https://www.4399.com/', icon: '4', bg: '#e74c3c' },
   { title: 'Bing', url: 'https://www.bing.com/', icon: 'B', bg: '#00897b' },
   { title: '百度', url: 'https://www.baidu.com/', icon: '百', bg: '#3498db' },
   { title: 'GitHub', url: 'https://github.com/', icon: 'G', bg: '#333' },

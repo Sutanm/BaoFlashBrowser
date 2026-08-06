@@ -8,6 +8,9 @@ await esbuild.build({
   format: 'cjs',
   target: 'node12',
   external: ['electron', 'electron-log', 'electron-store'],
+  loader: {
+    '.user.js': 'text',
+  },
   entryPoints: ['src/main/modules/userscripts/index.ts'],
   outfile: 'release/tests/userscripts-admin-module.cjs',
 });

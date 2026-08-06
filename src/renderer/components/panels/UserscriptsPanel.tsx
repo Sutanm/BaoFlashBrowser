@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, Puzzle } from 'lucide-react';
+import { useDataStore } from '../../store/useDataStore';
 
 interface MatchingScript {
   id: string;
@@ -26,6 +27,8 @@ interface UserscriptsPanelProps {
 export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: UserscriptsPanelProps): React.JSX.Element {
   const [scripts, setScripts] = useState<MatchingScript[]>([]);
   const [commands, setCommands] = useState<MenuCommand[]>([]);
+  const [runningCommand, setRunningCommand] = useState<string | null>(null);
+  const pushToast = useDataStore((s) => s.pushToast);
 
   const refresh = useCallback(async () => {
     if (!tabId) {
@@ -50,10 +53,32 @@ export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: Users
     void refresh();
   }, [refresh]);
 
+  // Live sync with the management page / other panels.
+  useEffect(() => {
+    const off = window.electronAPI.userscripts.onChanged(() => void refresh());
+    return off;
+  }, [refresh]);
+
   const toggle = useCallback(async (id: string, enabled: boolean): Promise<void> => {
     await window.electronAPI.userscripts.setEnabled(id, enabled);
     void refresh();
   }, [refresh]);
+
+  const runCommand = useCallback(async (commandId: string): Promise<void> => {
+    if (!tabId || runningCommand) return;
+    setRunningCommand(commandId);
+    try {
+      const result = await window.electronAPI.userscripts.invokeCommand(tabId, commandId);
+      pushToast({
+        message: result?.ok ? '命令已发送到页面' : '命令执行失败(脚本可能已卸载或页面已刷新)',
+        type: result?.ok ? 'success' : 'error',
+      });
+    } catch {
+      pushToast({ message: '命令执行失败', type: 'error' });
+    } finally {
+      setRunningCommand(null);
+    }
+  }, [tabId, runningCommand, pushToast]);
 
   return (
     <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -96,10 +121,11 @@ export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: Users
               <li key={command.commandId}>
                 <button
                   type="button"
-                  style={{ width: '100%', textAlign: 'left', fontSize: 13, cursor: 'pointer', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px' }}
-                  onClick={() => { if (tabId) void window.electronAPI.userscripts.invokeCommand(tabId, command.commandId); }}
+                  disabled={runningCommand === command.commandId}
+                  style={{ width: '100%', textAlign: 'left', fontSize: 13, cursor: runningCommand === command.commandId ? 'wait' : 'pointer', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', opacity: runningCommand === command.commandId ? 0.6 : 1 }}
+                  onClick={() => void runCommand(command.commandId)}
                 >
-                  {command.title}
+                  {runningCommand === command.commandId ? '执行中…' : command.title}
                 </button>
               </li>
             ))}

@@ -14,6 +14,10 @@ const shared = {
     '@shared': './src/shared',
     '@main': './src/main',
   },
+  loader: {
+    // Built-in userscript sources are embedded as text into the main bundle
+    '.user.js': 'text',
+  },
   logLevel: 'info',
 };
 

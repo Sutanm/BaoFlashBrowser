@@ -68,9 +68,9 @@ export function registerUserscriptsIPC(): void {
 
   registerValidatedListener(
     'userscript:menu-register',
-    z.object({ commandId: z.string(), scriptId: z.string(), documentId: z.string(), title: z.string() }),
+    z.object({ commandId: z.string(), scriptId: z.string(), documentId: z.string(), isMainFrame: z.boolean().optional(), title: z.string() }),
     (event, payload) => {
-      manager()?.registerMenuCommand(event.sender.id, payload.scriptId, payload.documentId, payload.title, payload.commandId);
+      manager()?.registerMenuCommand(event.sender.id, payload.scriptId, payload.documentId, payload.title, payload.commandId, Boolean(payload.isMainFrame));
     },
   );
 

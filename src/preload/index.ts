@@ -9,6 +9,7 @@ const ALLOWED_ON_CHANNELS = new Set([
   'download:progress', 'aria2:status', 'navigate-url',
   'shortcut',
   'password:captured', 'password:changed', 'password:filled',
+  'userscripts:changed',
 ]);
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
@@ -164,6 +165,11 @@ const electronAPI = {
     updateSource: (id: string, source: string) => safeInvoke('userscripts:update-source', { id, source }),
     forTab: (tabId: string, url: string) => safeInvoke('userscripts:for-tab', { tabId, url }),
     invokeCommand: (tabId: string, commandId: string) => safeInvoke('userscripts:invoke-command', { tabId, commandId }),
+    onChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('userscripts:changed', listener);
+      return () => { ipcRenderer.removeListener('userscripts:changed', listener); };
+    },
   },
 };
 

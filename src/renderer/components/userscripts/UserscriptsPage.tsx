@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, Pencil, Upload, Link as LinkIcon, ClipboardPaste } from 'lucide-react';
 import type { InstalledUserscript, ParsedUserscriptMetadata } from '@shared/userscript-types';
+import UserscriptEditor from './UserscriptEditor';
 
 type Section = 'installed' | 'editor' | 'install';
 type Filter = 'all' | 'enabled' | 'disabled';
@@ -99,6 +100,13 @@ export default function UserscriptsPage(): React.JSX.Element {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Live sync: re-query whenever the main process reports a store change
+  // (installs/enables/deletes from the sidebar panel or this page itself).
+  useEffect(() => {
+    const off = window.electronAPI.userscripts.onChanged(() => void refresh());
+    return off;
   }, [refresh]);
 
   const showNotice = useCallback((message: string): void => {
@@ -243,14 +251,12 @@ export default function UserscriptsPage(): React.JSX.Element {
           </button>
         </div>
         {editor.error ? <p style={{ color: '#e5484d', marginBottom: 8 }}>保存失败：{editor.error}</p> : null}
-        <textarea
+        <UserscriptEditor
           value={editor.source}
-          spellCheck={false}
-          onChange={(event) => {
-            editorDirtyRef.current = event.target.value !== editor.initialSource;
-            setEditor((previous) => (previous ? { ...previous, source: event.target.value, error: null } : previous));
+          onChange={(value) => {
+            editorDirtyRef.current = value !== editor.initialSource;
+            setEditor((previous) => (previous ? { ...previous, source: value, error: null } : previous));
           }}
-          style={{ width: '100%', height: 'calc(100% - 60px)', padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontFamily: 'Consolas, monospace', fontSize: 12, resize: 'none', boxSizing: 'border-box' }}
         />
       </div>
     );

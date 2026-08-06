@@ -3,7 +3,7 @@
 // script VALUES stay in-memory until the data-management UI column lands.
 // Request/download services use the persist: session.
 
-import { app, net, session, webContents } from 'electron';
+import { app, BrowserWindow, net, session, webContents } from 'electron';
 import path from 'path';
 import { mkdirSync } from 'fs';
 import { UserscriptManager } from './userscript-manager';
@@ -13,7 +13,56 @@ import { GmRequestService } from './userscript-request-service';
 import { GmDownloadService } from './userscript-download-service';
 import { ScriptStore, scriptIdFor } from './script-store';
 import { parseUserscriptMetadata } from './userscript-parser';
+import { setupJsPatchInterceptor } from '../js-patch-service';
 import type { InstalledUserscript } from '../../../shared/userscript-types';
+// Bundled built-in userscripts are embedded as text at build time (see
+// esbuild.main.config.mjs loader). css-fixer.user.js is generated from
+// bundled-scripts/css-fixer-entry.ts by scripts/build-css-fixer.mjs.
+import cssFixerSource from './bundled-scripts/css-fixer.user.js';
+
+// Built-in scripts: installed automatically on first launch, then treated
+// like any other userscript (editable, disable-able, deletable; a deleted
+// built-in returns on the next launch since it is installed when missing).
+// Version bumps in the bundled source update non-edited installs, so fixes
+// shipped in a new build reach users; scripts the user has saved through
+// the editor (edited=true) are never overwritten. Updates are upgrade-only:
+// an OLD build (stale dist) must never downgrade a newer stored version.
+const BUNDLED_SCRIPTS: Array<{ id: string; source: string }> = [
+  {
+    id: scriptIdFor('BaoFlash Modern CSS Fixer', 'bao-flash-browser'),
+    source: cssFixerSource,
+  },
+];
+
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function ensureBundledScripts(): void {
+  if (!scriptStore) return;
+  for (const bundled of BUNDLED_SCRIPTS) {
+    const stored = scriptStore.get(bundled.id);
+    if (!stored) {
+      installUserscript(bundled.source, { id: bundled.id });
+      continue;
+    }
+    if (stored.edited) continue;
+    const bundledVersion = parseUserscriptMetadata(bundled.source)?.version;
+    if (bundledVersion && compareVersions(bundledVersion, stored.metadata.version) > 0) {
+      installUserscript(bundled.source, { id: bundled.id, enabled: stored.enabled });
+    }
+  }
+}
+
+// Re-run the built-in install/update pass (used at startup; exported for
+// the smoke to simulate an old bundled version appearing).
+export { ensureBundledScripts };
 
 let manager: UserscriptManager | null = null;
 let requests: GmRequestService | null = null;
@@ -38,9 +87,21 @@ function fetchText(url: string, persist: Electron.Session): Promise<string> {
   });
 }
 
+// Broadcast a change signal to every window so open management pages /
+// sidebar panels refresh without a restart (single-source-of-truth is the
+// store; the renderer just re-queries).
+function broadcastUserscriptsChanged(): void {
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('userscripts:changed');
+    }
+  } catch { /* no windows yet (init-time reload) */ }
+}
+
 function reloadManagerScripts(): void {
   if (!manager || !scriptStore) return;
   manager.loadScripts(scriptStore.list());
+  broadcastUserscriptsChanged();
 }
 
 export function initUserscriptManager(): UserscriptManager {
@@ -78,6 +139,12 @@ export function initUserscriptManager(): UserscriptManager {
       } catch { /* view gone */ }
     },
   });
+  // Install built-in scripts that are missing or outdated (see
+  // ensureBundledScripts: user edits/deletes respected).
+  ensureBundledScripts();
+  // URL-layer ES2022 chunk patching (Next.js static blocks) — the fixer's
+  // text layer cannot win the script-loading race, so this runs in main.
+  setupJsPatchInterceptor();
   reloadManagerScripts();
   return manager;
 }
@@ -157,7 +224,12 @@ export function updateUserscriptSource(id: string, source: string): UserscriptIn
   if (!scriptStore) return { ok: false, error: 'runtime not initialized' };
   const existing = scriptStore.get(id);
   if (!existing) return { ok: false, error: 'script not found' };
-  return installUserscript(source, { enabled: existing.enabled, id });
+  const result = installUserscript(source, { enabled: existing.enabled, id });
+  if (result.ok) {
+    // Mark as user-edited so built-in version updates never overwrite it.
+    scriptStore.save({ ...result.script, edited: true });
+  }
+  return result;
 }
 
 export function listUserscripts(): InstalledUserscript[] {
@@ -167,3 +239,5 @@ export function listUserscripts(): InstalledUserscript[] {
 export function getUserscriptSource(id: string): string | undefined {
   return scriptStore?.get(id)?.source;
 }
+
+export { interceptSession } from '../js-patch-service';

@@ -117,6 +117,21 @@ Ruffle 模式共享世界,`unsafeWindow === window`,不走桥。
 | `src/renderer/components/userscripts/UserscriptsPage.tsx` | 管理页 | — |
 | `src/renderer/components/panels/UserscriptsPanel.tsx` | 侧边栏面板 | — |
 
+### 4.1 内置捆绑脚本（Bundled Built-in Scripts）
+
+应用自带的内置脚本（如 **BaoFlash Modern CSS Fixer**）由 `src/main/modules/userscripts/bundled-scripts/` 管理：
+
+- `css-fixer-core.ts` — 纯逻辑层（无 DOM），`rewriteCssText()` 依次执行：`@layer` 拆层、CSS 嵌套展开（手写 postcss AST 遍历，零依赖）、`@container` 哑标记、`:where()`/`:is()` 拆包、`dvh→vh`；颜色换算在 `css-fixer-color.ts`（oklch/oklab/lch/lab/hwb/color(display-p3)/color-mix srgb|oklab → rgb，W3C 公式手写）。单测在 `tests/userscripts/css-fixer-core.test.ts`、`css-fixer-color.test.ts`。
+- `css-fixer-entry.ts` — 脚本运行时本体（document-start、MutationObserver 文本层改写、`<link>` 禁用→fetch→替换为 `<style>`、**Next.js Image 修补**：`img[width="0"]` + CSS `width:100%` 在 C87 会按 SVG 固有宽度渲染（ruffle.rs 徽章 661px vs 现代浏览器 218px），渲染宽 > 2.5×HTML height 时改为 `width:auto; height:<attr>px` 对齐现代浏览器）；`/// <reference lib="dom" />` 因为 main tsconfig 无 DOM lib。
+- `css-fixer.user.js` — **打包产物，提交入库**：`node scripts/build-css-fixer.mjs`（esbuild + banner 元数据头）生成；esbuild main 构建用 `loader: { '.user.js': 'text' }` 以文本嵌入主进程（见 `esbuild.main.config.mjs`、`bundled-scripts/asset.d.ts`；vitest 配置有同语义的 `user-js-as-text` 插件，产物永不作为 JS 执行）。
+- `vendor/container-query-polyfill.js` — GoogleChromeLabs 容器查询 polyfill（Apache-2.0）**vendor + 单补丁**：其 `<style>` 处理器只转译含容器查询信号（`@container`/`container-type`/cq 单位）的 sheet，普通现代 sheet 完全交给 Fixer 的文本层。配合机制：Fixer 先改写（含哑标记）→ polyfill 异步 innerHTML 写回（其持久的应用机制；insertRule 注入的规则会被文本替换清空）→ Fixer 的 MutationObserver **重验证**被外部改写的已标记 style（observer 必须处理目标为 STYLE 的 childList 文本突变——这是合作的关键）。已知边界：同 sheet 内的 CSS 嵌套会被 polyfill 转译丢弃（C87 下其解析器不支持 `&`）；容器查询应用为无守卫近似（条件恒真，不精确匹配容器尺寸）。
+- **ES2022 JS 语法补丁在主进程（`src/main/modules/js-patch-service.ts`）而非 Fixer**——C87 的 `<script>` 在 observer 微任务内就加载解析，渲染层补丁必然输掉竞态；只有 URL 层拦截能赢。机制：每个 view session 注册 `webRequest.onBeforeRequest`（`tabs.ts` 调 `interceptSession`），把 Next.js chunk（`/_next/static/chunks/*.js`）重定向到本地补丁服务器（127.0.0.1 随机端口），服务器拉取原 chunk → `patchModernJs`（`css-fixer-core.ts` 导出：安全的 `static{this.X=ref}` → `static get X(){return ref}`）→ 返回补丁版。浏览器从源头拿到兼容代码，Turbopack 状态干净。安全：仅 https/http + `isBlockedUrl`（loopback 白名单与 GM_xmlhttpRequest 一致）。
+- 自动安装：`userscripts/index.ts` 的 `BUNDLED_SCRIPTS` 表在 `initUserscriptManager()` 时对缺失 id 执行 `installUserscript()`——**只补缺、不覆盖用户编辑；用户删除后下次启动自恢复**。管理与普通脚本一致（可编辑/禁用/删除）。
+- **内置脚本自动更新**：打包产物的 `@version` 提升时，`ensureBundledScripts()` 会更新未编辑的安装（保留 enabled 状态）；用户在编辑器保存过（`InstalledUserscript.edited = true`）的脚本**永不覆盖**。改内置脚本记得升 `@version`，否则已装用户不会收到新版本。
+- 修改内置脚本后：`npm run build:css-fixer` 重新生成产物，再跑 `npm run test:css-fixer`（fixture 页端到端冒烟，含版本升级/编辑保护断言）。
+
+新增第二个内置脚本的步骤：在 `bundled-scripts/` 放 entry 源文件 → 仿照 build-css-fixer.mjs 建打包脚本 → 在 `esbuild.main.config.mjs`/admin smoke build 的 loader 已就绪 → `BUNDLED_SCRIPTS` 加一项。
+
 ## 5. GM API 参考
 
 实现位于 `gm-api.ts`,以 `GM` 对象 + 传统 `GM_*` 名注入脚本词法作用域。

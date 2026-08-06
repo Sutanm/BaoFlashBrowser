@@ -205,6 +205,7 @@ declare global {
           commands: Array<{ commandId: string; title: string; scriptId: string }>;
         }>;
         invokeCommand(tabId: string, commandId: string): Promise<{ ok: boolean }>;
+        onChanged(callback: () => void): () => void;
       };
     };
   }

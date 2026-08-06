@@ -88,6 +88,7 @@ export function initUserscriptRuntime(): void {
     const gm = createGmApi({
       script,
       documentId,
+      isMainFrame,
       values: (values && values[script.id]) || {},
       resources: (snapshot.resources && snapshot.resources[script.id]) || {},
       bridge: {
