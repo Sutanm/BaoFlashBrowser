@@ -1,6 +1,7 @@
 import { session } from 'electron';
 import log from 'electron-log';
 import type { Session } from 'electron';
+import { chunkRedirectUrl } from './js-patch-service';
 import { setupDownloadHandlers } from './download';
 
 const setupPartitions = new Set<string>();
@@ -138,13 +139,20 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
   // Keep Flash policy files on their original origin. PPAPI treats redirects
   // from crossdomain.xml to a data: URL as aborted, which breaks remote game
   // services after login. Only Taomee's legacy Flash-version gate is patched.
+  // This is the SINGLE onBeforeRequest listener for the session: Electron 11
+  // webRequest listeners replace each other on re-registration, so the
+  // ES2022 chunk patch (js-patch-service) shares this callback.
   sess.webRequest.onBeforeRequest(
-    { urls: ['*://webres.61.com/common/js/swfobject.js*'] },
-    (details, callback: any) => {
+    { urls: ['*://*/*'] },
+    (details: any, callback: any) => {
       try {
+        const jsRedirect = chunkRedirectUrl(details.url);
+        if (jsRedirect) {
+          callback({ redirectURL: jsRedirect });
+          return;
+        }
         const requestUrl = new URL(details.url);
-        if (requestUrl.hostname === 'webres.61.com' && requestUrl.pathname === '/common/js/swfobject.js') {
-          callback({ redirectURL: 'data:text/javascript;charset=utf-8,' + encodeURIComponent(patchedSWFObject()) });
+        if (requestUrl.hostname === 'webres.61.com' && requestUrl.pathname === '/common/js/swfobject.js') {          callback({ redirectURL: 'data:text/javascript;charset=utf-8,' + encodeURIComponent(patchedSWFObject()) });
           return;
         }
       } catch { /* let malformed/unexpected requests continue unchanged */ }
@@ -195,3 +203,4 @@ export function initSession(): void {
   setupSessionOnce(session.defaultSession);
   setupSessionOnce(session.fromPartition('persist:'));
 }
+

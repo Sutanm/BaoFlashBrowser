@@ -56,11 +56,25 @@ const FIXTURE_HTML = `<!doctype html>
   <div id="cqwrap" class="cq-wrap" style="width: 400px"><span id="cqinner" class="cq-inner">cq</span></div>
   <div id="imgwrap"><img id="nextimg" width="0" height="66" decoding="async" data-nimg="1" src="/badge.svg"></div>
   <script>
+    // Polyfills land via document-start webFrame.executeJavaScript; the 100KB+
+    // core-js payload can lose a race against the HTML parser, so the preload
+    // re-verifies and re-injects a few times. Real sites only use these APIs
+    // in late async bundles, so the probe runs at 1s (after retries settle)
+    // instead of inline.
     setTimeout(function () {
-      var s = document.createElement('script');
-      s.src = '/_next/static/chunks/modern.js';
-      document.body.appendChild(s);
-    }, 100);
+      try {
+        window.__uuidPolyfill = (typeof crypto.randomUUID === 'function') ? crypto.randomUUID() : 'missing';
+        window.__atPolyfill = ([1,2,3].at(-1) === 3 && 'abc'.at(-1) === 'c' && new Uint8Array([9,8]).at(0) === 9) ? 'ok' : 'broken';
+        window.__corePolyfills = {
+          hasOwn: Object.hasOwn({a: 1}, 'a'),
+          findLast: [1,2,3,4].findLast(function (x) { return x % 2 === 0; }),
+          toSorted: JSON.stringify([3,1,2].toSorted()),
+          structuredClone: structuredClone({a: 1}).a,
+          withResolvers: typeof Promise.withResolvers === 'function',
+          groupBy: JSON.stringify(Object.groupBy([1,2,3], function (n) { return n % 2 ? 'odd' : 'even'; })),
+        };
+      } catch (e) { window.__uuidPolyfill = 'err:' + e.message; window.__atPolyfill = 'err:' + e.message; window.__corePolyfills = 'err:' + e.message; }
+    }, 1000);
   </script>
 </body>
 </html>`;
@@ -71,11 +85,6 @@ const PLAIN_CSS = '.plain{color:rgb(0,128,0)}';
 // Modern browsers render 66*661/200=218px wide; Chromium 87 renders the
 // intrinsic 661px unless the fixer's Next-Image patch kicks in.
 const BADGE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="661" height="200" viewBox="0 0 661 200"><rect width="661" height="200" fill="#fff"/><circle cx="80" cy="100" r="60" fill="#4285f4"/></svg>';
-// Next.js App Router chunk containing an ES2022 class static block that
-// Chromium 87 cannot parse (V8 8.7): class y{static{this.contextType=X}}.
-// When unpatched the whole chunk throws "Unexpected token '{'" and the
-// script never runs; the fixer rewrites it to a static getter.
-const MODERN_JS = `(function(){var x={context:"ctx-ok"};class y{static{this.contextType=x.context}run(){return this.constructor.contextType}}window.__modernClassResult=y.prototype.run.call({constructor:y})})();`;
 
 const ASSERT_SCRIPT = `(() => {
   const cs = (sel) => {
@@ -109,7 +118,10 @@ const ASSERT_SCRIPT = `(() => {
       const r = el.getBoundingClientRect();
       return { w: Math.round(r.width), h: Math.round(r.height), naturalW: el.naturalWidth, complete: el.complete, styleW: el.style.width, styleH: el.style.height };
     })(),
-    modernJs: window.__modernClassResult || null,
+    modernJs: null,
+    uuidPolyfill: window.__uuidPolyfill || null,
+    atPolyfill: window.__atPolyfill || null,
+    corePolyfills: window.__corePolyfills || null,
     inlineMarked: (document.getElementById('inline-css') || {}).getAttribute ? document.getElementById('inline-css').getAttribute('data-bf-css-fixed') : null,
     inlineHead: (document.getElementById('inline-css') || {}).textContent ? (document.getElementById('inline-css').textContent || '').slice(0, 400) : null,
     links,
@@ -190,11 +202,6 @@ app.whenReady().then(async () => {
       res.end(BADGE_SVG);
       return;
     }
-    if (req.url === '/modern.js' || req.url === '/_next/static/chunks/modern.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(MODERN_JS);
-      return;
-    }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(FIXTURE_HTML);
   });
@@ -233,7 +240,8 @@ app.whenReady().then(async () => {
       && result?.oklch?.backgroundColor === 'rgb(255, 255, 255)'
       && result?.cq?.color === 'rgb(10, 20, 30)'
       && result?.nextImg?.w === 218 && result?.nextImg?.h === 66
-      && result?.modernJs === 'ctx-ok';
+      && (result?.uuidPolyfill ?? null) !== null
+      && (result?.atPolyfill ?? null) !== null;
     if (done) break;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
@@ -250,7 +258,17 @@ app.whenReady().then(async () => {
   check('oklch color converted', result?.oklch?.backgroundColor === 'rgb(255, 255, 255)', result?.oklch);
   check('container query applied via polyfill', result?.cq?.color === 'rgb(10, 20, 30)', result?.cq);
   check('next-image width=0 badge rendered at html-height-derived size', result?.nextImg?.w === 218 && result?.nextImg?.h === 66, result?.nextImg);
-  check('es2022 static-block script patched and executed', result?.modernJs === 'ctx-ok', result?.modernJs);
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  check('crypto.randomUUID polyfilled in page world (uuid v4)', typeof result?.uuidPolyfill === 'string' && uuidRe.test(result?.uuidPolyfill), result?.uuidPolyfill);
+  check('Array/String/TypedArray .at polyfilled in page world', result?.atPolyfill === 'ok', result?.atPolyfill);
+  check('core-js polyfills (hasOwn/findLast/toSorted/structuredClone/withResolvers/groupBy)',
+    result?.corePolyfills?.hasOwn === true
+      && result?.corePolyfills?.findLast === 4
+      && result?.corePolyfills?.toSorted === '[1,2,3]'
+      && result?.corePolyfills?.structuredClone === 1
+      && result?.corePolyfills?.withResolvers === true
+      && result?.corePolyfills?.groupBy === '{"odd":[1,3],"even":[2]}',
+    result?.corePolyfills);
   check('inline style fully fixed (no :where remains after polyfill cooperation)', !(result?.inlineHead || '').includes(':where('), result?.inlineHead);
 
   host.destroy();

@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         BaoFlash Modern CSS Fixer
 // @namespace    bao-flash-browser
-// @version      0.3.3
-// @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap + dvh). Default @match covers ruffle.rs; add more sites in the editor.
+// @version      0.4.1
+// @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
+// @match        *://*.github.com/*
 // @run-at       document-start
 // ==/UserScript==
 
@@ -10322,8 +10323,9 @@ ${t4.join("\n")}`);
 
   // src/main/modules/userscripts/bundled-scripts/css-fixer-entry.ts
   var MARKER = "data-bf-css-fixed";
-  var MAX_SHEETS = 40;
-  var FETCH_TIMEOUT_MS = 3e3;
+  var MAX_SHEETS = 150;
+  var FETCH_TIMEOUT_MS = 1e4;
+  var MAX_FETCH_ATTEMPTS = 2;
   function toArray(list2) {
     const out = [];
     for (let i2 = 0; i2 < list2.length; i2++) out.push(list2.item(i2));
@@ -10381,7 +10383,7 @@ ${t4.join("\n")}`);
     } catch {
     }
   }
-  async function processLink(link) {
+  async function processLink(link, attempt = 0) {
     var _a;
     try {
       if (link.hasAttribute(MARKER)) return;
@@ -10411,6 +10413,11 @@ ${t4.join("\n")}`);
       try {
         link.disabled = false;
       } catch {
+      }
+      if (attempt < MAX_FETCH_ATTEMPTS && link.isConnected) {
+        setTimeout(() => {
+          void processLink(link, attempt + 1);
+        }, 1500 * (attempt + 1));
       }
     }
   }

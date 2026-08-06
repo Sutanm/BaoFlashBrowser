@@ -5,121 +5,135 @@
 // React never mounts. Renderer-side patching loses the race: a <script>
 // loads and fails within the same microtask batch the observer runs in.
 //
-// This service intercepts Next.js chunk requests at the URL layer via
-// webRequest and redirects them to a custom protocol handler that fetches
-// the original source, rewrites safe class static blocks to static getters,
-// and serves the patched text. The browser only ever sees compatible JS.
+// The interception lives in session-manager's single webRequest
+// onBeforeRequest listener (Electron 11 listeners REPLACE each other, so
+// every redirect shares one callback). Chunk requests are redirected to a
+// CUSTOM PROTOCOL (bf-js-patch://) — an http://127.0.0.1 redirect would be
+// blocked as mixed content on https pages. The protocol handler fetches the
+// original chunk, rewrites safe class static blocks to static getters, and
+// serves the patched text.
 //
-// Security: the protocol handler only accepts https/http sources and reuses
-// the request service's private/loopback address guard, so a page cannot
-// turn this into a local-network probe.
+// Security: the handler only accepts https/http sources and reuses the
+// request service's private/loopback address guard, so a page cannot turn
+// this into a local-network probe.
 
-import { app, net, session, type Session } from 'electron';
+import { protocol } from 'electron';
 import http from 'http';
-import type { AddressInfo } from 'net';
+import https from 'https';
 import log from 'electron-log';
 import { patchModernJs } from '../modules/userscripts/bundled-scripts/css-fixer-core';
 import { isBlockedUrl } from '../modules/userscripts/userscript-request';
 
-// Redirect target host/port of the local patch server (started at app-ready).
-let patchServer: http.Server | null = null;
-let patchServerPort = 0;
-let serverStarted = false;
-const interceptedSessions = new WeakSet<object>();
+const PROTOCOL = 'bf-js-patch';
+let protocolRegistered = false;
 
+// In-memory patch cache: chunk URLs are content-hashed by the bundler, so a
+// URL's payload never changes — caching is safe and avoids re-downloading
+// every chunk on every tab navigation (the redirect cancels the original
+// request, so the protocol handler would otherwise re-fetch everything).
+const MAX_CACHE_ENTRIES = 200;
+const MAX_CACHE_BYTES = 64 * 1024 * 1024;
+const patchCache = new Map<string, { text: string; bytes: number }>();
+
+function cachePut(src: string, text: string): void {
+  const bytes = text.length;
+  patchCache.set(src, { text, bytes });
+  if (patchCache.size > MAX_CACHE_ENTRIES) {
+    const oldest = patchCache.keys().next().value;
+    if (oldest !== undefined) patchCache.delete(oldest);
+  }
+  let total = 0;
+  for (const entry of patchCache.values()) total += entry.bytes;
+  while (total > MAX_CACHE_BYTES && patchCache.size > 1) {
+    const oldest = patchCache.keys().next().value;
+    if (oldest === undefined) break;
+    const removed = patchCache.get(oldest);
+    patchCache.delete(oldest);
+    if (removed) total -= removed.bytes;
+  }
+}
+
+// Node http(s) client, NOT electron net.request: net.request inside a
+// registerBufferProtocol handler fails with ERR_UNKNOWN_URL_SCHEME on
+// Electron 11. Chunk CDNs serve directly; a proxy-only network degrades to
+// the original (unpatched) behavior.
 function fetchText(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const request = net.request({ url, redirect: 'follow' });
-    request.on('response', (response) => {
-      if (response.statusCode && response.statusCode >= 400) {
-        try { (response as unknown as { resume(): void }).resume(); } catch { /* ignore */ }
-        reject(new Error('HTTP ' + response.statusCode));
+    const mod = url.startsWith('https:') ? https : http;
+    const req = mod.get(url, (res) => {
+      if (res.statusCode && res.statusCode >= 400) {
+        res.resume();
+        reject(new Error('HTTP ' + res.statusCode));
         return;
       }
       const chunks: Buffer[] = [];
-      response.on('data', (chunk: Buffer) => chunks.push(chunk));
-      response.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
-    request.on('error', (error) => reject(error));
-    request.end();
+    req.on('error', reject);
   });
 }
 
 export function registerJsPatchProtocol(): void {
-  if (serverStarted) return;
-  serverStarted = true;
-  patchServer = http.createServer((req, res) => {
+  if (protocolRegistered) return;
+  protocolRegistered = true;
+  protocol.registerBufferProtocol(PROTOCOL, (request, callback) => {
     let src = '';
     try {
-      src = new URL(req.url || '/', 'http://127.0.0.1').searchParams.get('src') || '';
+      src = new URL(request.url).searchParams.get('src') || '';
     } catch { /* fallthrough */ }
+    log.info('[js-patch] protocol request', src.slice(0, 70));
     if (!/^https?:\/\//i.test(src)) {
-      res.writeHead(400, { 'content-type': 'text/plain' });
-      res.end('bad source');
+      callback({ statusCode: 400, headers: { 'content-type': 'text/plain' }, data: Buffer.from('bad source') });
       return;
     }
     if (isBlockedUrl(src, ['127.0.0.1', 'localhost'])) {
-      res.writeHead(403, { 'content-type': 'text/plain' });
-      res.end('blocked');
+      callback({ statusCode: 403, headers: { 'content-type': 'text/plain' }, data: Buffer.from('blocked') });
+      return;
+    }
+    const cached = patchCache.get(src);
+    if (cached) {
+      callback({
+        statusCode: 200,
+        headers: { 'content-type': 'application/javascript' },
+        data: Buffer.from(cached.text, 'utf8'),
+      });
       return;
     }
     fetchText(src)
       .then((text) => {
         const patched = patchModernJs(text);
-        res.writeHead(200, { 'content-type': 'application/javascript' });
-        res.end(patched ?? text, 'utf8');
+        cachePut(src, patched ?? text);
+        log.info('[js-patch] served', src.slice(0, 60), 'patched=' + (patched !== null), 'bytes=' + (patched ?? text).length);
+        callback({
+          statusCode: 200,
+          headers: { 'content-type': 'application/javascript' },
+          data: Buffer.from(patched ?? text, 'utf8'),
+        });
       })
-      .catch(() => {
-        res.writeHead(502, { 'content-type': 'text/plain' });
-        res.end('fetch failed');
+      .catch((error) => {
+        log.warn('[js-patch] fetch failed', src.slice(0, 60), error instanceof Error ? error.message : String(error));
+        callback({ statusCode: 502, headers: { 'content-type': 'text/plain' }, data: Buffer.from('fetch failed') });
       });
   });
-  patchServer.listen(0, '127.0.0.1', () => {
-    patchServerPort = (patchServer?.address() as AddressInfo | null)?.port ?? 0;
-    log.info('[js-patch] patch server on port', patchServerPort);
-  });
 }
 
-function intercept(sess: Session): void {
-  try {
-    if (interceptedSessions.has(sess)) return;
-    interceptedSessions.add(sess);
-    // Broad pattern + JS filter: Electron 11's match-pattern host wildcard
-    // (`*://*/*...`) does not reliably match arbitrary hosts.
-    sess.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-      if (
-        (details.resourceType === 'script' || details.resourceType === 'xhr') &&
-        /\/_next\/static\/chunks\/[^/]+\.js($|\?)/.test(details.url)
-      ) {
-        if (patchServerPort > 0) {
-          const redirect = `http://127.0.0.1:${patchServerPort}/bf-js-patch?src=${encodeURIComponent(details.url)}`;
-          callback({ redirectURL: redirect });
-          return;
-        }
-      }
-      callback({});
-    });
-    log.info('[js-patch] interceptor active');
-  } catch (error) {
-    log.warn('[js-patch] interceptor setup failed', error);
+// Called from session-manager's single webRequest onBeforeRequest listener:
+// returns the redirect URL for a Next.js chunk request, or null to let the
+// request continue unchanged. (Electron 11 webRequest listeners REPLACE each
+// other — multiple onBeforeRequest registrations silently drop earlier ones
+// — so this must live inside the shared listener, not its own.) The URL
+// pattern is specific enough; resourceType is unreliable on Electron 11
+// (chunk <script> requests arrive as "mainFrame").
+export function chunkRedirectUrl(url: string): string | null {
+  if (/\/_next\/static\/chunks\/[^/]+\.js($|\?)/.test(url)) {
+    return `${PROTOCOL}://chunk?src=${encodeURIComponent(url)}`;
   }
+  return null;
 }
 
-// Called from tabs.ts for every view session: deterministic registration
-// (the session-created event's argument position varies across Electron
-// versions, so view creation is the reliable hook).
-export function interceptSession(sess: Session): void {
-  registerJsPatchProtocol();
-  intercept(sess);
-}
-
+// Registers the protocol handler (idempotent). Called at app startup from
+// initUserscriptManager, before any navigation.
 export function setupJsPatchInterceptor(): void {
   registerJsPatchProtocol();
-  intercept(session.fromPartition('persist:'));
-  // 'session-created' is declared in newer Electron typings than 11.x; the
-  // session may arrive in any argument position — handled defensively.
-  (app as unknown as { on(event: string, cb: (...args: unknown[]) => void): void }).on('session-created', (...args: unknown[]) => {
-    const sess = (args.find((a): a is Session => Boolean(a) && typeof a === 'object' && 'webRequest' in (a as object)) as Session | undefined) ?? session.defaultSession;
-    intercept(sess);
-  });
 }

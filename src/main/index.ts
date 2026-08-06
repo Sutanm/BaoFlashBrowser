@@ -14,6 +14,7 @@ import { registerDownloadIPC } from './ipc/download.ipc';
 import { registerPasswordIPC } from './ipc/password.ipc';
 import { registerDiagnosticsIPC } from './ipc/diagnostics.ipc';
 import { registerUserscriptsIPC } from './ipc/userscripts.ipc';
+import { setupJsPatchInterceptor } from './modules/js-patch-service';
 import { registerUserscriptsAdminIPC } from './ipc/userscripts-admin.ipc';
 import { initUserscriptManager } from './modules/userscripts';
 import { init as initPasswordStore } from './modules/password-store';
@@ -72,6 +73,18 @@ function bootstrap(): void {
           stream: true,
         },
       },
+      {
+        // ES2022 chunk patch target: must load from http (non-secure-context)
+        // pages too — old game sites may be plain http.
+        scheme: 'bf-js-patch',
+        privileges: {
+          standard: true,
+          secure: true,
+          supportFetchAPI: true,
+          corsEnabled: true,
+          stream: true,
+        },
+      },
     ]);
   } catch (e: any) {
     log.warn('[Ruffle] scheme privileges registration failed:', e?.message);
@@ -101,8 +114,9 @@ function bootstrap(): void {
     initPasswordStore().catch((e: any) => log.warn('[App] password store init failed:', e?.message));
     registerPasswordIPC();
     registerDiagnosticsIPC();
-    initUserscriptManager();
-    registerUserscriptsIPC();
+initUserscriptManager();
+setupJsPatchInterceptor();
+registerUserscriptsIPC();
     registerUserscriptsAdminIPC(() => getMainWindow());
     startMemoryMonitor();
 

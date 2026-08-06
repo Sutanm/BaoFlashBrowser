@@ -387,6 +387,10 @@ function scheduleFailedInjectionRetry(state: CaptureState, delay: number): void 
 
 export function setupCapture(wc: WebContents): void {
   if (!wc || wc.isDestroyed()) return;
+  if (process.env.BAO_NO_CDP === '1') {
+    teardownCapture(wc);
+    return;
+  }
   if (!isAutoCaptureEnabled()) {
     teardownCapture(wc);
     return;

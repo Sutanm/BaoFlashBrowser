@@ -13,7 +13,6 @@ import { GmRequestService } from './userscript-request-service';
 import { GmDownloadService } from './userscript-download-service';
 import { ScriptStore, scriptIdFor } from './script-store';
 import { parseUserscriptMetadata } from './userscript-parser';
-import { setupJsPatchInterceptor } from '../js-patch-service';
 import type { InstalledUserscript } from '../../../shared/userscript-types';
 // Bundled built-in userscripts are embedded as text at build time (see
 // esbuild.main.config.mjs loader). css-fixer.user.js is generated from
@@ -142,9 +141,6 @@ export function initUserscriptManager(): UserscriptManager {
   // Install built-in scripts that are missing or outdated (see
   // ensureBundledScripts: user edits/deletes respected).
   ensureBundledScripts();
-  // URL-layer ES2022 chunk patching (Next.js static blocks) — the fixer's
-  // text layer cannot win the script-loading race, so this runs in main.
-  setupJsPatchInterceptor();
   reloadManagerScripts();
   return manager;
 }
@@ -239,5 +235,3 @@ export function listUserscripts(): InstalledUserscript[] {
 export function getUserscriptSource(id: string): string | undefined {
   return scriptStore?.get(id)?.source;
 }
-
-export { interceptSession } from '../js-patch-service';

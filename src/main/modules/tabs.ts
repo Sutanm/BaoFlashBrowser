@@ -2,7 +2,6 @@ import { BrowserView, Menu } from 'electron';
 import log from 'electron-log';
 import { getMainWindow } from './window';
 import { setupSessionOnce } from './session-manager';
-import { interceptSession } from './js-patch-service';
 import { setupCapture, teardownCapture } from './password-capture';
 import { fillPasswordsInWebContents, PasswordFillResult } from './password-fill';
 import { getFillCredentialForUrl, isAutoFillEnabled } from './password-store';
@@ -136,7 +135,6 @@ class TabManager {
       token: tab.id,
     });
     setupSessionOnce(wc.session);
-    interceptSession(wc.session);
     this._wireBrowserViewEvents(wc, tab.id);
     wc.setZoomFactor(tab.zoomFactor);
     wc.setAudioMuted(tab.muted);

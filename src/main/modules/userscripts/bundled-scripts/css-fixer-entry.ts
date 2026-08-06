@@ -23,8 +23,16 @@ import { needsRewrite, rewriteCssText } from './css-fixer-core';
 import './vendor/container-query-polyfill.js';
 
 const MARKER = 'data-bf-css-fixed';
-const MAX_SHEETS = 40;
-const FETCH_TIMEOUT_MS = 3000;
+// React apps (github.com) re-insert shared stylesheet <link>s many times
+// (primer-react-css appears 6+ times per page); the cap must survive the
+// static sheets PLUS all dynamic insertions or late sheets stay unstyled.
+const MAX_SHEETS = 150;
+// React apps insert stylesheet <link>s while the page is still busy loading
+// (github.com: primer-react-css is 292KB, brand 694KB, inserted ~2s in).
+// 3s timed out on those during network peaks; 10s covers slow links while
+// still bounding the total stall.
+const FETCH_TIMEOUT_MS = 10000;
+const MAX_FETCH_ATTEMPTS = 2;
 
 function toArray<T>(list: { item(i: number): T; length: number }): T[] {
   const out: T[] = [];
@@ -98,7 +106,7 @@ function processStyle(el: HTMLStyleElement): void {
   } catch { /* a rewrite failure must never break the page */ }
 }
 
-async function processLink(link: HTMLLinkElement): Promise<void> {
+async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
   try {
     if (link.hasAttribute(MARKER)) return;
     if (link.disabled) return;
@@ -130,6 +138,12 @@ async function processLink(link: HTMLLinkElement): Promise<void> {
     link.remove();
   } catch {
     try { link.disabled = false; } catch { /* element gone */ }
+    // A fetch that aborted during the page's network peak (React-inserted
+    // sheets) is retried once the page settles; the link may have been
+    // removed or re-inserted by React in the meantime.
+    if (attempt < MAX_FETCH_ATTEMPTS && link.isConnected) {
+      setTimeout(() => { void processLink(link, attempt + 1); }, 1500 * (attempt + 1));
+    }
   }
 }
 

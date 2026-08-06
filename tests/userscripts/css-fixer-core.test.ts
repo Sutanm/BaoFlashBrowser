@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { needsRewrite, rewriteCssText } from '@main/modules/userscripts/bundled-scripts/css-fixer-core';
+import { needsRewrite, patchModernJs, rewriteCssText } from '@main/modules/userscripts/bundled-scripts/css-fixer-core';
 
 describe('css-fixer-core needsRewrite', () => {
   it('detects :where selectors', () => {
@@ -196,5 +196,24 @@ describe('css-fixer-core @container dummy markers', () => {
   it('does not touch rules outside @container', () => {
     const css = '.plain { color: red }';
     expect(rewriteCssText(css)).toBe(css);
+  });
+});
+
+describe('css-fixer-core patchModernJs (ES2022 static blocks)', () => {
+  it('rewrites a safe single-assignment static block to a static getter', () => {
+    expect(patchModernJs('class y{static{this.contextType=x.context}run(){}}')).toBe('class y{static get contextType(){return x.context}run(){}}');
+  });
+
+  it('rewrites member-expression references', () => {
+    expect(patchModernJs('static{this.a=d.AppRouterContext}')).toBe('static get a(){return d.AppRouterContext}');
+  });
+
+  it('leaves scripts without static blocks untouched', () => {
+    expect(patchModernJs('var a=1;window.b=2')).toBeNull();
+  });
+
+  it('leaves unsafe static blocks (calls, statements) untouched', () => {
+    const src = 'class y{static{this.x=fn()}}';
+    expect(patchModernJs(src)).toBeNull();
   });
 });

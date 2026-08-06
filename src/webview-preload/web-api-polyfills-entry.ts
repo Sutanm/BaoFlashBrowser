@@ -1,0 +1,27 @@
+import 'core-js/actual/array/at';
+import 'core-js/actual/string/at';
+import 'core-js/actual/typed-array/at';
+import 'core-js/actual/typed-array/find-last';
+import 'core-js/actual/object/has-own';
+import 'core-js/actual/array/find-last';
+import 'core-js/actual/array/to-sorted';
+import 'core-js/actual/array/to-reversed';
+import 'core-js/actual/array/to-spliced';
+import 'core-js/actual/array/with';
+import 'core-js/actual/array/from-async';
+import 'core-js/actual/structured-clone';
+import 'core-js/actual/promise/with-resolvers';
+import 'core-js/actual/set/union';
+import 'core-js/actual/set/intersection';
+import 'core-js/actual/set/difference';
+import 'core-js/actual/set/symmetric-difference';
+import 'core-js/actual/set/is-subset-of';
+import 'core-js/actual/set/is-superset-of';
+import 'core-js/actual/set/is-disjoint-from';
+import 'core-js/actual/map/group-by';
+import 'core-js/actual/object/group-by';
+import 'core-js/actual/array-buffer/transfer';
+import 'core-js/actual/string/is-well-formed';
+import 'core-js/actual/string/to-well-formed';
+import 'core-js/actual/url/parse';
+
