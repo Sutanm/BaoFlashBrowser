@@ -12,3 +12,8 @@ mms.cfg
 .idea/
 7k7k-reqs.json
 aria2-*.zip
+
+# blog drafts and screenshots (local-only)
+blog.md
+blog-technical.md
+docs/images/

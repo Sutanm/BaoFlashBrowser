@@ -67,8 +67,14 @@ export class UserscriptManager {
   }
 
   loadScripts(scripts: InstalledUserscript[]): void {
+    // Clear before re-populating: a script whose metadata/enabled flag
+    // changed since the last load must not linger with the stale value.
+    // Disabled scripts ARE kept in the index so matchingFor() can surface
+    // them in the sidebar with an "enable" button; snapshotFor() is the
+    // gate that skips disabled scripts at injection time.
+    this.scripts.clear();
+    this.requireGaps.clear();
     for (const script of scripts) {
-      if (!script.enabled) continue;
       const metadata = script.metadata;
       this.scripts.set(script.id, { ...script, rules: compileRules(metadata) });
     }
@@ -118,6 +124,7 @@ export class UserscriptManager {
     const matched: SnapshotScript[] = [];
     let sourceBytes = 0;
     for (const script of this.scripts.values()) {
+      if (!script.enabled) continue;
       if (!matchesUrl(script.rules, frameUrl)) continue;
       if (script.metadata.noframes && !isMainFrame) continue;
       let source = script.source;
@@ -200,6 +207,7 @@ export class UserscriptManager {
     if (!this.requireCache) return;
     const urls = new Set<string>();
     for (const script of this.scripts.values()) {
+      if (!script.enabled) continue;
       for (const requireUrl of script.metadata.require) urls.add(requireUrl);
       for (const res of script.metadata.resource) urls.add(res.url);
     }
@@ -207,6 +215,7 @@ export class UserscriptManager {
       this.requireCache!.ensure(url).then((result) => {
         if (result.ok) return;
         for (const script of this.scripts.values()) {
+          if (!script.enabled) continue;
           if (!script.metadata.require.includes(url)) continue;
           const gaps = this.requireGaps.get(script.id) ?? [];
           if (!gaps.includes(url)) gaps.push(url);

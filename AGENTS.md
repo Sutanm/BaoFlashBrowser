@@ -10,11 +10,21 @@ npm run i18n       # typesafe-i18n one-shot codegen (run before build if strings
 npm run lint       # eslint src/ --ext .ts,.tsx
 npm run typecheck  # main + renderer + preload TypeScript checks
 npm test -- --run  # Vitest suite
-npm run test:compat   # session policy/SWFObject/CORS Electron smoke
+npm run test:compat   # session policy/SWFObject/CORS Electron smoke (builds its own release/ bundle)
 npm run test:electron # BrowserView lifecycle smoke
 npm run test:ruffle   # bundled Ruffle protocol smoke
+npm run test:userscripts      # runtime smoke (builds release/tests preload first)
+npm run test:userscripts-admin# admin E2E smoke (builds release/tests module first)
+npm run probe       # tools/probe quick health probes (pure Node, seconds)
+npm run probe:deep  # tools/probe Electron probes (manager + BrowserView runtime health)
 npm run check      # i18n + typecheck + lint + tests + production build
 ```
+
+**IMPORTANT — `npm run build` does NOT rebuild `release/tests/` products.** Smoke bundles
+(`release/tests/userscripts-admin-module.cjs`, `userscript-runtime-preload.cjs`,
+`session-compatibility-smoke.cjs`) are built only by their own `tests/electron/build-*.mjs`.
+After editing userscript sources, run the matching build script first or smokes test STALE
+code (reproduced: command-dedupe fix "not working" because the admin module was old).
 
 ## Architecture
 
@@ -48,14 +58,16 @@ npm run check      # i18n + typecheck + lint + tests + production build
 | `src/webview-preload/index.ts` | **BrowserView** preload (Ruffle injection, separate from above) |
 | `src/renderer/services/db.ts` | Dexie/IndexedDB data layer |
 | `src/renderer/services/toast.ts` | Address-bar toast queue, timing, priority and dismissal rules |
+| `tools/probe/` | Probe toolkit: hosts (`host.cjs` pure-Node, `host-electron.cjs`), `lib/timeout.cjs` (waitFor/withTimeout/watchdog, `SMOKE_TIMEOUT` env), probe protocol `{ id, name, needsElectron, timeoutMs, run(ctx) }`; new probes = copy `probes/_template.cjs`. Probing is read-only and NEVER clears logs. |
 | `tests/` | Vitest tests and Electron smoke tests |
 
 ## Debugging workflow
 
 1. **Think first** — map the full chain before touching code
-2. **Write a demo** matching the main project environment (e.g. BrowserView + PPAPI + the same session hooks, not BrowserWindow)
-3. **Demo passes → port to main project**
-4. **Site-specific failures** — compare a minimal control probe with a probe that adds project policies one at a time. Record network failures, SWF requests and screenshots without logging tokens/query strings.
+2. **Probe before guessing** — `npm run probe` (build freshness, scripts, config, git, log tail) and `npm run probe:deep` (manager + BrowserView runtime). `00-build` tells you if a smoke will test STALE bundles.
+3. **Write a demo** matching the main project environment (e.g. BrowserView + PPAPI + the same session hooks, not BrowserWindow)
+4. **Demo passes → port to main project**
+5. **Site-specific failures** — compare a minimal control probe with a probe that adds project policies one at a time. Record network failures, SWF requests and screenshots without logging tokens/query strings.
 
 ## Landmines
 
@@ -75,4 +87,8 @@ npm run check      # i18n + typecheck + lint + tests + production build
 - **A preload `sendSync` to a channel with no registered handler accumulates renderer IPC corruption** — the renderer hangs on a later navigation (reproduced: 3rd consecutive `loadURL` hangs with `JS_HUNG`, CDP unreachable). Every channel the preload queries at document start (`get-ruffle-mode`, `userscript:get-config`) MUST have a registered handler before any view navigates.
 - **Userscript page-world bridge injection goes through preload `webFrame.executeJavaScript` (main world)** — CDP `Page.addScriptToEvaluateOnNewDocument` does NOT work: registrations are removed when the debugger detaches, and an attached debugger freezes navigation.
 - **SPA soft navigation never creates a document** — scripts must not re-run; URL changes are recorded via `did-navigate-in-page` → `manager.spaNavigate` (do not patch `history` in the preload).
+- **`webContents.send` reaches only the MAIN-frame preload** — `GM_registerMenuCommand` registrations from sub-frames can never be invoked (the main-frame preload drops them by `documentId` mismatch), so the sidebar would list dead duplicate commands. Fix: dedupe commands per script+title in the manager and keep only the main-frame entry (preload sends `isMainFrame` with the registration).
+- **No-arg IPC channels must be validated with `z.object({}).optional()`** — a bare `z.object({})` rejects `undefined` payloads, so channels like `userscripts:list` / `userscripts:install-file` (called with no arguments) fail validation.
+- **Standalone Electron smoke scripts must mock every preload channel and pin userData** — `tests/electron/*.cjs` do NOT load `userscripts.ipc.ts`, so the preload's `get-config`/`report`/`menu-register` sends are silently dropped unless the script registers its own `ipcMain.on` handlers. They must also `app.setPath('userData', .../bao-flash-browser)`, else electron-store reads `%APPDATA%\Electron` (reproduced: script "installed" in the wrong store).
+- **Sub-frame script execution works in BOTH modes** — verified by `tests/electron/ruffle-iframe-smoke.cjs` (Ruffle/contextIsolation:false). If a Ruffle game shows no iframe badge, the game is inline in the main document (Ruffle replaces `<embed>/<object>` in-place), not a missing preload.
 - **Never attempt to override or upgrade Electron version.** Everything depends on Chromium 87.

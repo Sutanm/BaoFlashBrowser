@@ -34,6 +34,8 @@
     "test:compat": "node tests/electron/build-compatibility-smoke.mjs && electron release/tests/session-compatibility-smoke.cjs",
     "test:userscripts": "node tests/electron/build-userscript-runtime-smoke.mjs && electron release/tests/userscript-runtime-smoke.cjs",
     "test:userscripts-admin": "node tests/electron/build-userscripts-admin-smoke.mjs && electron tests/electron/userscripts-admin-smoke.cjs",
+    "probe": "node tools/probe/host.cjs",
+    "probe:deep": "electron tools/probe/host-electron.cjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
