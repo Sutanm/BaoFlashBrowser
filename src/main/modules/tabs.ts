@@ -5,6 +5,7 @@ import { setupSessionOnce } from './session-manager';
 import { setupCapture, teardownCapture } from './password-capture';
 import { fillPasswordsInWebContents, PasswordFillResult } from './password-fill';
 import { getFillCredentialForUrl, isAutoFillEnabled } from './password-store';
+import { getUserscriptManager } from './userscripts';
 
 interface TabEntry {
   id: string;
@@ -39,6 +40,7 @@ class TabManager {
   private activeId: string | null = null;
   private rect: ContainerRect = { x: 0, y: 0, width: 0, height: 0 };
   private preloadPath = '';
+  private userscriptGeneration = 0;
   private passwordFillTimers = new Map<number, Set<ReturnType<typeof setTimeout>>>();
   private passwordFormSignalTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private passwordFillInFlight = new Set<number>();
@@ -116,6 +118,7 @@ class TabManager {
         plugins: !tab.isRuffle,
         contextIsolation: !tab.isRuffle,
         nodeIntegration: false,
+        nodeIntegrationInSubFrames: true,   // userscript runtime needs subframe preload
         partition: 'persist:',
       },
     });
@@ -126,6 +129,11 @@ class TabManager {
     view.setAutoResize({ width: false, height: false });
     const wc = view.webContents;
     this.wcToId.set(wc.id, tab.id);
+    getUserscriptManager()?.registerView(wc.id, {
+      mode: tab.isRuffle ? 'ruffle' : 'ppapi',
+      generation: (this.userscriptGeneration = (this.userscriptGeneration ?? 0) + 1),
+      token: tab.id,
+    });
     setupSessionOnce(wc.session);
     this._wireBrowserViewEvents(wc, tab.id);
     wc.setZoomFactor(tab.zoomFactor);
@@ -157,6 +165,10 @@ class TabManager {
         }).catch(() => {});
       }, delay);
     };
+    wc.on('destroyed', () => getUserscriptManager()?.unregisterView(wc.id));
+    wc.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+      if (isMainFrame) getUserscriptManager()?.spaNavigate(wc.id, url, 'in-page');
+    });
     wc.on('page-title-updated', (_e, title) => this._isCurrentWebContents(tabId, wc) && this.send('tab:updated', { tabId, title }));
     wc.on('page-favicon-updated', (_e, favicons) => {
       if (this._isCurrentWebContents(tabId, wc) && favicons?.[0]) this.send('tab:updated', { tabId, favicon: favicons[0] });

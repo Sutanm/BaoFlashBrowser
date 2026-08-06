@@ -1,9 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "nodenext",
     "target": "ES2019",
     "lib": ["ES2019"],
+    "moduleResolution": "nodenext",
     "types": ["node"],
     "outDir": "dist/main"
   },

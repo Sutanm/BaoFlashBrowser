@@ -36,6 +36,10 @@ npm run check      # i18n + typecheck + lint + tests + production build
 | `src/main/modules/password-capture.ts` | CDP-based password capture (CAPTURE_SCRIPT is a large inline string) |
 | `src/main/modules/password-fill.ts` | Password autofill across the main frame and CDP execution contexts |
 | `src/main/modules/password-store.ts` | Encrypted vault plus device-local autofill key wrapping |
+| `src/main/modules/userscripts/` | Userscript runtime services: manager/parser/matcher/values/store/require-cache/request/download + singleton wiring |
+| `src/main/ipc/userscripts.ipc.ts` | Userscript IPC channels (zod-validated; `get-config` is sendSync, response bounded by snapshot budgets) |
+| `src/webview-preload/userscripts/` | Preload runtime: bootstrap/scheduler/sandbox/gm-api/page-bridge/unsafe-proxy |
+| `src/shared/userscript-types.ts` | Shared userscript types (main + preload) |
 | `src/main/modules/session-recovery.ts` | Clean/abnormal shutdown tracking |
 | `src/renderer/App.tsx` | React root (wrapped in `TypesafeI18n` Provider) |
 | `src/renderer/i18n/` | typesafe-i18n generated code + `zh-CN`/`en` translation dictionaries (baseLocale: `zh-CN`) |
@@ -68,4 +72,7 @@ npm run check      # i18n + typecheck + lint + tests + production build
 - **Inactive-tab suspension is opt-in**. Never suspend the active, loading, audible, or React new-tab page; recreation must restore engine, zoom and mute state.
 - **Linux requires `--no-sandbox`**. WSLg requires all three GPU flags: `--ignore-gpu-blacklist`, `--enable-gpu-rasterization`, `--enable-zero-copy`.
 - **`did-fail-load` handler**: never call `wc.stop()` — it kills post-login redirects.
+- **A preload `sendSync` to a channel with no registered handler accumulates renderer IPC corruption** — the renderer hangs on a later navigation (reproduced: 3rd consecutive `loadURL` hangs with `JS_HUNG`, CDP unreachable). Every channel the preload queries at document start (`get-ruffle-mode`, `userscript:get-config`) MUST have a registered handler before any view navigates.
+- **Userscript page-world bridge injection goes through preload `webFrame.executeJavaScript` (main world)** — CDP `Page.addScriptToEvaluateOnNewDocument` does NOT work: registrations are removed when the debugger detaches, and an attached debugger freezes navigation.
+- **SPA soft navigation never creates a document** — scripts must not re-run; URL changes are recorded via `did-navigate-in-page` → `manager.spaNavigate` (do not patch `history` in the preload).
 - **Never attempt to override or upgrade Electron version.** Everything depends on Chromium 87.

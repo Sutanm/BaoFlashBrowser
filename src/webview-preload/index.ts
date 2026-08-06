@@ -126,76 +126,12 @@ window.__baoflash_preload = 1;
 try { document.body.setAttribute('data-preload', '1'); } catch { /* body not ready */ }
 console.log('[PRELOAD] webview-preload running');
 
-// --- Flash PPAPI plugin 检测注入（Linux PPAPI 不注册 navigator.plugins） ---
-(function() {
+// --- Userscript runtime bootstrap (main frames and subframes) ---
+// Registered after the Ruffle/PPAPI shims; a failure must never break the page.
+(function () {
   try {
-    // Skip if Flash already properly registered (Windows/PPAPI native)
-    const existing = navigator.plugins.namedItem('Shockwave Flash');
-    if (existing && /\.dll$|\.plugin$/i.test(existing.filename)) {
-      return;
-    }
-    const fakeFlashPlugin: any = {
-      name: 'Shockwave Flash',
-      filename: 'pepflashplayer64.dll',
-      description: 'Shockwave Flash 34.0 r0',
-      length: 2,
-      item: (i: number) => {
-        if (i === 0) return fakeFlashMime;
-        return null;
-      },
-      namedItem: (name: string) => {
-        if (name === 'Shockwave Flash') return fakeFlashPlugin;
-        return null;
-      },
-      0: { type: 'application/x-shockwave-flash', suffixes: 'swf', description: 'Shockwave Flash' },
-      1: { type: 'application/futuresplash', suffixes: 'spl', description: 'FutureSplash Player' }
-    };
-    const fakeFlashMime: any = {
-      type: 'application/x-shockwave-flash',
-      suffixes: 'swf',
-      description: 'Shockwave Flash',
-      enabledPlugin: fakeFlashPlugin
-    };
-
-    const origPlugins = navigator.plugins;
-    const origMimeTypes = navigator.mimeTypes;
-    const pluginsList: any[] = [];
-    for (let i = 0; i < origPlugins.length; i++) {
-      pluginsList.push(origPlugins[i]);
-    }
-    pluginsList.unshift(fakeFlashPlugin);
-
-    const fakePlugins: any = {
-      length: pluginsList.length,
-      item: (i: number) => pluginsList[i] || null,
-      namedItem: (name: string) => {
-        if (name === 'Shockwave Flash' || name === 'Shockwave Flash 32.0 r0') return fakeFlashPlugin;
-        for (let j = 0; j < pluginsList.length; j++) {
-          if (pluginsList[j].name === name) return pluginsList[j];
-        }
-        return null;
-      },
-      refresh: () => {}
-    };
-    for (let k = 0; k < pluginsList.length; k++) {
-      fakePlugins[k] = pluginsList[k];
-    }
-    Object.defineProperty(navigator, 'plugins', { value: fakePlugins, configurable: true });
-
-    const fakeMimeTypes: any = {
-      length: origMimeTypes.length + 1,
-      item: (i: number) => {
-        if (i === 0) return fakeFlashMime;
-        return origMimeTypes.item(i - 1);
-      },
-      namedItem: (name: string) => {
-        if (name === 'application/x-shockwave-flash') return fakeFlashMime;
-        return origMimeTypes.namedItem(name);
-      }
-    };
-    for (let m = 0; m < fakeMimeTypes.length; m++) {
-      fakeMimeTypes[m] = fakeMimeTypes.item(m);
-    }
-    Object.defineProperty(navigator, 'mimeTypes', { value: fakeMimeTypes, configurable: true });
-  } catch { /* plugin injection failed */ }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { initUserscriptRuntime } = require('./userscripts/bootstrap');
+    initUserscriptRuntime();
+  } catch { /* userscript runtime must never break the page */ }
 })();

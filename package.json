@@ -32,6 +32,7 @@
     "test:electron": "electron tests/electron/browserview-smoke.cjs",
     "test:ruffle": "electron tests/electron/ruffle-session-smoke.cjs",
     "test:compat": "node tests/electron/build-compatibility-smoke.mjs && electron release/tests/session-compatibility-smoke.cjs",
+    "test:userscripts": "node tests/electron/build-userscript-runtime-smoke.mjs && electron release/tests/userscript-runtime-smoke.cjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

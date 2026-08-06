@@ -837,3 +837,46 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 ---
 
 > 最后更新: 2026-07-31 | Electron 11.5.0 / Chromium 87 | @baoflash
+
+---
+
+## 11. 用户脚本运行时
+
+> 移植日期: 2026-08-05 | 模块来源: tests/electron/userscripts（demo，已验证）
+
+### 11.1 模块布局
+
+| 模块 | 职责 |
+|---|---|
+| `src/main/modules/userscripts/userscript-parser.ts` | 元数据解析 |
+| `userscript-matcher.ts` | match/include/exclude 编译与 URL 匹配 |
+| `userscript-values.ts` / `userscript-store.ts` | GM 值序列化与命名空间存储（内存，阶段 2 接持久化） |
+| `userscript-require-cache.ts` | @require 抓取缓存（注入 fetcher） |
+| `userscript-request.ts` / `userscript-request-service.ts` | GM_xmlhttpRequest 策略 + net 执行（connect/地址/大小/并发） |
+| `userscript-download.ts` / `userscript-download-service.ts` | GM_download 文件名消毒 + net 下载 |
+| `userscript-manager.ts` | 快照/报告/菜单命令/值监听/通知/SPA 记录 |
+| `index.ts` | 单例工厂（initUserscriptManager） |
+| `src/main/ipc/userscripts.ipc.ts` | 全部通道（zod 校验） |
+| `src/webview-preload/userscripts/` | bootstrap/scheduler/sandbox/gm-api/page-bridge/unsafe-proxy |
+| `src/shared/userscript-types.ts` | 共享类型（main + preload 两个 tsconfig 都 include） |
+
+### 11.2 执行模型
+
+- preload 在 document 创建时 `sendSync('userscript:get-config')` 拿**受限快照**（64KB 预算、每页源 512KB）；无匹配脚本返回空。
+- 调度器按 run-at 阶段执行（document-start 等 documentElement 出现、body 等待有绝对超时）；每 document 每脚本执行一次。
+- 沙箱：词法注入（never globals）；ppapi 模式 stripNodeGlobals + `new Function`；ruffle 共享世界受 CSP 时回退 `vm.runInThisContext`。
+- 错误隔离：脚本异常 → script-error 报告，不阻断后续脚本与 Ruffle。
+
+### 11.3 页世界桥（D5）
+
+- ppapi 隔离世界下 `unsafeWindow` 是 Proxy，经 `window.postMessage` 转发到主世界桥（`window.__bfBridge`，由 preload `webFrame.executeJavaScript` 注入主世界）。
+- 协议：`reply` 标记防自反馈循环；expected 集合配对；握手重试 + 就绪前队列。
+- 语义边界：同步读复杂值返回路径 Wrapper；函数参数字符串化还原（严格 CSP 页还原失败则忽略）。
+
+### 11.4 SPA 导航（D4）
+
+- `did-navigate-in-page`（主框架）→ `manager.spaNavigate` 记录；软导航不重跑脚本。
+
+### 11.5 已知边界
+
+- 值存储当前内存态（管理 UI 阶段接持久化）；下载目录 `userData/userscript-downloads`；脚本安装/管理界面为阶段 2。
