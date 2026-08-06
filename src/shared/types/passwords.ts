@@ -24,4 +24,4 @@ export interface CaptureNotification {
   username: string;
 }
 
-export type ActivePanel = 'favorites' | 'history' | 'downloads' | 'settings' | 'passwords' | null;
+export type ActivePanel = 'favorites' | 'history' | 'downloads' | 'passwords' | 'userscripts' | 'settings' | null;

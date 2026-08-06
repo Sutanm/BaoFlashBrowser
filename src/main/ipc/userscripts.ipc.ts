@@ -4,7 +4,7 @@
 // can be set; async channels that need the sender id use ipcMain.handle with
 // safeParse directly, mirroring tabs.ipc.ts's ruffleDiagnostic pattern).
 
-import { clipboard, ipcMain } from 'electron';
+import { clipboard, ipcMain, Notification } from 'electron';
 import { z } from 'zod';
 import { registerValidatedListener, createValidatedHandler } from '../utils/ipc-wrapper';
 import { getUserscriptManager, getRequestService, getDownloadService } from '../modules/userscripts';
@@ -160,6 +160,21 @@ export function registerUserscriptsIPC(): void {
       text: parsed.data.text,
       title: parsed.data.title,
     });
+    // Surface as a system notification; clicking routes back through the
+    // manager so the script's onclick fires (triggerNotification).
+    if (notificationId !== null) {
+      try {
+        const notification = new Notification({
+          title: parsed.data.title || parsed.data.scriptId,
+          body: parsed.data.text ?? '',
+          silent: true,
+        });
+        notification.on('click', () => {
+          active.triggerNotification(event.sender.id, notificationId);
+        });
+        notification.show();
+      } catch { /* notifications unavailable */ }
+    }
     return { ok: notificationId !== null, notificationId };
   });
 

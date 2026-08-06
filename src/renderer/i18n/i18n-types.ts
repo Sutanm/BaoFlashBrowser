@@ -118,6 +118,10 @@ type RootTranslation = {
 		 */
 		newTab: string
 		/**
+		 * 用​户​脚​本
+		 */
+		userscripts: string
+		/**
 		 * 关​闭​标​签​页
 		 */
 		closeTab: string
@@ -162,6 +166,10 @@ type RootTranslation = {
 		 * 密​码
 		 */
 		passwords: string
+		/**
+		 * 用​户​脚​本
+		 */
+		userscripts: string
 		/**
 		 * 设​置
 		 */
@@ -944,6 +952,10 @@ export type TranslationFunctions = {
 		 */
 		newTab: () => LocalizedString
 		/**
+		 * 用户脚本
+		 */
+		userscripts: () => LocalizedString
+		/**
 		 * 关闭标签页
 		 */
 		closeTab: () => LocalizedString
@@ -987,6 +999,10 @@ export type TranslationFunctions = {
 		 * 密码
 		 */
 		passwords: () => LocalizedString
+		/**
+		 * 用户脚本
+		 */
+		userscripts: () => LocalizedString
 		/**
 		 * 设置
 		 */

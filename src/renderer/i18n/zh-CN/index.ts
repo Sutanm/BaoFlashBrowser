@@ -34,6 +34,7 @@ const zhCN: BaseTranslation = {
   // 标签页
   tab: {
     newTab: '新标签页',
+    userscripts: '用户脚本',
     closeTab: '关闭标签页',
     newTabHint: '新标签页 (Ctrl+T)',
   },
@@ -51,6 +52,7 @@ const zhCN: BaseTranslation = {
     history: '历史记录',
     downloads: '下载',
     passwords: '密码',
+    userscripts: '用户脚本',
     settings: '设置',
     expand: '展开侧边栏',
     collapse: '折叠侧边栏',

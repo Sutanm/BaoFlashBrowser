@@ -22,7 +22,7 @@ interface ContainerRect { x: number; y: number; width: number; height: number }
 const HIDDEN_BOUNDS: ContainerRect = Object.freeze({ x: -9999, y: -9999, width: 1, height: 1 });
 
 function needsBrowserView(url: string): boolean {
-  return Boolean(url && url !== 'about:newtab' && url !== 'about:blank');
+  return Boolean(url && url !== 'about:newtab' && url !== 'about:userscripts' && url !== 'about:blank');
 }
 
 export function legacySiteFavicon(url: string): string | null {
@@ -410,6 +410,33 @@ class TabManager {
   openDevTools(tabId: string): void { this.tabs.get(tabId)?.browserView?.webContents.openDevTools({ mode: 'detach' }); }
   findInPage(tabId: string, text: string, options?: any): void { this.tabs.get(tabId)?.browserView?.webContents.findInPage(text, options); }
   stopFindInPage(tabId: string, action: 'clearSelection' | 'keepSelection' | 'activateSelection'): void { this.tabs.get(tabId)?.browserView?.webContents.stopFindInPage(action); }
+
+  // Stage 2 sidebar: GM_registerMenuCommand entries for the active view and
+  // invocation (sent to the preload, which routes by documentId).
+  getUserscriptCommandsForTab(tabId: string): Array<{ commandId: string; title: string; scriptId: string }> {
+    const tab = this.tabs.get(tabId);
+    const wc = tab?.browserView?.webContents;
+    if (!wc || wc.isDestroyed()) return [];
+    return (getUserscriptManager()?.commandsFor(wc.id) ?? []).map((command) => ({
+      commandId: command.commandId,
+      title: command.title,
+      scriptId: command.scriptId,
+    }));
+  }
+
+  invokeUserscriptCommand(tabId: string, commandId: string): boolean {
+    const tab = this.tabs.get(tabId);
+    const wc = tab?.browserView?.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    const registration = getUserscriptManager()?.getRegistration(wc.id);
+    const command = getUserscriptManager()?.commandsFor(wc.id).find((item) => item.commandId === commandId);
+    if (!command || !registration) return false;
+    try {
+      wc.send('userscript:menu-invoke', { commandId, documentId: command.documentId });
+      return true;
+    } catch { /* view gone */ }
+    return false;
+  }
 
   private send(channel: string, payload: Record<string, unknown>): void {
     const win = getMainWindow(); if (win && !win.isDestroyed()) win.webContents.send(channel, payload);

@@ -82,6 +82,17 @@ export class UserscriptManager {
     return this.scripts.get(scriptId);
   }
 
+  // Stage 2 sidebar: which installed scripts match a URL (main frame).
+  matchingFor(url: string): Array<{ id: string; name: string; enabled: boolean }> {
+    const frameUrl = String(url || '');
+    const matched: Array<{ id: string; name: string; enabled: boolean }> = [];
+    for (const script of this.scripts.values()) {
+      if (!matchesUrl(script.rules, frameUrl)) continue;
+      matched.push({ id: script.id, name: script.metadata.name, enabled: script.enabled });
+    }
+    return matched;
+  }
+
   registerView(wcId: number, registration: ViewRegistration): void {
     this.views.set(wcId, registration);
   }

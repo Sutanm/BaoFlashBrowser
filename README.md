@@ -36,6 +36,7 @@ Windows 安装包当前**未进行代码签名**，安装或首次运行时可�
 - 支持标签管理、地址导航、缩放、静音、全屏、查找、历史记录和收藏夹。
 - Chromium 与 aria2 双下载引擎，支持暂停、恢复、进度显示和安全路径检查。
 - 密码本支持可选自动捕获、锁定状态自动填充、排除网站和主密码保护；自动填充不会提交表单。
+- 内置用户脚本（userscript）平台：油猴风格管理页、两阶段安装、侧边栏脚本面板与菜单命令、GM API、页面壳增强脚本（含 iframe 子框架支持）。
 - 仅在异常退出后询问是否恢复标签页，正常关闭不会保留待恢复会话。
 - 支持中英文界面、明暗主题、Toast 通知和可选标签休眠。
 
@@ -97,6 +98,8 @@ Windows 实际使用 Flash 29.0.0.171，Linux 使用 32.0.0.371；网站侧的�
 ## 开发文档
 
 - [架构与模块手册](docs/architecture-manual.md)
+- [用户脚本开发手册](docs/userscript-developer-guide.md)（平台扩展与脚本编写）
+- [用户脚本使用手册](docs/userscript-user-guide.md)（安装、管理、FAQ）
 - [发布、打包与成品校验](docs/PACKAGE.md)
 - [测试与回归清单](docs/FINAL_REGRESSION.md)
 - [故障排查与经验记录](docs/lessons-learned.md)

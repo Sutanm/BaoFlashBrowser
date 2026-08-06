@@ -26,6 +26,10 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
   'win:minimize', 'win:maximize', 'win:unmaximize', 'win:close', 'win:setFullscreen', 'win:toggleFullscreen', 'win:isMaximized',
+  'userscripts:list', 'userscripts:get-source', 'userscripts:parse-source',
+  'userscripts:install-source', 'userscripts:install-file', 'userscripts:install-url',
+  'userscripts:uninstall', 'userscripts:set-enabled', 'userscripts:update-source',
+  'userscripts:for-tab', 'userscripts:invoke-command',
 ]);
 
 const ALLOWED_SEND_CHANNELS = new Set([
@@ -147,6 +151,19 @@ const electronAPI = {
     setFullscreen: (fullscreen: boolean) => safeInvoke('win:setFullscreen', fullscreen),
     toggleFullscreen: () => safeInvoke('win:toggleFullscreen'),
     isMaximized: () => safeInvoke('win:isMaximized') as Promise<boolean>,
+  },
+
+  userscripts: {
+    list: () => safeInvoke('userscripts:list', {}),
+    getSource: (id: string) => safeInvoke('userscripts:get-source', { id }),
+    installSource: (source: string, enabled?: boolean) => safeInvoke('userscripts:install-source', { source, enabled }),
+    installFile: () => safeInvoke('userscripts:install-file', {}),
+    installUrl: (url: string) => safeInvoke('userscripts:install-url', { url }),
+    uninstall: (id: string) => safeInvoke('userscripts:uninstall', { id }),
+    setEnabled: (id: string, enabled: boolean) => safeInvoke('userscripts:set-enabled', { id, enabled }),
+    updateSource: (id: string, source: string) => safeInvoke('userscripts:update-source', { id, source }),
+    forTab: (tabId: string, url: string) => safeInvoke('userscripts:for-tab', { tabId, url }),
+    invokeCommand: (tabId: string, commandId: string) => safeInvoke('userscripts:invoke-command', { tabId, commandId }),
   },
 };
 

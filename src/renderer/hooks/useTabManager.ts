@@ -11,6 +11,7 @@ import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
 import { isTabEligibleForSuspension } from '../services/tab-suspension';
 
 const NEWTAB_URL = 'about:newtab';
+const USERSCRIPTS_URL = 'about:userscripts';
 const INACTIVE_TAB_SUSPEND_MS = 10 * 60 * 1000;
 
 function isNewtabUrl(url: string): boolean {
@@ -95,6 +96,15 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const createTab = useCallback((url?: string) => {
     const id = generateId();
     const initialUrl = url || settings.homepage || NEWTAB_URL;
+    // Singleton internal pages: activating an existing tab instead of
+    // duplicating (plan §5.2).
+    if (initialUrl === USERSCRIPTS_URL) {
+      const existing = useTabsStore.getState().tabs.find((item) => item.url === USERSCRIPTS_URL);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return;
+      }
+    }
     let engineMode = settings.flashEngineMode;
     if (!isNewtabUrl(initialUrl)) {
       try {
@@ -108,7 +118,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     }
     const ruffleMode: 'ppapi' | 'ruffle' = engineMode === 'prefer-ruffle' ? 'ruffle' : 'ppapi';
     const tab: TabState = {
-      id, url: initialUrl, title: LLRef.current.tab.newTab(),
+      id, url: initialUrl,
+      title: initialUrl === 'about:userscripts' ? LLRef.current.tab.userscripts() : LLRef.current.tab.newTab(),
       zoomFactor: 1, isLoading: false, isAudible: false, isMuted: false,
       canGoBack: false, canGoForward: false, createdAt: Date.now(),
       ruffleMode,

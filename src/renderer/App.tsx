@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import TopBar from './components/layout/TopBar';
 import DrawerSidebar from './components/layout/DrawerSidebar';
 import NewTabPage from './components/newtab/NewTabPage';
+import UserscriptsPage from './components/userscripts/UserscriptsPage';
 import LoadingProgress from './components/overlays/LoadingProgress';
 import FindBar from './components/overlays/FindBar';
 import { useShortcut } from './hooks/useShortcut';
@@ -172,6 +173,7 @@ const AppInner: React.FC = () => {
   }, [ruffleMode, activeTabId, activeTab, updateTab, settings.ruffleSource]);
 
   const isOnNewTab = !activeTab || activeTab.url === 'about:newtab';
+  const isOnUserscripts = activeTab?.url === 'about:userscripts';
   const isCrashed = activeTab?.crashed === true;
 
   return (
@@ -236,6 +238,7 @@ const AppInner: React.FC = () => {
           currentUrl={activeTab?.url || ''}
           currentTitle={activeTab?.title || ''}
           currentFavicon={activeTab?.favicon}
+          currentTabId={activeTabId}
           onOpenUrl={(url, newTab) => {
             setActivePanel(null);
             if (settings.linkBehavior === 'new-tab' && (newTab || activeTab?.url !== 'about:newtab')) {
@@ -254,6 +257,9 @@ const AppInner: React.FC = () => {
         <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
           <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
         </div>
+        <div style={{ display: isOnUserscripts ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
+          <UserscriptsPage />
+        </div>
         <div style={{ display: isCrashed ? 'flex' : 'none', flex: '1 1 0%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
           <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>
           <button
@@ -267,7 +273,7 @@ const AppInner: React.FC = () => {
         <div
           id="browserview-area"
           ref={bvAreaRef}
-          style={{ display: isOnNewTab || isCrashed ? 'none' : 'flex', flex: '1 1 0%', position: 'relative', flexDirection: 'column' }}
+          style={{ display: isOnNewTab || isOnUserscripts || isCrashed ? 'none' : 'flex', flex: '1 1 0%', position: 'relative', flexDirection: 'column' }}
         >
           <FindBar
             visible={findBarVisible && !isOnNewTab}

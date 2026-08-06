@@ -186,6 +186,26 @@ declare global {
         toggleFullscreen(): Promise<void>;
         isMaximized(): Promise<boolean>;
       };
+
+      userscripts: {
+        list(): Promise<{ scripts: import('@shared/userscript-types').InstalledUserscript[] }>;
+        getSource(id: string): Promise<{ source: string | null }>;
+        parseSource(source: string): Promise<
+          { ok: true; preview: import('@shared/userscript-types').ParsedUserscriptMetadata }
+          | { ok: false; error: string }
+        >;
+        installSource(source: string, enabled?: boolean): Promise<import('@shared/userscript-types').InstalledUserscript | { ok: false; error: string }>;
+        installFile(): Promise<{ source: string } | { ok: false; error: string }>;
+        installUrl(url: string): Promise<{ source: string } | { ok: false; error: string }>;
+        uninstall(id: string): Promise<{ ok: boolean }>;
+        setEnabled(id: string, enabled: boolean): Promise<{ ok: boolean }>;
+        updateSource(id: string, source: string): Promise<import('@shared/userscript-types').InstalledUserscript | { ok: false; error: string }>;
+        forTab(tabId: string, url: string): Promise<{
+          scripts: Array<{ id: string; name: string; enabled: boolean }>;
+          commands: Array<{ commandId: string; title: string; scriptId: string }>;
+        }>;
+        invokeCommand(tabId: string, commandId: string): Promise<{ ok: boolean }>;
+      };
     };
   }
 }

@@ -44,7 +44,7 @@ export function registerTabsIPC(): void {
 
   const tabId = z.string().min(1).max(128);
   const url = z.string().min(1).max(8192).refine((value) => {
-    if (value === 'about:newtab' || value === 'about:blank') return true;
+    if (value === 'about:newtab' || value === 'about:blank' || value === 'about:userscripts') return true;
     try { return ['http:', 'https:', 'file:'].includes(new URL(value).protocol); } catch { return false; }
   }, 'Unsupported navigation URL');
   const tabOnly = z.object({ tabId }).strict();

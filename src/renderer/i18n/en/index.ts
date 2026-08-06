@@ -31,6 +31,7 @@ const en: Translation = {
 
   tab: {
     newTab: 'New Tab',
+    userscripts: 'Userscripts',
     closeTab: 'Close Tab',
     newTabHint: 'New Tab (Ctrl+T)',
   },
@@ -47,6 +48,7 @@ const en: Translation = {
     history: 'History',
     downloads: 'Downloads',
     passwords: 'Passwords',
+    userscripts: 'Userscripts',
     settings: 'Settings',
     expand: 'Expand Sidebar',
     collapse: 'Collapse Sidebar',

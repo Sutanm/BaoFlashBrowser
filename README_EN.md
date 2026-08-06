@@ -36,6 +36,7 @@ The Windows installers are currently **unsigned**. Microsoft Defender SmartScree
 - Tab management, navigation, zoom, mute, fullscreen, find-in-page, history, and bookmarks.
 - Chromium and aria2 download engines with pause, resume, progress reporting, and path-safety checks.
 - Optional password capture, locked-vault autofill, excluded sites, and master-password protection. Autofill never submits a form.
+- Built-in userscript platform: Tampermonkey-style management page, two-phase install, sidebar script panel with menu commands, GM APIs, and page-shell enhancement scripts (including iframe sub-frame support).
 - Session recovery is offered only after an abnormal exit; normal shutdown does not leave a recoverable session.
 - Chinese and English UI, light and dark themes, Toast notifications, and optional inactive-tab suspension.
 
@@ -97,6 +98,8 @@ Windows uses Flash 29.0.0.171, while Linux uses 32.0.0.371. The version reported
 ## Developer Documentation
 
 - [Architecture and Module Manual](docs/architecture-manual.md)
+- [Userscript Developer Guide](docs/userscript-developer-guide.md) (platform extension and script authoring)
+- [Userscript User Guide](docs/userscript-user-guide.md) (install, manage, FAQ)
 - [Packaging and Release Verification](docs/PACKAGE.md)
 - [Test and Regression Checklist](docs/FINAL_REGRESSION.md)
 - [Troubleshooting and Lessons Learned](docs/lessons-learned.md)

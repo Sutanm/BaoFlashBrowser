@@ -14,6 +14,7 @@ import { registerDownloadIPC } from './ipc/download.ipc';
 import { registerPasswordIPC } from './ipc/password.ipc';
 import { registerDiagnosticsIPC } from './ipc/diagnostics.ipc';
 import { registerUserscriptsIPC } from './ipc/userscripts.ipc';
+import { registerUserscriptsAdminIPC } from './ipc/userscripts-admin.ipc';
 import { initUserscriptManager } from './modules/userscripts';
 import { init as initPasswordStore } from './modules/password-store';
 import { tabManager } from './modules/tabs';
@@ -102,6 +103,7 @@ function bootstrap(): void {
     registerDiagnosticsIPC();
     initUserscriptManager();
     registerUserscriptsIPC();
+    registerUserscriptsAdminIPC(() => getMainWindow());
     startMemoryMonitor();
 
     // 重任务延迟到首渲染后执行，不阻塞首屏展示

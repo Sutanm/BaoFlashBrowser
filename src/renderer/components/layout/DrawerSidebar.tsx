@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Star, Clock, Download, Key, Settings as SettingsIcon, X } from 'lucide-react';
+import { Star, Clock, Download, Key, Settings as SettingsIcon, Puzzle, X } from 'lucide-react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useDataStore } from '@renderer/store/useDataStore';
 import PasswordsPanel from '../panels/PasswordsPanel';
@@ -7,6 +7,7 @@ import FavoritesPanel from '../panels/FavoritesPanel';
 import HistoryPanel from '../panels/HistoryPanel';
 import DownloadsPanel from '../panels/DownloadsPanel';
 import SettingsPanel from '../panels/SettingsPanel';
+import UserscriptsPanel from '../panels/UserscriptsPanel';
 import type { TranslationFunctions } from '@renderer/i18n/i18n-types';
 
 interface DrawerSidebarProps {
@@ -14,6 +15,7 @@ interface DrawerSidebarProps {
   currentUrl: string;
   currentTitle: string;
   currentFavicon?: string;
+  currentTabId: string | null;
   onOpenUrl: (url: string, newTab: boolean) => void;
   zoomPercent: number;
   onZoomIn: () => void;
@@ -27,6 +29,7 @@ const PANEL_ITEMS = [
   { id: 'history' as const, icon: Clock },
   { id: 'downloads' as const, icon: Download },
   { id: 'passwords' as const, icon: Key },
+  { id: 'userscripts' as const, icon: Puzzle },
   { id: 'settings' as const, icon: SettingsIcon },
 ];
 
@@ -36,6 +39,7 @@ function getPanelLabel(id: string, LL: TranslationFunctions): string {
     case 'history': return LL.sidebar.history();
     case 'downloads': return LL.sidebar.downloads();
     case 'passwords': return LL.sidebar.passwords();
+    case 'userscripts': return LL.sidebar.userscripts();
     case 'settings': return LL.sidebar.settings();
     default: return id;
   }
@@ -43,7 +47,7 @@ function getPanelLabel(id: string, LL: TranslationFunctions): string {
 
 const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   collapsed,
-  currentUrl, currentTitle, currentFavicon, onOpenUrl,
+  currentUrl, currentTitle, currentFavicon, currentTabId, onOpenUrl,
   zoomPercent, onZoomIn, onZoomOut, onZoomReset,
   downloadCount,
 }) => {
@@ -148,6 +152,9 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               )}
               {activePanel === 'downloads' && <DownloadsPanel />}
               {activePanel === 'passwords' && <PasswordsPanel />}
+              {activePanel === 'userscripts' && (
+                <UserscriptsPanel tabId={currentTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
+              )}
               {activePanel === 'settings' && (
                 <SettingsPanel
                   zoomPercent={zoomPercent}

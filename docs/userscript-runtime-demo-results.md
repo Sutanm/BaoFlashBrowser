@@ -351,3 +351,23 @@ ppapi 隔离世界模式下 `unsafeWindow` 现在**真实指向页面主世界**
 - preload 在 document-start 的 sendSync（get-ruffle-mode / userscript:get-config）必须有主进程 handler,否则多次导航后渲染进程卡死（JS_HUNG,CDP 不可达）。
 - 最终验证:smoke 143/143 required、vitest 246、test:electron/ruffle/compat 全绿。
 - demo 目录 tests/electron/userscripts/ 保留作对照与回归（不删除）。
+
+---
+
+# 阶段 2 实施记录（2026-08-05）
+
+管理标签页与安装流程（0 新增依赖）:
+
+| 批次 | 内容 | 验证 |
+|---|---|---|
+| A | 脚本持久化（electron-store 复用）+ 安装/启停/删除/更新服务 + 管理 IPC（zod） | vitest 250、tsc、构建 |
+| B | about:userscripts 内部页面（单例标签、renderer 路由、admin API 桥） | tsc、构建 |
+| C | 管理页 UI（搜索/启停/删除/编辑器 + 脏状态保护） | tsc、构建 |
+| D | 安装入口（文件/URL/粘贴）+ 两阶段安装确认页（§13.2） | tsc、构建 |
+| E | 侧边栏面板（当前页匹配/快速启停/脚本命令）+ 系统通知 | tsc、lint、构建 |
+| F | 端到端冒烟（真实脚本安装→执行→启停→持久化→卸载）+ docs + check | test:userscripts-admin ALL PASS、npm run check 全绿 |
+
+关键结论:
+- 真实脚本（mouse-gestures）经完整管理链路安装后在生产 preload 下执行成功（script-complete 报告、id 一致）。
+- 持久化跨重启验证通过（electron-store 原子 JSON）。
+- 未加任何新依赖（电子商店/系统通知/内置菜单全部复用现有栈）。
