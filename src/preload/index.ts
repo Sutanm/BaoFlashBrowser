@@ -10,6 +10,7 @@ const ALLOWED_ON_CHANNELS = new Set([
   'shortcut',
   'password:captured', 'password:changed', 'password:filled',
   'userscripts:changed',
+  'userscript:open-tab',
 ]);
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
@@ -31,6 +32,11 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'userscripts:install-source', 'userscripts:install-file', 'userscripts:install-url',
   'userscripts:uninstall', 'userscripts:set-enabled', 'userscripts:update-source',
   'userscripts:for-tab', 'userscripts:invoke-command',
+  'userscripts:check-updates', 'userscripts:apply-update',
+  'userscripts:background-status', 'userscripts:background-restart',
+  'userscripts:export-source',
+  'userscripts:list-values', 'userscripts:set-value-admin', 'userscripts:delete-value-admin',
+  'screenshot:capture', 'screenshot:capture-active', 'screenshot:reveal', 'screenshot:set-dir',
 ]);
 
 const ALLOWED_SEND_CHANNELS = new Set([
@@ -157,6 +163,7 @@ const electronAPI = {
   userscripts: {
     list: () => safeInvoke('userscripts:list', {}),
     getSource: (id: string) => safeInvoke('userscripts:get-source', { id }),
+    parseSource: (source: string) => safeInvoke('userscripts:parse-source', { source }),
     installSource: (source: string, enabled?: boolean) => safeInvoke('userscripts:install-source', { source, enabled }),
     installFile: () => safeInvoke('userscripts:install-file', {}),
     installUrl: (url: string) => safeInvoke('userscripts:install-url', { url }),
@@ -165,11 +172,28 @@ const electronAPI = {
     updateSource: (id: string, source: string) => safeInvoke('userscripts:update-source', { id, source }),
     forTab: (tabId: string, url: string) => safeInvoke('userscripts:for-tab', { tabId, url }),
     invokeCommand: (tabId: string, commandId: string) => safeInvoke('userscripts:invoke-command', { tabId, commandId }),
+    checkUpdates: () => safeInvoke('userscripts:check-updates', {}),
+    applyUpdate: (id: string) => safeInvoke('userscripts:apply-update', { id }),
+    backgroundStatus: () => safeInvoke('userscripts:background-status', {}),
+    backgroundRestart: (id?: string) => safeInvoke('userscripts:background-restart', id ? { id } : {}),
+    exportSource: (id: string) => safeInvoke('userscripts:export-source', { id }),
+    listValues: (id: string) => safeInvoke('userscripts:list-values', { id }),
+    setValueAdmin: (id: string, key: string, value: unknown) => safeInvoke('userscripts:set-value-admin', { id, key, value }),
+    deleteValueAdmin: (id: string, key: string) => safeInvoke('userscripts:delete-value-admin', { id, key }),
     onChanged: (callback: () => void) => {
       const listener = () => callback();
       ipcRenderer.on('userscripts:changed', listener);
       return () => { ipcRenderer.removeListener('userscripts:changed', listener); };
     },
+  },
+
+  screenshot: {
+    capture: (tabId: string, opts?: { save?: boolean; savePath?: string; returnData?: boolean; rect?: { x: number; y: number; width: number; height: number } }) =>
+      safeInvoke('screenshot:capture', { tabId, ...opts }),
+    captureActive: (opts?: { save?: boolean; savePath?: string; returnData?: boolean; rect?: { x: number; y: number; width: number; height: number } }) =>
+      safeInvoke('screenshot:capture-active', { ...opts }),
+    reveal: (filePath: string) => safeInvoke('screenshot:reveal', { filePath }),
+    setDir: () => safeInvoke('screenshot:set-dir'),
   },
 };
 

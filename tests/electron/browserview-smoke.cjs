@@ -2,6 +2,7 @@ const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 
 const timeout = setTimeout(() => {
   console.error('[smoke] timed out');
@@ -31,6 +32,14 @@ app.whenReady().then(async () => {
     window.addBrowserView(second);
     first.setBounds({ x: 0, y: 0, width: 640, height: 480 });
     second.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
+
+    // Opening the library sidebar moves the fixed-size page viewport instead
+    // of narrowing it. The right edge is clipped by the native window.
+    first.setBounds({ x: 316, y: 0, width: 640, height: 480 });
+    const sidebarBounds = first.getBounds();
+    if (sidebarBounds.x !== 316 || sidebarBounds.width !== 640) {
+      throw new Error(`fixed viewport changed after sidebar shift: ${JSON.stringify(sidebarBounds)}`);
+    }
     await Promise.all([load(first, 'first'), load(second, 'second')]);
 
     const passwordFormDetected = new Promise((resolve, reject) => {
@@ -75,7 +84,7 @@ app.whenReady().then(async () => {
     first.setBounds({ x: -9999, y: -9999, width: 1, height: 1 });
     second.setBounds({ x: 0, y: 0, width: 640, height: 480 });
     await second.webContents.reload();
-    console.log('[smoke] BrowserView isolation, hidden bounds, password signals and reload passed');
+    console.log('[smoke] BrowserView isolation, fixed viewport, hidden bounds, password signals and reload passed');
     clearTimeout(timeout);
     app.exit(0);
   } catch (error) {

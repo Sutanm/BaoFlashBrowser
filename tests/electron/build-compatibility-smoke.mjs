@@ -8,6 +8,9 @@ await esbuild.build({
   format: 'cjs',
   target: 'node12',
   external: ['electron', 'electron-log', 'electron-store'],
+  loader: {
+    '.user.js': 'text',
+  },
   alias: {
     '@shared': './src/shared',
     '@main': './src/main',

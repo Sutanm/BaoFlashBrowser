@@ -11,6 +11,8 @@ import { registerWindowIPC } from './ipc/window.ipc';
 import { registerConfigIPC } from './ipc/config.ipc';
 import { registerTabsIPC } from './ipc/tabs.ipc';
 import { registerDownloadIPC } from './ipc/download.ipc';
+import { registerScreenshotIPC } from './ipc/screenshot.ipc';
+import { startScreenshotHttpServer } from './modules/screenshot-http';
 import { registerPasswordIPC } from './ipc/password.ipc';
 import { registerDiagnosticsIPC } from './ipc/diagnostics.ipc';
 import { registerUserscriptsIPC } from './ipc/userscripts.ipc';
@@ -40,6 +42,13 @@ function bootstrap(): void {
 
   const config = loadConfig();
   initializeSessionRecovery();
+
+  // Chromium 87's Windows spellchecker can derive corrupt dictionary paths
+  // on newer Windows builds, leaving random Unicode folders beside the app.
+  // The browser does not offer spellchecking, so disable the feature globally.
+  if (process.platform === 'win32') {
+    app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
+  }
 
   if (process.platform === 'linux') {
     app.commandLine.appendSwitch('no-sandbox');
@@ -111,6 +120,7 @@ function bootstrap(): void {
     registerConfigIPC();
     registerTabsIPC();
     registerDownloadIPC();
+    registerScreenshotIPC(() => getMainWindow());
     initPasswordStore().catch((e: any) => log.warn('[App] password store init failed:', e?.message));
     registerPasswordIPC();
     registerDiagnosticsIPC();
@@ -119,6 +129,11 @@ setupJsPatchInterceptor();
 registerUserscriptsIPC();
     registerUserscriptsAdminIPC(() => getMainWindow());
     startMemoryMonitor();
+
+    // 调试截图 HTTP 口子：仅开发模式 + BAO_SCREENSHOT_HTTP=1（发布版零监听端口）
+    if (!app.isPackaged && process.env.BAO_SCREENSHOT_HTTP === '1') {
+      startScreenshotHttpServer();
+    }
 
     // 重任务延迟到首渲染后执行，不阻塞首屏展示
      setImmediate(() => {

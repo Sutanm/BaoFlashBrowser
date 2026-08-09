@@ -56,6 +56,25 @@ class TabManager {
     return tabId && tab ? { tabId, enabled: tab.isRuffle, source: tab.ruffleSource } : null;
   }
 
+  getActiveId(): string | null {
+    return this.activeId;
+  }
+
+  getWebContents(tabId: string): Electron.WebContents | null {
+    const tab = this.tabs.get(tabId);
+    const wc = tab?.browserView?.webContents;
+    if (!wc || wc.isDestroyed()) return null;
+    return wc;
+  }
+
+  isTabActive(tabId: string): boolean {
+    return this.activeId === tabId;
+  }
+
+  getContainerRect(): ContainerRect {
+    return { ...this.rect };
+  }
+
   setPreload(path: string): void { this.preloadPath = path; }
 
   getMemoryDiagnostics(): Array<{ tabId: string; pid: number; engine: 'ppapi' | 'ruffle'; active: boolean; host: string }> {
@@ -119,6 +138,7 @@ class TabManager {
         contextIsolation: !tab.isRuffle,
         nodeIntegration: false,
         nodeIntegrationInSubFrames: true,   // userscript runtime needs subframe preload
+        spellcheck: false,
         partition: 'persist:',
       },
     });
@@ -185,6 +205,18 @@ class TabManager {
       if (this._isCurrentWebContents(tabId, wc)) this._detachDebuggerBeforeNavigate(wc);
     });
     wc.on('dom-ready', () => {
+      // SWF file: Chromium's internal plugin viewer sets body{height:100%} but
+      // NOT html{height:100%}, so the percentage collapses to the SWF's stage
+      // height instead of the viewport. The preload cannot fix this because
+      // Chromium's plugin document does not load preload scripts.
+      try {
+        if (/\.swf(\?|#|$)/i.test(wc.getURL())) {
+          void wc.insertCSS(
+            'html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden}' +
+            'embed,object{width:100%!important;height:100%!important}',
+          );
+        }
+      } catch { /* must not break navigation */ }
       if (!this._isCurrentWebContents(tabId, wc) || !mainNavigationPending) return;
       // The top-level DOM is usable even if a game/login iframe is still fetching.
       // End the visible spinner here; capture setup remains deferred until did-stop-loading.

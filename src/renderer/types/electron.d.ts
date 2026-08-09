@@ -13,6 +13,14 @@ interface MainConfig {
   lowEndMode: boolean;
   downloadEngine: DownloadEngine;
   downloadDir: string;
+  screenshotDir: string;
+  userscriptMaxResponseMB: number;
+  userscriptTimeoutSeconds: number;
+  userscriptMaxConcurrentPerScript: number;
+  userscriptMaxConcurrentGlobal: number;
+  userscriptDownloadMaxMB: number;
+  userscriptDownloadConcurrent: number;
+  userscriptMaxValueKB: number;
 }
 
 interface PasswordEntryMeta {
@@ -32,6 +40,31 @@ interface PasswordSaveResult {
 
 interface PasswordOperationResult {
   success: boolean;
+  error?: string;
+}
+
+interface ScreenshotResult {
+  success: boolean;
+  code?: string;
+  data?: string;
+  filePath?: string;
+  width?: number;
+  height?: number;
+  error?: string;
+}
+
+interface ScreenshotOptions {
+  save?: boolean;
+  savePath?: string;
+  returnData?: boolean;
+  rect?: { x: number; y: number; width: number; height: number };
+}
+
+interface ScreenshotSetDirResult {
+  success: boolean;
+  canceled?: boolean;
+  dir?: string;
+  code?: string;
   error?: string;
 }
 
@@ -102,6 +135,10 @@ declare global {
       invoke(channel: 'win:minimize' | 'win:maximize' | 'win:unmaximize' | 'win:close' | 'win:toggleFullscreen'): Promise<void>;
       invoke(channel: 'win:setFullscreen', fullscreen: boolean): Promise<void>;
       invoke(channel: 'win:isMaximized'): Promise<boolean>;
+      invoke(channel: 'screenshot:capture', payload: { tabId: string } & ScreenshotOptions): Promise<ScreenshotResult>;
+      invoke(channel: 'screenshot:capture-active', payload: ScreenshotOptions): Promise<ScreenshotResult>;
+      invoke(channel: 'screenshot:reveal', payload: { filePath: string }): Promise<{ success: boolean; code?: string; error?: string }>;
+      invoke(channel: 'screenshot:set-dir'): Promise<ScreenshotSetDirResult>;
       invoke(channel: string, ...args: unknown[]): Promise<unknown>;
 
       webviewPreloadPath: string;
@@ -205,7 +242,27 @@ declare global {
           commands: Array<{ commandId: string; title: string; scriptId: string }>;
         }>;
         invokeCommand(tabId: string, commandId: string): Promise<{ ok: boolean }>;
+        checkUpdates(): Promise<{
+          updates: Array<{ id: string; name: string; currentVersion: string; latestVersion: string; updateUrl: string }>;
+        }>;
+        applyUpdate(id: string): Promise<{ ok: boolean; error?: string }>;
+        backgroundStatus(): Promise<{
+          scripts: Array<{ scriptId: string; running: boolean; crashedCount: number; stopped: boolean }>;
+          stopped: boolean;
+        }>;
+        backgroundRestart(id?: string): Promise<{ ok: boolean }>;
+        exportSource(id: string): Promise<{ ok: boolean; path?: string; error?: string }>;
+        listValues(id: string): Promise<{ values: Record<string, unknown> }>;
+        setValueAdmin(id: string, key: string, value: unknown): Promise<{ ok: boolean }>;
+        deleteValueAdmin(id: string, key: string): Promise<{ ok: boolean }>;
         onChanged(callback: () => void): () => void;
+      };
+
+      screenshot: {
+        capture(tabId: string, opts?: ScreenshotOptions): Promise<ScreenshotResult>;
+        captureActive(opts?: ScreenshotOptions): Promise<ScreenshotResult>;
+        reveal(filePath: string): Promise<{ success: boolean; code?: string; error?: string }>;
+        setDir(): Promise<ScreenshotSetDirResult>;
       };
     };
   }
