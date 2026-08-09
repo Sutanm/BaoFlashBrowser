@@ -611,6 +611,10 @@ type RootTranslation = {
 		 */
 		title: string
 		/**
+		 * 设​置​分​类
+		 */
+		categories: string
+		/**
 		 * 设​置​已​保​存
 		 */
 		saved: string
@@ -790,6 +794,90 @@ type RootTranslation = {
 		 * 语​言
 		 */
 		language: string
+		userscriptCapacity: {
+			/**
+			 * 用​户​脚​本​容​量
+			 */
+			title: string
+			/**
+			 * 保​存​后​立​即​生​效​,​无​需​重​启​。
+			 */
+			hint: string
+			/**
+			 * 请​求​响​应​上​限​ ​(​M​B​)
+			 */
+			maxResponseMB: string
+			/**
+			 * 请​求​超​时​ ​(​秒​)
+			 */
+			timeoutSeconds: string
+			/**
+			 * 每​脚​本​并​发​请​求​数
+			 */
+			concurrentPerScript: string
+			/**
+			 * 全​局​并​发​请​求​数
+			 */
+			concurrentGlobal: string
+			/**
+			 * 下​载​单​文​件​上​限​ ​(​M​B​)
+			 */
+			downloadMaxMB: string
+			/**
+			 * 下​载​每​脚​本​并​发​数
+			 */
+			downloadConcurrent: string
+			/**
+			 * 单​值​大​小​上​限​ ​(​K​B​,​重​启​生​效​)
+			 */
+			maxValueKB: string
+		}
+		screenshot: {
+			/**
+			 * 截​图
+			 */
+			capture: string
+			/**
+			 * 截​取​当​前​标​签​页​画​面​并​保​存
+			 */
+			captureHint: string
+			/**
+			 * 截​图​已​保​存
+			 */
+			captured: string
+			/**
+			 * 打​开​文​件​夹
+			 */
+			openFolder: string
+			/**
+			 * 截​图​失​败
+			 */
+			captureFailed: string
+			/**
+			 * 截​图​保​存​目​录
+			 */
+			dir: string
+			/**
+			 * 选​择​目​录
+			 */
+			selectDir: string
+			/**
+			 * 截​图​目​录​已​更​改
+			 */
+			dirChanged: string
+			/**
+			 * 所​选​目​录​不​可​写
+			 */
+			dirNotWritable: string
+			/**
+			 * 所​选​目​录​位​于​程​序​数​据​目​录​内
+			 */
+			dirDenied: string
+			/**
+			 * 选​择​目​录​失​败
+			 */
+			dirSelectFailed: string
+		}
 	}
 	find: {
 		/**
@@ -822,6 +910,389 @@ type RootTranslation = {
 		 * @param {unknown} title
 		 */
 		removed: RequiredParams<'title'>
+	}
+	userscript: {
+		/**
+		 * 用​户​脚​本
+		 */
+		title: string
+		/**
+		 * 搜​索​名​称​ ​/​ ​匹​配​ ​/​ ​命​名​空​间
+		 */
+		searchPlaceholder: string
+		/**
+		 * 添​加​新​脚​本
+		 */
+		addNew: string
+		/**
+		 * 从​文​件​安​装
+		 */
+		installFromFile: string
+		/**
+		 * 从​ ​U​R​L​ ​安​装
+		 */
+		installFromUrl: string
+		/**
+		 * 输​入​ ​.​u​s​e​r​.​j​s​ ​的​ ​U​R​L​ ​后​回​车
+		 */
+		urlPlaceholder: string
+		/**
+		 * 粘​贴​脚​本​源​码
+		 */
+		pasteSource: string
+		/**
+		 * 或​在​此​粘​贴​脚​本​源​码​…
+		 */
+		pastePlaceholder: string
+		/**
+		 * 解​析​预​览
+		 */
+		parsePreview: string
+		/**
+		 * {​c​o​u​n​t​}​ ​个​脚​本
+		 * @param {unknown} count
+		 */
+		scriptCount: RequiredParams<'count'>
+		/**
+		 * 加​载​中​…
+		 */
+		loading: string
+		/**
+		 * 没​有​匹​配​的​脚​本​。
+		 */
+		noMatch: string
+		/**
+		 * 尚​未​安​装​任​何​脚​本​。​点​击​右​上​角​"​添​加​新​脚​本​"​开​始​。
+		 */
+		empty: string
+		/**
+		 * 全​部
+		 */
+		filterAll: string
+		/**
+		 * 已​启​用
+		 */
+		filterEnabled: string
+		/**
+		 * 已​禁​用
+		 */
+		filterDisabled: string
+		/**
+		 * 启​用
+		 */
+		colEnable: string
+		/**
+		 * 脚​本
+		 */
+		colScript: string
+		/**
+		 * 状​态
+		 */
+		colStatus: string
+		/**
+		 * 匹​配
+		 */
+		colMatch: string
+		/**
+		 * 操​作
+		 */
+		colActions: string
+		/**
+		 * 运​行​中
+		 */
+		statusRunning: string
+		/**
+		 * 已​禁​用
+		 */
+		statusDisabled: string
+		/**
+		 * 全​部​页​面
+		 */
+		matchAllPages: string
+		/**
+		 * 无​匹​配
+		 */
+		matchNone: string
+		/**
+		 * 授​权
+		 */
+		permission: string
+		/**
+		 * 跨​域
+		 */
+		permissionCrossOrigin: string
+		/**
+		 * 外​部​脚​本
+		 */
+		permissionExternalScript: string
+		/**
+		 * 资​源
+		 */
+		permissionResources: string
+		/**
+		 * 无​额​外​授​权
+		 */
+		permissionNone: string
+		/**
+		 * 编​辑
+		 */
+		edit: string
+		/**
+		 * 删​除
+		 */
+		'delete': string
+		/**
+		 * 启​用
+		 */
+		enable: string
+		/**
+		 * 禁​用
+		 */
+		disable: string
+		/**
+		 * 保​存
+		 */
+		save: string
+		/**
+		 * 安​装
+		 */
+		install: string
+		/**
+		 * ←​ ​返​回​列​表
+		 */
+		backToList: string
+		/**
+		 * 编​辑​：​{​s​c​r​i​p​t​I​d​}
+		 * @param {unknown} scriptId
+		 */
+		editorTitle: RequiredParams<'scriptId'>
+		/**
+		 * 保​存​失​败​：​{​e​r​r​o​r​}
+		 * @param {unknown} error
+		 */
+		saveFailed: RequiredParams<'error'>
+		/**
+		 * 已​保​存
+		 */
+		saveSuccess: string
+		/**
+		 * 脚​本​有​未​保​存​的​修​改​，​确​定​离​开​吗​？
+		 */
+		dirtyConfirm: string
+		/**
+		 * 安​装​确​认
+		 */
+		installConfirm: string
+		/**
+		 * 来​源​：​{​f​r​o​m​}
+		 * @param {unknown} from
+		 */
+		installSource: RequiredParams<'from'>
+		/**
+		 * 待​安​装
+		 */
+		installBadge: string
+		/**
+		 * 匹​配​范​围
+		 */
+		installMatchScope: string
+		/**
+		 * 安​装​后​脚​本​将​按​上​述​匹​配​范​围​在​所​有​标​签​页​执​行​。​请​确​认​来​源​可​信​。
+		 */
+		installWarning: string
+		/**
+		 * 已​安​装​「​{​n​a​m​e​}​」
+		 * @param {unknown} name
+		 */
+		installSuccess: RequiredParams<'name'>
+		/**
+		 * 本​地​文​件
+		 */
+		installLocalFile: string
+		/**
+		 * 删​除​脚​本​「​{​n​a​m​e​}​」​？
+		 * @param {unknown} name
+		 */
+		deleteConfirm: RequiredParams<'name'>
+		/**
+		 * 已​删​除​「​{​n​a​m​e​}​」
+		 * @param {unknown} name
+		 */
+		deleteSuccess: RequiredParams<'name'>
+		/**
+		 * 读​取​文​件​失​败​：​{​e​r​r​o​r​}
+		 * @param {unknown} error
+		 */
+		fileReadFailed: RequiredParams<'error'>
+		/**
+		 * 下​载​失​败​：​{​e​r​r​o​r​}
+		 * @param {unknown} error
+		 */
+		downloadFailed: RequiredParams<'error'>
+		panel: {
+			/**
+			 * 当​前​页​面​匹​配
+			 */
+			matchedOnPage: string
+			/**
+			 * 管​理​所​有​脚​本
+			 */
+			manageAll: string
+			/**
+			 * 当​前​页​面​没​有​匹​配​的​脚​本​。
+			 */
+			noMatchOnPage: string
+			/**
+			 * 命​令​已​发​送​到​页​面
+			 */
+			commandSent: string
+			/**
+			 * 命​令​执​行​失​败​(​脚​本​可​能​已​卸​载​或​页​面​已​刷​新​)
+			 */
+			commandFailed: string
+			/**
+			 * 命​令​执​行​失​败
+			 */
+			commandFailedSimple: string
+			/**
+			 * 脚​本​命​令
+			 */
+			commands: string
+			/**
+			 * 执​行​中​…
+			 */
+			commandRunning: string
+		}
+		update: {
+			/**
+			 * 检​查​更​新
+			 */
+			checkButton: string
+			/**
+			 * 检​查​中​…
+			 */
+			checking: string
+			/**
+			 * 发​现​ ​{​c​o​u​n​t​}​ ​个​可​更​新​脚​本
+			 * @param {unknown} count
+			 */
+			found: RequiredParams<'count'>
+			/**
+			 * 所​有​脚​本​都​是​最​新​版​本
+			 */
+			none: string
+			/**
+			 * 更​新​到​ ​v​{​v​e​r​s​i​o​n​}
+			 * @param {unknown} version
+			 */
+			latest: RequiredParams<'version'>
+			/**
+			 * 已​编​辑
+			 */
+			edited: string
+			/**
+			 * 弱​安​全​更​新​源
+			 */
+			weakSource: string
+			/**
+			 * 该​脚​本​的​更​新​源​仅​经​ ​@​m​a​t​c​h​ ​域​名​校​验​,​应​用​更​新​将​覆​盖​你​的​改​动​,​确​定​继​续​?
+			 */
+			weakConfirm: string
+			/**
+			 * 已​更​新​「​{​n​a​m​e​}​」​到​ ​v​{​v​e​r​s​i​o​n​}
+			 * @param {unknown} name
+			 * @param {unknown} version
+			 */
+			success: RequiredParams<'name' | 'version'>
+			/**
+			 * 更​新​失​败​:​{​e​r​r​o​r​}
+			 * @param {unknown} error
+			 */
+			failed: RequiredParams<'error'>
+			/**
+			 * 更​新​服​务​繁​忙​,​请​稍​后​再​试
+			 */
+			rateLimit: string
+		}
+		/**
+		 * 导​出
+		 */
+		'export': string
+		/**
+		 * 已​导​出​到​ ​{​p​a​t​h​}
+		 * @param {unknown} path
+		 */
+		exported: RequiredParams<'path'>
+		/**
+		 * 导​出​失​败​:​{​e​r​r​o​r​}
+		 * @param {unknown} error
+		 */
+		exportFailed: RequiredParams<'error'>
+		values: {
+			/**
+			 * 查​看​/​编​辑​值
+			 */
+			open: string
+			/**
+			 * 脚​本​值
+			 */
+			title: string
+			/**
+			 * 该​脚​本​暂​无​ ​G​M​ ​值​。
+			 */
+			empty: string
+			/**
+			 * 读​取​值​失​败
+			 */
+			loadFailed: string
+			/**
+			 * 编​辑
+			 */
+			edit: string
+			/**
+			 * 删​除
+			 */
+			'delete': string
+			/**
+			 * 保​存
+			 */
+			save: string
+			/**
+			 * 取​消
+			 */
+			cancel: string
+			/**
+			 * 值​必​须​是​合​法​ ​J​S​O​N
+			 */
+			invalid: string
+			/**
+			 * 保​存​失​败​(​超​出​大​小​上​限​或​非​法​值​)
+			 */
+			saveFailed: string
+		}
+		background: {
+			/**
+			 * 后​台
+			 */
+			badge: string
+			/**
+			 * 后​台​脚​本​已​停​止​:​{​s​c​r​i​p​t​s​}
+			 * @param {unknown} scripts
+			 */
+			stoppedScripts: RequiredParams<'scripts'>
+			/**
+			 * 重​启​全​部​后​台​脚​本
+			 */
+			restart: string
+			/**
+			 * 重​启
+			 */
+			restartScript: string
+			/**
+			 * 或​一​次​性​重​启​全​部​后​台​脚​本​:
+			 */
+			restartAllHint: string
+		}
 	}
 	error: {
 		/**
@@ -1434,6 +1905,10 @@ export type TranslationFunctions = {
 		 */
 		title: () => LocalizedString
 		/**
+		 * 设置分类
+		 */
+		categories: () => LocalizedString
+		/**
 		 * 设置已保存
 		 */
 		saved: () => LocalizedString
@@ -1613,6 +2088,90 @@ export type TranslationFunctions = {
 		 * 语言
 		 */
 		language: () => LocalizedString
+		userscriptCapacity: {
+			/**
+			 * 用户脚本容量
+			 */
+			title: () => LocalizedString
+			/**
+			 * 保存后立即生效,无需重启。
+			 */
+			hint: () => LocalizedString
+			/**
+			 * 请求响应上限 (MB)
+			 */
+			maxResponseMB: () => LocalizedString
+			/**
+			 * 请求超时 (秒)
+			 */
+			timeoutSeconds: () => LocalizedString
+			/**
+			 * 每脚本并发请求数
+			 */
+			concurrentPerScript: () => LocalizedString
+			/**
+			 * 全局并发请求数
+			 */
+			concurrentGlobal: () => LocalizedString
+			/**
+			 * 下载单文件上限 (MB)
+			 */
+			downloadMaxMB: () => LocalizedString
+			/**
+			 * 下载每脚本并发数
+			 */
+			downloadConcurrent: () => LocalizedString
+			/**
+			 * 单值大小上限 (KB,重启生效)
+			 */
+			maxValueKB: () => LocalizedString
+		}
+		screenshot: {
+			/**
+			 * 截图
+			 */
+			capture: () => LocalizedString
+			/**
+			 * 截取当前标签页画面并保存
+			 */
+			captureHint: () => LocalizedString
+			/**
+			 * 截图已保存
+			 */
+			captured: () => LocalizedString
+			/**
+			 * 打开文件夹
+			 */
+			openFolder: () => LocalizedString
+			/**
+			 * 截图失败
+			 */
+			captureFailed: () => LocalizedString
+			/**
+			 * 截图保存目录
+			 */
+			dir: () => LocalizedString
+			/**
+			 * 选择目录
+			 */
+			selectDir: () => LocalizedString
+			/**
+			 * 截图目录已更改
+			 */
+			dirChanged: () => LocalizedString
+			/**
+			 * 所选目录不可写
+			 */
+			dirNotWritable: () => LocalizedString
+			/**
+			 * 所选目录位于程序数据目录内
+			 */
+			dirDenied: () => LocalizedString
+			/**
+			 * 选择目录失败
+			 */
+			dirSelectFailed: () => LocalizedString
+		}
 	}
 	find: {
 		/**
@@ -1643,6 +2202,372 @@ export type TranslationFunctions = {
 		 * 已取消收藏 {title}
 		 */
 		removed: (arg: { title: unknown }) => LocalizedString
+	}
+	userscript: {
+		/**
+		 * 用户脚本
+		 */
+		title: () => LocalizedString
+		/**
+		 * 搜索名称 / 匹配 / 命名空间
+		 */
+		searchPlaceholder: () => LocalizedString
+		/**
+		 * 添加新脚本
+		 */
+		addNew: () => LocalizedString
+		/**
+		 * 从文件安装
+		 */
+		installFromFile: () => LocalizedString
+		/**
+		 * 从 URL 安装
+		 */
+		installFromUrl: () => LocalizedString
+		/**
+		 * 输入 .user.js 的 URL 后回车
+		 */
+		urlPlaceholder: () => LocalizedString
+		/**
+		 * 粘贴脚本源码
+		 */
+		pasteSource: () => LocalizedString
+		/**
+		 * 或在此粘贴脚本源码…
+		 */
+		pastePlaceholder: () => LocalizedString
+		/**
+		 * 解析预览
+		 */
+		parsePreview: () => LocalizedString
+		/**
+		 * {count} 个脚本
+		 */
+		scriptCount: (arg: { count: unknown }) => LocalizedString
+		/**
+		 * 加载中…
+		 */
+		loading: () => LocalizedString
+		/**
+		 * 没有匹配的脚本。
+		 */
+		noMatch: () => LocalizedString
+		/**
+		 * 尚未安装任何脚本。点击右上角"添加新脚本"开始。
+		 */
+		empty: () => LocalizedString
+		/**
+		 * 全部
+		 */
+		filterAll: () => LocalizedString
+		/**
+		 * 已启用
+		 */
+		filterEnabled: () => LocalizedString
+		/**
+		 * 已禁用
+		 */
+		filterDisabled: () => LocalizedString
+		/**
+		 * 启用
+		 */
+		colEnable: () => LocalizedString
+		/**
+		 * 脚本
+		 */
+		colScript: () => LocalizedString
+		/**
+		 * 状态
+		 */
+		colStatus: () => LocalizedString
+		/**
+		 * 匹配
+		 */
+		colMatch: () => LocalizedString
+		/**
+		 * 操作
+		 */
+		colActions: () => LocalizedString
+		/**
+		 * 运行中
+		 */
+		statusRunning: () => LocalizedString
+		/**
+		 * 已禁用
+		 */
+		statusDisabled: () => LocalizedString
+		/**
+		 * 全部页面
+		 */
+		matchAllPages: () => LocalizedString
+		/**
+		 * 无匹配
+		 */
+		matchNone: () => LocalizedString
+		/**
+		 * 授权
+		 */
+		permission: () => LocalizedString
+		/**
+		 * 跨域
+		 */
+		permissionCrossOrigin: () => LocalizedString
+		/**
+		 * 外部脚本
+		 */
+		permissionExternalScript: () => LocalizedString
+		/**
+		 * 资源
+		 */
+		permissionResources: () => LocalizedString
+		/**
+		 * 无额外授权
+		 */
+		permissionNone: () => LocalizedString
+		/**
+		 * 编辑
+		 */
+		edit: () => LocalizedString
+		/**
+		 * 删除
+		 */
+		'delete': () => LocalizedString
+		/**
+		 * 启用
+		 */
+		enable: () => LocalizedString
+		/**
+		 * 禁用
+		 */
+		disable: () => LocalizedString
+		/**
+		 * 保存
+		 */
+		save: () => LocalizedString
+		/**
+		 * 安装
+		 */
+		install: () => LocalizedString
+		/**
+		 * ← 返回列表
+		 */
+		backToList: () => LocalizedString
+		/**
+		 * 编辑：{scriptId}
+		 */
+		editorTitle: (arg: { scriptId: unknown }) => LocalizedString
+		/**
+		 * 保存失败：{error}
+		 */
+		saveFailed: (arg: { error: unknown }) => LocalizedString
+		/**
+		 * 已保存
+		 */
+		saveSuccess: () => LocalizedString
+		/**
+		 * 脚本有未保存的修改，确定离开吗？
+		 */
+		dirtyConfirm: () => LocalizedString
+		/**
+		 * 安装确认
+		 */
+		installConfirm: () => LocalizedString
+		/**
+		 * 来源：{from}
+		 */
+		installSource: (arg: { from: unknown }) => LocalizedString
+		/**
+		 * 待安装
+		 */
+		installBadge: () => LocalizedString
+		/**
+		 * 匹配范围
+		 */
+		installMatchScope: () => LocalizedString
+		/**
+		 * 安装后脚本将按上述匹配范围在所有标签页执行。请确认来源可信。
+		 */
+		installWarning: () => LocalizedString
+		/**
+		 * 已安装「{name}」
+		 */
+		installSuccess: (arg: { name: unknown }) => LocalizedString
+		/**
+		 * 本地文件
+		 */
+		installLocalFile: () => LocalizedString
+		/**
+		 * 删除脚本「{name}」？
+		 */
+		deleteConfirm: (arg: { name: unknown }) => LocalizedString
+		/**
+		 * 已删除「{name}」
+		 */
+		deleteSuccess: (arg: { name: unknown }) => LocalizedString
+		/**
+		 * 读取文件失败：{error}
+		 */
+		fileReadFailed: (arg: { error: unknown }) => LocalizedString
+		/**
+		 * 下载失败：{error}
+		 */
+		downloadFailed: (arg: { error: unknown }) => LocalizedString
+		panel: {
+			/**
+			 * 当前页面匹配
+			 */
+			matchedOnPage: () => LocalizedString
+			/**
+			 * 管理所有脚本
+			 */
+			manageAll: () => LocalizedString
+			/**
+			 * 当前页面没有匹配的脚本。
+			 */
+			noMatchOnPage: () => LocalizedString
+			/**
+			 * 命令已发送到页面
+			 */
+			commandSent: () => LocalizedString
+			/**
+			 * 命令执行失败(脚本可能已卸载或页面已刷新)
+			 */
+			commandFailed: () => LocalizedString
+			/**
+			 * 命令执行失败
+			 */
+			commandFailedSimple: () => LocalizedString
+			/**
+			 * 脚本命令
+			 */
+			commands: () => LocalizedString
+			/**
+			 * 执行中…
+			 */
+			commandRunning: () => LocalizedString
+		}
+		update: {
+			/**
+			 * 检查更新
+			 */
+			checkButton: () => LocalizedString
+			/**
+			 * 检查中…
+			 */
+			checking: () => LocalizedString
+			/**
+			 * 发现 {count} 个可更新脚本
+			 */
+			found: (arg: { count: unknown }) => LocalizedString
+			/**
+			 * 所有脚本都是最新版本
+			 */
+			none: () => LocalizedString
+			/**
+			 * 更新到 v{version}
+			 */
+			latest: (arg: { version: unknown }) => LocalizedString
+			/**
+			 * 已编辑
+			 */
+			edited: () => LocalizedString
+			/**
+			 * 弱安全更新源
+			 */
+			weakSource: () => LocalizedString
+			/**
+			 * 该脚本的更新源仅经 @match 域名校验,应用更新将覆盖你的改动,确定继续?
+			 */
+			weakConfirm: () => LocalizedString
+			/**
+			 * 已更新「{name}」到 v{version}
+			 */
+			success: (arg: { name: unknown, version: unknown }) => LocalizedString
+			/**
+			 * 更新失败:{error}
+			 */
+			failed: (arg: { error: unknown }) => LocalizedString
+			/**
+			 * 更新服务繁忙,请稍后再试
+			 */
+			rateLimit: () => LocalizedString
+		}
+		/**
+		 * 导出
+		 */
+		'export': () => LocalizedString
+		/**
+		 * 已导出到 {path}
+		 */
+		exported: (arg: { path: unknown }) => LocalizedString
+		/**
+		 * 导出失败:{error}
+		 */
+		exportFailed: (arg: { error: unknown }) => LocalizedString
+		values: {
+			/**
+			 * 查看/编辑值
+			 */
+			open: () => LocalizedString
+			/**
+			 * 脚本值
+			 */
+			title: () => LocalizedString
+			/**
+			 * 该脚本暂无 GM 值。
+			 */
+			empty: () => LocalizedString
+			/**
+			 * 读取值失败
+			 */
+			loadFailed: () => LocalizedString
+			/**
+			 * 编辑
+			 */
+			edit: () => LocalizedString
+			/**
+			 * 删除
+			 */
+			'delete': () => LocalizedString
+			/**
+			 * 保存
+			 */
+			save: () => LocalizedString
+			/**
+			 * 取消
+			 */
+			cancel: () => LocalizedString
+			/**
+			 * 值必须是合法 JSON
+			 */
+			invalid: () => LocalizedString
+			/**
+			 * 保存失败(超出大小上限或非法值)
+			 */
+			saveFailed: () => LocalizedString
+		}
+		background: {
+			/**
+			 * 后台
+			 */
+			badge: () => LocalizedString
+			/**
+			 * 后台脚本已停止:{scripts}
+			 */
+			stoppedScripts: (arg: { scripts: unknown }) => LocalizedString
+			/**
+			 * 重启全部后台脚本
+			 */
+			restart: () => LocalizedString
+			/**
+			 * 重启
+			 */
+			restartScript: () => LocalizedString
+			/**
+			 * 或一次性重启全部后台脚本:
+			 */
+			restartAllHint: () => LocalizedString
+		}
 	}
 	error: {
 		/**

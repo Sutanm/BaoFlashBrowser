@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import TopBar from './components/layout/TopBar';
 import DrawerSidebar from './components/layout/DrawerSidebar';
+import { isSidebarPanel, SIDEBAR_WIDTH } from './components/layout/DrawerSidebar';
 import NewTabPage from './components/newtab/NewTabPage';
 import UserscriptsPage from './components/userscripts/UserscriptsPage';
 import LoadingProgress from './components/overlays/LoadingProgress';
@@ -18,6 +19,7 @@ import { isNewtabUrl } from './services/url-utils';
 import TypesafeI18n, { useI18nContext } from './i18n/i18n-react';
 import { loadAllLocales } from './i18n/i18n-util.sync';
 import { isLocale } from './i18n/i18n-util';
+import { computeBrowserViewBounds } from './services/browserview-bounds';
 
 const AppInner: React.FC = () => {
   const { LL, setLocale } = useI18nContext();
@@ -44,84 +46,84 @@ const AppInner: React.FC = () => {
     }
   }, [settings.language, setLocale]);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [findBarVisible, setFindBarVisible] = useState(false);
+  const lastSidebarPanelRef = useRef<'favorites' | 'history' | 'downloads'>('favorites');
+  const sidebarOpen = isSidebarPanel(activePanel);
+  const [sidebarMounted, setSidebarMounted] = useState(sidebarOpen);
+  const sidebarClosing = sidebarMounted && !sidebarOpen;
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      setSidebarMounted(true);
+      return;
+    }
+    if (!sidebarMounted) return;
+    const timer = window.setTimeout(() => setSidebarMounted(false), 240);
+    return () => window.clearTimeout(timer);
+  }, [sidebarOpen, sidebarMounted]);
+
+  useEffect(() => {
+    const enableKeyboardFocus = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') document.body.classList.add('keyboard-navigation');
+    };
+    const disableKeyboardFocus = () => {
+      document.body.classList.remove('keyboard-navigation');
+    };
+
+    window.addEventListener('keydown', enableKeyboardFocus);
+    window.addEventListener('mousedown', disableKeyboardFocus);
+    return () => {
+      window.removeEventListener('keydown', enableKeyboardFocus);
+      window.removeEventListener('mousedown', disableKeyboardFocus);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activePanel === 'favorites' || activePanel === 'history' || activePanel === 'downloads') {
+      lastSidebarPanelRef.current = activePanel;
+    }
+  }, [activePanel]);
 
   // --- BrowserView bounds ---
   const bvAreaRef = useRef<HTMLDivElement>(null);
-  const bvAnimRef = useRef(0);
-  const bvAnimatingRef = useRef(false);
 
-  const calcBounds = useCallback((animated = false) => {
+  const calcBounds = useCallback((_animated = false) => {
     if (!bvAreaRef.current) return;
     const r = bvAreaRef.current.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) {
       window.electronAPI.tab.setBounds(-9999, -9999, 1, 1);
       return;
     }
-    const targetX = (!sidebarCollapsed && activePanel !== null) ? 280 : 0;
-
-    if (!animated) {
-      if (bvAnimatingRef.current) return; // 动画中跳过非动画调用，避免频闪
-      window.electronAPI.tab.setBounds(
-        Math.round(r.x + targetX),
-        Math.round(r.y),
-        Math.round(r.width),
-        Math.round(r.height),
-      );
-      return;
-    }
-
-    // Animate BrowserView x position over 250ms to match drawer CSS transition
-    cancelAnimationFrame(bvAnimRef.current);
-    bvAnimatingRef.current = true;
-    const startX = (!sidebarCollapsed && activePanel !== null) ? 0 : 280;
-    const startTime = performance.now();
-    const duration = 250;
-
-    const step = (now: number) => {
-      const elapsed = now - startTime;
-      const t = Math.min(elapsed / duration, 1);
-      // ease-out cubic
-      const ease = 1 - Math.pow(1 - t, 3);
-      const x = Math.round(r.x + startX + (targetX - startX) * ease);
-      window.electronAPI.tab.setBounds(x, Math.round(r.y), Math.round(r.width), Math.round(r.height));
-      if (t < 1) {
-        bvAnimRef.current = requestAnimationFrame(step);
-      } else {
-        bvAnimatingRef.current = false;
-      }
-    };
-    bvAnimRef.current = requestAnimationFrame(step);
-  }, [activePanel, sidebarCollapsed]);
+    const animatedSidebarWidth = sidebarMounted
+      ? Math.min(SIDEBAR_WIDTH, Math.max(0, r.x))
+      : 0;
+    const bounds = computeBrowserViewBounds(r, animatedSidebarWidth);
+    window.electronAPI.tab.setBounds(bounds.x, bounds.y, bounds.width, bounds.height);
+  }, [sidebarMounted]);
 
   const calcBoundsRef = useRef(calcBounds);
   useEffect(() => { calcBoundsRef.current = calcBounds; });
 
   useEffect(() => {
-    if (!bvAnimatingRef.current) calcBoundsRef.current(false);
+    calcBoundsRef.current(false);
     const area = bvAreaRef.current;
-    const onResize = () => { if (!bvAnimatingRef.current) calcBoundsRef.current(false); };
+    const onResize = () => calcBoundsRef.current(false);
     const ro = new ResizeObserver(onResize);
     if (area) ro.observe(area);
     window.addEventListener('resize', onResize);
     return () => { ro.disconnect(); window.removeEventListener('resize', onResize); };
   }, [calcBounds, findBarVisible]);
 
-  // Animate BrowserView when drawer opens/closes (not on panel switch)
-  const prevDrawerOpen = useRef(false);
-  useEffect(() => {
-    const isOpen = activePanel !== null;
-    if (prevDrawerOpen.current === isOpen) return;
-    prevDrawerOpen.current = isOpen;
-    calcBoundsRef.current(true);
-    const timer = setTimeout(() => calcBoundsRef.current(false), 300);
-    return () => clearTimeout(timer);
-  }, [activePanel]);
+  useEffect(() => { calcBoundsRef.current(false); }, [sidebarOpen]);
 
   // --- Tab manager hook (extracted from App.tsx) ---
   const tm = useTabManager(calcBoundsRef);
   const { tabs, activeTabId, activeTab, addressUrl, createTab, closeTab, switchTab, updateTab, handleNavigate, zoomIn, zoomOut, zoomReset } = tm;
+
+  useEffect(() => window.electronAPI.on('userscript:open-tab', (payload: unknown) => {
+    const url = (payload as { url?: unknown })?.url;
+    if (typeof url === 'string') createTab(url);
+  }), [createTab]);
 
   // --- Download listener hook ---
   useDownloadListener();
@@ -175,6 +177,19 @@ const AppInner: React.FC = () => {
   const isOnNewTab = !activeTab || activeTab.url === 'about:newtab';
   const isOnUserscripts = activeTab?.url === 'about:userscripts';
   const isCrashed = activeTab?.crashed === true;
+  const browserViewHidden = isOnNewTab || isOnUserscripts || isCrashed;
+
+  useEffect(() => {
+    if (browserViewHidden) window.electronAPI.tab.setBounds(-9999, -9999, 1, 1);
+    else calcBoundsRef.current(false);
+  }, [browserViewHidden]);
+
+  const toggleMute = () => {
+    if (!activeTabId) return;
+    const newMuted = !activeTab?.isMuted;
+    window.electronAPI.tab.mute(activeTabId, newMuted);
+    updateTab(activeTabId, { isMuted: newMuted });
+  };
 
   return (
     <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>
@@ -186,13 +201,13 @@ const AppInner: React.FC = () => {
         isLoading={activeTab?.isLoading || false}
         canGoBack={activeTab?.canGoBack || false}
         canGoForward={activeTab?.canGoForward || false}
-        isMuted={activeTab?.isMuted || false}
         isDark={theme === 'dark'}
-        zoomPercent={Math.round((activeTab?.zoomFactor ?? 1) * 100)}
         flashEngineMode={ruffleMode === 'ruffle' ? 'prefer-ruffle' : 'auto'}
         ruffleSource={settings.ruffleSource}
-        sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+        sidebarOpen={sidebarOpen}
+        isMuted={activeTab?.isMuted || false}
+        onToggleMute={toggleMute}
+        onToggleSidebar={() => setActivePanel(sidebarOpen ? null : lastSidebarPanelRef.current)}
         onSelectTab={switchTab}
         onCloseTab={closeTab}
         onNewTab={() => createTab()}
@@ -201,13 +216,6 @@ const AppInner: React.FC = () => {
         onForward={() => { if (activeTabId) window.electronAPI.tab.goForward(activeTabId); }}
         onStop={() => { if (activeTabId) window.electronAPI.tab.stop(activeTabId); }}
         onReload={() => { if (activeTabId) window.electronAPI.tab.reload(activeTabId); }}
-        onToggleMute={() => {
-          if (activeTabId) {
-            const newMuted = !activeTab?.isMuted;
-            window.electronAPI.tab.mute(activeTabId, newMuted);
-            updateTab(activeTabId, { isMuted: newMuted });
-          }
-        }}
         onToggleRuffle={handleToggleRuffle}
         onToggleBookmark={() => {
           if (!activeTab?.url || activeTab.url === 'about:newtab') return;
@@ -225,20 +233,16 @@ const AppInner: React.FC = () => {
           });
         }}
         isBookmarked={favorites.some((f) => f.url === activeTab?.url && activeTab?.url && activeTab.url !== 'about:newtab')}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-        onZoomReset={zoomReset}
         onReorder={tm.reorderTabs}
       />
 
-      {/* Content area: sidebar icon strip + drawer panel + main content */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0, position: 'relative' }}>
-        <DrawerSidebar
-          collapsed={sidebarCollapsed}
+      <div className="app-workspace">
+        {sidebarMounted && <DrawerSidebar
+          isClosing={sidebarClosing}
+          activeTabId={activeTabId}
           currentUrl={activeTab?.url || ''}
           currentTitle={activeTab?.title || ''}
           currentFavicon={activeTab?.favicon}
-          currentTabId={activeTabId}
           onOpenUrl={(url, newTab) => {
             setActivePanel(null);
             if (settings.linkBehavior === 'new-tab' && (newTab || activeTab?.url !== 'about:newtab')) {
@@ -252,15 +256,15 @@ const AppInner: React.FC = () => {
           onZoomOut={zoomOut}
           onZoomReset={zoomReset}
           downloadCount={activeDownloadCount}
-        />
+        />}
 
-        <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
+        <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column', minWidth: 0 }}>
           <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
         </div>
-        <div style={{ display: isOnUserscripts ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column' }}>
+        <div style={{ display: isOnUserscripts ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column', minWidth: 0 }}>
           <UserscriptsPage />
         </div>
-        <div style={{ display: isCrashed ? 'flex' : 'none', flex: '1 1 0%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: isCrashed ? 'flex' : 'none', flex: '1 1 0%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, minWidth: 0 }}>
           <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>
           <button
             type="button"
@@ -270,17 +274,15 @@ const AppInner: React.FC = () => {
             {LL.refresh()}
           </button>
         </div>
-        <div
-          id="browserview-area"
-          ref={bvAreaRef}
-          style={{ display: isOnNewTab || isOnUserscripts || isCrashed ? 'none' : 'flex', flex: '1 1 0%', position: 'relative', flexDirection: 'column' }}
-        >
+        <div className="browserview-column" style={{ display: browserViewHidden ? 'none' : 'flex' }}>
           <FindBar
             visible={findBarVisible && !isOnNewTab}
             onClose={() => setFindBarVisible(false)}
             activeTabId={activeTabId}
           />
+          <div id="browserview-area" ref={bvAreaRef} className="browserview-native-area" />
         </div>
+
       </div>
       <LoadingProgress visible={activeTab?.isLoading ?? false} />
     </div>

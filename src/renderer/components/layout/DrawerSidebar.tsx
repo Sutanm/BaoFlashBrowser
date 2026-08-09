@@ -1,21 +1,36 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Star, Clock, Download, Key, Settings as SettingsIcon, Puzzle, X } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import {
+  Clock,
+  Download,
+  Key,
+  Minus,
+  Plus,
+  Puzzle,
+  Settings as SettingsIcon,
+  Star,
+  X,
+} from 'lucide-react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useDataStore } from '@renderer/store/useDataStore';
-import PasswordsPanel from '../panels/PasswordsPanel';
 import FavoritesPanel from '../panels/FavoritesPanel';
 import HistoryPanel from '../panels/HistoryPanel';
 import DownloadsPanel from '../panels/DownloadsPanel';
+import PasswordsPanel from '../panels/PasswordsPanel';
 import SettingsPanel from '../panels/SettingsPanel';
 import UserscriptsPanel from '../panels/UserscriptsPanel';
-import type { TranslationFunctions } from '@renderer/i18n/i18n-types';
+import type { ActivePanel } from '@shared/types/passwords';
+
+export const SIDEBAR_WIDTH = 340;
+
+type PrimarySidebarPanel = Extract<ActivePanel, 'favorites' | 'history' | 'downloads'>;
+type SidebarPanel = Exclude<ActivePanel, null>;
 
 interface DrawerSidebarProps {
-  collapsed: boolean;
+  isClosing: boolean;
   currentUrl: string;
+  activeTabId: string | null;
   currentTitle: string;
   currentFavicon?: string;
-  currentTabId: string | null;
   onOpenUrl: (url: string, newTab: boolean) => void;
   zoomPercent: number;
   onZoomIn: () => void;
@@ -24,151 +39,129 @@ interface DrawerSidebarProps {
   downloadCount: number;
 }
 
-const PANEL_ITEMS = [
-  { id: 'favorites' as const, icon: Star },
-  { id: 'history' as const, icon: Clock },
-  { id: 'downloads' as const, icon: Download },
-  { id: 'passwords' as const, icon: Key },
-  { id: 'userscripts' as const, icon: Puzzle },
-  { id: 'settings' as const, icon: SettingsIcon },
-];
+const PRIMARY_PANELS: PrimarySidebarPanel[] = ['favorites', 'history', 'downloads'];
+const SIDEBAR_PANELS: SidebarPanel[] = ['favorites', 'history', 'downloads', 'userscripts', 'passwords', 'settings'];
 
-function getPanelLabel(id: string, LL: TranslationFunctions): string {
-  switch (id) {
-    case 'favorites': return LL.sidebar.favorites();
-    case 'history': return LL.sidebar.history();
-    case 'downloads': return LL.sidebar.downloads();
-    case 'passwords': return LL.sidebar.passwords();
-    case 'userscripts': return LL.sidebar.userscripts();
-    case 'settings': return LL.sidebar.settings();
-    default: return id;
-  }
+export function isSidebarPanel(panel: ActivePanel): panel is SidebarPanel {
+  return panel !== null && SIDEBAR_PANELS.includes(panel as SidebarPanel);
 }
 
 const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
-  collapsed,
-  currentUrl, currentTitle, currentFavicon, currentTabId, onOpenUrl,
-  zoomPercent, onZoomIn, onZoomOut, onZoomReset,
+  isClosing,
+  currentUrl,
+  activeTabId,
+  currentTitle,
+  currentFavicon,
+  onOpenUrl,
+  zoomPercent,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset,
   downloadCount,
 }) => {
-  const activePanel = useDataStore((s) => s.activePanel);
-  const setActivePanel = useDataStore((s) => s.setActivePanel);
+  const activePanel = useDataStore((state) => state.activePanel);
+  const setActivePanel = useDataStore((state) => state.setActivePanel);
   const { LL } = useI18nContext();
-  const panels = PANEL_ITEMS.map(item => ({ ...item, label: getPanelLabel(item.id, LL) }));
-  const isOpen = activePanel !== null;
-  const [drawerMounted, setDrawerMounted] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const rafRef = useRef(0);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const lastPrimaryPanel = useRef<PrimarySidebarPanel>('favorites');
+  const lastVisiblePanel = useRef<SidebarPanel>('favorites');
 
   useEffect(() => {
-    if (isOpen) {
-      cancelAnimationFrame(rafRef.current);
-      setDrawerMounted(true);
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = requestAnimationFrame(() => {
-          setDrawerOpen(true);
-        });
-      });
-    } else if (drawerMounted) {
-      setDrawerOpen(false);
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = setTimeout(() => setDrawerMounted(false), 300);
+    if (isSidebarPanel(activePanel)) {
+      lastVisiblePanel.current = activePanel;
     }
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      clearTimeout(closeTimerRef.current);
-    };
-  }, [isOpen, drawerMounted]);
+    if (activePanel && PRIMARY_PANELS.includes(activePanel as PrimarySidebarPanel)) {
+      lastPrimaryPanel.current = activePanel as PrimarySidebarPanel;
+    }
+  }, [activePanel]);
 
-  if (collapsed) return null;
+  const displayedPanel = isSidebarPanel(activePanel) ? activePanel : lastVisiblePanel.current;
+
+  const activeTitle = displayedPanel === 'favorites'
+    ? LL.sidebar.favorites()
+    : displayedPanel === 'history'
+      ? LL.sidebar.history()
+      : displayedPanel === 'downloads'
+        ? LL.sidebar.downloads()
+        : displayedPanel === 'userscripts'
+          ? LL.sidebar.userscripts()
+          : displayedPanel === 'passwords'
+            ? LL.sidebar.passwords()
+            : LL.sidebar.settings();
+
+  const panelTabs: Array<{ id: PrimarySidebarPanel; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    { id: 'favorites', label: LL.sidebar.favorites(), icon: Star },
+    { id: 'history', label: LL.sidebar.history(), icon: Clock },
+    { id: 'downloads', label: LL.sidebar.downloads(), icon: Download },
+  ];
 
   return (
-    <>
-      {/* Icon strip */}
-      <div
-        className="sidebar-icons"
-        style={{
-          width: 48,
-          flexShrink: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          padding: '8px 0',
-          gap: 4,
-          background: 'var(--bg-secondary)',
-          borderRight: '1px solid var(--border-light)',
-        }}
-      >
-        {panels.map(({ id, label, icon: Icon }) => {
-          const showBadge = id === 'downloads' && downloadCount > 0;
-          return (
-          <button
-            key={id}
-            className={`sidebar-icon ${activePanel === id ? 'active' : ''}`}
-            title={label}
-            onClick={() => setActivePanel((v) => v === id ? null : id)}
-            style={{ position: 'relative' }}
-          >
-            <Icon className="w-5 h-5" />
-            {showBadge && (
-              <span style={{
-                position: 'absolute', top: 2, right: 2,
-                minWidth: 16, height: 16, borderRadius: 8,
-                background: '#e74c3c', color: '#fff',
-                fontSize: 10, fontWeight: 600,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: '0 4px',
-              }}>
-                {downloadCount}
-              </span>
-            )}
-          </button>
-          );
-        })}
+    <aside className={`library-sidebar${isClosing ? ' closing' : ''}`} style={{ width: SIDEBAR_WIDTH }} aria-hidden={isClosing}>
+      <div className="library-sidebar-inner" style={{ width: SIDEBAR_WIDTH }}>
+      <div className="library-sidebar-header">
+        <strong>{activeTitle}</strong>
+        <button type="button" className="btn-icon btn-icon-compact" onClick={() => setActivePanel(null)} title={LL.close()}>
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Drawer panel */}
-      {drawerMounted && (
-        <div className={`drawer-panel ${drawerOpen ? 'open' : ''}`}>
-          <div className="drawer-inner">
-            <div
-              className="flex items-center justify-between px-3 py-2 border-b flex-shrink-0"
-              style={{ borderColor: 'var(--border-light)' }}
-            >
-              <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                {panels.find((p) => p.id === activePanel)?.label}
-              </span>
-              <button onClick={() => setActivePanel(null)} className="btn-icon" style={{ width: 24, height: 24 }}>
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {activePanel === 'favorites' && (
-                <FavoritesPanel currentUrl={currentUrl} currentTitle={currentTitle} currentFavicon={currentFavicon} onOpenUrl={onOpenUrl} />
-              )}
-              {activePanel === 'history' && (
-                <HistoryPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
-              )}
-              {activePanel === 'downloads' && <DownloadsPanel />}
-              {activePanel === 'passwords' && <PasswordsPanel />}
-              {activePanel === 'userscripts' && (
-                <UserscriptsPanel tabId={currentTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />
-              )}
-              {activePanel === 'settings' && (
-                <SettingsPanel
-                  zoomPercent={zoomPercent}
-                  onZoomIn={onZoomIn}
-                  onZoomOut={onZoomOut}
-                  onZoomReset={onZoomReset}
-                  onOpenUrl={onOpenUrl}
-                />
-              )}
-            </div>
-          </div>
+      <div className="library-sidebar-tabs" role="tablist" hidden={!PRIMARY_PANELS.includes(displayedPanel as PrimarySidebarPanel)}>
+        {panelTabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={displayedPanel === id}
+            className="library-sidebar-tab"
+            onClick={() => setActivePanel(id)}
+          >
+            <Icon className="w-4 h-4" />
+            <span>{label}</span>
+            {id === 'downloads' && downloadCount > 0 && <span className="sidebar-count">{downloadCount}</span>}
+          </button>
+        ))}
+      </div>
+
+      <div className="library-sidebar-content">
+        {displayedPanel === 'favorites' && (
+          <FavoritesPanel
+            currentUrl={currentUrl}
+            currentTitle={currentTitle}
+            currentFavicon={currentFavicon}
+            onOpenUrl={onOpenUrl}
+          />
+        )}
+        {displayedPanel === 'history' && <HistoryPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
+        {displayedPanel === 'downloads' && <DownloadsPanel />}
+        {displayedPanel === 'userscripts' && <UserscriptsPanel tabId={activeTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
+        {displayedPanel === 'passwords' && <PasswordsPanel />}
+        {displayedPanel === 'settings' && (
+          <SettingsPanel
+            onOpenUrl={onOpenUrl}
+          />
+        )}
+      </div>
+
+      <div className="library-sidebar-tools">
+        <div className="sidebar-zoom-controls">
+          <button type="button" onClick={onZoomOut} title={LL.addressbar.zoomOut()}><Minus className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={onZoomReset} className="sidebar-zoom-value">{zoomPercent}%</button>
+          <button type="button" onClick={onZoomIn} title={LL.addressbar.zoomIn()}><Plus className="w-3.5 h-3.5" /></button>
         </div>
-      )}
-    </>
+      </div>
+
+      <div className="library-sidebar-footer">
+        <button type="button" aria-pressed={displayedPanel === 'userscripts'} onClick={() => setActivePanel(displayedPanel === 'userscripts' ? lastPrimaryPanel.current : 'userscripts')}>
+          <Puzzle className="w-4 h-4" /><span>{LL.sidebar.userscripts()}</span>
+        </button>
+        <button type="button" aria-pressed={displayedPanel === 'passwords'} onClick={() => setActivePanel(displayedPanel === 'passwords' ? lastPrimaryPanel.current : 'passwords')}>
+          <Key className="w-4 h-4" /><span>{LL.sidebar.passwords()}</span>
+        </button>
+        <button type="button" aria-pressed={displayedPanel === 'settings'} onClick={() => setActivePanel(displayedPanel === 'settings' ? lastPrimaryPanel.current : 'settings')}>
+          <SettingsIcon className="w-4 h-4" /><span>{LL.sidebar.settings()}</span>
+        </button>
+      </div>
+      </div>
+    </aside>
   );
 };
 

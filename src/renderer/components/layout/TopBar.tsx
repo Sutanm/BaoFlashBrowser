@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, ArrowLeft, ArrowRight, RotateCw, X, Volume2, VolumeX, Star, PanelLeftOpen, PanelLeftClose, ZoomIn, ZoomOut } from 'lucide-react';
+import { Plus, ArrowLeft, ArrowRight, RotateCw, X, Star, PanelLeftOpen, PanelLeftClose, Camera, Volume2, VolumeX } from 'lucide-react';
 import TabItem from '../tabs/TabItem';
 import WindowControls from '../shell/WindowControls';
 import RuffleToggle from '../navigation/RuffleToggle';
@@ -7,6 +7,8 @@ import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { TabState } from '@renderer/store/useTabsStore';
 import type { FlashEngineMode } from '@shared/types/settings';
 import AddressToastHost from '../overlays/AddressToastHost';
+import ThemeToggle from '../panels/ThemeToggle';
+import { useDataStore } from '@renderer/store/useDataStore';
 
 interface TopBarProps {
   tabs: TabState[];
@@ -15,9 +17,7 @@ interface TopBarProps {
   isLoading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
-  isMuted: boolean;
   isDark: boolean;
-  zoomPercent: number;
   flashEngineMode: FlashEngineMode;
   ruffleSource: 'bundled' | 'cdn';
   onSelectTab: (tabId: string) => void;
@@ -28,15 +28,13 @@ interface TopBarProps {
   onForward: () => void;
   onStop: () => void;
   onReload: () => void;
-  onToggleMute: () => void;
   onToggleRuffle: () => void;
   onToggleBookmark: () => void;
   onToggleSidebar: () => void;
   isBookmarked: boolean;
-  sidebarCollapsed: boolean;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onZoomReset: () => void;
+  sidebarOpen: boolean;
+  isMuted: boolean;
+  onToggleMute: () => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
 }
 
@@ -47,9 +45,7 @@ const TopBar: React.FC<TopBarProps> = ({
   isLoading,
   canGoBack,
   canGoForward,
-  isMuted,
   isDark: _isDark,
-  zoomPercent,
   flashEngineMode,
   ruffleSource,
   onSelectTab,
@@ -60,19 +56,19 @@ const TopBar: React.FC<TopBarProps> = ({
   onForward,
   onStop,
   onReload,
-  onToggleMute,
   onToggleRuffle,
   onToggleBookmark,
   onToggleSidebar,
   isBookmarked,
-  sidebarCollapsed,
-  onZoomIn,
-  onZoomOut,
-  onZoomReset,
+  sidebarOpen,
+  isMuted,
+  onToggleMute,
   onReorder,
 }) => {
   const { LL } = useI18nContext();
+  const pushToast = useDataStore((state) => state.pushToast);
   const [addressValue, setAddressValue] = useState(url);
+  const [screenshotting, setScreenshotting] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -101,6 +97,31 @@ const TopBar: React.FC<TopBarProps> = ({
       addressInputRef.current?.blur();
     }
   };
+
+  const handleScreenshot = useCallback(async () => {
+    if (screenshotting) return;
+    setScreenshotting(true);
+    try {
+      const result = await window.electronAPI.screenshot.captureActive({ save: true, returnData: false });
+      if (result.success && result.filePath) {
+        pushToast({
+          message: `${LL.settings.screenshot.captured()} (${result.filePath.split(/[\\/]/).pop()})`,
+          type: 'success',
+          actions: [{
+            label: LL.settings.screenshot.openFolder(),
+            primary: true,
+            onClick: () => { void window.electronAPI.screenshot.reveal(result.filePath as string); },
+          }],
+        });
+      } else {
+        pushToast({ message: `${LL.settings.screenshot.captureFailed()}: ${result.error || ''}`, type: 'error' });
+      }
+    } catch {
+      pushToast({ message: LL.settings.screenshot.captureFailed(), type: 'error' });
+    } finally {
+      setScreenshotting(false);
+    }
+  }, [LL, pushToast, screenshotting]);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -145,10 +166,10 @@ const TopBar: React.FC<TopBarProps> = ({
   return (
     <div className="flex flex-col flex-shrink-0 topbar-toolbar">
       <div
-        className="flex items-center h-[42px] px-1 pt-1 gap-0.5 topbar-tabbar drag-region"
+        className="flex items-stretch h-[45px] px-1 gap-0.5 topbar-tabbar drag-region"
       >
         <div
-          className="flex items-center h-full overflow-hidden flex-1 scrollbar-none"
+          className="flex items-end h-full overflow-hidden flex-1 scrollbar-none"
         >
           {tabs.map((tab, index) => {
             const cb = tabCallbacks.get(tab.id);
@@ -176,29 +197,29 @@ const TopBar: React.FC<TopBarProps> = ({
           <WindowControls />
         </div>
       </div>
-      <div
-        className="flex items-center gap-1 h-[40px] px-2 flex-shrink-0 topbar-toolbar"
-      >
-        <button onClick={onToggleSidebar} className="btn-icon" title={sidebarCollapsed ? LL.sidebar.expand() : LL.sidebar.collapse()}>
-          {sidebarCollapsed ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+      <div className="browser-toolbar topbar-toolbar">
+        <button onClick={onToggleSidebar} className="btn-icon sidebar-toggle-button" title={sidebarOpen ? LL.sidebar.collapse() : LL.sidebar.expand()} aria-pressed={sidebarOpen}>
+          {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
         </button>
-        <button onClick={onBack} disabled={!canGoBack} className="btn-icon" title={LL.back()}>
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <button onClick={onForward} disabled={!canGoForward} className="btn-icon" title={LL.forward()}>
-          <ArrowRight className="w-4 h-4" />
-        </button>
-        {isLoading ? (
-          <button onClick={onStop} className="btn-icon" title={`${LL.stop()} (Esc)`}>
-            <X className="w-4 h-4" />
+        <span className="toolbar-divider" />
+        <div className="toolbar-button-group">
+          <button onClick={onBack} disabled={!canGoBack} className="btn-icon" title={LL.back()}>
+            <ArrowLeft className="w-4 h-4" />
           </button>
-        ) : (
-          <button onClick={onReload} className="btn-icon" title={`${LL.refresh()} (F5)`}>
-            <RotateCw className="w-4 h-4" />
+          <button onClick={onForward} disabled={!canGoForward} className="btn-icon" title={LL.forward()}>
+            <ArrowRight className="w-4 h-4" />
           </button>
-        )}
-        <RuffleToggle engineMode={flashEngineMode} ruffleSource={ruffleSource} onToggle={onToggleRuffle} />
-        <div style={{ position: 'relative', flex: 1, display: 'flex' }}>
+          {isLoading ? (
+            <button onClick={onStop} className="btn-icon" title={`${LL.stop()} (Esc)`}>
+              <X className="w-4 h-4" />
+            </button>
+          ) : (
+            <button onClick={onReload} className="btn-icon" title={`${LL.refresh()} (F5)`}>
+              <RotateCw className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <div className="address-shell">
           <input
             ref={addressInputRef}
             type="text"
@@ -206,32 +227,29 @@ const TopBar: React.FC<TopBarProps> = ({
             onChange={(e) => setAddressValue(e.target.value)}
             onKeyDown={handleAddressKeyDown}
             placeholder={LL.addressbar.placeholder()}
-            className="input-text no-drag"
+            className="input-text address-input no-drag"
             spellCheck={false}
             autoComplete="off"
           />
+          <button onClick={onToggleBookmark} className="btn-icon address-bookmark-button" title={isBookmarked ? LL.addressbar.bookmarkRemove() : LL.addressbar.bookmarkAdd()}>
+            <Star className="w-4 h-4" style={{ fill: isBookmarked ? '#f5c518' : 'none', color: isBookmarked ? '#f5c518' : 'var(--text-secondary)' }} />
+          </button>
           <AddressToastHost closeLabel={LL.close()} />
         </div>
-        <button onClick={onZoomOut} className="btn-icon btn-icon-sm" title={LL.addressbar.zoomOut()}>
-          <ZoomOut className="w-3.5 h-3.5" />
-        </button>
-        <span className="zoom-capsule" onClick={onZoomReset} title={LL.addressbar.zoomReset()} style={{ cursor: 'pointer' }}>
-          {zoomPercent}%
-        </span>
-        <button onClick={onZoomIn} className="btn-icon btn-icon-sm" title={LL.addressbar.zoomIn()}>
-          <ZoomIn className="w-3.5 h-3.5" />
-        </button>
-        <button onClick={onToggleBookmark} className="btn-icon" title={isBookmarked ? LL.addressbar.bookmarkRemove() : LL.addressbar.bookmarkAdd()}>
-          <Star className="w-4 h-4" style={{ fill: isBookmarked ? '#f5c518' : 'none', color: isBookmarked ? '#f5c518' : 'var(--text-secondary)' }} />
-        </button>
-        <button
-          onClick={onToggleMute}
-          className="btn-icon btn-mute"
-          title={isMuted ? LL.addressbar.unmute() : LL.addressbar.mute()}
-          style={{ opacity: isMuted ? 0.5 : 1, background: isMuted ? 'var(--bg-hover)' : 'transparent' }}
-        >
-          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-        </button>
+        <span className="toolbar-divider toolbar-divider-mode" />
+        <div className="toolbar-mode-group">
+          <ThemeToggle width={62} height={26} compact />
+          <RuffleToggle engineMode={flashEngineMode} ruffleSource={ruffleSource} onToggle={onToggleRuffle} />
+        </div>
+        <span className="toolbar-divider toolbar-divider-mode" />
+        <div className="toolbar-button-group">
+          <button type="button" onClick={() => void handleScreenshot()} disabled={screenshotting} className="btn-icon" title={LL.settings.screenshot.capture()}>
+            <Camera className="w-4 h-4" />
+          </button>
+          <button type="button" onClick={onToggleMute} className="btn-icon" title={isMuted ? LL.addressbar.unmute() : LL.addressbar.mute()}>
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
     </div>
   );

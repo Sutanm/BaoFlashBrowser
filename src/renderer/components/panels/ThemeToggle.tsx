@@ -5,6 +5,7 @@ import { useI18nContext } from '@renderer/i18n/i18n-react';
 interface ThemeToggleProps {
   width?: number;
   height?: number;
+  compact?: boolean;
 }
 
 const skyColorNight = [23, 29, 51];
@@ -46,7 +47,7 @@ function rgb(a: number, b: number, c: number): string {
   return [Math.round(a), Math.round(b), Math.round(c)].join(',');
 }
 
-const ThemeToggle: React.FC<ThemeToggleProps> = ({ width = 200, height = 80 }) => {
+const ThemeToggle: React.FC<ThemeToggleProps> = ({ width = 200, height = 80, compact = false }) => {
   const { theme, themeMode, setThemeMode } = useTheme();
   const { LL } = useI18nContext();
 
@@ -163,7 +164,7 @@ const ThemeToggle: React.FC<ThemeToggleProps> = ({ width = 200, height = 80 }) =
         <div style={{ position: 'absolute', top: height * 0.55, left: height * 0.55 + xMax * t, width: height * 0.15, height: height * 0.15, background: `rgba(150, 163, 182, ${t})`, border: `${height * 0.015}px solid rgba(120, 120, 120, ${t * 0.5})`, borderRadius: height, boxShadow: `${height / 100}px ${height / 100}px ${height / 25}px 0 rgba(0, 0, 0, ${t * 0.4}) inset, ${-height / 100}px ${-height / 100}px ${height / 25}px 0 rgba(255, 255, 255, ${t * 0.5}) inset` }} />
       </button>
 
-      <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+      {!compact && <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
         <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{LL.settings.system()}</span>
         <button
           type="button"
@@ -175,7 +176,7 @@ const ThemeToggle: React.FC<ThemeToggleProps> = ({ width = 200, height = 80 }) =
         >
           <span className="toggle-knob" />
         </button>
-      </div>
+      </div>}
     </div>
   );
 };

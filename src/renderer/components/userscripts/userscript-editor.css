@@ -2,11 +2,38 @@
    light/dark CSS variables (body.dark flips the token palette). */
 
 .userscript-editor {
-  height: calc(100% - 60px);
+  /* Height relative to the viewport, NOT the flex parent. The editor lives
+     several flex layers deep (App tab-switch container, page root, editor
+     view) and some of those are height:auto or display:none toggles, so a
+     flex:1 height collapses to 0 here and clips CodeMirror's scrollbars.
+     A vh-based height gives the editor a definite box independent of the
+     flex chain, so .CodeMirror-scroll gets real space and both scrollbars
+     render. Offset ≈ page padding (40) + editor title row (~48) + top bar
+     (~100); tune if the layout changes. */
+  height: calc(100vh - 200px);
+  min-height: 300px;
+  /* Keep the editor inside its flex column: CodeMirror's long lines would
+     otherwise blow out the container to full window width (flex items refuse
+     to shrink below their content by default — min-width:auto). Without this
+     the large built-in Fixer (425KB, 1.4KB lines) overflows the page edge. */
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   box-sizing: border-box;
+}
+
+/* CodeMirror 5 puts scrolling on .CodeMirror-scroll (overflow:auto). Make
+   sure the editor fills its box so that element gets real space and both
+   horizontal + vertical scrollbars render. */
+.userscript-editor .CodeMirror,
+.userscript-editor .CodeMirror-scroll {
+  height: 100%;
+}
+.userscript-editor .CodeMirror-scroll {
+  overflow: auto;
 }
 
 .userscript-editor .CodeMirror {

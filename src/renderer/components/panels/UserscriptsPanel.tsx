@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, Puzzle } from 'lucide-react';
 import { useDataStore } from '../../store/useDataStore';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 
 interface MatchingScript {
   id: string;
@@ -16,6 +17,7 @@ interface MenuCommand {
   commandId: string;
   title: string;
   scriptId: string;
+  background?: boolean;
 }
 
 interface UserscriptsPanelProps {
@@ -25,6 +27,7 @@ interface UserscriptsPanelProps {
 }
 
 export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: UserscriptsPanelProps): React.JSX.Element {
+  const { LL } = useI18nContext();
   const [scripts, setScripts] = useState<MatchingScript[]>([]);
   const [commands, setCommands] = useState<MenuCommand[]>([]);
   const [runningCommand, setRunningCommand] = useState<string | null>(null);
@@ -70,32 +73,32 @@ export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: Users
     try {
       const result = await window.electronAPI.userscripts.invokeCommand(tabId, commandId);
       pushToast({
-        message: result?.ok ? '命令已发送到页面' : '命令执行失败(脚本可能已卸载或页面已刷新)',
+        message: result?.ok ? LL.userscript.panel.commandSent() : LL.userscript.panel.commandFailed(),
         type: result?.ok ? 'success' : 'error',
       });
     } catch {
-      pushToast({ message: '命令执行失败', type: 'error' });
+      pushToast({ message: LL.userscript.panel.commandFailedSimple(), type: 'error' });
     } finally {
       setRunningCommand(null);
     }
-  }, [tabId, runningCommand, pushToast]);
+  }, [tabId, runningCommand, pushToast, LL]);
 
   return (
     <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 12, opacity: 0.6 }}>当前页面匹配</span>
+        <span style={{ fontSize: 12, opacity: 0.6 }}>{LL.userscript.panel.matchedOnPage()}</span>
         <button
           type="button"
           style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--accent)' }}
           onClick={() => onOpenUrl('about:userscripts', true)}
         >
           <Puzzle className="w-3.5 h-3.5" />
-          管理所有脚本
+          {LL.userscript.panel.manageAll()}
         </button>
       </div>
 
       {scripts.length === 0 ? (
-        <p style={{ fontSize: 12, opacity: 0.5 }}>当前页面没有匹配的脚本。</p>
+        <p style={{ fontSize: 12, opacity: 0.5 }}>{LL.userscript.panel.noMatchOnPage()}</p>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {scripts.map((script) => (
@@ -106,7 +109,7 @@ export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: Users
                 style={{ fontSize: 12, cursor: 'pointer', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', color: script.enabled ? 'var(--text-primary)' : 'var(--text-secondary)' }}
                 onClick={() => void toggle(script.id, !script.enabled)}
               >
-                {script.enabled ? '禁用' : '启用'}
+                {script.enabled ? LL.userscript.disable() : LL.userscript.enable()}
               </button>
             </li>
           ))}
@@ -115,7 +118,7 @@ export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: Users
 
       {commands.length > 0 ? (
         <>
-          <span style={{ fontSize: 12, opacity: 0.6 }}>脚本命令</span>
+          <span style={{ fontSize: 12, opacity: 0.6 }}>{LL.userscript.panel.commands()}</span>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
             {commands.map((command) => (
               <li key={command.commandId}>
@@ -125,7 +128,12 @@ export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: Users
                   style={{ width: '100%', textAlign: 'left', fontSize: 13, cursor: runningCommand === command.commandId ? 'wait' : 'pointer', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', opacity: runningCommand === command.commandId ? 0.6 : 1 }}
                   onClick={() => void runCommand(command.commandId)}
                 >
-                  {runningCommand === command.commandId ? '执行中…' : command.title}
+                  {runningCommand === command.commandId ? LL.userscript.panel.commandRunning() : command.title}
+                  {command.background ? (
+                    <span style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 999, fontWeight: 600, color: 'var(--accent)', background: 'rgba(99,102,241,0.14)' }}>
+                      {LL.userscript.background.badge()}
+                    </span>
+                  ) : null}
                 </button>
               </li>
             ))}
@@ -140,7 +148,7 @@ export default function UserscriptsPanel({ tabId, currentUrl, onOpenUrl }: Users
           onClick={() => onOpenUrl('about:userscripts', false)}
         >
           <ExternalLink className="w-3.5 h-3.5" />
-          管理所有脚本
+          {LL.userscript.panel.manageAll()}
         </button>
       ) : null}
     </div>

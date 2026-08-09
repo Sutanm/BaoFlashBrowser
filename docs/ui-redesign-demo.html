@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BaoFlashBrowser GNOME 分栏 UI Demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --chrome: #ebedf0;
+      --toolbar: #f6f7f8;
+      --sidebar: #f1f2f4;
+      --surface: #ffffff;
+      --surface-soft: #f7f8fa;
+      --hover: #e2e5e9;
+      --active: #dce7f8;
+      --border: #d6d9de;
+      --text: #25272b;
+      --muted: #6f747c;
+      --accent: #3478d4;
+      --danger: #c42b1c;
+      --radius: 10px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #dfe2e7;
+      color: var(--text);
+      font: 14px "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+
+    .app {
+      width: 100%;
+      height: 100%;
+      min-width: 720px;
+      min-height: 560px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--surface);
+      position: relative;
+    }
+
+    .resize-strip {
+      height: 5px;
+      position: absolute;
+      z-index: 100;
+      top: 0;
+      right: 0;
+      left: 0;
+      cursor: ns-resize;
+    }
+
+    .titlebar {
+      height: 45px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: flex-end;
+      padding: 5px 0 0 6px;
+      background: var(--chrome);
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+    }
+
+    .tab-strip {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+    }
+
+    .tab {
+      width: 195px;
+      max-width: 38%;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 9px 0 11px;
+      border-radius: 9px 9px 0 0;
+      background: var(--surface);
+    }
+
+    .tab-title {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .icon-button {
+      width: 36px;
+      height: 36px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 9px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .icon-button:hover,
+    .icon-button[aria-pressed="true"] {
+      color: var(--text);
+      background: var(--hover);
+    }
+
+    .icon-button:disabled { opacity: .36; background: transparent; cursor: default; }
+
+    .tab-close {
+      width: 22px;
+      height: 22px;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .tab-close:hover { background: var(--hover); }
+    .new-tab { margin-bottom: 1px; }
+
+    .window-controls {
+      height: 45px;
+      margin-top: -5px;
+      display: flex;
+      align-self: stretch;
+    }
+
+    .window-button {
+      width: 46px;
+      height: 45px;
+      display: grid;
+      place-items: center;
+      padding-top: 5px;
+      border: 0;
+      border-radius: 0;
+      color: var(--muted);
+      background: transparent;
+    }
+
+    .window-button:hover { color: var(--text); background: #dcdfe4; }
+    .window-close:hover { color: #fff; background: var(--danger); }
+
+    .icon {
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .toolbar {
+      height: 49px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      background: var(--toolbar);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .toolbar-separator { width: 1px; height: 22px; margin: 0 3px; background: var(--border); }
+
+    .address {
+      min-width: 160px;
+      height: 36px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 8px 0 12px;
+      border: 1px solid #cfd3d9;
+      border-radius: 11px;
+      background: var(--surface);
+    }
+
+    .address:focus-within {
+      border-color: #5c8fda;
+      box-shadow: 0 0 0 2px rgba(52, 120, 212, .12);
+    }
+
+    .address input {
+      min-width: 0;
+      flex: 1;
+      border: 0;
+      outline: 0;
+      color: inherit;
+      background: transparent;
+    }
+
+    .engine {
+      height: 25px;
+      padding: 0 9px;
+      border: 0;
+      border-radius: 7px;
+      color: #a32f26;
+      background: #f9e6e4;
+      cursor: pointer;
+    }
+
+    .engine[data-mode="ruffle"] { color: #2861a8; background: #e1ebfa; }
+
+    .workspace {
+      min-width: 0;
+      min-height: 0;
+      flex: 1;
+      display: grid;
+      grid-template-columns: 0 minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .app[data-sidebar="open"] .workspace { grid-template-columns: 316px minmax(0, 1fr); }
+
+    .sidebar {
+      width: 316px;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--sidebar);
+      border-right: 0 solid var(--border);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .app[data-sidebar="open"] .sidebar {
+      border-right-width: 1px;
+      opacity: 1;
+      pointer-events: auto;
+      transition: opacity 100ms ease;
+    }
+
+    .sidebar-header {
+      min-height: 54px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px 6px 14px;
+    }
+
+    .sidebar-header strong { min-width: 0; flex: 1; font-size: 15px; font-weight: 600; }
+
+    .sidebar-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 3px;
+      margin: 0 12px 10px;
+      padding: 3px;
+      border-radius: 10px;
+      background: #e3e5e9;
+    }
+
+    .sidebar-tab {
+      height: 32px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .sidebar-tab[aria-selected="true"] {
+      background: var(--surface);
+      box-shadow: 0 1px 3px rgba(30, 38, 52, .12);
+    }
+
+    .sidebar-search {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0 12px 8px;
+      padding: 0 10px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, .72);
+    }
+
+    .sidebar-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; }
+
+    .sidebar-list { min-height: 0; flex: 1; padding: 2px 8px 10px; overflow: auto; }
+
+    .sidebar-item {
+      width: 100%;
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 8px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .sidebar-item:hover { background: var(--hover); }
+    .favicon { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; color: #fff; font-weight: 600; }
+    .orange { background: #df791d; }
+    .red { background: #d94d3e; }
+    .green { background: #258476; }
+    .blue { background: #3978c6; }
+    .item-copy { min-width: 0; flex: 1; }
+    .item-copy span, .item-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-copy small { margin-top: 3px; color: var(--muted); }
+
+    .sidebar-footer {
+      flex: 0 0 auto;
+      padding: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .footer-action {
+      width: 100%;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .footer-action:hover { background: var(--hover); }
+
+    .browser-area {
+      min-width: 0;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .browser-page {
+      width: var(--browser-viewport-width, 100%);
+      height: 100%;
+      display: grid;
+      place-items: center;
+      padding: 42px 24px 92px;
+    }
+
+    .browser-content { width: min(620px, 100%); text-align: center; }
+    .brand { margin-bottom: 25px; color: #383b41; font-size: 17px; font-weight: 600; }
+
+    .search {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      border: 1px solid #d5d9df;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 5px 18px rgba(35, 46, 64, .08);
+    }
+
+    .search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; }
+
+    .shortcuts { display: grid; grid-template-columns: repeat(4, minmax(66px, 1fr)); gap: 18px; margin-top: 28px; }
+    .shortcut { padding: 9px 4px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
+    .shortcut:hover { background: var(--surface-soft); }
+    .shortcut-logo { width: 43px; height: 43px; margin: 0 auto 7px; display: grid; place-items: center; border-radius: 11px; color: #fff; font-size: 16px; font-weight: 600; }
+
+    .browser-badge {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, .92);
+      font-size: 12px;
+    }
+
+    .internal-page {
+      min-width: 0;
+      min-height: 0;
+      flex: 1;
+      display: none;
+      grid-template-columns: 210px minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--surface-soft);
+    }
+
+    .app[data-page="internal"] .workspace { display: none; }
+    .app[data-page="internal"] .internal-page { display: grid; }
+
+    .preferences-nav {
+      padding: 20px 12px;
+      overflow: auto;
+      border-right: 1px solid var(--border);
+      background: var(--sidebar);
+    }
+
+    .preferences-title {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 16px;
+      padding: 0 4px;
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .preferences-title .icon-button { width: 32px; height: 32px; }
+
+    .category {
+      width: 100%;
+      min-height: 40px;
+      margin-bottom: 3px;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .category:hover { background: var(--hover); }
+    .category[aria-selected="true"] { color: #245da8; background: var(--active); }
+
+    .preferences-main { min-width: 0; min-height: 0; overflow: auto; padding: 28px clamp(22px, 5vw, 68px) 50px; }
+    .preferences-main h1 { max-width: 720px; margin: 0 auto 20px; font-size: 22px; font-weight: 600; }
+
+    .preferences-group {
+      max-width: 720px;
+      margin: 0 auto 18px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: var(--surface);
+    }
+
+    .group-title { padding: 15px 17px 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+
+    .setting-row {
+      min-height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      margin: 0 16px;
+      padding: 10px 1px;
+      border-bottom: 1px solid #e7e9ed;
+    }
+
+    .setting-row:last-child { border-bottom: 0; }
+    .setting-copy span, .setting-copy small { display: block; }
+    .setting-copy small { margin-top: 4px; color: var(--muted); line-height: 1.4; }
+
+    .select {
+      width: 170px;
+      height: 36px;
+      flex: 0 0 auto;
+      padding: 0 10px;
+      border: 1px solid #ccd1d8;
+      border-radius: 8px;
+      outline: 0;
+      background: var(--surface);
+    }
+
+    .switch {
+      width: 42px;
+      height: 24px;
+      flex: 0 0 auto;
+      padding: 3px;
+      border: 0;
+      border-radius: 99px;
+      background: #aeb4bd;
+      cursor: pointer;
+      transition: background 120ms ease;
+    }
+
+    .switch::after {
+      content: "";
+      display: block;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .22);
+      transition: transform 120ms ease;
+    }
+
+    .switch[aria-checked="true"] { background: var(--accent); }
+    .switch[aria-checked="true"]::after { transform: translateX(18px); }
+
+    .autosave {
+      max-width: 720px;
+      margin: 3px auto 0;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .app[data-sidebar="open"] .workspace { grid-template-columns: 276px minmax(0, 1fr); }
+      .sidebar { width: 276px; }
+      .optional { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app" data-sidebar="closed" data-page="browser">
+    <div class="resize-strip" title="实际程序中保留为窗口顶部拉伸区域"></div>
+
+    <header class="titlebar">
+      <div class="tab-strip">
+        <div class="tab">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
+          <span class="tab-title" id="tabTitle">新标签页</span>
+          <button class="tab-close" aria-label="关闭标签页">×</button>
+        </div>
+        <button class="icon-button new-tab" aria-label="新建标签页"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></button>
+      </div>
+      <div class="window-controls">
+        <button class="window-button" aria-label="最小化"><svg class="icon" viewBox="0 0 24 24"><path d="M6 18h12"></path></svg></button>
+        <button class="window-button" aria-label="最大化"><svg class="icon" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"></rect></svg></button>
+        <button class="window-button window-close" aria-label="关闭"><svg class="icon" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"></path></svg></button>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <button class="icon-button" id="sidebarToggle" aria-label="打开侧栏" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M9 4v16"></path></svg></button>
+      <div class="toolbar-separator"></div>
+      <button class="icon-button" aria-label="后退"><svg class="icon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"></path></svg></button>
+      <button class="icon-button optional" aria-label="前进" disabled><svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"></path></svg></button>
+      <button class="icon-button" aria-label="刷新"><svg class="icon" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"></path></svg></button>
+      <label class="address">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+        <input aria-label="地址和搜索" placeholder="搜索或输入网址">
+        <button class="engine" id="engine" type="button" data-mode="flash">Flash</button>
+      </label>
+      <button class="icon-button" aria-label="收藏当前页面"><svg class="icon" viewBox="0 0 24 24"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"></path></svg></button>
+    </div>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <strong>资料库</strong>
+          <button class="icon-button" id="sidebarClose" aria-label="关闭侧栏"><svg class="icon" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"></path></svg></button>
+        </div>
+        <div class="sidebar-tabs">
+          <button class="sidebar-tab" data-panel="favorites" aria-selected="true">收藏</button>
+          <button class="sidebar-tab" data-panel="history" aria-selected="false">历史</button>
+          <button class="sidebar-tab" data-panel="downloads" aria-selected="false">下载</button>
+        </div>
+        <label class="sidebar-search"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg><input id="sidebarSearch" aria-label="筛选" placeholder="筛选收藏"></label>
+        <div class="sidebar-list" id="sidebarList"></div>
+        <div class="sidebar-footer">
+          <button class="footer-action" data-internal="userscripts"><svg class="icon" viewBox="0 0 24 24"><path d="M8 4h8v4h4v8h-4v4H8v-4H4V8h4Z"></path></svg>用户脚本</button>
+          <button class="footer-action" data-internal="passwords"><svg class="icon" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"></circle><path d="m11 12 8-8m-3 3 2 2"></path></svg>密码管理</button>
+          <button class="footer-action" data-internal="settings"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 15 6l-.3-2.6h-4L10.4 6A8 8 0 0 0 9 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A8 8 0 0 0 10.4 18l.3 2.6h4L15 18a8 8 0 0 0 1.5-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"></path></svg>设置</button>
+        </div>
+      </aside>
+
+      <main class="browser-area">
+        <section class="browser-page">
+          <div class="browser-content">
+            <div class="brand">Bao Flash Browser</div>
+            <label class="search"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg><input aria-label="搜索或输入网址" placeholder="搜索或输入网址"></label>
+            <div class="shortcuts">
+              <button class="shortcut"><span class="shortcut-logo orange">7</span>7k7k</button>
+              <button class="shortcut"><span class="shortcut-logo red">4</span>4399</button>
+              <button class="shortcut"><span class="shortcut-logo blue">百</span>百度</button>
+              <button class="shortcut"><span class="shortcut-logo green">B</span>Bing</button>
+            </div>
+          </div>
+        </section>
+        <div class="browser-badge" id="browserBadge">BrowserView 固定全宽视口</div>
+      </main>
+    </div>
+
+    <section class="internal-page">
+      <nav class="preferences-nav">
+        <div class="preferences-title"><button class="icon-button" id="internalBack" aria-label="返回网页"><svg class="icon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"></path></svg></button><span id="internalNavTitle">设置</span></div>
+        <button class="category" data-category="general" aria-selected="true">常规</button>
+        <button class="category" data-category="flash" aria-selected="false">Flash 与 Ruffle</button>
+        <button class="category" data-category="download" aria-selected="false">下载与截图</button>
+        <button class="category" data-category="privacy" aria-selected="false">密码与隐私</button>
+        <button class="category" data-category="advanced" aria-selected="false">高级</button>
+      </nav>
+      <main class="preferences-main">
+        <h1 id="internalHeading">设置</h1>
+        <div id="preferencesContent"></div>
+        <div class="autosave"><svg class="icon" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg><span id="saveState">更改会自动保存</span></div>
+      </main>
+    </section>
+  </div>
+
+  <script>
+    const app = document.getElementById('app');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarClose = document.getElementById('sidebarClose');
+    const sidebarList = document.getElementById('sidebarList');
+    const sidebarSearch = document.getElementById('sidebarSearch');
+    const browserBadge = document.getElementById('browserBadge');
+    const workspace = document.querySelector('.workspace');
+    const engine = document.getElementById('engine');
+    const tabTitle = document.getElementById('tabTitle');
+    const internalBack = document.getElementById('internalBack');
+    const internalHeading = document.getElementById('internalHeading');
+    const internalNavTitle = document.getElementById('internalNavTitle');
+    const preferencesContent = document.getElementById('preferencesContent');
+    const saveState = document.getElementById('saveState');
+
+    const panelData = {
+      favorites: [
+        ['orange', '7', '7k7k 小游戏', 'www.7k7k.com'],
+        ['red', '4', '4399 小游戏', 'www.4399.com'],
+        ['green', '皮', '皮卡堂官网', '最近访问']
+      ],
+      history: [
+        ['green', '皮', '皮卡堂官网', '今天 14:26'],
+        ['blue', '百', '百度', '今天 12:08'],
+        ['red', '4', '4399 小游戏', '昨天']
+      ],
+      downloads: [
+        ['blue', '↓', 'game-assets.zip', '已完成 · 24.6 MB'],
+        ['green', '✓', 'screenshot.png', '已完成 · 1.2 MB']
+      ]
+    };
+
+    const preferencePages = {
+      general: ['常规', `<section class="preferences-group"><div class="group-title">启动与标签页</div><div class="setting-row"><div class="setting-copy"><span>恢复上次会话</span><small>启动时重新打开上次使用的标签页</small></div><button class="switch" aria-checked="true"></button></div><div class="setting-row"><div class="setting-copy"><span>非活动标签页休眠</span><small>节省内存，不影响正在播放或加载的页面</small></div><button class="switch" aria-checked="true"></button></div></section><section class="preferences-group"><div class="group-title">语言与搜索</div><label class="setting-row"><span>搜索引擎</span><select class="select"><option>百度</option><option>Bing</option><option>Google</option></select></label><label class="setting-row"><span>界面语言</span><select class="select"><option>简体中文</option><option>English</option></select></label></section>`],
+      flash: ['Flash 与 Ruffle', `<section class="preferences-group"><div class="group-title">网页引擎</div><label class="setting-row"><span class="setting-copy"><span>默认引擎</span><small>根据站点兼容性自动选择</small></span><select class="select"><option>自动选择</option><option>优先 Ruffle</option><option>仅 PPAPI</option></select></label><div class="setting-row"><div class="setting-copy"><span>Flash 版本标识</span><small>仅在旧网站兼容性出现问题时调整</small></div><span>34.0.0.330</span></div></section>`],
+      download: ['下载与截图', `<section class="preferences-group"><div class="group-title">保存位置</div><label class="setting-row"><span>下载引擎</span><select class="select"><option>aria2</option><option>Chromium</option></select></label><div class="setting-row"><div class="setting-copy"><span>截图目录</span><small>D:\\Pictures\\BaoFlashBrowser</small></div><button class="icon-button">…</button></div></section>`],
+      privacy: ['密码与隐私', `<section class="preferences-group"><div class="group-title">密码</div><div class="setting-row"><div class="setting-copy"><span>自动保存密码</span><small>登录后询问是否保存凭据</small></div><button class="switch" aria-checked="true"></button></div><div class="setting-row"><div class="setting-copy"><span>自动填充</span><small>在已保存的网站填充登录信息</small></div><button class="switch" aria-checked="true"></button></div></section>`],
+      advanced: ['高级', `<section class="preferences-group"><div class="group-title">性能与脚本容量</div><div class="setting-row"><div class="setting-copy"><span>低配置模式</span><small>此选项需要重新启动浏览器</small></div><button class="switch" aria-checked="false"></button></div><label class="setting-row"><span>脚本响应上限</span><select class="select"><option>16 MB</option><option>32 MB</option><option>64 MB</option></select></label></section>`]
+    };
+
+    function renderPanel(type) {
+      sidebarList.innerHTML = panelData[type].map(([color, mark, title, meta]) => `<button class="sidebar-item"><span class="favicon ${color}">${mark}</span><span class="item-copy"><span>${title}</span><small>${meta}</small></span></button>`).join('');
+      const names = { favorites: '收藏', history: '历史', downloads: '下载' };
+      sidebarSearch.placeholder = `筛选${names[type]}`;
+    }
+
+    function setSidebar(open) {
+      app.dataset.sidebar = open ? 'open' : 'closed';
+      sidebarToggle.setAttribute('aria-pressed', String(open));
+      sidebarToggle.setAttribute('aria-label', open ? '关闭侧栏' : '打开侧栏');
+      browserBadge.textContent = open ? 'BrowserView 视口宽度不变 · 右侧被裁剪' : 'BrowserView 固定全宽视口';
+      syncBrowserViewport();
+    }
+
+    function syncBrowserViewport() {
+      document.documentElement.style.setProperty('--browser-viewport-width', `${workspace.getBoundingClientRect().width}px`);
+    }
+
+    function bindPreferences() {
+      preferencesContent.querySelectorAll('.switch').forEach(button => button.addEventListener('click', () => {
+        button.setAttribute('aria-checked', String(button.getAttribute('aria-checked') !== 'true'));
+        showSaved();
+      }));
+      preferencesContent.querySelectorAll('select').forEach(select => select.addEventListener('change', showSaved));
+    }
+
+    function showSaved() {
+      saveState.textContent = '已自动保存';
+      window.setTimeout(() => { saveState.textContent = '更改会自动保存'; }, 1200);
+    }
+
+    function showCategory(category) {
+      const [title, html] = preferencePages[category];
+      internalHeading.textContent = title;
+      preferencesContent.innerHTML = html;
+      document.querySelectorAll('.category').forEach(button => button.setAttribute('aria-selected', String(button.dataset.category === category)));
+      bindPreferences();
+    }
+
+    sidebarToggle.addEventListener('click', () => setSidebar(app.dataset.sidebar !== 'open'));
+    sidebarClose.addEventListener('click', () => setSidebar(false));
+    document.querySelectorAll('.sidebar-tab').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('.sidebar-tab').forEach(peer => peer.setAttribute('aria-selected', 'false'));
+      button.setAttribute('aria-selected', 'true');
+      renderPanel(button.dataset.panel);
+    }));
+    engine.addEventListener('click', event => {
+      event.preventDefault();
+      const ruffle = engine.dataset.mode !== 'ruffle';
+      engine.dataset.mode = ruffle ? 'ruffle' : 'flash';
+      engine.textContent = ruffle ? 'Ruffle' : 'Flash';
+    });
+    document.querySelectorAll('[data-internal]').forEach(button => button.addEventListener('click', () => {
+      const names = { settings: '设置', userscripts: '用户脚本', passwords: '密码管理' };
+      const name = names[button.dataset.internal];
+      app.dataset.page = 'internal';
+      setSidebar(false);
+      tabTitle.textContent = name;
+      internalHeading.textContent = name;
+      internalNavTitle.textContent = name;
+      showCategory(button.dataset.internal === 'settings' ? 'general' : button.dataset.internal === 'passwords' ? 'privacy' : 'advanced');
+    }));
+    internalBack.addEventListener('click', () => {
+      app.dataset.page = 'browser';
+      tabTitle.textContent = '新标签页';
+    });
+    document.querySelectorAll('.category').forEach(button => button.addEventListener('click', () => showCategory(button.dataset.category)));
+
+    renderPanel('favorites');
+    showCategory('general');
+    window.addEventListener('resize', syncBrowserViewport);
+    syncBrowserViewport();
+  </script>
+</body>
+</html>

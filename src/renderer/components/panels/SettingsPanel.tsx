@@ -1,31 +1,45 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useDataStore, defaultSettings } from '@renderer/store/useDataStore';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
-import ThemeToggle from './ThemeToggle';
 import type { Settings } from '@shared/types/settings';
 import type { DownloadEngine } from '@shared/types/downloads';
+import { ArrowLeft, ChevronRight, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
 
 interface SettingsPanelProps {
-  zoomPercent: number;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onZoomReset: () => void;
   onOpenUrl: (url: string, newTab: boolean) => void;
 }
+
+type SettingsSection = 'general' | 'engine' | 'downloads' | 'privacy' | 'advanced';
 
 interface MainConfigForm {
   flashVersion: string;
   lowEndMode: boolean;
   downloadEngine: DownloadEngine;
+  screenshotDir: string;
+  userscriptMaxResponseMB: number;
+  userscriptTimeoutSeconds: number;
+  userscriptMaxConcurrentPerScript: number;
+  userscriptMaxConcurrentGlobal: number;
+  userscriptDownloadMaxMB: number;
+  userscriptDownloadConcurrent: number;
+  userscriptMaxValueKB: number;
 }
 
 const DEFAULT_MAIN_CONFIG: MainConfigForm = {
   flashVersion: '34.0.0.330',
   lowEndMode: false,
   downloadEngine: 'aria2',
+  screenshotDir: '',
+  userscriptMaxResponseMB: 2,
+  userscriptTimeoutSeconds: 15,
+  userscriptMaxConcurrentPerScript: 4,
+  userscriptMaxConcurrentGlobal: 16,
+  userscriptDownloadMaxMB: 8,
+  userscriptDownloadConcurrent: 4,
+  userscriptMaxValueKB: 16,
 };
 
-const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, onZoomOut, onZoomReset, onOpenUrl }) => {
+const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   const settings = useDataStore((s) => s.settings);
   const setSettings = useDataStore((s) => s.setSettings);
   const setStoreStatus = useDataStore((s) => s.setPasswordStoreStatus);
@@ -42,10 +56,23 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
   const [passwordStoreInitialized, setPasswordStoreInitialized] = useState(false);
   const [excludedSitesText, setExcludedSitesText] = useState('');
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
+  const [activeSection, setActiveSection] = useState<SettingsSection | null>(null);
 
   useEffect(() => {
     window.electronAPI?.config?.get().then((cfg) => {
-      if (cfg) setMainForm({ flashVersion: cfg.flashVersion, lowEndMode: cfg.lowEndMode, downloadEngine: cfg.downloadEngine });
+      if (cfg) setMainForm({
+        flashVersion: cfg.flashVersion,
+        lowEndMode: cfg.lowEndMode,
+        downloadEngine: cfg.downloadEngine,
+        screenshotDir: cfg.screenshotDir ?? '',
+        userscriptMaxResponseMB: cfg.userscriptMaxResponseMB,
+        userscriptTimeoutSeconds: cfg.userscriptTimeoutSeconds,
+        userscriptMaxConcurrentPerScript: cfg.userscriptMaxConcurrentPerScript,
+        userscriptMaxConcurrentGlobal: cfg.userscriptMaxConcurrentGlobal,
+        userscriptDownloadMaxMB: cfg.userscriptDownloadMaxMB,
+        userscriptDownloadConcurrent: cfg.userscriptDownloadConcurrent,
+        userscriptMaxValueKB: cfg.userscriptMaxValueKB,
+      });
     }).catch(() => {});
   }, []);
 
@@ -112,11 +139,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
       flashVersion: mainForm.flashVersion,
       lowEndMode: mainForm.lowEndMode,
       downloadEngine: mainForm.downloadEngine,
+      screenshotDir: mainForm.screenshotDir,
+      userscriptMaxResponseMB: mainForm.userscriptMaxResponseMB,
+      userscriptTimeoutSeconds: mainForm.userscriptTimeoutSeconds,
+      userscriptMaxConcurrentPerScript: mainForm.userscriptMaxConcurrentPerScript,
+      userscriptMaxConcurrentGlobal: mainForm.userscriptMaxConcurrentGlobal,
+      userscriptDownloadMaxMB: mainForm.userscriptDownloadMaxMB,
+      userscriptDownloadConcurrent: mainForm.userscriptDownloadConcurrent,
+      userscriptMaxValueKB: mainForm.userscriptMaxValueKB,
     });
 
     const needsRestart =
       mainForm.flashVersion !== DEFAULT_MAIN_CONFIG.flashVersion ||
-      mainForm.lowEndMode !== DEFAULT_MAIN_CONFIG.lowEndMode;
+      mainForm.lowEndMode !== DEFAULT_MAIN_CONFIG.lowEndMode ||
+      mainForm.userscriptMaxValueKB !== DEFAULT_MAIN_CONFIG.userscriptMaxValueKB;
 
     if (needsRestart) {
       setSaved('restart');
@@ -126,6 +162,26 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
       pushToast({ message: LL.settings.saved(), type: 'success' });
     }
   }, [form, mainForm, setSettings, pushToast, LL]);
+
+  const handleSelectScreenshotDir = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.screenshot.setDir();
+      if (result.canceled) return;
+      if (result.success && result.dir) {
+        setMainForm((prev) => ({ ...prev, screenshotDir: result.dir as string }));
+        pushToast({ message: LL.settings.screenshot.dirChanged(), type: 'success' });
+      } else {
+        const msg = result.code === 'DIR_NOT_WRITABLE'
+          ? LL.settings.screenshot.dirNotWritable()
+          : result.code === 'DIR_DENIED'
+            ? LL.settings.screenshot.dirDenied()
+            : LL.settings.screenshot.dirSelectFailed();
+        pushToast({ message: msg, type: 'error' });
+      }
+    } catch {
+      pushToast({ message: LL.settings.screenshot.dirSelectFailed(), type: 'error' });
+    }
+  }, [setMainForm, pushToast, LL]);
 
   const handleResetPassword = useCallback(async () => {
     if (!resetConfirming) { setResetConfirming(true); return; }
@@ -158,9 +214,48 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
     if (url) onOpenUrl(url, true);
   }, [onOpenUrl]);
 
+  const sections: Array<{
+    id: SettingsSection;
+    title: string;
+    description: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }> = [
+    { id: 'general', title: LL.settings.general(), description: `${LL.settings.homepage()} · ${LL.settings.searchEngine()}`, icon: Globe2 },
+    { id: 'engine', title: `${LL.ruffle.flash()} / Ruffle`, description: `${LL.settings.spoofVersion()} · ${LL.settings.defaultEngine()}`, icon: Gauge },
+    { id: 'downloads', title: `${LL.settings.download()} / ${LL.settings.screenshot.dir()}`, description: `${LL.settings.downloadEngine()} · ${LL.settings.screenshot.selectDir()}`, icon: Download },
+    { id: 'privacy', title: LL.sidebar.passwords(), description: `${LL.password.autoCapture()} · ${LL.password.autoFill()}`, icon: Shield },
+    { id: 'advanced', title: LL.settings.diagnostics(), description: `${LL.settings.userscriptCapacity.title()} · ${LL.settings.openLocalSwf()}`, icon: Wrench },
+  ];
+
+  if (!activeSection) {
+    return (
+      <div className="settings-panel settings-menu-panel">
+        <div className="settings-category-label">{LL.settings.categories()}</div>
+        <div className="settings-category-list">
+          {sections.map(({ id, title, description, icon: Icon }) => (
+            <button key={id} type="button" className="settings-category-row" onClick={() => setActiveSection(id)}>
+              <span className="settings-category-icon"><Icon className="w-4 h-4" /></span>
+              <span className="settings-category-copy"><strong>{title}</strong><small>{description}</small></span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const activeSectionTitle = sections.find((section) => section.id === activeSection)?.title || LL.settings.title();
+
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div className="panel-card">
+    <div className="settings-panel settings-detail-panel">
+      <div className="settings-page-head">
+        <button type="button" className="btn-icon btn-icon-compact" onClick={() => setActiveSection(null)} title={LL.back()}>
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <strong>{activeSectionTitle}</strong>
+      </div>
+      <div className="settings-grid">
+      <div className={`panel-card settings-section-card${activeSection !== 'general' ? ' settings-section-hidden' : ''}`}>
         <div className="panel-card-title">{LL.settings.general()}</div>
         <div className="field">
           <div className="field-label">{LL.settings.homepage()}</div>
@@ -220,7 +315,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
         </div>
       </div>
 
-      <div className="panel-card">
+      <div className={`panel-card settings-section-card${activeSection !== 'engine' ? ' settings-section-hidden' : ''}`}>
         <div className="panel-card-title">{LL.ruffle.flash()}</div>
         <div className="field">
           <div className="field-label">{LL.settings.spoofVersion()}</div>
@@ -250,7 +345,36 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
         <div className="field-hint">{LL.settings.lowEndModeHint()}</div>
       </div>
 
-      <div className="panel-card">
+      <div className={`panel-card settings-section-card${activeSection !== 'advanced' ? ' settings-section-hidden' : ''}`}>
+        <div className="panel-card-title">{LL.settings.userscriptCapacity.title()}</div>
+        <div className="field-hint" style={{ marginBottom: 8 }}>{LL.settings.userscriptCapacity.hint()}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+          {([
+            ['userscriptMaxResponseMB', LL.settings.userscriptCapacity.maxResponseMB(), 1, 64],
+            ['userscriptTimeoutSeconds', LL.settings.userscriptCapacity.timeoutSeconds(), 1, 120],
+            ['userscriptMaxConcurrentPerScript', LL.settings.userscriptCapacity.concurrentPerScript(), 1, 16],
+            ['userscriptMaxConcurrentGlobal', LL.settings.userscriptCapacity.concurrentGlobal(), 1, 64],
+            ['userscriptDownloadMaxMB', LL.settings.userscriptCapacity.downloadMaxMB(), 1, 64],
+            ['userscriptDownloadConcurrent', LL.settings.userscriptCapacity.downloadConcurrent(), 1, 16],
+            ['userscriptMaxValueKB', LL.settings.userscriptCapacity.maxValueKB(), 1, 1024],
+          ] as Array<[keyof MainConfigForm, string, number, number]>).map(([key, label, min, max]) => (
+            <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12 }}>
+              <span style={{ opacity: 0.7 }}>{label}</span>
+              <input
+                type="number"
+                min={min}
+                max={max}
+                step={1}
+                value={String(mainForm[key] as number)}
+                onChange={(e) => handleMainChange(key, Number(e.target.value))}
+                style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className={`panel-card settings-section-card${activeSection !== 'engine' ? ' settings-section-hidden' : ''}`}>
         <div className="panel-card-title">{LL.settings.ruffle()}</div>
         <div className="field">
           <div className="field-label">{LL.settings.defaultEngine()}</div>
@@ -278,7 +402,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
         <div className="field-hint">{LL.settings.ruffleHint()}</div>
       </div>
 
-      <div className="panel-card">
+      <div className={`panel-card settings-section-card${activeSection !== 'downloads' ? ' settings-section-hidden' : ''}`}>
         <div className="panel-card-title">{LL.settings.download()}</div>
         <div className="field">
           <div className="field-label">{LL.settings.downloadEngine()}</div>
@@ -293,20 +417,42 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
         </div>
       </div>
 
-      <div className="panel-card">
+      <div className={`panel-card settings-section-card${activeSection !== 'downloads' ? ' settings-section-hidden' : ''}`}>
+        <div className="panel-card-title">{LL.settings.screenshot.dir()}</div>
+        <div className="field">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {mainForm.screenshotDir || LL.settings.screenshot.captureHint()}
+            </span>
+            <button
+              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: 'var(--bg-hover)', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', flexShrink: 0 }}
+              onClick={handleSelectScreenshotDir}
+            >
+              {LL.settings.screenshot.selectDir()}
+            </button>
+          </div>
+          <div className="field-hint">{LL.settings.screenshot.captureHint()}</div>
+        </div>
+      </div>
+
+      <div className={`panel-card settings-section-card${activeSection !== 'privacy' ? ' settings-section-hidden' : ''}`}>
         <div className="panel-card-title">{LL.sidebar.passwords()}</div>
-        <label className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+        <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>
             <span className="field-label" style={{ display: 'block' }}>{LL.password.autoCapture()}</span>
             <span className="field-hint">{LL.password.autoCaptureHint()}</span>
           </span>
-          <input
-            type="checkbox"
-            checked={autoCapture}
-            onChange={(event) => handleAutoCaptureChange(event.target.checked)}
-          />
-        </label>
-        <label className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoCapture}
+            className={`toggle-switch ${autoCapture ? 'on' : ''}`}
+            onClick={() => handleAutoCaptureChange(!autoCapture)}
+          >
+            <span className="toggle-knob" />
+          </button>
+        </div>
+        <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>
             <span className="field-label" style={{ display: 'block' }}>{LL.password.autoFill()}</span>
             <span className="field-hint">{LL.password.autoFillHint()}</span>
@@ -316,12 +462,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
               </span>
             )}
           </span>
-          <input
-            type="checkbox"
-            checked={autoFill}
-            onChange={(event) => handleAutoFillChange(event.target.checked)}
-          />
-        </label>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoFill}
+            className={`toggle-switch ${autoFill ? 'on' : ''}`}
+            onClick={() => handleAutoFillChange(!autoFill)}
+          >
+            <span className="toggle-knob" />
+          </button>
+        </div>
         <div className="field">
           <div className="field-label">{LL.password.excludedSites()}</div>
           <div className="field-hint" style={{ marginBottom: 6 }}>{LL.password.excludedSitesHint()}</div>
@@ -357,27 +507,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
         </button>
       </div>
 
-      <div className="panel-card">
-        <div className="panel-card-title">{LL.settings.appearance()}</div>
-        <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{LL.settings.zoom()}</span>
-          <div className="zoom-controls">
-            <button onClick={onZoomOut} className="zoom-btn" title={LL.addressbar.zoomOut()}>−</button>
-            <span className="zoom-label">{zoomPercent}%</span>
-            <button onClick={onZoomIn} className="zoom-btn" title={LL.addressbar.zoomIn()}>+</button>
-            <button onClick={onZoomReset} className="zoom-reset" title={LL.addressbar.zoomReset()}>{LL.reset()}</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel-card">
-        <div className="panel-card-title">{LL.settings.theme()}</div>
-        <div className="field">
-          <ThemeToggle />
-        </div>
-      </div>
-
-      <div className="panel-card">
+      <div className={`panel-card settings-section-card${activeSection !== 'advanced' ? ' settings-section-hidden' : ''}`}>
         <div className="panel-card-title">{LL.settings.diagnostics()}</div>
         <button
           onClick={handleOpenSwf}
@@ -401,16 +531,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ zoomPercent, onZoomIn, on
           {exportingDiagnostics ? LL.settings.diagnosticsExporting() : LL.settings.diagnosticsExport()}
         </button>
       </div>
+      </div>
 
       <button
         onClick={handleSave}
-        style={{
-          width: '100%', padding: 10, borderRadius: 10, border: 'none',
-          background: saved ? (saved === 'restart' ? '#f39c12' : '#27ae60') : 'var(--accent)',
-          color: '#fff',
-          fontSize: 13, fontWeight: 500, cursor: 'pointer',
-          transition: 'background 0.3s',
-        }}
+        className={`settings-save-button${saved === 'restart' ? ' restart' : saved ? ' saved' : ''}`}
       >
         {saved === 'restart' ? LL.settings.savedRestartBtn() : saved ? LL.settings.savedBtn() : LL.settings.saveBtn()}
       </button>

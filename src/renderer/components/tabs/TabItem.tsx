@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { Globe, Loader2, X } from 'lucide-react';
 import type { TabState } from '@renderer/store/useTabsStore';
+import { useI18nContext } from '@renderer/i18n/i18n-react';
 
 interface TabItemProps {
   tab: TabState;
@@ -37,6 +38,8 @@ const TabItem: React.FC<TabItemProps> = ({
     onDragEnd();
   };
 
+  const { LL } = useI18nContext();
+
   return (
     <div
       draggable
@@ -64,7 +67,7 @@ const TabItem: React.FC<TabItemProps> = ({
           <Globe className="w-3.5 h-3.5 text-gray-400" />
         )}
       </span>
-      <span className="truncate leading-none">{tab.title || 'New Tab'}</span>
+      <span className="truncate leading-none">{tab.title || LL.tab.newTab()}</span>
       {tab.isAudible && (
         <span className="text-[10px] flex-shrink-0">{tab.isMuted ? '🔇' : '🔊'}</span>
       )}
@@ -74,7 +77,7 @@ const TabItem: React.FC<TabItemProps> = ({
           onClose();
         }}
         className="tab-close"
-        title="关闭标签页"
+        title={LL.tab.closeTab()}
       >
         <X className="w-3.5 h-3.5" />
       </button>
