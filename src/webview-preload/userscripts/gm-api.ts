@@ -2,7 +2,7 @@
 // execution scope; nothing is placed on the page global.
 // Mirrors the planned src/webview-preload/userscripts/gm-api.ts.
 
-import type { GMSerializable, SnapshotScript } from '../../shared/userscript-types';
+import type { GMSerializable, GmCookie, GmWebRequestEvent, SnapshotScript } from '../../shared/userscript-types';
 import { isSerializableValue } from '../../main/modules/userscripts/userscript-values';
 import type { GmRequestDetails, GmRequestResult } from '../../main/modules/userscripts/userscript-request-service';
 
@@ -18,6 +18,8 @@ export interface GmApiContext {
   values: Record<string, GMSerializable>;
   resources?: Record<string, { text: string; url: string }>;
   bridge: GmApiBridge;
+  /** Flash runtime the tab is running: 'ppapi' (native Flash) or 'ruffle'. */
+  flashRuntime: 'ppapi' | 'ruffle';
 }
 
 export interface GmApi {
@@ -39,11 +41,80 @@ export interface GmApi {
   removeValueChangeListener(listenerId: number): void;
   setClipboard(text: string, info?: unknown): void;
   notification(details: string | { text?: string; title?: string; onclick?: () => void }): void;
+  log(message: string, level?: 'info' | 'warn' | 'error'): void;
+  cookie: {
+    list(details: { url?: string; domain?: string; name?: string }, ondone: (cookies: GmCookie[]) => void): void;
+    get(details: { url: string; name: string }, ondone: (cookie: GmCookie | null) => void): void;
+  };
+  webRequest(details: {
+    onBeforeRequest?: (event: GmWebRequestEvent) => void;
+    onCompleted?: (event: GmWebRequestEvent) => void;
+    onErrorOccurred?: (event: GmWebRequestEvent) => void;
+  }): void;
+  handleWebRequestEvent(event: GmWebRequestEvent): void;
   info: Record<string, unknown>;
   handleMenuInvoke(commandId: number): boolean;
   handleValueChanged(key: string, oldValue: unknown, newValue: unknown): void;
   handleNotificationClick(documentId: string, notificationId: number): void;
   legacy: Record<string, unknown>;
+}
+
+export interface GrantedGmApi {
+  modern: Record<string, unknown>;
+  legacy: Record<string, unknown>;
+  info: Record<string, unknown> | undefined;
+  unsafeWindow: boolean;
+}
+
+// Metadata permissions are an execution boundary, not merely UI metadata.
+// Accept both classic (`GM_getValue`) and modern (`GM.getValue`) spellings,
+// while exposing privileged capabilities only when the script declared them.
+export function grantGmApi(api: GmApi, rawGrants: string[] | undefined): GrantedGmApi {
+  const grants = new Set((rawGrants ?? []).map((grant) => String(grant).trim()));
+  const allowed = (legacy: string, modern: string): boolean =>
+    grants.has(legacy) || grants.has(`GM.${modern}`);
+  const modern: Record<string, unknown> = {};
+  const legacy: Record<string, unknown> = {};
+  const expose = (legacyName: string, modernName: string, value: unknown, aliases: string[] = []): void => {
+    if (!allowed(legacyName, modernName)) return;
+    legacy[legacyName] = value;
+    modern[modernName] = value;
+    for (const alias of aliases) modern[alias] = value;
+  };
+
+  expose('GM_getValue', 'getValue', api.getValue);
+  expose('GM_setValue', 'setValue', api.setValue);
+  expose('GM_deleteValue', 'deleteValue', api.deleteValue);
+  expose('GM_listValues', 'listValues', api.listValues);
+  expose('GM_getValues', 'getValues', api.getValues);
+  expose('GM_getResourceText', 'getResourceText', api.getResourceText);
+  expose('GM_getResourceURL', 'getResourceUrl', api.getResourceURL, ['getResourceURL']);
+  expose('GM_addStyle', 'addStyle', api.addStyle);
+  expose('GM_addElement', 'addElement', api.addElement);
+  expose('GM_registerMenuCommand', 'registerMenuCommand', api.registerMenuCommand);
+  expose('GM_unregisterMenuCommand', 'unregisterMenuCommand', api.unregisterMenuCommand);
+  expose('GM_openInTab', 'openInTab', api.openInTab);
+  expose('GM_xmlhttpRequest', 'xmlHttpRequest', api.xmlhttpRequest, ['xmlhttpRequest']);
+  expose('GM_download', 'download', api.download);
+  expose('GM_addValueChangeListener', 'addValueChangeListener', api.addValueChangeListener);
+  expose('GM_removeValueChangeListener', 'removeValueChangeListener', api.removeValueChangeListener);
+  expose('GM_setClipboard', 'setClipboard', api.setClipboard);
+  expose('GM_notification', 'notification', api.notification);
+  expose('GM_cookie', 'cookie', api.cookie);
+  expose('GM_webRequest', 'webRequest', api.webRequest);
+
+  // Compatibility baseline: these two APIs are non-privileged. GM_info is
+  // read-only script/runtime metadata, and GM_log is already rate-limited in
+  // the main process. Older userscripts commonly use both without @grant.
+  legacy.GM_log = api.log;
+  modern.log = api.log;
+  modern.info = api.info;
+  return {
+    modern,
+    legacy,
+    info: api.info,
+    unsafeWindow: grants.has('unsafeWindow'),
+  };
 }
 
 function applyAttributes(element: HTMLElement, attributes: Record<string, unknown>): void {
@@ -57,10 +128,10 @@ function applyAttributes(element: HTMLElement, attributes: Record<string, unknow
 }
 
 export function createGmApi(context: GmApiContext): GmApi {
-  const { script, documentId, isMainFrame, values, resources, bridge } = context;
+  const { script, documentId, isMainFrame, values, resources, bridge, flashRuntime } = context;
   let nextCommandId = 1;
   const menuCallbacks = new Map<number, () => void>();
-  let openInTabCalled = false;
+  let openedTabCount = 0;
 
   const getValue = (key: string, fallback?: unknown): unknown => {
     const keyText = String(key);
@@ -126,6 +197,63 @@ export function createGmApi(context: GmApiContext): GmApi {
       scriptId: script.id,
       text: String(text ?? '').slice(0, 1024 * 1024),
     });
+  };
+
+  // --- GM_log ---------------------------------------------------------------
+  const log = (message: string, level?: 'info' | 'warn' | 'error'): void => {
+    bridge.send('userscript:log', {
+      scriptId: script.id,
+      level: level ?? 'info',
+      message: String(message ?? '').slice(0, 4000),
+    });
+  };
+
+  // --- GM_webRequest (OBSERVATION ONLY: no interception, no modification) ----
+  let webRequestCallbacks: Partial<Record<GmWebRequestEvent['phase'], (event: GmWebRequestEvent) => void>> | null = null;
+
+  const webRequest = (details: {
+    onBeforeRequest?: (event: GmWebRequestEvent) => void;
+    onCompleted?: (event: GmWebRequestEvent) => void;
+    onErrorOccurred?: (event: GmWebRequestEvent) => void;
+  }): void => {
+    webRequestCallbacks = {
+      'before-request': details?.onBeforeRequest,
+      completed: details?.onCompleted,
+      'error-occurred': details?.onErrorOccurred,
+    };
+    bridge.send('userscript:web-request-register', { scriptId: script.id, documentId });
+  };
+
+  const handleWebRequestEvent = (event: GmWebRequestEvent): void => {
+    const cb = webRequestCallbacks?.[event?.phase];
+    try { if (cb) cb(event); } catch { /* isolated */ }
+  };
+
+  // --- GM_cookie (READ-ONLY: list/get only; host gated by @connect) ----------
+  const cookie = {
+    list: (details: { url?: string; domain?: string; name?: string }, ondone: (cookies: GmCookie[]) => void): void => {
+      void bridge.invoke('userscript:cookie-list', {
+        scriptId: script.id,
+        pageUrl: String(window.location.href || ''),
+        url: details?.url,
+        domain: details?.domain,
+        name: details?.name,
+      }).then((raw) => {
+        const result = raw as { ok: boolean; cookies?: GmCookie[] };
+        ondone(Array.isArray(result?.cookies) ? result.cookies : []);
+      });
+    },
+    get: (details: { url: string; name: string }, ondone: (cookie: GmCookie | null) => void): void => {
+      void bridge.invoke('userscript:cookie-get', {
+        scriptId: script.id,
+        pageUrl: String(window.location.href || ''),
+        url: details?.url,
+        name: details?.name,
+      }).then((raw) => {
+        const result = raw as { ok: boolean; cookie?: GmCookie | null };
+        ondone(result?.cookie ?? null);
+      });
+    },
   };
 
   // --- GM_download ------------------------------------------------------------
@@ -246,9 +374,11 @@ export function createGmApi(context: GmApiContext): GmApi {
   };
 
   const openInTab = (url: string, _openInBackground?: boolean): void => {
-    if (openInTabCalled) return;
-    openInTabCalled = true;
-    bridge.send('userscript:open-in-tab', { scriptId: script.id, url: String(url).slice(0, 2048) });
+    if (openedTabCount >= 10) return;
+    let target = '';
+    try { target = new URL(String(url), window.location.href).toString(); } catch { return; }
+    openedTabCount += 1;
+    bridge.send('userscript:open-in-tab', { scriptId: script.id, url: target.slice(0, 2048) });
   };
 
   // --- GM_xmlhttpRequest -----------------------------------------------------
@@ -387,7 +517,14 @@ export function createGmApi(context: GmApiContext): GmApi {
     removeValueChangeListener,
     setClipboard,
     notification: notify,
+    log,
+    cookie,
+    webRequest,
     info: {
+      // Which Flash engine this tab runs: 'ppapi' (native Flash) or 'ruffle'.
+      // Scripts can branch behavior (e.g. skip/adapt DOM patches that only make
+      // sense under one runtime).
+      flashRuntime,
       script: {
         name: script.info?.name ?? script.id,
         namespace: script.info?.namespace ?? '',
@@ -412,6 +549,7 @@ export function createGmApi(context: GmApiContext): GmApi {
     handleMenuInvoke,
     handleValueChanged,
     handleNotificationClick,
+    handleWebRequestEvent,
     legacy: {
       GM_getValue: getValue,
       GM_setValue: setValue,
@@ -431,6 +569,9 @@ export function createGmApi(context: GmApiContext): GmApi {
       GM_removeValueChangeListener: removeValueChangeListener,
       GM_setClipboard: setClipboard,
       GM_notification: notify,
+      GM_log: (m: unknown, l?: unknown) => log(String(m ?? ''), (['info', 'warn', 'error'] as const).includes(l as 'info') ? (l as 'info' | 'warn' | 'error') : undefined),
+      GM_cookie: cookie,
+      GM_webRequest: webRequest,
     },
   };
 }

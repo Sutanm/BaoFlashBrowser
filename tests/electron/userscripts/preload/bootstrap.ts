@@ -89,6 +89,7 @@ if (snapshot && snapshot.ok) {
       documentId,
       values: (values && values[script.id]) || {},
       resources: (snapshot.resources && snapshot.resources[script.id]) || {},
+      flashRuntime: mode as 'ppapi' | 'ruffle',
       bridge: {
         send: (channel, payload) => ipcRenderer.send(channel, payload),
         invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),

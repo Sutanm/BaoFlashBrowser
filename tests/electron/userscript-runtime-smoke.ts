@@ -17,6 +17,7 @@ import type { InstalledUserscript, UserscriptReport } from './userscripts/usersc
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
 if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 app.on('window-all-closed', () => { /* smoke controls its own exit code */ });
+const smokeUserDataDir = process.env.BAO_SMOKE_USER_DATA ?? app.getPath('userData');
 
 type Mode = 'ppapi' | 'ruffle';
 
@@ -260,6 +261,7 @@ const fixtureScripts: Array<{ id: string; enabled: boolean; source: (origins: { 
 // @version      3.2.1
 // @description  Reports GM_info
 // @match        ${main}/document-start
+// @grant        GM_info
 // @run-at       document-end
 // ==/UserScript==
 (function () {
@@ -267,7 +269,8 @@ const fixtureScripts: Array<{ id: string; enabled: boolean; source: (origins: { 
     GM_info.script.name,
     GM_info.script.version,
     GM_info.script.runAt,
-    GM_info.scriptHandler
+    GM_info.scriptHandler,
+    GM_info.flashRuntime
   ].join('|'));
 })();
 `,
@@ -552,6 +555,7 @@ const fixtureScripts: Array<{ id: string; enabled: boolean; source: (origins: { 
     results.cookieFollows = await req({ method: 'GET', url: main + '/xhr/echo-headers' });
     results.headerFilter = await req({ method: 'GET', url: main + '/xhr/echo-headers', headers: { Authorization: 'Bearer secret', Cookie: 'x=1', 'X-Custom': 'kept' } });
     results.redirectTwo = await req({ method: 'GET', url: main + '/xhr/redirect/2' });
+    results.redirectPrivate = await req({ method: 'GET', url: main + '/xhr/redirect-private' });
     results.redirectLoop = await req({ method: 'GET', url: main + '/xhr/redirect/6' });
     results.bigBlocked = await req({ method: 'GET', url: main + '/xhr/big?bytes=131072' });
     results.timeout = await req({ method: 'GET', url: main + '/xhr/slow?ms=3000', timeout: 800 });
@@ -777,6 +781,7 @@ const fixtureScripts: Array<{ id: string; enabled: boolean; source: (origins: { 
   (async function () {
     results.good = await dl({ url: main + '/download/file.txt', name: 'demo-file.txt' });
     results.denied = await dl({ url: cross + '/download/file.txt', name: 'denied.txt' });
+    results.redirectPrivate = await dl({ url: main + '/download/redirect-private', name: 'redirect-private.txt' });
     results.big = await dl({ url: main + '/download/big.bin', name: 'big.bin' });
     results.abort = await new Promise(function (resolve) {
       var d = GM_download({
@@ -1104,7 +1109,7 @@ async function runMode(
 
     addCheck(mode, 'GM_addStyle injects stylesheet', true, snap.attrs.styleTarget === '1', snap.attrs.styleTarget);
     addCheck(mode, 'GM_info carries metadata', true,
-      snap.attrs.info === 'Demo Info|3.2.1|document-end|BaoFlashBrowser Userscript Demo Runtime', snap.attrs.info);
+      snap.attrs.info === 'Demo Info|3.2.1|document-end|BaoFlashBrowser Userscript Demo Runtime|' + mode, snap.attrs.info);
 
     addCheck(mode, 'GM_getValue/GM_setValue/GM_listValues round trip', true,
       snap.attrs.values === '0:1'
@@ -1237,6 +1242,8 @@ async function runMode(
       xhrBody(xhr.redirectTwo).ok === true && xhrBody(xhr.redirectTwo).body === 'redirect-final', xhr.redirectTwo);
     addCheck(mode, 'redirect chains beyond limit aborted', true,
       xhrError(xhr.redirectLoop) === 'redirect-limit', xhr.redirectLoop);
+    addCheck(mode, 'redirect target address is revalidated', true,
+      xhrError(xhr.redirectPrivate) === 'address-blocked', xhr.redirectPrivate);
     addCheck(mode, 'responses above size cap aborted', true,
       xhrError(xhr.bigBlocked) === 'size-limit', xhr.bigBlocked);
     addCheck(mode, 'slow responses hit the timeout', true,
@@ -1286,6 +1293,8 @@ async function runMode(
       { ok: dl.good?.ok, content: goodContent.slice(0, 40) });
     addCheck(mode, 'GM_download denied without @connect', true,
       dl.denied?.ok === false, dl.denied);
+    addCheck(mode, 'GM_download redirect target is revalidated', true,
+      dl.redirectPrivate?.ok === false, dl.redirectPrivate);
     addCheck(mode, 'GM_download aborted above the size cap', true,
       dl.big?.ok === false, dl.big);
     addCheck(mode, 'GM_download abort cancels and fires onerror', true,
@@ -1954,7 +1963,7 @@ function registerIpc(): void {
   });
 
   ipcMain.on('userscript:download-abort', (event, payload) => {
-    downloadService?.abort(event.sender.id, Number(payload?.localId));
+    downloadService?.abort(event.sender.id, String(payload?.scriptId ?? ''), Number(payload?.localId));
   });
 
   ipcMain.handle('userscript:xhr-request', async (event, payload) => {
@@ -1974,7 +1983,7 @@ function registerIpc(): void {
   });
 
   ipcMain.on('userscript:xhr-abort', (event, payload) => {
-    requestService?.abort(event.sender.id, Number(payload?.localId));
+    requestService?.abort(event.sender.id, String(payload?.scriptId ?? ''), Number(payload?.localId));
   });
 }
 
@@ -2002,6 +2011,11 @@ app.whenReady().then(async () => {
         response.writeHead(200, { 'Content-Type': 'text/plain' });
         response.end('slow-ok');
       }, ms);
+      return;
+    }
+    if (request.url === '/xhr/redirect-private') {
+      response.writeHead(302, { Location: 'http://10.255.255.1/private' });
+      response.end();
       return;
     }
     if (request.url?.startsWith('/xhr/redirect/')) {
@@ -2054,6 +2068,11 @@ app.whenReady().then(async () => {
       requireRequests['/require/missing.js'] = (requireRequests['/require/missing.js'] ?? 0) + 1;
       response.writeHead(404, { 'Content-Type': 'text/plain' });
       response.end('not found');
+      return;
+    }
+    if (request.url === '/download/redirect-private') {
+      response.writeHead(302, { Location: 'http://10.255.255.1/private' });
+      response.end();
       return;
     }
     if (request.url === '/download/file.txt') {
@@ -2258,6 +2277,7 @@ app.whenReady().then(async () => {
     host.destroy();
     await Promise.all([closeServer(mainServer), closeServer(crossServer)]);
     try { rmSync(downloadDir, { recursive: true, force: true }); } catch { /* cleanup */ }
+    try { rmSync(smokeUserDataDir, { recursive: true, force: true }); } catch { /* cleanup */ }
     app.exit(requiredFailed.length === 0 ? 0 : 1);
   } catch (error) {
     console.error('[userscript-smoke] failed:', error);

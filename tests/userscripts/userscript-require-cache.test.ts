@@ -58,6 +58,27 @@ describe('userscript RequireCache', () => {
     expect(await cache.ensure('http://x/lib.js')).toEqual({ ok: false, error: 'size-limit' });
   });
 
+  it('evicts enough entries to keep the aggregate within budget', async () => {
+    const sources: Record<string, string> = { a: 'a'.repeat(40), b: 'b'.repeat(40), c: 'c'.repeat(70) };
+    const cache = new RequireCache({ fetcher: async (url) => sources[url], maxTotalBytes: 100 });
+    await cache.ensure('a');
+    await cache.ensure('b');
+    await cache.ensure('c');
+
+    const total = cache.entriesList().reduce((sum, entry) => sum + Buffer.byteLength(entry.source), 0);
+    expect(total).toBeLessThanOrEqual(100);
+    expect(cache.get('c')).toBe(sources.c);
+  });
+
+  it('rejects an oversized source loaded from disk', async () => {
+    const cache = new RequireCache({
+      fetcher: async () => 'unused',
+      loadFromDisk: () => '中'.repeat(40),
+      maxTotalBytes: 100,
+    });
+    expect(await cache.ensure('disk')).toEqual({ ok: false, error: 'size-limit' });
+  });
+
   it('exposes cached entries for snapshot expansion', async () => {
     const cache = new RequireCache({ fetcher: async () => 'lib-source' });
     await cache.ensure('http://x/lib.js');

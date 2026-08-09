@@ -1,7 +1,7 @@
 // Probe: main-process service health (offline verification). Loads the
 // bundled userscript admin module exactly like the app does and checks it
-// initializes against the real userData store. Read-only: initialization
-// must not persist anything new.
+// initializes against an isolated temporary userData store. Deep probes never
+// mutate the running browser's real store.
 'use strict';
 
 const path = require('path');

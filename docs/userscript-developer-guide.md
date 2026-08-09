@@ -140,8 +140,8 @@ Ruffle 模式共享世界,`unsafeWindow === window`,不走桥。
 
 | API | 语义 | 后端通道 | 限制 |
 |---|---|---|---|
-| `GM_getValue(key, fallback)` | 读脚本值(内存) | sendSync 快照内预载 | 值需可结构化克隆(`GMSerializable`) |
-| `GM_setValue(key, value)` | 写脚本值 | `userscript:set-value` | key 非空;值同类型约束 |
+| `GM_getValue(key, fallback)` | 读脚本值(快照预载+跨重启持久化) | sendSync 快照内预载 | 值需可结构化克隆(`GMSerializable`) |
+| `GM_setValue(key, value)` | 写脚本值(200ms debounce 持久化;单值 >1KB 或脚本累计 >8KB 立即落盘;退出前 flush) | `userscript:set-value` | key 非空;值同类型约束 |
 | `GM_deleteValue(key)` | 删值 | `userscript:delete-value` | — |
 | `GM_listValues()` / `GM_getValues()` | 枚举 | 本地 | — |
 | `GM_getResourceText/URL(name)` | `@resource` | 快照预载 | 资源随快照下发 |
@@ -155,6 +155,9 @@ Ruffle 模式共享世界,`unsafeWindow === window`,不走桥。
 | `GM_addValueChangeListener(key, cb)` | 值变化监听(含跨页面 remote) | `userscript:value-listener-add/remove` | 变化经 `userscript:value-changed` 回传 |
 | `GM_setClipboard(text)` | 剪贴板 | `userscript:set-clipboard` | ≤1MB |
 | `GM_notification(details)` | 系统通知 | `userscript:notification` | 点击回调经 manager 回传(文档 id 校验) |
+| `GM_log(message, level?)` | 平台日志(`userData/logs/main.log`) | `userscript:log` | per-script 限频 10 条/秒,超限丢弃 |
+| `GM_cookie.list/get` | **只读** cookie 访问 | `userscript:cookie-list/-get` | 受 @connect 域校验;**无 set/delete**(安全边界) |
+| `GM_webRequest(details)` | **仅观察**请求事件 | `userscript:web-request-register/-unregister` | 不拦截/不修改;URL 脱敏;@match 过滤 |
 | `unsafeWindow` | 页主世界代理(PPAPI)/window(Ruffle) | 页世界桥 | 见 §3 |
 
 `GM_info`:`{ script: { id, name, version, description, namespace, ... }, scriptMetaStr, scriptHandler, platform, version, ... }`。
@@ -173,6 +176,8 @@ Ruffle 模式共享世界,`unsafeWindow === window`,不走桥。
 | `@connect` | ✅ | GM_xmlhttpRequest 域名白名单(与 UA/来源检查结合) |
 | `@noframes` | ✅ | 子框架不执行 |
 | `@noframes` 缺省 | — | 子框架按自身 URL 独立匹配执行(注意 §9) |
+| `@updateURL` / `@downloadURL` | ✅ | 大小写双兼容(`@updateURL`/`@updateurl`);管理页手动检查更新 |
+| `@background` | ✅ | 脚本在隐藏后台窗口常驻,不参与 URL 匹配(见 §7.5) |
 
 匹配语义详见 `docs/userscript-platform-plan.md` §9 与 `userscript-matcher.ts` 头注。
 
@@ -199,6 +204,10 @@ Ruffle 模式共享世界,`unsafeWindow === window`,不走桥。
 | `userscript:download-abort` | send | `{ localId }` | — |
 | `userscript:xhr-request` | invoke | `{ scriptId, pageUrl, details, localId }` | 返回 `{ ok, error?, ... }` |
 | `userscript:xhr-abort` | send | `{ localId }` | — |
+| `userscript:log` | send | `{ scriptId, level?, message }` | 限频 10/s;`get-config` 对后台 wc 走 `snapshotBackground` |
+| `userscript:cookie-list` | invoke | `{ scriptId, pageUrl, url?, domain?, name? }` | 只读;返回 `{ ok, cookies? }` |
+| `userscript:cookie-get` | invoke | `{ scriptId, pageUrl, url, name }` | 只读;返回 `{ ok, cookie? }` |
+| `userscript:web-request-register/-unregister` | send | `{ scriptId, documentId }` | 仅观察;事件经 `userscript:web-request-event` 回传 |
 
 主进程 → preload:`userscript:menu-invoke`(按 documentId 路由)、`userscript:value-changed`、
 `userscript:notification-click`、`userscript:probe-late`(测试用)。
@@ -216,25 +225,98 @@ Ruffle 模式共享世界,`unsafeWindow === window`,不走桥。
 | `userscripts:uninstall` | `{ id }` | — |
 | `userscripts:set-enabled` | `{ id, enabled }` | — |
 | `userscripts:update-source` | `{ id, source }` | 编辑保存 |
-| `userscripts:for-tab` | `{ tabId, url }` | 侧边栏:匹配脚本 + 命令列表 |
-| `userscripts:invoke-command` | `{ tabId, commandId }` | 执行侧边栏命令,返回 `{ ok }` |
+| `userscripts:for-tab` | `{ tabId, url }` | 侧边栏:匹配脚本 + 命令列表(含后台命令,`background: true`) |
+| `userscripts:invoke-command` | `{ tabId, commandId }` | 执行侧边栏命令;tab 找不到时经 `commandTarget` 路由到后台 wc,返回 `{ ok }` |
+| `userscripts:check-updates` | (可选无参) | 手动检查更新(`@updateURL`),返回 `{ updates }` |
+| `userscripts:apply-update` | `{ id }` | 应用更新(版本更高才装),返回 `{ ok, error? }` |
+| `userscripts:background-status` | (可选无参) | 后台运行时状态 `{ scripts: [{ scriptId, running, crashedCount, stopped }], stopped }` |
+| `userscripts:background-restart` | (可选无参) | 重启全部后台窗口(清零崩溃计数) |
+| `userscripts:export-source` | `{ id }` | 保存对话框导出 .user.js,返回 `{ ok, path? }` |
 
 注意:管理通道 `userscripts:list` 等**无参通道用 `z.object({}).optional()`**(裸 `z.object({})`
 校验 `undefined` 会失败——历史坑)。
 
 ## 7. 数据、预算与安全
 
-- **脚本持久化**:`ScriptStore`(electron-store,userData 下 `userscripts.json`);**值存储**:`ValueStore` 仅内存。
+- **脚本持久化**:`ScriptStore`(electron-store,userData 下 `userscripts.json`);**值存储**:
+  `ValueStore` 原子持久化到 `userData/userscript-values.json`(200ms debounce;单值 >1KB
+  或脚本累计 >8KB 立即 flush;`before-quit` 同步 flush——崩溃/断电可能丢最近 debounce 窗口)。
 - **快照预算**:单页脚本源码总量 ≤ `maxSourceBytesPerPage: 512KB`(超出截断不执行),
   快照 ≤ `maxSnapshotBytes: 64KB`(超出丢弃部分脚本,保证 sendSync 响应上限)。
+  ⚠️ 快照上限(64KB)≠ GM_xmlhttpRequest 响应上限(2MB),两者独立。
 - **GM_xmlhttpRequest**:走 `persist:` 会话(与标签页同会话),`@connect` 校验 +
-  仅允许 loopback 白名单(`127.0.0.1`/`localhost`)、重定向 ≤5、响应 ≤32KB、超时 3s、
-  每脚本并发 ≤2、全局 ≤8。
-- **GM_download**:同样会话与 loopback 白名单,单文件 ≤8KB(平台辅助下载场景),保存到
+  仅允许 loopback 白名单(`127.0.0.1`/`localhost`)、重定向 ≤5、响应 ≤2MB、超时 15s、
+  每脚本并发 ≤4、全局 ≤16(硬上限,最坏 16 并发 × 15s)。
+- **GM_download**:同样会话与 loopback 白名单,单文件 ≤8MB、每脚本并发 ≤4,保存到
   `userData/userscript-downloads/`。
 - **校验入口**:每个通道 zod safeParse;`registerMenuCommand` 校验 commandId 形状
   (`documentId:scriptId:正整数` 前缀匹配),防止伪造。
 - 凭据类数据**永不**经渲染进程 IPC 或 console 传输(密码模块独立约定)。
+
+### 7.5 后台运行时(`@background`)
+
+带 `@background` 指令的脚本在**每脚本一个隐藏 BrowserWindow** 中常驻(复用 webview-preload
+运行时,`contextIsolation: true, plugins: false, partition: 'persist:'`,`backgroundThrottling:
+false` 保证定时器准确),不参与任何标签页的 URL 匹配;`get-config` 对后台 wc 经
+`event.sender.id` 反查 `getScriptIdForWc` 分派走 `snapshotBackground`(只含该窗口登记的脚本)。
+要点:
+
+- **每脚本独立窗口**:一个脚本崩溃/禁用只影响自己(退避 1s→2s→4s→8s→60s 重建自身);
+  连续 5 次崩溃该脚本停止(`getStatus().scripts[].stopped`),其余后台脚本不受影响。
+- **手动重启清零**:「重启后台运行时」重建全部窗口并清零崩溃计数(不再出现"重启后
+  再崩 1 次就停止"的误判)。
+- **后台 `@connect` 必填**:后台页面 URL 为 `data:text/html;charset=utf-8,`,origin 为
+  `null` → 同源放行永不命中,GM_xmlhttpRequest/GM_download/GM_cookie 只认 `@connect` 列表;
+  无 `@connect` 的跨域请求一律 `connect-denied`。
+- **不走 Ruffle**:后台窗口始终 PPAPI 语义(mode 报告 `ppapi`);`get-ruffle-mode` 对
+  未登记 wc 返回 `{ enabled: false }`(handler 启动即注册,不会触发 Landmine #2)。
+- **脚本变更增量同步**:安装/卸载/启停/编辑保存走 `sync()` diff——新脚本建窗、移除的
+  销毁、stopped 的保持停止(generation 每窗口独立递增,旧窗口的过期报告被拒);脚本内的
+  `setInterval`/命令/值监听随窗口重建重置——**后台脚本需在顶层重新注册 value listener**。
+- **命令合并**:各后台窗口命令经 `userscripts:for-tab` 合并进侧边栏(带 `background: true`,
+  面板显示「后台」徽标);`invoke-command` 对 tab 找不到时经 `commandTarget` 路由到对应
+  后台 wc。
+
+### 7.6 手动检查更新(`@updateURL`)
+
+管理页「检查更新」按钮遍历带 `@updateURL` 且未 `edited` 的脚本(并发调用共享同一
+in-flight 执行,防重入);拉取走 `GmRequestService`(系统 scriptId `__platform_updater__`,
+pageUrl 为 data: URL → 仅 `@connect` 校验),响应 ≤2MB(可配置)、超时 15s(可配置)、
+**串行**执行。
+
+- **host 校验**:`updateHostAllowed(connect, match, url)` — update 源 host 必须在
+  `@connect` 内(含 `*.` 通配)或与某条 `@match` 同域(弱路径,UI 标「弱安全更新源」);
+  data:/其他协议与无关域名拒绝。
+- **双路径解析**:先试 JSON `{ version, updateURL? }`(相对 `updateURL` 按 updateUrl
+  基址解析)再拉本体;非 JSON 直接当脚本本体解析 `@version`。
+- **语义**:版本更高才装(`compareVersions` 数字分段,短补 0,无预发布语义);
+  `edited` 脚本跳过;应用更新后清除 `edited`(新版本已替换用户改动);失败保持原样。
+
+### 7.7 GM_cookie(只读)与 GM_webRequest(仅观察)的安全边界
+
+- **GM_cookie 只实现 `list`/`get`**,不提供 `set`/`delete`——写入/篡改登录态的攻击面
+  过大,收益低(绝大多数脚本只读)。cookie 值本身是凭据,读取能力受脚本 `@connect`
+  域白名单约束;返回条数上限 100。
+- **GM_webRequest 仅观察**:`onBeforeRequest`/`onCompleted`/`onErrorOccurred` 回调只收到
+  **脱敏后**的 URL(query 被替换为 `<redacted>`)、method、statusCode/error;平台不拦截、
+  不修改、不取消任何请求。事件按脚本 `@match` 过滤。Electron 11 webRequest 监听器
+  互斥,观察器组合进 session-manager 的单一 `onBeforeRequest`,`onCompleted`/
+  `onErrorOccurred` 独立注册。
+
+### 7.8 容量配置与脚本导出
+
+- 容量上限(响应 MB/超时秒/每脚本并发/全局并发/下载 MB/下载并发/**单值 KB**)在**设置页**
+  配置,存 electron-store;响应/超时/并发/下载项保存即热应用(`applyCapacityConfig`),
+  单值上限(KB)重启生效(ValueStore 构造时固定)。默认与 §7 一致。
+- 脚本可经管理页**导出为 .user.js**(保存对话框);导入走既有两阶段安装(文件/URL/粘贴)。
+- 管理页每行「值」按钮可查看/编辑/删除脚本的 GM 值(JSON 编辑,复用持久化文件;
+  管理侧写入不广播跨 wc,界面变更由 `userscripts:changed` 刷新)。
+
+### 7.9 后台脚本单独重启
+
+- 管理页停止横幅列出每个 stopped 后台脚本,可**单独重启**(`userscripts:background-restart
+  { id }` → `restartScript`,仅重建该脚本窗口并清零其崩溃计数),也可一次性重启全部。
+- **自动更新仍为手动触发**(检查更新按钮);后台定时轮询为后续产品决策,未实现。
 
 ## 8. 构建与测试
 
@@ -253,6 +335,12 @@ npm run test:userscripts-admin    # 管理端到端冒烟(安装→执行→启�
 | `tests/electron/build-userscripts-admin-smoke.mjs` | 构建 `release/tests/userscripts-admin-module.cjs` | 主进程服务打包产物 |
 | `tests/electron/userscripts-admin-smoke.cjs` | `npm run test:userscripts-admin` | 管理全流程(真实脚本) |
 | `tests/electron/menu-command-dedupe-smoke.cjs` | 手动 electron 执行 | 主框架+iframe 命令去重与执行 |
+| `tests/electron/values-persistence-smoke.cjs` | 手动 electron 执行(两进程) | GM 值跨重启持久化 |
+| `tests/electron/gm-capacity-smoke.cjs` | 手动 electron 执行 | 响应 2MB/下载 8MB/并发上限 |
+| `tests/electron/userscripts-update-smoke.cjs` | 手动 electron 执行 | @updateURL JSON/本体双路径、edited 跳过、host 校验 |
+| `tests/electron/background-script-smoke.cjs` | 手动 electron 执行 | @background 多窗口隔离/命令/启停/connect-denied |
+| `tests/electron/userscripts-cookie-smoke.cjs` | 手动 electron 执行 | GM_cookie 只读 list/get、@connect 拒绝 |
+| `tests/electron/userscripts-web-request-smoke.cjs` | 手动 electron 执行 | 事件分发、URL 脱敏、@match 过滤、仅观察 |
 | `tests/electron/demo-test-verify.cjs` | 手动 electron 执行 | 真实站端到端徽章/桥/计数 |
 | `tests/electron/install-demo-test-script.cjs` | 手动 electron 执行 | 测试脚本安装(userData 固定 `%APPDATA%\bao-flash-browser`) |
 
@@ -293,10 +381,16 @@ mock,如 `userscript:menu-register` → `manager.registerMenuCommand(...)`)。
    `'process' in window` 探测必须保持为 false,勿往页面全局放任何 Node 绑定。
 10. **无参 IPC 通道 zod 必须 `optional()`**——`z.object({})` 校验 `undefined` 会失败,
     无参通道(如 `userscripts:list`、`userscripts:install-file`)必须用 `z.object({}).optional()`。
+11. **后台 wc 的 `get-config` 必须按 `event.sender.id` 分派**——后台 preload 的 payload
+    无 background 标识;漏掉分支会让后台窗口拿到 `snapshotFor` 的空结果。
+12. **隐藏窗口定时器默认被节流**——后台 BrowserWindow 必须 `backgroundThrottling: false`,
+    否则 `setInterval` 间歇卡顿(实测 tick 序列 2,2,2,4)。
+13. **后台窗口重建后脚本状态全丢**——`setInterval`/命令回调/值监听随窗口销毁重置;
+    listener 订阅不重放,后台脚本必须在顶层重新注册。
 
 ## 10. 常见扩展任务速查
 
-### 新增一个 GM API(如 `GM_log`)
+### 新增一个 GM API(如 `GM_cookie`)
 
 1. `gm-api.ts`:在 `GmApi` 接口加签名 + `createGmApi` 内实现(本地能力直接实现,远端能力走 bridge);
 2. 远端能力:在 `userscripts.ipc.ts` 注册通道(zod payload;send 用 `registerValidatedListener`,

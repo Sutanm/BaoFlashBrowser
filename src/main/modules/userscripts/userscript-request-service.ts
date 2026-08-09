@@ -69,8 +69,9 @@ const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH'
 export class GmRequestService {
   private readonly options: Required<Omit<GmRequestServiceOptions, 'allowedLoopbackHosts' | 'session'>> & { allowedLoopbackHosts: string[] };
   private readonly session?: Electron.Session;
-  private readonly active = new Map<number, {
+  private readonly active = new Map<string, {
     request: Electron.ClientRequest;
+    requestId: number;
     wcId: number;
     scriptId: string;
     timer: ReturnType<typeof setTimeout>;
@@ -79,6 +80,10 @@ export class GmRequestService {
   private readonly perScriptActive = new Map<string, number>();
   private nextId = 1;
   private globalActive = 0;
+
+  private requestKey(wcId: number, scriptId: string, requestId: number): string {
+    return `${wcId}:${scriptId}:${requestId}`;
+  }
 
   constructor(options: GmRequestServiceOptions = {}) {
     this.options = {
@@ -103,14 +108,13 @@ export class GmRequestService {
     return new Promise((resolve) => {
       // localId comes from the preload so abort() can target the same request
       // without a separate id mapping round trip.
-      const requestId = Number.isInteger(localId) ? Number(localId) : this.nextId++;
+      const requestId = localId === undefined ? this.nextId++ : Number(localId);
       const fail = (error: GmRequestError, errorMessage?: string): GmRequestResult => {
-        this.releaseConcurrency(scriptId);
         return { requestId, ok: false, error, errorMessage };
       };
 
       const method = String(details?.method || 'GET').toUpperCase();
-      if (!ALLOWED_METHODS.has(method) || typeof details?.url !== 'string') {
+      if (!Number.isSafeInteger(requestId) || requestId <= 0 || !ALLOWED_METHODS.has(method) || typeof details?.url !== 'string') {
         resolve(fail('invalid-arguments'));
         return;
       }
@@ -134,13 +138,20 @@ export class GmRequestService {
         Number.isFinite(Number(details.timeout)) && Number(details.timeout) > 0 ? Number(details.timeout) : this.options.defaultTimeoutMs,
         this.options.defaultTimeoutMs,
       );
-      const request = net.request({
-        method,
-        url: details.url,
-        redirect: 'follow',
-        session: this.session,
-        useSessionCookies: true,
-      }) as Electron.ClientRequest;
+      let request: Electron.ClientRequest;
+      try {
+        request = net.request({
+          method,
+          url: details.url,
+          redirect: 'manual',
+          session: this.session,
+          useSessionCookies: true,
+        }) as Electron.ClientRequest;
+      } catch (error) {
+        this.releaseConcurrency(scriptId);
+        resolve(fail('network', String(error)));
+        return;
+      }
 
       let redirectCount = 0;
       let receivedBytes = 0;
@@ -149,7 +160,7 @@ export class GmRequestService {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        this.active.delete(requestId);
+        this.active.delete(this.requestKey(wcId, scriptId, requestId));
         this.releaseConcurrency(scriptId);
         resolve(result);
       };
@@ -159,13 +170,29 @@ export class GmRequestService {
         finish({ requestId, ok: false, error: 'timeout' });
       }, timeoutMs);
 
-      this.active.set(requestId, { request, wcId, scriptId, timer, resolve: finish });
+      this.active.set(this.requestKey(wcId, scriptId, requestId), { request, requestId, wcId, scriptId, timer, resolve: finish });
 
-      request.on('redirect', (statusCode: number, _method: string, _redirectUrl: string) => {
+      request.on('redirect', (statusCode: number, _method: string, redirectUrl: string) => {
         redirectCount += 1;
         if (redirectCount > this.options.maxRedirects) {
           try { request.abort(); } catch { /* ignore */ }
           finish({ requestId, ok: false, error: 'redirect-limit', errorMessage: String(statusCode) });
+          return;
+        }
+        if (isBlockedUrl(redirectUrl, this.options.allowedLoopbackHosts)) {
+          try { request.abort(); } catch { /* ignore */ }
+          finish({ requestId, ok: false, error: 'address-blocked', errorMessage: redirectUrl });
+          return;
+        }
+        if (!connectAllows(connect, pageUrl, redirectUrl)) {
+          try { request.abort(); } catch { /* ignore */ }
+          finish({ requestId, ok: false, error: 'connect-denied', errorMessage: redirectUrl });
+          return;
+        }
+        try {
+          (request as unknown as { followRedirect(): void }).followRedirect();
+        } catch (error) {
+          finish({ requestId, ok: false, error: 'network', errorMessage: String(error) });
         }
       });
 
@@ -237,13 +264,10 @@ export class GmRequestService {
     });
   }
 
-  abort(wcId: number, requestId: number): boolean {
-    const entry = this.active.get(requestId);
-    if (!entry || entry.wcId !== wcId) return false;
+  abort(wcId: number, scriptId: string, requestId: number): boolean {
+    const entry = this.active.get(this.requestKey(wcId, scriptId, requestId));
+    if (!entry) return false;
     try { entry.request.abort(); } catch { /* already gone */ }
-    clearTimeout(entry.timer);
-    this.active.delete(requestId);
-    this.releaseConcurrency(entry.scriptId);
     // Resolve deterministically: Electron 11 does not reliably emit an abort
     // event on net.request, so the in-flight promise must be settled here.
     entry.resolve({ requestId, ok: false, error: 'aborted' });
@@ -251,18 +275,23 @@ export class GmRequestService {
   }
 
   cancelForWc(wcId: number): void {
-    for (const [requestId, entry] of this.active) {
+    for (const [, entry] of this.active) {
       if (entry.wcId !== wcId) continue;
       try { entry.request.abort(); } catch { /* already gone */ }
-      clearTimeout(entry.timer);
-      this.active.delete(requestId);
-      this.releaseConcurrency(entry.scriptId);
-      entry.resolve({ requestId, ok: false, error: 'aborted' });
+      entry.resolve({ requestId: entry.requestId, ok: false, error: 'aborted' });
     }
   }
 
   getActiveCount(): number {
     return this.globalActive;
+  }
+
+  // Live capacity update (settings panel hot-apply).
+  setLimits(partial: Partial<Pick<GmRequestServiceOptions,
+    'maxResponseBytes' | 'defaultTimeoutMs' | 'maxConcurrentPerScript' | 'maxConcurrentGlobal'>>): void {
+    for (const [key, value] of Object.entries(partial)) {
+      if (value !== undefined) (this.options as Record<string, unknown>)[key] = value;
+    }
   }
 
   private releaseConcurrency(scriptId: string): void {

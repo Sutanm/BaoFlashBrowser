@@ -42,6 +42,9 @@ const LEGACY_GM_NAMES = [
   'GM_removeValueChangeListener',
   'GM_setClipboard',
   'GM_notification',
+  'GM_log',
+  'GM_cookie',
+  'GM_webRequest',
 ] as const;
 
 export interface SandboxHost {
@@ -50,7 +53,7 @@ export interface SandboxHost {
   window: unknown;
   document: unknown;
   GM: Record<string, unknown>;
-  GM_info: Record<string, unknown>;
+  GM_info: unknown;
   legacyGm: Record<string, unknown>;
 }
 

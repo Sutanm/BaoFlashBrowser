@@ -21,6 +21,9 @@ module.exports = {
       updatedAt: s.updatedAt,
       runAt: s.metadata && s.metadata.runAt,
       matchCount: s.metadata && s.metadata.match ? s.metadata.match.length : 0,
+      background: Boolean(s.metadata && s.metadata.background),
+      updateUrl: (s.metadata && s.metadata.updateUrl) || undefined,
+      edited: Boolean(s.edited),
     }));
     const enabled = rows.filter((r) => r.enabled).length;
     return {

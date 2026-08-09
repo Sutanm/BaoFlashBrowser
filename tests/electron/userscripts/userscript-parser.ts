@@ -6,7 +6,7 @@ import type { ParsedUserscriptMetadata, RunAt } from './userscript-types';
 const HEADER_START = '==UserScript==';
 const HEADER_END = '==/UserScript==';
 
-const SCALAR_KEYS = new Set(['name', 'namespace', 'version', 'description', 'run-at']);
+const SCALAR_KEYS = new Set(['name', 'namespace', 'version', 'description', 'run-at', 'updateHash']);
 const LIST_KEYS = new Set(['match', 'include', 'exclude', 'exclude-match', 'grant', 'connect', 'require']);
 const FLAG_KEYS = new Set(['noframes']);
 const VALID_RUN_AT: ReadonlySet<string> = new Set(['document-start', 'document-body', 'document-end', 'document-idle']);
@@ -80,6 +80,7 @@ export function parseUserscriptMetadata(source: string): ParsedUserscriptMetadat
     noframes,
     require: lists.get('require') ?? [],
     resource: resources,
+    updateHash: scalars.get('updateHash') ?? undefined,
     rawHeader: lines.slice(start, end + 1).join('\n'),
   };
 }

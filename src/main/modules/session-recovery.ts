@@ -3,10 +3,17 @@ import log from 'electron-log';
 import { beginSession, finishSession, type SessionRunState } from '../utils/session-recovery-state';
 
 const DEFAULT_STATE: SessionRunState = { running: false, startedAt: 0, cleanShutdownAt: null };
-const store = new Store<{ session: SessionRunState }>({
-  name: 'session-recovery',
-  defaults: { session: DEFAULT_STATE },
-});
+let store: Store<{ session: SessionRunState }> | null = null;
+
+function getStore(): Store<{ session: SessionRunState }> {
+  if (!store) {
+    store = new Store<{ session: SessionRunState }>({
+      name: 'session-recovery',
+      defaults: { session: DEFAULT_STATE },
+    });
+  }
+  return store;
+}
 
 let recoveryRequired = false;
 let cleanShutdownAllowed = true;
@@ -15,9 +22,10 @@ let initialized = false;
 export function initializeSessionRecovery(): void {
   if (initialized) return;
   initialized = true;
-  const result = beginSession(store.get('session', DEFAULT_STATE));
+  const activeStore = getStore();
+  const result = beginSession(activeStore.get('session', DEFAULT_STATE));
   recoveryRequired = result.abnormalExit;
-  store.set('session', result.state);
+  activeStore.set('session', result.state);
   log.info(`[Session] previous exit: ${recoveryRequired ? 'abnormal' : 'clean'}`);
 }
 
@@ -35,5 +43,6 @@ export function preventCleanShutdownMark(): void {
 
 export function markCleanShutdown(): void {
   if (!initialized || !cleanShutdownAllowed) return;
-  store.set('session', finishSession(store.get('session', DEFAULT_STATE)));
+  const activeStore = getStore();
+  activeStore.set('session', finishSession(activeStore.get('session', DEFAULT_STATE)));
 }

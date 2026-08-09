@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UserscriptManager } from '@main/modules/userscripts/userscript-manager';
 import { ValueStore } from '@main/modules/userscripts/userscript-store';
-import type { InstalledUserscript, ParsedUserscriptMetadata } from '@shared/userscript-types';
+import type { GMSerializable, InstalledUserscript, ParsedUserscriptMetadata } from '@shared/userscript-types';
 
 function makeScript(id: string, overrides?: Partial<ParsedUserscriptMetadata>): InstalledUserscript {
   const metadata: ParsedUserscriptMetadata = {
@@ -115,5 +115,29 @@ describe('userscript-manager value listeners', () => {
     const result = manager.setValue(7, 's:values', 'key-a', 2);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.oldValue).toBe(1);
+  });
+
+  it('clearScriptValues removes the whole script bucket', () => {
+    const manager = makeManager();
+    manager.setValue(7, 'gone', 'k', 'v');
+    manager.setValue(7, 'stay', 'k', 'v');
+    manager.clearScriptValues('gone');
+    expect(manager.getValuesFor(7, 'gone')).toEqual({});
+    expect(manager.getValuesFor(7, 'stay').k).toBe('v');
+  });
+
+  it('admin value methods work without a registered view', () => {
+    const manager = makeManager();
+    expect(manager.setScriptValue('adm', 'k', 'v')).toBe(true);
+    expect(manager.getScriptValue('adm', 'k')).toBe('v');
+    expect(manager.listScriptValues('adm')).toEqual({ k: 'v' });
+    expect(manager.deleteScriptValue('adm', 'k')).toBe(true);
+    expect(manager.listScriptValues('adm')).toEqual({});
+  });
+
+  it('admin setScriptValue rejects invalid values', () => {
+    const manager = makeManager();
+    expect(manager.setScriptValue('adm', 'k', () => 1 as unknown as GMSerializable)).toBe(false);
+    expect(manager.setScriptValue('adm', '', 'v')).toBe(false);
   });
 });

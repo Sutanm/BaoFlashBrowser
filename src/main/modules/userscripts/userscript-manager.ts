@@ -18,6 +18,9 @@ export interface ViewRegistration {
   mode: 'ppapi' | 'ruffle';
   generation: number;
   token: string;
+  kind?: 'tab' | 'background';
+  /** Per-script background windows: snapshotBackground returns only this script. */
+  backgroundScriptId?: string;
 }
 
 export interface ManagerOptions {
@@ -28,9 +31,12 @@ export interface ManagerOptions {
   maxReportDetailBytes?: number;
   requireCache?: RequireCache;
   sendToWc?: (wcId: number, channel: string, payload: unknown) => void;
+  persistValues?: { file: string; debounceMs?: number; urgentBytes?: number };
+  /** Called when a view is unregistered (e.g. web-request observer cleanup). */
+  onViewRemoved?: (wcId: number) => void;
 }
 
-const DEFAULT_OPTIONS: Required<Omit<ManagerOptions, 'requireCache' | 'sendToWc'>> = {
+const DEFAULT_OPTIONS: Required<Omit<ManagerOptions, 'requireCache' | 'sendToWc' | 'persistValues' | 'onViewRemoved'>> = {
   maxSnapshotBytes: 64 * 1024,
   maxSourceBytesPerPage: 512 * 1024,
   maxResourceBytesPerPage: 64 * 1024,
@@ -43,9 +49,10 @@ interface IndexedScript extends InstalledUserscript {
 }
 
 export class UserscriptManager {
-  private readonly options: Required<Omit<ManagerOptions, 'requireCache' | 'sendToWc'>>;
+  private readonly options: Required<Omit<ManagerOptions, 'requireCache' | 'sendToWc' | 'persistValues' | 'onViewRemoved'>>;
   private readonly requireCache?: RequireCache;
   private readonly sendToWc?: (wcId: number, channel: string, payload: unknown) => void;
+  private readonly onViewRemoved?: (wcId: number) => void;
   private readonly values: ValueStore;
   private scripts = new Map<string, IndexedScript>();
   private readonly requireGaps = new Map<string, string[]>();
@@ -59,11 +66,24 @@ export class UserscriptManager {
   private readonly openTabs: Array<{ wcId: number; scriptId: string; url: string }> = [];
   private readonly spaNavigations: Array<{ wcId: number; url: string; reason: string; at: number }> = [];
 
+  // persistValues 字段
+  private readonly persistValues?: { file: string; debounceMs: number; urgentBytes: number };
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private scriptByteCounts = new Map<string, number>();
+
   constructor(values: ValueStore, options?: ManagerOptions) {
     this.values = values;
     this.options = { ...DEFAULT_OPTIONS, ...options };
     this.requireCache = options?.requireCache;
     this.sendToWc = options?.sendToWc;
+    this.onViewRemoved = options?.onViewRemoved;
+    if (options?.persistValues) {
+      this.persistValues = {
+        file: options.persistValues.file,
+        debounceMs: options.persistValues.debounceMs ?? 200,
+        urgentBytes: options.persistValues.urgentBytes ?? 1024,
+      };
+    }
   }
 
   // Rebuilds the script index from the given list (scriptStore is the single
@@ -92,6 +112,7 @@ export class UserscriptManager {
     const frameUrl = String(url || '');
     const matched: Array<{ id: string; name: string; enabled: boolean }> = [];
     for (const script of this.scripts.values()) {
+      if (script.metadata.background) continue; // background 脚本不出现在 URL 匹配中
       if (!matchesUrl(script.rules, frameUrl)) continue;
       matched.push({ id: script.id, name: script.metadata.name, enabled: script.enabled });
     }
@@ -110,6 +131,7 @@ export class UserscriptManager {
       for (const commandId of bucket) this.commands.delete(commandId);
       this.commandsByWc.delete(wcId);
     }
+    this.onViewRemoved?.(wcId);
   }
 
   getRegistration(wcId: number): ViewRegistration | undefined {
@@ -123,28 +145,11 @@ export class UserscriptManager {
     const matched: SnapshotScript[] = [];
     let sourceBytes = 0;
     for (const script of this.scripts.values()) {
+      if (script.metadata.background) continue; // background 脚本不走 snapshotFor
       if (!matchesUrl(script.rules, frameUrl)) continue;
       if (script.metadata.noframes && !isMainFrame) continue;
-      let source = script.source;
-      const requires = script.metadata.require;
-      if (requires.length > 0) {
-        const parts: string[] = [];
-        const missing: string[] = [];
-        for (const requireUrl of requires) {
-          const cached = this.requireCache?.get(requireUrl);
-          if (cached === undefined) {
-            missing.push(requireUrl);
-            continue;
-          }
-          parts.push(cached);
-        }
-        if (missing.length > 0) {
-          this.requireGaps.set(script.id, missing);
-          continue;
-        }
-        this.requireGaps.delete(script.id);
-        if (parts.length > 0) source = parts.join('\n') + '\n' + script.source;
-      }
+      const source = this.assembleScriptPayload(script);
+      if (source === undefined) continue; // require 未就绪:记录 gap 并跳过
       sourceBytes += Buffer.byteLength(source, 'utf8');
       if (sourceBytes > this.options.maxSourceBytesPerPage) break;
       matched.push({
@@ -197,6 +202,104 @@ export class UserscriptManager {
     };
   }
 
+  // 抽取 require/resource 拼接到源码的公共逻辑。
+  // 保持原 snapshotFor 语义:任一 require 未就绪 → 记录 gap 并返回 undefined(脚本整体跳过),
+  // 不返回原源码——缺失依赖的脚本在快照中不存在。
+  private assembleScriptPayload(script: IndexedScript): string | undefined {
+    const requires = script.metadata.require;
+    if (requires.length > 0) {
+      const parts: string[] = [];
+      const missing: string[] = [];
+      for (const requireUrl of requires) {
+        const cached = this.requireCache?.get(requireUrl);
+        if (cached === undefined) {
+          missing.push(requireUrl);
+          continue;
+        }
+        parts.push(cached);
+      }
+      if (missing.length > 0) {
+        this.requireGaps.set(script.id, missing);
+        return undefined;
+      }
+      this.requireGaps.delete(script.id);
+      if (parts.length > 0) return parts.join('\n') + '\n' + script.source;
+    }
+    return script.source;
+  }
+
+  // 后台脚本专用快照（per-script 窗口:只包含该窗口登记的 background 脚本）
+  snapshotBackground(wcId: number): FrameSnapshot {
+    const registration = this.views.get(wcId);
+    if (!registration || registration.kind !== 'background') {
+      return { ok: false, scripts: [], values: {} };
+    }
+    const matched: SnapshotScript[] = [];
+    let sourceBytes = 0;
+    for (const script of this.scripts.values()) {
+      if (!script.metadata.background) continue;
+      if (registration.backgroundScriptId && script.id !== registration.backgroundScriptId) continue;
+      const source = this.assembleScriptPayload(script);
+      if (source === undefined) continue; // require 未就绪:记录 gap 并跳过
+      sourceBytes += Buffer.byteLength(source, 'utf8');
+      if (sourceBytes > this.options.maxSourceBytesPerPage) break;
+      matched.push({
+        id: script.id,
+        runAt: script.metadata.runAt,
+        source,
+        info: {
+          name: script.metadata.name,
+          namespace: script.metadata.namespace,
+          version: script.metadata.version,
+          description: script.metadata.description,
+          grant: script.metadata.grant,
+          noframes: script.metadata.noframes,
+          rawHeader: script.metadata.rawHeader,
+        },
+      });
+    }
+
+    const resources: FrameSnapshot['resources'] = {};
+    let resourceBytes = 0;
+    for (const script of matched) {
+      const metadata = this.scripts.get(script.id)?.metadata;
+      if (!metadata || metadata.resource.length === 0) continue;
+      const scriptResources: Record<string, { text: string; url: string }> = {};
+      for (const res of metadata.resource) {
+        const text = this.requireCache?.get(res.url);
+        if (text === undefined) continue;
+        const bytes = Buffer.byteLength(text, 'utf8');
+        if (resourceBytes + bytes > this.options.maxResourceBytesPerPage) continue;
+        resourceBytes += bytes;
+        scriptResources[res.name] = {
+          text,
+          url: `data:text/plain;charset=utf-8;base64,${Buffer.from(text, 'utf8').toString('base64')}`,
+        };
+      }
+      if (Object.keys(scriptResources).length > 0) resources[script.id] = scriptResources;
+    }
+
+    const snapshot = this.values.snapshot(matched.map((script) => script.id), {
+      maxBytes: this.options.maxSnapshotBytes,
+    });
+    return {
+      ok: true,
+      mode: registration.mode,
+      generation: registration.generation,
+      token: registration.token,
+      scripts: matched,
+      values: snapshot.values,
+      resources,
+    };
+  }
+
+  // 返回所有 background 脚本列表
+  backgroundScripts(): InstalledUserscript[] {
+    return Array.from(this.scripts.values())
+      .filter((s) => s.metadata.background)
+      .map((s) => s as InstalledUserscript);
+  }
+
   getRequireGaps(scriptId: string): string[] {
     return this.requireGaps.get(scriptId) ?? [];
   }
@@ -230,6 +333,7 @@ export class UserscriptManager {
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message : 'invalid-value' };
     }
+    this.noteValueWrite(scriptId, key, oldValue, value);
     this.broadcastValueChange(wcId, scriptId, key, oldValue, value);
     return { ok: true, oldValue };
   }
@@ -238,8 +342,64 @@ export class UserscriptManager {
     if (!this.views.has(wcId)) return false;
     const oldValue = this.values.get(scriptId, key);
     this.values.delete(scriptId, key);
+    this.noteValueWrite(scriptId, key, oldValue, undefined);
     this.broadcastValueChange(wcId, scriptId, key, oldValue, undefined);
     return true;
+  }
+
+  // persistValues 辅助方法:oldValue/newValue 必须在变更前捕获传入
+  // (变更后再读 values 会拿到新值,累计字节计数恒为 0)
+  private noteValueWrite(
+    scriptId: string,
+    key: string,
+    oldValue: GMSerializable | undefined,
+    newValue: GMSerializable | undefined,
+  ): void {
+    if (!this.persistValues) return;
+    const oldBytes = oldValue !== undefined ? Buffer.byteLength(JSON.stringify(oldValue), 'utf8') : 0;
+    const newBytes = newValue !== undefined ? Buffer.byteLength(JSON.stringify(newValue), 'utf8') : 0;
+    const currentBytes = this.scriptByteCounts.get(scriptId) ?? 0;
+    const total = Math.max(0, currentBytes - oldBytes + newBytes);
+    this.scriptByteCounts.set(scriptId, total);
+    if (newBytes > this.persistValues.urgentBytes || total > 8 * 1024) {
+      this.flushValues();
+    } else {
+      this.scheduleSave();
+    }
+  }
+
+  private scheduleSave(): void {
+    if (!this.persistValues) return;
+    if (this.persistTimer) return;
+    const debounceMs = this.persistValues.debounceMs;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      this.flushValues();
+    }, debounceMs);
+  }
+
+  flushValues(): void {
+    if (!this.persistValues) return;
+    try {
+      this.values.save(this.persistValues.file);
+    } catch {
+      /* disk full etc: keep in memory */
+    }
+  }
+
+  persistValuesFile(): string | undefined {
+    return this.persistValues?.file;
+  }
+
+  // 卸载脚本时清理其全部 GM 值(含持久化文件残留)
+  clearScriptValues(scriptId: string): void {
+    this.values.deleteScript(scriptId);
+    this.scriptByteCounts.delete(scriptId);
+    if (this.persistValues) this.flushValues();
+  }
+
+  loadValues(file: string): void {
+    this.values.load(file);
   }
 
   getValuesFor(wcId: number, scriptId: string): Record<string, GMSerializable> {
@@ -250,6 +410,40 @@ export class UserscriptManager {
       if (value !== undefined) result[key] = value;
     }
     return result;
+  }
+
+  // --- 管理侧值访问(无 view 依赖;经管理页 UI 使用) -------------------------
+  listScriptValues(scriptId: string): Record<string, GMSerializable> {
+    const result: Record<string, GMSerializable> = {};
+    for (const key of this.values.list(scriptId)) {
+      const value = this.values.get(scriptId, key);
+      if (value !== undefined) result[key] = value;
+    }
+    return result;
+  }
+
+  getScriptValue(scriptId: string, key: string): GMSerializable | undefined {
+    return this.values.get(scriptId, key);
+  }
+
+  setScriptValue(scriptId: string, key: string, value: GMSerializable): boolean {
+    if (!key) return false;
+    const oldValue = this.values.get(scriptId, key);
+    try {
+      this.values.set(scriptId, key, value);
+    } catch {
+      return false;
+    }
+    this.noteValueWrite(scriptId, key, oldValue, value);
+    return true;
+  }
+
+  deleteScriptValue(scriptId: string, key: string): boolean {
+    if (!key) return false;
+    const oldValue = this.values.get(scriptId, key);
+    this.values.delete(scriptId, key);
+    this.noteValueWrite(scriptId, key, oldValue, undefined);
+    return true;
   }
 
   addValueListener(wcId: number, scriptId: string, key: string, listenerId: number): boolean {
@@ -412,6 +606,8 @@ export class UserscriptManager {
   // Soft navigation does NOT create a new document, so scripts must not be
   // re-run; this is a pure observation record.
   spaNavigate(wcId: number, url: string, reason: string): void {
+    // background 脚本不走 SPA 导航记录
+    if (this.views.get(wcId)?.kind === 'background') return;
     this.spaNavigations.push({ wcId, url: String(url || '').slice(0, 2048), reason: String(reason || 'in-page'), at: Date.now() });
     if (this.spaNavigations.length > 500) this.spaNavigations.shift();
   }

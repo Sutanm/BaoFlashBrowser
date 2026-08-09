@@ -24,7 +24,7 @@
 ## Task 1: GM 值持久化(跨重启保留)
 
 **Files:**
-- Modify: `src/main/modules/userscripts/userscript-manager.ts`(构造 options `persistValues`、scheduleSave/flushValues)
+- Modify: `src/main/modules/userscripts/userscript-manager.ts`(构造 options `persistValues`、scheduleSave/flushValues;⚠️ 修正已有 `noteValueWrite` 缺陷:旧值须在变更前捕获)
 - Modify: `src/main/modules/userscripts/index.ts`(接线 load/save、before-quit flush)
 - Test: `tests/values-persistence.test.ts`(vitest)+ Create: `tests/electron/values-persistence-smoke.cjs`
 
@@ -32,14 +32,15 @@
 - `UserscriptManager` 构造新增:`{ persistValues?: { file: string; debounceMs?: number; urgentBytes?: number } }`
 - 新方法:`flushValues(): void`;`persistValuesFile(): string | undefined`;`loadValues(file: string): void`
 - `ValueStore` 已有 `save(file)/load(file)`(原子 tmp+rename),不改
-- ⚠️ **N1:`values` 是 private 字段(`userscript-manager.ts:49`),测试必须走公开方法**——用 `m2.loadValues(file)` + `m2.getValuesFor(1,'s')`(需注册 view)
+- ⚠️ **N1:`values` 是 private 字段(`userscript-manager.ts:51`),测试必须走公开方法**——用 `m2.loadValues(file)` + `m2.getValuesFor(1,'s')`(需注册 view);接线同样用 `loadValues`,禁止 `manager.values.load`
 
-**设计要点(P1-1):**
+**设计要点(P1-1,含审计修正):**
 - debounce **200ms**(非 500ms);单值序列化 > **1KB** 或该脚本累计 > 8KB 时**立即同步 flush**,不等 debounce
+- ⚠️ **审计修正(A1):`noteValueWrite` 的"旧值"必须在 `values.set/delete` 之前捕获**。现状实现(工作区未提交)在变更后读旧值 → 旧字节==新字节 → 累计计数恒为 0,"累计 >8KB 立即 flush"永不触发。实现约定:`setValue`/`deleteValue` 在变更前捕获 `oldValue`,传入 `noteValueWrite(scriptId, key, oldValue, newValue)`,累计 = 旧累计 - oldBytes + newBytes
 - `app.on('before-quit')` 调 `flushValues()`(同步 writeFileSync+rename,毫秒级;文档注明崩溃/断电可能丢最近 debounce 窗口)
 - 文件:`userData/userscript-values.json`(与 userscripts.json 同目录,可读命名)
 
-- [ ] **Step 1: 写失败单测** `tests/values-persistence.test.ts`:
+- [ ] **Step 1: 写失败单测** `tests/values-persistence.test.ts`(⚠️ 审计修正 A2:临时目录必须在 `beforeEach` 内重建——module 级 mkdtemp + afterEach rmSync 会把目录删掉,后续用例的 `file` 路径失效,实测 2/3 红):
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import os from 'os';
@@ -48,11 +49,13 @@ import fs from 'fs';
 import { ValueStore } from '../src/main/modules/userscripts/userscript-store';
 import { UserscriptManager } from '../src/main/modules/userscripts/userscript-manager';
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'usv-'));
-const file = path.join(dir, 'values.json');
+let dir: string;
+let file: string;
 let manager: UserscriptManager;
 
 beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'usv-'));
+  file = path.join(dir, 'values.json');
   manager = new UserscriptManager(new ValueStore(), {
     persistValues: { file, debounceMs: 200, urgentBytes: 1024 },
     sendToWc: () => {},
@@ -83,12 +86,20 @@ describe('persistValues', () => {
     expect(fs.existsSync(file)).toBe(true);
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).s.k).toBe('"v1"');
   });
+  it('cumulative script bytes over 8KB flush immediately', async () => {
+    // 审计修正 A3:覆盖「累计 >8KB 立即 flush」路径(现状实现有缺陷,此用例会暴露)
+    // 单值 902B(≤ urgentBytes 1024,走累计路径)+ 10 个累计 9020B > 8KB → 第 10 次写入立即 flush
+    manager.registerView(1, { mode: 'ppapi', generation: 1, token: 't' });
+    for (let i = 0; i < 10; i++) manager.setValue(1, 's', 'k' + i, 'y'.repeat(900));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fs.existsSync(file)).toBe(true);
+  });
 });
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
 Run: `npx vitest run tests/values-persistence.test.ts`
-Expected: FAIL(persistValues 选项不存在)
+Expected: FAIL(现状:测试 2/3 因目录失效 + 断言错误失败;若累计用例先通过说明实现已修正——按审计 A1 应先修实现再全绿)
 
 - [ ] **Step 3: manager 实现**(`userscript-manager.ts`):
 ```ts
@@ -104,11 +115,10 @@ export interface UserscriptManagerOptions {
 构造函数存 `persistValues`;新增:
 ```ts
 private persistTimer: ReturnType<typeof setTimeout> | null = null;
-private pendingPersistBytes = 0;
+private scriptByteCounts = new Map<string, number>();
 
 private scheduleSave(): void {
   if (!this.persistValues) return;
-  this.pendingPersistBytes += 0; // recomputed in setValue path below
   if (this.persistTimer) return;
   const debounceMs = this.persistValues.debounceMs ?? 200;
   this.persistTimer = setTimeout(() => { this.persistTimer = null; this.flushValues(); }, debounceMs);
@@ -123,12 +133,25 @@ persistValuesFile(): string | undefined { return this.persistValues?.file; }
 
 loadValues(file: string): void { this.values.load(file); } // N1: 公开入口(values 保持 private)
 ```
-在 `setValue` 成功路径追加:`this.noteValueWrite(scriptId, key, value)`;`deleteValue` 同样。`noteValueWrite` 计算该 key 序列化字节,若 > urgentBytes(默认 1024)立即 `flushValues()`,否则 `scheduleSave()`。`unregisterView` 不改。
+`setValue`/`deleteValue` **在变更前**捕获 `oldValue`,变更后调用 `noteValueWrite(scriptId, key, oldValue, newValue)`(审计修正 A1):
+```ts
+private noteValueWrite(scriptId: string, key: string, oldValue: GMSerializable | undefined, newValue: GMSerializable | undefined): void {
+  if (!this.persistValues) return;
+  const oldBytes = oldValue !== undefined ? Buffer.byteLength(JSON.stringify(oldValue), 'utf8') : 0;
+  const newBytes = newValue !== undefined ? Buffer.byteLength(JSON.stringify(newValue), 'utf8') : 0;
+  const current = this.scriptByteCounts.get(scriptId) ?? 0;
+  const total = Math.max(0, current - oldBytes + newBytes);
+  this.scriptByteCounts.set(scriptId, total);
+  if (newBytes > this.persistValues.urgentBytes || total > 8 * 1024) this.flushValues();
+  else this.scheduleSave();
+}
+```
+`unregisterView` 不改。
 
 - [ ] **Step 4: 跑测试确认通过**
 Run: `npx vitest run tests/values-persistence.test.ts` Expected: 3 PASS
 
-- [ ] **Step 5: index.ts 接线**:
+- [ ] **Step 5: index.ts 接线**(⚠️ 审计修正 A4:必须用 `loadValues`,`values` 是 private,`manager.values.load` 过不了 typecheck):
 ```ts
 import { join } from 'path';
 // 在 new UserscriptManager(...) 处:
@@ -137,13 +160,13 @@ manager = new UserscriptManager(new ValueStore(), {
   sendToWc: ...,
   persistValues: { file: join(app.getPath('userData'), 'userscript-values.json'), debounceMs: 200, urgentBytes: 1024 },
 });
-manager.values.load(join(app.getPath('userData'), 'userscript-values.json'));
+manager.loadValues(join(app.getPath('userData'), 'userscript-values.json'));
 app.on('before-quit', () => { manager?.flushValues(); });
 ```
 
 - [ ] **Step 6: 冒烟** `tests/electron/values-persistence-smoke.cjs`:
-两个 electron 进程:进程 A(代码同 menu-dedupe 骨架:init manager + `manager.setValue(wc,'baoflash-demo-test','visits',42)` + `manager.flushValues()` + 断言文件存在)→ `app.exit(0)`;进程 B:init manager + `expect(manager.values.get(...)).toBe(42)`。冒烟脚本本身拆成两个入口(按 `process.argv.includes('--second')` 分支),跑完 B 打印 `VALUES-PERSISTENCE PASS`。
-注意:userData 固定 `%APPDATA%\bao-flash-browser`;跑完把临时值写回原值(读旧值,进程 B 结束时恢复)。
+两个 electron 进程:进程 A(代码同 menu-dedupe 骨架:init manager + **`manager.registerView(wcId, { mode:'ppapi', generation:1, token:'smoke' })`(⚠️ 审计修正 A5:`setValue` 对未注册 view 返回 `{ok:false}`)** + `manager.setValue(wcId,'baoflash-demo-test','visits',42)` + `manager.flushValues()` + 断言文件存在)→ `app.exit(0)`;进程 B:init manager + `manager.loadValues(file)` + `expect(manager.getValuesFor(wcId,'baoflash-demo-test').visits).toBe(42)`(公开方法,不用私有 `values`)。冒烟脚本本身拆成两个入口(按 `process.argv.includes('--second')` 分支),跑完 B 打印 `VALUES-PERSISTENCE PASS`。
+注意:userData 固定 `%APPDATA%\bao-flash-browser`(同 menu-dedupe,进程 B 结束前恢复临时值)。依赖 Step 5 接线完成——initUserscriptManager 才带 persistValues;冒烟直接调 `mod.initUserscriptManager()` 后注册假 wcId(不创建 BrowserView,仅 setValue 路径需要 view 登记)。
 
 - [ ] **Step 7: check 无回归 + 提交**
 Run: `npm run typecheck && npm test -- --run`
@@ -203,7 +226,7 @@ const log = (message: string, level?: 'info' | 'warn' | 'error'): void => {
 };
 ```
 加入 GmApi 接口、GM 对象、legacy(`GM_log: (m, l) => log(m, l)`);sandbox `LEGACY_GM_NAMES` 加 `'GM_log'`。
-`userscripts.ipc.ts`(⚠️ **N2:必须新增 `import log from 'electron-log';`**(当前该文件只 import 了 `{ clipboard, ipcMain, Notification }`);且**不能用 `fn?.(...) ?? log.info(...)` 写法——void 返回会触发右侧造成双重记录**):
+`userscripts.ipc.ts`(⚠️ **N2:必须新增 `import log from 'electron-log';`**(当前该文件只 import 了 `{ clipboard, ipcMain, Notification }`);且**不能用 `fn?.(...) ?? log.info(...)` 写法——void 返回会触发右侧造成双重记录**;模块级实例化 `const logLimiter = createLogRateLimiter({ perSecond: 10 });` 与 `import { createLogRateLimiter } from './userscript-log-rate';`):
 ```ts
 registerValidatedListener('userscript:log',
   z.object({ scriptId: z.string(), level: z.enum(['info','warn','error']).optional(), message: z.string().max(4000) }),
@@ -231,26 +254,27 @@ Commit: `feat(userscripts): GM_log 落平台日志(per-script 限频 10/s)`
 ## Task 3: GM_xmlhttpRequest / GM_download 容量参数化
 
 **Files:**
-- Modify: `src/main/modules/userscripts/index.ts:89-106`(参数)
+- Modify: `src/main/modules/userscripts/index.ts:121-138`(⚠️ 审计修正 A6:参数接线实际在 121-138 行,非 89-106;且 index.ts 显式覆盖值优先于模块默认值——现状仍是 32KB/3s/2/8、8KB/2,必须改这里才生效)
+- Modify: `src/main/modules/userscripts/userscript-request.ts:7-10` + `userscript-download.ts:4-6`(⚠️ 审计修正 A7:模块默认值已被改成 5MB/5MB/15s/2/16,与计划目标不符,统一为计划数值,避免两层漂移)
 - Create: `tests/electron/gm-capacity-smoke.cjs`
 
 **参数(写死默认,不做 UI 配置):**
-- `GmRequestService`:`maxResponseBytes: 32KB → 2MB`、`defaultTimeoutMs: 3000 → 15000`(默认值,脚本可经 details.timeout 覆盖)、`maxConcurrentPerScript: 2 → 4`、`maxConcurrentGlobal: 8 → 16`
-- `GmDownloadService`:`maxBytes: 8KB → 8MB`、`maxConcurrentPerScript: 2 → 4`
+- `GmRequestService`:`maxResponseBytes: 32KB → 2MB`、`defaultTimeoutMs: 3000 → 15000`(默认值,脚本可经 details.timeout 覆盖)、`maxConcurrentPerScript: 2 → 4`、`maxConcurrentGlobal: 8 → 16`(改 index.ts 接线 + 模块默认值 `DEFAULT_MAX_RESPONSE_BYTES=2MB/DEFAULT_TIMEOUT_MS=15000/DEFAULT_MAX_CONCURRENT_PER_SCRIPT=4/DEFAULT_MAX_CONCURRENT_GLOBAL=16`)
+- `GmDownloadService`:`maxBytes: 8KB → 8MB`、`maxConcurrentPerScript: 2 → 4`(改 index.ts 接线 + `DEFAULT_DOWNLOAD_MAX_BYTES=8MB/DEFAULT_DOWNLOAD_MAX_CONCURRENT_PER_SCRIPT=4`)
 - 理由(P1-3):@connect + 公网放行 + 私网拦截已构成安全边界;容量仅限单次响应(⚠️ **N7:`maxConcurrentGlobal: 16` 是全局硬上限,每脚本 4 不会突破全局——最坏 16 并发 × 15s**,占用可控);安全上限拒绝断言保留。文档明确区分「GM_xmlhttpRequest 响应上限(2MB)」与「快照上限(64KB)」
 
 - [ ] **Step 1: 冒烟** `tests/electron/gm-capacity-smoke.cjs`(骨架同 menu-dedupe):
 本地 http server 提供:
 - `/big-file.bin`:100KB 随机字节
-- `/big-response`:2.5MB 文本
+- `/big-response`:1.5MB 文本(⚠️ 审计修正 A8:原计划 2.5MB 与 2MB 上限自相矛盾——2.5MB 会被 size-limit 拒绝,onload 不可能)
 - `/huge-response`:3MB 文本
 脚本(fixture 内联,不装 store——直接用 `manager.snapshotFor` 走不了内联脚本;改为注册临时脚本:`installUserscript` 一个专用 fixture `gm-capacity.user.js`,装完测完卸载)
 断言:
 1. `GM_download('/big-file.bin')` → onload,文件存在且 100KB
-2. `GM_xmlhttpRequest('/big-response')` → onload,responseText.length ≥ 2.5MB
+2. `GM_xmlhttpRequest('/big-response')` → onload,responseText.length ≥ 1.5MB
 3. `GM_xmlhttpRequest('/huge-response')` → onerror,error 含 size-limit(>2MB 拒绝)
-4. 并发:同时发 20 个 xhr → 全部 onload(global 16 不阻塞,或阻塞但最终完成——断言全部完成,超时 30s)
-注意:冒烟需 mock `userscript:download`/`userscript:xhr-request`/`userscript:log` 等全部通道(调真实 service:直接 `manager.getRequestService()` 不可行——admin-module 导出了 getRequestService!直接调用 service.request(wcId, ...) 并 await,绕过 IPC)。
+4. ⚠️ 审计修正 A9:并发断言改为 **≥16 个 onload + 其余 onerror(错误含 concurrency-limit),全部 20 个 30s 内完结**——服务不排队(userscript-request-service.ts:126-129),全局 16 满时立即拒绝,「20 个全部 onload」不可能
+注意:冒烟需 mock `userscript:download`/`userscript:xhr-request`/`userscript:log` 等全部通道(调真实 service:直接 `manager.getRequestService()` 不可行——admin-module 导出了 getRequestService!直接调用 service.request(wcId, ...) 并 await,绕过 IPC);⚠️ **审计修正 A10:`pageUrl` 必须非空**(`'http://127.0.0.1/'` 或 `'data:text/html;charset=utf-8,'`)——`new URL('')` 抛异常 → connectAllows 恒返回 false,全部请求都会 connect-denied;跑前先 `node tests/electron/build-userscripts-admin-smoke.mjs`(AGENTS landmine:release 产物不随 build 重建)
 
 - [ ] **Step 2: 改 index.ts 参数**(如设计要点)
 - [ ] **Step 3: 冒烟通过**
@@ -264,53 +288,56 @@ Commit: `feat(userscripts): GM_xmlhttpRequest 响应 2MB/超时 15s;GM_download 
 
 **Files:**
 - Modify: `src/shared/userscript-types.ts`(ParsedUserscriptMetadata 加 `updateUrl`/`downloadUrl`)
-- Modify: `src/main/modules/userscripts/userscript-parser.ts`(SCALAR_KEYS 加 `updateurl`/`downloadurl`)
-- Create: `src/main/ipc/userscripts-update.ts`(更新服务:checkUpdates/applyUpdate + compareVersions)
+- Modify: `src/main/modules/userscripts/userscript-parser.ts`(SCALAR_KEYS 加 **`'updateURL'`/`'updateurl'`/`'downloadURL'`/`'downloadurl'` 双大小写**——⚠️ 审计修正 A11:parser 大小写敏感(现有 'updateHash' 即精确匹配),只加小写会漏掉标准写法 `@updateURL`,计划原测试会挂)
+- Modify: `src/main/modules/userscripts/index.ts`(删除本地私有 `compareVersions`(index.ts:36-44),改从新纯模块导入——⚠️ 审计修正 A12:复用而非新建,避免双份逻辑漂移;其语义已兼容计划全部用例)
+- Create: `src/main/modules/userscripts/userscript-versions.ts`(⚠️ 审计修正 A19:**纯模块,零 electron import**——`compareVersions` + `updateHostAllowed` 放这里;单测导入它而不是 userscripts-update.ts,否则 vitest 经 `userscripts-update.ts → ../modules/userscripts → electron` 导入链挂掉)
+- Create: `src/main/ipc/userscripts-update.ts`(更新服务:checkUpdates/applyUpdate,从 `../modules/userscripts/userscript-versions` 导入 compareVersions/updateHostAllowed)
 - Modify: `src/main/ipc/userscripts-admin.ipc.ts`(通道 `userscripts:check-updates`/`userscripts:apply-update`)
 - Modify: `src/preload/index.ts` 白名单 + `src/renderer/types/electron.d.ts`
 - Modify: `src/renderer/components/userscripts/UserscriptsPage.tsx`(检查更新按钮、可更新行、已编辑标记)+ i18n zh-CN/en
 - Test: `tests/version-compare.test.ts` + `tests/userscript-parser.test.ts`(补用例)+ Create: `tests/electron/userscripts-update-smoke.cjs`
 
 **Interfaces:**
-- `compareVersions(a, b): -1|0|1` —— 数字分段比较,**短补 0 对齐**(`1.2 === 1.2.0`);非数字段视为 0(不支持预发布语义,`1.2.0-beta === 1.2.0`,文档注明)
+- `compareVersions(a, b): -1|0|1` —— 数字分段比较,**短补 0 对齐**(`1.2 === 1.2.0`);非数字段视为 0(不支持预发布语义,`1.2.0-beta === 1.2.0`,文档注明)。实现复用 modules/userscripts 导出的现有函数
 - `checkUpdates(): Promise<{ updates: Array<{ id, name, currentVersion, latestVersion, updateUrl }> }>`:
   - 遍历 `metadata.updateUrl` 非空的脚本;`edited === true` 的**跳过**(P1-5)
-  - 拉取经 `GmRequestService`(P0-1):系统 scriptId `__platform_updater__`,pageUrl `''`,connect 校验 = `metadata.connect`;**updateUrl 的 host 必须在 @connect 内或与 @match 同域,否则拒绝**
+  - 拉取经 `GmRequestService`(P0-1):系统 scriptId `__platform_updater__`,⚠️ **审计修正 A13:`pageUrl` 必须用 `'data:text/html;charset=utf-8,'`**(`new URL('')` 抛异常 → connectAllows 恒 false,原计划 `pageUrl: ''` 会导致 updater 永远 connect-denied;data: URL origin='null' → 只走 @connect 校验,与 background 语义一致),connect 校验 = `metadata.connect`;**updateUrl 的 host 必须在 @connect 内或与 @match 同域,否则拒绝**(纯函数 `updateHostAllowed(connect, match, url)`)
   - 响应 ≤2MB(默认服务上限),超时 15s
-  - 内容解析(P1-4 双路径):先试 JSON(`{ version, updateURL? }`)→ 取 version 比较、若含 updateURL 则作为本体再拉取;否则当作脚本本体 `parseUserscriptMetadata().version` 比较
-- `applyUpdate(id): Promise<{ ok, error? }>`:重新拉取本体(同校验)→ 版本更高才 `installUserscript(source, { enabled: 保留, id })`;**清除 edited 标志**(新版本已替换用户改动,index.ts 语义);失败保持原样
+  - 内容解析(P1-4 双路径):先试 JSON(`{ version, updateURL? }`)→ 取 version 比较、若含 updateURL 则**以 `new URL(updateURL, 原 updateUrl)` 解析相对路径**(审计修正 A14)后作为本体再拉取;否则当作脚本本体 `parseUserscriptMetadata().version` 比较
+- `applyUpdate(id): Promise<{ ok, error? }>`:重新拉取本体(同校验)→ 版本更高才 `installUserscript(source, { enabled: 保留, id })`;**显式清除 edited 标志**(`scriptStore.save({ ...script, edited: false })`,参照 updateUserscriptSource 的反向写法——index.ts 现有 install 不会动 edited);失败保持原样
 
-- [ ] **Step 1: 单测** `tests/version-compare.test.ts`:
+- [ ] **Step 1: 单测** `tests/version-compare.test.ts`(⚠️ 审计修正 A19:从纯模块导入,不经过 userscripts-update.ts):
 ```ts
-import { compareVersions } from '../src/main/ipc/userscripts-update';
+import { compareVersions } from '../src/main/modules/userscripts/userscript-versions';
 it('1.2.10 > 1.2.9', () => expect(compareVersions('1.2.10', '1.2.9')).toBe(1));
 it('1.2 === 1.2.0', () => expect(compareVersions('1.2', '1.2.0')).toBe(0));
 it('1.2.0-beta === 1.2.0 (no prerelease semantics)', () => expect(compareVersions('1.2.0-beta', '1.2.0')).toBe(0));
 it('invalid segments treated as 0', () => expect(compareVersions('1.a.3', '1.0.3')).toBe(0));
 ```
-⚠️ **N6:`updateHostAllowed(connect, match, updateUrl)` 必须是与 compareVersions 同文件的独立纯函数**,单测覆盖:
+⚠️ **N6:`updateHostAllowed(connect, match, updateUrl)` 必须是与 compareVersions 同文件(userscript-versions.ts)的独立纯函数**,单测覆盖:
 ```ts
-import { updateHostAllowed } from '../src/main/ipc/userscripts-update';
+import { updateHostAllowed } from '../src/main/modules/userscripts/userscript-versions';
 it('connect host allows', () => expect(updateHostAllowed(['api.example.com'], [], 'https://api.example.com/v2.user.js')).toBe(true));
 it('connect wildcard allows', () => expect(updateHostAllowed(['*.example.com'], [], 'https://a.example.com/x.user.js')).toBe(true));
 it('match host falls back (weak path)', () => expect(updateHostAllowed([], ['https://game.example.com/*'], 'https://game.example.com/update.user.js')).toBe(true));
 it('data: source rejected', () => expect(updateHostAllowed([], [], 'data:text/plain,x')).toBe(false));
 it('unrelated host rejected', () => expect(updateHostAllowed(['api.example.com'], [], 'https://evil.example.net/x.user.js')).toBe(false));
 ```
-⚠️ **N8:updater 串行执行(一次一个,更新非性能关键路径),wcId 用 `-1`**(非真实 wc,不占并发槽;`__platform_updater__` 不进入 `userscripts:list`——它从不写入 script-store,天然不出现,冒烟断言确认)
-parser 补用例:`@updateURL https://x/y.user.js` → metadata.updateUrl === 'https://x/y.user.js'。
+⚠️ **N8(审计修正 A15):updater 串行执行(一次一个,更新非性能关键路径),wcId 用 `-1`**;注意 `-1` **仍会占用全局并发槽**(request-service 的 perScriptActive/globalActive 与 wcId 无关),串行下仅 1 槽,无实际影响——措辞改为"不依赖真实 wc 的 tab 状态",不再声称"不占并发槽";`__platform_updater__` 不进入 `userscripts:list`——它从不写入 script-store,天然不出现,冒烟断言确认
+parser 补用例(双大小写):`@updateURL https://x/y.user.js` → `metadata.updateUrl === 'https://x/y.user.js'`;`@updateurl` 小写同样解析。
 
 - [ ] **Step 2: 实现** parser/types + `userscripts-update.ts`(compareVersions + checkUpdates/applyUpdate,复用 GmRequestService;注意 P0-1 的 host 校验函数 `updateHostAllowed(connect, match, url)` 独立纯函数便于单测)
 - [ ] **Step 3: IPC + preload + UI**:管理页顶部"检查更新"按钮(loading→toast);可更新行显示"更新(v2.0.1)"按钮;`edited` 脚本行显示"已编辑"小标 + 更新按钮点击提示"该脚本已被编辑,应用更新将覆盖你的改动"(二次确认);⚠️ **N6:仅靠 `@match` 域放行(无 `@connect`)的脚本,更新行显示"弱安全更新源"小提示**
 - [ ] **Step 4: i18n**:zh-CN/en 各加 `userscripts.update.*` 文案(button/latest/none/edited/confirm/success/failed/rate-limit/weak-source)
 - [ ] **Step 5: 冒烟** `tests/electron/userscripts-update-smoke.cjs`:
-本地 server:`/v1.user.js`(版本 1.0.0,`@updateURL /manifest.json`,`@connect 127.0.0.1`)、`/v2.user.js`(2.0.0)、`/manifest.json`(`{"version":"2.0.0","updateURL":"/v2.user.js"}`)
+本地 server:`/v1.user.js`(版本 1.0.0,`@updateURL http://127.0.0.1:<port>/manifest.json`(⚠️ 审计修正 A20:**冒烟在运行时拼 source 字符串注入实际 port**——`@updateURL` 必须绝对 URL,相对值无基址可解析;A14 的相对解析只适用于 JSON 内的 updateURL)、`@connect 127.0.0.1`)、`/v2.user.js`(2.0.0)、`/manifest.json`(`{"version":"2.0.0","updateURL":"/v2.user.js"}`)
 断言链:
 1. 安装 v1
 2. `checkUpdates()` → 报可更新(latestVersion 2.0.0;JSON 元数据路径)
 3. `applyUpdate()` → 版本 2.0.0、enabled 保留
 4. edited 脚本:`updateUserscriptSource` 后 checkUpdates 跳过
-5. 无 @connect 的脚本:checkUpdates 拒绝(host 校验)
+5. 无 @connect 的脚本:checkUpdates 拒绝(⚠️ 审计修正 A16:该 fixture 的 `@match` 不得匹配 update host(`127.0.0.1`)——弱路径按 @match 域放行,若 `@match *://*/*` 或 `@match http://127.0.0.1/*` 会误放行;用 `@match https://other.example/*` 构造拒绝)
+6. 相对 updateURL:`/manifest.json` 内 `"updateURL":"/v2.user.js"` 按 updateUrl 基址解析后拉取成功
 - [ ] **Step 6: 提交**
 Commit: `feat(userscripts): @updateURL 手动检查更新(connect 校验+edited 跳过+JSON/本体双路径)`
 
@@ -354,7 +381,7 @@ registerValidatedListener('userscript:get-config', z.object({ url: z.string(), i
 });
 ```
 `backgroundRuntime` 单例从 `userscripts/index.ts` 导出(与 `getUserscriptManager()` 同级)
-- 崩溃退避(P1-6):1s→2s→4s→8s→60s 上限;连续 5 次停止重建,`getBackgroundStatus()` 暴露 `{ running, crashedCount, stopped }`;管理页显示"后台运行时已停止" + "重启后台运行时"按钮(经 `userscripts:background-restart` 通道)
+- 崩溃退避(P1-6):1s→2s→4s→8s→60s 上限;连续 5 次停止重建,`getStatus()` 暴露 `{ running, crashedCount, stopped }`;管理页显示"后台运行时已停止" + "重启后台运行时"按钮(经 `userscripts:background-restart` 通道)。⚠️ 审计修正 A17:退避序列抽成**纯函数 `backoffDelayMs(attempt): number` 导出**,单测断言 1,2,4,8,60 序列(与设计表述统一:运行时接口一律用 `getStatus()`/`getWcId()`,不另立 `getBackgroundStatus()` 命名)
 - 脚本启停/更新/卸载 → 重建后台窗口(简化:销毁重建,新 wc 重新 get-config)
 - GM_xmlhttpRequest 后台语义(P0-3):`pageUrl` 为 data: URL(origin null)→ connectAllows 只认 `@connect` 列表(同源放行失效);文档 + gm-api 在 xhr 失败时把 error 传给 onerror(已有);**后台脚本必须显式 `@connect`**
 - 值监听(P2-6):重建后 listener 丢失是脚本作者责任;文档强调"后台脚本需在顶层重新注册 listener";冒烟断言重建后 listener 需重注册才生效
@@ -364,9 +391,11 @@ registerValidatedListener('userscript:get-config', z.object({ url: z.string(), i
 parser `FLAG_KEYS` 加 `'background'`;types 加 `background: boolean`。vitest:`@background` 解析为 true;manager 单测(新 `tests/userscript-manager-background.test.ts`):
 ```ts
 // background 脚本不出现在 snapshotFor 的 URL 匹配结果
+manager.registerView(1, { mode: 'ppapi', generation: 1, token: 't' });
 const snap = manager.snapshotFor(1, 'http://example.com/', true);
 expect(snap.scripts.some((s) => s.id === 'bg')).toBe(false);
-// snapshotBackground 返回它
+// snapshotBackground 返回它(⚠️ 审计修正 A21:必须注册 kind:'background' 的 view,否则 snapshotBackground 返回 ok:false)
+manager.registerView(1, { mode: 'ppapi', generation: 1, token: 't', kind: 'background' });
 const bg = manager.snapshotBackground(1);
 expect(bg.scripts.some((s) => s.id === 'bg')).toBe(true);
 ```
@@ -381,7 +410,7 @@ export interface BackgroundRuntime {
   getWcId(): number | null;
 }
 ```
-实现要点:`start()` 幂等;`render-process-gone` → backoff 重建或停止;`stop()` 销毁窗口+unregisterView+清 timer。
+实现要点:`start()` 幂等;`render-process-gone` → backoff 重建或停止;`stop()` 销毁窗口+unregisterView+清 timer;同文件导出纯函数 `backoffDelayMs(attempt: number): number`(attempt 1..5 → 1000/2000/4000/8000/60000,>5 上限 60000)供单测。
 
 - [ ] **Step 4: index.ts 接线**(创建 BackgroundRuntime;`ensureBundledScripts`/`reloadManagerScripts` 后 `bg.restart()`;before-quit `bg.stop()`)+ ipc 改造(get-config 分支;for-tab 合并;invoke-command 双路由;`userscripts:background-restart`/`userscripts:background-status` 通道 + preload 白名单 + electron.d.ts)
 
@@ -390,14 +419,14 @@ export interface BackgroundRuntime {
 - [ ] **Step 6: 冒烟** `tests/electron/background-script-smoke.cjs` + fixture `background-demo.user.js`:
 fixture 内容:元数据 `@background` + `@connect 127.0.0.1` + `@match *://*/*`(验证被排除出 URL 匹配);document-end 时 `GM_setValue('bg-running', 1)` + `GM_registerMenuCommand('后台命令', () => GM_setValue('bg-ran', 1))` + 每 2s `GM_setValue('bg-tick', ++n)`
 断言:
-1. 后台 wc 存在,报告含 phase bootstrap(background 标记)
+1. 后台 wc 存在,报告含 `phase: 'bootstrap'` 且 `detail.scripts` 含 bg 脚本 id(⚠️ 审计修正 A18:报告本身无 background 字段,以脚本 id 判定;mode 为 'ppapi'(后台注册 mode))
 2. `snapshotFor(url)` 不含 bg 脚本;`snapshotBackground` 含
 3. ⚠️ **N3:后台 wc 上 `sendSync('get-ruffle-mode')` 100ms 内返回 `{ enabled: false }`**
 4. for-tab 命令列表含「后台命令」且 `background: true`
 5. invoke「后台命令」→ 后台脚本回调执行(`bg-ran === 1`)
 6. setEnabled(false)+restart → 后台脚本停止(报告不再产生)
 7. 无 @connect 的 xhr(可加 fixture 第二脚本)→ onerror 含 connect-denied(P0-3 验证)
-8. 模拟连续崩溃(在 fixture 里 `window.__crashSim = true` 时抛错)?——用 `process.crash()`?Electron 11 无此 API;改为 5 次手动 `kill` 后台 wc 太重——简化:单测退避调度函数(纯逻辑,把 backoff 序列算出来断言 1,2,4,8,60),不模拟真实崩溃
+8. 退避序列(单测,纯函数):`backoffDelayMs(1..5)` 断言 `[1,2,4,8,60]`(不模拟真实崩溃)
 - [ ] **Step 7: 提交**
 Commit: `feat(userscripts): @background 常驻后台运行时(隐藏窗口+退避重建+命令/值复用)`
 
@@ -436,6 +465,6 @@ Commit: `docs+probe: 平台加固与背景脚本文档、探针字段、全量�
 | 冒烟 | 关键断言 |
 |---|---|
 | `values-persistence-smoke.cjs` | 进程 A flush → 进程 B 读到相同值;单测覆盖 debounce/大值即时 flush |
-| `gm-capacity-smoke.cjs` | 100KB download onload;2.5MB xhr onload;>2MB 拒绝;20 并发全部完成(受全局 16 上限约束,断言全部完成非全部并发) |
+| `gm-capacity-smoke.cjs` | 100KB download onload;1.5MB xhr onload;3MB 拒绝(size-limit,>2MB);20 并发 ≥16 onload + 其余 concurrency-limit,全部 30s 内完结 |
 | `userscripts-update-smoke.cjs` | JSON 元数据路径;本体路径;edited 跳过;无 @connect 拒绝(弱安全路径走 @match 放行);enabled 保留;`__platform_updater__` 不出现在 `userscripts:list` |
 | `background-script-smoke.cjs` | 后台执行报告;URL 匹配排除;命令合并+invoke 生效;启停生效;无 @connect xhr 被拒(connect-denied);退避序列(单测);**后台 wc `sendSync('get-ruffle-mode')` 100ms 内返回 `{enabled:false}`(防 Landmine #2)** |

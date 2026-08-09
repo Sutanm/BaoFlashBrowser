@@ -6,9 +6,9 @@ import type { ParsedUserscriptMetadata, RunAt } from '../../../shared/userscript
 const HEADER_START = '==UserScript==';
 const HEADER_END = '==/UserScript==';
 
-const SCALAR_KEYS = new Set(['name', 'namespace', 'version', 'description', 'run-at']);
+const SCALAR_KEYS = new Set(['name', 'namespace', 'version', 'description', 'run-at', 'updateHash', 'updateURL', 'updateurl', 'downloadURL', 'downloadurl']);
 const LIST_KEYS = new Set(['match', 'include', 'exclude', 'exclude-match', 'grant', 'connect', 'require']);
-const FLAG_KEYS = new Set(['noframes']);
+const FLAG_KEYS = new Set(['noframes', 'background']);
 const VALID_RUN_AT: ReadonlySet<string> = new Set(['document-start', 'document-body', 'document-end', 'document-idle']);
 
 function trimLine(line: string): string {
@@ -33,6 +33,7 @@ export function parseUserscriptMetadata(source: string): ParsedUserscriptMetadat
   const lists = new Map<string, string[]>();
   const resources: Array<{ name: string; url: string }> = [];
   let noframes = false;
+  let background = false;
 
   for (let i = start + 1; i < end; i++) {
     const line = trimLine(lines[i]);
@@ -55,8 +56,9 @@ export function parseUserscriptMetadata(source: string): ParsedUserscriptMetadat
       if (separator > 0) {
         resources.push({ name: value.slice(0, separator), url: value.slice(separator + 1).trim() });
       }
-    } else if (key === 'noframes') {
-      noframes = true;
+    } else if (FLAG_KEYS.has(key)) {
+      if (key === 'noframes') noframes = true;
+      else if (key === 'background') background = true;
     }
   }
 
@@ -78,8 +80,12 @@ export function parseUserscriptMetadata(source: string): ParsedUserscriptMetadat
     grant,
     connect: lists.get('connect') ?? [],
     noframes,
+    background,
     require: lists.get('require') ?? [],
     resource: resources,
+    updateHash: scalars.get('updateHash') ?? undefined,
+    updateUrl: scalars.get('updateURL') ?? scalars.get('updateurl') ?? undefined,
+    downloadUrl: scalars.get('downloadURL') ?? scalars.get('downloadurl') ?? undefined,
     rawHeader: lines.slice(start, end + 1).join('\n'),
   };
 }

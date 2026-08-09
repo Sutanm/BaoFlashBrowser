@@ -69,7 +69,7 @@ export class RequireCache {
 
     const diskSource = this.options.loadFromDisk?.(url);
     if (diskSource !== undefined) {
-      this.store(url, diskSource, true);
+      if (!this.store(url, diskSource, true)) return { ok: false, error: 'size-limit' };
       return { ok: true, source: diskSource, cached: true };
     }
 
@@ -82,16 +82,18 @@ export class RequireCache {
     if (Buffer.byteLength(source, 'utf8') > this.options.maxTotalBytes) {
       return { ok: false, error: 'size-limit' };
     }
-    this.store(url, source, false);
+    if (!this.store(url, source, false)) return { ok: false, error: 'size-limit' };
     this.options.saveToDisk?.(url, source);
     return { ok: true, source, cached: false };
   }
 
-  private store(url: string, source: string, cached: boolean): void {
-    const current = this.totalBytes();
+  private store(url: string, source: string, cached: boolean): boolean {
     const incoming = Buffer.byteLength(source, 'utf8');
-    if (current + incoming > this.options.maxTotalBytes && !this.entries.has(url)) {
-      // Drop the largest existing entry to make room (LRU-free demo policy).
+    if (incoming > this.options.maxTotalBytes) return false;
+    this.entries.delete(url);
+    let current = this.totalBytes();
+    while (current + incoming > this.options.maxTotalBytes) {
+      // Drop the largest existing entry until the aggregate fits.
       let largest: string | null = null;
       let largestBytes = -1;
       for (const [entryUrl, entry] of this.entries) {
@@ -101,8 +103,11 @@ export class RequireCache {
           largest = entryUrl;
         }
       }
-      if (largest && largestBytes >= incoming) this.entries.delete(largest);
+      if (!largest) return false;
+      this.entries.delete(largest);
+      current -= largestBytes;
     }
     this.entries.set(url, { source, cached });
+    return true;
   }
 }

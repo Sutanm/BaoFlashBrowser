@@ -39,6 +39,7 @@
     "test:css-fixer": "npm run build:css-fixer && node tests/electron/build-userscript-runtime-smoke.mjs && node tests/electron/build-userscripts-admin-smoke.mjs && electron tests/electron/userscript-css-fixer-smoke.cjs",
     "probe": "node tools/probe/host.cjs",
     "probe:deep": "electron tools/probe/host-electron.cjs",
+    "test:smokes": "node scripts/run-smokes.cjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

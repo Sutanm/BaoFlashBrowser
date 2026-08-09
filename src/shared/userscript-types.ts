@@ -21,8 +21,19 @@ export interface ParsedUserscriptMetadata {
   grant: string[];
   connect: string[];
   noframes: boolean;
+  /** @background: script runs in the persistent hidden background window,
+   *  never URL-matched into tab frames. */
+  background: boolean;
   require: string[];
   resource: UserscriptResource[];
+  /** Content hash written by build-css-fixer.mjs; used by
+   *  ensureBundledScripts to detect built-in updates without a manual
+   *  @version bump. Empty when the source has no @updateHash field. */
+  updateHash?: string;
+  /** @updateURL: manual update check source (JSON manifest or script body). */
+  updateUrl?: string;
+  /** @downloadURL: direct install source (advertised only, not fetched). */
+  downloadUrl?: string;
   rawHeader: string;
 }
 
@@ -100,4 +111,37 @@ export interface ScriptCommand {
   documentId: string;
   title: string;
   isMainFrame: boolean;
+  /** Set when the command comes from the @background runtime. */
+  background?: boolean;
+}
+
+/** One pending @updateURL update reported by checkUpdates. */
+export interface UserscriptUpdateInfo {
+  id: string;
+  name: string;
+  currentVersion: string;
+  latestVersion: string;
+  updateUrl: string;
+}
+
+/** Read-only cookie view exposed via GM_cookie (list/get only, no set/delete). */
+export interface GmCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  expirationDate?: number;
+  session: boolean;
+}
+
+/** Observation-only webRequest event (GM_webRequest never intercepts). */
+export interface GmWebRequestEvent {
+  phase: 'before-request' | 'completed' | 'error-occurred';
+  /** Redacted URL (query string stripped, per diagnostic-redaction). */
+  url: string;
+  method: string;
+  statusCode?: number;
+  error?: string;
 }

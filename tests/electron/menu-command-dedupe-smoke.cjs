@@ -5,10 +5,15 @@
 const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 app.on('window-all-closed', () => {});
-app.setPath('userData', path.join(app.getPath('appData'), 'bao-flash-browser'));
+const OWNS_USER_DATA = !process.env.BAO_SMOKE_USER_DATA;
+const USER_DATA = process.env.BAO_SMOKE_USER_DATA || fs.mkdtempSync(path.join(os.tmpdir(), 'menu-command-dedupe-'));
+app.setPath('userData', USER_DATA);
 
 const failures = [];
 function check(name, ok, detail) {
@@ -16,11 +21,16 @@ function check(name, ok, detail) {
   if (!ok) failures.push(name);
 }
 
+const logEvents = [];
+ipcMain.on('userscript:log', (_event, payload) => { logEvents.push(payload); });
+
 app.whenReady().then(async () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require('../../release/tests/userscripts-admin-module.cjs');
   mod.initUserscriptManager();
   const manager = mod.getUserscriptManager();
+  const demoSource = fs.readFileSync(path.join(__dirname, 'fixtures', 'demo-test.user.js'), 'utf8');
+  mod.installUserscript(demoSource, { id: 'baoflash-demo-test', enabled: true });
   check('demo script installed', Boolean(mod.listUserscripts().find((s) => s.id === 'baoflash-demo-test')));
 
   ipcMain.on('userscript:get-config', (event, payload) => {
@@ -96,6 +106,11 @@ app.whenReady().then(async () => {
 
   host.destroy();
   srv.close();
+  mod.uninstallUserscript('baoflash-demo-test');
+  check('GM_log reached main process', logEvents.some((l) => String(l.message).includes('probe-log-marker')));
   console.log(`[menu-dedupe] ${failures.length === 0 ? 'ALL PASS' : 'FAILURES: ' + failures.join(', ')}`);
+  if (OWNS_USER_DATA) {
+    try { fs.rmSync(USER_DATA, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
   app.exit(failures.length === 0 ? 0 : 1);
 });

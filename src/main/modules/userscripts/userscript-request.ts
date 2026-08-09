@@ -4,9 +4,9 @@
 // Mirrors the planned src/main/modules/userscripts/userscript-request.ts.
 
 export const DEFAULT_MAX_REDIRECTS = 5;
-export const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_TIMEOUT_MS = 15000;
-export const DEFAULT_MAX_CONCURRENT_PER_SCRIPT = 2;
+export const DEFAULT_MAX_CONCURRENT_PER_SCRIPT = 4;
 export const DEFAULT_MAX_CONCURRENT_GLOBAL = 16;
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);

@@ -4,29 +4,66 @@
 // can be set; async channels that need the sender id use ipcMain.handle with
 // safeParse directly, mirroring tabs.ipc.ts's ruffleDiagnostic pattern).
 
-import { clipboard, ipcMain, Notification } from 'electron';
+import { BrowserWindow, clipboard, ipcMain, Notification } from 'electron';
+import log from 'electron-log';
 import { z } from 'zod';
 import { registerValidatedListener, createValidatedHandler } from '../utils/ipc-wrapper';
-import { getUserscriptManager, getRequestService, getDownloadService } from '../modules/userscripts';
+import { getUserscriptManager, getRequestService, getDownloadService, getBackgroundRuntime, getCookieService, getWebRequestObserver } from '../modules/userscripts';
+import { createLogRateLimiter } from './userscript-log-rate';
 import type { UserscriptReport } from '../../shared/userscript-types';
 
 const commandIdSchema = z.object({ commandId: z.string() });
+
+// GM_log per-script rate limit: 10 lines/s, overflow dropped with at most one
+// warn per script per 30s.
+const logLimiter = createLogRateLimiter({ perSecond: 10 });
 
 export function registerUserscriptsIPC(): void {
   const manager = () => getUserscriptManager();
   const requests = () => getRequestService();
   const downloads = () => getDownloadService();
+  const cookies = () => getCookieService();
+
+  // Script logging: sinks into electron-log so it lands in userData/logs/main.log.
+  // Never log credentials: message text is script-provided and may contain
+  // anything, but it is user-visible app logging (same surface as console.log).
+  registerValidatedListener(
+    'userscript:log',
+    z.object({ scriptId: z.string(), level: z.enum(['info', 'warn', 'error']).optional(), message: z.string().max(4000) }),
+    (event, payload) => {
+      const active = manager();
+      if (!active || !active.isScriptInstalled(payload.scriptId)) return;
+      if (!logLimiter.allow(payload.scriptId)) {
+        if (logLimiter.warnOnce(payload.scriptId)) {
+          log.warn('[userscripts] log rate limit hit for ' + payload.scriptId);
+        }
+        return;
+      }
+      const level = payload.level ?? 'info';
+      // NOTE: never write `fn?.(...) ?? log.info(...)` here — a void return
+      // would evaluate the right side and double-log every message.
+      const fn = (log as unknown as Record<string, (m: string) => void>)[level] ?? log.info;
+      fn(`[userscript:${payload.scriptId}] ${payload.message}`);
+    },
+  );
 
   // Sync snapshot: preload asks at document start; the response is bounded by
   // the manager's snapshot budgets (maxSnapshotBytes/maxSourceBytesPerPage).
+  // The @background window is dispatched by sender wc id — its payload carries
+  // no background marker.
   registerValidatedListener(
     'userscript:get-config',
     z.object({ url: z.string(), isMainFrame: z.boolean(), documentId: z.string() }),
     (event, payload) => {
       const active = manager();
-      event.returnValue = active
-        ? active.snapshotFor(event.sender.id, payload.url, payload.isMainFrame)
-        : { ok: false, scripts: [], values: {} };
+      if (!active) { event.returnValue = { ok: false, scripts: [], values: {} }; return; }
+      // Per-script background windows: resolve by wc id, snapshot only that script.
+      const bgScriptId = getBackgroundRuntime()?.getScriptIdForWc(event.sender.id) ?? null;
+      if (bgScriptId != null) {
+        event.returnValue = active.snapshotBackground(event.sender.id);
+      } else {
+        event.returnValue = active.snapshotFor(event.sender.id, payload.url, payload.isMainFrame);
+      }
     },
   );
 
@@ -82,7 +119,13 @@ export function registerUserscriptsIPC(): void {
     'userscript:open-in-tab',
     z.object({ scriptId: z.string(), url: z.string() }),
     (event, payload) => {
-      manager()?.openInTab(event.sender.id, payload.scriptId, payload.url);
+      let target: URL;
+      try { target = new URL(payload.url); } catch { return; }
+      if (!['http:', 'https:'].includes(target.protocol) && target.toString() !== 'about:blank') return;
+      if (!manager()?.openInTab(event.sender.id, payload.scriptId, target.toString())) return;
+      const host = event.sender.hostWebContents
+        ?? BrowserWindow.getAllWindows().find((win) => win.isVisible() && !win.isDestroyed())?.webContents;
+      host?.send('userscript:open-tab', { url: target.toString() });
     },
   );
 
@@ -121,6 +164,25 @@ export function registerUserscriptsIPC(): void {
     z.object({ scriptId: z.string(), listenerId: z.number() }),
     (event, payload) => {
       manager()?.removeValueListener(event.sender.id, payload.scriptId, payload.listenerId);
+    },
+  );
+
+  // GM_webRequest observation: register/unregister the per-document listener.
+  registerValidatedListener(
+    'userscript:web-request-register',
+    z.object({ scriptId: z.string(), documentId: z.string() }),
+    (event, payload) => {
+      const active = manager();
+      if (!active || !active.isScriptInstalled(payload.scriptId)) return;
+      getWebRequestObserver()?.register({ wcId: event.sender.id, documentId: payload.documentId, scriptId: payload.scriptId });
+    },
+  );
+
+  registerValidatedListener(
+    'userscript:web-request-unregister',
+    z.object({ scriptId: z.string(), documentId: z.string() }),
+    (event, payload) => {
+      getWebRequestObserver()?.unregister(event.sender.id, payload.documentId, payload.scriptId);
     },
   );
 
@@ -181,28 +243,56 @@ export function registerUserscriptsIPC(): void {
   ipcMain.handle('userscript:download', async (event, raw: unknown) => {
     const active = manager();
     const service = downloads();
-    const parsed = z.object({ scriptId: z.string(), pageUrl: z.string(), details: downloadDetailsSchema, localId: z.number() }).safeParse(raw);
+    const parsed = z.object({ scriptId: z.string(), pageUrl: z.string(), details: downloadDetailsSchema, localId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).safeParse(raw);
     if (!active || !service || !parsed.success) return { ok: false, error: 'not-ready' };
     const metadata = active.getScriptMetadata(parsed.data.scriptId);
     if (!metadata) return { ok: false, error: 'invalid-arguments' };
     return service.download(event.sender.id, parsed.data.scriptId, parsed.data.pageUrl, metadata.metadata.connect, parsed.data.details, parsed.data.localId);
   });
 
-  registerValidatedListener('userscript:download-abort', z.object({ localId: z.number() }), (event, payload) => {
-    downloads()?.abort(event.sender.id, payload.localId);
+  registerValidatedListener('userscript:download-abort', z.object({ scriptId: z.string(), localId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }), (event, payload) => {
+    downloads()?.abort(event.sender.id, payload.scriptId, payload.localId);
   });
 
   ipcMain.handle('userscript:xhr-request', async (event, raw: unknown) => {
     const active = manager();
     const service = requests();
-    const parsed = z.object({ scriptId: z.string(), pageUrl: z.string(), details: xhrDetailsSchema, localId: z.number() }).safeParse(raw);
+    const parsed = z.object({ scriptId: z.string(), pageUrl: z.string(), details: xhrDetailsSchema, localId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).safeParse(raw);
     if (!active || !service || !parsed.success) return { ok: false, error: 'not-ready' };
     const metadata = active.getScriptMetadata(parsed.data.scriptId);
     if (!metadata) return { ok: false, error: 'invalid-arguments', errorMessage: 'unknown script' };
     return service.request(event.sender.id, parsed.data.scriptId, parsed.data.pageUrl, metadata.metadata.connect, parsed.data.details, parsed.data.localId);
   });
 
-  registerValidatedListener('userscript:xhr-abort', z.object({ localId: z.number() }), (event, payload) => {
-    requests()?.abort(event.sender.id, payload.localId);
+  registerValidatedListener('userscript:xhr-abort', z.object({ scriptId: z.string(), localId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }), (event, payload) => {
+    requests()?.abort(event.sender.id, payload.scriptId, payload.localId);
+  });
+
+  // GM_cookie READ-ONLY (list/get). Host gating = @connect list of the script.
+  ipcMain.handle('userscript:cookie-list', async (event, raw: unknown) => {
+    const parsed = z.object({
+      scriptId: z.string(), pageUrl: z.string(),
+      url: z.string().optional(), domain: z.string().optional(), name: z.string().optional(),
+    }).safeParse(raw);
+    const active = manager();
+    const service = cookies();
+    if (!active || !service || !parsed.success) return { ok: false, error: 'not-ready' };
+    const metadata = active.getScriptMetadata(parsed.data.scriptId);
+    if (!metadata) return { ok: false, error: 'invalid-arguments' };
+    return service.list(event.sender.id, parsed.data.scriptId, parsed.data.pageUrl, metadata.metadata.connect,
+      { url: parsed.data.url, domain: parsed.data.domain, name: parsed.data.name });
+  });
+
+  ipcMain.handle('userscript:cookie-get', async (event, raw: unknown) => {
+    const parsed = z.object({
+      scriptId: z.string(), pageUrl: z.string(), url: z.string(), name: z.string(),
+    }).safeParse(raw);
+    const active = manager();
+    const service = cookies();
+    if (!active || !service || !parsed.success) return { ok: false, error: 'not-ready' };
+    const metadata = active.getScriptMetadata(parsed.data.scriptId);
+    if (!metadata) return { ok: false, error: 'invalid-arguments' };
+    return service.get(event.sender.id, parsed.data.scriptId, parsed.data.pageUrl, metadata.metadata.connect,
+      { url: parsed.data.url, name: parsed.data.name });
   });
 }

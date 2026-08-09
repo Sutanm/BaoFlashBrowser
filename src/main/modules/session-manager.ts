@@ -3,6 +3,7 @@ import log from 'electron-log';
 import type { Session } from 'electron';
 import { chunkRedirectUrl } from './js-patch-service';
 import { setupDownloadHandlers } from './download';
+import { getWebRequestObserver } from './userscripts';
 
 const setupPartitions = new Set<string>();
 
@@ -156,6 +157,14 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
           return;
         }
       } catch { /* let malformed/unexpected requests continue unchanged */ }
+      // GM_webRequest observation: dispatch to interested scripts, never intercept.
+      try {
+        getWebRequestObserver()?.notifyBeforeRequest({
+          url: details.url,
+          method: details.method ?? 'GET',
+          webContentsId: Number(details.webContentsId),
+        });
+      } catch { /* observation must never break the request */ }
       callback({});
     },
   );
@@ -172,6 +181,11 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
       callback({ responseHeaders });
     },
   );
+
+  // GM_webRequest observation: onCompleted/onErrorOccurred are unoccupied in
+  // Electron 11 (only onBeforeRequest/onHeadersReceived are taken above), so
+  // the observer registers them directly.
+  getWebRequestObserver()?.attach(sess);
 
 }
 

@@ -1,7 +1,8 @@
 // ==UserScript==
 // @name         BaoFlash Modern CSS Fixer
 // @namespace    bao-flash-browser
-// @version      0.5.6
+// @version      0.5.7
+// @updateHash  dbec8f180460
 // @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
 // @match        *://*.github.com/*
@@ -11189,10 +11190,10 @@ ${t5.join("\n")}`);
       if (!href || /^data:/i.test(href)) return;
       const cachedText = await cacheGet(href);
       let text;
+      let overridden = cachedText !== null;
       if (cachedText !== null) {
         text = cachedText;
       } else {
-        link.disabled = true;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
         try {
@@ -11205,21 +11206,18 @@ ${t5.join("\n")}`);
         const rewritten = rewriteCssText(text);
         if (rewritten !== text) {
           text = rewritten;
+          overridden = true;
           void cachePut(href, rewritten);
         }
       }
+      if (!overridden) return;
       const style = document.createElement("style");
       style.setAttribute(MARKER, "1");
       style.setAttribute("data-bf-css-fix-source", href);
       style.textContent = text;
       (_a = link.parentNode) == null ? void 0 : _a.insertBefore(style, link.nextSibling);
-      link.remove();
       scheduleMarkHas();
     } catch {
-      try {
-        link.disabled = false;
-      } catch {
-      }
       if (attempt < MAX_FETCH_ATTEMPTS && link.isConnected) {
         setTimeout(() => {
           void processLink(link, attempt + 1);

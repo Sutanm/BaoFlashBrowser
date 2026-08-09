@@ -6,6 +6,9 @@ const shared = {
   format: 'cjs',
   target: 'node12',
   external: ['electron', 'electron-log', 'electron-store'],
+  loader: {
+    '.user.js': 'text',
+  },
 };
 
 await Promise.all([
@@ -18,7 +21,7 @@ await Promise.all([
   }),
   esbuild.build({
     ...shared,
-    entryPoints: ['tests/electron/userscript-runtime-smoke.ts'],
+    entryPoints: ['tests/electron/userscript-runtime-smoke-entry.ts'],
     outfile: 'release/tests/userscript-runtime-smoke.cjs',
     alias: {
       '@shared': './src/shared',

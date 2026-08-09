@@ -6,14 +6,18 @@
 
 const { app } = require('electron');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { userDataDir } = require('./lib/context.cjs');
 const { withTimeout, createWatchdog } = require('./lib/timeout.cjs');
 const { renderText, renderJson, failCount } = require('./lib/reporter.cjs');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 app.on('window-all-closed', () => {});
-app.setPath('userData', userDataDir());
+const realUserData = userDataDir();
+const probeUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'bao-probe-userdata-'));
+app.setPath('userData', probeUserData);
 
 function parseArgs(argv) {
   const args = { only: null, json: false };
@@ -61,6 +65,8 @@ app.whenReady().then(async () => {
   const args = parseArgs(process.argv.slice(2));
   const { createContext } = require('./lib/context.cjs');
   const ctx = createContext();
+  ctx.realUserData = realUserData;
+  ctx.userData = probeUserData;
   ctx.electron = { app, BrowserWindow: require('electron').BrowserWindow, BrowserView: require('electron').BrowserView, ipcMain: require('electron').ipcMain };
 
   let probes = discoverProbes(path.join(__dirname, 'probes'));
@@ -87,8 +93,10 @@ app.whenReady().then(async () => {
   } else {
     console.log(renderText(results));
   }
+  try { fs.rmSync(probeUserData, { recursive: true, force: true }); } catch { /* best effort */ }
   app.exit(failCount(results));
 }).catch((error) => {
   console.error('[probe] electron host crashed:', error);
+  try { fs.rmSync(probeUserData, { recursive: true, force: true }); } catch { /* best effort */ }
   app.exit(2);
 });

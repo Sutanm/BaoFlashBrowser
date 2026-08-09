@@ -25,6 +25,20 @@ describe('userscript-parser', () => {
     expect(meta!.runAt).toBe('document-idle');
   });
 
+  it('parses @updateHash and leaves it empty when absent', () => {
+    const withHash = parseUserscriptMetadata([
+      '// ==UserScript==',
+      '// @name  Fixer',
+      '// @version 0.5.7',
+      '// @updateHash dbec8f180460',
+      '// ==/UserScript==',
+    ].join('\n'));
+    expect(withHash!.updateHash).toBe('dbec8f180460');
+
+    const without = parseUserscriptMetadata('// ==UserScript==\n// @name  Plain\n// ==/UserScript==\n');
+    expect(without!.updateHash).toBeUndefined();
+  });
+
   it('accumulates repeated list keys', () => {
     const source = [
       `// ${HEADER_START}`,

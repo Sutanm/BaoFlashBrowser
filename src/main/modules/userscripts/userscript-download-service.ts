@@ -29,6 +29,7 @@ export type GmDownloadError =
   | 'invalid-arguments'
   | 'address-blocked'
   | 'connect-denied'
+  | 'redirect-limit'
   | 'size-limit'
   | 'timeout'
   | 'aborted'
@@ -55,12 +56,14 @@ export interface GmDownloadServiceOptions {
 
 interface ActiveDownload {
   request: Electron.ClientRequest;
+  downloadId: number;
   wcId: number;
   scriptId: string;
   timer: ReturnType<typeof setTimeout>;
   fileName: string;
   filePath: string;
   stream?: ReturnType<typeof createWriteStream>;
+  cleanup: () => void;
   resolve: (result: GmDownloadResult) => void;
 }
 
@@ -71,9 +74,24 @@ export class GmDownloadService {
     allowedLoopbackHosts: string[];
   };
   private readonly session?: Electron.Session;
-  private readonly active = new Map<number, ActiveDownload>();
+  private readonly active = new Map<string, ActiveDownload>();
   private readonly perScriptActive = new Map<string, number>();
   private nextId = 1;
+
+  private downloadKey(wcId: number, scriptId: string, downloadId: number): string {
+    return `${wcId}:${scriptId}:${downloadId}`;
+  }
+
+  private availablePath(fileName: string): string {
+    const ext = path.extname(fileName);
+    const stem = path.basename(fileName, ext);
+    const reserved = new Set(Array.from(this.active.values(), (entry) => path.resolve(entry.filePath).toLowerCase()));
+    for (let index = 0; ; index += 1) {
+      const candidateName = index === 0 ? fileName : `${stem} (${index})${ext}`;
+      const candidate = path.join(this.options.downloadDir, candidateName);
+      if (!existsSync(candidate) && !reserved.has(path.resolve(candidate).toLowerCase())) return candidate;
+    }
+  }
 
   constructor(options: GmDownloadServiceOptions) {
     this.options = {
@@ -96,13 +114,10 @@ export class GmDownloadService {
     localId?: number,
   ): Promise<GmDownloadResult> {
     return new Promise((resolve) => {
-      const downloadId = Number.isInteger(localId) ? Number(localId) : this.nextId++;
-      const fail = (error: GmDownloadError): GmDownloadResult => {
-        this.releaseConcurrency(scriptId);
-        return { downloadId, ok: false, error };
-      };
+      const downloadId = localId === undefined ? this.nextId++ : Number(localId);
+      const fail = (error: GmDownloadError): GmDownloadResult => ({ downloadId, ok: false, error });
 
-      if (typeof details?.url !== 'string' || !ALLOWED_METHODS.has(String(details.method ?? 'GET').toUpperCase())) {
+      if (!Number.isSafeInteger(downloadId) || downloadId <= 0 || typeof details?.url !== 'string' || !ALLOWED_METHODS.has(String(details.method ?? 'GET').toUpperCase())) {
         resolve(fail('invalid-arguments'));
         return;
       }
@@ -125,33 +140,53 @@ export class GmDownloadService {
         Number.isFinite(Number(details.timeout)) && Number(details.timeout) > 0 ? Number(details.timeout) : this.options.defaultTimeoutMs,
         this.options.defaultTimeoutMs,
       );
-      const fileName = sanitizeFileName(details.name ?? '');
-      const filePath = path.join(this.options.downloadDir, fileName);
+      const requestedName = sanitizeFileName(details.name ?? '');
+      const filePath = this.availablePath(requestedName);
+      const fileName = path.basename(filePath);
 
-      const request = net.request({
-        method: 'GET',
-        url: details.url,
-        redirect: 'follow',
-        session: this.session,
-        useSessionCookies: true,
-      }) as Electron.ClientRequest;
+      let request: Electron.ClientRequest;
+      try {
+        request = net.request({
+          method: 'GET',
+          url: details.url,
+          redirect: 'manual',
+          session: this.session,
+          useSessionCookies: true,
+        }) as Electron.ClientRequest;
+      } catch {
+        this.releaseConcurrency(scriptId);
+        resolve(fail('network'));
+        return;
+      }
 
       let redirectCount = 0;
       let receivedBytes = 0;
       let settled = false;
       let fileCreated = false;
+      let cleanupScheduled = false;
 
       const finish = (result: GmDownloadResult): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        this.active.delete(downloadId);
+        this.active.delete(this.downloadKey(wcId, scriptId, downloadId));
         this.releaseConcurrency(scriptId);
         resolve(result);
       };
 
       const cleanupFile = (): void => {
-        try { if (fileCreated) unlinkSync(filePath); } catch { /* best effort */ }
+        if (!fileCreated || cleanupScheduled) return;
+        cleanupScheduled = true;
+        const remove = (): void => {
+          try { unlinkSync(filePath); } catch { /* best effort */ }
+        };
+        const stream = entry?.stream;
+        if (stream && !stream.closed) {
+          stream.once('close', remove);
+          try { stream.destroy(); } catch { remove(); }
+        } else {
+          remove();
+        }
       };
 
       const timer = setTimeout(() => {
@@ -162,19 +197,40 @@ export class GmDownloadService {
 
       const entry: ActiveDownload = {
         request,
+        downloadId,
         wcId,
         scriptId,
         timer,
         fileName,
         filePath,
+        cleanup: cleanupFile,
         resolve: finish,
       };
-      this.active.set(downloadId, entry);
+      this.active.set(this.downloadKey(wcId, scriptId, downloadId), entry);
 
-      request.on('redirect', (statusCode: number) => {
+      request.on('redirect', (statusCode: number, _method: string, redirectUrl: string) => {
         redirectCount += 1;
         if (redirectCount > DEFAULT_MAX_REDIRECTS) {
           try { request.abort(); } catch { /* ignore */ }
+          cleanupFile();
+          finish({ downloadId, ok: false, error: 'redirect-limit', status: statusCode });
+          return;
+        }
+        if (isBlockedUrl(redirectUrl, this.options.allowedLoopbackHosts)) {
+          try { request.abort(); } catch { /* ignore */ }
+          cleanupFile();
+          finish({ downloadId, ok: false, error: 'address-blocked', status: statusCode });
+          return;
+        }
+        if (!connectAllows(connect, pageUrl, redirectUrl)) {
+          try { request.abort(); } catch { /* ignore */ }
+          cleanupFile();
+          finish({ downloadId, ok: false, error: 'connect-denied', status: statusCode });
+          return;
+        }
+        try {
+          (request as unknown as { followRedirect(): void }).followRedirect();
+        } catch {
           cleanupFile();
           finish({ downloadId, ok: false, error: 'network', status: statusCode });
         }
@@ -191,7 +247,7 @@ export class GmDownloadService {
         try {
           stream = createWriteStream(filePath);
           fileCreated = true;
-          entry.stream = stream;
+          entry!.stream = stream;
         } catch {
           try { (response as unknown as { resume(): void }).resume(); } catch { /* already consumed */ }
           finish({ downloadId, ok: false, error: 'file-error' });
@@ -201,6 +257,14 @@ export class GmDownloadService {
           try { request.abort(); } catch { /* ignore */ }
           cleanupFile();
           finish({ downloadId, ok: false, error: 'file-error' });
+        });
+        stream.on('finish', () => {
+          finish({
+            downloadId,
+            ok: true,
+            fileName,
+            status: response.statusCode ?? 200,
+          });
         });
         response.on('data', (chunk: Buffer) => {
           receivedBytes += chunk.length;
@@ -215,12 +279,6 @@ export class GmDownloadService {
         });
         response.on('end', () => {
           stream?.end();
-          finish({
-            downloadId,
-            ok: true,
-            fileName,
-            status: response.statusCode ?? 200,
-          });
         });
       });
 
@@ -244,23 +302,26 @@ export class GmDownloadService {
     });
   }
 
-  abort(wcId: number, downloadId: number): boolean {
-    const entry = this.active.get(downloadId);
-    if (!entry || entry.wcId !== wcId) return false;
+  abort(wcId: number, scriptId: string, downloadId: number): boolean {
+    const entry = this.active.get(this.downloadKey(wcId, scriptId, downloadId));
+    if (!entry) return false;
     try { entry.request.abort(); } catch { /* already gone */ }
-    try { entry.stream?.destroy(); } catch { /* ignore */ }
-    try { if (entry.stream) unlinkSync(entry.filePath); } catch { /* best effort */ }
-    clearTimeout(entry.timer);
-    this.active.delete(downloadId);
-    this.releaseConcurrency(entry.scriptId);
+    entry.cleanup();
     entry.resolve({ downloadId, ok: false, error: 'aborted' });
     return true;
   }
 
   cancelForWc(wcId: number): void {
-    for (const [downloadId, entry] of this.active) {
+    for (const [, entry] of this.active) {
       if (entry.wcId !== wcId) continue;
-      this.abort(wcId, downloadId);
+      this.abort(wcId, entry.scriptId, entry.downloadId);
+    }
+  }
+
+  // Live capacity update (settings panel hot-apply).
+  setLimits(partial: Partial<Pick<GmDownloadServiceOptions, 'maxBytes' | 'maxConcurrentPerScript'>>): void {
+    for (const [key, value] of Object.entries(partial)) {
+      if (value !== undefined) (this.options as Record<string, unknown>)[key] = value;
     }
   }
 

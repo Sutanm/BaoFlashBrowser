@@ -17,6 +17,8 @@ export interface GmApiContext {
   values: Record<string, GMSerializable>;
   resources?: Record<string, { text: string; url: string }>;
   bridge: GmApiBridge;
+  /** Flash runtime the tab is running: 'ppapi' (native Flash) or 'ruffle'. */
+  flashRuntime: 'ppapi' | 'ruffle';
 }
 
 export interface GmApi {
@@ -56,7 +58,7 @@ function applyAttributes(element: HTMLElement, attributes: Record<string, unknow
 }
 
 export function createGmApi(context: GmApiContext): GmApi {
-  const { script, documentId, values, resources, bridge } = context;
+  const { script, documentId, values, resources, bridge, flashRuntime } = context;
   let nextCommandId = 1;
   const menuCallbacks = new Map<number, () => void>();
   let openInTabCalled = false;
@@ -386,6 +388,7 @@ export function createGmApi(context: GmApiContext): GmApi {
     setClipboard,
     notification: notify,
     info: {
+      flashRuntime,
       script: {
         name: script.info?.name ?? script.id,
         namespace: script.info?.namespace ?? '',

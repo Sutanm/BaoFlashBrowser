@@ -128,4 +128,33 @@ describe('userscript-parser', () => {
     const meta = parseUserscriptMetadata(header + '\ncode();');
     expect(meta!.rawHeader).toContain('// @name  Raw');
   });
+
+  it('parses @updateURL/@downloadURL in both cases', () => {
+    const upper = parseUserscriptMetadata([
+      `// ${HEADER_START}`,
+      '// @name  Up1',
+      '// @updateURL https://x/y.user.js',
+      '// @downloadURL https://x/d.user.js',
+      `// ${HEADER_END}`,
+    ].join('\n'));
+    expect(upper!.updateUrl).toBe('https://x/y.user.js');
+    expect(upper!.downloadUrl).toBe('https://x/d.user.js');
+
+    const lower = parseUserscriptMetadata([
+      `// ${HEADER_START}`,
+      '// @name  Up2',
+      '// @updateurl https://x/lo.user.js',
+      '// @downloadurl https://x/lo-d.user.js',
+      `// ${HEADER_END}`,
+    ].join('\n'));
+    expect(lower!.updateUrl).toBe('https://x/lo.user.js');
+    expect(lower!.downloadUrl).toBe('https://x/lo-d.user.js');
+  });
+
+  it('parses @background as a flag', () => {
+    const withFlag = parseUserscriptMetadata(`// ==UserScript==\n// @name  Bg\n// @background\n// ==/UserScript==\n`);
+    expect(withFlag!.background).toBe(true);
+    const without = parseUserscriptMetadata(`// ==UserScript==\n// @name  Plain\n// ==/UserScript==\n`);
+    expect(without!.background).toBe(false);
+  });
 });

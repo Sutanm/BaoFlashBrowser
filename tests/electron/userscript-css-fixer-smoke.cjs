@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 app.on('window-all-closed', () => {});
 
 const failures = [];
@@ -282,6 +283,12 @@ app.whenReady().then(async () => {
   check('code block background restored (inline path)', result?.pre?.backgroundColor === 'rgb(240, 240, 240)', result?.pre);
   check('external link sheet rewritten (link path)', result?.ext?.color === 'rgb(255, 0, 0)', result?.ext);
   check('plain link left untouched and applied', result?.plain?.color === 'rgb(0, 128, 0)', { plain: result?.plain, links: result?.links, styles: result?.styles });
+  // FOUC guarantee: external stylesheet <link>s must NOT be disabled and must
+  // still exist (the fixer keeps links applying immediately and inserts an
+  // override <style> after each rewritten one). A disabled/removed link would
+  // flash the page unstyled during the async fetch+rewrite.
+  const nonInlineLinks = (result?.links || []).filter((l) => l.href && !String(l.href).startsWith('(inline)'));
+  check('external stylesheet links kept and not disabled (no FOUC)', nonInlineLinks.length >= 2 && nonInlineLinks.every((l) => l.disabled === false), { nonInlineLinks });
   check('css nesting flattened', result?.nest?.color === 'rgb(7, 8, 9)', result?.nest);
   check('hwb color converted', result?.hwb?.color === 'rgb(255, 0, 0)', result?.hwb);
   check('oklch color converted', result?.oklch?.backgroundColor === 'rgb(255, 255, 255)', result?.oklch);

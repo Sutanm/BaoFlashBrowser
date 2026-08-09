@@ -283,6 +283,14 @@ function processStyle(el: HTMLStyleElement): void {
   } catch { /* a rewrite failure must never break the page */ }
 }
 
+// Rewrites an external stylesheet without causing a flash-of-unstyled-content
+// (FOUC). The original <link> is left in place and applies immediately, so the
+// page is styled from the first paint; the rewritten result is inserted as a
+// <style> element AFTER the link so that, at equal specificity, the rewritten
+// rules win by document order. Verbatim sheets (nothing to fix) are skipped
+// entirely — leaving the link as the sole source avoids redundant parsing and
+// double @import evaluation. Any failure keeps the untouched link: a sheet is
+// never disabled, emptied or removed.
 async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
   try {
     if (link.hasAttribute(MARKER)) return;
@@ -294,12 +302,14 @@ async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
 
     // Cache hit: the sheet was rewritten on an earlier visit to this site
     // (CSS URLs are content-hashed on modern sites) — skip fetch + postcss.
+    // Only sheets that were actually rewritten are stored in the cache, so a
+    // cache hit implies a rewrite happened.
     const cachedText = await cacheGet(href);
     let text: string;
+    let overridden = cachedText !== null;
     if (cachedText !== null) {
       text = cachedText;
     } else {
-      link.disabled = true;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
@@ -312,26 +322,26 @@ async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
       const rewritten = rewriteCssText(text);
       if (rewritten !== text) {
         text = rewritten;
+        overridden = true;
         void cachePut(href, rewritten);
       }
     }
-    // Replacing the <link> with a <style> (rewritten or verbatim) is more
-    // reliable than re-enabling the link: Chromium 87 does not guarantee a
-    // reload after disabled true->false. On fetch failure the original link
-    // is restored instead. `text` is already the final (rewritten) version
-    // on both the cache-hit and the rewrite path.
+
+    // Only override the link when the rewrite actually changed the sheet.
+    // A verbatim sheet stays sourced solely by the original link.
+    if (!overridden) return;
     const style = document.createElement('style');
     style.setAttribute(MARKER, '1');
     style.setAttribute('data-bf-css-fix-source', href);
     style.textContent = text;
+    // Insert AFTER the link (document order gives it precedence over the
+    // link's rules at equal specificity). Do NOT disable or remove the link.
     link.parentNode?.insertBefore(style, link.nextSibling);
-    link.remove();
     scheduleMarkHas();
   } catch {
-    try { link.disabled = false; } catch { /* element gone */ }
+    // Leave the untouched link as-is: never disable, never empty it.
     // A fetch that aborted during the page's network peak (React-inserted
-    // sheets) is retried once the page settles; the link may have been
-    // removed or re-inserted by React in the meantime.
+    // sheets) is retried once the page settles.
     if (attempt < MAX_FETCH_ATTEMPTS && link.isConnected) {
       setTimeout(() => { void processLink(link, attempt + 1); }, 1500 * (attempt + 1));
     }

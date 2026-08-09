@@ -46,6 +46,10 @@ export class ValueStore {
     this.data.get(scriptId)?.delete(key);
   }
 
+  deleteScript(scriptId: string): void {
+    this.data.delete(scriptId);
+  }
+
   list(scriptId: string): string[] {
     return Array.from(this.data.get(scriptId)?.keys() ?? []);
   }

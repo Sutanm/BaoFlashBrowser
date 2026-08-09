@@ -4,10 +4,10 @@
 // Mirrors tests/electron/userscripts/preload/bootstrap.ts (demo origin).
 
 import { ipcRenderer, webFrame } from 'electron';
-import type { FrameSnapshot } from '../../shared/userscript-types';
+import type { FrameSnapshot, GmWebRequestEvent } from '../../shared/userscript-types';
 import { scheduleScripts } from './scheduler';
 import { executeUserscript } from './sandbox';
-import { createGmApi, type GmApi } from './gm-api';
+import { createGmApi, grantGmApi, type GmApi, type GrantedGmApi } from './gm-api';
 import { createUnsafeWindowProxy } from './unsafe-proxy';
 import { PAGE_BRIDGE_SOURCE, BRIDGE_MARKER } from './page-bridge';
 
@@ -84,6 +84,7 @@ export function initUserscriptRuntime(): void {
   }
 
   const gmByScript = new Map<string, GmApi>();
+  const grantedByScript = new Map<string, GrantedGmApi>();
   for (const script of scripts) {
     const gm = createGmApi({
       script,
@@ -91,12 +92,14 @@ export function initUserscriptRuntime(): void {
       isMainFrame,
       values: (values && values[script.id]) || {},
       resources: (snapshot.resources && snapshot.resources[script.id]) || {},
+      flashRuntime: mode as 'ppapi' | 'ruffle',
       bridge: {
         send: (channel, payload) => ipcRenderer.send(channel, payload),
         invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
       },
     });
     gmByScript.set(script.id, gm);
+    grantedByScript.set(script.id, grantGmApi(gm, script.info?.grant));
   }
 
   ipcRenderer.on('userscript:menu-invoke', (_event, raw: unknown) => {
@@ -123,6 +126,13 @@ export function initUserscriptRuntime(): void {
     gm?.handleValueChanged(String(message?.key ?? ''), message?.oldValue, message?.newValue);
   });
 
+  ipcRenderer.on('userscript:web-request-event', (_event, payload: unknown) => {
+    const message = payload as { scriptId?: string; documentId?: string; event?: GmWebRequestEvent };
+    if (message.documentId !== documentId) return;
+    const gm = gmByScript.get(String(message?.scriptId ?? ''));
+    gm?.handleWebRequestEvent(message.event as GmWebRequestEvent);
+  });
+
   ipcRenderer.on('userscript:notification-click', (_event, payload: unknown) => {
     const message = payload as { scriptId?: string; documentId?: string; notificationId?: number };
     const gm = gmByScript.get(String(message?.scriptId ?? ''));
@@ -132,15 +142,15 @@ export function initUserscriptRuntime(): void {
   scheduleScripts(scripts, {
     executeScript: (script, runAt) => {
       report('script-start', { scriptId: script.id, runAt });
-      const gm = gmByScript.get(script.id);
+      const granted = grantedByScript.get(script.id);
       const result = executeUserscript(script.source, {
         mode: mode as 'ppapi' | 'ruffle',
-        unsafeWindow,
+        unsafeWindow: granted?.unsafeWindow ? unsafeWindow : undefined,
         window,
         document,
-        GM: (gm ?? {}) as unknown as Record<string, unknown>,
-        GM_info: gm?.info ?? {},
-        legacyGm: gm?.legacy ?? {},
+        GM: granted?.modern ?? {},
+        GM_info: granted?.info,
+        legacyGm: granted?.legacy ?? {},
       });
       report(result.ok ? 'script-complete' : 'script-error', {
         scriptId: script.id,

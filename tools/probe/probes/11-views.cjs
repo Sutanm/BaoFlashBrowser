@@ -7,6 +7,7 @@
 
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 
 const { waitFor, wait } = require('../lib/timeout.cjs');
 
@@ -20,6 +21,12 @@ module.exports = {
     const { app, BrowserView, BrowserWindow, ipcMain } = ctx.electron;
     const mod = require(path.join(ctx.root, 'release', 'tests', 'userscripts-admin-module.cjs'));
     const manager = mod.initUserscriptManager();
+    const fixtureSource = fs.readFileSync(path.join(ctx.root, 'tests', 'electron', 'fixtures', 'demo-test.user.js'), 'utf8');
+    const fixtureInstall = mod.installUserscript(fixtureSource, { enabled: true });
+    if (!fixtureInstall.ok) {
+      return { ok: false, summary: 'fixture install failed', detail: fixtureInstall };
+    }
+    const fixtureId = fixtureInstall.script.id;
 
     const failures = [];
     const check = (name, ok, detail) => {
@@ -135,6 +142,7 @@ module.exports = {
     } finally {
       try { host.destroy(); } catch { /* ignore */ }
       srv.close();
+      mod.uninstallUserscript(fixtureId);
     }
 
     return {

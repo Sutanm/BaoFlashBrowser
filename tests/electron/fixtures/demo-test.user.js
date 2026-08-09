@@ -17,6 +17,7 @@
   var started = Date.now();
   var visits = Number(GM_getValue('visits', 0)) + 1;
   GM_setValue('visits', visits);
+  GM_log('probe-log-marker', 'info');
 
   // 页世界桥:隔离世界写入,主世界可读(unsafeWindow 验证)
   try {
