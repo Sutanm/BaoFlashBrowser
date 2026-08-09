@@ -3,6 +3,7 @@ import http from 'http';
 import { applyCompatibilitySessionConfig } from '../../src/main/modules/session-manager';
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 
 async function listen(server: http.Server, firstPort: number): Promise<number> {
   for (let port = firstPort; port < firstPort + 100; port++) {

@@ -5,6 +5,7 @@ const http = require('http');
 const path = require('path');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 app.on('window-all-closed', () => {});
 app.setPath('userData', path.join(app.getPath('appData'), 'bao-flash-browser'));
 

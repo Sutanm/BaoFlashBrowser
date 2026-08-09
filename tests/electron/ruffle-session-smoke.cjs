@@ -36,6 +36,7 @@ function registerFor(targetSession) {
 }
 
 app.commandLine.appendSwitch('no-sandbox');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 
 app.whenReady().then(async () => {
   const persistentSession = session.fromPartition('persist:');

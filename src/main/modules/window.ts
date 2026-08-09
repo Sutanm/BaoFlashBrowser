@@ -28,6 +28,7 @@ export function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: false,
+      spellcheck: false,
     },
   };
 

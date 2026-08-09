@@ -121,6 +121,39 @@ try {
     if (!_ipc) return;
     const _cfg = _ipc.sendSync('get-ruffle-mode') as RuffleModeConfig;
     if (_cfg && _cfg.enabled) {
+      // Some legacy-site polyfill bundles add a broken `detached` getter on
+      // Chromium 87. It reports false for the old ArrayBuffer after
+      // WebAssembly.Memory.grow(), so wasm-bindgen keeps a stale DataView and
+      // Ruffle's URL streaming path crashes as soon as a large SWF grows WASM
+      // memory. Install the spec-compatible check before page scripts can
+      // replace it. This is intentionally Ruffle-only: PPAPI pages do not use
+      // wasm-bindgen and should retain the site's native environment.
+      try {
+        const arrayBufferPrototype = ArrayBuffer.prototype;
+        const existing = Object.getOwnPropertyDescriptor(arrayBufferPrototype, 'detached');
+        if (!existing || existing.configurable) {
+          const byteLengthGetter = Object.getOwnPropertyDescriptor(arrayBufferPrototype, 'byteLength')?.get;
+          const slice = arrayBufferPrototype.slice;
+          if (byteLengthGetter && typeof slice === 'function') {
+            Object.defineProperty(arrayBufferPrototype, 'detached', {
+              configurable: false,
+              enumerable: false,
+              get: function(this: ArrayBuffer): boolean {
+                const byteLength = byteLengthGetter.call(this) as number;
+                if (byteLength !== 0) return false;
+                try {
+                  // Chromium 87 incorrectly allows constructing a DataView over
+                  // detached WASM memory, but its native slice still rejects it.
+                  slice.call(this, 0, 0);
+                  return false;
+                } catch {
+                  return true;
+                }
+              },
+            });
+          }
+        }
+      } catch { /* Ruffle can still fall back to buffer identity checks */ }
       const _report = (phase: string, detail?: string) => {
         try { _ipc.send('ruffle:diagnostic', { phase, detail }); } catch { /* diagnostics must not affect bootstrap */ }
       };
@@ -163,7 +196,13 @@ try {
       window.RufflePlayer = { config: _config };
       if (_cfg.js) {
         try {
-          eval(_cfg.js);
+          // new Function avoids esbuild's `direct-eval` warning while behaving
+          // identically here: Ruffle's runtime is a self-executing UMD that
+          // attaches to the global (window.RufflePlayer), so it runs in the
+          // global scope chain and never needs access to this preload's lexical
+          // closure. (eval would see closure vars; new Function does not — the
+          // runtime relies only on globals.)
+          new Function(_cfg.js)();
           _report('bundled-eval-ok');
           _reportRuntime();
           console.log('[PRELOAD] Ruffle eval\'d (' + (_cfg.js.length / 1024).toFixed(0) + 'KB)');

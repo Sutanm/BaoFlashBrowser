@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 app.on('window-all-closed', () => {});
 
 const USER_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'css-fixer-e2e-'));
