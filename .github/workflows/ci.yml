@@ -27,7 +27,8 @@ jobs:
         shell: bash
         run: |
           xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/browserview-smoke.cjs
-          xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/ruffle-session-smoke.cjs
+          node tests/electron/build-automation-m2-visual.mjs
+          xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/automation-m5-ruffle-visual-smoke.cjs
           node tests/electron/build-compatibility-smoke.mjs
           xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/session-compatibility-smoke.cjs
 
