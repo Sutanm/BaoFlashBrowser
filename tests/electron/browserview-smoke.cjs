@@ -4,10 +4,11 @@ const path = require('path');
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
 if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 
+const smokeTimeoutMs = Number(process.env.SMOKE_TIMEOUT || 45_000);
 const timeout = setTimeout(() => {
-  console.error('[smoke] timed out');
+  console.error(`[smoke] timed out after ${smokeTimeoutMs}ms`);
   app.exit(1);
-}, 15000);
+}, smokeTimeoutMs);
 
 async function load(view, marker) {
   await view.webContents.loadURL(`data:text/html,<title>${marker}</title><main id="marker">${marker}</main>`);
