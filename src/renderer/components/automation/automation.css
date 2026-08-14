@@ -98,11 +98,11 @@
 .automation-library-empty { gap: 7px; min-height: 180px; padding: 16px; font-size: 11px; line-height: 1.5; }
 .automation-library-empty svg { width: 30px; height: 30px; opacity: .5; }
 .automation-assets-list { margin-top: 8px; padding-top: 11px; border-top: 1px solid var(--border); }
-.automation-assets-list > div { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11px; }
-.automation-assets-list > div svg { width: 14px; height: 14px; color: var(--accent); }
-.automation-assets-list > div span { margin-left: auto; }
-.automation-assets-list > div button { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px; border: 0; border-radius: 4px; background: var(--bg-hover); color: var(--accent); font-size: 10px; }
-.automation-assets-list > div button svg { width: 12px; height: 12px; }
+.automation-assets-heading { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11px; }
+.automation-assets-heading > svg { width: 14px; height: 14px; color: var(--accent); }
+.automation-assets-heading > span { margin-left: auto; }
+.automation-assets-heading > button { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px; border: 0; border-radius: 4px; background: var(--bg-hover); color: var(--accent); font-size: 10px; }
+.automation-assets-heading > button svg { width: 12px; height: 12px; }
 .automation-assets-list .automation-asset-search { display: flex; align-items: center; gap: 5px; margin-top: 7px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); }
 .automation-assets-list .automation-asset-search svg { width: 13px; height: 13px; color: var(--text-secondary); }
 .automation-assets-list .automation-asset-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--text-primary); font-size: 10px; }
