@@ -1,7 +1,7 @@
 // Smoke: GM_registerMenuCommand dedupe across main frame + iframe.
 // The same script registers 2 commands in BOTH the main frame and the iframe.
-// The panel must list exactly 2 commands (main-frame ones only), and invoking
-// them must actually run the callback in the page.
+// The demo contributes exactly 2 commands (main-frame ones only), and invoking
+// them must actually run the callback in the page. Built-ins may add commands.
 const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
 const http = require('http');
 const path = require('path');
@@ -57,6 +57,8 @@ app.whenReady().then(async () => {
       accepted: true,
     });
   });
+  ipcMain.handle('userscript:automation-list', async () => []);
+  ipcMain.handle('userscript:automation-status', async () => ({ state: 'idle', executedSteps: 0, logs: [] }));
 
   const srv = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -90,7 +92,8 @@ app.whenReady().then(async () => {
   await new Promise((resolve) => setTimeout(resolve, 2500));
 
   const commands = manager.commandsFor(view.webContents.id);
-  check('exactly 2 commands after main+iframe registration', commands.length === 2, commands.map((c) => c.title));
+  const demoCommands = commands.filter((command) => command.scriptId === 'baoflash-demo-test');
+  check('demo contributes exactly 2 commands after main+iframe registration', demoCommands.length === 2, commands.map((c) => c.title));
   check('all listed commands are main-frame ones', commands.every((c) => c.isMainFrame), commands);
 
   const reset = commands.find((c) => c.title === '重置访问计数');

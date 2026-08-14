@@ -92,6 +92,8 @@ app.whenReady().then(async () => {
   });
   ipcMain.on('userscript:menu-register', () => {});
   ipcMain.on('userscript:log', () => {});
+  ipcMain.handle('userscript:automation-list', async () => []);
+  ipcMain.handle('userscript:automation-status', async () => ({ state: 'idle', executedSteps: 0, logs: [] }));
 
   // 真实 onCompleted/onErrorOccurred 监听注册到 persist 会话
   observer.attach(session.fromPartition('persist:'));

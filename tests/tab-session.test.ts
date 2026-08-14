@@ -28,6 +28,11 @@ describe('tab session snapshots', () => {
     expect(createTabSession([{ ...tab('blank'), url: 'about:newtab' }], 'blank')).toBeNull();
   });
 
+  it('preserves the internal automation workbench without creating a web URL', () => {
+    const snapshot = createTabSession([tab('automation', 'about:automation')], 'automation');
+    expect(snapshot?.tabs[0].url).toBe('about:automation');
+  });
+
   it('offers a saved session only after an abnormal exit', () => {
     const saved = createTabSession([tab('one')], 'one');
     expect(selectCrashRecoverySession(saved, false, true)).toBeNull();

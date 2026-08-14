@@ -127,10 +127,10 @@ export function registerUserscriptsAdminIPC(getWindow: () => BrowserWindow | nul
 
   // File/URL pickers only FETCH the source; the renderer previews it and
   // calls install-source on confirmation (two-phase install, plan §13.2).
-  createValidatedHandler('userscripts:install-file', z.object({}).optional(), async () => {
+  createValidatedHandler('userscripts:install-file', z.object({ title: z.string().optional() }).optional(), async (payload) => {
     const win = getWindow();
     const options: Electron.OpenDialogOptions = {
-      title: '安装用户脚本',
+      title: payload?.title ?? 'Install Userscript',
       properties: ['openFile'],
       filters: [{ name: 'Userscript', extensions: ['js', 'user.js', 'txt'] }],
     };
@@ -220,13 +220,13 @@ export function registerUserscriptsAdminIPC(getWindow: () => BrowserWindow | nul
   createValidatedHandler('userscripts:apply-update', z.object({ id: z.string() }), async (payload) => applyUpdate(payload.id));
 
   // Export a script as .user.js via the save dialog.
-  createValidatedHandler('userscripts:export-source', z.object({ id: z.string() }), async (payload) => {
+  createValidatedHandler('userscripts:export-source', z.object({ id: z.string(), title: z.string().optional() }), async (payload) => {
     const source = getUserscriptSource(payload.id);
     if (source === undefined) return { ok: false, error: 'not-found' };
     const script = listUserscripts().find((s) => s.id === payload.id);
     const win = getWindow();
     const options: Electron.SaveDialogOptions = {
-      title: '导出脚本',
+      title: payload.title ?? 'Export Script',
       defaultPath: defaultExportFileName(script?.metadata.name ?? payload.id),
       filters: [{ name: 'Userscript', extensions: ['user.js', 'js'] }],
     };

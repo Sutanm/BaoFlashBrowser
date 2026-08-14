@@ -4,6 +4,7 @@ import log from 'electron-log';
 import { getMainWindow } from './window';
 import { getMetaForHost, isAutoCaptureEnabled, isCaptureExcluded } from './password-store';
 import { credentialOrigin, redactUrlForLog } from '@shared/utils/url-privacy';
+import { acquireCdpLease, type CdpLease } from './cdp-lease';
 
 interface CaptureState {
   wc: WebContents;
@@ -15,6 +16,7 @@ interface CaptureState {
   messageListener: (_event: Electron.Event, method: string, params: any) => void;
   capturedSet: Set<string>;
   pendingCredentials: Map<string, { host: string; username: string; password: string; origin: string; title: string }>;
+  cdpLease: CdpLease;
 }
 
 const captures = new Map<number, CaptureState>();
@@ -54,8 +56,7 @@ function sendToRenderer(channel: string, payload: Record<string, unknown>): void
 }
 
 function detachQuietly(state: CaptureState): void {
-  // 直接尝试 detach，try/catch 处理重复 detach（对齐 bv demo）
-  try { state.wc.debugger.detach(); } catch { /* ignore duplicate detach */ }
+  try { state.cdpLease.release(); } catch { /* ignore duplicate detach */ }
 }
 
 export const CAPTURE_SCRIPT = `
@@ -410,6 +411,12 @@ export function setupCapture(wc: WebContents): void {
     teardownCapture(wc);
   }
 
+  let cdpLease: CdpLease;
+  try { cdpLease = acquireCdpLease(wc, 'password-capture'); } catch (e: any) {
+    log.warn('[PasswordCapture] attach failed:', e.message);
+    return;
+  }
+
   const state: CaptureState = {
     wc,
     destroyed: false,
@@ -420,12 +427,8 @@ export function setupCapture(wc: WebContents): void {
     messageListener: () => {},
     capturedSet: new Set(),
     pendingCredentials: globalPendingCredentials as any,
+    cdpLease,
   };
-
-  try { wc.debugger.attach('1.3'); } catch (e: any) {
-    log.warn('[PasswordCapture] attach failed:', e.message);
-    return;
-  }
   log.info('[PasswordCapture] attached, wc.id=' + wc.id);
 
   state.messageListener = (_event, method, params: any) => {

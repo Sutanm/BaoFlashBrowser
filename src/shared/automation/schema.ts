@@ -1,0 +1,283 @@
+import { z } from 'zod';
+import type {
+  AutomationPackageManifest,
+  AutomationCondition,
+  AutomationStep,
+  AutomationWorkflow,
+  ImageCondition,
+  SequenceStep,
+} from './types';
+
+const idSchema = z.string().min(1).max(96).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/);
+const assetIdSchema = z.string().min(1).max(240).refine((value) => {
+  if (value.includes('\\') || value.startsWith('/') || value.includes('\0')) return false;
+  return value.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
+}, 'asset path must be a safe relative POSIX path');
+
+const regionSchema = z.object({
+  x: z.number().int().nonnegative(),
+  y: z.number().int().nonnegative(),
+  width: z.number().int().positive().max(16384),
+  height: z.number().int().positive().max(16384),
+}).strict();
+
+const imageFields = {
+  asset: assetIdSchema,
+  threshold: z.number().min(0.1).max(1).optional(),
+  region: regionSchema.optional(),
+  scales: z.array(z.number().min(0.25).max(4)).min(1).max(16).refine(
+    (values) => new Set(values).size === values.length,
+    'image scales must be unique',
+  ).optional(),
+  mask: z.enum(['none', 'alpha']).optional(),
+};
+
+export const imageConditionSchema: z.ZodType<ImageCondition> = z.object({
+  type: z.literal('image-visible'),
+  ...imageFields,
+}).strict();
+
+export const automationConditionSchema: z.ZodType<AutomationCondition, z.ZodTypeDef, unknown> = z.lazy(() =>
+  z.union([
+    imageConditionSchema,
+    z.object({
+      type: z.literal('all'),
+      conditions: z.array(automationConditionSchema).min(2).max(16),
+    }).strict(),
+    z.object({
+      type: z.literal('any'),
+      conditions: z.array(automationConditionSchema).min(2).max(16),
+    }).strict(),
+    z.object({
+      type: z.literal('not'),
+      condition: automationConditionSchema,
+    }).strict(),
+  ]),
+);
+
+const stepId = { id: idSchema.optional() };
+
+export const sequenceStepSchema: z.ZodType<SequenceStep, z.ZodTypeDef, unknown> = z.lazy(() =>
+  z.object({
+    ...stepId,
+    type: z.literal('sequence'),
+    steps: z.array(automationStepSchema).max(1000),
+  }).strict(),
+);
+
+export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unknown> = z.lazy(() =>
+  z.union([
+    sequenceStepSchema,
+    z.object({
+      ...stepId,
+      type: z.literal('delay'),
+      durationMs: z.number().int().nonnegative().max(3_600_000),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('wait-image'),
+      ...imageFields,
+      timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+      pollMs: z.number().int().min(25).max(60_000).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('wait-image-state'),
+      ...imageFields,
+      state: z.enum(['visible', 'hidden']),
+      timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+      pollMs: z.number().int().min(25).max(60_000).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('click-image'),
+      ...imageFields,
+      timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+      pollMs: z.number().int().min(25).max(60_000).optional(),
+      button: z.enum(['left', 'right', 'middle']).optional(),
+      clickCount: z.number().int().min(1).max(3).optional(),
+      offset: z.object({ x: z.number().int(), y: z.number().int() }).strict().optional(),
+      verifyBeforeClick: z.boolean().optional(),
+      maxMovementPx: z.number().int().min(0).max(500).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('key-press'),
+      key: z.string().min(1).max(64),
+      modifiers: z.array(z.enum(['alt', 'control', 'meta', 'shift'])).max(4).refine(
+        (values) => new Set(values).size === values.length,
+        'key modifiers must be unique',
+      ).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('key-hold-until-image'),
+      key: z.string().min(1).max(64),
+      modifiers: z.array(z.enum(['alt', 'control', 'meta', 'shift'])).max(4).refine(
+        (values) => new Set(values).size === values.length,
+        'key modifiers must be unique',
+      ).optional(),
+      ...imageFields,
+      state: z.enum(['visible', 'hidden']),
+      timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+      pollMs: z.number().int().min(25).max(60_000).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('move-to-image'),
+      ...imageFields,
+      timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+      pollMs: z.number().int().min(25).max(60_000).optional(),
+      offset: z.object({ x: z.number().int(), y: z.number().int() }).strict().optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('text-input'),
+      text: z.string().max(10_000),
+      intervalMs: z.number().int().nonnegative().max(10_000).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('scroll'),
+      deltaX: z.number().int().min(-100_000).max(100_000),
+      deltaY: z.number().int().min(-100_000).max(100_000),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('navigate'),
+      url: z.string().url().max(2048).refine((value) => /^https?:\/\//i.test(value), 'only http(s) URLs are supported'),
+    }).strict(),
+    z.object({ ...stepId, type: z.literal('reload') }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('log'),
+      message: z.string().max(2000),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('if-image'),
+      condition: imageConditionSchema,
+      negate: z.boolean().optional(),
+      then: sequenceStepSchema,
+      else: sequenceStepSchema.optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('if-condition'),
+      condition: automationConditionSchema,
+      then: sequenceStepSchema,
+      else: sequenceStepSchema.optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('wait-condition'),
+      condition: automationConditionSchema,
+      timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+      pollMs: z.number().int().min(25).max(60_000).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('repeat'),
+      times: z.number().int().min(1).max(1000),
+      body: sequenceStepSchema,
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('repeat-until-image'),
+      condition: imageConditionSchema,
+      until: z.enum(['visible', 'hidden']),
+      maxIterations: z.number().int().min(1).max(1000),
+      delayMs: z.number().int().nonnegative().max(3_600_000).optional(),
+      body: sequenceStepSchema,
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('repeat-until-condition'),
+      condition: automationConditionSchema,
+      maxIterations: z.number().int().min(1).max(1000),
+      delayMs: z.number().int().nonnegative().max(3_600_000).optional(),
+      body: sequenceStepSchema,
+    }).strict(),
+  ]),
+);
+
+export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDef, unknown> = z.object({
+  formatVersion: z.literal(1),
+  id: idSchema,
+  name: z.string().min(1).max(120),
+  description: z.string().max(2000).optional(),
+  readyWhen: automationConditionSchema.optional(),
+  root: sequenceStepSchema,
+}).strict();
+
+export const automationPackageManifestSchema: z.ZodType<AutomationPackageManifest> = z.object({
+  format: z.literal('baoauto'),
+  formatVersion: z.literal(1),
+  id: idSchema,
+  name: z.string().min(1).max(120),
+  workflow: z.literal('workflow.json'),
+  assets: z.literal('assets/'),
+  createdBy: z.string().min(1).max(120).optional(),
+  minimumAppVersion: z.string().regex(/^\d+\.\d+\.\d+$/).optional(),
+  capabilities: z.array(z.enum(['vision', 'alpha-mask', 'multi-scale', 'trusted-input', 'navigation', 'combined-conditions'])).max(16).refine(
+    (values) => new Set(values).size === values.length,
+    'automation capabilities must be unique',
+  ).optional(),
+}).strict();
+
+export function parseAutomationWorkflow(value: unknown): AutomationWorkflow {
+  return automationWorkflowSchema.parse(value);
+}
+
+export function parseAutomationPackageManifest(value: unknown): AutomationPackageManifest {
+  return automationPackageManifestSchema.parse(value);
+}
+
+export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<string> {
+  const result = new Set<string>();
+  const visitCondition = (condition: AutomationCondition): void => {
+    if (condition.type === 'image-visible') result.add(condition.asset);
+    else if (condition.type === 'not') visitCondition(condition.condition);
+    else condition.conditions.forEach(visitCondition);
+  };
+  if (workflow.readyWhen) visitCondition(workflow.readyWhen);
+  const visit = (step: AutomationStep): void => {
+    switch (step.type) {
+      case 'sequence': step.steps.forEach(visit); break;
+      case 'wait-image':
+      case 'wait-image-state':
+      case 'click-image': result.add(step.asset); break;
+      case 'key-hold-until-image': result.add(step.asset); break;
+      case 'move-to-image': result.add(step.asset); break;
+      case 'if-image':
+        result.add(step.condition.asset);
+        visit(step.then);
+        if (step.else) visit(step.else);
+        break;
+      case 'if-condition':
+        visitCondition(step.condition);
+        visit(step.then);
+        if (step.else) visit(step.else);
+        break;
+      case 'wait-condition': visitCondition(step.condition); break;
+      case 'repeat': visit(step.body); break;
+      case 'repeat-until-image':
+        result.add(step.condition.asset);
+        visit(step.body);
+        break;
+      case 'repeat-until-condition':
+        visitCondition(step.condition);
+        visit(step.body);
+        break;
+      case 'delay':
+      case 'key-press':
+      case 'text-input':
+      case 'scroll':
+      case 'navigate':
+      case 'reload':
+      case 'log': break;
+    }
+  };
+  visit(workflow.root);
+  return result;
+}

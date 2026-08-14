@@ -13,6 +13,7 @@ export interface TabSessionSnapshot {
 
 function safeSessionUrl(value: unknown): string | null {
   if (value === 'about:newtab' || value === 'about:blank') return 'about:newtab';
+  if (value === 'about:userscripts' || value === 'about:automation') return value;
   if (typeof value !== 'string' || value.length < 1 || value.length > 8192) return null;
   try {
     const parsed = new URL(value);

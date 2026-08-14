@@ -51,6 +51,17 @@ export interface GmApi {
     onCompleted?: (event: GmWebRequestEvent) => void;
     onErrorOccurred?: (event: GmWebRequestEvent) => void;
   }): void;
+  baoAutomation: {
+    listPackages(): Promise<Array<{ packageId: string; name: string; assets: string[] }>>;
+    match(packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'none' | 'alpha' }): Promise<unknown>;
+    status(): Promise<unknown>;
+    start(packageId: string, countdownMs?: number): Promise<unknown>;
+    cancel(): Promise<unknown>;
+    warmup(packageId: string, asset?: string): Promise<unknown>;
+    assetPreview(packageId: string, asset: string): Promise<unknown>;
+    captureFrame(): Promise<unknown>;
+    saveCapture(packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }, overwrite?: boolean): Promise<unknown>;
+  };
   handleWebRequestEvent(event: GmWebRequestEvent): void;
   info: Record<string, unknown>;
   handleMenuInvoke(commandId: number): boolean;
@@ -102,6 +113,7 @@ export function grantGmApi(api: GmApi, rawGrants: string[] | undefined): Granted
   expose('GM_notification', 'notification', api.notification);
   expose('GM_cookie', 'cookie', api.cookie);
   expose('GM_webRequest', 'webRequest', api.webRequest);
+  if (grants.has('GM_baoAutomation')) modern.baoAutomation = api.baoAutomation;
 
   // Compatibility baseline: these two APIs are non-privileged. GM_info is
   // read-only script/runtime metadata, and GM_log is already rate-limited in
@@ -206,6 +218,26 @@ export function createGmApi(context: GmApiContext): GmApi {
       level: level ?? 'info',
       message: String(message ?? '').slice(0, 4000),
     });
+  };
+
+  const baoAutomation = {
+    listPackages: async (): Promise<Array<{ packageId: string; name: string; assets: string[] }>> => {
+      const result = await bridge.invoke('userscript:automation-list', { scriptId: script.id });
+      return Array.isArray(result) ? result as Array<{ packageId: string; name: string; assets: string[] }> : [];
+    },
+    match: (packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'none' | 'alpha' }): Promise<unknown> =>
+      bridge.invoke('userscript:automation-match', { scriptId: script.id, packageId, asset, options: options ?? {} }),
+    status: (): Promise<unknown> => bridge.invoke('userscript:automation-status', { scriptId: script.id }),
+    start: (packageId: string, countdownMs = 0): Promise<unknown> =>
+      bridge.invoke('userscript:automation-start', { scriptId: script.id, packageId, countdownMs }),
+    cancel: (): Promise<unknown> => bridge.invoke('userscript:automation-cancel', { scriptId: script.id }),
+    warmup: (packageId: string, asset?: string): Promise<unknown> =>
+      bridge.invoke('userscript:automation-warmup', { scriptId: script.id, packageId, asset }),
+    assetPreview: (packageId: string, asset: string): Promise<unknown> =>
+      bridge.invoke('userscript:automation-asset-preview', { scriptId: script.id, packageId, asset }),
+    captureFrame: (): Promise<unknown> => bridge.invoke('userscript:automation-capture-frame', { scriptId: script.id }),
+    saveCapture: (packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }, overwrite = false): Promise<unknown> =>
+      bridge.invoke('userscript:automation-save-capture', { scriptId: script.id, packageId, token, asset, rect, overwrite }),
   };
 
   // --- GM_webRequest (OBSERVATION ONLY: no interception, no modification) ----
@@ -520,6 +552,7 @@ export function createGmApi(context: GmApiContext): GmApi {
     log,
     cookie,
     webRequest,
+    baoAutomation,
     info: {
       // Which Flash engine this tab runs: 'ppapi' (native Flash) or 'ruffle'.
       // Scripts can branch behavior (e.g. skip/adapt DOM patches that only make

@@ -213,7 +213,7 @@ export default function UserscriptsPage(): React.JSX.Element {
 
   const pickFile = useCallback(async (): Promise<void> => {
     try {
-      const result = (await window.electronAPI.userscripts.installFile()) as { ok: false; error: string } | { source: string };
+      const result = (await window.electronAPI.userscripts.installFile(LL.userscript.installFileDialogTitle())) as { ok: false; error: string } | { source: string };
       if (!('source' in result)) {
         if (result.error !== 'cancelled') showNotice(LL.userscript.fileReadFailed({ error: result.error }));
         return;
@@ -274,7 +274,7 @@ export default function UserscriptsPage(): React.JSX.Element {
   }, [refresh, showNotice, LL]);
 
   const exportScript = useCallback(async (script: InstalledUserscript): Promise<void> => {
-    const result = (await window.electronAPI.userscripts.exportSource(script.id)) as { ok: boolean; path?: string; error?: string };
+    const result = (await window.electronAPI.userscripts.exportSource(script.id, LL.userscript.exportDialogTitle())) as { ok: boolean; path?: string; error?: string };
     showNotice(result.ok && result.path
       ? LL.userscript.exported({ path: result.path })
       : LL.userscript.exportFailed({ error: result.error ?? 'unknown' }));

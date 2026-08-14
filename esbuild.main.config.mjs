@@ -9,7 +9,7 @@ const shared = {
   platform: 'node',
   format: 'cjs',
   target: 'node12',
-  external: ['electron', 'electron-log', 'electron-store', 'esbuild'],
+  external: ['electron', 'electron-log', 'electron-store', 'esbuild', '@techstark/opencv-js'],
   alias: {
     '@shared': './src/shared',
     '@main': './src/main',
@@ -54,6 +54,11 @@ const builds = [
     ...shared,
     entryPoints: ['src/webview-preload/index.ts'],
     outfile: 'dist/webview-preload.js',
+  },
+  {
+    ...shared,
+    entryPoints: ['src/main/modules/automation/vision-worker.cjs'],
+    outfile: 'dist/vision-worker.cjs',
   },
 ];
 

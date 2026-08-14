@@ -51,13 +51,13 @@ export function registerDownloadIPC(): void {
     records: z.array(downloadRecord).max(1000),
   }).strict(), ({ records }) => adoptDownloadRecords(records));
 
-  ipcMain.handle('download:set-dir', async () => {
+  ipcMain.handle('download:set-dir', async (_event, payload?: { title?: string }) => {
     const win = BrowserWindow.getFocusedWindow() || getMainWindow();
     if (!win) return null;
     const result = await dialog.showOpenDialog(win!, {
       properties: ['openDirectory', 'createDirectory'],
       defaultPath: getDownloadDir(),
-      title: '选择下载目录',
+      title: payload?.title ?? 'Select Download Directory',
     });
     if (!result.canceled && result.filePaths[0]) {
       const dir = result.filePaths[0];

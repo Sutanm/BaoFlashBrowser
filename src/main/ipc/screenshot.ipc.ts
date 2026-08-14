@@ -48,7 +48,7 @@ export function registerScreenshotIPC(getWin: () => BrowserWindow | null): void 
     });
 
   // set-dir 用裸 ipcMain.handle：需要 getWin 闭包（dialog 父窗口）+ 无参通道不需 zod 校验
-  ipcMain.handle('screenshot:set-dir', async () => {
+  ipcMain.handle('screenshot:set-dir', async (_event, payload?: { title?: string }) => {
     try {
       const win = getWin() ?? BrowserWindow.getFocusedWindow();
       if (!win) {
@@ -58,7 +58,7 @@ export function registerScreenshotIPC(getWin: () => BrowserWindow | null): void 
       const result = await dialog.showOpenDialog(win, {
         properties: ['openDirectory', 'createDirectory'],
         defaultPath: getScreenshotDir(),
-        title: '选择截图保存目录',
+        title: (payload?.title as string | undefined) ?? 'Select Screenshot Folder',
       });
       if (result.canceled || !result.filePaths[0]) return { success: true, canceled: true };
       const dir = result.filePaths[0];

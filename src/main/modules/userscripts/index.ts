@@ -23,6 +23,9 @@ import type { InstalledUserscript, UserscriptUpdateInfo } from '../../../shared/
 // esbuild.main.config.mjs loader). css-fixer.user.js is generated from
 // bundled-scripts/css-fixer-entry.ts by scripts/build-css-fixer.mjs.
 import cssFixerSource from './bundled-scripts/css-fixer.user.js';
+import automationFrameAssistantSource from './bundled-scripts/automation-frame-assistant.user.js';
+
+export const AUTOMATION_ASSISTANT_SCRIPT_ID = scriptIdFor('BaoFlash 页面悬浮相框助手', 'bao-flash-browser');
 
 // Built-in scripts: installed automatically on first launch, then treated
 // like any other userscript (editable, disable-able, deletable; a deleted
@@ -35,6 +38,10 @@ const BUNDLED_SCRIPTS: Array<{ id: string; source: string }> = [
   {
     id: scriptIdFor('BaoFlash Modern CSS Fixer', 'bao-flash-browser'),
     source: cssFixerSource,
+  },
+  {
+    id: AUTOMATION_ASSISTANT_SCRIPT_ID,
+    source: automationFrameAssistantSource,
   },
 ];
 

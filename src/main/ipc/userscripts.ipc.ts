@@ -4,13 +4,17 @@
 // can be set; async channels that need the sender id use ipcMain.handle with
 // safeParse directly, mirroring tabs.ipc.ts's ruffleDiagnostic pattern).
 
-import { BrowserWindow, clipboard, ipcMain, Notification } from 'electron';
+import { randomBytes } from 'crypto';
+import { BrowserWindow, clipboard, ipcMain, nativeImage, Notification } from 'electron';
 import log from 'electron-log';
 import { z } from 'zod';
 import { registerValidatedListener, createValidatedHandler } from '../utils/ipc-wrapper';
-import { getUserscriptManager, getRequestService, getDownloadService, getBackgroundRuntime, getCookieService, getWebRequestObserver } from '../modules/userscripts';
+import { AUTOMATION_ASSISTANT_SCRIPT_ID, getUserscriptManager, getRequestService, getDownloadService, getBackgroundRuntime, getCookieService, getWebRequestObserver } from '../modules/userscripts';
 import { createLogRateLimiter } from './userscript-log-rate';
 import type { UserscriptReport } from '../../shared/userscript-types';
+import { getAutomationService } from './automation.ipc';
+import { tabManager } from '../modules/tabs';
+import { previewRectToSource } from '../modules/automation/capture-geometry';
 
 const commandIdSchema = z.object({ commandId: z.string() });
 
@@ -23,6 +27,139 @@ export function registerUserscriptsIPC(): void {
   const requests = () => getRequestService();
   const downloads = () => getDownloadService();
   const cookies = () => getCookieService();
+  const automationGrant = (wcId: number, scriptId: string): boolean => {
+    const active = manager();
+    const registration = active?.getRegistration(wcId);
+    const installed = active?.getScriptMetadata(scriptId);
+    return Boolean(scriptId === AUTOMATION_ASSISTANT_SCRIPT_ID && registration && installed?.enabled && installed.metadata.grant.includes('GM_baoAutomation'));
+  };
+  const assistantCaptures = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
+  const expireAssistantCaptures = (): void => {
+    const cutoff = Date.now() - 2 * 60_000;
+    for (const [token, capture] of assistantCaptures) if (capture.createdAt < cutoff) {
+      clearTimeout(capture.timer); assistantCaptures.delete(token);
+    }
+  };
+  const safeCapturedAsset = z.string().min(1).max(180).refine((value) => {
+    if (!value.toLowerCase().endsWith('.png') || value !== value.trim() || /[<>:"/\\|?*]/u.test(value)
+      || Array.from(value).some((character) => character.charCodeAt(0) < 32)) return false;
+    const base = value.slice(0, -4);
+    return Boolean(base) && !/[. ]$/u.test(base) && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu.test(base);
+  }, 'asset name must be a safe PNG filename');
+
+  ipcMain.handle('userscript:automation-list', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw);
+    const service = getAutomationService();
+    if (!parsed.success || !service || !automationGrant(event.sender.id, parsed.data.scriptId)) return [];
+    await service.whenReady();
+    return service.listPackages().map(({ packageId, name, assets }) => ({ packageId, name, assets }));
+  });
+
+  ipcMain.handle('userscript:automation-match', async (event, raw: unknown) => {
+    const parsed = z.object({
+      scriptId: z.string(), packageId: z.string().min(1).max(160), asset: z.string().min(1).max(512),
+      options: z.object({ threshold: z.number().min(.1).max(1).optional(), scales: z.array(z.number().min(.25).max(4)).min(1).max(16).optional(), mask: z.enum(['none', 'alpha']).optional() }).strict(),
+    }).strict().safeParse(raw);
+    const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady();
+    const captured = await service.captureReferenceFrame(tabId);
+    const image = nativeImage.createFromBuffer(Buffer.from(captured.png));
+    if (image.isEmpty()) throw new Error('page capture is empty');
+    const match = await service.testAssetOnImage(parsed.data.packageId, parsed.data.asset, { width: captured.width, height: captured.height, bgra: Uint8Array.from(image.toBitmap()) }, { scales: parsed.data.options.scales, mask: parsed.data.options.mask });
+    const scale = Math.min(1, 900 / captured.width, 600 / captured.height);
+    const previewWidth = Math.max(1, Math.round(captured.width * scale));
+    const previewHeight = Math.max(1, Math.round(captured.height * scale));
+    const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
+    const threshold = parsed.data.options.threshold ?? .9;
+    return { dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: captured.width, sourceHeight: captured.height, candidate: match, matched: Boolean(match && match.score >= threshold), threshold };
+  });
+
+  ipcMain.handle('userscript:automation-status', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw);
+    const service = getAutomationService();
+    if (!parsed.success || !service || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady(); return service.getStatus();
+  });
+
+  ipcMain.handle('userscript:automation-start', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string(), packageId: z.string().min(1).max(160), countdownMs: z.number().int().min(0).max(60_000) }).strict().safeParse(raw);
+    const service = getAutomationService(); const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady();
+    if (['checking', 'countdown', 'running'].includes(service.getStatus().state)) throw new Error('an automation script is already active');
+    void service.start(parsed.data.packageId, tabId, parsed.data.countdownMs).catch(() => {});
+    return { started: true as const };
+  });
+
+  ipcMain.handle('userscript:automation-cancel', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw); const service = getAutomationService();
+    if (!parsed.success || !service || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.cancel(); return { cancelled: true as const };
+  });
+
+  ipcMain.handle('userscript:automation-warmup', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string(), packageId: z.string().min(1).max(160), asset: z.string().min(1).max(512).optional() }).strict().safeParse(raw);
+    const service = getAutomationService();
+    if (!parsed.success || !service || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady(); await service.warmupVision(parsed.data.packageId);
+    if (parsed.data.asset) {
+      const source = service.getAsset(parsed.data.packageId, parsed.data.asset);
+      const image = nativeImage.createFromBuffer(Buffer.from(source.bytes));
+      if (!image.isEmpty()) {
+        const size = image.getSize();
+        await service.testAssetOnImage(parsed.data.packageId, parsed.data.asset, { width: size.width, height: size.height, bgra: Uint8Array.from(image.toBitmap()) }, { scales: [1], mask: 'none' });
+      }
+    }
+    return { ready: true as const };
+  });
+
+  ipcMain.handle('userscript:automation-asset-preview', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string(), packageId: z.string().min(1).max(160), asset: z.string().min(1).max(512) }).strict().safeParse(raw);
+    const service = getAutomationService();
+    if (!parsed.success || !service || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    const source = service.getAsset(parsed.data.packageId, parsed.data.asset);
+    if (source.bytes.byteLength > 16 * 1024 * 1024) throw new Error('automation asset is too large to preview');
+    const image = nativeImage.createFromBuffer(Buffer.from(source.bytes)); if (image.isEmpty()) throw new Error('unable to decode automation asset');
+    const size = image.getSize(); const scale = Math.min(1, 92 / size.width, 64 / size.height);
+    const preview = scale < 1 ? image.resize({ width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)) }) : image;
+    return { asset: parsed.data.asset, dataUrl: preview.toDataURL(), width: size.width, height: size.height };
+  });
+
+  ipcMain.handle('userscript:automation-capture-frame', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw); const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady(); expireAssistantCaptures();
+    const captured = await service.captureReferenceFrame(tabId); const image = nativeImage.createFromBuffer(Buffer.from(captured.png));
+    if (image.isEmpty()) throw new Error('unable to decode captured BrowserView frame');
+    const scale = Math.min(1, 1600 / captured.width, 1000 / captured.height);
+    const previewWidth = Math.max(1, Math.round(captured.width * scale)); const previewHeight = Math.max(1, Math.round(captured.height * scale));
+    const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
+    const token = randomBytes(16).toString('hex'); const timer = setTimeout(() => assistantCaptures.delete(token), 2 * 60_000); timer.unref();
+    assistantCaptures.set(token, { image, previewWidth, previewHeight, createdAt: Date.now(), timer });
+    while (assistantCaptures.size > 3) { const oldest = assistantCaptures.keys().next().value as string; const removed = assistantCaptures.get(oldest); if (removed) clearTimeout(removed.timer); assistantCaptures.delete(oldest); }
+    return { token, dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: captured.width, sourceHeight: captured.height };
+  });
+
+  ipcMain.handle('userscript:automation-save-capture', async (event, raw: unknown) => {
+    const parsed = z.object({
+      scriptId: z.string(), packageId: z.string().min(1).max(160), token: z.string().regex(/^[a-f0-9]{32}$/), asset: safeCapturedAsset,
+      rect: z.object({ x: z.number().min(0), y: z.number().min(0), width: z.number().min(2), height: z.number().min(2) }).strict(), overwrite: z.boolean(),
+    }).strict().safeParse(raw);
+    const service = getAutomationService();
+    if (!parsed.success || !service || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('invalid automation capture request');
+    await service.whenReady(); expireAssistantCaptures(); const capture = assistantCaptures.get(parsed.data.token);
+    if (!capture) throw new Error('captured frame expired; capture the page again');
+    const existing = service.getPackage(parsed.data.packageId).assets.includes(parsed.data.asset);
+    if (existing && !parsed.data.overwrite) return { conflict: true as const, asset: parsed.data.asset };
+    const crop = previewRectToSource(parsed.data.rect, { width: capture.previewWidth, height: capture.previewHeight }, capture.image.getSize());
+    const bytes = new Uint8Array(capture.image.crop(crop).toPNG());
+    const assets = await service.importAssets(parsed.data.packageId, new Map([[parsed.data.asset, bytes]]));
+    clearTimeout(capture.timer); assistantCaptures.delete(parsed.data.token);
+    return { conflict: false as const, asset: parsed.data.asset, width: crop.width, height: crop.height, assets };
+  });
 
   // Script logging: sinks into electron-log so it lands in userData/logs/main.log.
   // Never log credentials: message text is script-provided and may contain

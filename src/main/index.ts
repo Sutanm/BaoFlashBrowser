@@ -18,6 +18,7 @@ import { registerDiagnosticsIPC } from './ipc/diagnostics.ipc';
 import { registerUserscriptsIPC } from './ipc/userscripts.ipc';
 import { setupJsPatchInterceptor } from './modules/js-patch-service';
 import { registerUserscriptsAdminIPC } from './ipc/userscripts-admin.ipc';
+import { registerAutomationIPC } from './ipc/automation.ipc';
 import { initUserscriptManager } from './modules/userscripts';
 import { init as initPasswordStore } from './modules/password-store';
 import { tabManager } from './modules/tabs';
@@ -25,6 +26,8 @@ import { initDownloadManager, killAria2 } from './modules/download';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, preventCleanShutdownMark } from './modules/session-recovery';
 import { startMemoryMonitor, stopMemoryMonitor } from './modules/memory-monitor';
+
+let automationService: ReturnType<typeof registerAutomationIPC> | null = null;
 
 function bootstrap(): void {
   if (!app.requestSingleInstanceLock()) {
@@ -128,6 +131,7 @@ initUserscriptManager();
 setupJsPatchInterceptor();
 registerUserscriptsIPC();
     registerUserscriptsAdminIPC(() => getMainWindow());
+    automationService = registerAutomationIPC(() => getMainWindow());
     startMemoryMonitor();
 
     // 调试截图 HTTP 口子：仅开发模式 + BAO_SCREENSHOT_HTTP=1（发布版零监听端口）
@@ -161,6 +165,7 @@ registerUserscriptsIPC();
 
   app.on('window-all-closed', () => {
     stopMemoryMonitor();
+    void automationService?.cancel();
     killAria2();
     app.quit();
   });

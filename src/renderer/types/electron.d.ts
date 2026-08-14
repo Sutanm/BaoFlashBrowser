@@ -7,6 +7,7 @@ import type {
 import type { PasswordStoreStatus } from '@shared/types/passwords';
 import type { DownloadEngine, DownloadItem } from '@shared/types/downloads';
 import type { SessionRecoveryStatus } from '@shared/types/session';
+import type { AutomationMessage } from '@shared/automation/types';
 
 interface MainConfig {
   flashVersion: string;
@@ -79,6 +80,34 @@ interface PasswordFillOperationResult {
   reason?: 'no-credential' | 'no-form' | 'debugger-unavailable' | 'destroyed';
 }
 
+interface AutomationStatus {
+  enabled: boolean;
+  state: 'idle' | 'checking' | 'ready' | 'countdown' | 'running' | 'completed' | 'failed' | 'cancelled';
+  packageId?: string;
+  workflowName?: string;
+  tabId?: string;
+  message?: AutomationMessage;
+  currentStep?: AutomationMessage;
+  executedSteps?: number;
+  debugMode?: boolean;
+  debugPaused?: boolean;
+  logs?: Array<{
+    id: number; timestamp: number; level: 'info' | 'success' | 'warning' | 'error'; message: AutomationMessage; step?: number;
+  }>;
+}
+
+interface AutomationRunRecord {
+  id: string; packageId: string; workflowName: string; tabId: string; mode: 'run' | 'debug';
+  startedAt: number; finishedAt: number; state: 'completed' | 'failed' | 'cancelled'; executedSteps: number;
+  logs: NonNullable<AutomationStatus['logs']>;
+}
+
+interface AutomationPackageDiagnostic {
+  packageId: string; valid: boolean; assetCount: number; assetBytes: number; referencedAssets: number;
+  unreferencedAssets: string[]; missingAssets: string[]; stepCount: number; maxDepth: number; capabilities: string[];
+  issues: Array<{ level: 'info' | 'warning' | 'error'; code: string; detail: string }>;
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -86,6 +115,7 @@ declare global {
       on(channel: 'tab:updated', cb: (payload: TabUpdatedPayload) => void): () => void;
       on(channel: 'tab:found', cb: (payload: TabFoundPayload) => void): () => void;
       on(channel: 'tab:load-error', cb: (payload: TabLoadErrorPayload) => void): () => void;
+      on(channel: 'automation:status-changed', cb: (payload: AutomationStatus) => void): () => void;
       on(channel: 'tab:crashed', cb: (payload: TabCrashedPayload) => void): () => void;
       on(channel: 'tab:newwindow', cb: (payload: NewWindowPayload) => void): () => void;
       on(channel: 'download:progress', cb: (payload: DownloadProgressPayload) => void): () => void;
@@ -101,7 +131,7 @@ declare global {
       invoke(channel: 'save-config', payload: Partial<MainConfig>): Promise<boolean>;
       invoke(channel: 'download:aria2-status'): Promise<Aria2StatusPayload | null>;
       invoke(channel: 'download:get-dir'): Promise<string>;
-      invoke(channel: 'download:set-dir'): Promise<string>;
+      invoke(channel: 'download:set-dir', payload: { title?: string }): Promise<string>;
       invoke(channel: 'download:delete-file', payload: { savePath: string }): Promise<boolean>;
       invoke(channel: 'download:list'): Promise<DownloadItem[]>;
       invoke(channel: 'tab:create', payload: { tabId: string; url: string }): Promise<void>;
@@ -138,7 +168,7 @@ declare global {
       invoke(channel: 'screenshot:capture', payload: { tabId: string } & ScreenshotOptions): Promise<ScreenshotResult>;
       invoke(channel: 'screenshot:capture-active', payload: ScreenshotOptions): Promise<ScreenshotResult>;
       invoke(channel: 'screenshot:reveal', payload: { filePath: string }): Promise<{ success: boolean; code?: string; error?: string }>;
-      invoke(channel: 'screenshot:set-dir'): Promise<ScreenshotSetDirResult>;
+      invoke(channel: 'screenshot:set-dir', payload: { title?: string }): Promise<ScreenshotSetDirResult>;
       invoke(channel: string, ...args: unknown[]): Promise<unknown>;
 
       webviewPreloadPath: string;
@@ -174,7 +204,7 @@ declare global {
         open(savePath: string): void;
         openDir(savePath: string): void;
         getDir(): Promise<string>;
-        setDir(): Promise<string>;
+        setDir(title?: string): Promise<string>;
         deleteFile(savePath: string): Promise<boolean>;
         list(): Promise<DownloadItem[]>;
         syncRecords(records: DownloadItem[]): Promise<DownloadItem[]>;
@@ -232,7 +262,7 @@ declare global {
           | { ok: false; error: string }
         >;
         installSource(source: string, enabled?: boolean): Promise<import('@shared/userscript-types').InstalledUserscript | { ok: false; error: string }>;
-        installFile(): Promise<{ source: string } | { ok: false; error: string }>;
+        installFile(title?: string): Promise<{ source: string } | { ok: false; error: string }>;
         installUrl(url: string): Promise<{ source: string } | { ok: false; error: string }>;
         uninstall(id: string): Promise<{ ok: boolean }>;
         setEnabled(id: string, enabled: boolean): Promise<{ ok: boolean }>;
@@ -251,7 +281,7 @@ declare global {
           stopped: boolean;
         }>;
         backgroundRestart(id?: string): Promise<{ ok: boolean }>;
-        exportSource(id: string): Promise<{ ok: boolean; path?: string; error?: string }>;
+        exportSource(id: string, title?: string): Promise<{ ok: boolean; path?: string; error?: string }>;
         listValues(id: string): Promise<{ values: Record<string, unknown> }>;
         setValueAdmin(id: string, key: string, value: unknown): Promise<{ ok: boolean }>;
         deleteValueAdmin(id: string, key: string): Promise<{ ok: boolean }>;
@@ -262,7 +292,69 @@ declare global {
         capture(tabId: string, opts?: ScreenshotOptions): Promise<ScreenshotResult>;
         captureActive(opts?: ScreenshotOptions): Promise<ScreenshotResult>;
         reveal(filePath: string): Promise<{ success: boolean; code?: string; error?: string }>;
-        setDir(): Promise<ScreenshotSetDirResult>;
+        setDir(title?: string): Promise<ScreenshotSetDirResult>;
+      };
+
+      automation: {
+        capabilities(): Promise<AutomationStatus>;
+        validateWorkflow(workflow: unknown): Promise<
+          { valid: true; workflow: import('@shared/automation/types').AutomationWorkflow }
+          | { valid: false; issues: Array<{ path: string; message: string }> }
+        >;
+        openPackage(i18n?: { title?: string; filterName?: string; replace?: string; cancel?: string; existsTitle?: string; existsMessage?: string }): Promise<
+          { canceled: true }
+          | { canceled: false; packageId: string; id: string; name: string; assets: string[] }
+        >;
+        status(): Promise<AutomationStatus>;
+        listPackages(): Promise<Array<{ packageId: string; id: string; name: string; assets: string[] }>>;
+        getPackage(packageId: string): Promise<{
+          packageId: string;
+          workflow: import('@shared/automation/types').AutomationWorkflow;
+          assets: string[];
+        }>;
+        getAssetPreview(packageId: string, asset: string): Promise<{
+          asset: string; width: number; height: number; bytes: number; dataUrl: string;
+        }>;
+        diagnosePackage(packageId: string): Promise<AutomationPackageDiagnostic>;
+        listRunHistory(packageId?: string): Promise<AutomationRunRecord[]>;
+        clearRunHistory(packageId?: string): Promise<{ success: boolean }>;
+        openTestScene(i18n?: { title?: string; filterName?: string }): Promise<{
+          canceled: boolean; token?: string; name?: string; dataUrl?: string; previewWidth?: number; previewHeight?: number; sourceWidth?: number; sourceHeight?: number;
+        }>;
+        captureTestSceneTab(tabId: string): Promise<{
+          token: string; name: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number;
+        }>;
+        testAssetOnScene(packageId: string, token: string, asset: string, threshold: number, scales?: number[], mask?: 'none' | 'alpha'): Promise<{
+          candidate: { x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number; masked?: boolean; lowVariance?: boolean; templateStdDev?: number } | null;
+          matched: boolean; threshold: number;
+        }>;
+        warmupVision(packageId: string): Promise<{ ready: boolean }>;
+        importAssetFiles(packageId: string, i18n?: { title?: string; filterName?: string }): Promise<{ canceled: boolean; assets?: string[] }>;
+        getAssetReferences(packageId: string, asset: string): Promise<{ referenced: boolean }>;
+        deleteAsset(packageId: string, asset: string): Promise<{ assets: string[] }>;
+        replaceAsset(packageId: string, asset: string, i18n?: { title?: string; filterName?: string }): Promise<{ canceled: boolean; assets?: string[] }>;
+        captureAssetFrame(tabId: string): Promise<{
+          token: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number;
+        }>;
+        saveCapturedAsset(packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }): Promise<{
+          asset: string; width: number; height: number; assets: string[];
+        }>;
+        updateWorkflow(packageId: string, workflow: unknown): Promise<import('@shared/automation/types').AutomationWorkflow>;
+        createPackage(id: string, name: string): Promise<{ packageId: string; id: string; name: string; assets: string[] }>;
+        duplicatePackage(packageId: string, id: string, name: string): Promise<{ packageId: string; id: string; name: string; assets: string[] }>;
+        deletePackage(packageId: string): Promise<{ success: boolean }>;
+        importAssets(packageId: string, i18n?: { title?: string }): Promise<{ canceled: boolean; assets?: string[] }>;
+        linkAssetFolder(packageId: string, i18n?: { title?: string }): Promise<{ canceled: boolean; token?: string; name?: string; files?: Array<{ asset: string; bytes: number }> }>;
+        syncAssetFolder(packageId: string, token: string): Promise<{ assets: string[]; addedOrUpdated: string[]; missingFromFolder: string[] }>;
+        exportPackage(packageId: string, i18n?: { title?: string; filterName?: string }): Promise<{ canceled: boolean; filePath?: string }>;
+        checkReady(packageId: string, tabId: string): Promise<boolean>;
+        testAsset(packageId: string, tabId: string, asset: string, threshold: number, scales?: number[], mask?: 'none' | 'alpha'): Promise<{
+          x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number; masked?: boolean;
+        } | null>;
+        start(packageId: string, tabId: string, countdownMs?: number): Promise<boolean>;
+        debugStart(packageId: string, tabId: string): Promise<boolean>;
+        debugContinue(): Promise<boolean>;
+        cancel(): Promise<void>;
       };
     };
   }

@@ -165,7 +165,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
 
   const handleSelectScreenshotDir = useCallback(async () => {
     try {
-      const result = await window.electronAPI.screenshot.setDir();
+      const result = await window.electronAPI.screenshot.setDir(LL.settings.screenshot.dialogTitle());
       if (result.canceled) return;
       if (result.success && result.dir) {
         setMainForm((prev) => ({ ...prev, screenshotDir: result.dir as string }));

@@ -33,6 +33,8 @@ app.whenReady().then(async () => {
   ipcMain.on('userscript:report', (event, payload) => {
     mod.getUserscriptManager()?.acceptReport(event.sender.id, payload);
   });
+  ipcMain.handle('userscript:automation-list', async () => []);
+  ipcMain.handle('userscript:automation-status', async () => ({ enabled: true, state: 'idle', executedSteps: 0, logs: [] }));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   mod = require('../../release/tests/userscripts-admin-module.cjs');
@@ -49,6 +51,7 @@ app.whenReady().then(async () => {
   const listed = mod.listUserscripts();
   check('list returns the script', listed.some((s) => s.id === installed.script.id), listed.map((s) => s.id));
   check('built-in css fixer auto-installed', listed.some((s) => s.metadata.name === 'BaoFlash Modern CSS Fixer'), listed.map((s) => s.metadata.name));
+  check('built-in automation frame assistant auto-installed', listed.some((s) => s.metadata.name === 'BaoFlash 页面悬浮相框助手' && s.metadata.grant.includes('GM_baoAutomation')), listed.map((s) => s.metadata.name));
 
   const srv = http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -84,12 +87,32 @@ app.whenReady().then(async () => {
   const deadline = Date.now() + 15000;
   let complete = null;
   while (Date.now() < deadline) {
-    complete = reports.find((r) => r.phase === 'script-complete');
+    complete = reports.find((r) => r.phase === 'script-complete' && r.detail?.scriptId === installed.script.id);
     if (complete) break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   check('real script executes end-to-end', Boolean(complete), complete ? { scriptId: complete.scriptId, phase: complete.phase } : null);
   check('script id matches installed id', complete?.detail?.scriptId === installed.script.id, { reportScriptId: complete?.detail?.scriptId, installedId: installed.script.id });
+  const assistantOverlayVisible = await view.webContents.executeJavaScript(
+    "Boolean(document.getElementById('bao-automation-frame-assistant'))",
+  );
+  check('built-in automation assistant injects a page overlay', assistantOverlayVisible, assistantOverlayVisible);
+  const assistantControls = await view.webContents.executeJavaScript(`(() => {
+    const root = document.getElementById('bao-automation-frame-assistant');
+    const captureLayer = document.getElementById('bao-automation-capture-layer');
+    const captureHelp = captureLayer?.querySelector('.bao-capture-help');
+    root?.querySelector('.bao-orb')?.click();
+    return {
+      open: root?.classList.contains('bao-open'),
+      tabs: root?.querySelectorAll('.bao-tab').length,
+      captureCancel: captureLayer?.querySelector('.bao-capture-cancel')?.textContent,
+      captureHelp: captureHelp?.textContent,
+      captureHelpTop: captureHelp ? getComputedStyle(captureHelp).top : null,
+    };
+  })()`);
+  check('automation assistant opens as a three-tab floating control center', assistantControls?.open === true && assistantControls?.tabs === 3, assistantControls);
+  check('automation capture keeps a visible cancel button without Escape copy', assistantControls?.captureCancel === '取消' && !assistantControls?.captureHelp?.includes('Esc'), assistantControls);
+  check('automation capture help clears the top toast area', assistantControls?.captureHelpTop === '64px', assistantControls);
 
   // 4. Toggle disable then re-enable.
   const byId = (id) => mod.listUserscripts().find((s) => s.id === id);

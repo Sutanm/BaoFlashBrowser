@@ -122,6 +122,10 @@ type RootTranslation = {
 		 */
 		userscripts: string
 		/**
+		 * 自​动​化​工​作​台
+		 */
+		automation: string
+		/**
 		 * 关​闭​标​签​页
 		 */
 		closeTab: string
@@ -170,6 +174,10 @@ type RootTranslation = {
 		 * 用​户​脚​本
 		 */
 		userscripts: string
+		/**
+		 * 自​动​化
+		 */
+		automation: string
 		/**
 		 * 设​置
 		 */
@@ -877,6 +885,10 @@ type RootTranslation = {
 			 * 选​择​目​录​失​败
 			 */
 			dirSelectFailed: string
+			/**
+			 * 选​择​截​图​保​存​目​录
+			 */
+			dialogTitle: string
 		}
 	}
 	find: {
@@ -1110,6 +1122,14 @@ type RootTranslation = {
 		 */
 		installLocalFile: string
 		/**
+		 * 安​装​用​户​脚​本
+		 */
+		installFileDialogTitle: string
+		/**
+		 * 导​出​脚​本
+		 */
+		exportDialogTitle: string
+		/**
 		 * 删​除​脚​本​「​{​n​a​m​e​}​」​？
 		 * @param {unknown} name
 		 */
@@ -1294,6 +1314,1070 @@ type RootTranslation = {
 			restartAllHint: string
 		}
 	}
+	automation: {
+		page: {
+			/**
+			 * 自​动​化​工​作​台
+			 */
+			title: string
+			/**
+			 * 搭​建​脚​本​、​管​理​识​别​素​材​，​并​在​目​标​网​页​的​自​动​化​侧​栏​中​运​行​。
+			 */
+			subtitle: string
+			/**
+			 * 正​在​加​载​自​动​化​工​作​台​…
+			 */
+			loading: string
+			/**
+			 * 新​建​脚​本
+			 */
+			newScript: string
+			/**
+			 * 导​入​ ​.​b​a​o​a​u​t​o
+			 */
+			importPackage: string
+			/**
+			 * 导​出​脚​本​包
+			 */
+			exportPackage: string
+			/**
+			 * 保​存​修​改
+			 */
+			saveChanges: string
+			/**
+			 * 当​前​版​本​可​以​创​建​和​编​辑​脚​本​；​网​页​识​别​与​执​行​仍​处​于​实​验​开​关​关​闭​状​态​。
+			 */
+			warningDisabled: string
+			/**
+			 * 脚​本​库
+			 */
+			libraryTitle: string
+			/**
+			 * {​c​o​u​n​t​}​ ​个​素​材
+			 * @param {unknown} count
+			 */
+			assetCount: RequiredParams<'count'>
+			/**
+			 * 个​素​材
+			 */
+			assetCountLabel: string
+			/**
+			 * 复​制​脚​本
+			 */
+			duplicateTitle: string
+			/**
+			 * 删​除​脚​本
+			 */
+			deleteTitle: string
+			/**
+			 * 还​没​有​脚​本
+			 */
+			emptyLibrary: string
+			/**
+			 * 新​建​脚​本​或​导​入​工​作​台​导​出​的​ ​`​.​b​a​o​a​u​t​o​`​ ​文​件​。
+			 */
+			emptyLibraryHint: string
+			/**
+			 * 识​别​素​材
+			 */
+			assetsTitle: string
+			/**
+			 * 合​并​素​材​目​录
+			 */
+			mergeAssetsTitle: string
+			/**
+			 * 添​加
+			 */
+			add: string
+			/**
+			 * 这​个​脚​本​尚​未​包​含​图​片​素​材​。
+			 */
+			noAssetsHint: string
+			/**
+			 * 正​在​被​脚​本​引​用​，​不​能​删​除
+			 */
+			assetReferenced: string
+			/**
+			 * 当​前​未​被​脚​本​引​用
+			 */
+			assetUnreferenced: string
+			/**
+			 * 替​换
+			 */
+			replace: string
+			/**
+			 * 删​除​素​材
+			 */
+			deleteAssetTitle: string
+			/**
+			 * 请​先​从​积​木​中​移​除​该​素​材​引​用
+			 */
+			removeAssetReferenceHint: string
+			/**
+			 * 脚​本​名​称
+			 */
+			name: string
+			/**
+			 * 脚​本​ ​I​D
+			 */
+			id: string
+			/**
+			 * 说​明
+			 */
+			description: string
+			/**
+			 * 积​木​编​辑
+			 */
+			blocksTab: string
+			/**
+			 * J​S​O​N​ ​代​码
+			 */
+			jsonTab: string
+			/**
+			 * 素​材​测​试​台
+			 */
+			testBenchTab: string
+			/**
+			 * 校​验​并​应​用​ ​J​S​O​N
+			 */
+			applyJson: string
+			/**
+			 * 选​择​或​导​入​一​个​脚​本
+			 */
+			emptyEditorTitle: string
+			/**
+			 * 脚​本​会​显​示​在​左​侧​脚​本​库​中​。
+			 */
+			emptyEditorHint: string
+			/**
+			 * 新​建​自​动​化​脚​本
+			 */
+			createDialogTitle: string
+			/**
+			 * 复​制​自​动​化​脚​本
+			 */
+			duplicateDialogTitle: string
+			/**
+			 * 脚​本​ ​I​D​ ​将​用​于​文​件​名​，​创​建​后​不​能​直​接​修​改​。
+			 */
+			dialogIdHint: string
+			/**
+			 * 正​在​创​建​…
+			 */
+			creating: string
+			/**
+			 * 创​建​脚​本
+			 */
+			create: string
+			/**
+			 * 取​消
+			 */
+			cancel: string
+			/**
+			 * 已​导​入​ ​{​n​a​m​e​}
+			 * @param {unknown} name
+			 */
+			noticeImported: RequiredParams<'name'>
+			/**
+			 * 新​脚​本​已​创​建​并​持​久​保​存
+			 */
+			noticeCreated: string
+			/**
+			 * 脚​本​副​本​已​创​建
+			 */
+			noticeDuplicated: string
+			/**
+			 * 脚​本​已​删​除
+			 */
+			noticeDeleted: string
+			/**
+			 * 素​材​目​录​已​合​并​，​共​ ​{​c​o​u​n​t​}​ ​个​素​材
+			 * @param {unknown} count
+			 */
+			noticeMerged: RequiredParams<'count'>
+			/**
+			 * 素​材​ ​{​a​s​s​e​t​}​ ​已​替​换
+			 * @param {unknown} asset
+			 */
+			noticeReplaced: RequiredParams<'asset'>
+			/**
+			 * 素​材​ ​{​a​s​s​e​t​}​ ​已​删​除
+			 * @param {unknown} asset
+			 */
+			noticeAssetDeleted: RequiredParams<'asset'>
+			/**
+			 * 脚​本​已​载​入
+			 */
+			noticeLoaded: string
+			/**
+			 * 积​木​修​改​已​保​存​到​当​前​脚​本​包
+			 */
+			noticeSaved: string
+			/**
+			 * 搜​索​素​材​或​目​录
+			 */
+			searchAssets: string
+			/**
+			 * 根​目​录
+			 */
+			rootFolder: string
+			/**
+			 * 关​联​目​录
+			 */
+			linkFolder: string
+			/**
+			 * 同​步
+			 */
+			syncFolder: string
+			/**
+			 * 选​择​要​关​联​的​素​材​目​录
+			 */
+			linkFolderTitle: string
+			/**
+			 * 已​关​联​ ​{​n​a​m​e​}​，​发​现​ ​{​c​o​u​n​t​}​ ​个​素​材
+			 * @param {unknown} count
+			 * @param {unknown} name
+			 */
+			folderLinked: RequiredParams<'count' | 'name'>
+			/**
+			 * 同​步​完​成​：​新​增​或​更​新​ ​{​c​h​a​n​g​e​d​}​ ​个​，​目​录​中​缺​少​ ​{​m​i​s​s​i​n​g​}​ ​个​（​未​自​动​删​除​）
+			 * @param {unknown} changed
+			 * @param {unknown} missing
+			 */
+			folderSynced: RequiredParams<'changed' | 'missing'>
+			/**
+			 * 检​查​脚​本​包
+			 */
+			diagnose: string
+			/**
+			 * 脚​本​包​检​查​通​过
+			 */
+			diagnosticPassed: string
+			/**
+			 * 脚​本​包​存​在​阻​塞​问​题
+			 */
+			diagnosticFailed: string
+			/**
+			 * {​s​t​e​p​s​}​ ​个​步​骤​ ​·​ ​深​度​ ​{​d​e​p​t​h​}​ ​·​ ​{​a​s​s​e​t​s​}​ ​个​素​材​ ​·​ ​{​s​i​z​e​}​ ​M​B
+			 * @param {unknown} assets
+			 * @param {unknown} depth
+			 * @param {unknown} size
+			 * @param {unknown} steps
+			 */
+			diagnosticMetrics: RequiredParams<'assets' | 'depth' | 'size' | 'steps'>
+			/**
+			 * 有​未​保​存​修​改​，​草​稿​已​自​动​保​存​在​本​机
+			 */
+			unsaved: string
+			/**
+			 * 保​存​修​改​ ​*
+			 */
+			saveDirty: string
+			/**
+			 * 当​前​脚​本​有​未​保​存​修​改​，​仍​要​切​换​脚​本​吗​？​本​机​草​稿​会​保​留​。
+			 */
+			unsavedConfirm: string
+			/**
+			 * J​S​O​N​ ​已​校​验​并​同​步​到​积​木
+			 */
+			noticeJsonApplied: string
+			/**
+			 * 已​导​出​到​ ​{​p​a​t​h​}
+			 * @param {unknown} path
+			 */
+			noticeExported: RequiredParams<'path'>
+			/**
+			 * 所​选​位​置
+			 */
+			noticeFallbackPath: string
+			/**
+			 * 导​入​脚​本​包​或​新​建​脚​本​后​即​可​编​辑
+			 */
+			noticeInitial: string
+			/**
+			 * 确​定​删​除​"​{​n​a​m​e​}​"​吗​？​此​操​作​会​删​除​已​安​装​的​脚​本​包​。
+			 * @param {unknown} name
+			 */
+			deletePackageConfirm: RequiredParams<'name'>
+			/**
+			 * 确​定​删​除​素​材​"​{​a​s​s​e​t​}​"​吗​？
+			 * @param {unknown} asset
+			 */
+			deleteAssetConfirm: RequiredParams<'asset'>
+			/**
+			 * 新​自​动​化​脚​本
+			 */
+			draftDefaultName: string
+			/**
+			 * {​n​a​m​e​}​ ​副​本
+			 * @param {unknown} name
+			 */
+			copySuffix: RequiredParams<'name'>
+		}
+		panel: {
+			/**
+			 * 打​开​自​动​化​工​作​台
+			 */
+			openWorkbench: string
+			/**
+			 * 当​前​版​本​尚​未​启​用​自​动​化​执​行​能​力​。
+			 */
+			notEnabled: string
+			/**
+			 * 脚​本
+			 */
+			scripts: string
+			/**
+			 * 导​入
+			 */
+			'import': string
+			/**
+			 * 先​导​入​一​个​ ​`​.​b​a​o​a​u​t​o​`​ ​脚​本​包
+			 */
+			emptyPackage: string
+			/**
+			 * {​c​o​u​n​t​}​ ​个​识​别​素​材​ ​·​ ​{​i​d​}
+			 * @param {unknown} count
+			 * @param {unknown} id
+			 */
+			assetMeta: RequiredParams<'count' | 'id'>
+			/**
+			 * 第​ ​{​c​o​u​n​t​}​ ​步​ ​·​ ​{​s​t​e​p​}
+			 * @param {unknown} count
+			 * @param {unknown} step
+			 */
+			currentStep: RequiredParams<'count' | 'step'>
+			/**
+			 * 当​前​网​页​可​作​为​执​行​目​标
+			 */
+			webTargetHint: string
+			/**
+			 * 请​切​换​到​要​操​作​的​网​页
+			 */
+			switchTargetHint: string
+			/**
+			 * 从​当​前​网​页​截​取​素​材
+			 */
+			captureAsset: string
+			/**
+			 * 拖​动​框​选​识​别​区​域
+			 */
+			dragToSelect: string
+			/**
+			 * 当​前​网​页​截​图
+			 */
+			captureAlt: string
+			/**
+			 * 已​选​ ​{​w​}​ ​×​ ​{​h​}
+			 * @param {unknown} h
+			 * @param {unknown} w
+			 */
+			selectedRect: RequiredParams<'h' | 'w'>
+			/**
+			 * 按​住​鼠​标​拖​动​框​选
+			 */
+			dragHint: string
+			/**
+			 * 保​存​为​脚​本​素​材
+			 */
+			saveAsAsset: string
+			/**
+			 * c​a​p​t​u​r​e​s​/​b​u​t​t​o​n​.​p​n​g
+			 */
+			assetNamePlaceholder: string
+			/**
+			 * 素​材​识​别​测​试
+			 */
+			assetTestTitle: string
+			/**
+			 * 识​别​阈​值
+			 */
+			thresholdAria: string
+			/**
+			 * 在​当​前​网​页​测​试
+			 */
+			testOnPage: string
+			/**
+			 * 匹​配​ ​{​s​c​o​r​e​}​%​ ​·​ ​位​置​ ​{​x​}​,​ ​{​y​}​ ​·​ ​{​w​}​ ​×​ ​{​h​}​{​m​s​}
+			 * @param {unknown} h
+			 * @param {unknown} ms
+			 * @param {unknown} score
+			 * @param {unknown} w
+			 * @param {unknown} x
+			 * @param {unknown} y
+			 */
+			matchResult: RequiredParams<'h' | 'ms' | 'score' | 'w' | 'x' | 'y'>
+			/**
+			 *  ​·​ ​{​m​s​}​m​s
+			 * @param {unknown} ms
+			 */
+			matchResultMs: RequiredParams<'ms'>
+			/**
+			 * 未​达​到​当​前​阈​值​，​请​检​查​素​材​或​降​低​阈​值​。
+			 */
+			matchFail: string
+			/**
+			 * 单​步​启​动
+			 */
+			debugStart: string
+			/**
+			 * 下​一​步
+			 */
+			debugNext: string
+			/**
+			 * 运​行​日​志
+			 */
+			runLog: string
+			/**
+			 * 历​史​运​行
+			 */
+			runHistory: string
+			/**
+			 * 尚​无​已​完​成​的​正​式​运​行​或​单​步​调​试​记​录​。
+			 */
+			historyEmpty: string
+			/**
+			 * 运​行
+			 */
+			historyRun: string
+			/**
+			 * 调​试
+			 */
+			historyDebug: string
+			/**
+			 * {​s​t​a​t​e​}​ ​·​ ​{​s​t​e​p​s​}​ ​步​ ​·​ ​{​s​e​c​o​n​d​s​}​ ​秒
+			 * @param {unknown} seconds
+			 * @param {unknown} state
+			 * @param {unknown} steps
+			 */
+			historyRecord: RequiredParams<'seconds' | 'state' | 'steps'>
+			/**
+			 * 清​除​此​脚​本​历​史
+			 */
+			clearHistory: string
+			/**
+			 * 运​行​或​单​步​调​试​后​，​步​骤​和​错​误​会​显​示​在​这​里​。
+			 */
+			logEmpty: string
+			/**
+			 * 检​查​就​绪
+			 */
+			checkReady: string
+			/**
+			 * 3​ ​秒​启​动
+			 */
+			countdownStart: string
+			/**
+			 * 立​即​启​动
+			 */
+			startNow: string
+			/**
+			 * 停​止
+			 */
+			stop: string
+			/**
+			 * 素​材​"​{​a​s​s​e​t​}​"​已​经​存​在​，​是​否​替​换​？
+			 * @param {unknown} asset
+			 */
+			replaceAssetConfirm: RequiredParams<'asset'>
+			/**
+			 * 已​保​存​素​材​ ​{​a​s​s​e​t​}​（​{​w​}​ ​×​ ​{​h​}​）
+			 * @param {unknown} asset
+			 * @param {unknown} h
+			 * @param {unknown} w
+			 */
+			assetSaved: RequiredParams<'asset' | 'h' | 'w'>
+			status: {
+				/**
+				 * 等​待​检​查
+				 */
+				idle: string
+				/**
+				 * 正​在​识​别
+				 */
+				checking: string
+				/**
+				 * 已​经​就​绪
+				 */
+				ready: string
+				/**
+				 * 倒​计​时​中
+				 */
+				countdown: string
+				/**
+				 * 正​在​执​行
+				 */
+				running: string
+				/**
+				 * 执​行​完​成
+				 */
+				completed: string
+				/**
+				 * 执​行​失​败
+				 */
+				failed: string
+				/**
+				 * 已​停​止
+				 */
+				cancelled: string
+			}
+		}
+		testBench: {
+			/**
+			 * U​I​ ​素​材​匹​配​测​试​台
+			 */
+			title: string
+			/**
+			 * 在​指​定​场​景​图​中​定​位​ ​U​I​ ​素​材
+			 */
+			subtitle: string
+			/**
+			 * 阈​值​ ​{​v​a​l​u​e​}​%
+			 * @param {unknown} value
+			 */
+			threshold: RequiredParams<'value'>
+			/**
+			 * 多​尺​度
+			 */
+			multiScale: string
+			/**
+			 * 最​小
+			 */
+			scaleMin: string
+			/**
+			 * 最​大
+			 */
+			scaleMax: string
+			/**
+			 * 步​长
+			 */
+			scaleStep: string
+			/**
+			 * 透​明​遮​罩
+			 */
+			alphaMask: string
+			/**
+			 * 开​始​比​对
+			 */
+			compare: string
+			/**
+			 * 比​对​中
+			 */
+			comparing: string
+			/**
+			 * 选​择​目​标​场​景​图​片
+			 */
+			openSceneTitle: string
+			/**
+			 * 图​片​文​件
+			 */
+			imageFilter: string
+			/**
+			 * 导​入​目​标​场​景​图
+			 */
+			importScene: string
+			/**
+			 * 这​张​图​片​将​占​据​测​试​台​主​要​区​域
+			 */
+			importSceneHint: string
+			/**
+			 * 更​换​场​景​图
+			 */
+			replaceScene: string
+			/**
+			 * 缩​小​场​景​图
+			 */
+			zoomOut: string
+			/**
+			 * 放​大​场​景​图
+			 */
+			zoomIn: string
+			/**
+			 * 适​应​场​景​区​域
+			 */
+			fitScene: string
+			/**
+			 * 专​注​查​看​场​景​图
+			 */
+			focusScene: string
+			/**
+			 * 退​出​专​注​查​看
+			 */
+			exitFocus: string
+			/**
+			 * 匹​配​成​功
+			 */
+			matched: string
+			/**
+			 * 最​佳​候​选​低​于​阈​值
+			 */
+			belowThreshold: string
+			/**
+			 * 没​有​可​用​的​匹​配​候​选
+			 */
+			noCandidate: string
+			/**
+			 * 导​入​场​景​图​并​选​择​下​方​素​材​开​始​测​试
+			 */
+			waiting: string
+			/**
+			 * 匹​配​度​ ​{​s​c​o​r​e​}​%​ ​·​ ​坐​标​ ​(​{​x​}​,​ ​{​y​}​)​ ​·​ ​{​w​i​d​t​h​}​×​{​h​e​i​g​h​t​}​ ​·​ ​缩​放​ ​{​s​c​a​l​e​}​ ​·​ ​{​m​s​}​m​s
+			 * @param {unknown} height
+			 * @param {unknown} ms
+			 * @param {unknown} scale
+			 * @param {unknown} score
+			 * @param {unknown} width
+			 * @param {unknown} x
+			 * @param {unknown} y
+			 */
+			metrics: RequiredParams<'height' | 'ms' | 'scale' | 'score' | 'width' | 'x' | 'y'>
+			/**
+			 * 素​材​对​比​度​很​低​（​标​准​差​ ​{​v​a​l​u​e​}​）​，​已​切​换​纯​色​匹​配​模​式​；​建​议​裁​入​更​多​边​缘​特​征​。
+			 * @param {unknown} value
+			 */
+			lowVariance: RequiredParams<'value'>
+			/**
+			 * U​I​ ​素​材
+			 */
+			assetStrip: string
+			/**
+			 * 点​击​素​材​即​可​在​场​景​图​中​比​对
+			 */
+			assetStripHint: string
+			/**
+			 * 导​入​素​材
+			 */
+			importAssets: string
+			/**
+			 * 导​入​ ​U​I​ ​素​材
+			 */
+			importAssetsTitle: string
+			/**
+			 * 素​材​已​更​新​，​共​ ​{​c​o​u​n​t​}​ ​个
+			 * @param {unknown} count
+			 */
+			imported: RequiredParams<'count'>
+			/**
+			 * 当​前​脚​本​还​没​有​ ​U​I​ ​素​材
+			 */
+			noAssets: string
+		}
+		blockly: {
+			/**
+			 * 积​木​工​作​区​尚​未​就​绪
+			 */
+			workspaceNotReady: string
+			/**
+			 * 工​作​区​必​须​且​只​能​有​一​个​入​口​积​木
+			 */
+			requireOneStart: string
+			/**
+			 * 不​支​持​的​积​木​：​{​t​y​p​e​}
+			 * @param {unknown} type
+			 */
+			unsupportedBlock: RequiredParams<'type'>
+			/**
+			 * 条​件​积​木​不​能​为​空
+			 */
+			conditionRequired: string
+			/**
+			 * 新​自​动​化​脚​本
+			 */
+			defaultWorkflowName: string
+			/**
+			 * 无​条​件​启​动
+			 */
+			startUnconditional: string
+			/**
+			 * 条​件​ ​%​1​ ​满​足​时​就​绪
+			 */
+			startCondition: string
+			/**
+			 * 同​时​满​足​ ​%​1​ ​%​2​ ​%​3​ ​%​4
+			 */
+			conditionAndMany: string
+			/**
+			 * 任​意​满​足​ ​%​1​ ​%​2​ ​%​3​ ​%​4
+			 */
+			conditionOrMany: string
+			/**
+			 * 并​且​/​或​者​积​木​至​少​需​要​连​接​两​个​条​件
+			 */
+			twoConditionsRequired: string
+			/**
+			 * 执​行​ ​%​1
+			 */
+			execute: string
+			/**
+			 * 识​别​到​ ​%​1​ ​相​似​度​ ​%​2​ ​时​就​绪
+			 */
+			start: string
+			/**
+			 * 等​待​图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​超​时​ ​%​3​ ​毫​秒
+			 */
+			waitImage: string
+			/**
+			 * 等​待​图​片​ ​%​1​ ​%​2​ ​超​时​ ​%​3​ ​毫​秒
+			 */
+			waitImageState: string
+			/**
+			 * 点​击​图​片​ ​%​1​ ​%​2​ ​%​3​ ​次​ ​相​似​度​ ​%​4​ ​点​击​前​确​认​ ​%​5​ ​最​大​移​动​ ​%​6​ ​像​素
+			 */
+			clickImage: string
+			/**
+			 * 移​动​到​图​片​ ​%​1​ ​相​似​度​ ​%​2
+			 */
+			moveToImage: string
+			/**
+			 * 等​待​ ​%​1​ ​毫​秒
+			 */
+			delay: string
+			/**
+			 * 按​键​ ​%​1
+			 */
+			keyPress: string
+			/**
+			 * 组​合​键​ ​C​t​r​l​ ​%​1​ ​A​l​t​ ​%​2​ ​S​h​i​f​t​ ​%​3​ ​W​i​n​ ​%​4​ ​+​ ​%​5
+			 */
+			keyCombo: string
+			/**
+			 * 按​住​ ​%​1​ ​直​到​图​片​ ​%​2​ ​%​3​ ​超​时​ ​%​4​ ​毫​秒
+			 */
+			holdKeyUntilImage: string
+			/**
+			 * 输​入​文​本​ ​%​1​ ​间​隔​ ​%​2​ ​毫​秒
+			 */
+			textInput: string
+			/**
+			 * 滚​轮​ ​横​向​ ​%​1​ ​纵​向​ ​%​2
+			 */
+			scroll: string
+			/**
+			 * 打​开​网​址​ ​%​1
+			 */
+			navigate: string
+			/**
+			 * 刷​新​当​前​页​面
+			 */
+			reload: string
+			/**
+			 * 记​录​日​志​ ​%​1
+			 */
+			log: string
+			/**
+			 * 如​果​ ​%​1​ ​图​片​ ​%​2​ ​相​似​度​ ​%​3
+			 */
+			ifImage: string
+			/**
+			 * 如​果​条​件​ ​%​1
+			 */
+			ifCondition: string
+			/**
+			 * 图​片​ ​%​1​ ​相​似​度​ ​%​2
+			 */
+			imageCondition: string
+			/**
+			 * %​1​ ​并​且​ ​%​2
+			 */
+			conditionAnd: string
+			/**
+			 * %​1​ ​或​者​ ​%​2
+			 */
+			conditionOr: string
+			/**
+			 * 不​满​足​ ​%​1
+			 */
+			conditionNot: string
+			/**
+			 * 等​待​直​到​条​件​ ​%​1​ ​超​时​ ​%​2​ ​毫​秒
+			 */
+			waitCondition: string
+			/**
+			 * 那​么​ ​%​1
+			 */
+			then: string
+			/**
+			 * 否​则​ ​%​1
+			 */
+			otherwise: string
+			/**
+			 * 重​复​ ​%​1​ ​次
+			 */
+			repeat: string
+			/**
+			 * 重​复​直​到​图​片​ ​%​1​ ​%​2​ ​最​多​ ​%​3​ ​次
+			 */
+			repeatUntilImage: string
+			/**
+			 * 重​复​直​到​条​件​ ​%​1​ ​最​多​ ​%​2​ ​次
+			 */
+			repeatUntilCondition: string
+			/**
+			 * 出​现
+			 */
+			visible: string
+			/**
+			 * 消​失
+			 */
+			hidden: string
+			/**
+			 * 左​键
+			 */
+			leftButton: string
+			/**
+			 * 右​键
+			 */
+			rightButton: string
+			/**
+			 * 中​键
+			 */
+			middleButton: string
+			/**
+			 * 识​别​到
+			 */
+			found: string
+			/**
+			 * 未​识​别​到
+			 */
+			notFound: string
+			/**
+			 * 执​行​到​这​里
+			 */
+			logSample: string
+			/**
+			 * 你​好
+			 */
+			textSample: string
+			/**
+			 * 入​口
+			 */
+			catEntry: string
+			/**
+			 * 图​像
+			 */
+			catImage: string
+			/**
+			 * 输​入
+			 */
+			catInput: string
+			/**
+			 * 页​面
+			 */
+			catPage: string
+			/**
+			 * 流​程
+			 */
+			catFlow: string
+			/**
+			 * 调​试
+			 */
+			catDebug: string
+		}
+		service: {
+			state: {
+				/**
+				 * 出​现
+				 */
+				visible: string
+				/**
+				 * 消​失
+				 */
+				hidden: string
+			}
+			status: {
+				/**
+				 * 测​试​素​材​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 */
+				checkingAsset: RequiredParams<'asset'>
+				/**
+				 * 素​材​匹​配​成​功​，​分​数​ ​{​s​c​o​r​e​}​%
+				 * @param {unknown} score
+				 */
+				assetMatch: RequiredParams<'score'>
+				/**
+				 * 未​识​别​到​素​材​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 */
+				assetNoMatch: RequiredParams<'asset'>
+				/**
+				 * 就​绪​检​查​失​败​：​{​d​e​t​a​i​l​}
+				 * @param {unknown} detail
+				 */
+				readyCheckFailed: RequiredParams<'detail'>
+				/**
+				 * 执​行​失​败​：​{​d​e​t​a​i​l​}
+				 * @param {unknown} detail
+				 */
+				runFailed: RequiredParams<'detail'>
+				/**
+				 * 素​材​测​试​已​停​止​：​{​d​e​t​a​i​l​}
+				 * @param {unknown} detail
+				 */
+				assetTestStopped: RequiredParams<'detail'>
+				/**
+				 * 素​材​测​试​失​败​：​{​d​e​t​a​i​l​}
+				 * @param {unknown} detail
+				 */
+				assetTestFailed: RequiredParams<'detail'>
+				/**
+				 * 正​在​执​行​下​一​步
+				 */
+				stepNext: string
+				/**
+				 * 脚​本​执​行​完​成
+				 */
+				scriptCompleted: string
+				/**
+				 * 脚​本​已​停​止
+				 */
+				scriptStopped: string
+				/**
+				 * 识​别​到​ ​{​a​s​s​e​t​}​ ​·​ ​{​s​c​o​r​e​}​%​ ​·​ ​{​m​s​}​m​s
+				 * @param {unknown} asset
+				 * @param {unknown} ms
+				 * @param {unknown} score
+				 */
+				imageMatch: RequiredParams<'asset' | 'ms' | 'score'>
+				/**
+				 * 已​暂​停​，​下​一​步​：​{​s​t​e​p​}
+				 * @param {unknown} step
+				 */
+				pausedNext: RequiredParams<'step'>
+			}
+			step: {
+				/**
+				 * 执​行​流​程
+				 */
+				sequence: string
+				/**
+				 * 等​待​图​片​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 */
+				waitImage: RequiredParams<'asset'>
+				/**
+				 * 等​待​图​片​{​s​t​a​t​e​}​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 * @param {unknown} state
+				 */
+				waitImageState: RequiredParams<'asset' | 'state'>
+				/**
+				 * 点​击​图​片​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 */
+				clickImage: RequiredParams<'asset'>
+				/**
+				 * 移​动​到​图​片​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 */
+				moveToImage: RequiredParams<'asset'>
+				/**
+				 * 等​待​ ​{​m​s​}​ ​毫​秒
+				 * @param {unknown} ms
+				 */
+				delay: RequiredParams<'ms'>
+				/**
+				 * 按​键​ ​{​k​e​y​}
+				 * @param {unknown} key
+				 */
+				keyPress: RequiredParams<'key'>
+				/**
+				 * 按​住​ ​{​k​e​y​}​ ​直​到​图​片​{​s​t​a​t​e​}​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 * @param {unknown} key
+				 * @param {unknown} state
+				 */
+				keyHoldUntilImage: RequiredParams<'asset' | 'key' | 'state'>
+				/**
+				 * 输​入​文​本
+				 */
+				textInput: string
+				/**
+				 * 滚​动​页​面
+				 */
+				scroll: string
+				/**
+				 * 打​开​网​页
+				 */
+				navigate: string
+				/**
+				 * 刷​新​页​面
+				 */
+				reload: string
+				/**
+				 * 日​志​ ​{​m​e​s​s​a​g​e​}
+				 * @param {unknown} message
+				 */
+				log: RequiredParams<'message'>
+				/**
+				 * 判​断​图​片​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 */
+				ifImage: RequiredParams<'asset'>
+				/**
+				 * 判​断​组​合​条​件
+				 */
+				ifCondition: string
+				/**
+				 * 等​待​组​合​条​件
+				 */
+				waitCondition: string
+				/**
+				 * 重​复​ ​{​t​i​m​e​s​}​ ​次
+				 * @param {unknown} times
+				 */
+				repeat: RequiredParams<'times'>
+				/**
+				 * 重​复​直​到​ ​{​a​s​s​e​t​}
+				 * @param {unknown} asset
+				 */
+				repeatUntilImage: RequiredParams<'asset'>
+				/**
+				 * 重​复​直​到​组​合​条​件
+				 */
+				repeatUntilCondition: string
+			}
+		}
+		ipc: {
+			/**
+			 * 打​开​自​动​化​脚​本​包
+			 */
+			openPackageTitle: string
+			/**
+			 * B​a​o​F​l​a​s​h​ ​自​动​化​脚​本
+			 */
+			openPackageFilter: string
+			/**
+			 * 替​换
+			 */
+			replace: string
+			/**
+			 * 脚​本​已​经​存​在
+			 */
+			packageExistsTitle: string
+			/**
+			 * 脚​本​库​中​已​有​相​同​ ​I​D​ ​的​脚​本​，​是​否​使​用​导​入​文​件​替​换​？
+			 */
+			packageExistsMessage: string
+			/**
+			 * 替​换​素​材​ ​{​a​s​s​e​t​}
+			 * @param {unknown} asset
+			 */
+			replaceAssetTitle: RequiredParams<'asset'>
+			/**
+			 * 图​片​素​材
+			 */
+			imageAssetFilter: string
+			/**
+			 * 选​择​素​材​目​录
+			 */
+			selectAssetDir: string
+			/**
+			 * 导​出​自​动​化​脚​本​包
+			 */
+			exportPackageTitle: string
+		}
+	}
 	error: {
 		/**
 		 * 出​错​了
@@ -1427,6 +2511,10 @@ export type TranslationFunctions = {
 		 */
 		userscripts: () => LocalizedString
 		/**
+		 * 自动化工作台
+		 */
+		automation: () => LocalizedString
+		/**
 		 * 关闭标签页
 		 */
 		closeTab: () => LocalizedString
@@ -1474,6 +2562,10 @@ export type TranslationFunctions = {
 		 * 用户脚本
 		 */
 		userscripts: () => LocalizedString
+		/**
+		 * 自动化
+		 */
+		automation: () => LocalizedString
 		/**
 		 * 设置
 		 */
@@ -2171,6 +3263,10 @@ export type TranslationFunctions = {
 			 * 选择目录失败
 			 */
 			dirSelectFailed: () => LocalizedString
+			/**
+			 * 选择截图保存目录
+			 */
+			dialogTitle: () => LocalizedString
 		}
 	}
 	find: {
@@ -2397,6 +3493,14 @@ export type TranslationFunctions = {
 		 */
 		installLocalFile: () => LocalizedString
 		/**
+		 * 安装用户脚本
+		 */
+		installFileDialogTitle: () => LocalizedString
+		/**
+		 * 导出脚本
+		 */
+		exportDialogTitle: () => LocalizedString
+		/**
 		 * 删除脚本「{name}」？
 		 */
 		deleteConfirm: (arg: { name: unknown }) => LocalizedString
@@ -2567,6 +3671,996 @@ export type TranslationFunctions = {
 			 * 或一次性重启全部后台脚本:
 			 */
 			restartAllHint: () => LocalizedString
+		}
+	}
+	automation: {
+		page: {
+			/**
+			 * 自动化工作台
+			 */
+			title: () => LocalizedString
+			/**
+			 * 搭建脚本、管理识别素材，并在目标网页的自动化侧栏中运行。
+			 */
+			subtitle: () => LocalizedString
+			/**
+			 * 正在加载自动化工作台…
+			 */
+			loading: () => LocalizedString
+			/**
+			 * 新建脚本
+			 */
+			newScript: () => LocalizedString
+			/**
+			 * 导入 .baoauto
+			 */
+			importPackage: () => LocalizedString
+			/**
+			 * 导出脚本包
+			 */
+			exportPackage: () => LocalizedString
+			/**
+			 * 保存修改
+			 */
+			saveChanges: () => LocalizedString
+			/**
+			 * 当前版本可以创建和编辑脚本；网页识别与执行仍处于实验开关关闭状态。
+			 */
+			warningDisabled: () => LocalizedString
+			/**
+			 * 脚本库
+			 */
+			libraryTitle: () => LocalizedString
+			/**
+			 * {count} 个素材
+			 */
+			assetCount: (arg: { count: unknown }) => LocalizedString
+			/**
+			 * 个素材
+			 */
+			assetCountLabel: () => LocalizedString
+			/**
+			 * 复制脚本
+			 */
+			duplicateTitle: () => LocalizedString
+			/**
+			 * 删除脚本
+			 */
+			deleteTitle: () => LocalizedString
+			/**
+			 * 还没有脚本
+			 */
+			emptyLibrary: () => LocalizedString
+			/**
+			 * 新建脚本或导入工作台导出的 `.baoauto` 文件。
+			 */
+			emptyLibraryHint: () => LocalizedString
+			/**
+			 * 识别素材
+			 */
+			assetsTitle: () => LocalizedString
+			/**
+			 * 合并素材目录
+			 */
+			mergeAssetsTitle: () => LocalizedString
+			/**
+			 * 添加
+			 */
+			add: () => LocalizedString
+			/**
+			 * 这个脚本尚未包含图片素材。
+			 */
+			noAssetsHint: () => LocalizedString
+			/**
+			 * 正在被脚本引用，不能删除
+			 */
+			assetReferenced: () => LocalizedString
+			/**
+			 * 当前未被脚本引用
+			 */
+			assetUnreferenced: () => LocalizedString
+			/**
+			 * 替换
+			 */
+			replace: () => LocalizedString
+			/**
+			 * 删除素材
+			 */
+			deleteAssetTitle: () => LocalizedString
+			/**
+			 * 请先从积木中移除该素材引用
+			 */
+			removeAssetReferenceHint: () => LocalizedString
+			/**
+			 * 脚本名称
+			 */
+			name: () => LocalizedString
+			/**
+			 * 脚本 ID
+			 */
+			id: () => LocalizedString
+			/**
+			 * 说明
+			 */
+			description: () => LocalizedString
+			/**
+			 * 积木编辑
+			 */
+			blocksTab: () => LocalizedString
+			/**
+			 * JSON 代码
+			 */
+			jsonTab: () => LocalizedString
+			/**
+			 * 素材测试台
+			 */
+			testBenchTab: () => LocalizedString
+			/**
+			 * 校验并应用 JSON
+			 */
+			applyJson: () => LocalizedString
+			/**
+			 * 选择或导入一个脚本
+			 */
+			emptyEditorTitle: () => LocalizedString
+			/**
+			 * 脚本会显示在左侧脚本库中。
+			 */
+			emptyEditorHint: () => LocalizedString
+			/**
+			 * 新建自动化脚本
+			 */
+			createDialogTitle: () => LocalizedString
+			/**
+			 * 复制自动化脚本
+			 */
+			duplicateDialogTitle: () => LocalizedString
+			/**
+			 * 脚本 ID 将用于文件名，创建后不能直接修改。
+			 */
+			dialogIdHint: () => LocalizedString
+			/**
+			 * 正在创建…
+			 */
+			creating: () => LocalizedString
+			/**
+			 * 创建脚本
+			 */
+			create: () => LocalizedString
+			/**
+			 * 取消
+			 */
+			cancel: () => LocalizedString
+			/**
+			 * 已导入 {name}
+			 */
+			noticeImported: (arg: { name: unknown }) => LocalizedString
+			/**
+			 * 新脚本已创建并持久保存
+			 */
+			noticeCreated: () => LocalizedString
+			/**
+			 * 脚本副本已创建
+			 */
+			noticeDuplicated: () => LocalizedString
+			/**
+			 * 脚本已删除
+			 */
+			noticeDeleted: () => LocalizedString
+			/**
+			 * 素材目录已合并，共 {count} 个素材
+			 */
+			noticeMerged: (arg: { count: unknown }) => LocalizedString
+			/**
+			 * 素材 {asset} 已替换
+			 */
+			noticeReplaced: (arg: { asset: unknown }) => LocalizedString
+			/**
+			 * 素材 {asset} 已删除
+			 */
+			noticeAssetDeleted: (arg: { asset: unknown }) => LocalizedString
+			/**
+			 * 脚本已载入
+			 */
+			noticeLoaded: () => LocalizedString
+			/**
+			 * 积木修改已保存到当前脚本包
+			 */
+			noticeSaved: () => LocalizedString
+			/**
+			 * 搜索素材或目录
+			 */
+			searchAssets: () => LocalizedString
+			/**
+			 * 根目录
+			 */
+			rootFolder: () => LocalizedString
+			/**
+			 * 关联目录
+			 */
+			linkFolder: () => LocalizedString
+			/**
+			 * 同步
+			 */
+			syncFolder: () => LocalizedString
+			/**
+			 * 选择要关联的素材目录
+			 */
+			linkFolderTitle: () => LocalizedString
+			/**
+			 * 已关联 {name}，发现 {count} 个素材
+			 */
+			folderLinked: (arg: { count: unknown, name: unknown }) => LocalizedString
+			/**
+			 * 同步完成：新增或更新 {changed} 个，目录中缺少 {missing} 个（未自动删除）
+			 */
+			folderSynced: (arg: { changed: unknown, missing: unknown }) => LocalizedString
+			/**
+			 * 检查脚本包
+			 */
+			diagnose: () => LocalizedString
+			/**
+			 * 脚本包检查通过
+			 */
+			diagnosticPassed: () => LocalizedString
+			/**
+			 * 脚本包存在阻塞问题
+			 */
+			diagnosticFailed: () => LocalizedString
+			/**
+			 * {steps} 个步骤 · 深度 {depth} · {assets} 个素材 · {size} MB
+			 */
+			diagnosticMetrics: (arg: { assets: unknown, depth: unknown, size: unknown, steps: unknown }) => LocalizedString
+			/**
+			 * 有未保存修改，草稿已自动保存在本机
+			 */
+			unsaved: () => LocalizedString
+			/**
+			 * 保存修改 *
+			 */
+			saveDirty: () => LocalizedString
+			/**
+			 * 当前脚本有未保存修改，仍要切换脚本吗？本机草稿会保留。
+			 */
+			unsavedConfirm: () => LocalizedString
+			/**
+			 * JSON 已校验并同步到积木
+			 */
+			noticeJsonApplied: () => LocalizedString
+			/**
+			 * 已导出到 {path}
+			 */
+			noticeExported: (arg: { path: unknown }) => LocalizedString
+			/**
+			 * 所选位置
+			 */
+			noticeFallbackPath: () => LocalizedString
+			/**
+			 * 导入脚本包或新建脚本后即可编辑
+			 */
+			noticeInitial: () => LocalizedString
+			/**
+			 * 确定删除"{name}"吗？此操作会删除已安装的脚本包。
+			 */
+			deletePackageConfirm: (arg: { name: unknown }) => LocalizedString
+			/**
+			 * 确定删除素材"{asset}"吗？
+			 */
+			deleteAssetConfirm: (arg: { asset: unknown }) => LocalizedString
+			/**
+			 * 新自动化脚本
+			 */
+			draftDefaultName: () => LocalizedString
+			/**
+			 * {name} 副本
+			 */
+			copySuffix: (arg: { name: unknown }) => LocalizedString
+		}
+		panel: {
+			/**
+			 * 打开自动化工作台
+			 */
+			openWorkbench: () => LocalizedString
+			/**
+			 * 当前版本尚未启用自动化执行能力。
+			 */
+			notEnabled: () => LocalizedString
+			/**
+			 * 脚本
+			 */
+			scripts: () => LocalizedString
+			/**
+			 * 导入
+			 */
+			'import': () => LocalizedString
+			/**
+			 * 先导入一个 `.baoauto` 脚本包
+			 */
+			emptyPackage: () => LocalizedString
+			/**
+			 * {count} 个识别素材 · {id}
+			 */
+			assetMeta: (arg: { count: unknown, id: unknown }) => LocalizedString
+			/**
+			 * 第 {count} 步 · {step}
+			 */
+			currentStep: (arg: { count: unknown, step: unknown }) => LocalizedString
+			/**
+			 * 当前网页可作为执行目标
+			 */
+			webTargetHint: () => LocalizedString
+			/**
+			 * 请切换到要操作的网页
+			 */
+			switchTargetHint: () => LocalizedString
+			/**
+			 * 从当前网页截取素材
+			 */
+			captureAsset: () => LocalizedString
+			/**
+			 * 拖动框选识别区域
+			 */
+			dragToSelect: () => LocalizedString
+			/**
+			 * 当前网页截图
+			 */
+			captureAlt: () => LocalizedString
+			/**
+			 * 已选 {w} × {h}
+			 */
+			selectedRect: (arg: { h: unknown, w: unknown }) => LocalizedString
+			/**
+			 * 按住鼠标拖动框选
+			 */
+			dragHint: () => LocalizedString
+			/**
+			 * 保存为脚本素材
+			 */
+			saveAsAsset: () => LocalizedString
+			/**
+			 * captures/button.png
+			 */
+			assetNamePlaceholder: () => LocalizedString
+			/**
+			 * 素材识别测试
+			 */
+			assetTestTitle: () => LocalizedString
+			/**
+			 * 识别阈值
+			 */
+			thresholdAria: () => LocalizedString
+			/**
+			 * 在当前网页测试
+			 */
+			testOnPage: () => LocalizedString
+			/**
+			 * 匹配 {score}% · 位置 {x}, {y} · {w} × {h}{ms}
+			 */
+			matchResult: (arg: { h: unknown, ms: unknown, score: unknown, w: unknown, x: unknown, y: unknown }) => LocalizedString
+			/**
+			 *  · {ms}ms
+			 */
+			matchResultMs: (arg: { ms: unknown }) => LocalizedString
+			/**
+			 * 未达到当前阈值，请检查素材或降低阈值。
+			 */
+			matchFail: () => LocalizedString
+			/**
+			 * 单步启动
+			 */
+			debugStart: () => LocalizedString
+			/**
+			 * 下一步
+			 */
+			debugNext: () => LocalizedString
+			/**
+			 * 运行日志
+			 */
+			runLog: () => LocalizedString
+			/**
+			 * 历史运行
+			 */
+			runHistory: () => LocalizedString
+			/**
+			 * 尚无已完成的正式运行或单步调试记录。
+			 */
+			historyEmpty: () => LocalizedString
+			/**
+			 * 运行
+			 */
+			historyRun: () => LocalizedString
+			/**
+			 * 调试
+			 */
+			historyDebug: () => LocalizedString
+			/**
+			 * {state} · {steps} 步 · {seconds} 秒
+			 */
+			historyRecord: (arg: { seconds: unknown, state: unknown, steps: unknown }) => LocalizedString
+			/**
+			 * 清除此脚本历史
+			 */
+			clearHistory: () => LocalizedString
+			/**
+			 * 运行或单步调试后，步骤和错误会显示在这里。
+			 */
+			logEmpty: () => LocalizedString
+			/**
+			 * 检查就绪
+			 */
+			checkReady: () => LocalizedString
+			/**
+			 * 3 秒启动
+			 */
+			countdownStart: () => LocalizedString
+			/**
+			 * 立即启动
+			 */
+			startNow: () => LocalizedString
+			/**
+			 * 停止
+			 */
+			stop: () => LocalizedString
+			/**
+			 * 素材"{asset}"已经存在，是否替换？
+			 */
+			replaceAssetConfirm: (arg: { asset: unknown }) => LocalizedString
+			/**
+			 * 已保存素材 {asset}（{w} × {h}）
+			 */
+			assetSaved: (arg: { asset: unknown, h: unknown, w: unknown }) => LocalizedString
+			status: {
+				/**
+				 * 等待检查
+				 */
+				idle: () => LocalizedString
+				/**
+				 * 正在识别
+				 */
+				checking: () => LocalizedString
+				/**
+				 * 已经就绪
+				 */
+				ready: () => LocalizedString
+				/**
+				 * 倒计时中
+				 */
+				countdown: () => LocalizedString
+				/**
+				 * 正在执行
+				 */
+				running: () => LocalizedString
+				/**
+				 * 执行完成
+				 */
+				completed: () => LocalizedString
+				/**
+				 * 执行失败
+				 */
+				failed: () => LocalizedString
+				/**
+				 * 已停止
+				 */
+				cancelled: () => LocalizedString
+			}
+		}
+		testBench: {
+			/**
+			 * UI 素材匹配测试台
+			 */
+			title: () => LocalizedString
+			/**
+			 * 在指定场景图中定位 UI 素材
+			 */
+			subtitle: () => LocalizedString
+			/**
+			 * 阈值 {value}%
+			 */
+			threshold: (arg: { value: unknown }) => LocalizedString
+			/**
+			 * 多尺度
+			 */
+			multiScale: () => LocalizedString
+			/**
+			 * 最小
+			 */
+			scaleMin: () => LocalizedString
+			/**
+			 * 最大
+			 */
+			scaleMax: () => LocalizedString
+			/**
+			 * 步长
+			 */
+			scaleStep: () => LocalizedString
+			/**
+			 * 透明遮罩
+			 */
+			alphaMask: () => LocalizedString
+			/**
+			 * 开始比对
+			 */
+			compare: () => LocalizedString
+			/**
+			 * 比对中
+			 */
+			comparing: () => LocalizedString
+			/**
+			 * 选择目标场景图片
+			 */
+			openSceneTitle: () => LocalizedString
+			/**
+			 * 图片文件
+			 */
+			imageFilter: () => LocalizedString
+			/**
+			 * 导入目标场景图
+			 */
+			importScene: () => LocalizedString
+			/**
+			 * 这张图片将占据测试台主要区域
+			 */
+			importSceneHint: () => LocalizedString
+			/**
+			 * 更换场景图
+			 */
+			replaceScene: () => LocalizedString
+			/**
+			 * 缩小场景图
+			 */
+			zoomOut: () => LocalizedString
+			/**
+			 * 放大场景图
+			 */
+			zoomIn: () => LocalizedString
+			/**
+			 * 适应场景区域
+			 */
+			fitScene: () => LocalizedString
+			/**
+			 * 专注查看场景图
+			 */
+			focusScene: () => LocalizedString
+			/**
+			 * 退出专注查看
+			 */
+			exitFocus: () => LocalizedString
+			/**
+			 * 匹配成功
+			 */
+			matched: () => LocalizedString
+			/**
+			 * 最佳候选低于阈值
+			 */
+			belowThreshold: () => LocalizedString
+			/**
+			 * 没有可用的匹配候选
+			 */
+			noCandidate: () => LocalizedString
+			/**
+			 * 导入场景图并选择下方素材开始测试
+			 */
+			waiting: () => LocalizedString
+			/**
+			 * 匹配度 {score}% · 坐标 ({x}, {y}) · {width}×{height} · 缩放 {scale} · {ms}ms
+			 */
+			metrics: (arg: { height: unknown, ms: unknown, scale: unknown, score: unknown, width: unknown, x: unknown, y: unknown }) => LocalizedString
+			/**
+			 * 素材对比度很低（标准差 {value}），已切换纯色匹配模式；建议裁入更多边缘特征。
+			 */
+			lowVariance: (arg: { value: unknown }) => LocalizedString
+			/**
+			 * UI 素材
+			 */
+			assetStrip: () => LocalizedString
+			/**
+			 * 点击素材即可在场景图中比对
+			 */
+			assetStripHint: () => LocalizedString
+			/**
+			 * 导入素材
+			 */
+			importAssets: () => LocalizedString
+			/**
+			 * 导入 UI 素材
+			 */
+			importAssetsTitle: () => LocalizedString
+			/**
+			 * 素材已更新，共 {count} 个
+			 */
+			imported: (arg: { count: unknown }) => LocalizedString
+			/**
+			 * 当前脚本还没有 UI 素材
+			 */
+			noAssets: () => LocalizedString
+		}
+		blockly: {
+			/**
+			 * 积木工作区尚未就绪
+			 */
+			workspaceNotReady: () => LocalizedString
+			/**
+			 * 工作区必须且只能有一个入口积木
+			 */
+			requireOneStart: () => LocalizedString
+			/**
+			 * 不支持的积木：{type}
+			 */
+			unsupportedBlock: (arg: { type: unknown }) => LocalizedString
+			/**
+			 * 条件积木不能为空
+			 */
+			conditionRequired: () => LocalizedString
+			/**
+			 * 新自动化脚本
+			 */
+			defaultWorkflowName: () => LocalizedString
+			/**
+			 * 无条件启动
+			 */
+			startUnconditional: () => LocalizedString
+			/**
+			 * 条件 %1 满足时就绪
+			 */
+			startCondition: () => LocalizedString
+			/**
+			 * 同时满足 %1 %2 %3 %4
+			 */
+			conditionAndMany: () => LocalizedString
+			/**
+			 * 任意满足 %1 %2 %3 %4
+			 */
+			conditionOrMany: () => LocalizedString
+			/**
+			 * 并且/或者积木至少需要连接两个条件
+			 */
+			twoConditionsRequired: () => LocalizedString
+			/**
+			 * 执行 %1
+			 */
+			execute: () => LocalizedString
+			/**
+			 * 识别到 %1 相似度 %2 时就绪
+			 */
+			start: () => LocalizedString
+			/**
+			 * 等待图片 %1 相似度 %2 超时 %3 毫秒
+			 */
+			waitImage: () => LocalizedString
+			/**
+			 * 等待图片 %1 %2 超时 %3 毫秒
+			 */
+			waitImageState: () => LocalizedString
+			/**
+			 * 点击图片 %1 %2 %3 次 相似度 %4 点击前确认 %5 最大移动 %6 像素
+			 */
+			clickImage: () => LocalizedString
+			/**
+			 * 移动到图片 %1 相似度 %2
+			 */
+			moveToImage: () => LocalizedString
+			/**
+			 * 等待 %1 毫秒
+			 */
+			delay: () => LocalizedString
+			/**
+			 * 按键 %1
+			 */
+			keyPress: () => LocalizedString
+			/**
+			 * 组合键 Ctrl %1 Alt %2 Shift %3 Win %4 + %5
+			 */
+			keyCombo: () => LocalizedString
+			/**
+			 * 按住 %1 直到图片 %2 %3 超时 %4 毫秒
+			 */
+			holdKeyUntilImage: () => LocalizedString
+			/**
+			 * 输入文本 %1 间隔 %2 毫秒
+			 */
+			textInput: () => LocalizedString
+			/**
+			 * 滚轮 横向 %1 纵向 %2
+			 */
+			scroll: () => LocalizedString
+			/**
+			 * 打开网址 %1
+			 */
+			navigate: () => LocalizedString
+			/**
+			 * 刷新当前页面
+			 */
+			reload: () => LocalizedString
+			/**
+			 * 记录日志 %1
+			 */
+			log: () => LocalizedString
+			/**
+			 * 如果 %1 图片 %2 相似度 %3
+			 */
+			ifImage: () => LocalizedString
+			/**
+			 * 如果条件 %1
+			 */
+			ifCondition: () => LocalizedString
+			/**
+			 * 图片 %1 相似度 %2
+			 */
+			imageCondition: () => LocalizedString
+			/**
+			 * %1 并且 %2
+			 */
+			conditionAnd: () => LocalizedString
+			/**
+			 * %1 或者 %2
+			 */
+			conditionOr: () => LocalizedString
+			/**
+			 * 不满足 %1
+			 */
+			conditionNot: () => LocalizedString
+			/**
+			 * 等待直到条件 %1 超时 %2 毫秒
+			 */
+			waitCondition: () => LocalizedString
+			/**
+			 * 那么 %1
+			 */
+			then: () => LocalizedString
+			/**
+			 * 否则 %1
+			 */
+			otherwise: () => LocalizedString
+			/**
+			 * 重复 %1 次
+			 */
+			repeat: () => LocalizedString
+			/**
+			 * 重复直到图片 %1 %2 最多 %3 次
+			 */
+			repeatUntilImage: () => LocalizedString
+			/**
+			 * 重复直到条件 %1 最多 %2 次
+			 */
+			repeatUntilCondition: () => LocalizedString
+			/**
+			 * 出现
+			 */
+			visible: () => LocalizedString
+			/**
+			 * 消失
+			 */
+			hidden: () => LocalizedString
+			/**
+			 * 左键
+			 */
+			leftButton: () => LocalizedString
+			/**
+			 * 右键
+			 */
+			rightButton: () => LocalizedString
+			/**
+			 * 中键
+			 */
+			middleButton: () => LocalizedString
+			/**
+			 * 识别到
+			 */
+			found: () => LocalizedString
+			/**
+			 * 未识别到
+			 */
+			notFound: () => LocalizedString
+			/**
+			 * 执行到这里
+			 */
+			logSample: () => LocalizedString
+			/**
+			 * 你好
+			 */
+			textSample: () => LocalizedString
+			/**
+			 * 入口
+			 */
+			catEntry: () => LocalizedString
+			/**
+			 * 图像
+			 */
+			catImage: () => LocalizedString
+			/**
+			 * 输入
+			 */
+			catInput: () => LocalizedString
+			/**
+			 * 页面
+			 */
+			catPage: () => LocalizedString
+			/**
+			 * 流程
+			 */
+			catFlow: () => LocalizedString
+			/**
+			 * 调试
+			 */
+			catDebug: () => LocalizedString
+		}
+		service: {
+			state: {
+				/**
+				 * 出现
+				 */
+				visible: () => LocalizedString
+				/**
+				 * 消失
+				 */
+				hidden: () => LocalizedString
+			}
+			status: {
+				/**
+				 * 测试素材 {asset}
+				 */
+				checkingAsset: (arg: { asset: unknown }) => LocalizedString
+				/**
+				 * 素材匹配成功，分数 {score}%
+				 */
+				assetMatch: (arg: { score: unknown }) => LocalizedString
+				/**
+				 * 未识别到素材 {asset}
+				 */
+				assetNoMatch: (arg: { asset: unknown }) => LocalizedString
+				/**
+				 * 就绪检查失败：{detail}
+				 */
+				readyCheckFailed: (arg: { detail: unknown }) => LocalizedString
+				/**
+				 * 执行失败：{detail}
+				 */
+				runFailed: (arg: { detail: unknown }) => LocalizedString
+				/**
+				 * 素材测试已停止：{detail}
+				 */
+				assetTestStopped: (arg: { detail: unknown }) => LocalizedString
+				/**
+				 * 素材测试失败：{detail}
+				 */
+				assetTestFailed: (arg: { detail: unknown }) => LocalizedString
+				/**
+				 * 正在执行下一步
+				 */
+				stepNext: () => LocalizedString
+				/**
+				 * 脚本执行完成
+				 */
+				scriptCompleted: () => LocalizedString
+				/**
+				 * 脚本已停止
+				 */
+				scriptStopped: () => LocalizedString
+				/**
+				 * 识别到 {asset} · {score}% · {ms}ms
+				 */
+				imageMatch: (arg: { asset: unknown, ms: unknown, score: unknown }) => LocalizedString
+				/**
+				 * 已暂停，下一步：{step}
+				 */
+				pausedNext: (arg: { step: unknown }) => LocalizedString
+			}
+			step: {
+				/**
+				 * 执行流程
+				 */
+				sequence: () => LocalizedString
+				/**
+				 * 等待图片 {asset}
+				 */
+				waitImage: (arg: { asset: unknown }) => LocalizedString
+				/**
+				 * 等待图片{state} {asset}
+				 */
+				waitImageState: (arg: { asset: unknown, state: unknown }) => LocalizedString
+				/**
+				 * 点击图片 {asset}
+				 */
+				clickImage: (arg: { asset: unknown }) => LocalizedString
+				/**
+				 * 移动到图片 {asset}
+				 */
+				moveToImage: (arg: { asset: unknown }) => LocalizedString
+				/**
+				 * 等待 {ms} 毫秒
+				 */
+				delay: (arg: { ms: unknown }) => LocalizedString
+				/**
+				 * 按键 {key}
+				 */
+				keyPress: (arg: { key: unknown }) => LocalizedString
+				/**
+				 * 按住 {key} 直到图片{state} {asset}
+				 */
+				keyHoldUntilImage: (arg: { asset: unknown, key: unknown, state: unknown }) => LocalizedString
+				/**
+				 * 输入文本
+				 */
+				textInput: () => LocalizedString
+				/**
+				 * 滚动页面
+				 */
+				scroll: () => LocalizedString
+				/**
+				 * 打开网页
+				 */
+				navigate: () => LocalizedString
+				/**
+				 * 刷新页面
+				 */
+				reload: () => LocalizedString
+				/**
+				 * 日志 {message}
+				 */
+				log: (arg: { message: unknown }) => LocalizedString
+				/**
+				 * 判断图片 {asset}
+				 */
+				ifImage: (arg: { asset: unknown }) => LocalizedString
+				/**
+				 * 判断组合条件
+				 */
+				ifCondition: () => LocalizedString
+				/**
+				 * 等待组合条件
+				 */
+				waitCondition: () => LocalizedString
+				/**
+				 * 重复 {times} 次
+				 */
+				repeat: (arg: { times: unknown }) => LocalizedString
+				/**
+				 * 重复直到 {asset}
+				 */
+				repeatUntilImage: (arg: { asset: unknown }) => LocalizedString
+				/**
+				 * 重复直到组合条件
+				 */
+				repeatUntilCondition: () => LocalizedString
+			}
+		}
+		ipc: {
+			/**
+			 * 打开自动化脚本包
+			 */
+			openPackageTitle: () => LocalizedString
+			/**
+			 * BaoFlash 自动化脚本
+			 */
+			openPackageFilter: () => LocalizedString
+			/**
+			 * 替换
+			 */
+			replace: () => LocalizedString
+			/**
+			 * 脚本已经存在
+			 */
+			packageExistsTitle: () => LocalizedString
+			/**
+			 * 脚本库中已有相同 ID 的脚本，是否使用导入文件替换？
+			 */
+			packageExistsMessage: () => LocalizedString
+			/**
+			 * 替换素材 {asset}
+			 */
+			replaceAssetTitle: (arg: { asset: unknown }) => LocalizedString
+			/**
+			 * 图片素材
+			 */
+			imageAssetFilter: () => LocalizedString
+			/**
+			 * 选择素材目录
+			 */
+			selectAssetDir: () => LocalizedString
+			/**
+			 * 导出自动化脚本包
+			 */
+			exportPackageTitle: () => LocalizedString
 		}
 	}
 	error: {

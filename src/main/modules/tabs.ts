@@ -21,8 +21,17 @@ interface TabEntry {
 interface ContainerRect { x: number; y: number; width: number; height: number }
 const HIDDEN_BOUNDS: ContainerRect = Object.freeze({ x: -9999, y: -9999, width: 1, height: 1 });
 
+export interface AutomationTabHandle {
+  readonly tabId: string;
+  readonly webContents: Electron.WebContents;
+  readonly engine: 'ppapi' | 'ruffle';
+  getCssViewport(): { width: number; height: number };
+  assertCurrent(): void;
+  release(): void;
+}
+
 function needsBrowserView(url: string): boolean {
-  return Boolean(url && url !== 'about:newtab' && url !== 'about:userscripts' && url !== 'about:blank');
+  return Boolean(url && url !== 'about:newtab' && url !== 'about:userscripts' && url !== 'about:automation' && url !== 'about:blank');
 }
 
 export function legacySiteFavicon(url: string): string | null {
@@ -44,6 +53,7 @@ class TabManager {
   private passwordFillTimers = new Map<number, Set<ReturnType<typeof setTimeout>>>();
   private passwordFormSignalTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private passwordFillInFlight = new Set<number>();
+  private automationTargets = new Map<string, symbol>();
 
   private _isCurrentWebContents(tabId: string, wc: Electron.WebContents): boolean {
     const tab = this.tabs.get(tabId);
@@ -60,6 +70,10 @@ class TabManager {
     return this.activeId;
   }
 
+  getTabIdForWebContents(wcId: number): string | null {
+    return this.wcToId.get(wcId) ?? null;
+  }
+
   getWebContents(tabId: string): Electron.WebContents | null {
     const tab = this.tabs.get(tabId);
     const wc = tab?.browserView?.webContents;
@@ -73,6 +87,42 @@ class TabManager {
 
   getContainerRect(): ContainerRect {
     return { ...this.rect };
+  }
+
+  /** Reserve the active BrowserView for one automation run and pause password CDP capture. */
+  beginAutomation(tabId: string): AutomationTabHandle {
+    if (this.activeId !== tabId) throw new Error('automation can only target the active tab');
+    if (this.automationTargets.has(tabId)) throw new Error('this tab already has an automation run');
+    const tab = this.tabs.get(tabId);
+    const wc = tab?.browserView?.webContents;
+    if (!tab || !wc || wc.isDestroyed()) throw new Error('automation target has no live BrowserView');
+    const token = Symbol(`automation:${tabId}:${wc.id}`);
+    this.automationTargets.set(tabId, token);
+    teardownCapture(wc);
+    let released = false;
+    const assertCurrent = (): void => {
+      if (released || this.automationTargets.get(tabId) !== token) throw new Error('automation target was released');
+      if (this.activeId !== tabId || wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc)) {
+        throw new Error('automation target is no longer the active BrowserView');
+      }
+    };
+    return {
+      tabId,
+      webContents: wc,
+      engine: tab.isRuffle ? 'ruffle' : 'ppapi',
+      getCssViewport: () => {
+        assertCurrent();
+        return { width: this.rect.width, height: this.rect.height };
+      },
+      assertCurrent,
+      release: () => {
+        if (released) return;
+        released = true;
+        if (this.automationTargets.get(tabId) !== token) return;
+        this.automationTargets.delete(tabId);
+        if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc)) setupCapture(wc);
+      },
+    };
   }
 
   setPreload(path: string): void { this.preloadPath = path; }
@@ -233,7 +283,7 @@ class TabManager {
         this.send('tab:updated', { tabId, isLoading: false });
       }
       refreshPageMetadata(500);
-      setupCapture(wc);
+      if (!this.automationTargets.has(tabId)) setupCapture(wc);
       this._schedulePasswordFill(wc, tabId);
     });
     const updateUrl = (navUrl: string) => {

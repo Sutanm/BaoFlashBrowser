@@ -83,6 +83,8 @@ app.whenReady().then(async () => {
   });
   ipcMain.on('userscript:menu-register', () => {});
   ipcMain.on('userscript:log', () => {});
+  ipcMain.handle('userscript:automation-list', async () => []);
+  ipcMain.handle('userscript:automation-status', async () => ({ state: 'idle', executedSteps: 0, logs: [] }));
   ipcMain.handle('userscript:cookie-list', async (event, raw) => {
     const active = manager;
     const service = mod.getCookieService();

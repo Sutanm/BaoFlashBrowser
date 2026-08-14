@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Automation M0 Blockly Target</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; }
+    #workspace { width: 100%; height: 100%; }
+  </style>
+  <script src="../../../node_modules/blockly/blockly_compressed.js"></script>
+  <script src="../../../node_modules/blockly/blocks_compressed.js"></script>
+</head>
+<body>
+  <div id="workspace"></div>
+  <script>
+    try {
+      Blockly.defineBlocksWithJsonArray([{
+        type: 'bao_wait_image',
+        message0: '等待图片 %1 相似度 %2',
+        args0: [
+          { type: 'field_input', name: 'ASSET', text: 'login/button.png' },
+          { type: 'field_number', name: 'THRESHOLD', value: 0.92, min: 0, max: 1, precision: 0.01 }
+        ],
+        previousStatement: null,
+        nextStatement: null,
+        colour: 210
+      }]);
+      const workspace = Blockly.inject('workspace', {
+        media: '../../../node_modules/blockly/media/',
+        toolbox: { kind: 'flyoutToolbox', contents: [{ kind: 'block', type: 'bao_wait_image' }] },
+        trashcan: true,
+      });
+      const block = workspace.newBlock('bao_wait_image');
+      block.initSvg();
+      block.render();
+      block.moveBy(80, 60);
+      const saved = Blockly.serialization.workspaces.save(workspace);
+      workspace.clear();
+      Blockly.serialization.workspaces.load(saved, workspace);
+      const restored = workspace.getAllBlocks(false)[0];
+      window.__blocklyProbe = {
+        ok: Boolean(restored),
+        blocklyVersion: Blockly.VERSION,
+        blockType: restored && restored.type,
+        asset: restored && restored.getFieldValue('ASSET'),
+        threshold: restored && restored.getFieldValue('THRESHOLD'),
+        serialized: saved,
+      };
+    } catch (error) {
+      window.__blocklyProbe = { ok: false, error: error && error.stack ? error.stack : String(error) };
+    }
+  </script>
+</body>
+</html>

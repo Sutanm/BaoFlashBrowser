@@ -12,6 +12,7 @@ import { isTabEligibleForSuspension } from '../services/tab-suspension';
 
 const NEWTAB_URL = 'about:newtab';
 const USERSCRIPTS_URL = 'about:userscripts';
+const AUTOMATION_URL = 'about:automation';
 const INACTIVE_TAB_SUSPEND_MS = 10 * 60 * 1000;
 
 function isNewtabUrl(url: string): boolean {
@@ -98,8 +99,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     const initialUrl = url || settings.homepage || NEWTAB_URL;
     // Singleton internal pages: activating an existing tab instead of
     // duplicating (plan §5.2).
-    if (initialUrl === USERSCRIPTS_URL) {
-      const existing = useTabsStore.getState().tabs.find((item) => item.url === USERSCRIPTS_URL);
+    if (initialUrl === USERSCRIPTS_URL || initialUrl === AUTOMATION_URL) {
+      const existing = useTabsStore.getState().tabs.find((item) => item.url === initialUrl);
       if (existing) {
         setActiveTabId(existing.id);
         return;
@@ -119,7 +120,9 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     const ruffleMode: 'ppapi' | 'ruffle' = engineMode === 'prefer-ruffle' ? 'ruffle' : 'ppapi';
     const tab: TabState = {
       id, url: initialUrl,
-      title: initialUrl === 'about:userscripts' ? LLRef.current.tab.userscripts() : LLRef.current.tab.newTab(),
+      title: initialUrl === USERSCRIPTS_URL
+        ? LLRef.current.tab.userscripts()
+        : initialUrl === AUTOMATION_URL ? LLRef.current.tab.automation() : LLRef.current.tab.newTab(),
       zoomFactor: 1, isLoading: false, isAudible: false, isMuted: false,
       canGoBack: false, canGoForward: false, createdAt: Date.now(),
       ruffleMode,

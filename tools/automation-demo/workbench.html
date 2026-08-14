@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>宝藏 Flash 自动化工作台</title>
+  <link rel="stylesheet" href="workbench.css">
+  <script src="../../node_modules/blockly/blockly_compressed.js"></script>
+  <script src="../../node_modules/blockly/blocks_compressed.js"></script>
+  <script src="../../node_modules/blockly/msg/zh-hans.js"></script>
+  <script src="../../node_modules/fflate/umd/index.js"></script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>自动化工作台 <span>M3 Demo</span></h1>
+      <p>选择素材目录，然后像搭积木一样编排脚本。</p>
+    </div>
+    <div class="header-actions">
+      <label class="button primary">扫描素材目录<input id="asset-folder" type="file" webkitdirectory multiple></label>
+      <button id="export-workspace" class="button">导出项目 JSON</button>
+      <button id="export-package" class="button primary">导出 .baoauto</button>
+      <button id="import-workspace" class="button">导入项目 JSON</button>
+    </div>
+  </header>
+  <main>
+    <aside>
+      <section>
+        <h2>脚本信息</h2>
+        <label>脚本 ID<input id="workflow-id" value="daily-login"></label>
+        <label>名称<input id="workflow-name" value="每日登录"></label>
+        <label>说明<textarea id="workflow-description" rows="3">识别首页后自动点击开始按钮。</textarea></label>
+      </section>
+      <section class="assets-panel">
+        <h2>素材 <strong id="asset-count">0</strong></h2>
+        <p id="asset-empty">尚未选择素材目录</p>
+        <ul id="asset-list"></ul>
+      </section>
+      <section class="json-panel">
+        <h2>项目 JSON</h2>
+        <textarea id="project-json" spellcheck="false" placeholder="导出的项目 JSON 会显示在这里，也可以粘贴后导入。"></textarea>
+        <p id="status">工作台已就绪</p>
+      </section>
+    </aside>
+    <section class="workspace-shell">
+      <div class="workspace-toolbar">
+        <span>脚本流程</span>
+        <button id="preview-workflow">生成执行文件</button>
+      </div>
+      <div id="blockly-workspace"></div>
+    </section>
+  </main>
+  <script src="workbench.js"></script>
+</body>
+</html>

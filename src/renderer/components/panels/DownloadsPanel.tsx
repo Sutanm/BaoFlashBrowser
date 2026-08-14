@@ -114,7 +114,7 @@ const DownloadsPanel: React.FC = () => {
   }, [setDownloads, pushToast, LL]);
 
   const chooseDir = useCallback(async () => {
-    const newDir = await window.electronAPI?.dl?.setDir();
+    const newDir = await window.electronAPI?.dl?.setDir(LL.download.selectDir());
     if (newDir) {
       setDownloadDir(newDir);
       pushToast({ message: LL.download.dirChanged(), type: 'success' });

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import {
   Clock,
+  Bot,
   Download,
   Key,
   Minus,
@@ -18,6 +19,7 @@ import DownloadsPanel from '../panels/DownloadsPanel';
 import PasswordsPanel from '../panels/PasswordsPanel';
 import SettingsPanel from '../panels/SettingsPanel';
 import UserscriptsPanel from '../panels/UserscriptsPanel';
+import AutomationPanel from '../panels/AutomationPanel';
 import type { ActivePanel } from '@shared/types/passwords';
 
 export const SIDEBAR_WIDTH = 340;
@@ -40,7 +42,7 @@ interface DrawerSidebarProps {
 }
 
 const PRIMARY_PANELS: PrimarySidebarPanel[] = ['favorites', 'history', 'downloads'];
-const SIDEBAR_PANELS: SidebarPanel[] = ['favorites', 'history', 'downloads', 'userscripts', 'passwords', 'settings'];
+const SIDEBAR_PANELS: SidebarPanel[] = ['favorites', 'history', 'downloads', 'automation', 'userscripts', 'passwords', 'settings'];
 
 export function isSidebarPanel(panel: ActivePanel): panel is SidebarPanel {
   return panel !== null && SIDEBAR_PANELS.includes(panel as SidebarPanel);
@@ -84,6 +86,8 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         ? LL.sidebar.downloads()
         : displayedPanel === 'userscripts'
           ? LL.sidebar.userscripts()
+          : displayedPanel === 'automation'
+            ? LL.sidebar.automation()
           : displayedPanel === 'passwords'
             ? LL.sidebar.passwords()
             : LL.sidebar.settings();
@@ -133,6 +137,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         {displayedPanel === 'history' && <HistoryPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
         {displayedPanel === 'downloads' && <DownloadsPanel />}
         {displayedPanel === 'userscripts' && <UserscriptsPanel tabId={activeTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
+        {displayedPanel === 'automation' && <AutomationPanel tabId={activeTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
         {displayedPanel === 'passwords' && <PasswordsPanel />}
         {displayedPanel === 'settings' && (
           <SettingsPanel
@@ -150,6 +155,9 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       </div>
 
       <div className="library-sidebar-footer">
+        <button type="button" aria-pressed={displayedPanel === 'automation'} onClick={() => setActivePanel(displayedPanel === 'automation' ? lastPrimaryPanel.current : 'automation')}>
+          <Bot className="w-4 h-4" /><span>{LL.sidebar.automation()}</span>
+        </button>
         <button type="button" aria-pressed={displayedPanel === 'userscripts'} onClick={() => setActivePanel(displayedPanel === 'userscripts' ? lastPrimaryPanel.current : 'userscripts')}>
           <Puzzle className="w-4 h-4" /><span>{LL.sidebar.userscripts()}</span>
         </button>

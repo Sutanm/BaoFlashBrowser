@@ -1,0 +1,78 @@
+const { contextBridge } = require('electron');
+
+const noop = async () => undefined;
+const workflow = {
+  formatVersion: 1,
+  id: 'm4-smoke',
+  name: 'M4 工作台验证',
+  readyWhen: { type: 'all', conditions: [
+    { type: 'image-visible', asset: 'pages/home.png', threshold: 0.9 },
+    { type: 'not', condition: { type: 'image-visible', asset: 'buttons/start.png', threshold: 0.99 } },
+  ] },
+  root: { type: 'sequence', steps: [
+    { type: 'wait-image', asset: 'buttons/start.png', threshold: 0.9, timeoutMs: 10000, pollMs: 375, region: { x: 12, y: 18, width: 640, height: 360 }, scales: [0.8, 1, 1.2], mask: 'alpha' },
+    { type: 'click-image', asset: 'buttons/start.png', threshold: 0.9, clickCount: 1, button: 'left', offset: { x: 7, y: -4 }, pollMs: 250 },
+    {
+      type: 'if-condition',
+      condition: { type: 'any', conditions: [
+        { type: 'image-visible', asset: 'pages/home.png', threshold: 0.9, region: { x: 0, y: 0, width: 800, height: 600 }, scales: [1, 1.1], mask: 'alpha' },
+        { type: 'not', condition: { type: 'image-visible', asset: 'buttons/start.png', threshold: 0.9 } },
+      ] },
+      then: { type: 'sequence', steps: [{ type: 'delay', durationMs: 25 }] },
+      else: { type: 'sequence', steps: [] },
+    },
+  ] },
+};
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  on: () => () => {},
+  webviewPreloadPath: '',
+  tab: { create: noop, close: noop, suspend: noop, activate: noop, navigate: noop, goBack: noop, goForward: noop, reload: noop, stop: noop, zoom: noop, mute: noop, devtools: noop, find: noop, stopFind: noop, setBounds: noop, setRuffleMode: noop },
+  config: { get: async () => null },
+  dl: { start() {}, cancel() {}, pause() {}, resume() {}, open() {}, openDir() {}, getDir: async () => '', setDir: async () => '', deleteFile: async () => false, list: async () => [], syncRecords: async () => [], removeRecord: async () => ({ success: true }), clearFinished: async () => ({ success: true }) },
+  pwd: { status: async () => ({ initialized: true, unlocked: false, enabled: false, autoCapture: true, autoFill: true, autoFillReady: false, excludedSites: [] }) },
+  diagnostics: { export: noop }, file: { openSwf: async () => null },
+  session: { recoveryStatus: async () => ({ abnormalExit: false }), resolveRecovery: noop },
+  win: { minimize: noop, maximize: noop, unmaximize: noop, close: noop, setFullscreen: noop, toggleFullscreen: noop, isMaximized: async () => false },
+  userscripts: { list: async () => ({ scripts: [] }), backgroundStatus: async () => ({ scripts: [], stopped: false }), onChanged: () => () => {} },
+  screenshot: {},
+  automation: {
+    capabilities: async () => ({ enabled: true, state: 'idle' }),
+    validateWorkflow: async (value) => ({ valid: true, workflow: value }),
+    openPackage: async () => ({ canceled: true }),
+    status: async () => ({ enabled: true, state: 'completed', currentStep: { key: 'step.clickImage', params: { asset: 'buttons/start.png' } }, executedSteps: 2, debugMode: true, debugPaused: false, logs: [
+      { id: 1, timestamp: Date.now() - 20, level: 'info', message: { key: 'step.clickImage', params: { asset: 'buttons/start.png' } }, step: 2 },
+      { id: 2, timestamp: Date.now(), level: 'success', message: { key: 'status.imageMatch', params: { asset: 'buttons/start.png', score: '97.0', ms: '18' } }, step: 2 },
+    ] }),
+    listPackages: async () => [{ packageId: 'm4-smoke:1', id: workflow.id, name: workflow.name, assets: ['pages/home.png', 'buttons/start.png'] }],
+    getPackage: async () => ({ packageId: 'm4-smoke:1', workflow, assets: ['pages/home.png', 'buttons/start.png'] }),
+    diagnosePackage: async () => ({ packageId: 'm4-smoke:1', valid: true, assetCount: 2, assetBytes: 256, referencedAssets: 2, unreferencedAssets: [], missingAssets: [], stepCount: 4, maxDepth: 3, capabilities: ['vision', 'trusted-input', 'combined-conditions'], issues: [] }),
+    listRunHistory: async () => [{ id: 'run-1', packageId: 'm4-smoke:1', workflowName: workflow.name, tabId: 'tab-1', mode: 'run', startedAt: Date.now() - 1500, finishedAt: Date.now(), state: 'completed', executedSteps: 3, logs: [] }],
+    clearRunHistory: async () => ({ success: true }),
+    getAssetPreview: async (_packageId, asset) => ({ asset, width: 96, height: 48, bytes: 128, dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==' }),
+    openTestScene: async () => ({ canceled: false, token: 'fedcba9876543210fedcba9876543210', name: 'scene.png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==', previewWidth: 960, previewHeight: 540, sourceWidth: 1920, sourceHeight: 1080 }),
+    captureTestSceneTab: async (tabId) => ({ token: 'abcdefabcdefabcdefabcdefabcdefab', name: `tab-${tabId}.png`, dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==', previewWidth: 960, previewHeight: 540, sourceWidth: 1920, sourceHeight: 1080 }),
+    testAssetOnScene: async () => ({ candidate: { x: 600, y: 300, width: 180, height: 90, score: 0.934, scale: 1, matchMs: 24 }, matched: true, threshold: 0.9 }),
+    warmupVision: async () => ({ ready: true }),
+    importAssetFiles: async () => ({ canceled: false, assets: ['pages/home.png', 'buttons/start.png', 'buttons/imported.png'] }),
+    getAssetReferences: async (_packageId, asset) => ({ referenced: asset === 'buttons/start.png' }),
+    deleteAsset: async () => ({ assets: ['buttons/start.png'] }),
+    replaceAsset: async () => ({ canceled: true }),
+    captureAssetFrame: async () => ({ token: '0123456789abcdef0123456789abcdef', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==', previewWidth: 320, previewHeight: 180, sourceWidth: 1280, sourceHeight: 720 }),
+    saveCapturedAsset: async () => ({ asset: 'captures/test.png', width: 100, height: 60, assets: ['pages/home.png', 'buttons/start.png', 'captures/test.png'] }),
+    updateWorkflow: async (_packageId, value) => value,
+    createPackage: async (id, name) => ({ packageId: id, id, name, assets: [] }),
+    duplicatePackage: async (_packageId, id, name) => ({ packageId: id, id, name, assets: [] }),
+    deletePackage: async () => ({ success: true }),
+    importAssets: async () => ({ canceled: true }),
+    linkAssetFolder: async () => ({ canceled: false, token: '1234567890abcdef1234567890abcdef', name: 'ui-assets', files: [{ asset: 'buttons/start.png', bytes: 128 }] }),
+    syncAssetFolder: async () => ({ assets: ['pages/home.png', 'buttons/start.png'], addedOrUpdated: [], missingFromFolder: [] }),
+    exportPackage: async () => ({ canceled: true }),
+    checkReady: async () => true,
+    testAsset: async () => ({ x: 120, y: 80, width: 96, height: 48, score: 0.97, scale: 1, matchMs: 18 }),
+    start: async () => true,
+    debugStart: async () => true,
+    debugContinue: async () => true,
+    cancel: noop,
+  },
+});

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import TopBar from './components/layout/TopBar';
 import DrawerSidebar from './components/layout/DrawerSidebar';
 import { isSidebarPanel, SIDEBAR_WIDTH } from './components/layout/DrawerSidebar';
@@ -20,6 +20,8 @@ import TypesafeI18n, { useI18nContext } from './i18n/i18n-react';
 import { loadAllLocales } from './i18n/i18n-util.sync';
 import { isLocale } from './i18n/i18n-util';
 import { computeBrowserViewBounds } from './services/browserview-bounds';
+
+const AutomationPage = lazy(() => import('./components/automation/AutomationPage'));
 
 const AppInner: React.FC = () => {
   const { LL, setLocale } = useI18nContext();
@@ -176,8 +178,11 @@ const AppInner: React.FC = () => {
 
   const isOnNewTab = !activeTab || activeTab.url === 'about:newtab';
   const isOnUserscripts = activeTab?.url === 'about:userscripts';
+  const isOnAutomation = activeTab?.url === 'about:automation';
+  const [automationMounted, setAutomationMounted] = useState(isOnAutomation);
+  useEffect(() => { if (isOnAutomation) setAutomationMounted(true); }, [isOnAutomation]);
   const isCrashed = activeTab?.crashed === true;
-  const browserViewHidden = isOnNewTab || isOnUserscripts || isCrashed;
+  const browserViewHidden = isOnNewTab || isOnUserscripts || isOnAutomation || isCrashed;
 
   useEffect(() => {
     if (browserViewHidden) window.electronAPI.tab.setBounds(-9999, -9999, 1, 1);
@@ -264,6 +269,9 @@ const AppInner: React.FC = () => {
         <div style={{ display: isOnUserscripts ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column', minWidth: 0 }}>
           <UserscriptsPage />
         </div>
+        {automationMounted && <div style={{ display: isOnAutomation ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column', minWidth: 0 }}>
+          <Suspense fallback={<div className="internal-page-loading">{LL.automation.page.loading()}</div>}><AutomationPage /></Suspense>
+        </div>}
         <div style={{ display: isCrashed ? 'flex' : 'none', flex: '1 1 0%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, minWidth: 0 }}>
           <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>
           <button
