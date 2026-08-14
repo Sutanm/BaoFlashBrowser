@@ -22,7 +22,7 @@
    - [4.10 配置系统 (config.ts)](#410-配置系统-configts)
 5. [渲染进程详解](#5-渲染进程详解)
    - [5.1 应用壳 (App.tsx)](#51-应用壳-apptsx)
-   - [5.2 状态管理 (Jotai Atoms)](#52-状态管理-jotai-atoms)
+   - [5.2 状态管理 (Zustand Stores)](#52-状态管理-zustand-stores)
    - [5.3 核心 Hooks](#53-核心-hooks)
    - [5.4 组件层级](#54-组件层级)
    - [5.5 数据持久化 (Dexie/IndexedDB)](#55-数据持久化-dexieindexeddb)
@@ -34,6 +34,8 @@
 8. [测试与探查策略](#8-测试与探查策略)
 9. [开发阻力与经验教训](#9-开发阻力与经验教训)
 10. [关键文件索引](#10-关键文件索引)
+11. [用户脚本运行时](#11-用户脚本运行时)
+12. [视觉自动化平台](#12-视觉自动化平台)
 
 ---
 
@@ -55,15 +57,17 @@ BaoFlashBrowser 是一个跨平台 Flash 浏览器，基于 **Electron 11.5.0 (C
 |------|------|----------|
 | **Electron** | 11.5.0 | 最后一个原生支持 PPAPI Flash 的版本。**绝不升级。** |
 | Chromium | 87 | Electron 11 内置 |
-| React | 17 | Node 12 兼容上限 |
-| TypeScript | 4.9.5 | ES2019 target |
-| Jotai | 1.x | 轻量响应式原子状态管理 |
-| Dexie | 3.x | IndexedDB 封装 |
-| webpack | 5 | target: web (renderer) + electron-main (main) |
-| Ruffle | 0.4.1 | WASM Flash 模拟器 |
+| React | 18.3.x | 主窗口渲染层 |
+| TypeScript | 5.5.x | 主进程、renderer 与 preload 类型检查 |
+| Zustand | 5.x | renderer 状态管理 |
+| Dexie | 4.x | IndexedDB 封装 |
+| esbuild / Vite | 0.28.x / 7.x | 主进程与 preload / renderer 构建 |
+| Ruffle | 0.5.x | WASM Flash 模拟器 |
+| Blockly | 10.4.3 | 自动化积木工作台 |
+| OpenCV.js | 4.5.5 | 自动化模板匹配工作线程 |
 | Flash PPAPI | 29.0.0.171 Win / 32.0.0.371 Linux | Adobe 官方 EOL 前稳定版 |
 
-**关键依赖与外部化：** `electron`、`electron-log`、`electron-store`、`win-dpapi` 在主进程 webpack 配置中标记为 `externals`（commonjs），保持为 Node 原生 require。
+**构建边界：** esbuild 生成主进程与 preload 的 CJS bundle，Vite 生成 renderer；Electron 及主进程原生运行时依赖保持 Node/Electron 侧加载。Electron 版本必须继续锁定为 11.5.0。
 
 ---
 
@@ -97,8 +101,8 @@ BaoFlashBrowser 是一个跨平台 Flash 浏览器，基于 **Electron 11.5.0 (C
 │  │        │  │ Download     │  │                             │   │
 │  └────────┘  └─────────────┘  └─────────────────────────────┘   │
 │  ┌────────┐  ┌─────────────┐  ┌─────────────────────────────┐   │
-│  │ Atoms  │  │ Services     │  │ Components                   │   │
-│  │ Jotai  │  │ db.ts(Dexie)│  │ TopBar│Drawer│FindBar│Tabs   │   │
+│  │ Stores │  │ Services     │  │ Components                   │   │
+│  │Zustand │  │ db.ts(Dexie)│  │ TopBar│Drawer│FindBar│Tabs   │   │
 │  │ 状态   │  │ idxdb       │  │ RuffleToggle│WindowControls  │   │
 │  └────────┘  └─────────────┘  └─────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
@@ -436,8 +440,8 @@ ruffleSource: 'bundled',     // CDN 可选
 `src/renderer/App.tsx` — React 根组件。
 
 **启动流程：**
-1. **Hydration**：`loadAll()` 从 IndexedDB 拉取所有数据 → 写入 Jotai atoms → `hydrationDone.current = true`
-2. **持久化副作用**：`useEffect` 监听 atom 变化 → `hydrationDone` guard → `bulkPut`/`clear` 回写 DB
+1. **Hydration**：`loadAll()` 从 IndexedDB 拉取数据并写入 Zustand store。
+2. **持久化副作用**：组件和 store action 通过服务层把收藏、历史、下载与设置回写 DB。
 3. **BrowserView 区域**：`#browserview-area` div 通过 `ResizeObserver` 跟踪尺寸 → IPC `tab:setBounds` 同步位置
 4. **抽屉动画**：侧边栏展开/折叠时 `calcBounds(animated=true)` 用 `requestAnimationFrame` + ease-out-cubic 做 250ms 平滑动画
 
@@ -451,17 +455,11 @@ useEffect(() => {
 ```
 防止启动时短暂的默认值覆盖 DB 数据。
 
-### 5.2 状态管理 (Jotai Atoms)
+### 5.2 状态管理 (Zustand Stores)
 
-- `favoritesAtom` — 收藏列表
-- `historyAtom` — 历史记录（按 `lastVisit` 倒序）
-- `downloadsAtom` — 下载列表
-- `settingsAtom` — 应用设置
-- `themeAtom` — `'light' | 'dark'`
-- `tabsAtom` / `activeTabIdAtom` — 标签页状态
-- `toastQueueAtom` / `pushToastAtom` — 地址栏 toast 队列
-- `passwordsAtom` / `passwordStoreStatusAtom` — 密码面板状态
-- `activePanelAtom` — 当前活跃侧边栏面板
+- `src/renderer/store/useDataStore.ts` — 设置、历史、收藏与下载状态。
+- `src/renderer/store/useTabsStore.ts` — 标签页列表、活动标签和导航状态。
+- 地址栏 Toast 使用独立队列服务，避免页面状态更新覆盖高优先级运行提示。
 
 ### 5.3 核心 Hooks
 
@@ -805,8 +803,8 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 | `tsconfig.json` | 基础 TS 配置 (paths aliases) |
 | `tsconfig.main.json` | 主进程 TS 配置 |
 | `tsconfig.renderer.json` | 渲染进程 TS 配置 |
-| `webpack.main.config.js` | 主进程 + preload 打包 (CopyPlugin: ruffle+字体) |
-| `webpack.renderer.config.js` | 渲染进程打包 (MiniCssExtract + PostCSS/Tailwind) |
+| `esbuild.main.config.mjs` | 主进程 + preload CJS bundle |
+| `vite.renderer.config.ts` | renderer 构建与静态资源处理 |
 | `.eslintrc.js` | ESLint 配置 |
 | `AGENTS.md` | Agent 操作指南（landmines + 调试流程）|
 
@@ -836,7 +834,7 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 ---
 
-> 最后更新: 2026-07-31 | Electron 11.5.0 / Chromium 87 | @baoflash
+> 基础架构记录始于 2026-07-31，自动化章节更新于 2026-08-14 | Electron 11.5.0 / Chromium 87
 
 ---
 
@@ -879,4 +877,72 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 ### 11.5 已知边界
 
-- 值存储当前内存态（管理 UI 阶段接持久化）；下载目录 `userData/userscript-downloads`；脚本安装/管理界面为阶段 2。
+- 用户脚本不能直接访问 Node.js、Electron IPC 或本地文件系统；GM 能力按 grant、`@connect` 和主进程策略开放。
+- `GM_cookie` 只读；后台脚本使用每脚本独立隐藏窗口，崩溃与重建策略和普通页面脚本不同。
+- 下载目录位于受控用户数据目录，脚本管理页和侧边栏只通过校验后的 IPC 操作运行时。
+
+---
+
+## 12. 视觉自动化平台
+
+> 集成版本：1.1.0。用户手册见 `docs/automation-user-guide.md`，M0–M5 的设计和探针记录位于 `docs/superpowers/specs/2026-08-09-automation-*.md`。
+
+### 12.1 模块布局
+
+| 模块 | 职责 |
+| --- | --- |
+| `src/shared/automation/types.ts` / `schema.ts` | 工作流、步骤、组合条件、脚本包清单及 zod 校验 |
+| `src/main/modules/automation/runtime.ts` | 顺序、分支、循环、等待、取消和运行状态 |
+| `browserview-driver.ts` | BrowserView 截图、可信鼠标/键盘输入、导航和最小化执行 |
+| `vision-worker.cjs` / `vision-worker-matcher.ts` | OpenCV 模板匹配、预热、缓存、超时与工作线程隔离 |
+| `service.ts` | 脚本包存储、运行编排、素材测试、状态与历史 |
+| `package.ts` / `assets.ts` | `.baoauto` 导入导出、路径安全、素材扫描与诊断 |
+| `src/main/ipc/automation.ipc.ts` | 工作台、测试台、取材、运行和调试 IPC |
+| `AutomationPage.tsx` | `about:automation` 脚本库与编辑器壳 |
+| `AutomationBlocklyEditor.tsx` | Blockly 定义、工作流双向转换和积木工具箱 |
+| `AutomationAssetTestBench.tsx` | 指定场景图、素材列表、匹配分数和高亮结果 |
+| `AutomationPanel.tsx` | 侧边栏状态与运行控制 |
+| `automation-frame-assistant.user.js` | 页面内悬浮球、比对、运行控制和框选取材 |
+
+### 12.2 数据流
+
+```text
+工作台/悬浮助手
+  → preload 受限 API
+  → automation IPC（zod 校验）
+  → AutomationService
+  → AutomationRunner
+  → BrowserViewDriver.capture / trusted input
+  → VisionWorkerMatcher（OpenCV worker）
+  → 结构化状态事件
+  → 工作台、侧栏、悬浮助手与 Toast
+```
+
+测试台和正式执行必须从同一 BrowserView 内容截图链路取图。悬浮助手只在截图瞬间隐藏，截图完成后恢复；不能通过改变 BrowserView 尺寸的侧边栏来承担执行期的唯一反馈。
+
+### 12.3 坐标语义
+
+工作流不持久化桌面绝对坐标。模板匹配返回 BrowserView 内容坐标，可信输入在执行瞬间换算并发送给目标 `webContents`。积木中的 `region` 和点击 `offset` 也属于内容图坐标，因此窗口移动和最小化不会改变其语义；页面缩放或游戏内部缩放仍可能改变目标像素外观。
+
+### 12.4 `.baoauto` 边界
+
+- `manifest.json` 的 `format` 固定为 `baoauto`，当前 `formatVersion` 为 1。
+- 工作流固定为 `workflow.json`，素材位于 `assets/`。
+- 脚本 ID 仅允许安全的字母、数字、点、下划线和连字符组合。
+- 素材必须是安全相对 POSIX 路径，禁止绝对路径、反斜杠、空段、`.` 和 `..`。
+- 导入包和素材都有大小、尺寸和数量边界；任何解压路径必须先通过越界检查。
+- 运行前由 schema 再次校验工作流，不信任编辑器或外部脚本包传入的数据。
+
+### 12.5 页面内助手的权限边界
+
+自动化相框助手通过内置用户脚本运行，但只获得 `GM.baoAutomation` 暴露的专用能力：列出脚本和素材、读取状态、启动/停止、截图比对及保存框选素材。它不能直接访问 Node.js、任意 Electron IPC 或本地文件系统。
+
+修改助手源码后必须执行完整构建或用户脚本管理 smoke。它与 CSS 修复器一样以文本嵌入主 bundle，直接启动旧 `dist/main.js` 会测试到陈旧版本。
+
+### 12.6 关键回归
+
+- `npm run probe:automation-m4`：工作台与 Blockly。
+- `npm run probe:automation-m5-engines`：Web、PPAPI 注册和 Ruffle 的最小化视觉/输入链路。
+- `npm run test:userscripts-admin`：内置助手、可见取消按钮和取材布局。
+- `npm run test:smokes`：用户脚本、菜单命令和兼容性组合回归。
+- 最终安装包仍需在真实 PPAPI 游戏人工验证，不得用“插件注册成功”代替“插件内容已渲染并接受输入”。

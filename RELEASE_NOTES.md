@@ -1,60 +1,58 @@
-# BaoFlashBrowser v1.0.1 正式版
+# BaoFlashBrowser v1.1.0 正式版
 
-BaoFlashBrowser 是基于 Electron 11.5.0（Chromium 87）、React 18 和 TypeScript 构建的跨平台 Flash 浏览器。1.0.1 由此前的预览版迭代为首个正式版本，继续固定 Electron 11.5.0 以保留原生 PPAPI Flash 支持。
+BaoFlashBrowser 1.1.0 新增可视化自动化脚本平台。用户可以用图片素材识别网页和 Flash 游戏界面，在最小化后继续匹配并执行输入操作，也可以通过 JSON 直接编写和交换脚本包。
 
 ## 下载
 
 | 平台 | 安装包 |
 | --- | --- |
-| Windows x64 | [BaoFlashBrowser-1.0.1-x64.exe](https://github.com/Sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-x64.exe) |
-| Windows ia32（未完全测试） | [BaoFlashBrowser-1.0.1-ia32.exe](https://github.com/Sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-ia32.exe) |
-| Linux x64（AppImage 可能存在兼容缺陷） | [BaoFlashBrowser-1.0.1-x86_64.AppImage](https://github.com/Sutanm/BaoFlashBrowser/releases/download/v1.0.1/BaoFlashBrowser-1.0.1-x86_64.AppImage) |
+| Windows x64 | `BaoFlashBrowser-1.1.0-x64.exe`（候选包生成后公布下载地址） |
 
-| 文件 | SHA-256 |
-| --- | --- |
-| `BaoFlashBrowser-1.0.1-x64.exe` | `9D0FEE85251E9E9D98B79765C79FAA153C809A702F1EA486D1420DD5C8D11BAC` |
-| `BaoFlashBrowser-1.0.1-ia32.exe` | `77309E784AEE05C04681D3FF3859C175C47254FD40EF5B1ED82D1E53FA40784A` |
-| `BaoFlashBrowser-1.0.1-x86_64.AppImage` | `F87CD4BFA845DE8B537A8D3FCBEF2C3B297945DF92CC0213092ACF0E6C2075AC` |
+Windows 安装包当前未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对发布页公布的 SHA-256。
 
-Windows ia32 已包含匹配的 aria2 1.37.0，但该平台尚未完成充分实机测试。Linux 仅提供 x64，不提供 x86；AppImage 可能受发行版、FUSE、动态库和显示环境影响，建议优先下载源码并使用 Node.js 20 执行 `npm install`、`npm start`。
+## 自动化工作台
 
-## 核心能力
+- 新增独立的自动化工作台，可新建、复制、删除、导入和导出 `.baoauto` 脚本包。
+- 提供 Scratch 风格积木编辑器，同时保留 JSON 代码编辑；两种编辑方式可互相转换。
+- 支持无条件入口、识图入口、等待、延时、点击图片、移动到图片、按键、组合键、按住直到识别、文本输入、滚动、跳转和刷新。
+- 支持 `if`、多条件 `all/any/not`、固定次数循环、循环直到图片状态或组合条件成立，以及调试日志。
+- 脚本可携带图片素材，并支持素材目录、引用状态、替换、删除和脚本包完整性检查。
 
-- 每个标签页使用独立 BrowserView 渲染进程，单个 Flash 页面崩溃不会拖垮其他标签。
-- 原生 PPAPI 与 Ruffle 可按标签切换；Ruffle 支持内置资源和 CDN `latest` 两种来源。
-- 针对淘米、4399、7k7k 等旧游戏站点处理 Flash 版本检测、SWFObject、跨域策略和登录跳转兼容问题。
-- 支持历史、收藏、下载、标签恢复、页面查找、缩放、静音、全屏和网页右键菜单。
-- 正常关闭不会恢复标签；仅异常退出后通过 Toast 询问是否恢复上次标签。
+## 识图与取材
 
-## 密码与隐私
+- 基于 BrowserView 截图和 OpenCV 模板匹配定位目标，不依赖用户录制时的固定屏幕坐标。
+- 支持浏览器最小化后的截图、识别和可信输入；Web 与 Ruffle 自动化链路已覆盖冒烟测试。
+- 新增素材测试台：可导入完整场景图，逐个比对素材并高亮最佳匹配区域。
+- 新增页面内悬浮相框助手：在游戏页查看素材、捕获当前画面、快速比对，并显示脚本状态与运行控制。
+- 新增框选取材：直接在当前游戏画面拖动选择 UI，输入名称后保存到当前脚本；保留可见取消按钮，捕获期间短暂隐藏助手以避免污染截图。
+- 视觉工作线程支持预热和结果缓存，减少重复匹配等待。
 
-- 密码本支持自动捕获、手动确认保存、自动填充、排除网站和主密码加密。
-- 自动填充只填写字段，不自动提交登录表单。
-- 密码捕获使用 CDP binding，明文凭据不会经过网页控制台或渲染进程 IPC。
-- 历史、崩溃会话和日志会移除账号、令牌、会话等敏感 URL 参数。
+## 执行与安全
 
-## 下载与稳定性
+- 点击图片前可再次确认目标位置，并可限制两次定位的最大偏移，降低动画和误识别造成的误点击。
+- 脚本运行状态、等待、成功和失败信息可同步到工作台、侧栏与页面提示。
+- 用户脚本通过受控的自动化接口读取脚本与状态、启动/停止执行、匹配素材和保存框选素材。
+- `.baoauto` 导入继续执行结构校验、路径检查和素材限制，避免脚本包越界写入。
 
-- 支持 Chromium 与 aria2 下载，aria2 使用动态本地端口和随机 RPC 密钥。
-- 下载记录支持暂停、恢复、中断恢复和安全路径检查。
-- 可选休眠静音且未加载的非活动标签，切回后按原内核、缩放和静音状态恢复。
-- BrowserView 替换、刷新、前进和后退均包含旧事件隔离与 CDP 安全卸载。
+## 其他改进
+
+- 修复自动化工作台分类菜单被编辑区覆盖、仅局部可拖动、折叠后残留滚动阴影等界面问题。
+- 修复新建脚本按钮、素材列表刷新、场景图显示、应用关闭和自动化 IPC 异常时无响应等问题。
+- 修复模板匹配与运行时截图范围不一致导致“测试台能识别、正式脚本超时”的问题。
+- 保留 Electron 11.5.0 / Chromium 87，以继续支持原生 PPAPI Flash；未升级 Electron。
 
 ## 验证状态
 
 - TypeScript 主进程、渲染进程和 preload 类型检查通过。
-- ESLint 无错误。
-- 48 项 Vitest 单元测试通过。
-- BrowserView、Ruffle、Flash Session 兼容冒烟测试通过。
-- Windows x64、Windows ia32 和 Linux x64 构建及安装包资源校验由 CI 覆盖；Windows ia32 尚未完成充分实机测试，Linux AppImage 仍可能存在环境兼容缺陷。
-- Flash 网站与日常功能已在持续开发游玩中验证，已知问题将在后续维护版本中修复。
+- ESLint 无错误；Vitest 69 个测试文件、445 项测试通过。
+- BrowserView、兼容性、用户脚本管理、用户脚本运行时、CSS 修复器及自动化工作台冒烟测试通过。
+- 最小化 Web 模板匹配达到 98.8%，Ruffle 最小化模板匹配达到 100%，并验证可信输入及调试器正常卸载。
+- PPAPI 运行时已注册，但自动化测试夹具在当前验证环境中未完成渲染；发布前仍建议在一款真实 PPAPI 游戏上做最终人工回归。
 
 ## 安全提示
 
 Electron 11、Chromium 87 和 Adobe Flash Player 均已停止安全更新。本程序用于可信的旧游戏站点和本地内容，不建议用于邮箱、支付、网盘、办公系统或其他敏感业务。能由 Ruffle 正常运行的内容，优先使用 Ruffle。
 
-Windows 安装包当前未进行代码签名，安装或首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目的 GitHub/Gitee Release 页面下载，并对照发布页公布的 SHA-256 校验值确认文件完整性。
-
 ## 第三方组件
 
-项目源代码采用 MIT License；Flash Player、Ruffle、aria2 和字体等第三方组件仍受各自许可证约束，详见 `THIRD_PARTY_NOTICES.md`。
+项目源代码采用 MIT License；Flash Player、Ruffle、aria2、OpenCV 和字体等第三方组件仍受各自许可证约束，详见 `THIRD_PARTY_NOTICES.md`。

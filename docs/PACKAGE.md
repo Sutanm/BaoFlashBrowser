@@ -2,6 +2,8 @@
 
 项目固定使用 Electron 11.5.0。发布脚本不会升级 Electron，也不会从 `package.json` 的 `latest` 标签解析内核版本。
 
+当前发布版本为 1.1.0。该版本新增自动化工作台、视觉匹配工作线程和内置自动化相框助手；这些文件必须和用户脚本运行时一同进入 `app.asar`，不能只验证普通网页浏览资源。
+
 ## 构建命令
 
 | 目标 | 命令 | 随包资源 |
@@ -22,6 +24,13 @@ Linux 只发布 x64，不提供 x86 构建；Electron、PPAPI Flash 及项目内
 4. 生成 NSIS 或 AppImage。
 5. 检查解包目录中的 `app.asar`、运行时依赖、原生资源与主程序架构。
 6. 将文件大小和 SHA-256 写入 `release/manifests/`。
+
+1.1.0 还应确认以下自动化资源存在于构建输入和解包成品中：
+
+- `src/main/modules/automation/` 对应的主进程 bundle 代码与 OpenCV 视觉工作线程。
+- `about:automation` 工作台所需 renderer chunk、Blockly 和自动化样式。
+- 内置用户脚本“自动化相框助手”；它和 CSS 修复器一样在构建时以文本嵌入，修改后必须重新执行完整构建。
+- 自动化脚本使用的 preload IPC 桥、可信输入和 BrowserView 截图通道。
 
 任何一步失败都会令命令返回非零状态，不会把不完整产物当作成功发布。
 
@@ -55,3 +64,28 @@ npm run verify:release -- --stage unpacked --platform win32 --arch x64
 ```
 
 CI 会在 Windows 上构建并校验 x64/ia32，在 Ubuntu 上构建并校验 Linux x64。
+
+## 1.1.0 发布门
+
+生成候选安装包前至少运行：
+
+```powershell
+npm run check
+npm run test:compat
+npm run test:electron
+npm run test:userscripts
+npm run test:userscripts-admin
+npm run test:css-fixer
+npm run test:smokes
+npm run probe:automation-m4
+npm run probe:automation-m5-engines
+```
+
+`npm run build` 不会重建 `release/tests/` 下的用户脚本/兼容性 smoke bundle。修改对应源码后，必须通过各自的 `test:*` 命令重新生成，不能直接运行旧 `.cjs` 产物。
+
+打包完成后：
+
+1. 运行 `npm run verify:release -- --stage unpacked --platform win32 --arch x64`。
+2. 用 `Get-FileHash -Algorithm SHA256` 计算最终安装包散列，并把文件名、大小和散列写入 `RELEASE_NOTES.md`。
+3. 从解包目录启动一次，人工确认 `about:automation`、悬浮助手、取材保存和应用关闭。
+4. 在真实 PPAPI 游戏上执行一次“识图 → 可信点击/按键 → 停止”回归；测试夹具没有渲染 PPAPI 内容时不得把“插件已注册”当作完整通过。

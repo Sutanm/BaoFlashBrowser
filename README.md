@@ -13,9 +13,9 @@ Adobe Flash Player 已停止维护，现代浏览器也已移除 PPAPI。BaoFlas
 
 ## 下载
 
-- [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases/tag/v1.0.1)
-- [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases/tag/v1.0.1)
-- [v1.0.1 发行说明](RELEASE_NOTES.md)
+- [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
+- [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases)
+- [v1.1.0 发行说明](RELEASE_NOTES.md)
 
 Windows 安装包当前**未进行代码签名**，安装或首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对页面公布的 SHA-256。
 
@@ -37,6 +37,9 @@ Windows 安装包当前**未进行代码签名**，安装或首次运行时可�
 - Chromium 与 aria2 双下载引擎，支持暂停、恢复、进度显示和安全路径检查。
 - 密码本支持可选自动捕获、锁定状态自动填充、排除网站和主密码保护；自动填充不会提交表单。
 - 内置用户脚本（userscript）平台：油猴风格管理页、两阶段安装、侧边栏脚本面板与菜单命令、GM API、页面壳增强脚本（含 iframe 子框架支持）。
+- 可视化自动化脚本平台：在 `about:automation` 中使用积木或 JSON 搭建 `.baoauto` 脚本，通过图片素材定位并操作网页或 Flash 游戏界面。
+- 页面内悬浮自动化助手：无需打开侧边栏即可启动/停止脚本、查看进度、实时比对 UI 素材，并直接框选当前游戏画面制作素材。
+- 素材测试台支持在指定场景图中高亮最佳匹配区域；自动化截图、识别和输入支持窗口最小化后继续执行。
 - 仅在异常退出后询问是否恢复标签页，正常关闭不会保留待恢复会话。
 - 支持中英文界面、明暗主题、Toast 通知和可选标签休眠。
 
@@ -89,6 +92,16 @@ npm run build:linux # Linux x64 AppImage，建议在 Linux/WSL 中执行
 | `Ctrl+F` | 页内查找 |
 | `F11` / `F12` | 全屏 / 开发者工具 |
 
+## 自动化脚本快速开始
+
+1. 打开侧边栏的“自动化”，进入自动化工作台；也可以直接访问 `about:automation`。
+2. 新建脚本，在素材区导入图片，或在目标游戏页展开悬浮球并选择“取材”直接框选 UI。
+3. 用入口、图像、输入、页面、流程和调试积木搭建流程，然后保存修改。
+4. 在目标游戏页的悬浮助手中选择脚本。识图前提满足后可立即运行或倒数启动，并可随时停止。
+5. 动图目标只截取稳定部分；先在“素材测试台”或悬浮助手的“识别”页调整阈值并确认高亮区域。
+
+脚本包扩展名为 `.baoauto`，包含经过校验的工作流 JSON 与图片素材，可在工作台中导入、导出和检查。详细说明见[自动化脚本使用手册](docs/automation-user-guide.md)。
+
 ## 安全与限制
 
 Electron 11、Chromium 87 和 Adobe Flash Player 均已停止安全更新。本程序只应访问可信的旧游戏站点和本地内容，不建议用于邮箱、支付、网盘、办公系统或其他敏感业务。能由 Ruffle 正常运行的内容应优先使用 Ruffle。
@@ -100,6 +113,7 @@ Windows 实际使用 Flash 29.0.0.171，Linux 使用 32.0.0.371；网站侧的�
 - [架构与模块手册](docs/architecture-manual.md)
 - [用户脚本开发手册](docs/userscript-developer-guide.md)（平台扩展与脚本编写）
 - [用户脚本使用手册](docs/userscript-user-guide.md)（安装、管理、FAQ）
+- [自动化脚本使用手册](docs/automation-user-guide.md)（工作台、取材、识别、运行与脚本包）
 - [发布、打包与成品校验](docs/PACKAGE.md)
 - [测试与回归清单](docs/FINAL_REGRESSION.md)
 - [故障排查与经验记录](docs/lessons-learned.md)

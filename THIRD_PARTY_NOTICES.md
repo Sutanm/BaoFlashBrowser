@@ -21,6 +21,27 @@ BaoFlashBrowser 的源代码采用 MIT License。安装包内的第三方组件�
 - 许可证：GNU General Public License v2.0 or later
 - 对应源代码：https://github.com/aria2/aria2/releases/tag/release-1.37.0
 
+## OpenCV.js
+
+- npm 包：`@techstark/opencv-js` 4.5.5-release.2
+- 项目：https://github.com/TechStark/opencv-js
+- 许可证：Apache License 2.0
+- 用途：自动化平台的模板匹配与视觉工作线程。
+
+## Blockly
+
+- npm 包：`blockly` 10.4.3
+- 项目：https://developers.google.com/blockly/
+- 许可证：Apache License 2.0
+- 用途：自动化工作台的可视化积木编辑器。
+
+## fflate
+
+- npm 包：`fflate` 0.8.3
+- 项目：https://github.com/101arrowz/fflate
+- 许可证：MIT
+- 用途：导入和导出 `.baoauto` 脚本包。
+
 ## Adobe Flash Player PPAPI
 
 Flash Player 是 Adobe 的专有软件，相关商标、二进制和其他权利归其各自权利人所有。项目内的历史 PPAPI 文件仅用于恢复已停止支持的旧网页内容兼容性；BaoFlashBrowser 与 Adobe 无隶属或认可关系。Adobe 已停止维护 Flash Player，使用者应仅访问可信的旧游戏内容，并自行了解所在地区适用的授权与分发要求。

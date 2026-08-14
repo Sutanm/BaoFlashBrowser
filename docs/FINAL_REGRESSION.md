@@ -1,38 +1,73 @@
-# 最终回归记录
+# BaoFlashBrowser 1.1.0 最终回归记录
 
-日期：2026-08-02
+日期：2026-08-14
 
 ## 自动化覆盖
 
-| 项目 | 验证内容 | 结果 |
+| 项目 | 验证内容 | 当前结果 |
 | --- | --- | --- |
-| Vitest | 配置规则、下载路径、重启恢复、密码学、标签会话、诊断脱敏、动态密码框 | 通过 |
-| BrowserView smoke | 独立渲染进程、屏外隐藏、新标签切换、动态密码框通知、刷新 | 通过 |
-| Ruffle smoke | `persist:` session、自定义协议、核心 JS、WASM、最小 SWF | 通过 |
-| Compatibility fixture | 跨域 SWF 响应头、`crossdomain.xml`、61.com SWFObject 补丁 | 通过 |
-| Release verification | Windows x64/ia32、Linux x64 安装包资源与二进制架构 | CI 通过 |
+| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest、生产构建 | 通过；69 个测试文件、445 项测试，Lint 0 错误 |
+| `npm run test:compat` | session 策略、SWFObject、SWF CORS | 通过 |
+| `npm run test:electron` | BrowserView 生命周期 | 通过 |
+| `npm run test:userscripts` | PPAPI/Ruffle 用户脚本运行时和 GM API | 147/147 必需项通过；可选样本受 Chromium 87/体积限制 |
+| `npm run test:userscripts-admin` | 安装、管理、内置脚本及自动化助手取材 UI | 通过 |
+| `npm run test:css-fixer` | CSS 修复器两条注入路径 | 通过 |
+| `npm run test:smokes` | 仓库 smoke 汇总 | 通过 |
+| `npm run probe:automation-m4` | 自动化工作台、积木、脚本包管理 | 通过 |
+| `npm run probe:automation-m5-engines` | Web、PPAPI 注册、Ruffle 的最小化视觉和可信输入 | Web 98.8%、Ruffle 100%；PPAPI 夹具未渲染 |
+| 源资源发布校验 | `verify:release`，Windows x64 source stage | 通过，16 项资源 |
+| Windows x64 候选安装包 | NSIS、unpacked 校验、SHA-256 | 待生成 |
 
-兼容性 fixture 使用两个本地 HTTP 源和 Electron 11 BrowserView，避免用 BrowserWindow 或现代 Electron 代替生产环境。Flash 站点自己的 `crossdomain.xml` 必须原样返回；禁止重定向到 `data:`，否则 PPAPI 会报告 `ERR_ABORTED`，并可能在登录后白屏。测试仅保留精确限定的淘米 SWFObject 补丁和供 Ruffle 使用的 SWF CORS 响应头。
+## 自动化平台人工回归
 
-## 外部站点回归
+已在实际运行实例完成：
 
-用户已在本机确认 `https://www.4399.com/flash/35538.htm`（奥拉星）能够进入登录页并正常游玩。A/B 探针确认此前登录后白屏的直接原因是全局 `crossdomain.xml → data:` 重定向；移除后正常，Flash 版本伪装保持不变。61.com、7k7k 和其他站点仍应按下列步骤持续手工回归。
+1. 打开 `about:automation`，新建/选择脚本并进入积木工作区。
+2. 在网页中打开页面内悬浮助手，确认默认位于左上角，面板可展开、收起和切换执行/识别/取材。
+3. 在恐龙游戏页进入框选取材，框选 UI、修改名称并保存成功；没有出现 `captured frame expired`。
+4. 保存后素材列表立即刷新并选中新素材。
+5. 再次进入取材后点击可见“取消”按钮，遮罩正常关闭，悬浮助手仍保留。
+6. 取材提示位于页面顶部下方，没有与“正在捕获当前页面”提示重叠；界面中不再提示 Esc 取消。
+7. 回归产生的临时素材已经删除，脚本原素材未被修改。
 
-建议手工检查：
+仍需在候选安装包上复验一次上述路径，防止开发构建与 `app.asar` 成品存在差异。
+
+## 自动化视觉与执行检查
+
+- 浏览器最小化后，Web 模板匹配为 98.8%，可信点击通过。
+- Ruffle 最小化模板匹配为 100%，输入后画面变化，调试器已正确卸载。
+- 动图目标必须只截取稳定部分；完整动画区域会使匹配分数从约 95% 波动到约 70%，只截静态区域可稳定在约 97%。
+- 测试台和正式运行统一使用 BrowserView 内容截图，不应把浏览器外壳或悬浮助手纳入模板匹配。
+- 首次比对包含视觉引擎加载成本；预热和缓存可以改善后续比对，但不能保证所有机器首次耗时相同。
+
+## PPAPI 发布前人工门
+
+自动化测试已确认 Windows PPAPI 插件注册，但当前自动化夹具没有成功渲染 PPAPI 内容，因此 1.1.0 发布前必须在真实 PPAPI 游戏完成以下检查：
+
+1. 打开一个已知可玩的 PPAPI 游戏，确认游戏画面持续渲染。
+2. 从该画面框选静态 UI，保存到测试脚本。
+3. 在悬浮助手中捕获并比对，确认高亮区域正确。
+4. 最小化窗口后执行等待图片和一次可信按键或点击。
+5. 恢复窗口，确认动作生效、脚本能停止，之后刷新/前进/后退不冻结。
+
+未完成这五项时，可发布候选包，但不应把 PPAPI 自动化标记为完整验证通过。
+
+## 旧游戏站点持续回归
 
 1. 61.com：页面不再提示 Flash 版本不兼容，游戏 SWF 能开始加载。
 2. 4399：跨域登录 iframe 能提交，捕获开关关闭时不会附加 CDP 捕获器。
 3. 7k7k：JSONP 登录完成后能继续跳转，刷新、前进和后退不会冻结。
 4. 本地 SWF：设置 → 兼容性诊断 → 打开本地 SWF 游戏，确认 PPAPI 标签能播放测试文件。
-5. 会话恢复：仅模拟崩溃或强制结束后验证恢复提示；正常点击 X 不应恢复。
-6. 标签休眠：开启设置后确认静音的非活动网页标签可被释放，切回后按原引擎、缩放和静音状态重新载入；播放声音和加载中的标签不得休眠。
+5. 会话恢复：只有模拟崩溃或强制结束后显示恢复提示；正常点击 X 不恢复。
+6. 标签休眠：不能休眠活动中、加载中、发声中或 React 内部页标签；切回后恢复原引擎、缩放和静音。
+
+Flash 站点自己的 `crossdomain.xml` 必须原样返回，禁止重定向到 `data:`。BrowserView 导航前必须卸载 CDP 密码捕获器，避免 7k7k JSONP 和页面跳转冻结。
 
 ## 安全边界
 
-本项目必须固定 Electron 11.5.0 / Chromium 87 才能保留 PPAPI Flash。该内核和 Flash 插件都已停止安全更新，不适合作为普通浏览器处理邮箱、支付、网盘、办公系统或其他敏感网站。
-
-- 仅访问可信的旧游戏站点和本地 SWF。
-- 不在游戏站点复用重要账号密码。
-- 密码本采用本地主密码加密，但不能弥补旧 Chromium 或 Flash 本身的漏洞。
-- Ruffle 通常比原生 Flash 风险低；能正常运行的游戏优先使用内置 Ruffle。
-- 导出诊断报告前仍建议人工检查内容，确认没有不希望分享的网站信息。
+- 项目必须固定 Electron 11.5.0 / Chromium 87 才能保留 PPAPI Flash，禁止为发布方便升级 Electron。
+- 只访问可信旧游戏站点和本地 SWF，不用于邮箱、支付、网盘或办公系统。
+- 自动化是图像驱动，不理解业务含义；账号、交易、删除等不可逆操作必须保留人工确认。
+- `.baoauto` 导入必须继续执行 schema、路径、大小和目录越界检查。
+- 密码和令牌不得写入用户脚本日志、自动化日志、诊断或截图文件名。
+- Ruffle 通常风险更低，内容兼容时优先使用 Ruffle。

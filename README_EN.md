@@ -13,9 +13,9 @@ Adobe Flash Player is no longer maintained, and modern browsers have removed PPA
 
 ## Downloads
 
-- [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases/tag/v1.0.1)
-- [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases/tag/v1.0.1)
-- [v1.0.1 Release Notes](RELEASE_NOTES.md)
+- [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
+- [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases)
+- [v1.1.0 Release Notes](RELEASE_NOTES.md)
 
 The Windows installers are currently **unsigned**. Microsoft Defender SmartScreen may display an “Unknown publisher” warning during installation or first launch. Download only from the project release pages and verify the published SHA-256 checksum.
 
@@ -37,6 +37,9 @@ The Windows installers are currently **unsigned**. Microsoft Defender SmartScree
 - Chromium and aria2 download engines with pause, resume, progress reporting, and path-safety checks.
 - Optional password capture, locked-vault autofill, excluded sites, and master-password protection. Autofill never submits a form.
 - Built-in userscript platform: Tampermonkey-style management page, two-phase install, sidebar script panel with menu commands, GM APIs, and page-shell enhancement scripts (including iframe sub-frame support).
+- Visual automation platform: build `.baoauto` workflows with Blockly or JSON in `about:automation`, then locate and operate web or Flash UI from image assets.
+- In-page floating automation assistant for start/stop controls, progress, live UI matching, and direct region capture from the current game frame without opening the sidebar.
+- A scene-based asset test bench highlights the best match. Capture, matching, and trusted input can continue while the application is minimized.
 - Session recovery is offered only after an abnormal exit; normal shutdown does not leave a recoverable session.
 - Chinese and English UI, light and dark themes, Toast notifications, and optional inactive-tab suspension.
 
@@ -89,6 +92,16 @@ Release scripts validate Ruffle, fonts, PPAPI, aria2, mouse hooks, and target ar
 | `Ctrl+F` | Find in page |
 | `F11` / `F12` | Fullscreen / developer tools |
 
+## Automation Quick Start
+
+1. Open Automation from the sidebar, or navigate directly to `about:automation`.
+2. Create a script and import image assets, or use the floating assistant's Capture tab to select UI directly from the game frame.
+3. Build the workflow from Entry, Image, Input, Page, Flow, and Debug blocks, then save it.
+4. Select the script in the floating assistant on the target page. Start immediately or after a countdown when its readiness condition is satisfied.
+5. For animated targets, capture only a stable region and verify the highlighted match in the test bench before running the script.
+
+The `.baoauto` package contains a validated JSON workflow and its image assets. See the [Automation User Guide](docs/automation-user-guide.md) (Chinese) for the complete workflow.
+
 ## Security and Limitations
 
 Electron 11, Chromium 87, and Adobe Flash Player no longer receive security updates. Use this application only for trusted legacy game sites and local content. Do not use it for email, payments, cloud storage, business systems, or other sensitive activity. Prefer Ruffle whenever it can run the content correctly.
@@ -100,6 +113,7 @@ Windows uses Flash 29.0.0.171, while Linux uses 32.0.0.371. The version reported
 - [Architecture and Module Manual](docs/architecture-manual.md)
 - [Userscript Developer Guide](docs/userscript-developer-guide.md) (platform extension and script authoring)
 - [Userscript User Guide](docs/userscript-user-guide.md) (install, manage, FAQ)
+- [Automation User Guide](docs/automation-user-guide.md) (workbench, capture, matching, execution, and package format; Chinese)
 - [Packaging and Release Verification](docs/PACKAGE.md)
 - [Test and Regression Checklist](docs/FINAL_REGRESSION.md)
 - [Troubleshooting and Lessons Learned](docs/lessons-learned.md)
