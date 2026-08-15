@@ -104,7 +104,7 @@ describe('OpenCV automation vision worker', () => {
       threshold: 0.99,
       region: { x: 20, y: 12, width: 35, height: 30 },
       scales: [1],
-      mask: 'none' as const,
+      mask: 'auto' as const,
     };
     const first = await matcher.find('button.png', captured, options, signal);
     const second = await matcher.find('button.png', captured, options, signal);
@@ -114,16 +114,18 @@ describe('OpenCV automation vision worker', () => {
     expect(source.load).toHaveBeenCalledTimes(1);
   }, 30_000);
 
-  it('uses PNG alpha as a template mask', async () => {
+  it('automatically uses PNG alpha as a template mask', async () => {
     const sceneWidth = 70, sceneHeight = 55, targetX = 28, targetY = 19;
     const scene = patterned(sceneWidth, sceneHeight);
     const templateWidth = 12, templateHeight = 12;
     const template = patterned(templateWidth, templateHeight, 991);
     for (let y = 0; y < templateHeight; y += 1) {
       for (let x = 0; x < templateWidth; x += 1) {
-        const alpha = x >= 3 && x < 9 && y >= 3 && y < 9 ? 255 : 0;
+        const inCore = x >= 3 && x < 9 && y >= 3 && y < 9;
+        const inSoftEdge = x >= 2 && x < 10 && y >= 2 && y < 10;
+        const alpha = inCore ? 255 : inSoftEdge ? 96 : 0;
         template[(y * templateWidth + x) * 4 + 3] = alpha;
-        if (alpha) {
+        if (inCore) {
           const source = (y * templateWidth + x) * 4;
           const destination = ((targetY + y) * sceneWidth + targetX + x) * 4;
           scene.set(template.subarray(source, source + 3), destination);
@@ -132,7 +134,7 @@ describe('OpenCV automation vision worker', () => {
     }
     const { matcher } = matcherFor({ cacheKey: 'masked@1', width: templateWidth, height: templateHeight, bgra: template });
     const result = await matcher.find('masked.png', frame(scene, sceneWidth, sceneHeight), {
-      threshold: 0.98, scales: [1], mask: 'alpha',
+      threshold: 0.98, scales: [1], mask: 'auto',
     }, new AbortController().signal);
     expect(result).toMatchObject({ x: targetX, y: targetY, width: templateWidth, height: templateHeight, masked: true });
     expect(result!.score).toBeGreaterThan(0.98);

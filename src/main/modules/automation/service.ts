@@ -10,7 +10,7 @@ import { OpenCvWorkerMatcher } from './vision-worker-matcher';
 import { inferAutomationCapabilities, loadAutomationPackage, serializeAutomationPackage, type LoadedAutomationPackage } from './package';
 import { collectWorkflowAssetIds, parseAutomationWorkflow } from '../../../shared/automation/schema';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
-import type { AutomationMessage, AutomationStep, AutomationWorkflow } from '../../../shared/automation/types';
+import type { AutomationImageMask, AutomationMessage, AutomationStep, AutomationWorkflow } from '../../../shared/automation/types';
 import { tabManager, type AutomationTabHandle } from '../tabs';
 
 export type AutomationServiceStatus = {
@@ -343,7 +343,7 @@ export class AutomationService {
     packageId: string,
     tabId: string,
     asset: string,
-    options: { threshold: number; scales?: number[]; mask?: 'none' | 'alpha' },
+    options: { threshold: number; scales?: number[]; mask?: AutomationImageMask },
   ): Promise<ImageMatch | null> {
     this.assertEnabled();
     if (this.active || this.probe) throw new Error('another automation session is active');
@@ -403,7 +403,7 @@ export class AutomationService {
     packageId: string,
     asset: string,
     scene: { width: number; height: number; bgra: Uint8Array },
-    options: { scales?: number[]; mask?: 'none' | 'alpha' },
+    options: { scales?: number[]; mask?: AutomationImageMask },
   ): Promise<ImageMatch | null> {
     this.assertEnabled();
     const entry = this.requirePackage(packageId);
@@ -426,7 +426,7 @@ export class AutomationService {
         },
         deviceSize: { width: scene.width, height: scene.height },
         cssSize: { width: scene.width, height: scene.height },
-      }, { threshold: -1, scales: options.scales ?? [1], mask: options.mask ?? 'none' }, controller.signal);
+      }, { threshold: -1, scales: options.scales ?? [1], mask: options.mask ?? 'auto' }, controller.signal);
     } finally {
       release();
       session.closeTimer = this.scheduleImageTestClose(packageId, session);

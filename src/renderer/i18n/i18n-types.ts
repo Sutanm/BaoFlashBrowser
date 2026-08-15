@@ -1546,6 +1546,15 @@ type RootTranslation = {
 			 */
 			folderSynced: RequiredParams<'changed' | 'missing'>
 			/**
+			 * 自​动​图​片​组​ ​{​c​o​u​n​t​}​ ​个
+			 * @param {unknown} count
+			 */
+			imageGroups: RequiredParams<'count'>
+			/**
+			 * 同​一​子​目​录​中​至​少​两​张​图​片​会​组​成​图​片​组​，​可​在​识​图​积​木​中​直​接​选​择​。
+			 */
+			imageGroupsHint: string
+			/**
 			 * 检​查​脚​本​包
 			 */
 			diagnose: string
@@ -1853,9 +1862,21 @@ type RootTranslation = {
 			 */
 			scaleStep: string
 			/**
+			 * 匹​配​模​式
+			 */
+			maskMode: string
+			/**
+			 * 自​动​遮​罩
+			 */
+			maskAuto: string
+			/**
 			 * 透​明​遮​罩
 			 */
 			alphaMask: string
+			/**
+			 * 完​整​图​片
+			 */
+			maskFull: string
 			/**
 			 * 开​始​比​对
 			 */
@@ -2009,23 +2030,23 @@ type RootTranslation = {
 			 */
 			execute: string
 			/**
-			 * 识​别​到​ ​%​1​ ​相​似​度​ ​%​2​ ​时​就​绪
+			 * 识​别​到​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3​ ​时​就​绪
 			 */
 			start: string
 			/**
-			 * 等​待​图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​超​时​ ​%​3​ ​毫​秒
+			 * 等​待​图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3​ ​超​时​ ​%​4​ ​毫​秒
 			 */
 			waitImage: string
 			/**
-			 * 等​待​图​片​ ​%​1​ ​%​2​ ​超​时​ ​%​3​ ​毫​秒
+			 * 等​待​图​片​ ​%​1​ ​%​2​ ​匹​配​ ​%​3​ ​超​时​ ​%​4​ ​毫​秒
 			 */
 			waitImageState: string
 			/**
-			 * 点​击​图​片​ ​%​1​ ​%​2​ ​%​3​ ​次​ ​相​似​度​ ​%​4​ ​点​击​前​确​认​ ​%​5​ ​最​大​移​动​ ​%​6​ ​像​素
+			 * 点​击​图​片​ ​%​1​ ​%​2​ ​%​3​ ​次​ ​相​似​度​ ​%​4​ ​匹​配​ ​%​5​ ​点​击​前​确​认​ ​%​6​ ​最​大​移​动​ ​%​7​ ​像​素
 			 */
 			clickImage: string
 			/**
-			 * 移​动​到​图​片​ ​%​1​ ​相​似​度​ ​%​2
+			 * 移​动​到​图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3
 			 */
 			moveToImage: string
 			/**
@@ -2041,7 +2062,7 @@ type RootTranslation = {
 			 */
 			keyCombo: string
 			/**
-			 * 按​住​ ​%​1​ ​直​到​图​片​ ​%​2​ ​%​3​ ​超​时​ ​%​4​ ​毫​秒
+			 * 按​住​ ​%​1​ ​直​到​图​片​ ​%​2​ ​%​3​ ​匹​配​ ​%​4​ ​超​时​ ​%​5​ ​毫​秒
 			 */
 			holdKeyUntilImage: string
 			/**
@@ -2065,7 +2086,7 @@ type RootTranslation = {
 			 */
 			log: string
 			/**
-			 * 如​果​ ​%​1​ ​图​片​ ​%​2​ ​相​似​度​ ​%​3
+			 * 如​果​ ​%​1​ ​图​片​ ​%​2​ ​相​似​度​ ​%​3​ ​匹​配​ ​%​4
 			 */
 			ifImage: string
 			/**
@@ -2073,7 +2094,7 @@ type RootTranslation = {
 			 */
 			ifCondition: string
 			/**
-			 * 图​片​ ​%​1​ ​相​似​度​ ​%​2
+			 * 图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3
 			 */
 			imageCondition: string
 			/**
@@ -2105,7 +2126,7 @@ type RootTranslation = {
 			 */
 			repeat: string
 			/**
-			 * 重​复​直​到​图​片​ ​%​1​ ​%​2​ ​最​多​ ​%​3​ ​次
+			 * 重​复​直​到​图​片​ ​%​1​ ​%​2​ ​匹​配​ ​%​3​ ​最​多​ ​%​4​ ​次
 			 */
 			repeatUntilImage: string
 			/**
@@ -2132,6 +2153,18 @@ type RootTranslation = {
 			 * 中​键
 			 */
 			middleButton: string
+			/**
+			 * 自​动​遮​罩
+			 */
+			maskAuto: string
+			/**
+			 * 透​明​遮​罩
+			 */
+			maskAlpha: string
+			/**
+			 * 完​整​图​片
+			 */
+			maskFull: string
 			/**
 			 * 识​别​到
 			 */
@@ -3896,6 +3929,14 @@ export type TranslationFunctions = {
 			 */
 			folderSynced: (arg: { changed: unknown, missing: unknown }) => LocalizedString
 			/**
+			 * 自动图片组 {count} 个
+			 */
+			imageGroups: (arg: { count: unknown }) => LocalizedString
+			/**
+			 * 同一子目录中至少两张图片会组成图片组，可在识图积木中直接选择。
+			 */
+			imageGroupsHint: () => LocalizedString
+			/**
 			 * 检查脚本包
 			 */
 			diagnose: () => LocalizedString
@@ -4174,9 +4215,21 @@ export type TranslationFunctions = {
 			 */
 			scaleStep: () => LocalizedString
 			/**
+			 * 匹配模式
+			 */
+			maskMode: () => LocalizedString
+			/**
+			 * 自动遮罩
+			 */
+			maskAuto: () => LocalizedString
+			/**
 			 * 透明遮罩
 			 */
 			alphaMask: () => LocalizedString
+			/**
+			 * 完整图片
+			 */
+			maskFull: () => LocalizedString
 			/**
 			 * 开始比对
 			 */
@@ -4320,23 +4373,23 @@ export type TranslationFunctions = {
 			 */
 			execute: () => LocalizedString
 			/**
-			 * 识别到 %1 相似度 %2 时就绪
+			 * 识别到 %1 相似度 %2 匹配 %3 时就绪
 			 */
 			start: () => LocalizedString
 			/**
-			 * 等待图片 %1 相似度 %2 超时 %3 毫秒
+			 * 等待图片 %1 相似度 %2 匹配 %3 超时 %4 毫秒
 			 */
 			waitImage: () => LocalizedString
 			/**
-			 * 等待图片 %1 %2 超时 %3 毫秒
+			 * 等待图片 %1 %2 匹配 %3 超时 %4 毫秒
 			 */
 			waitImageState: () => LocalizedString
 			/**
-			 * 点击图片 %1 %2 %3 次 相似度 %4 点击前确认 %5 最大移动 %6 像素
+			 * 点击图片 %1 %2 %3 次 相似度 %4 匹配 %5 点击前确认 %6 最大移动 %7 像素
 			 */
 			clickImage: () => LocalizedString
 			/**
-			 * 移动到图片 %1 相似度 %2
+			 * 移动到图片 %1 相似度 %2 匹配 %3
 			 */
 			moveToImage: () => LocalizedString
 			/**
@@ -4352,7 +4405,7 @@ export type TranslationFunctions = {
 			 */
 			keyCombo: () => LocalizedString
 			/**
-			 * 按住 %1 直到图片 %2 %3 超时 %4 毫秒
+			 * 按住 %1 直到图片 %2 %3 匹配 %4 超时 %5 毫秒
 			 */
 			holdKeyUntilImage: () => LocalizedString
 			/**
@@ -4376,7 +4429,7 @@ export type TranslationFunctions = {
 			 */
 			log: () => LocalizedString
 			/**
-			 * 如果 %1 图片 %2 相似度 %3
+			 * 如果 %1 图片 %2 相似度 %3 匹配 %4
 			 */
 			ifImage: () => LocalizedString
 			/**
@@ -4384,7 +4437,7 @@ export type TranslationFunctions = {
 			 */
 			ifCondition: () => LocalizedString
 			/**
-			 * 图片 %1 相似度 %2
+			 * 图片 %1 相似度 %2 匹配 %3
 			 */
 			imageCondition: () => LocalizedString
 			/**
@@ -4416,7 +4469,7 @@ export type TranslationFunctions = {
 			 */
 			repeat: () => LocalizedString
 			/**
-			 * 重复直到图片 %1 %2 最多 %3 次
+			 * 重复直到图片 %1 %2 匹配 %3 最多 %4 次
 			 */
 			repeatUntilImage: () => LocalizedString
 			/**
@@ -4443,6 +4496,18 @@ export type TranslationFunctions = {
 			 * 中键
 			 */
 			middleButton: () => LocalizedString
+			/**
+			 * 自动遮罩
+			 */
+			maskAuto: () => LocalizedString
+			/**
+			 * 透明遮罩
+			 */
+			maskAlpha: () => LocalizedString
+			/**
+			 * 完整图片
+			 */
+			maskFull: () => LocalizedString
 			/**
 			 * 识别到
 			 */

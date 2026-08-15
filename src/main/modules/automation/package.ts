@@ -27,14 +27,16 @@ export function inferAutomationCapabilities(workflow: AutomationWorkflow): Autom
   const visitCondition = (condition: import('../../../shared/automation/types').AutomationCondition): void => {
     if (condition.type === 'image-visible') {
       result.add('vision');
-      if (condition.mask === 'alpha') result.add('alpha-mask');
+      if (condition.alternatives?.length) result.add('image-groups');
+      if (condition.mask === 'alpha' || condition.mask === 'auto') result.add('alpha-mask');
       if (condition.scales && condition.scales.length > 1) result.add('multi-scale');
     } else if (condition.type === 'not') { result.add('combined-conditions'); visitCondition(condition.condition); }
     else { result.add('combined-conditions'); condition.conditions.forEach(visitCondition); }
   };
   const visit = (step: import('../../../shared/automation/types').AutomationStep): void => {
     if ('asset' in step && typeof step.asset === 'string') result.add('vision');
-    if ('mask' in step && step.mask === 'alpha') result.add('alpha-mask');
+    if ('alternatives' in step && step.alternatives?.length) result.add('image-groups');
+    if ('mask' in step && (step.mask === 'alpha' || step.mask === 'auto')) result.add('alpha-mask');
     if ('scales' in step && step.scales && step.scales.length > 1) result.add('multi-scale');
     if (['click-image', 'move-to-image', 'key-press', 'key-hold-until-image', 'text-input', 'scroll'].includes(step.type)) result.add('trusted-input');
     if (step.type === 'navigate' || step.type === 'reload') result.add('navigation');

@@ -53,7 +53,7 @@ export interface GmApi {
   }): void;
   baoAutomation: {
     listPackages(): Promise<Array<{ packageId: string; name: string; assets: string[] }>>;
-    match(packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'none' | 'alpha' }): Promise<unknown>;
+    match(packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha' }): Promise<unknown>;
     status(): Promise<unknown>;
     start(packageId: string, countdownMs?: number): Promise<unknown>;
     cancel(): Promise<unknown>;
@@ -225,7 +225,7 @@ export function createGmApi(context: GmApiContext): GmApi {
       const result = await bridge.invoke('userscript:automation-list', { scriptId: script.id });
       return Array.isArray(result) ? result as Array<{ packageId: string; name: string; assets: string[] }> : [];
     },
-    match: (packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'none' | 'alpha' }): Promise<unknown> =>
+    match: (packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha' }): Promise<unknown> =>
       bridge.invoke('userscript:automation-match', { scriptId: script.id, packageId, asset, options: options ?? {} }),
     status: (): Promise<unknown> => bridge.invoke('userscript:automation-status', { scriptId: script.id }),
     start: (packageId: string, countdownMs = 0): Promise<unknown> =>

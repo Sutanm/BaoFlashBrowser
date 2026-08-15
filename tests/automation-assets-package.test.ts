@@ -74,11 +74,11 @@ describe('automation assets and .baoauto package', () => {
       formatVersion: 1 as const, id: 'capabilities', name: 'Capabilities',
       readyWhen: { type: 'all' as const, conditions: [
         { type: 'image-visible' as const, asset: 'a.png', scales: [.75, 1] },
-        { type: 'image-visible' as const, asset: 'b.png', mask: 'alpha' as const },
+        { type: 'image-visible' as const, asset: 'b.png', alternatives: ['a.png'], mask: 'auto' as const },
       ] },
       root: { type: 'sequence' as const, steps: [{ type: 'click-image' as const, asset: 'a.png' }, { type: 'navigate' as const, url: 'https://example.com/' }] },
     };
-    const expected = ['alpha-mask', 'combined-conditions', 'multi-scale', 'navigation', 'trusted-input', 'vision'];
+    const expected = ['alpha-mask', 'combined-conditions', 'image-groups', 'multi-scale', 'navigation', 'trusted-input', 'vision'];
     expect(inferAutomationCapabilities(workflow)).toEqual(expected);
     const loaded = loadAutomationPackage(zipSync({
       'manifest.json': strToU8(JSON.stringify({ format: 'baoauto', formatVersion: 1, id: workflow.id, name: workflow.name, workflow: 'workflow.json', assets: 'assets/' })),

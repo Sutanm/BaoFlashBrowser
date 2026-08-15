@@ -58,7 +58,7 @@ export function registerUserscriptsIPC(): void {
   ipcMain.handle('userscript:automation-match', async (event, raw: unknown) => {
     const parsed = z.object({
       scriptId: z.string(), packageId: z.string().min(1).max(160), asset: z.string().min(1).max(512),
-      options: z.object({ threshold: z.number().min(.1).max(1).optional(), scales: z.array(z.number().min(.25).max(4)).min(1).max(16).optional(), mask: z.enum(['none', 'alpha']).optional() }).strict(),
+      options: z.object({ threshold: z.number().min(.1).max(1).optional(), scales: z.array(z.number().min(.25).max(4)).min(1).max(16).optional(), mask: z.enum(['auto', 'none', 'alpha']).optional() }).strict(),
     }).strict().safeParse(raw);
     const service = getAutomationService();
     const tabId = tabManager.getTabIdForWebContents(event.sender.id);

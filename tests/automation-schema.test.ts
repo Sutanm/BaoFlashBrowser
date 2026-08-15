@@ -102,6 +102,20 @@ describe('automation workflow schema', () => {
     })).toThrow();
   });
 
+  it('accepts the automatic image mask and rejects unknown mask modes', () => {
+    const parsed = parseAutomationWorkflow({
+      formatVersion: 1, id: 'auto-mask', name: 'Auto mask',
+      readyWhen: { type: 'image-visible', asset: 'ready.png', mask: 'auto' },
+      root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'button.png', mask: 'auto' }] },
+    });
+    expect(parsed.readyWhen).toMatchObject({ mask: 'auto' });
+    expect(parsed.root.steps[0]).toMatchObject({ mask: 'auto' });
+    expect(() => parseAutomationWorkflow({
+      formatVersion: 1, id: 'bad-mask', name: 'Bad mask',
+      root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'button.png', mask: 'background-removal' }] },
+    })).toThrow();
+  });
+
   it('supports a combined readiness condition and collects its assets', () => {
     const workflow = parseAutomationWorkflow({
       formatVersion: 1, id: 'combined-ready', name: 'Combined ready',
@@ -112,5 +126,23 @@ describe('automation workflow schema', () => {
       root: { type: 'sequence', steps: [] },
     });
     expect([...collectWorkflowAssetIds(workflow)].sort()).toEqual(['page.png', 'popup.png']);
+  });
+
+  it('validates image groups and collects all member assets', () => {
+    const workflow = parseAutomationWorkflow({
+      formatVersion: 1, id: 'directions', name: 'Directions',
+      readyWhen: {
+        type: 'image-visible', asset: '角色/行走/left.png',
+        alternatives: ['角色/行走/right.png', '角色/行走/up.png', '角色/行走/down.png'],
+      },
+      root: { type: 'sequence', steps: [] },
+    });
+    expect([...collectWorkflowAssetIds(workflow)].sort()).toEqual([
+      '角色/行走/down.png', '角色/行走/left.png', '角色/行走/right.png', '角色/行走/up.png',
+    ]);
+    expect(() => parseAutomationWorkflow({
+      formatVersion: 1, id: 'duplicate-group', name: 'Duplicate group',
+      root: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'a.png', alternatives: ['b.png', 'b.png'] }] },
+    })).toThrow(/alternatives must be unique/);
   });
 });

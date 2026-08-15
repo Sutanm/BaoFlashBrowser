@@ -32,6 +32,17 @@ function trimCache() {
   }
 }
 
+function standardDeviation(values, mask) {
+  let count = 0; let sum = 0; let sumSquares = 0;
+  for (let index = 0; index < values.length; index += 1) {
+    if (mask && mask[index] === 0) continue;
+    const value = values[index];
+    count += 1; sum += value; sumSquares += value * value;
+  }
+  const mean = sum / Math.max(1, count);
+  return Math.sqrt(Math.max(0, sumSquares / Math.max(1, count) - mean * mean));
+}
+
 function loadTemplate(cv, request) {
   const descriptor = request.template;
   const existing = cache.get(descriptor.cacheKey);
@@ -42,19 +53,39 @@ function loadTemplate(cv, request) {
   if (!descriptor.bgra) throw new Error(`template cache miss: ${descriptor.cacheKey}`);
   const bgra = cv.matFromArray(descriptor.height, descriptor.width, cv.CV_8UC4, descriptor.bgra);
   const gray = new cv.Mat();
-  const alphaBytes = new Uint8Array(descriptor.width * descriptor.height);
-  for (let pixel = 0, source = 3; pixel < alphaBytes.length; pixel += 1, source += 4) alphaBytes[pixel] = descriptor.bgra[source];
+  const pixelCount = descriptor.width * descriptor.height;
+  const sourceAlpha = new Uint8Array(pixelCount);
+  const alphaBytes = new Uint8Array(pixelCount);
+  let transparentPixels = 0; let alphaPixels = 0;
+  for (let pixel = 0, source = 3; pixel < pixelCount; pixel += 1, source += 4) {
+    const value = descriptor.bgra[source];
+    sourceAlpha[pixel] = value;
+    if (value < 250) transparentPixels += 1;
+    if (value >= 224) { alphaBytes[pixel] = 255; alphaPixels += 1; }
+  }
+  // Very soft or thin sprites may not contain enough nearly-opaque pixels.
+  // Keep their visible core while still discarding transparent edge halos.
+  if (alphaPixels < Math.max(4, Math.floor(pixelCount * 0.005))) {
+    alphaPixels = 0;
+    for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+      if (sourceAlpha[pixel] >= 32) { alphaBytes[pixel] = 255; alphaPixels += 1; }
+      else alphaBytes[pixel] = 0;
+    }
+  }
   const alpha = cv.matFromArray(descriptor.height, descriptor.width, cv.CV_8UC1, alphaBytes);
   try {
     cv.cvtColor(bgra, gray, cv.COLOR_BGRA2GRAY);
   } finally {
     bgra.delete();
   }
-  let sum = 0; let sumSquares = 0;
-  for (const value of gray.data) { sum += value; sumSquares += value * value; }
-  const mean = sum / Math.max(1, gray.data.length);
-  const stdDev = Math.sqrt(Math.max(0, sumSquares / Math.max(1, gray.data.length) - mean * mean));
-  const entry = { gray, alpha, width: descriptor.width, height: descriptor.height, stdDev, bytes: gray.data.length + alpha.data.length };
+  const stdDev = standardDeviation(gray.data);
+  const maskedStdDev = standardDeviation(gray.data, alphaBytes);
+  const minimumTransparentPixels = Math.max(1, Math.floor(pixelCount * 0.005));
+  const hasUsefulAlpha = transparentPixels >= minimumTransparentPixels && alphaPixels > 0 && alphaPixels < pixelCount;
+  const entry = {
+    gray, alpha, width: descriptor.width, height: descriptor.height, stdDev, maskedStdDev,
+    alphaPixels, hasUsefulAlpha, bytes: gray.data.length + alpha.data.length,
+  };
   if (entry.bytes > maxCacheBytes) {
     gray.delete();
     alpha.delete();
@@ -86,8 +117,11 @@ function match(cv, request) {
       const result = new cv.Mat();
       try {
         cv.resize(template.gray, scaledGray, new cv.Size(width, height), 0, 0, scale < 1 ? cv.INTER_AREA : cv.INTER_LINEAR);
-        const masked = request.options.mask === 'alpha';
-        const lowVariance = template.stdDev < 4;
+        const maskMode = request.options.mask || 'auto';
+        const masked = maskMode === 'alpha' || (maskMode === 'auto' && template.hasUsefulAlpha);
+        if (masked && template.alphaPixels === 0) throw new Error(`template alpha mask is empty: ${request.template.cacheKey}`);
+        const templateStdDev = masked ? template.maskedStdDev : template.stdDev;
+        const lowVariance = templateStdDev < 4;
         const method = masked ? cv.TM_CCORR_NORMED : lowVariance ? cv.TM_SQDIFF_NORMED : cv.TM_CCOEFF_NORMED;
         if (masked) {
           cv.resize(template.alpha, scaledMask, new cv.Size(width, height), 0, 0, cv.INTER_NEAREST);
@@ -108,7 +142,7 @@ function match(cv, request) {
             scale,
             masked,
             lowVariance,
-            templateStdDev: template.stdDev,
+            templateStdDev,
           };
         }
       } finally {

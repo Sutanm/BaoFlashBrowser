@@ -179,7 +179,7 @@
   async function compare() {
     if (state.busy) return; await refreshPackages(); var pkg = currentPackage(); if (!pkg || !selectedAsset) return;
     state.busy = true; resultText.textContent = '正在捕获当前页面…';
-    try { var value = await api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'none' }); renderMatch(value); }
+    try { var value = await api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'auto' }); renderMatch(value); }
     catch (error) { resultText.textContent = error.message || String(error); }
     finally { state.busy = false; }
   }

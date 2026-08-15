@@ -146,7 +146,7 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
   });
   createValidatedHandler('automation:test-asset-on-scene', z.object({
     packageId, asset: assetId, token: z.string().regex(/^[a-f0-9]{32}$/), threshold: z.number().min(0.1).max(1),
-    scales: z.array(z.number().min(0.25).max(4)).min(1).max(16).optional(), mask: z.enum(['none', 'alpha']).optional(),
+    scales: z.array(z.number().min(0.25).max(4)).min(1).max(16).optional(), mask: z.enum(['auto', 'none', 'alpha']).optional(),
   }).strict(), async ({ packageId: id, asset, token, threshold, scales, mask }) => {
     await service.whenReady(); expireScenes(testScenes); expireScenes(liveTestScenes);
     const scene = testScenes.get(token) ?? liveTestScenes.get(token);
@@ -302,7 +302,7 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
     packageId, tabId, asset: assetId,
     threshold: z.number().min(0.1).max(1),
     scales: z.array(z.number().min(0.25).max(4)).min(1).max(16).optional(),
-    mask: z.enum(['none', 'alpha']).optional(),
+    mask: z.enum(['auto', 'none', 'alpha']).optional(),
   }).strict(), (args) => service.whenReady().then(() => service.testAsset(args.packageId, args.tabId, args.asset, {
     threshold: args.threshold, scales: args.scales, mask: args.mask,
   })));

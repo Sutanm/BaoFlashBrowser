@@ -1,4 +1,4 @@
-import type { AutomationRegion } from '../../../shared/automation/types';
+import type { AutomationImageMask, AutomationRegion } from '../../../shared/automation/types';
 import type {
   AutomationDriver,
   FindImageRequest,
@@ -15,6 +15,7 @@ export type AutomationCapturedImage = {
 
 export type AutomationCapturedFrame = {
   image: AutomationCapturedImage;
+  bitmap?: Buffer;
   deviceSize: { width: number; height: number };
   cssSize: { width: number; height: number };
 };
@@ -23,7 +24,7 @@ export type AutomationVisionMatcher = {
   find(
     asset: string,
     frame: AutomationCapturedFrame,
-    options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: 'none' | 'alpha' },
+    options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null>;
 };
@@ -195,18 +196,26 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
       if (image.isEmpty()) throw new Error('BrowserView capture is empty');
       const frame: AutomationCapturedFrame = {
         image,
+        bitmap: image.toBitmap(),
         deviceSize: image.getSize(),
         cssSize: this.options.getCssViewport(),
       };
       this.lastFrame = frame;
       await restoreAutomationAssistantAfterCapture(this.webContents, assistantVisibility);
       assistantRestored = true;
-      return await this.matcher.find(request.asset, frame, {
-        threshold: request.threshold,
-        region: request.region,
-        scales: request.scales,
-        mask: request.mask,
-      }, signal);
+      let best: ImageMatch | null = null;
+      const assets = [...new Set([request.asset, ...(request.alternatives ?? [])])];
+      for (const asset of assets) {
+        this.throwIfAborted(signal);
+        const match = await this.matcher.find(asset, frame, {
+          threshold: request.threshold,
+          region: request.region,
+          scales: request.scales,
+          mask: request.mask,
+        }, signal);
+        if (match && (!best || match.score > best.score)) best = { ...match, asset };
+      }
+      return best;
     } finally {
       if (!assistantRestored) await restoreAutomationAssistantAfterCapture(this.webContents, assistantVisibility);
       this.webContents.decrementCapturerCount();

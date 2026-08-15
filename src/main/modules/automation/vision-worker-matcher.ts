@@ -1,6 +1,6 @@
 import path from 'path';
 import { Worker } from 'worker_threads';
-import type { AutomationRegion } from '../../../shared/automation/types';
+import type { AutomationImageMask, AutomationRegion } from '../../../shared/automation/types';
 import type { ImageMatch } from './runtime';
 import type {
   AutomationCapturedFrame,
@@ -120,7 +120,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
   async find(
     asset: string,
     frame: AutomationCapturedFrame,
-    options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: 'none' | 'alpha' },
+    options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null> {
     if (signal.aborted) throw new Error('automation cancelled');
@@ -128,7 +128,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     if (template.width <= 0 || template.height <= 0 || template.bgra.byteLength !== template.width * template.height * 4) {
       throw new Error(`invalid template pixels for ${asset}`);
     }
-    const sceneBytes = copyForTransfer(frame.image.toBitmap());
+    const sceneBytes = copyForTransfer(frame.bitmap ?? frame.image.toBitmap());
     if (sceneBytes.byteLength !== frame.deviceSize.width * frame.deviceSize.height * 4) {
       throw new Error('captured BGRA byte length does not match frame dimensions');
     }
@@ -163,7 +163,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
           threshold: options.threshold,
           region: cssRegionToDevice(options.region, frame),
           scales: options.scales ?? [1],
-          mask: options.mask ?? 'none',
+          mask: options.mask ?? 'auto',
         },
       }), 'utf8');
       const control = this.sharedControl;

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Braces, CheckCircle2, Copy, Download, FolderPlus, FolderSync, Image, PackageOpen, Plus, RefreshCw, Save, ScanSearch, Search, ShieldCheck, Trash2, Upload, Workflow } from 'lucide-react';
 import type { AutomationWorkflow } from '@shared/automation/types';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
-import AutomationBlocklyEditor, { type AutomationBlocklyEditorHandle } from './AutomationBlocklyEditor';
+import AutomationBlocklyEditor, { collectFolderImageGroups, type AutomationBlocklyEditorHandle } from './AutomationBlocklyEditor';
 import AutomationAssetTestBench from './AutomationAssetTestBench';
 import './automation.css';
 
@@ -206,6 +206,7 @@ export default function AutomationPage(): React.JSX.Element {
   };
 
   const visibleAssets = assets.filter((asset) => asset.toLowerCase().includes(assetQuery.trim().toLowerCase()));
+  const imageGroups = collectFolderImageGroups(assets);
 
   const diagnosePackage = async (): Promise<void> => {
     if (!selectedId) return; setBusy(true);
@@ -273,6 +274,7 @@ export default function AutomationPage(): React.JSX.Element {
             <div className="automation-assets-heading"><Image /><strong>{LL.automation.page.assetsTitle()}</strong><span>{assets.length}</span><button type="button" onClick={() => void importAssets()} disabled={busy} title={LL.automation.page.mergeAssetsTitle()}><FolderPlus />{LL.automation.page.add()}</button></div>
             <label className="automation-asset-search"><Search /><input value={assetQuery} onChange={(event) => setAssetQuery(event.target.value)} placeholder={LL.automation.page.searchAssets()} /></label>
             <div className="automation-folder-link"><button type="button" onClick={() => void linkAssetFolder()} disabled={busy}><FolderSync />{linkedFolder ? linkedFolder.name : LL.automation.page.linkFolder()}</button>{linkedFolder && <button type="button" onClick={() => void syncAssetFolder()} disabled={busy}><RefreshCw />{LL.automation.page.syncFolder()}</button>}</div>
+            {imageGroups.length > 0 && <div className="automation-image-groups"><strong>{LL.automation.page.imageGroups({ count: imageGroups.length })}</strong><small>{LL.automation.page.imageGroupsHint()}</small><div>{imageGroups.map((group) => <span key={group.folder} title={group.assets.join('\n')}>📚 {group.folder} · {group.assets.length}</span>)}</div></div>}
             {assets.length ? <ul>{visibleAssets.map((asset) => <li key={asset} title={asset} className={selectedAsset === asset ? 'selected' : ''}><button type="button" onClick={() => void previewAsset(selectedId, asset)}><small>{asset.includes('/') ? asset.slice(0, asset.lastIndexOf('/')) : LL.automation.page.rootFolder()}</small>{asset.split('/').pop()}</button></li>)}</ul> : <p>{LL.automation.page.noAssetsHint()}</p>}
             {assetPreview && <div className="automation-asset-preview">
               <img src={assetPreview.dataUrl} alt={assetPreview.asset} />

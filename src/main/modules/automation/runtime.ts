@@ -1,6 +1,7 @@
 import { createActor, createMachine } from 'xstate';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import type {
+  AutomationImageMask,
   AutomationRegion,
   AutomationCondition,
   AutomationStep,
@@ -14,6 +15,7 @@ import type {
 import { parseAutomationWorkflow } from '../../../shared/automation/schema';
 
 export type ImageMatch = {
+  asset?: string;
   x: number;
   y: number;
   width: number;
@@ -28,10 +30,11 @@ export type ImageMatch = {
 
 export type FindImageRequest = {
   asset: string;
+  alternatives?: string[];
   threshold: number;
   region?: AutomationRegion;
   scales?: number[];
-  mask?: 'none' | 'alpha';
+  mask?: AutomationImageMask;
 };
 
 export type AutomationDriver = {
@@ -228,12 +231,13 @@ export class AutomationRunner {
     if (condition.type === 'not') return !await this.findCondition(condition.condition, signal, depth + 1);
     const match = await this.driver.findImage({
       asset: condition.asset,
+      alternatives: condition.alternatives,
       threshold: condition.threshold ?? 0.9,
       region: condition.region,
       scales: imageScales(condition.scales),
-      mask: condition.mask,
+      mask: condition.mask ?? 'auto',
     }, signal);
-    if (match) this.onEvent?.({ type: 'image-match', asset: condition.asset, match });
+    if (match) this.onEvent?.({ type: 'image-match', asset: match.asset ?? condition.asset, match });
     else this.onEvent?.({ type: 'image-miss', asset: condition.asset });
     return Boolean(match);
   }
@@ -246,13 +250,14 @@ export class AutomationRunner {
       this.throwIfAborted(signal);
       const match = await this.driver.findImage({
         asset: step.asset,
+        alternatives: step.alternatives,
         threshold: step.threshold ?? 0.9,
         region: step.region,
         scales: imageScales(step.scales),
-        mask: step.mask,
+        mask: step.mask ?? 'auto',
       }, signal);
       if (match) {
-        this.onEvent?.({ type: 'image-match', asset: step.asset, match });
+        this.onEvent?.({ type: 'image-match', asset: match.asset ?? step.asset, match });
         return match;
       }
       this.onEvent?.({ type: 'image-miss', asset: step.asset });
@@ -274,7 +279,7 @@ export class AutomationRunner {
       this.throwIfAborted(signal);
       const visible = await this.findCondition({
         type: 'image-visible', asset: step.asset, threshold: step.threshold, region: step.region,
-        scales: step.scales, mask: step.mask,
+        alternatives: step.alternatives, scales: step.scales, mask: step.mask ?? 'auto',
       }, signal);
       if (!visible) return;
       const remaining = deadline - this.driver.now();
@@ -321,7 +326,7 @@ export class AutomationRunner {
         if (step.verifyBeforeClick) {
           const verified = await this.driver.findImage({
             asset: step.asset, threshold: step.threshold ?? 0.9, region: step.region,
-            scales: imageScales(step.scales), mask: step.mask,
+            alternatives: step.alternatives, scales: imageScales(step.scales), mask: step.mask ?? 'auto',
           }, signal);
           if (!verified) throw new Error(`image disappeared before click: ${step.asset}`);
           const firstX = match.x + match.width / 2; const firstY = match.y + match.height / 2;

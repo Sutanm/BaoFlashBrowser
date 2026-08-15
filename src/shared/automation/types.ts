@@ -5,13 +5,16 @@ export type AutomationRegion = {
   height: number;
 };
 
+export type AutomationImageMask = 'auto' | 'none' | 'alpha';
+
 export type ImageCondition = {
   type: 'image-visible';
   asset: string;
+  alternatives?: string[];
   threshold?: number;
   region?: AutomationRegion;
   scales?: number[];
-  mask?: 'none' | 'alpha';
+  mask?: AutomationImageMask;
 };
 
 export type AllCondition = {
@@ -47,37 +50,40 @@ export type WaitImageStep = {
   id?: string;
   type: 'wait-image';
   asset: string;
+  alternatives?: string[];
   threshold?: number;
   timeoutMs?: number;
   pollMs?: number;
   region?: AutomationRegion;
   scales?: number[];
-  mask?: 'none' | 'alpha';
+  mask?: AutomationImageMask;
 };
 
 export type WaitImageStateStep = {
   id?: string;
   type: 'wait-image-state';
   asset: string;
+  alternatives?: string[];
   state: 'visible' | 'hidden';
   threshold?: number;
   timeoutMs?: number;
   pollMs?: number;
   region?: AutomationRegion;
   scales?: number[];
-  mask?: 'none' | 'alpha';
+  mask?: AutomationImageMask;
 };
 
 export type ClickImageStep = {
   id?: string;
   type: 'click-image';
   asset: string;
+  alternatives?: string[];
   threshold?: number;
   timeoutMs?: number;
   pollMs?: number;
   region?: AutomationRegion;
   scales?: number[];
-  mask?: 'none' | 'alpha';
+  mask?: AutomationImageMask;
   button?: 'left' | 'right' | 'middle';
   clickCount?: number;
   offset?: { x: number; y: number };
@@ -98,25 +104,27 @@ export type KeyHoldUntilImageStep = {
   key: string;
   modifiers?: Array<'alt' | 'control' | 'meta' | 'shift'>;
   asset: string;
+  alternatives?: string[];
   state: 'visible' | 'hidden';
   threshold?: number;
   timeoutMs?: number;
   pollMs?: number;
   region?: AutomationRegion;
   scales?: number[];
-  mask?: 'none' | 'alpha';
+  mask?: AutomationImageMask;
 };
 
 export type MoveToImageStep = {
   id?: string;
   type: 'move-to-image';
   asset: string;
+  alternatives?: string[];
   threshold?: number;
   timeoutMs?: number;
   pollMs?: number;
   region?: AutomationRegion;
   scales?: number[];
-  mask?: 'none' | 'alpha';
+  mask?: AutomationImageMask;
   offset?: { x: number; y: number };
 };
 
@@ -247,6 +255,7 @@ export type AutomationPackageManifest = {
 export type AutomationCapability =
   | 'vision'
   | 'alpha-mask'
+  | 'image-groups'
   | 'multi-scale'
   | 'trusted-input'
   | 'navigation'

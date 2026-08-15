@@ -10,7 +10,7 @@ const workflow = {
     { type: 'not', condition: { type: 'image-visible', asset: 'buttons/start.png', threshold: 0.99 } },
   ] },
   root: { type: 'sequence', steps: [
-    { type: 'wait-image', asset: 'buttons/start.png', threshold: 0.9, timeoutMs: 10000, pollMs: 375, region: { x: 12, y: 18, width: 640, height: 360 }, scales: [0.8, 1, 1.2], mask: 'alpha' },
+    { type: 'wait-image', asset: 'buttons/start.png', alternatives: ['buttons/start-hover.png'], threshold: 0.9, timeoutMs: 10000, pollMs: 375, region: { x: 12, y: 18, width: 640, height: 360 }, scales: [0.8, 1, 1.2], mask: 'alpha' },
     { type: 'click-image', asset: 'buttons/start.png', threshold: 0.9, clickCount: 1, button: 'left', offset: { x: 7, y: -4 }, pollMs: 250 },
     {
       type: 'if-condition',
@@ -44,9 +44,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       { id: 1, timestamp: Date.now() - 20, level: 'info', message: { key: 'step.clickImage', params: { asset: 'buttons/start.png' } }, step: 2 },
       { id: 2, timestamp: Date.now(), level: 'success', message: { key: 'status.imageMatch', params: { asset: 'buttons/start.png', score: '97.0', ms: '18' } }, step: 2 },
     ] }),
-    listPackages: async () => [{ packageId: 'm4-smoke:1', id: workflow.id, name: workflow.name, assets: ['pages/home.png', 'buttons/start.png'] }],
-    getPackage: async () => ({ packageId: 'm4-smoke:1', workflow, assets: ['pages/home.png', 'buttons/start.png'] }),
-    diagnosePackage: async () => ({ packageId: 'm4-smoke:1', valid: true, assetCount: 2, assetBytes: 256, referencedAssets: 2, unreferencedAssets: [], missingAssets: [], stepCount: 4, maxDepth: 3, capabilities: ['vision', 'trusted-input', 'combined-conditions'], issues: [] }),
+    listPackages: async () => [{ packageId: 'm4-smoke:1', id: workflow.id, name: workflow.name, assets: ['pages/home.png', 'buttons/start.png', 'buttons/start-hover.png'] }],
+    getPackage: async () => ({ packageId: 'm4-smoke:1', workflow, assets: ['pages/home.png', 'buttons/start.png', 'buttons/start-hover.png'] }),
+    diagnosePackage: async () => ({ packageId: 'm4-smoke:1', valid: true, assetCount: 3, assetBytes: 384, referencedAssets: 3, unreferencedAssets: [], missingAssets: [], stepCount: 4, maxDepth: 3, capabilities: ['vision', 'trusted-input', 'combined-conditions', 'image-groups'], issues: [] }),
     listRunHistory: async () => [{ id: 'run-1', packageId: 'm4-smoke:1', workflowName: workflow.name, tabId: 'tab-1', mode: 'run', startedAt: Date.now() - 1500, finishedAt: Date.now(), state: 'completed', executedSteps: 3, logs: [] }],
     clearRunHistory: async () => ({ success: true }),
     getAssetPreview: async (_packageId, asset) => ({ asset, width: 96, height: 48, bytes: 128, dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==' }),

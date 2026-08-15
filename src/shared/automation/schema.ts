@@ -23,13 +23,17 @@ const regionSchema = z.object({
 
 const imageFields = {
   asset: assetIdSchema,
+  alternatives: z.array(assetIdSchema).min(1).max(15).refine(
+    (values) => new Set(values).size === values.length,
+    'image alternatives must be unique',
+  ).optional(),
   threshold: z.number().min(0.1).max(1).optional(),
   region: regionSchema.optional(),
   scales: z.array(z.number().min(0.25).max(4)).min(1).max(16).refine(
     (values) => new Set(values).size === values.length,
     'image scales must be unique',
   ).optional(),
-  mask: z.enum(['none', 'alpha']).optional(),
+  mask: z.enum(['auto', 'none', 'alpha']).optional(),
 };
 
 export const imageConditionSchema: z.ZodType<ImageCondition> = z.object({
@@ -219,7 +223,7 @@ export const automationPackageManifestSchema: z.ZodType<AutomationPackageManifes
   assets: z.literal('assets/'),
   createdBy: z.string().min(1).max(120).optional(),
   minimumAppVersion: z.string().regex(/^\d+\.\d+\.\d+$/).optional(),
-  capabilities: z.array(z.enum(['vision', 'alpha-mask', 'multi-scale', 'trusted-input', 'navigation', 'combined-conditions'])).max(16).refine(
+  capabilities: z.array(z.enum(['vision', 'alpha-mask', 'image-groups', 'multi-scale', 'trusted-input', 'navigation', 'combined-conditions'])).max(16).refine(
     (values) => new Set(values).size === values.length,
     'automation capabilities must be unique',
   ).optional(),
@@ -235,8 +239,12 @@ export function parseAutomationPackageManifest(value: unknown): AutomationPackag
 
 export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<string> {
   const result = new Set<string>();
+  const addImageAssets = (value: { asset: string; alternatives?: string[] }): void => {
+    result.add(value.asset);
+    value.alternatives?.forEach((asset) => result.add(asset));
+  };
   const visitCondition = (condition: AutomationCondition): void => {
-    if (condition.type === 'image-visible') result.add(condition.asset);
+    if (condition.type === 'image-visible') addImageAssets(condition);
     else if (condition.type === 'not') visitCondition(condition.condition);
     else condition.conditions.forEach(visitCondition);
   };
@@ -246,11 +254,11 @@ export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<strin
       case 'sequence': step.steps.forEach(visit); break;
       case 'wait-image':
       case 'wait-image-state':
-      case 'click-image': result.add(step.asset); break;
-      case 'key-hold-until-image': result.add(step.asset); break;
-      case 'move-to-image': result.add(step.asset); break;
+      case 'click-image': addImageAssets(step); break;
+      case 'key-hold-until-image': addImageAssets(step); break;
+      case 'move-to-image': addImageAssets(step); break;
       case 'if-image':
-        result.add(step.condition.asset);
+        addImageAssets(step.condition);
         visit(step.then);
         if (step.else) visit(step.else);
         break;
@@ -262,7 +270,7 @@ export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<strin
       case 'wait-condition': visitCondition(step.condition); break;
       case 'repeat': visit(step.body); break;
       case 'repeat-until-image':
-        result.add(step.condition.asset);
+        addImageAssets(step.condition);
         visit(step.body);
         break;
       case 'repeat-until-condition':

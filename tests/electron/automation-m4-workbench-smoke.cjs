@@ -54,6 +54,7 @@ app.whenReady().then(async () => {
     assetPreview: Boolean(document.querySelector('.automation-asset-preview img')),
     assetSearch: Boolean(document.querySelector('.automation-asset-search input')),
     folderLink: [...document.querySelectorAll('.automation-folder-link button')].some(node => node.textContent.includes('关联目录')),
+    imageGroups: [...document.querySelectorAll('.automation-image-groups span')].map(node => node.textContent),
     diagnosticButton: [...document.querySelectorAll('.automation-diagnostic-button')].some(node => node.textContent.includes('检查脚本包')),
     canCreate: [...document.querySelectorAll('.automation-page-header-actions button')].some(node => node.textContent.includes('新建脚本')),
     createDisabled: [...document.querySelectorAll('.automation-page-header-actions button')].find(node => node.textContent.includes('新建脚本'))?.disabled,
@@ -62,7 +63,7 @@ app.whenReady().then(async () => {
   if (result.title !== '自动化工作台') throw new Error(`unexpected title: ${result.title}`);
   if (result.scripts !== 1 || result.blocks < 3) throw new Error(`workbench content missing: ${JSON.stringify(result)}`);
   if (!result.categories.includes('图像') || !result.categories.includes('流程') || !result.jsonMode) throw new Error(`workbench controls missing: ${JSON.stringify(result)}`);
-  if (!result.canCreate || result.createDisabled || result.libraryActions !== 2 || result.assetRows !== 2 || !result.assetPreview || !result.assetSearch || !result.folderLink || !result.diagnosticButton) throw new Error(`library management missing: ${JSON.stringify(result)}`);
+  if (!result.canCreate || result.createDisabled || result.libraryActions !== 2 || result.assetRows !== 3 || !result.assetPreview || !result.assetSearch || !result.folderLink || result.imageGroups.length !== 1 || !result.diagnosticButton) throw new Error(`library management missing: ${JSON.stringify(result)}`);
   if (result.newBlockTypes.some((block) => !block.registered)) throw new Error(`new automation blocks missing: ${JSON.stringify(result.newBlockTypes)}`);
   await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-page-header-actions button')].find(node => node.textContent.includes('新建脚本'))).click()`);
   await waitFor(win.webContents, `document.querySelector('.automation-dialog[role="dialog"]')`);
@@ -77,7 +78,7 @@ app.whenReady().then(async () => {
   const editorRoundTrip = await win.webContents.executeJavaScript(`(() => { const workflow = JSON.parse(document.querySelector('.automation-json-editor textarea').value); return { ready: workflow.readyWhen, condition: workflow.root.steps.find(item => item.type === 'if-condition')?.condition, wait: workflow.root.steps.find(item => item.type === 'wait-image'), click: workflow.root.steps.find(item => item.type === 'click-image') }; })()`);
   if (editorRoundTrip.ready?.type !== 'all' || editorRoundTrip.ready.conditions?.[1]?.type !== 'not') throw new Error(`combined ready condition round trip failed: ${JSON.stringify(editorRoundTrip.ready)}`);
   if (editorRoundTrip.condition?.type !== 'any' || editorRoundTrip.condition.conditions?.[1]?.type !== 'not') throw new Error(`combined condition round trip failed: ${JSON.stringify(editorRoundTrip.condition)}`);
-  if (editorRoundTrip.wait?.pollMs !== 375 || editorRoundTrip.wait?.region?.width !== 640 || editorRoundTrip.wait?.scales?.length !== 3 || editorRoundTrip.wait?.mask !== 'alpha') throw new Error(`advanced image fields were lost: ${JSON.stringify(editorRoundTrip.wait)}`);
+  if (editorRoundTrip.wait?.pollMs !== 375 || editorRoundTrip.wait?.region?.width !== 640 || editorRoundTrip.wait?.scales?.length !== 3 || editorRoundTrip.wait?.mask !== 'alpha' || [...new Set([editorRoundTrip.wait?.asset, ...(editorRoundTrip.wait?.alternatives ?? [])])].sort().join(',') !== 'buttons/start-hover.png,buttons/start.png') throw new Error(`advanced image fields were lost: ${JSON.stringify(editorRoundTrip.wait)}`);
   if (editorRoundTrip.click?.offset?.x !== 7 || editorRoundTrip.click?.offset?.y !== -4 || editorRoundTrip.click?.pollMs !== 250) throw new Error(`advanced click fields were lost: ${JSON.stringify(editorRoundTrip.click)}`);
   await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('积木'))).click()`);
   const testBenchTab = await win.webContents.executeJavaScript(`[...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('素材测试台'))?.textContent`);
@@ -88,8 +89,8 @@ app.whenReady().then(async () => {
   await waitFor(win.webContents, `document.querySelector('.automation-test-scene-image img')`);
   await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-test-bench-toolbar button')].find(node => node.textContent.includes('开始比对'))).click()`);
   await waitFor(win.webContents, `document.querySelector('.automation-match-highlight.matched')`);
-  const testBenchMetrics = await win.webContents.executeJavaScript(`(() => { const scene = document.querySelector('.automation-test-scene').getBoundingClientRect(); const strip = document.querySelector('.automation-test-assets-strip').getBoundingClientRect(); const highlight = document.querySelector('.automation-match-highlight').getBoundingClientRect(); return { scene: { width: scene.width, height: scene.height }, strip: { width: strip.width, height: strip.height }, highlight: { width: highlight.width, height: highlight.height }, score: document.querySelector('.automation-match-highlight span')?.textContent }; })()`);
-  if (testBenchMetrics.scene.height <= testBenchMetrics.strip.height || testBenchMetrics.highlight.width <= 0 || testBenchMetrics.score !== '93.4%') throw new Error(`asset test bench layout invalid: ${JSON.stringify(testBenchMetrics)}`);
+  const testBenchMetrics = await win.webContents.executeJavaScript(`(() => { const scene = document.querySelector('.automation-test-scene').getBoundingClientRect(); const strip = document.querySelector('.automation-test-assets-strip').getBoundingClientRect(); const highlight = document.querySelector('.automation-match-highlight').getBoundingClientRect(); return { scene: { width: scene.width, height: scene.height }, strip: { width: strip.width, height: strip.height }, highlight: { width: highlight.width, height: highlight.height }, score: document.querySelector('.automation-match-highlight span')?.textContent, mask: document.querySelector('.automation-mask-mode select')?.value }; })()`);
+  if (testBenchMetrics.scene.height <= testBenchMetrics.strip.height || testBenchMetrics.highlight.width <= 0 || testBenchMetrics.score !== '93.4%' || testBenchMetrics.mask !== 'auto') throw new Error(`asset test bench layout invalid: ${JSON.stringify(testBenchMetrics)}`);
   fs.mkdirSync(path.join(ROOT, 'release', 'automation-probe'), { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'release', 'automation-probe', 'm5-asset-test-bench.png'), (await win.webContents.capturePage()).toPNG());
   await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('积木'))).click()`);

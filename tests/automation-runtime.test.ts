@@ -157,6 +157,21 @@ describe('automation runtime', () => {
     }, driver);
     await expect(runner.run()).resolves.toBe(true);
     expect(driver.requests[0].scales).toEqual([0.75, 1, 1.25]);
+    expect(driver.requests[0].mask).toBe('auto');
+  });
+
+  it('passes every member of an image group to the driver', async () => {
+    const driver = new FakeDriver();
+    driver.queue('角色/行走/left.png', { ...MATCH, asset: '角色/行走/right.png' });
+    const runner = new AutomationRunner({
+      formatVersion: 1, id: 'image-group', name: 'Image group',
+      root: { type: 'sequence', steps: [{
+        type: 'click-image', asset: '角色/行走/left.png',
+        alternatives: ['角色/行走/right.png', '角色/行走/up.png', '角色/行走/down.png'],
+      }] },
+    }, driver);
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.requests[0].alternatives).toEqual(['角色/行走/right.png', '角色/行走/up.png', '角色/行走/down.png']);
   });
 
   it('rechecks a target before clicking and rejects excessive movement', async () => {

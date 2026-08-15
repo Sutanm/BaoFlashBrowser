@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Maximize2, Minimize2, ScanSearch, ZoomIn, ZoomOut } from 'lucide-react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
+import type { AutomationImageMask } from '@shared/automation/types';
 
 type Scene = { token: string; name: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number };
 type Result = Awaited<ReturnType<Window['electronAPI']['automation']['testAssetOnScene']>>;
@@ -48,7 +49,7 @@ export default function AutomationAssetTestBench({ packageId, assets, onAssetsCh
   const [scaleMin, setScaleMin] = useState(.75);
   const [scaleMax, setScaleMax] = useState(1.25);
   const [scaleStep, setScaleStep] = useState(.25);
-  const [alphaMask, setAlphaMask] = useState(false);
+  const [maskMode, setMaskMode] = useState<AutomationImageMask>('auto');
   const [result, setResult] = useState<Result>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -100,7 +101,7 @@ export default function AutomationAssetTestBench({ packageId, assets, onAssetsCh
     if (!scene || !nextAsset) return;
     setBusy(true); setMessage('');
     try {
-      setResult(await api.testAssetOnScene(packageId, scene.token, nextAsset, threshold, multiScale ? scaleRange(scaleMin, scaleMax, scaleStep) : [1], alphaMask ? 'alpha' : 'none'));
+      setResult(await api.testAssetOnScene(packageId, scene.token, nextAsset, threshold, multiScale ? scaleRange(scaleMin, scaleMax, scaleStep) : [1], maskMode));
     } catch (error) { setResult(undefined); setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
@@ -116,7 +117,11 @@ export default function AutomationAssetTestBench({ packageId, assets, onAssetsCh
         <label>{t.scaleMax()}<input type="number" min="0.25" max="4" step="0.05" value={scaleMax} onChange={(event) => setScaleMax(Number(event.target.value))} /></label>
         <label>{t.scaleStep()}<input type="number" min="0.01" max="1" step="0.01" value={scaleStep} onChange={(event) => setScaleStep(Number(event.target.value))} /></label>
       </div>}
-      <label className="check"><input type="checkbox" checked={alphaMask} onChange={(event) => setAlphaMask(event.target.checked)} />{t.alphaMask()}</label>
+      <label className="automation-mask-mode">{t.maskMode()}<select value={maskMode} onChange={(event) => setMaskMode(event.target.value as AutomationImageMask)}>
+        <option value="auto">{t.maskAuto()}</option>
+        <option value="alpha">{t.alphaMask()}</option>
+        <option value="none">{t.maskFull()}</option>
+      </select></label>
       <button type="button" className="primary" disabled={busy || !scene || !asset} onClick={() => void compare()}><ScanSearch />{busy ? t.comparing() : t.compare()}</button>
     </div>
     <div ref={sceneHostRef} className="automation-test-scene">

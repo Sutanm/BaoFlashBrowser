@@ -223,7 +223,7 @@ const electronAPI = {
     getAssetPreview: (packageId: string, asset: string) => safeInvoke('automation:get-asset-preview', { packageId, asset }),
     openTestScene: (i18n?: { title?: string; filterName?: string }) => safeInvoke('automation:open-test-scene', i18n),
     captureTestSceneTab: (tabId: string) => safeInvoke('automation:capture-test-scene-tab', { tabId }),
-    testAssetOnScene: (packageId: string, token: string, asset: string, threshold: number, scales?: number[], mask?: 'none' | 'alpha') => safeInvoke('automation:test-asset-on-scene', { packageId, token, asset, threshold, scales, mask }),
+    testAssetOnScene: (packageId: string, token: string, asset: string, threshold: number, scales?: number[], mask?: 'auto' | 'none' | 'alpha') => safeInvoke('automation:test-asset-on-scene', { packageId, token, asset, threshold, scales, mask }),
     warmupVision: (packageId: string) => safeInvoke('automation:warmup-vision', { packageId }),
     importAssetFiles: (packageId: string, i18n?: { title?: string; filterName?: string }) => safeInvoke('automation:import-asset-files', { packageId, ...i18n }),
     getAssetReferences: (packageId: string, asset: string) => safeInvoke('automation:get-asset-references', { packageId, asset }),
@@ -241,7 +241,7 @@ const electronAPI = {
     syncAssetFolder: (packageId: string, token: string) => safeInvoke('automation:sync-asset-folder', { packageId, token }),
     exportPackage: (packageId: string, i18n?: { title?: string; filterName?: string }) => safeInvoke('automation:export-package', { packageId, ...i18n }),
     checkReady: (packageId: string, tabId: string) => safeInvoke('automation:check-ready', { packageId, tabId }),
-    testAsset: (packageId: string, tabId: string, asset: string, threshold: number, scales?: number[], mask?: 'none' | 'alpha') =>
+    testAsset: (packageId: string, tabId: string, asset: string, threshold: number, scales?: number[], mask?: 'auto' | 'none' | 'alpha') =>
       safeInvoke('automation:test-asset', { packageId, tabId, asset, threshold, scales, mask }),
     start: (packageId: string, tabId: string, countdownMs?: number) =>
       safeInvoke('automation:start', { packageId, tabId, countdownMs }),

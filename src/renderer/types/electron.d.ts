@@ -324,7 +324,7 @@ declare global {
         captureTestSceneTab(tabId: string): Promise<{
           token: string; name: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number;
         }>;
-        testAssetOnScene(packageId: string, token: string, asset: string, threshold: number, scales?: number[], mask?: 'none' | 'alpha'): Promise<{
+        testAssetOnScene(packageId: string, token: string, asset: string, threshold: number, scales?: number[], mask?: 'auto' | 'none' | 'alpha'): Promise<{
           candidate: { x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number; masked?: boolean; lowVariance?: boolean; templateStdDev?: number } | null;
           matched: boolean; threshold: number;
         }>;
@@ -348,7 +348,7 @@ declare global {
         syncAssetFolder(packageId: string, token: string): Promise<{ assets: string[]; addedOrUpdated: string[]; missingFromFolder: string[] }>;
         exportPackage(packageId: string, i18n?: { title?: string; filterName?: string }): Promise<{ canceled: boolean; filePath?: string }>;
         checkReady(packageId: string, tabId: string): Promise<boolean>;
-        testAsset(packageId: string, tabId: string, asset: string, threshold: number, scales?: number[], mask?: 'none' | 'alpha'): Promise<{
+        testAsset(packageId: string, tabId: string, asset: string, threshold: number, scales?: number[], mask?: 'auto' | 'none' | 'alpha'): Promise<{
           x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number; masked?: boolean;
         } | null>;
         start(packageId: string, tabId: string, countdownMs?: number): Promise<boolean>;

@@ -109,6 +109,24 @@ describe('BrowserView automation driver', () => {
     expect(wc.attached).toBe(false);
   });
 
+  it('matches an image group against one captured frame and returns the best member', async () => {
+    const wc = new FakeWebContents();
+    const find = vi.fn(async (asset: string) => asset.endsWith('right.png') ? { ...MATCH, score: 0.96 } : asset.endsWith('left.png') ? { ...MATCH, score: 0.81 } : null);
+    const matcher: AutomationVisionMatcher = { find };
+    const driver = new BrowserViewAutomationDriver(wc, matcher, { getCssViewport: () => ({ width: 900, height: 560 }) });
+    const match = await driver.findImage({
+      asset: '角色/行走/left.png',
+      alternatives: ['角色/行走/right.png', '角色/行走/up.png'],
+      threshold: 0.7,
+    }, new AbortController().signal);
+
+    expect(wc.captures).toBe(1);
+    expect(wc.decrements).toBe(1);
+    expect(find.mock.calls.map((call) => call[0])).toEqual(['角色/行走/left.png', '角色/行走/right.png', '角色/行走/up.png']);
+    expect(new Set(find.mock.calls.map((call) => call[1].bitmap))).toHaveProperty('size', 1);
+    expect(match).toMatchObject({ asset: '角色/行走/right.png', score: 0.96 });
+  });
+
   it('waits for reload completion without keeping CDP attached', async () => {
     const wc = new FakeWebContents();
     const matcher: AutomationVisionMatcher = { find: vi.fn(async () => null) };

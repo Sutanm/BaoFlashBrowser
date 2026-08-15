@@ -108,6 +108,11 @@
 .automation-assets-list .automation-asset-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--text-primary); font-size: 10px; }
 .automation-assets-list .automation-folder-link { display: flex; gap: 5px; margin-top: 6px; }
 .automation-assets-list .automation-folder-link button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.automation-image-groups { display: flex; flex-direction: column; gap: 3px; margin-top: 7px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); }
+.automation-image-groups > strong { color: var(--text-primary); font-size: 10px; }
+.automation-image-groups > small { color: var(--text-secondary); font-size: 8px; line-height: 1.35; }
+.automation-image-groups > div { display: flex; flex-wrap: wrap; gap: 3px; }
+.automation-image-groups span { max-width: 100%; overflow: hidden; padding: 2px 5px; border-radius: 9px; background: var(--bg-hover); color: var(--text-secondary); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .automation-assets-list ul { max-height: 180px; margin: 8px 0 0; padding: 0; overflow-y: auto; list-style: none; }
 .automation-assets-list li { overflow: hidden; padding: 4px 6px; border-radius: 4px; color: var(--text-secondary); font: 10px/1.35 Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .automation-assets-list li:nth-child(odd) { background: var(--bg-primary); }
@@ -164,6 +169,8 @@
 .automation-test-bench-toolbar label { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
 .automation-test-bench-toolbar label:not(.check) { flex-direction: column; align-items: stretch; min-width: 135px; }
 .automation-test-bench-toolbar input[type='range'] { accent-color: var(--accent); }
+.automation-test-bench-toolbar .automation-mask-mode { min-width: 96px; }
+.automation-test-bench-toolbar .automation-mask-mode select { min-height: 27px; padding: 3px 24px 3px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-primary); color: var(--text-primary); font-size: 10px; }
 .automation-test-bench-toolbar .automation-scale-range { display: flex; min-width: 0; flex-direction: row; align-items: flex-end; gap: 5px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-primary); }
 .automation-test-bench-toolbar .automation-scale-range label { min-width: 0; gap: 2px; }
 .automation-test-bench-toolbar .automation-scale-range input { width: 52px; padding: 3px 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary); font-size: 10px; }

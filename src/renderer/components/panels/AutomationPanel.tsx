@@ -87,7 +87,7 @@ export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: Automa
     if (!selectedId || !selectedAsset || !tabId || !isWebTarget) return;
     setBusy(true); setAssetTested(false);
     try {
-      const match = await api.testAsset(selectedId, tabId, selectedAsset, threshold, [1], 'alpha');
+      const match = await api.testAsset(selectedId, tabId, selectedAsset, threshold, [1], 'auto');
       setAssetMatch(match); setAssetTested(true);
     } catch (error) {
       setAssetMatch(undefined); setAssetTested(true);
