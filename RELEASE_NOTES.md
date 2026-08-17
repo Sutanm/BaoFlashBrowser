@@ -9,6 +9,9 @@ BaoFlashBrowser 1.1.0 新增可视化自动化脚本平台。用户可以用图�
 | Windows x64 | `BaoFlashBrowser-1.1.0-x64.exe` |
 | Windows ia32 | `BaoFlashBrowser-1.1.0-ia32.exe` |
 | Linux x64 | `BaoFlashBrowser-1.1.0-x86_64.AppImage` |
+| Linux x64（Gitee xz） | `BaoFlashBrowser-1.1.0-x86_64-xz.AppImage` |
+
+Gitee 社区版附件限制为单文件 100MB，因此 Gitee 提供采用 xz 压缩的 AppImage。它与 GitHub 的标准 gzip AppImage 包含相同程序内容，仅内部 SquashFS 压缩算法不同，首次启动解压开销可能略高。
 
 ## 文件校验
 
@@ -17,6 +20,7 @@ BaoFlashBrowser 1.1.0 新增可视化自动化脚本平台。用户可以用图�
 | `BaoFlashBrowser-1.1.0-x64.exe` | 90,641,008 字节 | `24167275862058DFA41ED47F909C90C517E1FB5D8868FC8B2F1E045F013E20D0` |
 | `BaoFlashBrowser-1.1.0-ia32.exe` | 82,103,678 字节 | `FB7FDA0DF03FB4F93308E0DD624FD5F1911265882EE6E5A71B72AE49D6D27B1A` |
 | `BaoFlashBrowser-1.1.0-x86_64.AppImage` | 118,408,529 字节 | `D01938E99C95E2AB3F851604F75C3511CBBCD14352A30322DF7512C66F1E27B6` |
+| `BaoFlashBrowser-1.1.0-x86_64-xz.AppImage` | 99,413,992 字节 | `CFF65DA126CC5FF7250B7F4FB9EEFF93F0101EE2F0D732D99F6A9451931EE989` |
 
 Windows 安装包当前未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对发布页公布的 SHA-256。
 
