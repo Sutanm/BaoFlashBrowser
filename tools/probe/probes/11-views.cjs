@@ -57,6 +57,13 @@ module.exports = {
         accepted: true,
       });
     });
+    ipcMain.handle('userscript:automation-list', async () => []);
+    ipcMain.handle('userscript:automation-status', async () => ({
+      enabled: true,
+      state: 'idle',
+      executedSteps: 0,
+      logs: [],
+    }));
 
     const srv = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -121,8 +128,13 @@ module.exports = {
       check('sub-frame badge (iframe script ran)', probe.subBadge === true, probe);
 
       const commands = manager.commandsFor(view.webContents.id);
-      check('command dedupe: exactly 2 (main+iframe register 4)', commands.length === 2, commands.map((c) => c.title));
-      check('commands are main-frame ones', commands.every((c) => c.isMainFrame), commands);
+      const fixtureCommands = commands.filter((command) => command.scriptId === fixtureId);
+      check(
+        'command dedupe: fixture has exactly 2 (main+iframe register 4)',
+        fixtureCommands.length === 2,
+        commands.map((c) => c.title),
+      );
+      check('fixture commands are main-frame ones', fixtureCommands.every((c) => c.isMainFrame), fixtureCommands);
 
       const reset = commands.find((c) => c.title === '重置访问计数');
       check('reset-counter command present', Boolean(reset));
@@ -143,6 +155,8 @@ module.exports = {
       try { host.destroy(); } catch { /* ignore */ }
       srv.close();
       mod.uninstallUserscript(fixtureId);
+      ipcMain.removeHandler('userscript:automation-list');
+      ipcMain.removeHandler('userscript:automation-status');
     }
 
     return {

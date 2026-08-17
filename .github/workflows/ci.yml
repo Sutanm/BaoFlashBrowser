@@ -40,10 +40,20 @@ jobs:
         include:
           - os: windows-latest
             command: build:win64
+            artifact: baoflashbrowser-win64
+            path: |
+              release/BaoFlashBrowser-*-x64.exe
+              release/BaoFlashBrowser-*-x64.exe.blockmap
           - os: windows-latest
             command: build:win32
+            artifact: baoflashbrowser-win32
+            path: |
+              release/BaoFlashBrowser-*-ia32.exe
+              release/BaoFlashBrowser-*-ia32.exe.blockmap
           - os: ubuntu-latest
             command: build:linux
+            artifact: baoflashbrowser-linux-x64
+            path: release/BaoFlashBrowser-*-x86_64.AppImage
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -53,3 +63,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run ${{ matrix.command }}
+      - name: Upload candidate package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error

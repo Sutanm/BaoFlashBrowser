@@ -6,7 +6,17 @@ BaoFlashBrowser 1.1.0 新增可视化自动化脚本平台。用户可以用图�
 
 | 平台 | 安装包 |
 | --- | --- |
-| Windows x64 | `BaoFlashBrowser-1.1.0-x64.exe`（候选包生成后公布下载地址） |
+| Windows x64 | `BaoFlashBrowser-1.1.0-x64.exe` |
+| Windows ia32 | `BaoFlashBrowser-1.1.0-ia32.exe` |
+| Linux x64 | `BaoFlashBrowser-1.1.0-x86_64.AppImage` |
+
+## 文件校验
+
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `BaoFlashBrowser-1.1.0-x64.exe` | 90,641,008 字节 | `24167275862058DFA41ED47F909C90C517E1FB5D8868FC8B2F1E045F013E20D0` |
+| `BaoFlashBrowser-1.1.0-ia32.exe` | 82,103,678 字节 | `FB7FDA0DF03FB4F93308E0DD624FD5F1911265882EE6E5A71B72AE49D6D27B1A` |
+| `BaoFlashBrowser-1.1.0-x86_64.AppImage` | 118,408,529 字节 | `D01938E99C95E2AB3F851604F75C3511CBBCD14352A30322DF7512C66F1E27B6` |
 
 Windows 安装包当前未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对发布页公布的 SHA-256。
 
@@ -44,10 +54,10 @@ Windows 安装包当前未进行代码签名，首次运行时可能出现 Micro
 ## 验证状态
 
 - TypeScript 主进程、渲染进程和 preload 类型检查通过。
-- ESLint 无错误；Vitest 69 个测试文件、445 项测试通过。
+- ESLint 无错误；Vitest 69 个测试文件、449 项测试通过。
 - BrowserView、兼容性、用户脚本管理、用户脚本运行时、CSS 修复器及自动化工作台冒烟测试通过。
 - 最小化 Web 模板匹配达到 98.8%，Ruffle 最小化模板匹配达到 100%，并验证可信输入及调试器正常卸载。
-- PPAPI 运行时已注册，但自动化测试夹具在当前验证环境中未完成渲染；发布前仍建议在一款真实 PPAPI 游戏上做最终人工回归。
+- PPAPI 自动化已在真实游戏中完成人工回归，识图定位与可信点击均正常；自动化测试夹具在当前验证环境中仍未完成 PPAPI 渲染。
 
 ## 安全提示
 

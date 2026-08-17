@@ -1,12 +1,12 @@
 # BaoFlashBrowser 1.1.0 最终回归记录
 
-日期：2026-08-14
+日期：2026-08-17
 
 ## 自动化覆盖
 
 | 项目 | 验证内容 | 当前结果 |
 | --- | --- | --- |
-| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest、生产构建 | 通过；69 个测试文件、445 项测试，Lint 0 错误 |
+| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest、生产构建 | 通过；69 个测试文件、449 项测试，Lint 0 错误 |
 | `npm run test:compat` | session 策略、SWFObject、SWF CORS | 通过 |
 | `npm run test:electron` | BrowserView 生命周期 | 通过 |
 | `npm run test:userscripts` | PPAPI/Ruffle 用户脚本运行时和 GM API | 147/147 必需项通过；可选样本受 Chromium 87/体积限制 |
@@ -16,7 +16,9 @@
 | `npm run probe:automation-m4` | 自动化工作台、积木、脚本包管理 | 通过 |
 | `npm run probe:automation-m5-engines` | Web、PPAPI 注册、Ruffle 的最小化视觉和可信输入 | Web 98.8%、Ruffle 100%；PPAPI 夹具未渲染 |
 | 源资源发布校验 | `verify:release`，Windows x64 source stage | 通过，16 项资源 |
-| Windows x64 候选安装包 | NSIS、unpacked 校验、SHA-256 | 待生成 |
+| Windows x64 候选安装包 | NSIS、unpacked 校验、SHA-256 | 通过；90,641,008 字节，SHA-256 已写入发行说明 |
+| Windows ia32 候选安装包 | NSIS、unpacked 校验、SHA-256 | 通过；82,103,678 字节，SHA-256 已写入发行说明 |
+| Linux x64 候选安装包 | AppImage、unpacked 校验、SHA-256 | WSL2 构建通过；118,408,529 字节，SHA-256 已写入发行说明 |
 
 ## 自动化平台人工回归
 
@@ -40,9 +42,9 @@
 - 测试台和正式运行统一使用 BrowserView 内容截图，不应把浏览器外壳或悬浮助手纳入模板匹配。
 - 首次比对包含视觉引擎加载成本；预热和缓存可以改善后续比对，但不能保证所有机器首次耗时相同。
 
-## PPAPI 发布前人工门
+## PPAPI 发布前人工门（已通过）
 
-自动化测试已确认 Windows PPAPI 插件注册，但当前自动化夹具没有成功渲染 PPAPI 内容，因此 1.1.0 发布前必须在真实 PPAPI 游戏完成以下检查：
+自动化测试已确认 Windows PPAPI 插件注册，但当前自动化夹具没有成功渲染 PPAPI 内容。2026-08-17 已在真实 PPAPI 游戏完成人工回归，确认游戏持续渲染、图片识别和可信点击正常。
 
 1. 打开一个已知可玩的 PPAPI 游戏，确认游戏画面持续渲染。
 2. 从该画面框选静态 UI，保存到测试脚本。
@@ -50,7 +52,7 @@
 4. 最小化窗口后执行等待图片和一次可信按键或点击。
 5. 恢复窗口，确认动作生效、脚本能停止，之后刷新/前进/后退不冻结。
 
-未完成这五项时，可发布候选包，但不应把 PPAPI 自动化标记为完整验证通过。
+上述核心链路已经通过。候选安装包生成后仍需复验启动、停止及导航，排除开发构建与 `app.asar` 成品差异。
 
 ## 旧游戏站点持续回归
 
