@@ -20,6 +20,14 @@ BaoFlashBrowser 1.1.0 新增可视化自动化脚本平台。用户可以用图�
 
 Windows 安装包当前未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对发布页公布的 SHA-256。
 
+## 用户脚本平台
+
+- 新增油猴风格的用户脚本管理页，支持两阶段安装确认、启用/停用、检查更新、导入导出和脚本菜单命令。
+- 用户脚本可在 PPAPI、Ruffle 和 iframe 子框架中按 `document-start`、`document-body`、`document-end`、`document-idle` 时序运行，并正确处理刷新、SPA 导航和标签重建。
+- 支持受控的 GM API，包括值存储、跨域请求、下载、剪贴板、通知、打开标签、`@require`、`@resource`、值变更监听以及每脚本独立运行的 `@background` 后台脚本。
+- 提供 `@connect` 主机白名单、私网地址限制、敏感请求头过滤和响应体积预算；`GM_cookie` 保持只读，`GM_webRequest` 保持仅观测，不允许脚本直接访问 Node.js、任意 Electron IPC 或本地文件系统。
+- 内置“现代 CSS 修复器”和“页面悬浮相框助手”用户脚本，可自动安装和安全更新；CSS 修复器用于改善旧版 Chromium 87 对现代网页样式和部分 Web API 的兼容性。
+
 ## 自动化工作台
 
 - 新增独立的自动化工作台，可新建、复制、删除、导入和导出 `.baoauto` 脚本包。
