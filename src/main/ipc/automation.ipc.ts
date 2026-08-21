@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { automationWorkflowSchema } from '../../shared/automation/schema';
 import { createValidatedHandler } from '../utils/ipc-wrapper';
 import { AutomationService } from '../modules/automation/service';
+import { loadAutomationPackage } from '../modules/automation/package';
 import { scanAutomationAssets } from '../modules/automation/assets';
 import { previewRectToSource } from '../modules/automation/capture-geometry';
 
@@ -34,6 +35,18 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
   const testScenes = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
   const liveTestScenes = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
   const linkedAssetFolders = new Map<string, { packageId: string; root: string }>();
+  const pendingPackageImports = new Map<string, { bytes: Uint8Array; packageId: string; timer: NodeJS.Timeout }>();
+  const retainPackageImport = (bytes: Uint8Array, packageId: string): string => {
+    const token = randomBytes(16).toString('hex');
+    const timer = setTimeout(() => pendingPackageImports.delete(token), 2 * 60_000); timer.unref();
+    pendingPackageImports.set(token, { bytes, packageId, timer });
+    while (pendingPackageImports.size > 3) {
+      const oldest = pendingPackageImports.keys().next().value as string;
+      const removed = pendingPackageImports.get(oldest); if (removed) clearTimeout(removed.timer);
+      pendingPackageImports.delete(oldest);
+    }
+    return token;
+  };
   const forgetLinkedFolders = (packageId: string): void => {
     for (const [token, linked] of linkedAssetFolders) if (linked.packageId === packageId) linkedAssetFolders.delete(token);
   };
@@ -73,17 +86,13 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
   createValidatedHandler('automation:open-package', z.object({
     title: z.string().optional(),
     filterName: z.string().optional(),
-    replace: z.string().optional(),
-    cancel: z.string().optional(),
-    existsTitle: z.string().optional(),
-    existsMessage: z.string().optional(),
   }).optional(), async (payload) => {
     const win = getWin() ?? BrowserWindow.getFocusedWindow();
     if (!win) throw new Error('No window available');
     const result = await dialog.showOpenDialog(win, {
       title: payload?.title ?? 'Open Automation Script Package',
       properties: ['openFile'],
-      filters: [{ name: payload?.filterName ?? 'BaoFlash Automation Scripts', extensions: ['baoauto'] }],
+      filters: [{ name: payload?.filterName ?? 'BaoFlash Automation ZIP', extensions: ['zip', 'baoauto'] }],
     });
     if (result.canceled || !result.filePaths[0]) return { canceled: true as const };
     const filePath = result.filePaths[0];
@@ -91,18 +100,36 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
     if (!stat.isFile() || stat.size > MAX_PACKAGE_BYTES) throw new Error('automation package exceeds 32MB');
     await service.whenReady();
     const bytes = new Uint8Array(await fs.promises.readFile(filePath));
-    let loaded: Awaited<ReturnType<AutomationService['loadPackage']>>;
-    try { loaded = await service.loadPackage(bytes); }
-    catch (error) {
-      if (!(error instanceof Error) || !error.message.startsWith('automation script already exists:')) throw error;
-      const confirmation = await dialog.showMessageBox(win, {
-        type: 'question', buttons: [payload?.replace ?? 'Replace', payload?.cancel ?? 'Cancel'], defaultId: 0, cancelId: 1,
-        title: payload?.existsTitle ?? 'Script Already Exists', message: payload?.existsMessage ?? 'A script with the same ID already exists. Replace it with the imported file?',
-      });
-      if (confirmation.response !== 0) return { canceled: true as const };
-      loaded = await service.loadPackage(bytes, true);
+    const source = loadAutomationPackage(bytes);
+    const assetBytes = [...source.assets.values()].reduce((total, content) => total + content.byteLength, 0);
+    const exists = service.listPackages().some((entry) => entry.packageId === source.manifest.id);
+    return {
+      canceled: false as const,
+      token: retainPackageImport(bytes, source.manifest.id),
+      fileName: path.basename(filePath),
+      compressedBytes: stat.size,
+      packageId: source.manifest.id,
+      name: source.workflow.name,
+      description: source.workflow.description,
+      assetCount: source.assets.size,
+      assetBytes,
+      assets: [...source.assets.keys()],
+      exists,
+    };
+  });
+  createValidatedHandler('automation:install-package', z.object({
+    token: z.string().regex(/^[a-f0-9]{32}$/),
+    replace: z.boolean().optional(),
+  }).strict(), async ({ token, replace }) => {
+    await service.whenReady();
+    const pending = pendingPackageImports.get(token);
+    if (!pending) throw new Error('automation package preview expired; select the ZIP again');
+    if (replace !== true && service.listPackages().some((entry) => entry.packageId === pending.packageId)) {
+      throw new Error(`automation script already exists: ${pending.packageId}`);
     }
-    return { canceled: false as const, ...loaded };
+    const loaded = await service.loadPackage(pending.bytes, replace === true);
+    clearTimeout(pending.timer); pendingPackageImports.delete(token);
+    return loaded;
   });
   createValidatedHandler('automation:status', z.object({}).optional(), () => service.getStatus());
   createValidatedHandler('automation:list-packages', z.object({}).optional(), async () => { await service.whenReady(); return service.listPackages(); });
@@ -289,8 +316,8 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
     if (!win) throw new Error('No window available');
     const result = await dialog.showSaveDialog(win, {
       title: title ?? 'Export Automation Script Package',
-      defaultPath: `${entry.workflow.id}.baoauto`,
-      filters: [{ name: filterName ?? 'BaoFlash Automation Scripts', extensions: ['baoauto'] }],
+      defaultPath: `${entry.workflow.id}.zip`,
+      filters: [{ name: filterName ?? 'BaoFlash Automation ZIP', extensions: ['zip'] }],
     });
     if (result.canceled || !result.filePath) return { canceled: true as const };
     await fs.promises.writeFile(result.filePath, service.exportPackage(id));

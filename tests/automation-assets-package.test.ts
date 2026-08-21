@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { strToU8, zipSync } from 'fflate';
+import { strToU8, unzipSync, zipSync } from 'fflate';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanAutomationAssets } from '../src/main/modules/automation/assets';
 import { createAutomationPackage, inferAutomationCapabilities, loadAutomationPackage, serializeAutomationPackage } from '../src/main/modules/automation/package';
@@ -43,6 +43,12 @@ describe('automation assets and .baoauto package', () => {
 
   it('round-trips manifest, workflow and assets', () => {
     const bytes = createAutomationPackage(makeProject());
+    expect(Object.keys(unzipSync(bytes)).sort()).toEqual([
+      'assets/buttons/start.png',
+      'assets/pages/home.webp',
+      'manifest.json',
+      'workflow.json',
+    ]);
     const loaded = loadAutomationPackage(bytes);
     expect(loaded.manifest.id).toBe('demo');
     expect(loaded.workflow.readyWhen?.asset).toBe('pages/home.webp');
@@ -67,6 +73,13 @@ describe('automation assets and .baoauto package', () => {
     const root = makeProject();
     fs.rmSync(path.join(root, 'assets', 'buttons', 'start.png'));
     expect(() => createAutomationPackage(root)).toThrow(/missing assets/);
+  });
+
+  it('rejects non-image files inside the asset directory', () => {
+    const bytes = createAutomationPackage(makeProject());
+    const archive = unzipSync(bytes);
+    archive['assets/readme.txt'] = strToU8('not an image');
+    expect(() => loadAutomationPackage(zipSync(archive))).toThrow(/unsupported automation asset type/);
   });
 
   it('infers package capabilities while loading an older version-1 manifest', () => {

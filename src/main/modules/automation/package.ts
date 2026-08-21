@@ -15,6 +15,7 @@ import { scanAutomationAssets } from './assets';
 
 const MAX_PACKAGE_FILES = 1200;
 const MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
+const IMAGE_ASSET_PATTERN = /\.(?:png|jpe?g|webp)$/i;
 
 export type LoadedAutomationPackage = {
   manifest: AutomationPackageManifest;
@@ -123,6 +124,7 @@ export function loadAutomationPackage(bytes: Uint8Array): LoadedAutomationPackag
     const id = name.slice(manifest.assets.length);
     if (!id) continue;
     assertSafeArchivePath(id);
+    if (!IMAGE_ASSET_PATTERN.test(id)) throw new Error(`unsupported automation asset type: ${id}`);
     assets.set(id, content);
   }
   assertReferencedAssetsExist(workflow, assets);

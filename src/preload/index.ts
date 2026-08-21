@@ -38,7 +38,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'userscripts:export-source',
   'userscripts:list-values', 'userscripts:set-value-admin', 'userscripts:delete-value-admin',
   'screenshot:capture', 'screenshot:capture-active', 'screenshot:reveal', 'screenshot:set-dir',
-  'automation:capabilities', 'automation:validate-workflow', 'automation:open-package',
+  'automation:capabilities', 'automation:validate-workflow', 'automation:open-package', 'automation:install-package',
   'automation:status', 'automation:check-ready', 'automation:start', 'automation:cancel',
   'automation:list-packages', 'automation:get-package', 'automation:update-workflow', 'automation:export-package',
   'automation:diagnose-package', 'automation:list-run-history', 'automation:clear-run-history',
@@ -213,7 +213,8 @@ const electronAPI = {
   automation: {
     capabilities: () => safeInvoke('automation:capabilities', {}),
     validateWorkflow: (workflow: unknown) => safeInvoke('automation:validate-workflow', { workflow }),
-    openPackage: (i18n?: { title?: string; filterName?: string; replace?: string; cancel?: string; existsTitle?: string; existsMessage?: string }) => safeInvoke('automation:open-package', i18n),
+    openPackage: (i18n?: { title?: string; filterName?: string }) => safeInvoke('automation:open-package', i18n),
+    installPackage: (token: string, replace?: boolean) => safeInvoke('automation:install-package', { token, replace }),
     status: () => safeInvoke('automation:status', {}),
     listPackages: () => safeInvoke('automation:list-packages', {}),
     getPackage: (packageId: string) => safeInvoke('automation:get-package', { packageId }),

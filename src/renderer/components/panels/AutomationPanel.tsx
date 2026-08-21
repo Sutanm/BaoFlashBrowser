@@ -59,12 +59,11 @@ export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: Automa
       const result = await api.openPackage({
         title: LL.automation.ipc.openPackageTitle(),
         filterName: LL.automation.ipc.openPackageFilter(),
-        replace: LL.automation.ipc.replace(),
-        cancel: LL.automation.page.cancel(),
-        existsTitle: LL.automation.ipc.packageExistsTitle(),
-        existsMessage: LL.automation.ipc.packageExistsMessage(),
       });
-      if (!result.canceled) setSelectedId(result.packageId);
+      if (result.canceled) return;
+      if (result.exists && !window.confirm(LL.automation.ipc.packageExistsMessage())) return;
+      const installed = await api.installPackage(result.token, result.exists);
+      setSelectedId(installed.packageId);
       await refresh();
     } finally { setBusy(false); }
   };

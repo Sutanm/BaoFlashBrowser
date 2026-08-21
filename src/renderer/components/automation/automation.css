@@ -232,3 +232,28 @@
 .automation-dialog > div button { min-width: 88px; height: 34px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-secondary); color: var(--text-primary); }
 .automation-dialog > div button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
 .automation-dialog > div button:disabled { opacity: .5; }
+.automation-import-dialog { width: min(680px, 100%); gap: 14px; }
+.automation-import-dialog > header { display: flex; align-items: flex-start; gap: 11px; }
+.automation-import-dialog > header p { margin: 3px 0 0; }
+.automation-import-icon { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: #397cec1c; color: var(--accent); }
+.automation-import-icon svg { width: 20px; height: 20px; }
+.automation-dialog > .automation-import-file { display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin: 0; padding: 11px 12px; border-radius: 8px; background: var(--bg-secondary); }
+.automation-import-file > svg { width: 22px; color: var(--accent); }
+.automation-import-file span { display: grid; gap: 2px; }
+.automation-import-file strong { font-size: 12px; }
+.automation-import-file small { color: var(--text-secondary); font-size: 10px; }
+.automation-import-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px 18px; margin: 0; }
+.automation-import-summary > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.automation-import-summary dt { color: var(--text-secondary); font-size: 11px; }
+.automation-import-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; text-align: right; font-size: 11px; }
+.automation-import-summary dd.valid { display: inline-flex; align-items: center; gap: 4px; color: #309561; }
+.automation-import-summary dd.valid svg { width: 14px; height: 14px; }
+.automation-import-description { margin: 0 !important; padding: 9px 11px; border-left: 3px solid var(--accent); background: var(--bg-secondary); }
+.automation-import-tree { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); }
+.automation-import-tree summary { padding: 9px 11px; cursor: pointer; color: var(--text-secondary); font-size: 11px; }
+.automation-import-tree pre { max-height: 150px; margin: 0; overflow: auto; padding: 0 11px 10px; color: var(--text-primary); font: 10px/1.55 Consolas, monospace; white-space: pre-wrap; }
+.automation-dialog > .automation-import-conflict { display: grid; justify-content: stretch; gap: 3px; margin: 0; padding: 10px 12px; border-left: 3px solid #e3a32d; border-radius: 5px; background: #e3a32d17; }
+.automation-import-conflict strong { font-size: 11px; }
+.automation-import-conflict span { color: var(--text-secondary); font-size: 10px; }
+.automation-dialog > .automation-import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+@media (max-width: 620px) { .automation-import-summary { grid-template-columns: 1fr; } }

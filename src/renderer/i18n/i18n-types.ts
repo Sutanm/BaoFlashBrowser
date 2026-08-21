@@ -1358,13 +1358,17 @@ type RootTranslation = {
 			 */
 			newScript: string
 			/**
-			 * 导​入​ ​.​b​a​o​a​u​t​o
+			 * 导​入​ ​Z​I​P
 			 */
 			importPackage: string
 			/**
-			 * 导​出​脚​本​包
+			 * 导​出​ ​Z​I​P
 			 */
 			exportPackage: string
+			/**
+			 * 请​先​选​择​要​导​出​的​脚​本
+			 */
+			exportRequiresSelection: string
 			/**
 			 * 保​存​修​改
 			 */
@@ -1399,7 +1403,7 @@ type RootTranslation = {
 			 */
 			emptyLibrary: string
 			/**
-			 * 新​建​脚​本​或​导​入​工​作​台​导​出​的​ ​`​.​b​a​o​a​u​t​o​`​ ​文​件​。
+			 * 新​建​脚​本​或​导​入​包​含​工​作​流​和​图​片​素​材​的​ ​Z​I​P​ ​包​。
 			 */
 			emptyLibraryHint: string
 			/**
@@ -1498,6 +1502,45 @@ type RootTranslation = {
 			 * 取​消
 			 */
 			cancel: string
+			/**
+			 * 正​在​导​入​…
+			 */
+			importing: string
+			/**
+			 * 导​入​脚​本
+			 */
+			importNow: string
+			/**
+			 * 确​认​导​入​自​动​化​脚​本
+			 */
+			importConfirmTitle: string
+			/**
+			 * 工​作​流​和​图​片​素​材​已​通​过​预​检​，​确​认​后​将​安​装​到​脚​本​库​。
+			 */
+			importConfirmHint: string
+			/**
+			 * 工​作​流
+			 */
+			importWorkflow: string
+			/**
+			 * 校​验​通​过
+			 */
+			importValidationPassed: string
+			/**
+			 * {​c​o​u​n​t​}​ ​张​ ​·​ ​{​s​i​z​e​}​ ​M​B
+			 * @param {unknown} count
+			 * @param {unknown} size
+			 */
+			importAssetSummary: RequiredParams<'count' | 'size'>
+			/**
+			 * 查​看​ ​Z​I​P​ ​包​目​录
+			 */
+			importDirectoryTitle: string
+			/**
+			 *  ​ ​…​另​有​ ​{​c​o​u​n​t​}​ ​张​图​片
+			 * @param {unknown} count
+			 */
+			importMoreAssets: RequiredParams<'count'>
 			/**
 			 * 已​导​入​ ​{​n​a​m​e​}
 			 * @param {unknown} name
@@ -1666,7 +1709,7 @@ type RootTranslation = {
 			 */
 			'import': string
 			/**
-			 * 先​导​入​一​个​ ​`​.​b​a​o​a​u​t​o​`​ ​脚​本​包
+			 * 先​导​入​一​个​自​动​化​ ​Z​I​P​ ​脚​本​包
 			 */
 			emptyPackage: string
 			/**
@@ -2398,11 +2441,11 @@ type RootTranslation = {
 		}
 		ipc: {
 			/**
-			 * 打​开​自​动​化​脚​本​包
+			 * 选​择​自​动​化​脚​本​ ​Z​I​P​ ​包
 			 */
 			openPackageTitle: string
 			/**
-			 * B​a​o​F​l​a​s​h​ ​自​动​化​脚​本
+			 * B​a​o​F​l​a​s​h​ ​自​动​化​ ​Z​I​P
 			 */
 			openPackageFilter: string
 			/**
@@ -2431,7 +2474,7 @@ type RootTranslation = {
 			 */
 			selectAssetDir: string
 			/**
-			 * 导​出​自​动​化​脚​本​包
+			 * 导​出​自​动​化​脚​本​ ​Z​I​P​ ​包
 			 */
 			exportPackageTitle: string
 		}
@@ -3774,13 +3817,17 @@ export type TranslationFunctions = {
 			 */
 			newScript: () => LocalizedString
 			/**
-			 * 导入 .baoauto
+			 * 导入 ZIP
 			 */
 			importPackage: () => LocalizedString
 			/**
-			 * 导出脚本包
+			 * 导出 ZIP
 			 */
 			exportPackage: () => LocalizedString
+			/**
+			 * 请先选择要导出的脚本
+			 */
+			exportRequiresSelection: () => LocalizedString
 			/**
 			 * 保存修改
 			 */
@@ -3814,7 +3861,7 @@ export type TranslationFunctions = {
 			 */
 			emptyLibrary: () => LocalizedString
 			/**
-			 * 新建脚本或导入工作台导出的 `.baoauto` 文件。
+			 * 新建脚本或导入包含工作流和图片素材的 ZIP 包。
 			 */
 			emptyLibraryHint: () => LocalizedString
 			/**
@@ -3913,6 +3960,42 @@ export type TranslationFunctions = {
 			 * 取消
 			 */
 			cancel: () => LocalizedString
+			/**
+			 * 正在导入…
+			 */
+			importing: () => LocalizedString
+			/**
+			 * 导入脚本
+			 */
+			importNow: () => LocalizedString
+			/**
+			 * 确认导入自动化脚本
+			 */
+			importConfirmTitle: () => LocalizedString
+			/**
+			 * 工作流和图片素材已通过预检，确认后将安装到脚本库。
+			 */
+			importConfirmHint: () => LocalizedString
+			/**
+			 * 工作流
+			 */
+			importWorkflow: () => LocalizedString
+			/**
+			 * 校验通过
+			 */
+			importValidationPassed: () => LocalizedString
+			/**
+			 * {count} 张 · {size} MB
+			 */
+			importAssetSummary: (arg: { count: unknown, size: unknown }) => LocalizedString
+			/**
+			 * 查看 ZIP 包目录
+			 */
+			importDirectoryTitle: () => LocalizedString
+			/**
+			 *   …另有 {count} 张图片
+			 */
+			importMoreAssets: (arg: { count: unknown }) => LocalizedString
 			/**
 			 * 已导入 {name}
 			 */
@@ -4064,7 +4147,7 @@ export type TranslationFunctions = {
 			 */
 			'import': () => LocalizedString
 			/**
-			 * 先导入一个 `.baoauto` 脚本包
+			 * 先导入一个自动化 ZIP 脚本包
 			 */
 			emptyPackage: () => LocalizedString
 			/**
@@ -4740,11 +4823,11 @@ export type TranslationFunctions = {
 		}
 		ipc: {
 			/**
-			 * 打开自动化脚本包
+			 * 选择自动化脚本 ZIP 包
 			 */
 			openPackageTitle: () => LocalizedString
 			/**
-			 * BaoFlash 自动化脚本
+			 * BaoFlash 自动化 ZIP
 			 */
 			openPackageFilter: () => LocalizedString
 			/**
@@ -4772,7 +4855,7 @@ export type TranslationFunctions = {
 			 */
 			selectAssetDir: () => LocalizedString
 			/**
-			 * 导出自动化脚本包
+			 * 导出自动化脚本 ZIP 包
 			 */
 			exportPackageTitle: () => LocalizedString
 		}

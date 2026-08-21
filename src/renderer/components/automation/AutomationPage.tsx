@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Braces, CheckCircle2, Copy, Download, FolderPlus, FolderSync, Image, PackageOpen, Plus, RefreshCw, Save, ScanSearch, Search, ShieldCheck, Trash2, Upload, Workflow } from 'lucide-react';
+import { Archive, Box, Braces, CheckCircle2, Copy, Download, FolderPlus, FolderSync, Image, PackageOpen, Plus, RefreshCw, Save, ScanSearch, Search, ShieldCheck, Trash2, Upload, Workflow } from 'lucide-react';
 import type { AutomationWorkflow } from '@shared/automation/types';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import AutomationBlocklyEditor, { collectFolderImageGroups, type AutomationBlocklyEditorHandle } from './AutomationBlocklyEditor';
@@ -9,6 +9,7 @@ import './automation.css';
 type PackageSummary = { packageId: string; id: string; name: string; assets: string[] };
 type AssetPreview = Awaited<ReturnType<Window['electronAPI']['automation']['getAssetPreview']>>;
 type PackageDiagnostic = Awaited<ReturnType<Window['electronAPI']['automation']['diagnosePackage']>>;
+type PackageImportPreview = Extract<Awaited<ReturnType<Window['electronAPI']['automation']['openPackage']>>, { canceled: false }>;
 
 export default function AutomationPage(): React.JSX.Element {
   const api = window.electronAPI.automation;
@@ -33,6 +34,7 @@ export default function AutomationPage(): React.JSX.Element {
   const [assetQuery, setAssetQuery] = useState('');
   const [linkedFolder, setLinkedFolder] = useState<{ token: string; name: string }>();
   const [diagnostic, setDiagnostic] = useState<PackageDiagnostic>();
+  const [importPreview, setImportPreview] = useState<PackageImportPreview>();
 
   const refreshPackages = useCallback(async (preferred?: string) => {
     const list = await api.listPackages();
@@ -66,19 +68,27 @@ export default function AutomationPage(): React.JSX.Element {
   }, []);
 
   const importPackage = async (): Promise<void> => {
+    if (dirty && !window.confirm(LL.automation.page.unsavedConfirm())) return;
     setBusy(true);
     try {
       const result = await api.openPackage({
         title: LL.automation.ipc.openPackageTitle(),
         filterName: LL.automation.ipc.openPackageFilter(),
-        replace: LL.automation.ipc.replace(),
-        cancel: LL.automation.page.cancel(),
-        existsTitle: LL.automation.ipc.packageExistsTitle(),
-        existsMessage: LL.automation.ipc.packageExistsMessage(),
       });
       if (result.canceled) return;
+      setImportPreview(result);
+    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  };
+
+  const confirmPackageImport = async (): Promise<void> => {
+    if (!importPreview) return;
+    setBusy(true);
+    try {
+      const result = await api.installPackage(importPreview.token, importPreview.exists);
       await refreshPackages(result.packageId);
       await loadPackage(result.packageId);
+      setDirty(false); setImportPreview(undefined);
       setNotice(LL.automation.page.noticeImported({ name: result.name }));
     } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
@@ -250,8 +260,8 @@ export default function AutomationPage(): React.JSX.Element {
         <div><h1><Workflow />{LL.automation.page.title()}</h1><p>{LL.automation.page.subtitle()}</p></div>
         <div className="automation-page-header-actions">
           <button type="button" onClick={openCreateDialog} disabled={busy}><Plus />{LL.automation.page.newScript()}</button>
-          <button type="button" onClick={() => void importPackage()} disabled={busy}><Upload />{LL.automation.page.importPackage()}</button>
-          <button type="button" onClick={() => void exportPackage()} disabled={busy || !selectedId}><Download />{LL.automation.page.exportPackage()}</button>
+          <button type="button" className="primary" onClick={() => void importPackage()} disabled={busy}><Upload />{LL.automation.page.importPackage()}</button>
+          <button type="button" onClick={() => void exportPackage()} disabled={busy || !selectedId} title={!selectedId ? LL.automation.page.exportRequiresSelection() : undefined}><Download />{LL.automation.page.exportPackage()}</button>
           <button type="button" className="primary" onClick={() => void saveBlocks()} disabled={busy || !selectedId}><Save />{dirty ? LL.automation.page.saveDirty() : LL.automation.page.saveChanges()}</button>
         </div>
       </header>
@@ -324,6 +334,25 @@ export default function AutomationPage(): React.JSX.Element {
           <label>{LL.automation.page.id()}<input value={draftId} maxLength={96} pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*" onChange={(event) => setDraftId(event.target.value)} /></label>
           <div><button type="button" onClick={() => setScriptDialog(null)} disabled={busy}>{LL.automation.page.cancel()}</button><button type="submit" className="primary" disabled={busy || !draftName.trim() || !draftId.trim()}>{busy ? LL.automation.page.creating() : LL.automation.page.create()}</button></div>
         </form>
+      </div>}
+      {importPreview && <div className="automation-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setImportPreview(undefined); }}>
+        <section className="automation-dialog automation-import-dialog" role="dialog" aria-modal="true" aria-labelledby="automation-import-title">
+          <header>
+            <span className="automation-import-icon"><Archive /></span>
+            <div><h2 id="automation-import-title">{LL.automation.page.importConfirmTitle()}</h2><p>{LL.automation.page.importConfirmHint()}</p></div>
+          </header>
+          <div className="automation-import-file"><PackageOpen /><span><strong>{importPreview.fileName}</strong><small>{(importPreview.compressedBytes / 1024 / 1024).toFixed(2)} MB</small></span></div>
+          <dl className="automation-import-summary">
+            <div><dt>{LL.automation.page.name()}</dt><dd>{importPreview.name}</dd></div>
+            <div><dt>{LL.automation.page.id()}</dt><dd><code>{importPreview.packageId}</code></dd></div>
+            <div><dt>{LL.automation.page.importWorkflow()}</dt><dd className="valid"><CheckCircle2 />{LL.automation.page.importValidationPassed()}</dd></div>
+            <div><dt>{LL.automation.page.assetsTitle()}</dt><dd>{LL.automation.page.importAssetSummary({ count: importPreview.assetCount, size: (importPreview.assetBytes / 1024 / 1024).toFixed(2) })}</dd></div>
+          </dl>
+          {importPreview.description && <p className="automation-import-description">{importPreview.description}</p>}
+          <details className="automation-import-tree"><summary>{LL.automation.page.importDirectoryTitle()}</summary><pre>{['manifest.json', 'workflow.json', 'assets/', ...importPreview.assets.slice(0, 12).map((asset) => `  ${asset}`), ...(importPreview.assets.length > 12 ? [LL.automation.page.importMoreAssets({ count: importPreview.assets.length - 12 })] : [])].join('\n')}</pre></details>
+          {importPreview.exists && <div className="automation-import-conflict" role="alert"><strong>{LL.automation.ipc.packageExistsTitle()}</strong><span>{LL.automation.ipc.packageExistsMessage()}</span></div>}
+          <div className="automation-import-actions"><button type="button" onClick={() => setImportPreview(undefined)} disabled={busy}>{LL.automation.page.cancel()}</button><button type="button" className="primary" onClick={() => void confirmPackageImport()} disabled={busy}>{busy ? LL.automation.page.importing() : importPreview.exists ? LL.automation.ipc.replace() : LL.automation.page.importNow()}</button></div>
+        </section>
       </div>}
     </div>
   );

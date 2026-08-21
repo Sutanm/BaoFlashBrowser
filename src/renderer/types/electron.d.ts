@@ -303,10 +303,15 @@ declare global {
           { valid: true; workflow: import('@shared/automation/types').AutomationWorkflow }
           | { valid: false; issues: Array<{ path: string; message: string }> }
         >;
-        openPackage(i18n?: { title?: string; filterName?: string; replace?: string; cancel?: string; existsTitle?: string; existsMessage?: string }): Promise<
+        openPackage(i18n?: { title?: string; filterName?: string }): Promise<
           { canceled: true }
-          | { canceled: false; packageId: string; id: string; name: string; assets: string[] }
+          | {
+            canceled: false; token: string; fileName: string; compressedBytes: number;
+            packageId: string; name: string; description?: string; assetCount: number;
+            assetBytes: number; assets: string[]; exists: boolean;
+          }
         >;
+        installPackage(token: string, replace?: boolean): Promise<{ packageId: string; id: string; name: string; assets: string[] }>;
         status(): Promise<AutomationStatus>;
         listPackages(): Promise<Array<{ packageId: string; id: string; name: string; assets: string[] }>>;
         getPackage(packageId: string): Promise<{
