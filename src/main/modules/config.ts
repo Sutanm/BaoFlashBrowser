@@ -1,11 +1,13 @@
 import Store from 'electron-store';
 import log from 'electron-log';
 import type { DownloadEngine } from '@shared/types/downloads';
+import type { FlashPluginChannel } from '@shared/types/flash';
 
 export const DEFAULT_FLASH_VERSION = '34.0.0.330';
 
 export interface Config {
   flashVersion: string;
+  flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
   downloadEngine: DownloadEngine;
   downloadDir: string;
@@ -21,6 +23,7 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Config = {
   flashVersion: DEFAULT_FLASH_VERSION,
+  flashPluginChannel: 'stable',
   lowEndMode: false,
   downloadEngine: 'aria2',
   downloadDir: '',
@@ -46,6 +49,10 @@ function getStore(): Store<Config> {
         flashVersion: {
           type: 'string',
           pattern: '^\\d+\\.\\d+\\.\\d+\\.\\d+$',
+        },
+        flashPluginChannel: {
+          type: 'string',
+          enum: ['stable', 'experimental'],
         },
         lowEndMode: {
           type: 'boolean',
@@ -77,6 +84,7 @@ export function loadConfig(): Config {
   const s = getStore();
   return {
     flashVersion: s.get('flashVersion'),
+    flashPluginChannel: s.get('flashPluginChannel'),
     lowEndMode: s.get('lowEndMode'),
     downloadEngine: s.get('downloadEngine'),
     downloadDir: s.get('downloadDir'),
@@ -96,6 +104,7 @@ export function saveConfig(cfg: Partial<Config>): boolean {
     // L26: 原子写入 — 合并后一次性 set，避免中途 crash 导致半更新
     const updates: Partial<Config> = {};
     if (cfg.flashVersion !== undefined) updates.flashVersion = cfg.flashVersion;
+    if (cfg.flashPluginChannel !== undefined) updates.flashPluginChannel = cfg.flashPluginChannel;
     if (cfg.lowEndMode !== undefined) updates.lowEndMode = cfg.lowEndMode;
     if (cfg.downloadEngine !== undefined) updates.downloadEngine = cfg.downloadEngine;
     if (cfg.downloadDir !== undefined) updates.downloadDir = cfg.downloadDir;

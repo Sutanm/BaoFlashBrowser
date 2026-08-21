@@ -6,11 +6,13 @@ import type {
 } from '@shared/types/ipc';
 import type { PasswordStoreStatus } from '@shared/types/passwords';
 import type { DownloadEngine, DownloadItem } from '@shared/types/downloads';
+import type { FlashPluginChannel } from '@shared/types/flash';
 import type { SessionRecoveryStatus } from '@shared/types/session';
 import type { AutomationMessage } from '@shared/automation/types';
 
 interface MainConfig {
   flashVersion: string;
+  flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
   downloadEngine: DownloadEngine;
   downloadDir: string;

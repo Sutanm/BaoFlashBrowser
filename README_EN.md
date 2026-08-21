@@ -120,9 +120,10 @@ For animated targets, capture only a stable region. See the [Automation User Gui
 
 - [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
 - [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases)
+- [v1.1.1 Experimental Flash/macOS Support](docs/experimental-platform-support.md)
 - [v1.1.0 Release Notes](RELEASE_NOTES.md)
 
-The Windows installers are currently **unsigned**. Microsoft Defender SmartScreen may display an “Unknown publisher” warning during installation or first launch. Download only from the project release pages and verify the published SHA-256 checksum. If the 1.1.0 installer is not yet available, run the current version from source as described below.
+The Windows installers are currently **unsigned**. Microsoft Defender SmartScreen may display an “Unknown publisher” warning during installation or first launch. Download only from the project release pages and verify the published SHA-256 checksum. If the 1.1.1 installer is not yet available, run the current version from source as described below.
 
 ## Platform Support
 
@@ -131,7 +132,8 @@ The Windows installers are currently **unsigned**. Microsoft Defender SmartScree
 | Windows x64 | Primary | Recommended; includes PPAPI, aria2, and the mouse-wheel zoom hook |
 | Windows ia32 | Not fully tested | Includes matching 32-bit PPAPI and aria2 binaries |
 | Linux x64 | Limited | Running from source is recommended; AppImage behavior varies with FUSE, shared libraries, and X11/Wayland |
-| Linux x86 / macOS | Unsupported | No complete PPAPI and native-resource support chain |
+| macOS Intel x64 | Experimental, zero testing | Build and plugin-discovery paths only; no Mac hardware testing. Apple Silicon can only attempt Rosetta 2 |
+| Linux x86 | Unsupported | No complete PPAPI and native-resource support chain |
 
 ## Run from Source
 
@@ -165,6 +167,7 @@ npm run check       # i18n, type checks, lint, unit tests, and production build
 npm run build:win64 # Windows x64 NSIS
 npm run build:win32 # Windows ia32 NSIS (not fully tested)
 npm run build:linux # Linux x64 AppImage; run on Linux/WSL
+npm run build:mac   # Experimental macOS Intel x64 DMG/ZIP; must run on macOS and has never been tested
 ```
 
 Release scripts validate Ruffle, fonts, PPAPI, aria2, mouse hooks, and target architectures. Manifests are written to `release/manifests/`.

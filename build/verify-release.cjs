@@ -94,6 +94,12 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
 
   if (platform === 'win32' && arch === 'x64') {
     expectArch(path.join(plugins, 'win64', 'pepflashplayer64.dll'), 'x64', 'pe', 'Windows x64 PPAPI');
+    expectArch(
+      path.join(plugins, 'experimental', 'win64', 'pepflashplayer64_34_0_0_380.dll'),
+      'x64',
+      'pe',
+      'Windows x64 experimental China PPAPI',
+    );
     expectArch(path.join(native, 'aria2', 'aria2c.exe'), 'x64', 'pe', 'Windows x64 aria2');
     expectArch(path.join(native, 'mouse-hook.exe'), 'ia32', 'pe', 'Windows mouse hook');
   } else if (platform === 'win32' && arch === 'ia32') {
@@ -107,14 +113,25 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
     expectArch(path.join(plugins, 'linux64', 'libpepflashplayer64.so'), 'x64', 'elf', 'Linux x64 PPAPI');
     expectArch(path.join(native, 'aria2', 'aria2c'), 'x64', 'elf', 'Linux x64 aria2');
     expectArch(path.join(native, 'mouse-hook-linux'), 'x64', 'elf', 'Linux mouse hook');
+  } else if (platform === 'darwin' && arch === 'x64') {
+    record(path.join(plugins, 'experimental', 'mac', 'README.txt'), 'macOS experimental support notice');
+    const plugin = path.join(plugins, 'experimental', 'mac', 'PepperFlashPlayer.plugin');
+    if (fs.existsSync(plugin)) {
+      record(path.join(plugin, 'Contents', 'MacOS', 'PepperFlashPlayer'), 'macOS experimental PPAPI');
+    }
   } else {
     fail(`unsupported target ${platform}-${arch}`);
   }
 
   if (packaged) {
-    const allowedPluginDir = platform === 'linux' ? 'linux64' : arch === 'x64' ? 'win64' : 'win32';
+    const allowedPluginDir = platform === 'linux' ? 'linux64' : platform === 'win32' ? (arch === 'x64' ? 'win64' : 'win32') : null;
     for (const unwanted of ['linux64', 'win32', 'win64'].filter((name) => name !== allowedPluginDir)) {
       if (fs.existsSync(path.join(plugins, unwanted))) fail(`package contains foreign plugin directory: plugins/${unwanted}`);
+    }
+    const experimentalRoot = path.join(plugins, 'experimental');
+    const allowedExperimentalDir = platform === 'darwin' ? 'mac' : platform === 'win32' && arch === 'x64' ? 'win64' : null;
+    for (const unwanted of ['mac', 'win64'].filter((name) => name !== allowedExperimentalDir)) {
+      if (fs.existsSync(path.join(experimentalRoot, unwanted))) fail(`package contains foreign experimental plugin directory: plugins/experimental/${unwanted}`);
     }
     for (const file of walk(native)) {
       if (/\.(c|cs)$/i.test(file)) fail(`package contains native source file: ${relative(file)}`);
@@ -144,7 +161,9 @@ function findUnpackedRoot() {
   const release = path.join(projectRoot, 'release');
   if (!fs.existsSync(release)) return '';
   return fs.readdirSync(release, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.endsWith('unpacked'))
+    .filter((entry) => entry.isDirectory() && (
+      platform === 'darwin' ? entry.name === 'mac' || entry.name.startsWith('mac-') : entry.name.endsWith('unpacked')
+    ))
     .map((entry) => path.join(release, entry.name))
     .filter(packageExeMatches)
     .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] || '';
@@ -180,7 +199,12 @@ function verifyUnpacked() {
     fail('could not find a matching unpacked application under release/');
     return;
   }
-  const resources = path.join(root, 'resources');
+  const macApp = platform === 'darwin'
+    ? fs.readdirSync(root, { withFileTypes: true }).find((entry) => entry.isDirectory() && entry.name.endsWith('.app'))
+    : null;
+  const resources = macApp
+    ? path.join(root, macApp.name, 'Contents', 'Resources')
+    : path.join(root, 'resources');
   verifyAsar(path.join(resources, 'app.asar'));
   verifySelectedResources(resources);
 
@@ -201,6 +225,12 @@ function verifyUnpacked() {
       .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
     if (appImages[0]) record(appImages[0], 'AppImage');
     else if (!allowMissingArtifact) fail(`missing ${arch} AppImage under release/`);
+  } else if (platform === 'darwin') {
+    const artifacts = walk(path.join(projectRoot, 'release'))
+      .filter((file) => /BaoFlashBrowser-Experimental-.+-(x64|x86_64)\.(dmg|zip)$/.test(path.basename(file)))
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+    if (artifacts.length > 0) artifacts.forEach((file) => record(file, 'macOS experimental artifact'));
+    else if (!allowMissingArtifact) fail('missing experimental macOS DMG/ZIP under release/');
   }
 }
 

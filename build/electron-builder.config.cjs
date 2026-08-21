@@ -8,6 +8,7 @@ function selectedResources() {
   if (targetPlatform === 'win32' && targetArch === 'x64') {
     return [
       { from: 'plugins/win64', to: 'plugins/win64' },
+      { from: 'plugins/experimental/win64', to: 'plugins/experimental/win64' },
       { from: 'native/aria2/aria2c.exe', to: 'native/aria2/aria2c.exe' },
       { from: 'native/mouse-hook.exe', to: 'native/mouse-hook.exe' },
     ];
@@ -29,12 +30,18 @@ function selectedResources() {
     ];
   }
 
+  if (targetPlatform === 'darwin' && targetArch === 'x64') {
+    return [
+      { from: 'plugins/experimental/mac', to: 'plugins/experimental/mac' },
+    ];
+  }
+
   throw new Error(`Unsupported release target: ${targetPlatform}-${targetArch}`);
 }
 
 module.exports = {
   appId: 'com.bao.flashbrowser',
-  productName: 'BaoFlashBrowser',
+  productName: targetPlatform === 'darwin' ? 'BaoFlashBrowser Experimental' : 'BaoFlashBrowser',
   directories: { output: 'release' },
   files: [
     {
@@ -57,6 +64,16 @@ module.exports = {
     target: 'AppImage',
     icon: 'build/icon.png',
     category: 'Network',
+  },
+  mac: {
+    target: ['dmg', 'zip'],
+    icon: 'build/icon.png',
+    category: 'public.app-category.utilities',
+    artifactName: 'BaoFlashBrowser-Experimental-${version}-${arch}.${ext}',
+    extendInfo: {
+      CFBundleGetInfoString: 'Experimental macOS build — completely untested',
+      NSHumanReadableCopyright: 'Experimental macOS build — completely untested',
+    },
   },
   appImage: {
     artifactName: '${productName}-${version}-${arch}.${ext}',

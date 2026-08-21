@@ -69,7 +69,7 @@ function bootstrap(): void {
     app.commandLine.appendSwitch('enable-low-end-device-mode');
   }
 
-  setupFlash(app, config.flashVersion);
+  setupFlash(app, config.flashVersion, config.flashPluginChannel);
 
   // Register ruffle-resource scheme privileges BEFORE app.whenReady()
   // so Chromium treats it as a trusted scheme (CORS, fetch, service worker OK).

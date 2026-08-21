@@ -3,6 +3,7 @@ import { useDataStore, defaultSettings } from '@renderer/store/useDataStore';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { Settings } from '@shared/types/settings';
 import type { DownloadEngine } from '@shared/types/downloads';
+import type { FlashPluginChannel } from '@shared/types/flash';
 import { ArrowLeft, ChevronRight, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
 import { requiresMainConfigRestart } from '@renderer/services/settings-restart';
 
@@ -14,6 +15,7 @@ type SettingsSection = 'general' | 'engine' | 'downloads' | 'privacy' | 'advance
 
 interface MainConfigForm {
   flashVersion: string;
+  flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
   downloadEngine: DownloadEngine;
   screenshotDir: string;
@@ -28,6 +30,7 @@ interface MainConfigForm {
 
 const DEFAULT_MAIN_CONFIG: MainConfigForm = {
   flashVersion: '34.0.0.330',
+  flashPluginChannel: 'stable',
   lowEndMode: false,
   downloadEngine: 'aria2',
   screenshotDir: '',
@@ -65,6 +68,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       if (cfg) {
         const loaded = {
           flashVersion: cfg.flashVersion,
+          flashPluginChannel: cfg.flashPluginChannel,
           lowEndMode: cfg.lowEndMode,
           downloadEngine: cfg.downloadEngine,
           screenshotDir: cfg.screenshotDir ?? '',
@@ -143,6 +147,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     try {
       const result = await window.electronAPI.invoke('save-config', {
         flashVersion: mainForm.flashVersion,
+        flashPluginChannel: mainForm.flashPluginChannel,
         lowEndMode: mainForm.lowEndMode,
         downloadEngine: mainForm.downloadEngine,
         screenshotDir: mainForm.screenshotDir,
@@ -329,6 +334,23 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
 
       <div className={`panel-card settings-section-card${activeSection !== 'engine' ? ' settings-section-hidden' : ''}`}>
         <div className="panel-card-title">{LL.ruffle.flash()}</div>
+        <div className="field">
+          <div className="field-label">{LL.settings.flashPluginChannel()}</div>
+          <select
+            className="input-text"
+            style={{ width: '100%' }}
+            value={mainForm.flashPluginChannel}
+            onChange={(e) => handleMainChange('flashPluginChannel', e.target.value as FlashPluginChannel)}
+          >
+            <option value="stable">{LL.settings.flashPluginStable()}</option>
+            <option value="experimental">{LL.settings.flashPluginExperimental()}</option>
+          </select>
+          <div className="field-hint">
+            {mainForm.flashPluginChannel === 'experimental'
+              ? LL.settings.flashPluginExperimentalWarning()
+              : LL.settings.flashPluginStableHint()}
+          </div>
+        </div>
         <div className="field">
           <div className="field-label">{LL.settings.spoofVersion()}</div>
           <input

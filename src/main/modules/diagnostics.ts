@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import os from 'os';
 import log from 'electron-log';
 import { loadConfig } from './config';
-import { getFlashPluginPath } from './flash';
+import { resolveFlashPlugin } from './flash';
 import { ruffleBundleInfo } from './ruffle-bundle';
 import { redactDiagnosticText } from '../utils/diagnostic-redaction';
 import { getMemoryDiagnostics } from './memory-monitor';
@@ -21,6 +21,7 @@ interface ResourceDiagnostic {
 async function fileDiagnostic(name: string, file: string): Promise<ResourceDiagnostic> {
   try {
     const stat = await fs.promises.stat(file);
+    if (stat.isDirectory()) return { name, present: true };
     const hash = crypto.createHash('sha256');
     await new Promise<void>((resolve, reject) => {
       const stream = fs.createReadStream(file);
@@ -75,10 +76,10 @@ async function recentSanitizedLogs(): Promise<string[]> {
 
 export async function createDiagnosticReport(): Promise<Record<string, unknown>> {
   const config = loadConfig();
-  const flashPath = getFlashPluginPath(app);
+  const flash = resolveFlashPlugin(app, config.flashPluginChannel, config.flashVersion);
   const ruffleRoot = path.join(__dirname, 'lib', 'ruffle');
   const resources = await Promise.all([
-    fileDiagnostic('PPAPI Flash', flashPath || ''),
+    fileDiagnostic('PPAPI Flash', flash.pluginPath || ''),
     fileDiagnostic('Ruffle bootstrap', path.join(ruffleRoot, 'ruffle.js')),
     fileDiagnostic('Ruffle CJK font', path.join(ruffleRoot, 'SourceHanSansCN-Regular.otf')),
     ...expectedNativeResources().map(([name, file]) => fileDiagnostic(name, file)),
@@ -86,7 +87,7 @@ export async function createDiagnosticReport(): Promise<Record<string, unknown>>
 
   return {
     format: 'BaoFlashBrowser diagnostics',
-    formatVersion: 2,
+    formatVersion: 3,
     provenance: {
       ...PROJECT_PROVENANCE,
       shortId: PROVENANCE_SHORT_ID,
@@ -107,9 +108,21 @@ export async function createDiagnosticReport(): Promise<Record<string, unknown>>
     },
     settings: {
       flashVersion: config.flashVersion,
+      flashPluginChannel: config.flashPluginChannel,
       lowEndMode: config.lowEndMode,
       downloadEngine: config.downloadEngine,
       customDownloadDirectory: Boolean(config.downloadDir),
+    },
+    flash: {
+      requestedChannel: flash.requestedChannel,
+      effectiveChannel: flash.effectiveChannel,
+      source: flash.source,
+      version: flash.version,
+      physicalVersion: flash.physicalVersion,
+      available: Boolean(flash.pluginPath),
+      experimental: flash.experimental,
+      untested: flash.untested,
+      fallbackReason: flash.fallbackReason,
     },
     ruffle: ruffleBundleInfo(),
     resources,

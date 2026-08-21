@@ -122,9 +122,10 @@ BaoFlashBrowser 不只是一个 Flash 浏览器。它将 **PPAPI/Ruffle 双引�
 
 - [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
 - [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases)
+- [v1.1.1 实验性 Flash/macOS 支持说明](docs/experimental-platform-support.md)
 - [v1.1.0 发行说明](RELEASE_NOTES.md)
 
-Windows 安装包当前**未进行代码签名**，安装或首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对页面公布的 SHA-256。若 1.1.0 安装包尚未出现在 Release 页面，可以按照下方步骤从源码运行当前版本。
+Windows 安装包当前**未进行代码签名**，安装或首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对页面公布的 SHA-256。若 1.1.1 安装包尚未出现在 Release 页面，可以按照下方步骤从源码运行当前版本。
 
 ## 平台支持
 
@@ -133,7 +134,8 @@ Windows 安装包当前**未进行代码签名**，安装或首次运行时可�
 | Windows x64 | 主要支持 | 推荐使用，包含 PPAPI、aria2 和鼠标缩放钩子 |
 | Windows ia32 | 未完全测试 | 包含匹配的 32 位 PPAPI 与 aria2 |
 | Linux x64 | 有限支持 | 推荐从源码运行；AppImage 可能受发行版、FUSE、动态库及 X11/Wayland 影响 |
-| Linux x86 / macOS | 不支持 | 缺少完整的 PPAPI 和原生资源支持链 |
+| macOS Intel x64 | 实验性、零测试 | 仅准备构建和插件发现链路；无 Mac 设备测试，Apple Silicon 只能尝试 Rosetta 2 |
+| Linux x86 | 不支持 | 缺少完整的 PPAPI 和原生资源支持链 |
 
 ## 从源码运行
 
@@ -167,6 +169,7 @@ npm run check       # i18n、类型检查、Lint、单元测试和生产构建
 npm run build:win64 # Windows x64 NSIS
 npm run build:win32 # Windows ia32 NSIS（未完全测试）
 npm run build:linux # Linux x64 AppImage，建议在 Linux/WSL 中执行
+npm run build:mac   # macOS Intel x64 实验 DMG/ZIP，必须在 macOS 上执行，未经任何测试
 ```
 
 发布脚本会检查 Ruffle、字体、PPAPI、aria2、鼠标钩子和目标架构，校验结果写入 `release/manifests/`。

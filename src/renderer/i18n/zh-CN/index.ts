@@ -206,6 +206,11 @@ const zhCN: BaseTranslation = {
     baidu: '百度',
     spoofVersion: '伪装版本',
     spoofVersionHint: '伪装为指定版本号，部分网站会检测。需重启生效。',
+    flashPluginChannel: 'Flash 插件通道',
+    flashPluginStable: '稳定通道（推荐）',
+    flashPluginStableHint: 'Windows/Linux 使用项目已验证的插件。macOS 没有稳定通道。需重启生效。',
+    flashPluginExperimental: '实验通道',
+    flashPluginExperimentalWarning: '包含国内修改版或 macOS PPAPI。可能出现组件错误、弹窗、崩溃或无法启动；macOS 未经任何设备测试。',
     lowEndMode: '低性能设备模式',
     lowEndModeHint: '需重启生效',
     // Ruffle

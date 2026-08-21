@@ -688,6 +688,26 @@ type RootTranslation = {
 		 */
 		spoofVersionHint: string
 		/**
+		 * F​l​a​s​h​ ​插​件​通​道
+		 */
+		flashPluginChannel: string
+		/**
+		 * 稳​定​通​道​（​推​荐​）
+		 */
+		flashPluginStable: string
+		/**
+		 * W​i​n​d​o​w​s​/​L​i​n​u​x​ ​使​用​项​目​已​验​证​的​插​件​。​m​a​c​O​S​ ​没​有​稳​定​通​道​。​需​重​启​生​效​。
+		 */
+		flashPluginStableHint: string
+		/**
+		 * 实​验​通​道
+		 */
+		flashPluginExperimental: string
+		/**
+		 * 包​含​国​内​修​改​版​或​ ​m​a​c​O​S​ ​P​P​A​P​I​。​可​能​出​现​组​件​错​误​、​弹​窗​、​崩​溃​或​无​法​启​动​；​m​a​c​O​S​ ​未​经​任​何​设​备​测​试​。
+		 */
+		flashPluginExperimentalWarning: string
+		/**
 		 * 低​性​能​设​备​模​式
 		 */
 		lowEndMode: string
@@ -3102,6 +3122,26 @@ export type TranslationFunctions = {
 		 * 伪装为指定版本号，部分网站会检测。需重启生效。
 		 */
 		spoofVersionHint: () => LocalizedString
+		/**
+		 * Flash 插件通道
+		 */
+		flashPluginChannel: () => LocalizedString
+		/**
+		 * 稳定通道（推荐）
+		 */
+		flashPluginStable: () => LocalizedString
+		/**
+		 * Windows/Linux 使用项目已验证的插件。macOS 没有稳定通道。需重启生效。
+		 */
+		flashPluginStableHint: () => LocalizedString
+		/**
+		 * 实验通道
+		 */
+		flashPluginExperimental: () => LocalizedString
+		/**
+		 * 包含国内修改版或 macOS PPAPI。可能出现组件错误、弹窗、崩溃或无法启动；macOS 未经任何设备测试。
+		 */
+		flashPluginExperimentalWarning: () => LocalizedString
 		/**
 		 * 低性能设备模式
 		 */

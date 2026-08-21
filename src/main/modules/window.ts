@@ -18,7 +18,9 @@ export function createWindow(): BrowserWindow {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    title: 'BaoFlashBrowser',
+    title: process.platform === 'darwin'
+      ? 'BaoFlashBrowser — Experimental macOS (Untested)'
+      : 'BaoFlashBrowser',
     icon: iconPath,
     show: false,
     backgroundColor: '#f0f0f0',

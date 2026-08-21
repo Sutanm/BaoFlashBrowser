@@ -18,6 +18,7 @@ export function registerConfigIPC(): void {
   createHandler('load-config', () => loadConfig());
   createValidatedHandler('save-config', z.object({
     flashVersion: z.string().regex(/^\d+\.\d+\.\d+\.\d+$/).optional(),
+    flashPluginChannel: z.enum(['stable', 'experimental']).optional(),
     lowEndMode: z.boolean().optional(),
     downloadEngine: z.enum(['chromium', 'aria2']).optional(),
     downloadDir: pathField('downloadDir'),
