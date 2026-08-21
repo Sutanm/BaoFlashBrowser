@@ -40,6 +40,21 @@ function record(file, role) {
   checkedFiles.push({ role, path: relative(file), size: stat.size, sha256: sha256(file) });
 }
 
+function expectJsonFields(file, expected, role) {
+  record(file, role);
+  if (!fs.existsSync(file)) return;
+  try {
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const [key, expectedValue] of Object.entries(expected)) {
+      if (value[key] !== expectedValue) {
+        fail(`${role} ${key} is ${JSON.stringify(value[key])}, expected ${JSON.stringify(expectedValue)}: ${relative(file)}`);
+      }
+    }
+  } catch (error) {
+    fail(`${role} is not valid JSON: ${relative(file)} (${error.message})`);
+  }
+}
+
 function walk(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -67,11 +82,48 @@ function elfArch(file) {
   return `elf${bits}-machine-0x${machine.toString(16)}`;
 }
 
+function machoArchitectures(file) {
+  const buffer = fs.readFileSync(file);
+  if (buffer.length < 8) return [];
+
+  const cpuName = (type) => {
+    if (type === 0x01000007) return 'x64';
+    if (type === 0x0100000c) return 'arm64';
+    if (type === 7) return 'ia32';
+    return `cpu-0x${(type >>> 0).toString(16)}`;
+  };
+
+  const littleMagic = buffer.readUInt32LE(0);
+  const bigMagic = buffer.readUInt32BE(0);
+  if (littleMagic === 0xfeedface || littleMagic === 0xfeedfacf) {
+    return [cpuName(buffer.readUInt32LE(4))];
+  }
+  if (bigMagic === 0xfeedface || bigMagic === 0xfeedfacf) {
+    return [cpuName(buffer.readUInt32BE(4))];
+  }
+
+  const isFat64 = bigMagic === 0xcafebabf;
+  if (bigMagic !== 0xcafebabe && !isFat64) return [];
+  const count = buffer.readUInt32BE(4);
+  const entrySize = isFat64 ? 32 : 20;
+  if (count > 32 || 8 + count * entrySize > buffer.length) return [];
+  return Array.from({ length: count }, (_, index) => cpuName(buffer.readUInt32BE(8 + index * entrySize)));
+}
+
 function expectArch(file, expected, format, role) {
   record(file, role);
   if (!fs.existsSync(file)) return;
   const actual = format === 'pe' ? peMachine(file) : elfArch(file);
   if (actual !== expected) fail(`${role} architecture is ${actual || 'unknown'}, expected ${expected}: ${relative(file)}`);
+}
+
+function expectMachOArch(file, expected, role) {
+  record(file, role);
+  if (!fs.existsSync(file)) return;
+  const architectures = machoArchitectures(file);
+  if (!architectures.includes(expected)) {
+    fail(`${role} architectures are ${architectures.join(', ') || 'unknown'}, expected ${expected}: ${relative(file)}`);
+  }
 }
 
 function verifyRuffle(root, fromAsar = false) {
@@ -116,8 +168,19 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
   } else if (platform === 'darwin' && arch === 'x64') {
     record(path.join(plugins, 'experimental', 'mac', 'README.txt'), 'macOS experimental support notice');
     const plugin = path.join(plugins, 'experimental', 'mac', 'PepperFlashPlayer.plugin');
-    if (fs.existsSync(plugin)) {
-      record(path.join(plugin, 'Contents', 'MacOS', 'PepperFlashPlayer'), 'macOS experimental PPAPI');
+    record(path.join(plugin, 'Contents', 'Info.plist'), 'macOS experimental PPAPI bundle metadata');
+    expectMachOArch(
+      path.join(plugin, 'Contents', 'MacOS', 'PepperFlashPlayer'),
+      'x64',
+      'macOS experimental PPAPI',
+    );
+    expectJsonFields(
+      path.join(plugins, 'experimental', 'mac', 'manifest.json'),
+      { version: '34.0.0.380', 'x-ppapi-arch': 'mac', 'x-ppapi-os': 'mac' },
+      'macOS experimental PPAPI manifest',
+    );
+    if (walk(plugin).some((file) => file.endsWith('.lzma'))) {
+      fail('macOS experimental PPAPI contains an undecoded .lzma payload');
     }
   } else {
     fail(`unsupported target ${platform}-${arch}`);
@@ -137,6 +200,9 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
       if (/\.(c|cs)$/i.test(file)) fail(`package contains native source file: ${relative(file)}`);
       if (platform === 'linux' && file.endsWith('.exe')) fail(`Linux package contains Windows binary: ${relative(file)}`);
       if (platform === 'win32' && /mouse-hook-linux$|\/aria2c$/.test(file.replace(/\\/g, '/'))) fail(`Windows package contains Linux binary: ${relative(file)}`);
+    }
+    if (platform === 'darwin' && walk(resourcesRoot).some((file) => file.toLowerCase().endsWith('.dmg'))) {
+      fail('macOS application resources contain a build-time DMG');
     }
   }
 }

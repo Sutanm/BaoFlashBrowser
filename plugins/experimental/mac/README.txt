@@ -1,9 +1,10 @@
 BaoFlashBrowser 1.1.1 macOS Flash support is EXPERIMENTAL and completely untested.
 
-Optional bundled plugin layout:
+The macOS packaging task decodes Flash 34.0.0.380 from the verified vendor image
+and bundles the complete plugin at:
   plugins/experimental/mac/PepperFlashPlayer.plugin
 
-If the bundle is absent, the experimental channel also checks:
+Development builds without the generated bundle can also check:
   ~/Library/Internet Plug-Ins/PepperFlashPlayer/PepperFlashPlayer.plugin
   /Library/Internet Plug-Ins/PepperFlashPlayer/PepperFlashPlayer.plugin
 

@@ -12,6 +12,8 @@ mms.cfg
 .idea/
 7k7k-reqs.json
 aria2-*.zip
+plugins/experimental/mac/PepperFlashPlayer.plugin/
+plugins/experimental/mac/manifest.json
 
 # blog drafts and screenshots (local-only)
 blog.md

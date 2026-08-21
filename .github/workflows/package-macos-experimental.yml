@@ -1,0 +1,29 @@
+name: Package experimental macOS build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-macos-x64:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:mac
+      - name: Upload integrated experimental package
+        uses: actions/upload-artifact@v4
+        with:
+          name: baoflashbrowser-macos-x64-experimental
+          path: |
+            release/BaoFlashBrowser-Experimental-*-x64.dmg
+            release/BaoFlashBrowser-Experimental-*-x64.zip
+            release/manifests/darwin-x64-*.json
+          if-no-files-found: error

@@ -27,7 +27,8 @@ The macOS build is **experimental and completely untested on macOS hardware**.
 - Apple Silicon: may run through Rosetta 2; this has not been tested.
 - Code signing, notarization, rendering, audio, input, fullscreen, background execution,
   game heartbeat, plugin dialogs, and crash recovery have not been tested.
-- The current repository does not bundle a decoded `PepperFlashPlayer.plugin`.
+- The integrated package bundles China-modified PPAPI Flash 34.0.0.380.
+- The checked-in vendor DMG is decoded during the macOS build; it is not copied into the final app.
 
 When the experimental channel is enabled, the resolver checks these locations in order:
 
@@ -35,14 +36,9 @@ When the experimental channel is enabled, the resolver checks these locations in
 2. `~/Library/Internet Plug-Ins/PepperFlashPlayer/PepperFlashPlayer.plugin`
 3. `/Library/Internet Plug-Ins/PepperFlashPlayer/PepperFlashPlayer.plugin`
 
-To prepare a bundled test build, place the complete plugin bundle at:
-
-```text
-plugins/experimental/mac/PepperFlashPlayer.plugin
-```
-
-Do not place only the Mach-O executable there; the complete `.plugin` bundle and companion
-resources are required.
+`npm run prepare:mac-flash` verifies the vendor DMG checksum, expands its PKG into a temporary
+directory, invokes the package's x64 finalizer there, and validates the generated bundle,
+version and architecture. It does not install Flash into `/Library` on the build machine.
 
 ## Build
 
@@ -54,6 +50,9 @@ npm run build:mac
 ```
 
 Artifacts are named `BaoFlashBrowser-Experimental-1.1.1-x64.dmg` and `.zip`.
+The GitHub Actions workflow `Package experimental macOS build` can be started manually and
+uses an Intel macOS runner. Its uploaded artifact contains both integrated packages and the
+resource-verification manifests.
 The build name, application title, diagnostics, and settings UI all identify the macOS build
 as experimental. A successful package build is not evidence that Flash works.
 
