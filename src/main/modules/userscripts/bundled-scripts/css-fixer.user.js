@@ -1,8 +1,11 @@
 // ==UserScript==
 // @name         BaoFlash Modern CSS Fixer
 // @namespace    bao-flash-browser
+// @author       Sutanm
+// @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
+// @bao-origin   bfb:833eaf0307cffe0c
 // @version      0.5.7
-// @updateHash  dbec8f180460
+// @updateHash  958e87a9a0b8
 // @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
 // @match        *://*.github.com/*

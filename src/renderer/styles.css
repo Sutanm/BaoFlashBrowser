@@ -951,6 +951,19 @@ body.dark ::-webkit-scrollbar-thumb { background: #45475a; }
 }
 .newtab-bookmark:hover { background: var(--bg-hover); }
 
+.newtab-author-mark {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  opacity: 0.22;
+  pointer-events: none;
+  user-select: none;
+}
+
 .pwd-settings-bar {
   display: flex;
   align-items: center;

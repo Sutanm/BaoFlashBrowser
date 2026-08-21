@@ -9,6 +9,7 @@ import { getFlashPluginPath } from './flash';
 import { ruffleBundleInfo } from './ruffle-bundle';
 import { redactDiagnosticText } from '../utils/diagnostic-redaction';
 import { getMemoryDiagnostics } from './memory-monitor';
+import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '../../shared/provenance';
 
 interface ResourceDiagnostic {
   name: string;
@@ -86,6 +87,10 @@ export async function createDiagnosticReport(): Promise<Record<string, unknown>>
   return {
     format: 'BaoFlashBrowser diagnostics',
     formatVersion: 2,
+    provenance: {
+      ...PROJECT_PROVENANCE,
+      shortId: PROVENANCE_SHORT_ID,
+    },
     generatedAt: new Date().toISOString(),
     app: {
       version: app.getVersion(),

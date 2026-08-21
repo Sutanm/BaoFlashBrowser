@@ -5,7 +5,9 @@ import { chunkRedirectUrl } from './js-patch-service';
 import { setupDownloadHandlers } from './download';
 import { getWebRequestObserver } from './userscripts';
 
-const setupPartitions = new Set<string>();
+// Session does not expose its partition name in Electron 11. Dedupe by object
+// identity so defaultSession and persist: can never collapse into one key.
+const setupSessions = new WeakSet<Session>();
 
 export function patchedSWFObject(): string {
   return `
@@ -205,11 +207,10 @@ function applySessionConfig(sess: Session): void {
  * AGENTS.md: tabs use persist: partition, defaultSession must also be configured separately
  */
 export function setupSessionOnce(sess: Session): void {
-  const partition = (sess as any).partition || '__default__';
-  if (setupPartitions.has(partition)) return;
-  setupPartitions.add(partition);
+  if (setupSessions.has(sess)) return;
   applySessionConfig(sess);
-  log.info(`[SessionManager] configured partition: ${partition}`);
+  setupSessions.add(sess);
+  log.info('[SessionManager] configured session');
 }
 
 /** Compatibility entry point — configures both defaultSession and persist: partition. */

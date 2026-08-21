@@ -1,11 +1,31 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
+
+const provenance = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'provenance.json'), 'utf8')) as {
+  project: string;
+  author: string;
+  origin: string;
+  year: number;
+  fingerprint: string;
+};
+const provenanceShortId = `bfb:${provenance.fingerprint.slice(7, 23)}`;
+const provenanceBanner = `/*! ${provenance.project} | Copyright (c) ${provenance.year} ${provenance.author} | ${provenanceShortId} | ${provenance.origin} */`;
 
 export default defineConfig({
   root: 'src/renderer',
   plugins: [
     react(),
+    {
+      name: 'bao-provenance-banner',
+      enforce: 'post',
+      generateBundle(_options, bundle) {
+        for (const output of Object.values(bundle)) {
+          if (output.type === 'chunk') output.code = `${provenanceBanner}\n${output.code}`;
+        }
+      },
+    },
     // Electron loadFile() 使用 file:// 协议，绝对路径 /bundle.js 会解析到磁盘根目录
     // 强制所有路径为相对路径，确保 file:// 下正确加载
     {

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
+import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '@shared/provenance';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 
 interface NewTabPageProps {
@@ -124,6 +125,15 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
             </div>
           </div>
         ))}
+      </div>
+
+      <div
+        className="newtab-author-mark"
+        data-origin={PROVENANCE_SHORT_ID}
+        aria-label={`Created by ${PROJECT_PROVENANCE.author}`}
+        title={`Created by ${PROJECT_PROVENANCE.author} · ${PROVENANCE_SHORT_ID}`}
+      >
+        {PROJECT_PROVENANCE.author}
       </div>
     </div>
   );

@@ -627,6 +627,11 @@ type RootTranslation = {
 		 */
 		saved: string
 		/**
+		 * 设​置​保​存​失​败​：​{​e​r​r​o​r​}
+		 * @param {unknown} error
+		 */
+		saveFailed: RequiredParams<'error'>
+		/**
 		 * 设​置​已​保​存​，​需​重​启​生​效
 		 */
 		savedRestart: string
@@ -3037,6 +3042,10 @@ export type TranslationFunctions = {
 		 * 设置已保存
 		 */
 		saved: () => LocalizedString
+		/**
+		 * 设置保存失败：{error}
+		 */
+		saveFailed: (arg: { error: unknown }) => LocalizedString
 		/**
 		 * 设置已保存，需重启生效
 		 */

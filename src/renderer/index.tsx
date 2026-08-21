@@ -1,3 +1,4 @@
+/*! BaoFlashBrowser · crafted by Sutanm */
 // Force module evaluation order — this must print first
 window.document.title = 'Bao — loaded';
 

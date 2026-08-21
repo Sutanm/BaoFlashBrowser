@@ -109,5 +109,10 @@
     "zustand": "^5.0.0"
   },
   "author": "Sutanm",
+  "homepage": "https://github.com/Sutanm/BaoFlashBrowser",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sutanm/BaoFlashBrowser.git"
+  },
   "license": "MIT"
 }

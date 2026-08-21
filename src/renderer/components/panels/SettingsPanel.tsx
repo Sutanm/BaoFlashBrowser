@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDataStore, defaultSettings } from '@renderer/store/useDataStore';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { Settings } from '@shared/types/settings';
 import type { DownloadEngine } from '@shared/types/downloads';
 import { ArrowLeft, ChevronRight, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
+import { requiresMainConfigRestart } from '@renderer/services/settings-restart';
 
 interface SettingsPanelProps {
   onOpenUrl: (url: string, newTab: boolean) => void;
@@ -57,22 +58,27 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   const [excludedSitesText, setExcludedSitesText] = useState('');
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection | null>(null);
+  const loadedMainFormRef = useRef<MainConfigForm>({ ...DEFAULT_MAIN_CONFIG });
 
   useEffect(() => {
     window.electronAPI?.config?.get().then((cfg) => {
-      if (cfg) setMainForm({
-        flashVersion: cfg.flashVersion,
-        lowEndMode: cfg.lowEndMode,
-        downloadEngine: cfg.downloadEngine,
-        screenshotDir: cfg.screenshotDir ?? '',
-        userscriptMaxResponseMB: cfg.userscriptMaxResponseMB,
-        userscriptTimeoutSeconds: cfg.userscriptTimeoutSeconds,
-        userscriptMaxConcurrentPerScript: cfg.userscriptMaxConcurrentPerScript,
-        userscriptMaxConcurrentGlobal: cfg.userscriptMaxConcurrentGlobal,
-        userscriptDownloadMaxMB: cfg.userscriptDownloadMaxMB,
-        userscriptDownloadConcurrent: cfg.userscriptDownloadConcurrent,
-        userscriptMaxValueKB: cfg.userscriptMaxValueKB,
-      });
+      if (cfg) {
+        const loaded = {
+          flashVersion: cfg.flashVersion,
+          lowEndMode: cfg.lowEndMode,
+          downloadEngine: cfg.downloadEngine,
+          screenshotDir: cfg.screenshotDir ?? '',
+          userscriptMaxResponseMB: cfg.userscriptMaxResponseMB,
+          userscriptTimeoutSeconds: cfg.userscriptTimeoutSeconds,
+          userscriptMaxConcurrentPerScript: cfg.userscriptMaxConcurrentPerScript,
+          userscriptMaxConcurrentGlobal: cfg.userscriptMaxConcurrentGlobal,
+          userscriptDownloadMaxMB: cfg.userscriptDownloadMaxMB,
+          userscriptDownloadConcurrent: cfg.userscriptDownloadConcurrent,
+          userscriptMaxValueKB: cfg.userscriptMaxValueKB,
+        };
+        loadedMainFormRef.current = loaded;
+        setMainForm(loaded);
+      }
     }).catch(() => {});
   }, []);
 
@@ -134,32 +140,38 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   }, []);
 
   const handleSave = useCallback(async () => {
-    setSettings(form);
-    await window.electronAPI?.invoke('save-config', {
-      flashVersion: mainForm.flashVersion,
-      lowEndMode: mainForm.lowEndMode,
-      downloadEngine: mainForm.downloadEngine,
-      screenshotDir: mainForm.screenshotDir,
-      userscriptMaxResponseMB: mainForm.userscriptMaxResponseMB,
-      userscriptTimeoutSeconds: mainForm.userscriptTimeoutSeconds,
-      userscriptMaxConcurrentPerScript: mainForm.userscriptMaxConcurrentPerScript,
-      userscriptMaxConcurrentGlobal: mainForm.userscriptMaxConcurrentGlobal,
-      userscriptDownloadMaxMB: mainForm.userscriptDownloadMaxMB,
-      userscriptDownloadConcurrent: mainForm.userscriptDownloadConcurrent,
-      userscriptMaxValueKB: mainForm.userscriptMaxValueKB,
-    });
+    try {
+      const result = await window.electronAPI.invoke('save-config', {
+        flashVersion: mainForm.flashVersion,
+        lowEndMode: mainForm.lowEndMode,
+        downloadEngine: mainForm.downloadEngine,
+        screenshotDir: mainForm.screenshotDir,
+        userscriptMaxResponseMB: mainForm.userscriptMaxResponseMB,
+        userscriptTimeoutSeconds: mainForm.userscriptTimeoutSeconds,
+        userscriptMaxConcurrentPerScript: mainForm.userscriptMaxConcurrentPerScript,
+        userscriptMaxConcurrentGlobal: mainForm.userscriptMaxConcurrentGlobal,
+        userscriptDownloadMaxMB: mainForm.userscriptDownloadMaxMB,
+        userscriptDownloadConcurrent: mainForm.userscriptDownloadConcurrent,
+        userscriptMaxValueKB: mainForm.userscriptMaxValueKB,
+      });
+      if (result === false) throw new Error('main config was not saved');
 
-    const needsRestart =
-      mainForm.flashVersion !== DEFAULT_MAIN_CONFIG.flashVersion ||
-      mainForm.lowEndMode !== DEFAULT_MAIN_CONFIG.lowEndMode ||
-      mainForm.userscriptMaxValueKB !== DEFAULT_MAIN_CONFIG.userscriptMaxValueKB;
-
-    if (needsRestart) {
-      setSaved('restart');
-      pushToast({ message: LL.settings.savedRestart(), type: 'warning' });
-    } else {
-      setSaved(true);
-      pushToast({ message: LL.settings.saved(), type: 'success' });
+      const needsRestart = requiresMainConfigRestart(loadedMainFormRef.current, mainForm);
+      loadedMainFormRef.current = { ...mainForm };
+      setSettings(form);
+      if (needsRestart) {
+        setSaved('restart');
+        pushToast({ message: LL.settings.savedRestart(), type: 'warning' });
+      } else {
+        setSaved(true);
+        pushToast({ message: LL.settings.saved(), type: 'success' });
+      }
+    } catch (error) {
+      setSaved(false);
+      pushToast({
+        message: LL.settings.saveFailed({ error: error instanceof Error ? error.message : String(error) }),
+        type: 'error',
+      });
     }
   }, [form, mainForm, setSettings, pushToast, LL]);
 

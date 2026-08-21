@@ -9,6 +9,7 @@ import { db, loadMeta, saveMeta } from '../services/db';
 import { createTabSession, createTabSessionSignature, selectCrashRecoverySession, TAB_SESSION_META_KEY } from '../services/tab-session';
 import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
 import { isTabEligibleForSuspension } from '../services/tab-suspension';
+import { PendingHistoryRegistry } from '../services/pending-history';
 
 const NEWTAB_URL = 'about:newtab';
 const USERSCRIPTS_URL = 'about:userscripts';
@@ -137,15 +138,15 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     switchTab(id);
   }, [setTabs, switchTab, settings.flashEngineMode, settings.flashEngineRules, settings.homepage, settings.ruffleSource]);
 
-  const historyTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const pendingHistoryRef = useRef<{ tabId: string; url: string; title?: string } | null>(null);
+  const historyTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const pendingHistoryRef = useRef(new PendingHistoryRegistry());
 
   const closeTab = useCallback((tabId: string) => {
     // 关闭标签页时，取消未提交的历史记录（页面未加载完成就关闭，不记录历史）
-    if (pendingHistoryRef.current?.tabId === tabId) {
-      if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-      pendingHistoryRef.current = null;
-    }
+    const historyTimer = historyTimersRef.current.get(tabId);
+    if (historyTimer) clearTimeout(historyTimer);
+    historyTimersRef.current.delete(tabId);
+    pendingHistoryRef.current.delete(tabId);
     window.electronAPI.tab.close(tabId);
     setTabs((prev) => {
       const idx = prev.findIndex((t) => t.id === tabId);
@@ -165,9 +166,9 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     });
   }, [activeTabId, ensureTabView, setActiveTabId, setTabs]);
 
-  const commitHistory = useCallback(() => {
-    const pending = pendingHistoryRef.current;
-    pendingHistoryRef.current = null;
+  const commitHistory = useCallback((tabId: string) => {
+    historyTimersRef.current.delete(tabId);
+    const pending = pendingHistoryRef.current.take(tabId);
     if (!pending) return;
     const currentTab = tabsRef.current.find((t) => t.id === pending.tabId);
     const entry: HistoryEntry = {
@@ -189,20 +190,20 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     }
     // 历史记录：URL 变化时 debounce 1500ms，重定向只保留最终 URL
     if (changes.url !== undefined && !isNewtabUrl(changes.url) && changes.url !== 'about:blank') {
-      pendingHistoryRef.current = { tabId, url: sanitizeUrlForPersistence(changes.url), title: changes.title };
-      if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-      historyTimerRef.current = setTimeout(() => {
-        commitHistory();
+      pendingHistoryRef.current.set({ tabId, url: sanitizeUrlForPersistence(changes.url), title: changes.title });
+      const previousTimer = historyTimersRef.current.get(tabId);
+      if (previousTimer) clearTimeout(previousTimer);
+      const timer = setTimeout(() => {
+        commitHistory(tabId);
       }, 1500);
+      historyTimersRef.current.set(tabId, timer);
     }
     // 页面停止加载时，重置 timer 但不立即提交（等 1500ms 过期后自动提交）
     // 这样重定向中间的 did-stop-loading 不会提前提交
     // 但如果 URL 没有再变化（非重定向场景），1500ms 后自动提交
     if (changes.title && changes.title !== changes.url) {
       // title 到来时更新 pending 的 title
-      if (pendingHistoryRef.current && pendingHistoryRef.current.tabId === tabId) {
-        pendingHistoryRef.current.title = changes.title;
-      }
+      pendingHistoryRef.current.updateTitle(tabId, changes.title);
     }
     // Update favicon in history
     if (changes.favicon) {
@@ -222,6 +223,12 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       }
     }
   }, [setTabs, activeTabId, updateHistoryByUrl, commitHistory]);
+
+  useEffect(() => () => {
+    for (const timer of historyTimersRef.current.values()) clearTimeout(timer);
+    historyTimersRef.current.clear();
+    pendingHistoryRef.current.clear();
+  }, []);
 
   const updateTabRef = useRef(updateTab);
   useEffect(() => { updateTabRef.current = updateTab; });

@@ -78,7 +78,20 @@ function listen(server: http.Server, host = '127.0.0.1'): Promise<number> {
 }
 
 function closeServer(server: http.Server): Promise<void> {
-  return new Promise((resolve) => server.close(() => resolve()));
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    server.close(finish);
+    // Chromium 87 may keep fixture sockets alive after BrowserWindow.destroy().
+    // The smoke is already complete, so never let teardown hang the CI job.
+    const timer = setTimeout(finish, 2000);
+    timer.unref?.();
+  });
 }
 
 function html(title: string, body: string, lateScript = ''): string {

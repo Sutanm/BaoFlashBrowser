@@ -190,6 +190,7 @@ const zhCN: BaseTranslation = {
     title: '设置',
     categories: '设置分类',
     saved: '设置已保存',
+    saveFailed: '设置保存失败：{error}',
     savedRestart: '设置已保存，需重启生效',
     saveBtn: '保存设置',
     savedBtn: '已保存 ✓',

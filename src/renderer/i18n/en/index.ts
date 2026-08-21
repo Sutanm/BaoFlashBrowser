@@ -178,6 +178,7 @@ const en: Translation = {
     title: 'Settings',
     categories: 'Settings Categories',
     saved: 'Settings Saved',
+    saveFailed: 'Failed to save settings: {error}',
     savedRestart: 'Settings Saved, Restart Required',
     saveBtn: 'Save Settings',
     savedBtn: 'Saved ✓',

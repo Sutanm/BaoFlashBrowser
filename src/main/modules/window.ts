@@ -5,6 +5,7 @@ import { app, BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 import { markCleanShutdown } from './session-recovery';
 
 let mainWindow: BrowserWindow | null = null;
+const READY_TO_SHOW_FALLBACK_MS = 8000;
 
 export function createWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, 'preload.js');
@@ -40,14 +41,19 @@ export function createWindow(): BrowserWindow {
   }
 
   const distHtml = path.join(__dirname, 'renderer', 'index.html');
+  const showAfterLoadFailure = (message: string): void => {
+    log.error('[Window] renderer load failed:', message);
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
+  };
+
   if (app.isPackaged) {
-    mainWindow.loadFile(distHtml);
+    void mainWindow.loadFile(distHtml).catch((error) => showAfterLoadFailure(error instanceof Error ? error.message : String(error)));
   } else if (fs.existsSync(distHtml)) {
     log.info('[Window] loading dist renderer (start mode):', distHtml);
-    mainWindow.loadFile(distHtml);
+    void mainWindow.loadFile(distHtml).catch((error) => showAfterLoadFailure(error instanceof Error ? error.message : String(error)));
   } else {
     log.info('[Window] loading vite dev server (dev mode): http://localhost:5173');
-    mainWindow.loadURL('http://localhost:5173');
+    void mainWindow.loadURL('http://localhost:5173').catch((error) => showAfterLoadFailure(error instanceof Error ? error.message : String(error)));
   }
 
   mainWindow.setMenu(null);
@@ -62,8 +68,23 @@ export function createWindow(): BrowserWindow {
   });
 
   // ready-to-show 机制：等首帧渲染完毕再显示窗口，消除白屏/灰色背景
+  const showFallbackTimer = setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      log.warn(`[Window] ready-to-show timed out after ${READY_TO_SHOW_FALLBACK_MS}ms; showing fallback window`);
+      mainWindow.show();
+    }
+  }, READY_TO_SHOW_FALLBACK_MS);
+  showFallbackTimer.unref?.();
+
   mainWindow.once('ready-to-show', () => {
+    clearTimeout(showFallbackTimer);
     mainWindow?.show();
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    clearTimeout(showFallbackTimer);
+    showAfterLoadFailure(`${errorCode} ${errorDescription} ${validatedURL}`);
   });
 
   mainWindow.on('page-title-updated', (e) => {
@@ -79,6 +100,7 @@ export function createWindow(): BrowserWindow {
   });
 
   mainWindow.on('closed', () => {
+    clearTimeout(showFallbackTimer);
     mainWindow = null;
   });
 

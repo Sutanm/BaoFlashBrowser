@@ -1,7 +1,11 @@
 import esbuild from 'esbuild';
 import { copy } from 'esbuild-plugin-copy';
+import fs from 'fs';
 
 const isWatch = process.argv.includes('--watch');
+const provenance = JSON.parse(fs.readFileSync(new URL('./provenance.json', import.meta.url), 'utf8'));
+const provenanceShortId = `bfb:${provenance.fingerprint.slice(7, 23)}`;
+const provenanceBanner = `/*! ${provenance.project} | Copyright (c) ${provenance.year} ${provenance.author} | ${provenanceShortId} | ${provenance.origin} */`;
 
 /** @type {esbuild.BuildOptions} */
 const shared = {
@@ -19,6 +23,7 @@ const shared = {
     '.user.js': 'text',
   },
   logLevel: 'info',
+  banner: { js: provenanceBanner },
 };
 
 const builds = [

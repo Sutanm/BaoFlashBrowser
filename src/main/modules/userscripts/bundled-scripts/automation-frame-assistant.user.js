@@ -1,6 +1,9 @@
 // ==UserScript==
 // @name         BaoFlash 页面悬浮相框助手
 // @namespace    bao-flash-browser
+// @author       Sutanm
+// @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
+// @bao-origin   bfb:833eaf0307cffe0c
 // @version      2.0.2
 // @description  网页内自动化悬浮球：运行控制、素材识别与截图取材。
 // @match        http://*/*

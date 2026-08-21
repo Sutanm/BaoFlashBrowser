@@ -11,6 +11,7 @@ import { inferAutomationCapabilities, loadAutomationPackage, serializeAutomation
 import { collectWorkflowAssetIds, parseAutomationWorkflow } from '../../../shared/automation/schema';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import type { AutomationImageMask, AutomationMessage, AutomationStep, AutomationWorkflow } from '../../../shared/automation/types';
+import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '../../../shared/provenance';
 import { tabManager, type AutomationTabHandle } from '../tabs';
 
 export type AutomationServiceStatus = {
@@ -229,7 +230,15 @@ export class AutomationService {
     const workflow = parseAutomationWorkflow({ formatVersion: 1, id, name, root: { type: 'sequence', steps: [] } });
     if (this.packages.has(workflow.id)) throw new Error(`automation script already exists: ${workflow.id}`);
     const source: LoadedAutomationPackage = {
-      manifest: { format: 'baoauto', formatVersion: 1, id: workflow.id, name: workflow.name, workflow: 'workflow.json', assets: 'assets/', createdBy: 'BaoFlash Automation Workbench' },
+      manifest: {
+        format: 'baoauto',
+        formatVersion: 1,
+        id: workflow.id,
+        name: workflow.name,
+        workflow: 'workflow.json',
+        assets: 'assets/',
+        createdBy: `${PROJECT_PROVENANCE.project} Automation Workbench · ${PROJECT_PROVENANCE.author} · ${PROVENANCE_SHORT_ID}`,
+      },
       workflow,
       assets: new Map(),
     };

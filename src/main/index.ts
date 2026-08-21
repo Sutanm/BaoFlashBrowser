@@ -1,3 +1,4 @@
+/*! BaoFlashBrowser · crafted by Sutanm */
 import path from 'path';
 import { app, protocol, session } from 'electron';
 import log from 'electron-log';
@@ -193,7 +194,7 @@ registerUserscriptsIPC();
     log.error('[App] CHILD PROCESS GONE — type: ' + details.type + ', reason: ' + details.reason + ', exitCode: ' + details.exitCode);
   });
 
-  log.info('[App] started, version 1.0.1');
+  log.info(`[App] started, version ${app.getVersion()}`);
 }
 
 bootstrap();
