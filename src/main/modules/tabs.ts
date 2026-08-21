@@ -188,6 +188,11 @@ class TabManager {
         contextIsolation: !tab.isRuffle,
         nodeIntegration: false,
         nodeIntegrationInSubFrames: true,   // userscript runtime needs subframe preload
+        // Flash games and automation must keep timers/compositing alive while
+        // the host window is minimized. The global Chromium switch is kept as
+        // a compatibility fallback, but Electron's per-view preference is the
+        // authoritative policy for BrowserView renderers.
+        backgroundThrottling: false,
         spellcheck: false,
         partition: 'persist:',
       },
