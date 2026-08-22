@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bug, Camera, Check, Clock3, Play, ScanSearch, Square, StepForward, Upload, Workflow, X } from 'lucide-react';
+import { Bug, Camera, Check, Clock3, Download, Play, ScanSearch, Square, StepForward, Workflow, X } from 'lucide-react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { resolveAutomationMessage } from '../automation/automation-message';
 import '../automation/automation.css';
@@ -154,7 +154,7 @@ export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: Automa
       {!status.enabled && <div className="automation-panel-notice">{LL.automation.panel.notEnabled()}</div>}
 
       <div className="automation-panel-section">
-        <div className="automation-panel-heading"><span>{LL.automation.panel.scripts()}</span><button type="button" onClick={() => void importPackage()} disabled={busy || !status.enabled}><Upload className="w-3.5 h-3.5" />{LL.automation.panel.import()}</button></div>
+        <div className="automation-panel-heading"><span>{LL.automation.panel.scripts()}</span><button type="button" onClick={() => void importPackage()} disabled={busy || !status.enabled}><Download className="w-3.5 h-3.5" />{LL.automation.panel.import()}</button></div>
         {packages.length ? (
           <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} disabled={active}>
             {packages.map((item) => <option value={item.packageId} key={item.packageId}>{item.name}</option>)}

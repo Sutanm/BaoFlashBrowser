@@ -260,8 +260,8 @@ export default function AutomationPage(): React.JSX.Element {
         <div><h1><Workflow />{LL.automation.page.title()}</h1><p>{LL.automation.page.subtitle()}</p></div>
         <div className="automation-page-header-actions">
           <button type="button" onClick={openCreateDialog} disabled={busy}><Plus />{LL.automation.page.newScript()}</button>
-          <button type="button" className="primary" onClick={() => void importPackage()} disabled={busy}><Upload />{LL.automation.page.importPackage()}</button>
-          <button type="button" onClick={() => void exportPackage()} disabled={busy || !selectedId} title={!selectedId ? LL.automation.page.exportRequiresSelection() : undefined}><Download />{LL.automation.page.exportPackage()}</button>
+          <button type="button" className="primary" onClick={() => void importPackage()} disabled={busy}><Download />{LL.automation.page.importPackage()}</button>
+          <button type="button" onClick={() => void exportPackage()} disabled={busy || !selectedId} title={!selectedId ? LL.automation.page.exportRequiresSelection() : undefined}><Upload />{LL.automation.page.exportPackage()}</button>
           <button type="button" className="primary" onClick={() => void saveBlocks()} disabled={busy || !selectedId}><Save />{dirty ? LL.automation.page.saveDirty() : LL.automation.page.saveChanges()}</button>
         </div>
       </header>
