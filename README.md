@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/Sutanm/BaoFlashBrowser/actions/workflows/ci.yml/badge.svg)](https://github.com/Sutanm/BaoFlashBrowser/actions/workflows/ci.yml)
 [![Electron](https://img.shields.io/badge/Electron-11.5.0-47848f)](https://www.electronjs.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-blue)](#平台支持)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS%20Experimental-blue)](#平台支持)
 [![License](https://img.shields.io/badge/Source-MIT-green)](LICENSE)
 
 BaoFlashBrowser 不只是一个 Flash 浏览器。它将 **PPAPI/Ruffle 双引擎**、**可视化自动化工作台**和**用户脚本平台**整合在同一个应用中：既解决现代系统无法直接运行旧 Flash 内容的问题，也让用户可以通过图片素材、积木流程和可信输入自动操作网页或游戏。
@@ -118,6 +118,24 @@ BaoFlashBrowser 不只是一个 Flash 浏览器。它将 **PPAPI/Ruffle 双引�
 
 动图目标应只截取稳定部分。完整操作说明见[自动化脚本使用手册](docs/automation-user-guide.md)。
 
+## 启用实验性 Flash
+
+实验通道用于尚未完全验证的 Flash 插件，不是全局“开发者模式”。开启方法：
+
+1. 打开侧边栏中的“设置”。
+2. 进入“Flash / Ruffle”。
+3. 将“Flash 插件通道”改为“实验通道”。
+4. 点击底部“保存设置”。
+5. 完全退出并重新启动 BaoFlashBrowser；只刷新页面或关闭标签页不会生效。
+
+| 平台 | 启用后的行为 |
+| --- | --- |
+| Windows x64 | 使用随包提供的国内修改版 PPAPI Flash `34.0.0.380` |
+| macOS Intel x64 实验包 | 使用随 `.app` 一体化捆绑的 `PepperFlashPlayer.plugin` `34.0.0.380` |
+| Windows ia32 / Linux x64 | 暂无匹配的实验插件，请求会回退到稳定插件 |
+
+“伪装版本”是网站看到的版本声明，与实际加载的插件版本不是同一项设置，可以保留默认值。实验插件可能出现组件错误、调试弹窗、崩溃或无法启动；macOS 版本尚未经过任何真实设备测试。切回“稳定通道”同样需要保存并重启。
+
 ## 下载
 
 - [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
@@ -134,7 +152,7 @@ Windows 安装包当前**未进行代码签名**，安装或首次运行时可�
 | Windows x64 | 主要支持 | 推荐使用，包含 PPAPI、aria2 和鼠标缩放钩子 |
 | Windows ia32 | 未完全测试 | 包含匹配的 32 位 PPAPI 与 aria2 |
 | Linux x64 | 有限支持 | 推荐从源码运行；AppImage 可能受发行版、FUSE、动态库及 X11/Wayland 影响 |
-| macOS Intel x64 | 实验性、零测试 | 仅准备构建和插件发现链路；无 Mac 设备测试，Apple Silicon 只能尝试 Rosetta 2 |
+| macOS Intel x64 | 实验性、零测试 | 一体化捆绑 PPAPI Flash 34.0.0.380；无 Mac 设备测试，Apple Silicon 只能尝试 Rosetta 2 |
 | Linux x86 | 不支持 | 缺少完整的 PPAPI 和原生资源支持链 |
 
 ## 从源码运行
@@ -172,7 +190,9 @@ npm run build:linux # Linux x64 AppImage，建议在 Linux/WSL 中执行
 npm run build:mac   # macOS Intel x64 实验 DMG/ZIP，必须在 macOS 上执行，未经任何测试
 ```
 
-发布脚本会检查 Ruffle、字体、PPAPI、aria2、鼠标钩子和目标架构，校验结果写入 `release/manifests/`。
+`build:mac` 会校验仓库内实验性 Flash DMG 的 SHA-256，在临时目录中提取完整插件，并将解码后的 `PepperFlashPlayer.plugin` 直接捆绑进 `.app`；原始 DMG 不会进入最终安装包。也可以在 GitHub Actions 中手动运行 **Package experimental macOS build** 工作流获取 DMG/ZIP。
+
+发布脚本会检查 Ruffle、字体、PPAPI、aria2、鼠标钩子和目标架构，校验结果写入 `release/manifests/`。macOS 构建成功只代表资源和安装包结构通过检查，不代表 Flash 已在真实 Mac 上验证可用。
 
 ## 浏览器基础能力
 
@@ -197,7 +217,7 @@ npm run build:mac   # macOS Intel x64 实验 DMG/ZIP，必须在 macOS 上执行
 
 Electron 11、Chromium 87 和 Adobe Flash Player 均已停止安全更新。本程序只应访问可信的旧游戏站点和本地内容，不建议用于邮箱、支付、网盘、办公系统或其他敏感业务。能由 Ruffle 正常运行的内容应优先使用 Ruffle。
 
-Windows 实际使用 Flash 29.0.0.171，Linux 使用 32.0.0.371；网站侧的版本声明可能为兼容旧站点而不同。Flash Player 是专有软件，使用者应自行了解所在地区适用的授权与分发要求。
+Windows 稳定通道实际使用 Flash 29.0.0.171，Windows x64 实验通道和 macOS 实验包使用 34.0.0.380，Linux 使用 32.0.0.371；网站侧的版本声明可能为兼容旧站点而不同。Flash Player 是专有软件，使用者应自行了解所在地区适用的授权与分发要求。
 
 ## 文档
 

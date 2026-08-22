@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/Sutanm/BaoFlashBrowser/actions/workflows/ci.yml/badge.svg)](https://github.com/Sutanm/BaoFlashBrowser/actions/workflows/ci.yml)
 [![Electron](https://img.shields.io/badge/Electron-11.5.0-47848f)](https://www.electronjs.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-blue)](#platform-support)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS%20Experimental-blue)](#platform-support)
 [![License](https://img.shields.io/badge/Source-MIT-green)](LICENSE)
 
 BaoFlashBrowser is more than a Flash browser. It brings together a **native PPAPI/Ruffle dual-engine runtime**, a **visual automation workbench**, and a **userscript platform**. It keeps legacy Flash content usable on modern systems while allowing web and game UI to be automated through image assets, Blockly workflows, and trusted input.
@@ -116,6 +116,24 @@ Image automation does not understand business intent. Keep human confirmation fo
 
 For animated targets, capture only a stable region. See the [Automation User Guide](docs/automation-user-guide.md) for the full workflow.
 
+## Enable Experimental Flash
+
+The experimental channel selects Flash plugins that have not been fully validated; it is not a global developer mode.
+
+1. Open **Settings** from the sidebar.
+2. Enter **Flash / Ruffle**.
+3. Change **Flash plugin channel** to **Experimental channel**.
+4. Select **Save settings** at the bottom.
+5. Fully quit and restart BaoFlashBrowser. Reloading the page or closing a tab is not sufficient.
+
+| Platform | Behavior after enabling it |
+| --- | --- |
+| Windows x64 | Uses the bundled China-modified PPAPI Flash `34.0.0.380` |
+| Experimental macOS Intel x64 package | Uses the `PepperFlashPlayer.plugin` `34.0.0.380` integrated into the `.app` |
+| Windows ia32 / Linux x64 | No matching experimental plugin exists yet, so the request falls back to the stable plugin |
+
+The spoofed version is the version reported to websites and is separate from the physical plugin version; its default can be left unchanged. Experimental plugins may cause component errors, debugger dialogs, crashes, or startup failures. The macOS build has never been tested on real hardware. Switching back to Stable also requires saving and restarting.
+
 ## Downloads
 
 - [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
@@ -132,7 +150,7 @@ The Windows installers are currently **unsigned**. Microsoft Defender SmartScree
 | Windows x64 | Primary | Recommended; includes PPAPI, aria2, and the mouse-wheel zoom hook |
 | Windows ia32 | Not fully tested | Includes matching 32-bit PPAPI and aria2 binaries |
 | Linux x64 | Limited | Running from source is recommended; AppImage behavior varies with FUSE, shared libraries, and X11/Wayland |
-| macOS Intel x64 | Experimental, zero testing | Build and plugin-discovery paths only; no Mac hardware testing. Apple Silicon can only attempt Rosetta 2 |
+| macOS Intel x64 | Experimental, zero testing | Integrates PPAPI Flash 34.0.0.380; no Mac hardware testing. Apple Silicon can only attempt Rosetta 2 |
 | Linux x86 | Unsupported | No complete PPAPI and native-resource support chain |
 
 ## Run from Source
@@ -170,7 +188,9 @@ npm run build:linux # Linux x64 AppImage; run on Linux/WSL
 npm run build:mac   # Experimental macOS Intel x64 DMG/ZIP; must run on macOS and has never been tested
 ```
 
-Release scripts validate Ruffle, fonts, PPAPI, aria2, mouse hooks, and target architectures. Manifests are written to `release/manifests/`.
+`build:mac` verifies the experimental Flash DMG checksum, extracts the complete plugin in a temporary directory, and bundles the decoded `PepperFlashPlayer.plugin` directly into the `.app`. The source DMG is not included in the final package. The **Package experimental macOS build** GitHub Actions workflow can also be started manually to produce the DMG/ZIP.
+
+Release scripts validate Ruffle, fonts, PPAPI, aria2, mouse hooks, and target architectures. Manifests are written to `release/manifests/`. A successful macOS package build proves only that its resources and package structure passed validation; it does not prove that Flash works on real Mac hardware.
 
 ## Browser Essentials
 
@@ -195,7 +215,7 @@ Release scripts validate Ruffle, fonts, PPAPI, aria2, mouse hooks, and target ar
 
 Electron 11, Chromium 87, and Adobe Flash Player no longer receive security updates. Use this application only for trusted legacy game sites and local content. Do not use it for email, payments, cloud storage, business systems, or other sensitive activity. Prefer Ruffle whenever it can run the content correctly.
 
-Windows uses Flash 29.0.0.171, while Linux uses 32.0.0.371. The version reported to websites may differ for legacy-site compatibility. Flash Player is proprietary software; users are responsible for understanding applicable licensing and distribution requirements in their jurisdiction.
+The Windows stable channel uses Flash 29.0.0.171, the Windows x64 experimental channel and experimental macOS package use 34.0.0.380, and Linux uses 32.0.0.371. The version reported to websites may differ for legacy-site compatibility. Flash Player is proprietary software; users are responsible for understanding applicable licensing and distribution requirements in their jurisdiction.
 
 ## Documentation
 
