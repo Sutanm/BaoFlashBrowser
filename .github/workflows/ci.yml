@@ -26,9 +26,14 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          xvfb-run -a npm run test:userscripts
-          xvfb-run -a npm run test:userscripts-admin
-          xvfb-run -a npm run test:css-fixer
+          node tests/electron/build-userscript-runtime-smoke.mjs
+          xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/userscript-runtime-smoke.cjs
+          node tests/electron/build-userscripts-admin-smoke.mjs
+          xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/userscripts-admin-smoke.cjs
+          npm run build:css-fixer
+          node tests/electron/build-userscript-runtime-smoke.mjs
+          node tests/electron/build-userscripts-admin-smoke.mjs
+          xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/userscript-css-fixer-smoke.cjs
           xvfb-run -a npm run test:smokes
       - name: Verify build artifacts are fresh
         run: node tools/probe/host.cjs --only 00

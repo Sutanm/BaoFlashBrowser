@@ -32,8 +32,13 @@ function run(label, args) {
 
 function runElectron(label, smokePath, extraArgs = []) {
   // Electron smokes run via node_modules/electron/cli.js (avoids npx/.cmd
-  // resolution quirks on Windows).
-  return run(label, [ELECTRON_CLI, smokePath, ...extraArgs]);
+  // resolution quirks on Windows). Linux's SUID sandbox check happens before
+  // the smoke entry can call app.commandLine.appendSwitch(), so the CLI switch
+  // must appear before the entry path.
+  const launchArgs = process.platform === 'linux'
+    ? [ELECTRON_CLI, '--no-sandbox', smokePath, ...extraArgs]
+    : [ELECTRON_CLI, smokePath, ...extraArgs];
+  return run(label, launchArgs);
 }
 
 const steps = [
