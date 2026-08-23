@@ -4,7 +4,7 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      2.0.2
+// @version      2.0.3
 // @description  网页内自动化悬浮球：运行控制、素材识别与截图取材。
 // @match        http://*/*
 // @match        https://*/*
@@ -25,7 +25,7 @@
 
   var api = GM.baoAutomation;
   var state = {
-    packages: [], busy: false, monitor: 0, statusTimer: 0, lastState: 'idle',
+    packages: [], busy: false, monitor: 0, statusTimer: 0, lastState: '', statusInitialized: false,
     capture: null, selection: null, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1,
   };
   var style = document.createElement('style');
@@ -148,9 +148,10 @@
     var logs = (status.logs || []).slice(-6).reverse(); var logHost = root.querySelector('.bao-log'); logHost.innerHTML = '';
     logs.forEach(function (entry) { var row = document.createElement('div'); row.className = 'bao-log-row ' + (entry.level === 'success' ? 'bao-good' : entry.level === 'error' ? 'bao-bad' : ''); var time = document.createElement('time'); time.textContent = new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }); var text = document.createElement('span'); text.textContent = messageText(entry.message); row.append(time, text); logHost.appendChild(row); });
     if (!logs.length) logHost.innerHTML = '<div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div>';
-    if (state.lastState !== status.state && status.state === 'completed') toast('自动化脚本执行完成');
-    if (state.lastState !== status.state && status.state === 'failed') toast(messageText(status.message) || '自动化脚本执行失败');
+    if (state.statusInitialized && state.lastState !== status.state && status.state === 'completed') toast('自动化脚本执行完成');
+    if (state.statusInitialized && state.lastState !== status.state && status.state === 'failed') toast(messageText(status.message) || '自动化脚本执行失败');
     state.lastState = status.state;
+    state.statusInitialized = true;
   }
   async function pollStatus() { try { renderStatus(await api.status()); } catch { /* Page teardown or disabled service. */ } }
 

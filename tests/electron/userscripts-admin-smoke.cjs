@@ -23,6 +23,7 @@ app.setPath('userData', USER_DATA);
 // Read the userscript manager after the app is ready (electron-store needs
 // app.getPath('userData')).
 let mod = null;
+let automationState = 'completed';
 
 app.whenReady().then(async () => {
   ipcMain.on('userscript:get-config', (event, payload) => {
@@ -34,7 +35,7 @@ app.whenReady().then(async () => {
     mod.getUserscriptManager()?.acceptReport(event.sender.id, payload);
   });
   ipcMain.handle('userscript:automation-list', async () => []);
-  ipcMain.handle('userscript:automation-status', async () => ({ enabled: true, state: 'idle', executedSteps: 0, logs: [] }));
+  ipcMain.handle('userscript:automation-status', async () => ({ enabled: true, state: automationState, executedSteps: automationState === 'completed' ? 1 : 0, logs: [] }));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   mod = require('../../release/tests/userscripts-admin-module.cjs');
@@ -113,6 +114,15 @@ app.whenReady().then(async () => {
   check('automation assistant opens as a three-tab floating control center', assistantControls?.open === true && assistantControls?.tabs === 3, assistantControls);
   check('automation capture keeps a visible cancel button without Escape copy', assistantControls?.captureCancel === '取消' && !assistantControls?.captureHelp?.includes('Esc'), assistantControls);
   check('automation capture help clears the top toast area', assistantControls?.captureHelpTop === '64px', assistantControls);
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  const staleCompletionToasts = await view.webContents.executeJavaScript("document.querySelectorAll('#bao-automation-assistant-toasts .bao-toast').length");
+  check('historical completed status does not toast on a newly opened page', staleCompletionToasts === 0, staleCompletionToasts);
+  automationState = 'running';
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  automationState = 'completed';
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  const liveCompletionToasts = await view.webContents.executeJavaScript("[...document.querySelectorAll('#bao-automation-assistant-toasts .bao-toast')].filter((node) => node.textContent === '自动化脚本执行完成').length");
+  check('live running-to-completed transition still toasts once', liveCompletionToasts === 1, liveCompletionToasts);
 
   // 4. Toggle disable then re-enable.
   const byId = (id) => mod.listUserscripts().find((s) => s.id === id);
