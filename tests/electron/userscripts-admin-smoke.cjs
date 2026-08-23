@@ -17,6 +17,15 @@ function check(name, ok, detail) {
   if (!ok) failures.push(name);
 }
 
+async function waitForPageCondition(webContents, expression, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await webContents.executeJavaScript(`Boolean(${expression})`)) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for page condition: ${expression}`);
+}
+
 const USER_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'userscripts-admin-'));
 app.setPath('userData', USER_DATA);
 
@@ -114,13 +123,22 @@ app.whenReady().then(async () => {
   check('automation assistant opens as a three-tab floating control center', assistantControls?.open === true && assistantControls?.tabs === 3, assistantControls);
   check('automation capture keeps a visible cancel button without Escape copy', assistantControls?.captureCancel === '取消' && !assistantControls?.captureHelp?.includes('Esc'), assistantControls);
   check('automation capture help clears the top toast area', assistantControls?.captureHelpTop === '64px', assistantControls);
-  await new Promise((resolve) => setTimeout(resolve, 750));
+  await waitForPageCondition(
+    view.webContents,
+    "document.querySelector('#bao-automation-frame-assistant .bao-state-title')?.textContent === '执行完成'",
+  );
   const staleCompletionToasts = await view.webContents.executeJavaScript("document.querySelectorAll('#bao-automation-assistant-toasts .bao-toast').length");
   check('historical completed status does not toast on a newly opened page', staleCompletionToasts === 0, staleCompletionToasts);
   automationState = 'running';
-  await new Promise((resolve) => setTimeout(resolve, 750));
+  await waitForPageCondition(
+    view.webContents,
+    "document.querySelector('#bao-automation-frame-assistant .bao-state-title')?.textContent === '正在执行'",
+  );
   automationState = 'completed';
-  await new Promise((resolve) => setTimeout(resolve, 750));
+  await waitForPageCondition(
+    view.webContents,
+    "[...document.querySelectorAll('#bao-automation-assistant-toasts .bao-toast')].filter((node) => node.textContent === '自动化脚本执行完成').length === 1",
+  );
   const liveCompletionToasts = await view.webContents.executeJavaScript("[...document.querySelectorAll('#bao-automation-assistant-toasts .bao-toast')].filter((node) => node.textContent === '自动化脚本执行完成').length");
   check('live running-to-completed transition still toasts once', liveCompletionToasts === 1, liveCompletionToasts);
 
