@@ -18,6 +18,11 @@ const temporaryRoots: string[] = [];
 afterEach(() => { for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
 describe('AutomationService feature boundary', () => {
+  it('enables the production automation feature by default', () => {
+    const service = new AutomationService();
+    expect(service.getStatus()).toEqual({ enabled: true, state: 'idle' });
+  });
+
   it('allows package authoring while execution is disabled', async () => {
     const service = new AutomationService({ enabled: false });
     expect(service.getStatus()).toEqual({ enabled: false, state: 'idle' });

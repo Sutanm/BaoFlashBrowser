@@ -1374,7 +1374,7 @@ type RootTranslation = {
 			 */
 			saveChanges: string
 			/**
-			 * 当​前​版​本​可​以​创​建​和​编​辑​脚​本​；​网​页​识​别​与​执​行​仍​处​于​实​验​开​关​关​闭​状​态​。
+			 * 当​前​版​本​无​法​使​用​网​页​识​别​与​自​动​化​执​行​。
 			 */
 			warningDisabled: string
 			/**
@@ -1697,7 +1697,7 @@ type RootTranslation = {
 			 */
 			openWorkbench: string
 			/**
-			 * 当​前​版​本​尚​未​启​用​自​动​化​执​行​能​力​。
+			 * 当​前​版​本​无​法​使​用​自​动​化​执​行​。
 			 */
 			notEnabled: string
 			/**
@@ -3833,7 +3833,7 @@ export type TranslationFunctions = {
 			 */
 			saveChanges: () => LocalizedString
 			/**
-			 * 当前版本可以创建和编辑脚本；网页识别与执行仍处于实验开关关闭状态。
+			 * 当前版本无法使用网页识别与自动化执行。
 			 */
 			warningDisabled: () => LocalizedString
 			/**
@@ -4135,7 +4135,7 @@ export type TranslationFunctions = {
 			 */
 			openWorkbench: () => LocalizedString
 			/**
-			 * 当前版本尚未启用自动化执行能力。
+			 * 当前版本无法使用自动化执行。
 			 */
 			notEnabled: () => LocalizedString
 			/**

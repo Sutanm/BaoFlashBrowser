@@ -407,7 +407,7 @@ const zhCN: BaseTranslation = {
       exportPackage: '导出 ZIP',
       exportRequiresSelection: '请先选择要导出的脚本',
       saveChanges: '保存修改',
-      warningDisabled: '当前版本可以创建和编辑脚本；网页识别与执行仍处于实验开关关闭状态。',
+      warningDisabled: '当前版本无法使用网页识别与自动化执行。',
       libraryTitle: '脚本库',
       assetCount: '{count} 个素材',
       assetCountLabel: '个素材',
@@ -471,7 +471,7 @@ const zhCN: BaseTranslation = {
     },
     panel: {
       openWorkbench: '打开自动化工作台',
-      notEnabled: '当前版本尚未启用自动化执行能力。',
+      notEnabled: '当前版本无法使用自动化执行。',
       scripts: '脚本',
       import: '导入',
       emptyPackage: '先导入一个自动化 ZIP 脚本包',

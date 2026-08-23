@@ -26,7 +26,7 @@ export function getAutomationService(): AutomationService | null { return regist
 
 export function registerAutomationIPC(getWin: () => BrowserWindow | null): AutomationService {
   const service = new AutomationService({
-    enabled: !app.isPackaged || process.env.BAO_AUTOMATION_M3 === '1',
+    enabled: true,
     storageDir: path.join(app.getPath('userData'), 'automation', 'packages'),
     appVersion: app.getVersion(),
     emitStatus: (status) => getWin()?.webContents.send('automation:status-changed', status),

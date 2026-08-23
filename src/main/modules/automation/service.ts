@@ -91,7 +91,7 @@ export class AutomationService {
   private historyWrite: Promise<void> = Promise.resolve();
 
   constructor(options: { enabled?: boolean; storageDir?: string; appVersion?: string; emitStatus?: (status: AutomationServiceStatus) => void } = {}) {
-    this.enabled = options.enabled ?? process.env.BAO_AUTOMATION_M3 === '1';
+    this.enabled = options.enabled ?? true;
     this.emitStatus = options.emitStatus ?? (() => {});
     this.storageDir = options.storageDir ? path.resolve(options.storageDir) : undefined;
     this.appVersion = options.appVersion ?? '0.0.0';
@@ -757,7 +757,7 @@ export class AutomationService {
   }
 
   private assertEnabled(): void {
-    if (!this.enabled) throw new Error('automation platform is disabled; set BAO_AUTOMATION_M3=1 for the integration demo');
+    if (!this.enabled) throw new Error('automation platform is disabled');
   }
 
   private errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }

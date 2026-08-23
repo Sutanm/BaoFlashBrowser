@@ -384,7 +384,7 @@ const en: Translation = {
       exportPackage: 'Export ZIP',
       exportRequiresSelection: 'Select a script to export first',
       saveChanges: 'Save Changes',
-      warningDisabled: 'This build can create and edit scripts; page recognition and execution are still behind the experimental switch.',
+      warningDisabled: 'Page recognition and automation execution are unavailable in this build.',
       libraryTitle: 'Script Library',
       assetCount: '{count} assets',
       assetCountLabel: 'assets',
@@ -448,7 +448,7 @@ const en: Translation = {
     },
     panel: {
       openWorkbench: 'Open Automation Workbench',
-      notEnabled: 'Automation execution is not enabled in this build.',
+      notEnabled: 'Automation execution is unavailable in this build.',
       scripts: 'Scripts',
       import: 'Import',
       emptyPackage: 'Import an automation ZIP package first',
