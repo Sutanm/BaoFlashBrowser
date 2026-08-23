@@ -2,7 +2,7 @@
 
 ## 1 范围与目标
 
-让现代系统（Chromium 87 / OS 补丁）继续运行老貂 Flash 内容：
+让现代系统（Chromium 87 / OS 补丁）继续运行老旧 Flash 内容：
 - **PPAPI**：加载原生插件（含正确版本号伪装），处理 `mms.cfg`；
 - **Ruffle**：内置 WASM 运行时 + 可选 CDN 后备，通过特权 scheme 在任意会话加载；
 - **旧站兼容层**：SWFObject 重定向、Flash 版本检测伪报、跨域 CORS、ES2022 chunk 转译、权限收窄。
@@ -40,7 +40,7 @@ Electron 11 的 webRequest listener **重复注册会互相替换**，因此同�
 
 1. `chunkRedirectUrl(url)` —— ES2022 chunk → `bf-js-patch:` 重定向；
 2. `webres.61.com/common/js/swfobject.js` → `data:text/javascript` patched SWFObject（**去除对 Flash 32 的版本门槛**，保留完整 SWFObject 语义，含 getPlayerVersion 伪装路径）;
-3. `getWebRequestObserver().notifyBeforeRequest(...)` —— GM_webRequest 观测（URL 已红action，见 04）；
+3. `getWebRequestObserver().notifyBeforeRequest(...)` —— GM_webRequest 观测（URL 已脱敏，见 04）；
 4. 否则放行。
 
 其它配置：
@@ -52,6 +52,7 @@ Electron 11 的 webRequest listener **重复注册会互相替换**，因此同�
 ### 3.4 PPAPI 版本伪装
 
 - Win 实际 DLL = 29.0.0.171，Linux = 32.0.0.371；
+- Windows x64 实验通道与 macOS Intel x64 实验包使用 34.0.0.380；插件通道改变后必须重启应用。Windows ia32/Linux 没有匹配的实验插件时回退稳定通道，macOS 没有稳定回退；
 - DLL 文件名必须含版本号，否则 `extractVersion` 归 0.0.0.0 → 站点误判；
 - 对外广告版本默认 34.0.0.330（`config.flashVersion`），旧站版本门槛用它通过；**不得移除伪装**。
 
@@ -78,6 +79,7 @@ Chromium 插件文档不加载 preload 时，主进程在 `dom-ready` 对 `.swf`
 
 - Linux：`--no-sandbox`；WSLg 需 `--ignore-gpu-blacklist --enable-gpu-rasterization --enable-zero-copy`。
 - 平台插件与版本：见 AGENTS.md（Win 29 / Linux 32；DLL 名含版本号）。
+- 实验平台的支持边界与人工门见 `docs/experimental-platform-support.md`；实验包构建成功不代表真实硬件验证通过。
 - Ruffle bundled 资源由 esbuild-plugin-copy 在构建期拷入 `dist/lib/ruffle`（含中文字体与 LICENSE）。
 
 ## 7 测试策略

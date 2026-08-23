@@ -1,105 +1,52 @@
 # 04 · 用户脚本平台
 
-## 1 范围与目标
+## 1 范围
 
-提供以 GM_* API 为界面的页面脚本运行时，兼容 Tampermonkey 系生态：
-- **host**：主进程管理（安装/清单/更新/授权/持久化 store）；
-- **runtime**：注入 Ruffle/PPAPI/内部游戏的页面主世界，GM_* 桥接主进程；
-- **safe require**：限制于 bundled require-cache，不支持任意 require；
-- **GM_cookie 只读**；GM_webRequest 观测式。
+平台提供油猴风格的安装、匹配、运行时和受控 GM API。脚本在 BrowserView preload 的沙箱中运行；需要访问页面主世界时通过明确的 page bridge，不获得 Node.js、任意 Electron IPC 或本地文件系统权限。
 
-**边界**：不参与密码捕获（05）；不参与 Flash 引擎（02）；悬浮助手与 CSS Fixer 是两个内置脚本。
+## 2 当前结构
 
-## 2 静态结构
+| 路径 | 职责 |
+| --- | --- |
+| `src/main/modules/userscripts/index.ts` | 单例与服务聚合，保持 `electron-store` 懒加载 |
+| `userscript-manager.ts`、`userscript-parser.ts`、`userscript-matcher.ts` | 安装数据、元数据、URL/iframe 匹配与运行快照 |
+| `userscript-store.ts`、`script-store.ts`、`userscript-values.ts` | 脚本、设置和 GM 值持久化/序列化 |
+| `userscript-require-cache.ts` | `@require` / `@resource` 网络与磁盘缓存、总量预算 |
+| `userscript-request-service.ts`、`userscript-download-service.ts` | 受控跨域请求和下载 |
+| `userscript-background.ts`、`userscript-crash-tracker.ts` | 每脚本独立后台窗口、节流关闭、崩溃退避 |
+| `userscript-cookie-service.ts`、`userscript-web-request.ts` | 只读 cookie 与仅观测 webRequest |
+| `src/webview-preload/userscripts/` | bootstrap、scheduler、sandbox、GM API、page bridge 和 unsafe proxy |
+| `src/main/ipc/userscripts.ipc.ts` | 文档运行时 IPC；`get-config` 是启动期 sendSync |
+| `src/main/ipc/userscripts-admin.ipc.ts` | 管理页安装、编辑、更新、导出、值和后台控制 |
+| `src/main/modules/userscripts/bundled-scripts/` | CSS Fixer 与自动化悬浮助手 |
 
-主进程 `src/main/modules/userscripts/`:
-| 文件 | 职责 |
-|---|---|
-| `index.ts` | 聚合：加载/保存/启用/删除/注册菜单/值读写/授权审批/背景脚本调度，`loadIncludeFromFiles` |
-| `userscript-manager.ts` | 管理器，存脚本+文档+规则，匹配与过滤 |
-| `userscript-parser.ts` | 头部元数据解析（name/version/description/noframes/…、`@match`/`@grant`/`@run-at`/`@connect`） |
-| `userscript-matcher.ts` | 规则匹配（`matchPattern`）与授权判断 |
-| `userscript-values-store.ts` | GM_* 值读写（serializable 校验 + size 预算 + noteValueWrite 持久化） |
-| `userscript-require-cache.ts` | bundled require 缓存（受控模块表） |
-| `userscript-request-service.ts` | GM_xmlhttpRequest 服务（host 代理，跨跨源 fetch） |
-| `userscript-background.ts` | `@background` 脚本的独立隐蔽窗口运行时（每个脚本自己窗口、背景节流关闭、崩溃 5 次停止） |
-| `src/main/modules/userscripts/bundled-scripts/` | CSS Fixer、自动化悬浮助手（构建期嵌入文本） |
+## 3 执行流程
 
-preload `src/webview-preload/userscripts/`:
-| 文件 | 职责 |
-|---|---|
-| `bootstrap.ts` | 挂载 svelte 式入口：初始化、暴露 `__AM_USERS` API |
-| `scheduler.ts` | `run-at` 时间点调度 |
-| `sandbox.ts` | 页面上下文沙箱（包装 e. g. document/window） |
-| `gm-api.ts` | 对页面暴露 GM_* proxy（sendSync/invoke 受限） |
-| `page-bridge.ts` | 页面世界 ↔ preload 桥 |
-| `unsafe-proxy.ts` | `unsafeWindow` 代理，@grant-none 脚本拿到之 |
+页面创建时 preload 同步请求 `userscript:get-config`，manager 按 URL、frame、启用状态和预算生成快照。scheduler 在 `document-start/body/end/idle` 运行脚本；SPA 软导航由 `did-navigate-in-page → manager.spaNavigate` 记录，不重复创建文档脚本。
 
-IPC `src/main/ipc/userscripts.ipc.ts`（zod 校验，`get-config` 为 sendSync，响应受 snapshot 预算限制）与 `userscripts-admin.ipc.ts`（管理端接口）。
+页世界桥通过 preload 的 `webFrame.executeJavaScript` 注入主世界。不要用 CDP `Page.addScriptToEvaluateOnNewDocument`：调试器 detach 后注册会丢失，长期附着又会冻结导航。
 
-## 3 核心流程
+`@require` 与 `@resource` 可从元数据 URL 获取并缓存，不是 Node `require`。缓存有单项/总量限制，网络访问仍受安装权限和请求服务边界约束。
 
-### 3.1 注入管线
+## 4 背景、子帧与菜单
 
-```
-页面导航 → webFrame.executeJavaScript(pageBridge)（主世界，不用 CDP Page.addScript——会随 debugger 死掉）
-  ├─ 读取 userscripts:get-config（按 host+路径匹配）→ 计划 run-at
-  └─ scheduled → sandbox.eval 脚本源码 → GM_* 经 bridge 到主进程
-```
+- 每个 `@background` 脚本使用自己的隐藏 BrowserWindow，`backgroundThrottling:false`；`userscript:get-config` 必须按 `event.sender.id` 找到对应脚本。
+- 连续 5 次崩溃后停止该脚本，直到 `userscripts:background-restart`。
+- 子帧可执行脚本，但 `webContents.send` 只到主框架 preload；菜单命令按脚本和标题去重，只保留主框架条目。
 
-### 3.2 授权与连接
+## 5 安全边界
 
-`@connect` 白名单控制 GM_xmlhttpRequest 目标 host；`@include`/`@match` 走 manager.match；`enable` 时校验可执行来源（安装/文件更新安全约束）。规则匹配是程序化确定性：`matchPattern(url)` 三元（scheme/host/path），`@exclude` 优先。
+- `@connect` 控制请求和 cookie 目标；私网地址、敏感请求头、响应体和超时均受预算限制。
+- `GM_cookie` 只支持 list/get；不提供 set/delete。
+- `GM_webRequest` 只观察，不拦截或修改；由 `session-manager.ts` 的唯一 `onBeforeRequest` 回调分发。
+- GM 值必须可 JSON 序列化并通过单值/总量限制。管理端值方法有意绕过 view gate，但仍保留序列化、大小与持久化校验。
+- 无参数 IPC schema 使用 `z.object({}).optional()` 或等价的 undefined schema，避免拒绝 preload 的空 payload。
 
-### 3.3 值存储
+## 6 构建与测试
 
-`GM_setValue` → 主进程 `values-store`：JSON 反序列化 → type/size（64KB 条目预算）、serializable gate 校验 → noteValueWrite 持久化（`electron-store`）。管理端 `listScriptValues/setScriptValue/deleteScriptValue` 绕过视图门禁但保留 serializable/size 校验（AGENTS.md 记有专门审查结论：设计如此）。
+- `npm run test:userscripts`：运行时、GM API、PPAPI/Ruffle 与子帧。
+- `npm run test:userscripts-admin`：安装、管理、内置脚本和悬浮助手。
+- `npm run test:css-fixer`：CSS Fixer 两条注入路径。
+- 修改 `bundled-scripts/css-fixer-entry.ts` 后先运行 `npm run build:css-fixer`；smoke 专用 bundle 由各自的 `build-*.mjs` 生成，`npm run build` 不会刷新它们。
 
-### 3.4 背景脚本
-
-`@background` → `userscript-background` 为每个脚本**独立隐蔽 BrowserWindow**（`backgroundThrottling:false`），配置经 `userscript:get-config` 按 `event.sender.id` 分发（绝不假设单窗口）；crashes → 1s/2s/…/60s 退避，5 次停止至手动 `userscripts:background-restart`。
-
-### 3.5 子帧与菜单
-
-`webContents.send` 只达主帧 preload → 菜单命令在主帧汇总、按 script+title 去重；`isMainFrame` 传 preload 排除子帧注册。
-
-## 4 数据模型与接口
-
-- `ScriptConfig`：`{ source, enabled, meta, runAt, noframes, grant[], connect[], match[], include[], namespace, version }`。
-- `UserscriptRuntime`（preload）/ `ManagerAction`（主进程）区分内部使用。
-- IPC 通道：`userscripts:list / enable / remove / install-url / evaluate / inspect / config / setConfig / get-config(sendSync) / menu-register / menu-click / values / require / puppeteer / background-* / js-patch:get`。
-- 空通道校验须用 `z.object({}).optional()` 默认（**裸 `z.object({})` 会拒 undefined**）。
-
-## 5 安全边界与不变量
-
-- grant 不足/未授权 → GM_* 调用被拒并 console 记录。
-- GM_cookie 只读：list/get 由 `@connect` host 门控，**无 set/delete**（安全审查明确保留）。
-- GM_webRequest 观测式：不拦截、URL 红action 且按 `@match` 过滤。
-- values 通过 serializable/size 两个硬闸；requ页永不被 eval 到主进程（sandbox 包装全局）。
-- require 仅允许 require-cache 白名单模块；任意外部 require 拒绝。
-
-## 6 兼容性
-
-- 两个引擎都注入：Ruffle（contextIsolation:false，页面世界直接 eval）与 PPAPI（contextIsolation:true，桥经 preload）。
-- 子帧脚本：`nodeIntegrationInSubFrames` + bridge `isMainFrame` 语义（新 new-tab/game 页无 iframe badge）。
-- i18n 文案仅在渲染层，不影响运行时。
-
-## 7 测试策略
-
-- Vitest：parser/matcher/values-store/manager 单测（`tests/userscript-*.test.ts`、`userscript-values-store.test.ts`）。
-- Electron smoke：`test:userscripts`（userscript-runtime-preload）、`test:userscripts-admin`（管理端 E2E）。
-- 覆盖 CGI：run-at 时序、noframes store、cookie 只读、@connect 门禁、背景脚本崩溃退避。
-
-## 8 雷区与注意事项
-
-1. sendSync 通道必须预注册（任何视图导航前），否则 IPC 损坏卡导航。
-2. `@background` 配置按 `event.sender.id` 分发——每脚本独自窗口。
-3. 菜单命令从子帧不触发：主帧收集 + 去重。
-4. preload IPE 只进主帧——子帧脚本只能 `webFrame.executeJavaScript`。
-5. 改 `bundled-scripts/css-fixer-entry.ts` 后必须 `npm run build:css-fixer`，否则 bundle 测 STALE。
-6. `link.disabled` 不重载 css——整段替换 `<style>`；CSSOM 不存在的规则要在 CSS 文本层重写。
-
-## 9 演进建议
-
-- 值 store 的 64KB 条目预算尚无配置面：可给 GM_setValue 加配额提示。
-- `@background` 与大主进程并发：观察多背景脚本内存占用的探针（08 可挂）。
+详细 API、容量和扩展步骤见 [`../userscript-developer-guide.md`](../userscript-developer-guide.md)。

@@ -139,9 +139,9 @@ The spoofed version is the version reported to websites and is separate from the
 - [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
 - [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases)
 - [v1.1.1 Experimental Flash/macOS Support](docs/experimental-platform-support.md)
-- [v1.1.0 Release Notes](RELEASE_NOTES.md)
+- [v1.1.1 Release Notes](RELEASE_NOTES.md)
 
-The Windows installers are currently **unsigned**. Microsoft Defender SmartScreen may display an “Unknown publisher” warning during installation or first launch. Download only from the project release pages and verify the published SHA-256 checksum. If the 1.1.1 installer is not yet available, run the current version from source as described below.
+The Windows installers are currently **unsigned**. Microsoft Defender SmartScreen may display an “Unknown publisher” warning during installation or first launch. Download only from the project release pages and verify the published SHA-256 checksum, or run the current version from source as described below.
 
 ## Platform Support
 
@@ -219,6 +219,8 @@ The Windows stable channel uses Flash 29.0.0.171, the Windows x64 experimental c
 
 ## Documentation
 
+- [Zero-Experience Automation Blockly Guide](docs/automation-blockly-beginner-guide.md) (Chinese; no programming knowledge required)
+- [Documentation Index and Currency Notes](docs/README.md) (Chinese)
 - [Automation User Guide](docs/automation-user-guide.md) (Chinese)
 - [Userscript User Guide](docs/userscript-user-guide.md)
 - [Userscript Developer Guide](docs/userscript-developer-guide.md)

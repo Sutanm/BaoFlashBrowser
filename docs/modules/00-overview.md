@@ -1,7 +1,7 @@
 # BaoFlashBrowser 模块设计文档 · 总览
 
-> 状态：基于 v1.1.0 源码（git `main` @ 30c7cb3）编写的规范开发设计文档。
-> 这些文档描述**当前系统实际行为**，是后续开发、评审与排障的规范基线。
+> 状态：按 v1.1.1 源码于 2026-08-23 重新核对。
+> 本目录描述当前模块边界；历史设计与实施计划的时效说明见 [`docs/README.md`](../README.md)。
 > 所有源码路径相对仓库根目录；行号随代码演进可能漂移，以语义为准。
 
 ## 模块清单
@@ -53,14 +53,15 @@
 | `.baoauto` | 视觉自动化脚本包（manifest + workflow.json + assets/ 的 ZIP） |
 | `BUNDLED_SCRIPTS` | 构建期以文本嵌入的两个内置用户脚本（CSS Fixer、自动化悬浮助手） |
 
-## 历经主线（截至 v1.1.0）
+## 历经主线（截至 v1.1.1）
 
 1. `browserview 迁移` — 从 BrowserWindow/iframe 切换为每标签 BrowserView
 2. 密码 CDP 捕获与自动填充
 3. 用户脚本平台加固 + 运行时 preload 移植 + CSS Fixer / js-patch / has-pseudo
 4. 截图安全流程（v17-v21 门控迭代）
 5. 自动化平台 m0-m5（识别 → Blockly → 驱动 → 工作台 → 悬浮助手）
-6. i18n 中英双语完成；1.1.0 发布资料与自动化平台文档
+6. i18n 中英双语完成；自动化平台进入 1.1.0 发布基线
+7. 1.1.1 增加实验 Flash/macOS 打包、`.baoauto` ZIP 导入导出，并修复积木/JSON 切换同步和完成提示状态转换
 
 ## 参考
 

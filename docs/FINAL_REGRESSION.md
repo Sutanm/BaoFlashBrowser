@@ -1,12 +1,12 @@
-# BaoFlashBrowser 1.1.0 最终回归记录
+# BaoFlashBrowser 1.1.1 回归基线
 
-日期：2026-08-17
+最近更新：2026-08-23
 
 ## 自动化覆盖
 
 | 项目 | 验证内容 | 当前结果 |
 | --- | --- | --- |
-| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest、生产构建 | 通过；69 个测试文件、449 项测试，Lint 0 错误 |
+| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest、生产构建 | CI Windows/Ubuntu 通过；本地 Vitest 74 个测试文件、464 项测试通过 |
 | `npm run test:compat` | session 策略、SWFObject、SWF CORS | 通过 |
 | `npm run test:electron` | BrowserView 生命周期 | 通过 |
 | `npm run test:userscripts` | PPAPI/Ruffle 用户脚本运行时和 GM API | 147/147 必需项通过；可选样本受 Chromium 87/体积限制 |
@@ -16,9 +16,9 @@
 | `npm run probe:automation-m4` | 自动化工作台、积木、脚本包管理 | 通过 |
 | `npm run probe:automation-m5-engines` | Web、PPAPI 注册、Ruffle 的最小化视觉和可信输入 | Web 98.8%、Ruffle 100%；PPAPI 夹具未渲染 |
 | 源资源发布校验 | `verify:release`，Windows x64 source stage | 通过，16 项资源 |
-| Windows x64 候选安装包 | NSIS、unpacked 校验、SHA-256 | 通过；90,641,008 字节，SHA-256 已写入发行说明 |
-| Windows ia32 候选安装包 | NSIS、unpacked 校验、SHA-256 | 通过；82,103,678 字节，SHA-256 已写入发行说明 |
-| Linux x64 候选安装包 | AppImage、unpacked 校验、SHA-256 | WSL2 构建通过；118,408,529 字节，SHA-256 已写入发行说明 |
+| Windows x64 候选安装包 | NSIS、unpacked 校验、SHA-256 | CI 通过；95,408,809 字节，SHA-256 已写入发行说明 |
+| Windows ia32 候选安装包 | NSIS、unpacked 校验、SHA-256 | CI 通过；82,107,998 字节，SHA-256 已写入发行说明 |
+| Linux x64 候选安装包 | AppImage、unpacked 校验、SHA-256 | CI 通过；118,412,753 字节，SHA-256 已写入发行说明 |
 
 ## 自动化平台人工回归
 
@@ -31,8 +31,10 @@
 5. 再次进入取材后点击可见“取消”按钮，遮罩正常关闭，悬浮助手仍保留。
 6. 取材提示位于页面顶部下方，没有与“正在捕获当前页面”提示重叠；界面中不再提示 Esc 取消。
 7. 回归产生的临时素材已经删除，脚本原素材未被修改。
+8. 在积木编辑中修改脚本 A，切换到脚本 B 后再切回 A，积木不丢失且与已应用 JSON 一致。
+9. 新页面首次读取历史 `completed` 状态不弹完成提示；真实 `running → completed` 转换只提示一次。
 
-仍需在候选安装包上复验一次上述路径，防止开发构建与 `app.asar` 成品存在差异。
+上述自动化回归已由用户脚本管理冒烟覆盖关键状态转换；真实 PPAPI 游戏与 macOS 实验包仍保留人工门。
 
 ## 自动化视觉与执行检查
 

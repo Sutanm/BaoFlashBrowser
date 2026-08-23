@@ -1,5 +1,7 @@
 # BaoFlashBrowser v2 开发经验总结
 
+> 历史说明：本文保留早期 Jotai、webpack 和旧模块路径等经验背景，不代表 1.1.1 的当前文件结构。现行模块与构建说明见 [`docs/README.md`](README.md)、[`docs/modules/00-overview.md`](modules/00-overview.md) 和 [`docs/PACKAGE.md`](PACKAGE.md)。
+
 ## 1. Flash PPAPI 插件版本兼容性
 
 ### Windows

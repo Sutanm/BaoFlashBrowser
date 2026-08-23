@@ -141,9 +141,9 @@ BaoFlashBrowser 不只是一个 Flash 浏览器。它将 **PPAPI/Ruffle 双引�
 - [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
 - [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases)
 - [v1.1.1 实验性 Flash/macOS 支持说明](docs/experimental-platform-support.md)
-- [v1.1.0 发行说明](RELEASE_NOTES.md)
+- [v1.1.1 发行说明](RELEASE_NOTES.md)
 
-Windows 安装包当前**未进行代码签名**，安装或首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对页面公布的 SHA-256。若 1.1.1 安装包尚未出现在 Release 页面，可以按照下方步骤从源码运行当前版本。
+Windows 安装包当前**未进行代码签名**，安装或首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对页面公布的 SHA-256；也可以按照下方步骤从源码运行当前版本。
 
 ## 平台支持
 
@@ -221,6 +221,8 @@ Windows 稳定通道实际使用 Flash 29.0.0.171，Windows x64 实验通道和 
 
 ## 文档
 
+- [自动化积木零基础说明书](docs/automation-blockly-beginner-guide.md)——不要求任何编程知识，逐块介绍全部积木和示例
+- [文档索引与时效说明](docs/README.md)
 - [自动化脚本使用手册](docs/automation-user-guide.md)
 - [用户脚本使用手册](docs/userscript-user-guide.md)
 - [用户脚本开发手册](docs/userscript-developer-guide.md)

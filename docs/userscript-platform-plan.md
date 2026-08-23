@@ -1,5 +1,7 @@
 # BaoFlashBrowser 用户脚本平台实施计划
 
+> 历史计划：用户脚本平台已经落地，本文中的阶段、待办和部分路径不再代表当前状态。现行说明见 [`docs/README.md`](README.md)、[`userscript-developer-guide.md`](userscript-developer-guide.md) 和 [`modules/04-userscripts.md`](modules/04-userscripts.md)。
+
 > 状态：设计/实施计划  
 > 日期：2026-08-04  
 > 目标环境：Electron 11.5.0 / Chromium 87（锁定，不升级）

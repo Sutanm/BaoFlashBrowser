@@ -1,80 +1,54 @@
-# BaoFlashBrowser v1.1.0 正式版
+# BaoFlashBrowser v1.1.1 正式版
 
-BaoFlashBrowser 1.1.0 新增可视化自动化脚本平台。用户可以用图片素材识别网页和 Flash 游戏界面，在最小化后继续匹配并执行输入操作，也可以通过 JSON 直接编写和交换脚本包。
+BaoFlashBrowser 1.1.1 在 1.1.0 自动化平台基础上补齐实验性 Flash/macOS 打包、`.baoauto` ZIP 导入导出，并修复积木/JSON 同步及自动化完成提示的状态问题。Electron 继续固定为 11.5.0 / Chromium 87。
 
 ## 下载
 
-| 平台 | 安装包 |
-| --- | --- |
-| Windows x64 | `BaoFlashBrowser-1.1.0-x64.exe` |
-| Windows ia32 | `BaoFlashBrowser-1.1.0-ia32.exe` |
-| Linux x64 | `BaoFlashBrowser-1.1.0-x86_64.AppImage` |
-| Linux x64（Gitee xz） | `BaoFlashBrowser-1.1.0-x86_64-xz.AppImage` |
+| 平台 | 安装包 | 支持状态 |
+| --- | --- | --- |
+| Windows x64 | `BaoFlashBrowser-1.1.1-x64.exe` | 主要支持 |
+| Windows ia32 | `BaoFlashBrowser-1.1.1-ia32.exe` | 未完全测试 |
+| Linux x64 | `BaoFlashBrowser-1.1.1-x86_64.AppImage` | 有限支持 |
 
-Gitee 社区版附件限制为单文件 100MB，因此 Gitee 提供采用 xz 压缩的 AppImage。它与 GitHub 的标准 gzip AppImage 包含相同程序内容，仅内部 SquashFS 压缩算法不同，首次启动解压开销可能略高。
+正式安装包见 [GitHub v1.1.1 Release](https://github.com/Sutanm/BaoFlashBrowser/releases/tag/v1.1.1)。Windows 安装包未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。
 
 ## 文件校验
 
 | 文件 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `BaoFlashBrowser-1.1.0-x64.exe` | 90,641,008 字节 | `24167275862058DFA41ED47F909C90C517E1FB5D8868FC8B2F1E045F013E20D0` |
-| `BaoFlashBrowser-1.1.0-ia32.exe` | 82,103,678 字节 | `FB7FDA0DF03FB4F93308E0DD624FD5F1911265882EE6E5A71B72AE49D6D27B1A` |
-| `BaoFlashBrowser-1.1.0-x86_64.AppImage` | 118,408,529 字节 | `D01938E99C95E2AB3F851604F75C3511CBBCD14352A30322DF7512C66F1E27B6` |
-| `BaoFlashBrowser-1.1.0-x86_64-xz.AppImage` | 99,413,992 字节 | `CFF65DA126CC5FF7250B7F4FB9EEFF93F0101EE2F0D732D99F6A9451931EE989` |
+| `BaoFlashBrowser-1.1.1-x64.exe` | 95,408,809 字节 | `36688A2063EACEED9640F1DB4B24DECCBD8A789162D6E5077D12844683DC91FA` |
+| `BaoFlashBrowser-1.1.1-ia32.exe` | 82,107,998 字节 | `62DB22A69C9D0DD0EC7E5CA2F7E51885969FF4476B60F6B9EBE5405A8AEF9F35` |
+| `BaoFlashBrowser-1.1.1-x86_64.AppImage` | 118,412,753 字节 | `903DE0465230F2BA44228F8DA4668C83ECA1E9C947119E8791608A84524C54F9` |
 
-Windows 安装包当前未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对发布页公布的 SHA-256。
+## 1.1.1 更新
 
-## 用户脚本平台
+- 新增稳定/实验 Flash 插件通道。Windows x64 实验通道可加载随包提供的国内修改版 PPAPI Flash 34.0.0.380；稳定通道保持原插件不变。
+- 新增 macOS Intel x64 实验 DMG/ZIP 打包链，一体化捆绑 PPAPI 插件；该平台尚未经过真实 Mac 硬件测试，不属于稳定支持范围。
+- 自动化脚本支持标准 `.baoauto` ZIP 包导入和导出，继续执行 manifest、工作流、素材路径、文件数量和解压体积校验。
+- 发布版默认启用自动化平台。
+- 修复切换脚本后再切回时 Blockly 工作区丢失、积木内容与 JSON 不一致的问题。脚本切换前会提交当前编辑器状态，重新选择时按该脚本已保存的工作流恢复。
+- 修复历史“已完成”状态在新页面初始化时反复弹出“自动化脚本执行完成”的问题；只有实际观察到 `running → completed` 状态转换才提示一次。
+- CI 的用户脚本管理冒烟改为等待真实页面状态，不再依赖固定延时；版本标签推送不再重复触发整套构建矩阵。
 
-- 新增油猴风格的用户脚本管理页，支持两阶段安装确认、启用/停用、检查更新、导入导出和脚本菜单命令。
-- 用户脚本可在 PPAPI、Ruffle 和 iframe 子框架中按 `document-start`、`document-body`、`document-end`、`document-idle` 时序运行，并正确处理刷新、SPA 导航和标签重建。
-- 支持受控的 GM API，包括值存储、跨域请求、下载、剪贴板、通知、打开标签、`@require`、`@resource`、值变更监听以及每脚本独立运行的 `@background` 后台脚本。
-- 提供 `@connect` 主机白名单、私网地址限制、敏感请求头过滤和响应体积预算；`GM_cookie` 保持只读，`GM_webRequest` 保持仅观测，不允许脚本直接访问 Node.js、任意 Electron IPC 或本地文件系统。
-- 内置“现代 CSS 修复器”和“页面悬浮相框助手”用户脚本，可自动安装和安全更新；CSS 修复器用于改善旧版 Chromium 87 对现代网页样式和部分 Web API 的兼容性。
+## 1.1.0 功能基线
 
-## 自动化工作台
+- 可视化自动化工作台：Scratch 风格积木与 JSON 双编辑、脚本库、素材管理和 `.baoauto` 包。
+- BrowserView 截图 + OpenCV 模板匹配，支持最小化运行、可信鼠标/键盘输入、点击前复核、条件和循环。
+- 素材测试台、页面内悬浮助手、框选取材、图片组和透明遮罩匹配。
+- 油猴风格用户脚本平台，包含受控 GM API、`@background`、只读 `GM_cookie`、仅观测 `GM_webRequest`，以及内置 CSS 修复器。
+- 中英文界面、PPAPI/Ruffle 双引擎、密码保险库、下载、会话恢复和诊断能力。
 
-- 新增独立的自动化工作台，可新建、复制、删除、导入和导出 `.baoauto` 脚本包。
-- 提供 Scratch 风格积木编辑器，同时保留 JSON 代码编辑；两种编辑方式可互相转换。
-- 支持无条件入口、识图入口、等待、延时、点击图片、移动到图片、按键、组合键、按住直到识别、文本输入、滚动、跳转和刷新。
-- 支持 `if`、多条件 `all/any/not`、固定次数循环、循环直到图片状态或组合条件成立，以及调试日志。
-- 脚本可携带图片素材，并支持素材目录、引用状态、替换、删除和脚本包完整性检查。
-
-## 识图与取材
-
-- 基于 BrowserView 截图和 OpenCV 模板匹配定位目标，不依赖用户录制时的固定屏幕坐标。
-- 支持浏览器最小化后的截图、识别和可信输入；Web 与 Ruffle 自动化链路已覆盖冒烟测试。
-- 新增素材测试台：可导入完整场景图，逐个比对素材并高亮最佳匹配区域。
-- 新增页面内悬浮相框助手：在游戏页查看素材、捕获当前画面、快速比对，并显示脚本状态与运行控制。
-- 新增框选取材：直接在当前游戏画面拖动选择 UI，输入名称后保存到当前脚本；保留可见取消按钮，捕获期间短暂隐藏助手以避免污染截图。
-- 视觉工作线程支持预热和结果缓存，减少重复匹配等待。
-
-## 执行与安全
-
-- 点击图片前可再次确认目标位置，并可限制两次定位的最大偏移，降低动画和误识别造成的误点击。
-- 脚本运行状态、等待、成功和失败信息可同步到工作台、侧栏与页面提示。
-- 用户脚本通过受控的自动化接口读取脚本与状态、启动/停止执行、匹配素材和保存框选素材。
-- `.baoauto` 导入继续执行结构校验、路径检查和素材限制，避免脚本包越界写入。
-
-## 其他改进
-
-- 修复自动化工作台分类菜单被编辑区覆盖、仅局部可拖动、折叠后残留滚动阴影等界面问题。
-- 修复新建脚本按钮、素材列表刷新、场景图显示、应用关闭和自动化 IPC 异常时无响应等问题。
-- 修复模板匹配与运行时截图范围不一致导致“测试台能识别、正式脚本超时”的问题。
-- 保留 Electron 11.5.0 / Chromium 87，以继续支持原生 PPAPI Flash；未升级 Electron。
+完整使用方法见 [`docs/automation-user-guide.md`](docs/automation-user-guide.md)，实验平台边界见 [`docs/experimental-platform-support.md`](docs/experimental-platform-support.md)。
 
 ## 验证状态
 
-- TypeScript 主进程、渲染进程和 preload 类型检查通过。
-- ESLint 无错误；Vitest 69 个测试文件、449 项测试通过。
-- BrowserView、兼容性、用户脚本管理、用户脚本运行时、CSS 修复器及自动化工作台冒烟测试通过。
-- 最小化 Web 模板匹配达到 98.8%，Ruffle 最小化模板匹配达到 100%，并验证可信输入及调试器正常卸载。
-- PPAPI 自动化已在真实游戏中完成人工回归，识图定位与可信点击均正常；自动化测试夹具在当前验证环境中仍未完成 PPAPI 渲染。
+- 2026-08-23 GitHub CI 在 Windows 与 Ubuntu 完成 `npm run check`、用户脚本/CSS 冒烟和 BrowserView 兼容性冒烟。
+- Windows x64、Windows ia32 与 Linux x64 三个 CI 打包任务全部通过并上传候选制品。
+- 本地 Vitest：74 个测试文件、464 项测试通过。
+- PPAPI 自动化仍需在真实游戏上保留人工发布门；macOS 实验包构建成功不代表 Flash 已在真实 Mac 上可用。
 
 ## 安全提示
 
-Electron 11、Chromium 87 和 Adobe Flash Player 均已停止安全更新。本程序用于可信的旧游戏站点和本地内容，不建议用于邮箱、支付、网盘、办公系统或其他敏感业务。能由 Ruffle 正常运行的内容，优先使用 Ruffle。
+Electron 11、Chromium 87 和 Adobe Flash Player 均已停止安全更新。本程序只应用于可信旧游戏站点和本地内容，不建议用于邮箱、支付、网盘、办公系统或其他敏感业务。内容兼容时优先使用 Ruffle。
 
-## 第三方组件
-
-项目源代码采用 MIT License；Flash Player、Ruffle、aria2、OpenCV 和字体等第三方组件仍受各自许可证约束，详见 `THIRD_PARTY_NOTICES.md`。
+项目源代码采用 MIT License；Flash Player、Ruffle、aria2、OpenCV、Blockly 和字体等第三方组件仍受各自许可证约束，详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。

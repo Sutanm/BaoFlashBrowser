@@ -1,5 +1,7 @@
 # BaoFlashBrowser 架构手册
 
+> 历史说明：本文包含早期实现和演进过程，部分文件名、状态管理与构建工具描述已经过时。当前开发基线请从 [`docs/README.md`](README.md) 和 [`docs/modules/00-overview.md`](modules/00-overview.md) 进入，并以源码与 `AGENTS.md` 为准。
+
 > 面向二次开发者的完整系统解析，涵盖模块、数据流、开发阻力和经验教训。
 
 ---

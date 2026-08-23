@@ -22,10 +22,10 @@
 | `src/preload/index.ts` | 主窗口 preload —— IPC 三白名单 + `window.electronAPI` 暴露 |
 | `src/renderer/App.tsx` | React 根组件：bounds 计算、面板/内部页切换、快捷键分发 |
 | `src/renderer/hooks/useTabManager.ts` | 渲染层标签状态机与 IPC 监听 |
-| `src/renderer/hooks/useShortcut/useTheme/useDownloadListener/usePasswordListener.ts` | 键盘/主题/下载/密码监听 |
-| `src/renderer/store/useTabsStore.ts` `useDataStore.ts` | zustand 标签与数据状态 |
-| `src/renderer/services/browserview-bounds.ts` `tab-session.ts` `tab-suspension.ts` `history-state.ts` `db.ts` `toast.ts` | 边界计算、会话快照、休眠门控、历史合并、IndexedDB、Toast 队列 |
-| `src/shared/types/tab.ts` `settings.ts` `ipc.ts` | 共享类型与主→渲染事件全集 |
+| `src/renderer/hooks/` | 快捷键、主题、下载、密码与标签监听 |
+| `src/renderer/store/useTabsStore.ts`、`useDataStore.ts` | Zustand 标签与数据状态 |
+| `src/renderer/services/` | 边界计算、会话快照、休眠门控、历史合并、IndexedDB、Toast 队列 |
+| `src/shared/types/tab.ts`、`settings.ts`、`ipc.ts` | 共享类型与主→渲染事件全集 |
 
 ## 3 核心流程
 
@@ -106,9 +106,9 @@ renderer 是**唯一**计算方：`calcBounds` 读 `bvAreaRef.getBoundingClientR
 
 ## 7 测试策略
 
-- Vitest：`browserview-bounds.test.ts`、`tab-session.test.ts`、`tab-suspension.test.ts`、`history-state.test.ts`、`theme-toggle.test.tsx`、`toast*.test`、`url-utils.test.ts`。
+- Vitest：`tests/browserview-bounds.test.ts`、`tab-session.test.ts`、`tab-suspension.test.ts`、`history-state.test.ts`、`theme-toggle.test.tsx`、`toast*.test.tsx` 和 URL 工具测试。
 - Electron smoke：`tests/electron/browserview-smoke.cjs`（BrowserView 生命周期）。
-- 探针：`11-views.cjs`（真实 BrowserView 健康 + 子帧 badge）、`04-logs.cjs`。
+- 探针：`tools/probe/probes/11-views.cjs`（真实 BrowserView 健康 + 子帧 badge）和 `04-logs.cjs`。
 
 ## 8 雷区与注意事项
 

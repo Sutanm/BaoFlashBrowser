@@ -2,7 +2,7 @@
 
 项目固定使用 Electron 11.5.0。发布脚本不会升级 Electron，也不会从 `package.json` 的 `latest` 标签解析内核版本。
 
-当前发布版本为 1.1.0。该版本新增自动化工作台、视觉匹配工作线程和内置自动化相框助手；这些文件必须和用户脚本运行时一同进入 `app.asar`，不能只验证普通网页浏览资源。
+当前发布版本为 1.1.1。自动化工作台、视觉匹配工作线程、内置自动化相框助手和实验插件选择逻辑必须与用户脚本运行时一同进入 `app.asar`，不能只验证普通网页浏览资源。
 
 ## 构建命令
 
@@ -11,6 +11,7 @@
 | Windows x64 | `npm run build:win64` | win64 PPAPI、x64 aria2、Windows mouse hook |
 | Windows ia32 | `npm run build:win32` | win32 PPAPI、ia32 aria2、Windows mouse hook |
 | Linux x64 | `npm run build:linux` | linux64 PPAPI、x64 aria2、Linux mouse hook |
+| macOS Intel x64（实验） | `npm run build:mac` | 从校验过的 vendor DMG 提取并捆绑实验 PPAPI；生成 DMG/ZIP |
 
 Windows ia32 使用独立的 `native/aria2/win32/aria2c.exe`，打包后映射为标准资源路径；发布校验会确认它确实是 PE ia32，避免误装 x64 二进制。Windows ia32 当前属于未完全测试版本，应在发布页明确标注。
 
@@ -25,12 +26,13 @@ Linux 只发布 x64，不提供 x86 构建；Electron、PPAPI Flash 及项目内
 5. 检查解包目录中的 `app.asar`、运行时依赖、原生资源与主程序架构。
 6. 将文件大小和 SHA-256 写入 `release/manifests/`。
 
-1.1.0 还应确认以下自动化资源存在于构建输入和解包成品中：
+1.1.1 还应确认以下自动化与实验平台资源存在于构建输入和解包成品中：
 
 - `src/main/modules/automation/` 对应的主进程 bundle 代码与 OpenCV 视觉工作线程。
 - `about:automation` 工作台所需 renderer chunk、Blockly 和自动化样式。
 - 内置用户脚本“自动化相框助手”；它和 CSS 修复器一样在构建时以文本嵌入，修改后必须重新执行完整构建。
 - 自动化脚本使用的 preload IPC 桥、可信输入和 BrowserView 截图通道。
+- macOS 实验包必须通过 `prepare:mac-flash` 校验 DMG 散列、插件版本和 x64 架构；原始 DMG 不进入最终安装包。
 
 任何一步失败都会令命令返回非零状态，不会把不完整产物当作成功发布。
 
@@ -38,6 +40,7 @@ Linux 只发布 x64，不提供 x86 构建；Electron、PPAPI Flash 及项目内
 
 - Windows 安装包：`release/BaoFlashBrowser-<version>-<arch>.exe`
 - Linux 安装包：`release/BaoFlashBrowser-<version>-x86_64.AppImage`
+- macOS 实验包：`release/BaoFlashBrowser-Experimental-<version>-x64.dmg` 与 `.zip`
 - 解包目录：`release/*-unpacked/`
 - 校验清单：`release/manifests/<platform>-<arch>-<stage>.json`
 
@@ -63,9 +66,9 @@ npm run verify:release -- --stage source --platform win32 --arch x64
 npm run verify:release -- --stage unpacked --platform win32 --arch x64
 ```
 
-CI 会在 Windows 上构建并校验 x64/ia32，在 Ubuntu 上构建并校验 Linux x64。
+CI 会在 Windows 上构建并校验 x64/ia32，在 Ubuntu 上构建并校验 Linux x64。主 CI 只在 `main` 分支 push 和 pull request 时运行；推送版本标签不会重复执行整套检查与三平台打包。macOS 实验包使用独立的手动工作流，构建成功只代表资源与包结构通过，不代表真实硬件可用。
 
-## 1.1.0 发布门
+## 1.1.1 发布门
 
 生成候选安装包前至少运行：
 

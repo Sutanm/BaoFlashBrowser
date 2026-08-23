@@ -1,5 +1,7 @@
 # 用户脚本运行时 Demo 验证记录
 
+> 历史验证记录：本文保留 demo 到主项目移植过程中的阶段证据，未覆盖项不等于当前版本仍未实现。现行能力与限制见 [`userscript-developer-guide.md`](userscript-developer-guide.md) 和 [`modules/04-userscripts.md`](modules/04-userscripts.md)。
+
 > 日期：2026-08-04  
 > 环境：Electron 11.5.0 / Chromium 87  
 > 命令：`npm run test:userscripts`
