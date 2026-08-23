@@ -61,7 +61,7 @@ app.whenReady().then(async () => {
     newBlockTypes: ['bao_start_unconditional', 'bao_start_condition', 'bao_key_combo', 'bao_hold_key_until_image', 'bao_if_condition', 'bao_wait_condition', 'bao_repeat_until_condition', 'bao_condition_image', 'bao_condition_and', 'bao_condition_or', 'bao_condition_not'].map(type => ({ type, registered: document.querySelector('.automation-blockly-host')?.dataset.blockTypes?.split(' ').includes(type) })),
   }))()`);
   if (result.title !== '自动化工作台') throw new Error(`unexpected title: ${result.title}`);
-  if (result.scripts !== 1 || result.blocks < 3) throw new Error(`workbench content missing: ${JSON.stringify(result)}`);
+  if (result.scripts !== 2 || result.blocks < 3) throw new Error(`workbench content missing: ${JSON.stringify(result)}`);
   if (!result.categories.includes('图像') || !result.categories.includes('流程') || !result.jsonMode) throw new Error(`workbench controls missing: ${JSON.stringify(result)}`);
   if (!result.canCreate || result.createDisabled || result.libraryActions !== 2 || result.assetRows !== 3 || !result.assetPreview || !result.assetSearch || !result.folderLink || result.imageGroups.length !== 1 || !result.diagnosticButton) throw new Error(`library management missing: ${JSON.stringify(result)}`);
   if (result.newBlockTypes.some((block) => !block.registered)) throw new Error(`new automation blocks missing: ${JSON.stringify(result.newBlockTypes)}`);
@@ -80,6 +80,16 @@ app.whenReady().then(async () => {
   if (editorRoundTrip.condition?.type !== 'any' || editorRoundTrip.condition.conditions?.[1]?.type !== 'not') throw new Error(`combined condition round trip failed: ${JSON.stringify(editorRoundTrip.condition)}`);
   if (editorRoundTrip.wait?.pollMs !== 375 || editorRoundTrip.wait?.region?.width !== 640 || editorRoundTrip.wait?.scales?.length !== 3 || editorRoundTrip.wait?.mask !== 'alpha' || [...new Set([editorRoundTrip.wait?.asset, ...(editorRoundTrip.wait?.alternatives ?? [])])].sort().join(',') !== 'buttons/start-hover.png,buttons/start.png') throw new Error(`advanced image fields were lost: ${JSON.stringify(editorRoundTrip.wait)}`);
   if (editorRoundTrip.click?.offset?.x !== 7 || editorRoundTrip.click?.offset?.y !== -4 || editorRoundTrip.click?.pollMs !== 250) throw new Error(`advanced click fields were lost: ${JSON.stringify(editorRoundTrip.click)}`);
+  await win.webContents.executeJavaScript(`window.confirm = () => true; ([...document.querySelectorAll('.automation-library > button')].find(node => node.textContent.includes('M4 第二脚本'))).click()`);
+  await waitFor(win.webContents, `document.querySelector('.automation-editor-meta input')?.value === 'M4 第二脚本'`);
+  await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('积木'))).click()`);
+  await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('JSON'))).click()`);
+  await waitFor(win.webContents, `JSON.parse(document.querySelector('.automation-json-editor textarea').value).root.steps[0]?.durationMs === 2222`);
+  await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-library > button')].find(node => node.textContent.includes('M4 工作台验证'))).click()`);
+  await waitFor(win.webContents, `document.querySelector('.automation-editor-meta input')?.value === 'M4 工作台验证'`);
+  await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('积木'))).click()`);
+  await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('JSON'))).click()`);
+  await waitFor(win.webContents, `JSON.parse(document.querySelector('.automation-json-editor textarea').value).root.steps[0]?.type === 'wait-image'`);
   await win.webContents.executeJavaScript(`([...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('积木'))).click()`);
   const testBenchTab = await win.webContents.executeJavaScript(`[...document.querySelectorAll('.automation-editor-tabs button')].find(node => node.textContent.includes('素材测试台'))?.textContent`);
   if (!testBenchTab) throw new Error('asset test bench tab missing');

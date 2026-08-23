@@ -244,7 +244,7 @@ function connectSequence(LL: ReturnType<typeof useI18nContext>['LL'], workspace:
   }
 }
 
-const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { initialWorkflow?: AutomationWorkflow; assets?: string[]; onDirtyChange?(dirty: boolean): void }>(function AutomationBlocklyEditor({ initialWorkflow, assets = [], onDirtyChange }, ref) {
+const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { packageId: string; initialWorkflow?: AutomationWorkflow; assets?: string[]; onDirtyChange?(dirty: boolean): void }>(function AutomationBlocklyEditor({ packageId, initialWorkflow, assets = [], onDirtyChange }, ref) {
   const { LL, locale } = useI18nContext();
   const hostRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
@@ -278,7 +278,7 @@ const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { init
       loadIntoWorkspace(LL, workspace, workflowRef.current ?? { formatVersion: 1, id: 'new-automation', name: LL.automation.blockly.defaultWorkflowName(), root: { type: 'sequence', steps: [] } });
     }
     const observer = new ResizeObserver(() => Blockly.svgResize(workspace)); observer.observe(host);
-    const draftKey = `baoauto:draft:${workflowRef.current?.id ?? 'new-automation'}`;
+    const draftKey = `baoauto:draft:${packageId || 'new-automation'}`;
     const storedDraft = localStorage.getItem(draftKey);
     if (storedDraft) {
       try { workspace.clear(); Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(storedDraft), workspace); onDirtyChange?.(true); } catch { localStorage.removeItem(draftKey); }
@@ -297,7 +297,7 @@ const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { init
       workspace.dispose();
       workspaceRef.current = null;
     };
-  }, [locale, LL, selectableAssets.join('\n')]);
+  }, [locale, LL, packageId, selectableAssets.join('\n')]);
 
   useImperativeHandle(ref, () => ({
     compile: () => {
@@ -319,8 +319,8 @@ const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { init
       };
     },
     load: (workflow) => { workflowRef.current = workflow; if (workspaceRef.current) loadIntoWorkspace(LL, workspaceRef.current, workflow); },
-    clearDraft: () => { localStorage.removeItem(`baoauto:draft:${workflowRef.current?.id ?? 'new-automation'}`); onDirtyChange?.(false); },
-  }), [LL, onDirtyChange]);
+    clearDraft: () => { localStorage.removeItem(`baoauto:draft:${packageId || 'new-automation'}`); onDirtyChange?.(false); },
+  }), [LL, onDirtyChange, packageId]);
 
   return <div ref={hostRef} className="automation-blockly-host" data-block-types={buildBlockDefinitions(LL, selectableAssets).map((definition: { type: string }) => definition.type).join(' ')} />;
 });

@@ -15,6 +15,8 @@ export default function AutomationPage(): React.JSX.Element {
   const api = window.electronAPI.automation;
   const { LL } = useI18nContext();
   const editorRef = useRef<AutomationBlocklyEditorHandle>(null);
+  const packageLoadRef = useRef(0);
+  const assetPreviewRef = useRef(0);
   const [packages, setPackages] = useState<PackageSummary[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [workflow, setWorkflow] = useState<AutomationWorkflow>();
@@ -23,6 +25,7 @@ export default function AutomationPage(): React.JSX.Element {
   const [assetPreview, setAssetPreview] = useState<AssetPreview>();
   const [assetReferenced, setAssetReferenced] = useState(false);
   const [json, setJson] = useState('');
+  const [jsonDirty, setJsonDirty] = useState(false);
   const [mode, setMode] = useState<'blocks' | 'json' | 'test'>('blocks');
   const [notice, setNotice] = useState<string>(LL.automation.page.noticeInitial());
   const [busy, setBusy] = useState(false);
@@ -41,24 +44,27 @@ export default function AutomationPage(): React.JSX.Element {
     setPackages(list);
     const next = preferred && list.some((item) => item.packageId === preferred)
       ? preferred : list.some((item) => item.packageId === selectedId) ? selectedId : list[0]?.packageId ?? '';
-    setSelectedId(next);
     return next;
   }, [api, selectedId]);
 
   const previewAsset = useCallback(async (packageId: string, asset: string) => {
+    const requestId = ++assetPreviewRef.current;
     setSelectedAsset(asset);
     if (!packageId || !asset) { setAssetPreview(undefined); setAssetReferenced(false); return; }
     try {
       const [preview, references] = await Promise.all([api.getAssetPreview(packageId, asset), api.getAssetReferences(packageId, asset)]);
+      if (requestId !== assetPreviewRef.current) return;
       setAssetPreview(preview); setAssetReferenced(references.referenced);
     }
-    catch (error) { setAssetPreview(undefined); setNotice(error instanceof Error ? error.message : String(error)); }
+    catch (error) { if (requestId === assetPreviewRef.current) { setAssetPreview(undefined); setNotice(error instanceof Error ? error.message : String(error)); } }
   }, [api]);
 
   const loadPackage = useCallback(async (packageId: string) => {
-    if (!packageId) { setWorkflow(undefined); setAssets([]); setSelectedAsset(''); setAssetPreview(undefined); setJson(''); return; }
+    const requestId = ++packageLoadRef.current;
+    if (!packageId) { setSelectedId(''); setWorkflow(undefined); setAssets([]); setSelectedAsset(''); setAssetPreview(undefined); setJson(''); setJsonDirty(false); return; }
     const detail = await api.getPackage(packageId);
-    setWorkflow(detail.workflow); setAssets(detail.assets); setJson(JSON.stringify(detail.workflow, null, 2));
+    if (requestId !== packageLoadRef.current) return;
+    setSelectedId(packageId); setWorkflow(detail.workflow); setAssets(detail.assets); setJson(JSON.stringify(detail.workflow, null, 2)); setJsonDirty(false);
     await previewAsset(packageId, detail.assets[0] ?? '');
   }, [api, previewAsset]);
 
@@ -166,7 +172,7 @@ export default function AutomationPage(): React.JSX.Element {
 
   const selectPackage = async (packageId: string): Promise<void> => {
     if (dirty && !window.confirm(LL.automation.page.unsavedConfirm())) return;
-    setSelectedId(packageId); setLinkedFolder(undefined); setAssetQuery(''); setDiagnostic(undefined); setBusy(true);
+    setLinkedFolder(undefined); setAssetQuery(''); setDiagnostic(undefined); setBusy(true);
     try { await loadPackage(packageId); setDirty(false); setNotice(LL.automation.page.noticeLoaded()); }
     catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
@@ -189,6 +195,38 @@ export default function AutomationPage(): React.JSX.Element {
       return true;
     } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); return false; }
     finally { setBusy(false); }
+  };
+
+  const currentBlocksWorkflow = (): AutomationWorkflow => {
+    if (!workflow) throw new Error(LL.automation.blockly.workspaceNotReady());
+    const compiled = editorRef.current?.compile();
+    if (!compiled) throw new Error(LL.automation.blockly.workspaceNotReady());
+    return { ...compiled, id: workflow.id, name: workflow.name, description: workflow.description };
+  };
+
+  const showJsonEditor = (): void => {
+    if (mode === 'json') return;
+    try {
+      setJson(JSON.stringify(currentBlocksWorkflow(), null, 2));
+      setJsonDirty(false);
+      setMode('json');
+    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+  };
+
+  const showBlocksEditor = async (): Promise<void> => {
+    if (mode === 'blocks') return;
+    if (mode === 'json' && jsonDirty) {
+      try {
+        const validation = await api.validateWorkflow(JSON.parse(json) as unknown);
+        if (!validation.valid) throw new Error(validation.issues.map((issue) => `${issue.path}: ${issue.message}`).join('\n'));
+        setWorkflow(validation.workflow);
+        editorRef.current?.load(validation.workflow);
+        setJson(JSON.stringify(validation.workflow, null, 2));
+        setJsonDirty(false);
+        setDirty(true);
+      } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); return; }
+    }
+    setMode('blocks');
   };
 
   const linkAssetFolder = async (): Promise<void> => {
@@ -228,28 +266,31 @@ export default function AutomationPage(): React.JSX.Element {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
-      event.preventDefault(); void saveBlocks();
+      event.preventDefault(); void saveCurrent();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => { window.removeEventListener('keydown', onKeyDown); };
-  }, [dirty, selectedId, workflow]);
+  }, [dirty, jsonDirty, selectedId, workflow]);
 
-  const applyJson = async (): Promise<void> => {
-    if (!selectedId) return;
+  const applyJson = async (): Promise<boolean> => {
+    if (!selectedId) return false;
     setBusy(true);
     try {
       const parsed: unknown = JSON.parse(json);
       const validation = await api.validateWorkflow(parsed);
       if (!validation.valid) throw new Error(validation.issues.map((issue) => `${issue.path}: ${issue.message}`).join('\n'));
       const saved = await api.updateWorkflow(selectedId, validation.workflow);
-      setWorkflow(saved); editorRef.current?.load(saved); editorRef.current?.clearDraft(); setDirty(false); setNotice(LL.automation.page.noticeJsonApplied());
-    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+      setWorkflow(saved); setJson(JSON.stringify(saved, null, 2)); setJsonDirty(false); editorRef.current?.load(saved); editorRef.current?.clearDraft(); setDirty(false); setNotice(LL.automation.page.noticeJsonApplied());
+      return true;
+    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); return false; }
     finally { setBusy(false); }
   };
 
+  const saveCurrent = async (): Promise<boolean> => jsonDirty ? applyJson() : saveBlocks();
+
   const exportPackage = async (): Promise<void> => {
     if (!selectedId) return;
-    if (!await saveBlocks()) return;
+    if (!await saveCurrent()) return;
     const result = await api.exportPackage(selectedId, { title: LL.automation.ipc.exportPackageTitle(), filterName: LL.automation.ipc.openPackageFilter() });
     if (!result.canceled) setNotice(LL.automation.page.noticeExported({ path: result.filePath ?? LL.automation.page.noticeFallbackPath() }));
   };
@@ -262,7 +303,7 @@ export default function AutomationPage(): React.JSX.Element {
           <button type="button" onClick={openCreateDialog} disabled={busy}><Plus />{LL.automation.page.newScript()}</button>
           <button type="button" className="primary" onClick={() => void importPackage()} disabled={busy}><Download />{LL.automation.page.importPackage()}</button>
           <button type="button" onClick={() => void exportPackage()} disabled={busy || !selectedId} title={!selectedId ? LL.automation.page.exportRequiresSelection() : undefined}><Upload />{LL.automation.page.exportPackage()}</button>
-          <button type="button" className="primary" onClick={() => void saveBlocks()} disabled={busy || !selectedId}><Save />{dirty ? LL.automation.page.saveDirty() : LL.automation.page.saveChanges()}</button>
+          <button type="button" className="primary" onClick={() => void saveCurrent()} disabled={busy || !selectedId}><Save />{dirty ? LL.automation.page.saveDirty() : LL.automation.page.saveChanges()}</button>
         </div>
       </header>
 
@@ -311,14 +352,14 @@ export default function AutomationPage(): React.JSX.Element {
               <div className="automation-asset-summary"><strong>{assets.length}</strong><span>{LL.automation.page.assetCountLabel()}</span></div>
             </div>
             <div className="automation-editor-tabs">
-              <button type="button" className={mode === 'blocks' ? 'active' : ''} onClick={() => setMode('blocks')}><Workflow />{LL.automation.page.blocksTab()}</button>
-              <button type="button" className={mode === 'json' ? 'active' : ''} onClick={() => { setJson(JSON.stringify(workflow, null, 2)); setMode('json'); }}><Braces />{LL.automation.page.jsonTab()}</button>
+              <button type="button" className={mode === 'blocks' ? 'active' : ''} onClick={() => void showBlocksEditor()}><Workflow />{LL.automation.page.blocksTab()}</button>
+              <button type="button" className={mode === 'json' ? 'active' : ''} onClick={showJsonEditor}><Braces />{LL.automation.page.jsonTab()}</button>
               <button type="button" className={mode === 'test' ? 'active' : ''} onClick={() => setMode('test')}><ScanSearch />{LL.automation.page.testBenchTab()}</button>
               <span className={dirty ? 'dirty' : ''}><CheckCircle2 />{dirty ? LL.automation.page.unsaved() : notice}</span>
             </div>
-            <div className="automation-editor-content" hidden={mode !== 'blocks'}><AutomationBlocklyEditor key={selectedId} ref={editorRef} initialWorkflow={workflow} assets={assets} onDirtyChange={setDirty} /></div>
+            <div className="automation-editor-content" hidden={mode !== 'blocks'}><AutomationBlocklyEditor key={selectedId} ref={editorRef} packageId={selectedId} initialWorkflow={workflow} assets={assets} onDirtyChange={setDirty} /></div>
             <div className="automation-json-editor" hidden={mode !== 'json'}>
-              <textarea value={json} onChange={(event) => { setJson(event.target.value); setDirty(true); }} spellCheck={false} />
+              <textarea value={json} onChange={(event) => { setJson(event.target.value); setJsonDirty(true); setDirty(true); }} spellCheck={false} />
               <button type="button" onClick={() => void applyJson()} disabled={busy}>{LL.automation.page.applyJson()}</button>
             </div>
             <div className="automation-test-editor" hidden={mode !== 'test'}><AutomationAssetTestBench packageId={selectedId} assets={assets} onAssetsChanged={(next) => { setAssets(next); void refreshPackages(selectedId); }} /></div>

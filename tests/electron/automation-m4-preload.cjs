@@ -23,6 +23,12 @@ const workflow = {
     },
   ] },
 };
+const workflow2 = {
+  formatVersion: 1,
+  id: 'm4-smoke',
+  name: 'M4 第二脚本',
+  root: { type: 'sequence', steps: [{ type: 'delay', durationMs: 2222 }] },
+};
 
 contextBridge.exposeInMainWorld('electronAPI', {
   on: () => () => {},
@@ -44,8 +50,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       { id: 1, timestamp: Date.now() - 20, level: 'info', message: { key: 'step.clickImage', params: { asset: 'buttons/start.png' } }, step: 2 },
       { id: 2, timestamp: Date.now(), level: 'success', message: { key: 'status.imageMatch', params: { asset: 'buttons/start.png', score: '97.0', ms: '18' } }, step: 2 },
     ] }),
-    listPackages: async () => [{ packageId: 'm4-smoke:1', id: workflow.id, name: workflow.name, assets: ['pages/home.png', 'buttons/start.png', 'buttons/start-hover.png'] }],
-    getPackage: async () => ({ packageId: 'm4-smoke:1', workflow, assets: ['pages/home.png', 'buttons/start.png', 'buttons/start-hover.png'] }),
+    listPackages: async () => [
+      { packageId: 'm4-smoke:1', id: workflow.id, name: workflow.name, assets: ['pages/home.png', 'buttons/start.png', 'buttons/start-hover.png'] },
+      { packageId: 'm4-smoke:2', id: workflow2.id, name: workflow2.name, assets: [] },
+    ],
+    getPackage: async (packageId) => packageId === 'm4-smoke:2'
+      ? { packageId, workflow: workflow2, assets: [] }
+      : { packageId: 'm4-smoke:1', workflow, assets: ['pages/home.png', 'buttons/start.png', 'buttons/start-hover.png'] },
     diagnosePackage: async () => ({ packageId: 'm4-smoke:1', valid: true, assetCount: 3, assetBytes: 384, referencedAssets: 3, unreferencedAssets: [], missingAssets: [], stepCount: 4, maxDepth: 3, capabilities: ['vision', 'trusted-input', 'combined-conditions', 'image-groups'], issues: [] }),
     listRunHistory: async () => [{ id: 'run-1', packageId: 'm4-smoke:1', workflowName: workflow.name, tabId: 'tab-1', mode: 'run', startedAt: Date.now() - 1500, finishedAt: Date.now(), state: 'completed', executedSteps: 3, logs: [] }],
     clearRunHistory: async () => ({ success: true }),
