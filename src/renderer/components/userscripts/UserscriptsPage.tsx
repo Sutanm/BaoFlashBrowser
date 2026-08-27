@@ -3,7 +3,7 @@
 // enable toggle / status badge / matches / actions, an editor, and a
 // two-phase install flow with preview confirmation.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Pencil, Upload, Link as LinkIcon, ClipboardPaste, RefreshCw, Download, Database } from 'lucide-react';
 import type { InstalledUserscript, ParsedUserscriptMetadata } from '@shared/userscript-types';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
@@ -363,7 +363,7 @@ export default function UserscriptsPage(): React.JSX.Element {
     }
   }, [updates, showNotice, LL, refresh]);
 
-  const filtered = scripts.filter((script) => {
+  const filtered = useMemo(() => scripts.filter((script) => {
     if (filter === 'enabled' && !script.enabled) return false;
     if (filter === 'disabled' && script.enabled) return false;
     if (!search.trim()) return true;
@@ -372,7 +372,7 @@ export default function UserscriptsPage(): React.JSX.Element {
       || (script.metadata.namespace ?? '').toLowerCase().includes(needle)
       || (script.metadata.match ?? []).some((m) => m.toLowerCase().includes(needle))
       || (script.metadata.include ?? []).some((m) => m.toLowerCase().includes(needle));
-  });
+  }), [filter, scripts, search]);
 
   // ---- Editor view ----------------------------------------------------------
   if (section === 'editor' && editor) {

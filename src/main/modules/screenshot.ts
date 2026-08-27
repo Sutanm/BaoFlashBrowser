@@ -15,6 +15,8 @@ export const HIDDEN_CAPTURE_ENABLED = true;
 export const HIDDEN_CAPTURE_STAY_HIDDEN = true;
 // T3a 最小化立即 capture 即全尺寸，无需首帧等待
 export const FIRST_FRAME_DELAY_MS = 0;
+export const MAX_SCREENSHOT_DATA_PIXELS = 16_777_216;
+export const MAX_SCREENSHOT_DATA_PNG_BYTES = 16 * 1024 * 1024;
 
 export interface ScreenshotOptions {
   rect?: { x: number; y: number; width: number; height: number };
@@ -44,6 +46,32 @@ export interface DecideInput {
 export type CaptureDecision =
   | { action: 'capture' }
   | { action: 'error'; code: string; error: string };
+
+export interface ScreenshotDataLimitError {
+  code: 'DATA_TOO_LARGE';
+  error: string;
+}
+
+export function screenshotDataLimitError(
+  width: number,
+  height: number,
+  pngBytes?: number,
+): ScreenshotDataLimitError | null {
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height)
+      || width < 0 || height < 0 || width * height > MAX_SCREENSHOT_DATA_PIXELS) {
+    return {
+      code: 'DATA_TOO_LARGE',
+      error: `Screenshot data exceeds the ${MAX_SCREENSHOT_DATA_PIXELS} pixel limit`,
+    };
+  }
+  if (pngBytes !== undefined && pngBytes > MAX_SCREENSHOT_DATA_PNG_BYTES) {
+    return {
+      code: 'DATA_TOO_LARGE',
+      error: `Screenshot PNG exceeds the ${MAX_SCREENSHOT_DATA_PNG_BYTES} byte limit`,
+    };
+  }
+  return null;
+}
 
 export function decideCapture(input: DecideInput): CaptureDecision {
   if (!input.hasWindow) return { action: 'error', code: 'NO_WINDOW', error: 'Main window is gone' };
@@ -105,12 +133,13 @@ export async function captureTab(tabId: string, opts: ScreenshotOptions): Promis
   const { image } = captured;
   const size = image.getSize();
   const result: ScreenshotResult = { success: true, width: size.width, height: size.height };
-  if (opts.returnData !== false) result.data = image.toPNG().toString('base64');
+  let png: Buffer | undefined;
   if (opts.save || opts.savePath) {
     const savePath = await resolveSavePath(tabId, opts.savePath);
     if (!savePath.ok) return { success: false, code: savePath.code, error: savePath.error };
     try {
-      result.filePath = await writePng(image, savePath.value);
+      png = image.toPNG();
+      result.filePath = await writePng(png, savePath.value);
     } catch (e) {
       return {
         success: false, code: 'IO_ERROR',
@@ -118,6 +147,22 @@ export async function captureTab(tabId: string, opts: ScreenshotOptions): Promis
         width: size.width, height: size.height,
       };
     }
+  }
+  if (opts.returnData !== false) {
+    const pixelLimit = screenshotDataLimitError(size.width, size.height);
+    if (pixelLimit) return { success: false, ...pixelLimit, width: size.width, height: size.height, filePath: result.filePath };
+    try {
+      png ??= image.toPNG();
+    } catch (e) {
+      return {
+        success: false, code: 'ENCODE_FAILED',
+        error: e instanceof Error ? e.message : String(e),
+        width: size.width, height: size.height, filePath: result.filePath,
+      };
+    }
+    const byteLimit = screenshotDataLimitError(size.width, size.height, png.byteLength);
+    if (byteLimit) return { success: false, ...byteLimit, width: size.width, height: size.height, filePath: result.filePath };
+    result.data = png.toString('base64');
   }
   return result;
 }
@@ -164,8 +209,8 @@ async function resolveSavePath(
   return { ok: true, value: filePath };
 }
 
-async function writePng(image: Electron.NativeImage, filePath: string): Promise<string> {
+async function writePng(png: Buffer, filePath: string): Promise<string> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.promises.writeFile(filePath, image.toPNG());
+  await fs.promises.writeFile(filePath, png);
   return filePath;
 }

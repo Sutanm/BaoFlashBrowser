@@ -206,7 +206,7 @@ class TabManager {
     this.wcToId.set(wc.id, tab.id);
     getUserscriptManager()?.registerView(wc.id, {
       mode: tab.isRuffle ? 'ruffle' : 'ppapi',
-      generation: (this.userscriptGeneration = (this.userscriptGeneration ?? 0) + 1),
+      generation: ++this.userscriptGeneration,
       token: tab.id,
     });
     setupSessionOnce(wc.session);
@@ -226,7 +226,7 @@ class TabManager {
           if (this._isCurrentWebContents(tabId, wc) && typeof title === 'string' && title && title !== 'about:blank') {
             this.send('tab:updated', { tabId, title });
           }
-        }).catch(() => {});
+        }).catch(() => log.debug('[Tabs] title metadata refresh failed', { tabId }));
         void wc.executeJavaScript(`(function(){
           var e=document.querySelector('link[rel~="icon" i],link[rel*="icon" i]');
           if(e&&e.href)return e.href;
@@ -237,7 +237,7 @@ class TabManager {
           if (this._isCurrentWebContents(tabId, wc) && typeof favicon === 'string' && favicon) {
             this.send('tab:updated', { tabId, favicon });
           }
-        }).catch(() => {});
+        }).catch(() => log.debug('[Tabs] favicon metadata refresh failed', { tabId }));
       }, delay);
     };
     wc.on('destroyed', () => getUserscriptManager()?.unregisterView(wc.id));
@@ -495,7 +495,7 @@ class TabManager {
   setZoom(tabId: string, factor: number): void { const tab = this.tabs.get(tabId); if (tab) { tab.zoomFactor = factor; tab.browserView?.webContents.setZoomFactor(factor); } }
   setMuted(tabId: string, muted: boolean): void { const tab = this.tabs.get(tabId); if (tab) { tab.muted = muted; tab.browserView?.webContents.setAudioMuted(muted); } }
   openDevTools(tabId: string): void { this.tabs.get(tabId)?.browserView?.webContents.openDevTools({ mode: 'detach' }); }
-  findInPage(tabId: string, text: string, options?: any): void { this.tabs.get(tabId)?.browserView?.webContents.findInPage(text, options); }
+  findInPage(tabId: string, text: string, options?: Electron.FindInPageOptions): void { this.tabs.get(tabId)?.browserView?.webContents.findInPage(text, options); }
   stopFindInPage(tabId: string, action: 'clearSelection' | 'keepSelection' | 'activateSelection'): void { this.tabs.get(tabId)?.browserView?.webContents.stopFindInPage(action); }
 
   // Stage 2 sidebar: GM_registerMenuCommand entries for the active view and

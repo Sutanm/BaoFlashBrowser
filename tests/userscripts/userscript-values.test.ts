@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isSerializableValue, serializeValue, deserializeValue } from '@main/modules/userscripts/userscript-values';
+import {
+  MAX_SERIALIZABLE_DEPTH,
+  MAX_SERIALIZABLE_NODES,
+  isSerializableValue,
+  serializeValue,
+  deserializeValue,
+} from '@main/modules/userscripts/userscript-values';
 
 describe('userscript-values serialization', () => {
   it('accepts JSON-serializable primitives and structures', () => {
@@ -55,5 +61,21 @@ describe('userscript-values serialization', () => {
     const inner = matrix[0] as unknown[];
     inner.push(inner);
     expect(isSerializableValue(matrix)).toBe(false);
+  });
+
+  it('rejects structures that exceed the nesting-depth budget', () => {
+    const root: Record<string, unknown> = {};
+    let cursor = root;
+    for (let depth = 0; depth <= MAX_SERIALIZABLE_DEPTH; depth++) {
+      const child: Record<string, unknown> = {};
+      cursor.child = child;
+      cursor = child;
+    }
+    expect(isSerializableValue(root)).toBe(false);
+  });
+
+  it('rejects structures that exceed the visited-node budget', () => {
+    const value = Array.from({ length: MAX_SERIALIZABLE_NODES + 1 }, () => ({}));
+    expect(isSerializableValue(value)).toBe(false);
   });
 });

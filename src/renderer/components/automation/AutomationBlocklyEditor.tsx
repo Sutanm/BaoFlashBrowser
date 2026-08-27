@@ -5,6 +5,7 @@ import * as enMessages from 'blockly/msg/en';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { collectWorkflowAssetIds } from '@shared/automation/schema';
 import type { AutomationCondition, AutomationImageMask, AutomationPointerTarget, AutomationStep, AutomationWorkflow, ImageCondition, PositionCompareTarget, SequenceStep } from '@shared/automation/types';
+import { blockTypeForStep, compileScalarStep, writeScalarStepFields } from './automation-block-schema';
 
 export interface AutomationBlocklyEditorHandle {
   compile(): AutomationWorkflow;
@@ -287,6 +288,8 @@ function compileSequence(LL: ReturnType<typeof useI18nContext>['LL'], first: Blo
 
 function compileBlock(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockly.Block): AutomationStep {
   const extra = preserved<AutomationStep>(block);
+  const scalarStep = compileScalarStep(block.type, (name) => block.getFieldValue(name), extra as unknown as Record<string, unknown>);
+  if (scalarStep) return scalarStep;
   switch (block.type) {
     case 'bao_wait_image': return { ...extra, type: 'wait-image', ...imageTarget(block), threshold: number(block, 'THRESHOLD'), mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT') } as AutomationStep;
     case 'bao_wait_image_state': return { ...extra, type: 'wait-image-state', ...imageTarget(block), state: block.getFieldValue('STATE') === 'hidden' ? 'hidden' : 'visible', mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT') } as AutomationStep;
@@ -313,17 +316,10 @@ function compileBlock(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockl
       } as AutomationStep;
       return { ...(extra.type === 'drag' ? extra : {}), type: 'drag', source, target, ...options } as AutomationStep;
     }
-    case 'bao_delay': return { ...extra, type: 'delay', durationMs: number(block, 'DURATION') } as AutomationStep;
     case 'bao_key_press': return { ...extra, type: 'key-press', key: String(block.getFieldValue('KEY')) } as AutomationStep;
     case 'bao_key_combo': return { ...extra, type: 'key-press', key: String(block.getFieldValue('KEY')), modifiers: modifiers(block) } as AutomationStep;
     case 'bao_hold_key_until_image': return { ...extra, type: 'key-hold-until-image', key: String(block.getFieldValue('KEY')), ...imageTarget(block), state: block.getFieldValue('STATE') === 'hidden' ? 'hidden' : 'visible', mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT') } as AutomationStep;
-    case 'bao_text_input': return { ...extra, type: 'text-input', text: String(block.getFieldValue('TEXT')), intervalMs: number(block, 'INTERVAL') } as AutomationStep;
-    case 'bao_scroll': return { ...extra, type: 'scroll', deltaX: number(block, 'X'), deltaY: number(block, 'Y') } as AutomationStep;
     case 'bao_random_click_region': return { ...extra, type: 'random-click-region', region: relativeSearchRegion(LL, block), button: block.getFieldValue('BUTTON'), clickCount: number(block, 'COUNT'), padding: number(block, 'PADDING') } as AutomationStep;
-    case 'bao_navigate': return { ...extra, type: 'navigate', url: String(block.getFieldValue('URL')) } as AutomationStep;
-    case 'bao_reload': return { ...extra, type: 'reload' } as AutomationStep;
-    case 'bao_log': return { ...extra, type: 'log', message: String(block.getFieldValue('MESSAGE')) } as AutomationStep;
-    case 'bao_notification': return { ...extra, type: 'notification', title: String(block.getFieldValue('TITLE')), body: String(block.getFieldValue('BODY')) } as AutomationStep;
     case 'bao_if_image': return { ...extra, type: 'if-image', condition: { ...(extra.type === 'if-image' ? extra.condition : {}), ...assetCondition(block) }, negate: block.getFieldValue('MODE') === 'missing', then: compileSequence(LL, block.getInputTargetBlock('THEN'), extra.type === 'if-image' ? extra.then : undefined), else: compileSequence(LL, block.getInputTargetBlock('ELSE'), extra.type === 'if-image' ? extra.else : undefined) } as AutomationStep;
     case 'bao_if_condition': return { ...extra, type: 'if-condition', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), then: compileSequence(LL, block.getInputTargetBlock('THEN'), extra.type === 'if-condition' ? extra.then : undefined), else: compileSequence(LL, block.getInputTargetBlock('ELSE'), extra.type === 'if-condition' ? extra.else : undefined) } as AutomationStep;
     case 'bao_wait_condition': return { ...extra, type: 'wait-condition', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), timeoutMs: number(block, 'TIMEOUT') } as AutomationStep;
@@ -353,16 +349,11 @@ function setPointerTarget(block: Blockly.Block, prefix: 'SOURCE' | 'TARGET', tar
 }
 
 function createStep(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Blockly.WorkspaceSvg, step: AutomationStep): Blockly.BlockSvg {
-  const map: Record<AutomationStep['type'], string> = {
-    sequence: 'bao_delay', 'wait-image': 'bao_wait_image', 'wait-image-state': 'bao_wait_image_state',
-    'click-image': 'bao_click_image', 'click-coordinate': 'bao_click_image', 'random-click-region': 'bao_random_click_region', 'move-to-image': 'bao_move_to_image', 'move-to-coordinate': 'bao_move_to_image', 'drag-image': 'bao_drag_image', drag: 'bao_drag_image', delay: 'bao_delay',
-    'key-press': 'bao_key_press', 'key-hold-until-image': 'bao_hold_key_until_image', 'text-input': 'bao_text_input', scroll: 'bao_scroll', navigate: 'bao_navigate',
-    reload: 'bao_reload', log: 'bao_log', notification: 'bao_notification', end: 'bao_end', 'if-image': 'bao_if_image', 'if-condition': 'bao_if_condition', 'wait-condition': 'bao_wait_condition', 'wait-condition-branch': 'bao_wait_condition_branch', repeat: 'bao_repeat', 'repeat-until-image': 'bao_repeat_until_image', 'repeat-until-condition': 'bao_repeat_until_condition', 'position-compare': 'bao_position_compare',
-  };
   if (step.type === 'sequence') throw new Error('sequence cannot be rendered as a statement block');
-  const blockType = step.type === 'key-press' && step.modifiers?.length ? 'bao_key_combo' : map[step.type];
+  const blockType = blockTypeForStep(step);
   const block = workspace.newBlock(blockType); block.initSvg(); block.render();
   preserve(block, step);
+  if (writeScalarStepFields(step, (name, value) => setField(block, name, value))) return block;
   switch (step.type) {
     case 'wait-image': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs); break;
     case 'wait-image-state': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'STATE', step.state); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs); break;
@@ -373,7 +364,6 @@ function createStep(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Bloc
     case 'move-to-coordinate': setField(block, 'ASSET', COORDINATE_TARGET); setField(block, 'COORDINATE', `${step.coordinate.x},${step.coordinate.y}`); break;
     case 'drag-image': setField(block, 'SOURCE_ASSET', imageTargetValue(step.source)); setField(block, 'SOURCE_THRESHOLD', step.source.threshold); setField(block, 'SOURCE_MASK', step.source.mask ?? 'auto'); setField(block, 'TARGET_ASSET', imageTargetValue(step.target)); setField(block, 'TARGET_THRESHOLD', step.target.threshold); setField(block, 'TARGET_MASK', step.target.mask ?? 'auto'); setField(block, 'BUTTON', step.button); setField(block, 'DURATION', step.durationMs); setField(block, 'TIMEOUT', step.timeoutMs); break;
     case 'drag': setPointerTarget(block, 'SOURCE', step.source); setPointerTarget(block, 'TARGET', step.target); setField(block, 'BUTTON', step.button); setField(block, 'DURATION', step.durationMs); setField(block, 'TIMEOUT', step.timeoutMs); break;
-    case 'delay': setField(block, 'DURATION', step.durationMs); break;
     case 'key-press':
       setField(block, 'KEY', step.key);
       setField(block, 'ALT', step.modifiers?.includes('alt') ? 'TRUE' : 'FALSE');
@@ -382,11 +372,6 @@ function createStep(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Bloc
       setField(block, 'SHIFT', step.modifiers?.includes('shift') ? 'TRUE' : 'FALSE');
       break;
     case 'key-hold-until-image': setField(block, 'KEY', step.key); setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'STATE', step.state); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs); break;
-    case 'text-input': setField(block, 'TEXT', step.text); setField(block, 'INTERVAL', step.intervalMs); break;
-    case 'scroll': setField(block, 'X', step.deltaX); setField(block, 'Y', step.deltaY); break;
-    case 'navigate': setField(block, 'URL', step.url); break;
-    case 'log': setField(block, 'MESSAGE', step.message); break;
-    case 'notification': setField(block, 'TITLE', step.title); setField(block, 'BODY', step.body); break;
     case 'if-image': setField(block, 'ASSET', imageTargetValue(step.condition)); setField(block, 'THRESHOLD', step.condition.threshold); setField(block, 'MASK', step.condition.mask ?? 'auto'); setField(block, 'MODE', step.negate ? 'missing' : 'found'); connectSequence(LL, workspace, block, 'THEN', step.then); if (step.else) connectSequence(LL, workspace, block, 'ELSE', step.else); break;
     case 'if-condition': connectCondition(LL, workspace, block, 'CONDITION', step.condition); connectSequence(LL, workspace, block, 'THEN', step.then); if (step.else) connectSequence(LL, workspace, block, 'ELSE', step.else); break;
     case 'wait-condition': connectCondition(LL, workspace, block, 'CONDITION', step.condition); setField(block, 'TIMEOUT', step.timeoutMs); break;
@@ -407,7 +392,6 @@ function createStep(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Bloc
       connectSequence(LL, workspace, block, 'THEN', step.then);
       if (step.else) connectSequence(LL, workspace, block, 'ELSE', step.else);
       break;
-    case 'reload': break;
   }
   return block;
 }

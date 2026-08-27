@@ -142,64 +142,11 @@ export class UserscriptManager {
     const registration = this.views.get(wcId);
     if (!registration) return { ok: false, scripts: [], values: {} };
     const frameUrl = String(url || '');
-    const matched: SnapshotScript[] = [];
-    let sourceBytes = 0;
-    for (const script of this.scripts.values()) {
-      if (script.metadata.background) continue; // background 脚本不走 snapshotFor
-      if (!matchesUrl(script.rules, frameUrl)) continue;
-      if (script.metadata.noframes && !isMainFrame) continue;
-      const source = this.assembleScriptPayload(script);
-      if (source === undefined) continue; // require 未就绪:记录 gap 并跳过
-      sourceBytes += Buffer.byteLength(source, 'utf8');
-      if (sourceBytes > this.options.maxSourceBytesPerPage) break;
-      matched.push({
-        id: script.id,
-        runAt: script.metadata.runAt,
-        source,
-        info: {
-          name: script.metadata.name,
-          namespace: script.metadata.namespace,
-          version: script.metadata.version,
-          description: script.metadata.description,
-          grant: script.metadata.grant,
-          noframes: script.metadata.noframes,
-          rawHeader: script.metadata.rawHeader,
-        },
-      });
-    }
-
-    const resources: FrameSnapshot['resources'] = {};
-    let resourceBytes = 0;
-    for (const script of matched) {
-      const metadata = this.scripts.get(script.id)?.metadata;
-      if (!metadata || metadata.resource.length === 0) continue;
-      const scriptResources: Record<string, { text: string; url: string }> = {};
-      for (const res of metadata.resource) {
-        const text = this.requireCache?.get(res.url);
-        if (text === undefined) continue;
-        const bytes = Buffer.byteLength(text, 'utf8');
-        if (resourceBytes + bytes > this.options.maxResourceBytesPerPage) continue;
-        resourceBytes += bytes;
-        scriptResources[res.name] = {
-          text,
-          url: `data:text/plain;charset=utf-8;base64,${Buffer.from(text, 'utf8').toString('base64')}`,
-        };
-      }
-      if (Object.keys(scriptResources).length > 0) resources[script.id] = scriptResources;
-    }
-
-    const snapshot = this.values.snapshot(matched.map((script) => script.id), {
-      maxBytes: this.options.maxSnapshotBytes,
-    });
-    return {
-      ok: true,
-      mode: registration.mode,
-      generation: registration.generation,
-      token: registration.token,
-      scripts: matched,
-      values: snapshot.values,
-      resources,
-    };
+    return this.buildSnapshot(registration, Array.from(this.scripts.values()).filter((script) => (
+      !script.metadata.background
+      && matchesUrl(script.rules, frameUrl)
+      && (!script.metadata.noframes || isMainFrame)
+    )));
   }
 
   // 抽取 require/resource 拼接到源码的公共逻辑。
@@ -234,11 +181,16 @@ export class UserscriptManager {
     if (!registration || registration.kind !== 'background') {
       return { ok: false, scripts: [], values: {} };
     }
+    return this.buildSnapshot(registration, Array.from(this.scripts.values()).filter((script) => (
+      script.metadata.background
+      && (!registration.backgroundScriptId || script.id === registration.backgroundScriptId)
+    )));
+  }
+
+  private buildSnapshot(registration: ViewRegistration, scripts: IndexedScript[]): FrameSnapshot {
     const matched: SnapshotScript[] = [];
     let sourceBytes = 0;
-    for (const script of this.scripts.values()) {
-      if (!script.metadata.background) continue;
-      if (registration.backgroundScriptId && script.id !== registration.backgroundScriptId) continue;
+    for (const script of scripts) {
       const source = this.assembleScriptPayload(script);
       if (source === undefined) continue; // require 未就绪:记录 gap 并跳过
       sourceBytes += Buffer.byteLength(source, 'utf8');
@@ -404,6 +356,10 @@ export class UserscriptManager {
 
   getValuesFor(wcId: number, scriptId: string): Record<string, GMSerializable> {
     if (!this.views.has(wcId)) return {};
+    return this.readScriptValues(scriptId);
+  }
+
+  private readScriptValues(scriptId: string): Record<string, GMSerializable> {
     const result: Record<string, GMSerializable> = {};
     for (const key of this.values.list(scriptId)) {
       const value = this.values.get(scriptId, key);
@@ -414,12 +370,7 @@ export class UserscriptManager {
 
   // --- 管理侧值访问(无 view 依赖;经管理页 UI 使用) -------------------------
   listScriptValues(scriptId: string): Record<string, GMSerializable> {
-    const result: Record<string, GMSerializable> = {};
-    for (const key of this.values.list(scriptId)) {
-      const value = this.values.get(scriptId, key);
-      if (value !== undefined) result[key] = value;
-    }
-    return result;
+    return this.readScriptValues(scriptId);
   }
 
   getScriptValue(scriptId: string, key: string): GMSerializable | undefined {

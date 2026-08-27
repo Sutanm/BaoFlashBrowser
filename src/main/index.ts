@@ -145,17 +145,6 @@ registerUserscriptsIPC();
       initDownloadManager();
      });
 
-    const win = getMainWindow();
-    win?.on('resize', () => {
-      // Renderer recalculates and sends tab:setBounds
-    });
-
-    if (process.platform === 'win32') {
-      win?.on('move', () => {
-        // Renderer recalculates and sends tab:setBounds
-      });
-    }
-
     app.on('web-contents-created', (_event, wc) => {
       wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
         handleWebviewBeforeInputEvent(event, input);

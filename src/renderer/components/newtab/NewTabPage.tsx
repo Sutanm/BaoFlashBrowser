@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '@shared/provenance';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
+import { getHost } from '@renderer/services/url-utils';
 
 interface NewTabPageProps {
   onNavigate: (url: string) => void;
@@ -18,10 +19,6 @@ const QUICK_LINKS = [
   { title: 'GitHub', url: 'https://github.com/', icon: 'G', bg: '#333' },
   { title: 'B站', url: 'https://www.bilibili.com/', icon: 'B', bg: '#fb7299' },
 ];
-
-function getHost(url: string): string {
-  try { return new URL(url).hostname; } catch { return url; }
-}
 
 const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
   const { LL } = useI18nContext();

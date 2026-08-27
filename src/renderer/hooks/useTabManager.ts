@@ -10,15 +10,10 @@ import { createTabSession, createTabSessionSignature, selectCrashRecoverySession
 import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
 import { isTabEligibleForSuspension } from '../services/tab-suspension';
 import { PendingHistoryRegistry } from '../services/pending-history';
+import { AUTOMATION_URL, NEWTAB_URL, USERSCRIPTS_URL, isNewtabUrl } from '../services/url-utils';
+import { createInitialTabState } from '../services/tab-initial-state';
 
-const NEWTAB_URL = 'about:newtab';
-const USERSCRIPTS_URL = 'about:userscripts';
-const AUTOMATION_URL = 'about:automation';
 const INACTIVE_TAB_SUSPEND_MS = 10 * 60 * 1000;
-
-function isNewtabUrl(url: string): boolean {
-  return !url || url === 'about:blank' || url === NEWTAB_URL || url.startsWith('data:');
-}
 
 export interface UseTabManagerReturn {
   tabs: TabState[];
@@ -107,36 +102,19 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         return;
       }
     }
-    let engineMode = settings.flashEngineMode;
-    if (!isNewtabUrl(initialUrl)) {
-      try {
-        const host = new URL(initialUrl).hostname.toLowerCase();
-        const rule = settings.flashEngineRules.find((item) => {
-          const domain = item.domain.trim().toLowerCase().replace(/^\./, '');
-          return domain.length > 0 && (host === domain || host.endsWith('.' + domain));
-        });
-        if (rule) engineMode = rule.mode;
-      } catch { /* normalized navigation will handle invalid input */ }
-    }
-    const ruffleMode: 'ppapi' | 'ruffle' = engineMode === 'prefer-ruffle' ? 'ruffle' : 'ppapi';
-    const tab: TabState = {
-      id, url: initialUrl,
-      title: initialUrl === USERSCRIPTS_URL
-        ? LLRef.current.tab.userscripts()
-        : initialUrl === AUTOMATION_URL ? LLRef.current.tab.automation() : LLRef.current.tab.newTab(),
-      zoomFactor: 1, isLoading: false, isAudible: false, isMuted: false,
-      canGoBack: false, canGoForward: false, createdAt: Date.now(),
-      ruffleMode,
-      crashed: false,
-    };
+    const tab = createInitialTabState(id, initialUrl, settings, {
+      newTab: LLRef.current.tab.newTab(),
+      userscripts: LLRef.current.tab.userscripts(),
+      automation: LLRef.current.tab.automation(),
+    });
     setTabs((prev) => [...prev, tab]);
-    const useRuffle = ruffleMode === 'ruffle';
+    const useRuffle = tab.ruffleMode === 'ruffle';
     window.electronAPI.tab.create(id, initialUrl, {
       enabled: useRuffle,
       source: settings.ruffleSource,
     });
     switchTab(id);
-  }, [setTabs, switchTab, settings.flashEngineMode, settings.flashEngineRules, settings.homepage, settings.ruffleSource]);
+  }, [setTabs, switchTab, settings, settings.homepage, settings.ruffleSource]);
 
   const historyTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingHistoryRef = useRef(new PendingHistoryRegistry());

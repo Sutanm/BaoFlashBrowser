@@ -1,12 +1,17 @@
 import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const logMock = vi.hoisted(() => ({
+  debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+}));
+
 vi.mock('../src/main/modules/password-store', () => ({
   getMetaForHost: () => [], isAutoCaptureEnabled: () => true, isCaptureExcluded: () => false,
 }));
 vi.mock('../src/main/modules/window', () => ({ getMainWindow: () => null }));
+vi.mock('electron-log', () => ({ default: logMock }));
 
-import { getCaptureContextIds, setupCapture, teardownCapture } from '../src/main/modules/password-capture';
+import { addBoundedCaptureKey, getCaptureContextIds, setupCapture, teardownCapture } from '../src/main/modules/password-capture';
 
 class FakeDebugger extends EventEmitter {
   attached = false;
@@ -36,7 +41,10 @@ function fakeWebContents(id = 77) {
 }
 
 describe('password capture lifecycle', () => {
-  beforeEach(() => vi.useFakeTimers());
+  beforeEach(() => {
+    vi.useFakeTimers();
+    logMock.debug.mockClear();
+  });
 
   it('removes its exact listener, state and retry timer across repeated setup/teardown', async () => {
     const wc = fakeWebContents();
@@ -59,10 +67,22 @@ describe('password capture lifecycle', () => {
     wc.debugger.emit('message', {}, 'Runtime.executionContextCreated', { context: { id: 2 } });
     await Promise.resolve(); await Promise.resolve();
     expect(wc.debugger.evaluateContexts).toEqual([1, 2]);
+    expect(logMock.debug).toHaveBeenCalledWith(
+      '[PasswordCapture] context injection failed; retry scheduled',
+      { contextId: 2, error: 'temporary failure' },
+    );
     await vi.advanceTimersByTimeAsync(4000);
     expect(wc.debugger.evaluateContexts).toEqual([1, 2, 2]);
     wc.debugger.emit('message', {}, 'Runtime.executionContextsCleared', {});
     expect(getCaptureContextIds(wc as never)).toEqual([]);
     teardownCapture(wc as never);
+  });
+
+  it('keeps captured-key deduplication at the strict configured bound', () => {
+    const keys = new Set(['one', 'two']);
+    addBoundedCaptureKey(keys, 'three', 2);
+    expect([...keys]).toEqual(['two', 'three']);
+    addBoundedCaptureKey(keys, 'three', 2);
+    expect([...keys]).toEqual(['two', 'three']);
   });
 });

@@ -5,6 +5,7 @@ import { getMainWindow } from './window';
 import { getMetaForHost, isAutoCaptureEnabled, isCaptureExcluded } from './password-store';
 import { credentialOrigin, redactUrlForLog } from '@shared/utils/url-privacy';
 import { acquireCdpLease, type CdpLease } from './cdp-lease';
+import { extractCredentialParams, extractCredentialPayload } from './password-capture-params';
 
 interface CaptureState {
   wc: WebContents;
@@ -15,8 +16,16 @@ interface CaptureState {
   retryContexts: Set<number>;
   messageListener: (_event: Electron.Event, method: string, params: any) => void;
   capturedSet: Set<string>;
-  pendingCredentials: Map<string, { host: string; username: string; password: string; origin: string; title: string }>;
   cdpLease: CdpLease;
+}
+
+export function addBoundedCaptureKey(keys: Set<string>, key: string, maxSize = 200): void {
+  if (maxSize <= 0) return;
+  if (!keys.has(key) && keys.size >= maxSize) {
+    const oldest = keys.values().next().value;
+    if (oldest) keys.delete(oldest);
+  }
+  keys.add(key);
 }
 
 const captures = new Map<number, CaptureState>();
@@ -66,6 +75,8 @@ export const CAPTURE_SCRIPT = `
   function _baopEmit(payload){try{window.__baopReport(JSON.stringify(payload));}catch(e){}}
   _baopEmit({_type:'baop_diag',msg:'script loaded host='+location.hostname});
   var _rawUser='',_rawPass='';
+  var extractCredentialParams = (${extractCredentialParams.toString()});
+  var extractCredentialPayload = (${extractCredentialPayload.toString()});
   function findUserInput(container) {
     var s=['input[type="text"]','input[type="email"]','input[type="tel"]','input[name*="user"]','input[name*="login"]','input[name*="account"]','input[name*="username"]','input[name*="name"]','input[id*="user"]','input[id*="login"]','input[id*="name"]','input[autocomplete="username"]'];
     for(var i=0;i<s.length;i++){var e=container.querySelector(s[i]);if(e&&e.value&&e.type!=='password'&&e.type!=='hidden')return e;}
@@ -134,29 +145,10 @@ export const CAPTURE_SCRIPT = `
         try { s = JSON.stringify(body); } catch(e) {}
       }
       if (!s || s.length < 2) return;
-      var lower = s.toLowerCase();
-      var pw = null, user = null;
-      // 尝试 URL-encoded form: password=xxx&username=yyy
-      var m = lower.match(/password=([^&]+)/);
-      if (m) { try { pw = decodeURIComponent(m[1]); } catch(e) { pw = m[1]; } }
-      var m2 = lower.match(/(username|user|login|account|acct|name)=([^&]+)/);
-      if (m2) { try { user = decodeURIComponent(m2[2]); } catch(e) { user = m2[2]; } }
-      // 尝试 JSON: {"password":"xxx","username":"yyy"}
-      if (!pw) {
-        try {
-          var j = JSON.parse(s);
-          if (j && typeof j === 'object') {
-            if (j.password) pw = String(j.password);
-            if (j.username) user = String(j.username);
-            else if (j.user) user = String(j.user);
-            else if (j.login) user = String(j.login);
-            else if (j.account) user = String(j.account);
-          }
-        } catch(e) {}
-      }
-      if (!pw || pw.length < 2) return;
-      if (!user) user = _rawUser || '';
-      _baopEmit({_type:'baop_capture',user:user||'',pass:pw,host:location.hostname,origin:location.href,title:document.title,source:src});
+      var parsed = extractCredentialPayload(s);
+      if (!parsed) return;
+      var user = parsed.username || _rawUser || '';
+      _baopEmit({_type:'baop_capture',user:user,pass:parsed.password,host:location.hostname,origin:location.href,title:document.title,source:src});
       _rawPass='';_rawUser='';
     } catch(e) {}
   }
@@ -170,11 +162,7 @@ export const CAPTURE_SCRIPT = `
         if (init && init.body) tryReportFromBody(init.body, 'fetch');
         else if (typeof input === 'string' && _rawPass) {
           // 无 body 但有原始密码（query string 场景）
-          var lower = input.toLowerCase();
-          if (lower.indexOf('password=') >= 0 || lower.indexOf('pwd=') >= 0) {
-            var m = lower.match(/password=([^&]+)/) || lower.match(/pwd=([^&]+)/);
-            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'fetch-query'}); _rawPass='';_rawUser=''; } } catch(e) {} }
-          }
+          tryReportFromUrl(input, 'fetch-query');
         }
       } catch(e) {}
       return _origFetch.apply(this, arguments);
@@ -194,11 +182,7 @@ export const CAPTURE_SCRIPT = `
       try {
         if (body) tryReportFromBody(body, 'xhr');
         else if (this.__baop_url && _rawPass) {
-          var lower = String(this.__baop_url).toLowerCase();
-          if (lower.indexOf('password=') >= 0 || lower.indexOf('pwd=') >= 0) {
-            var m = lower.match(/password=([^&]+)/) || lower.match(/pwd=([^&]+)/);
-            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'xhr-query'}); _rawPass='';_rawUser=''; } } catch(e) {} }
-          }
+          tryReportFromUrl(this.__baop_url, 'xhr-query');
         }
       } catch(e) {}
       return _origSend.apply(this, arguments);
@@ -230,11 +214,7 @@ export const CAPTURE_SCRIPT = `
       try {
         if (data) tryReportFromBody(data, 'beacon');
         else if (_rawPass && url) {
-          var lower = String(url).toLowerCase();
-          if (lower.indexOf('password=') >= 0 || lower.indexOf('pwd=') >= 0) {
-            var m = lower.match(/password=([^&]+)/) || lower.match(/pwd=([^&]+)/);
-            if (m) { try { var p = decodeURIComponent(m[1]); if (p.length>=2) { _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:p,host:location.hostname,origin:location.href,title:document.title,source:'beacon-query'}); _rawPass='';_rawUser=''; } } catch(e) {} }
-          }
+          tryReportFromUrl(url, 'beacon-query');
         }
       } catch(e) {}
       return _origBeacon.apply(this, arguments);
@@ -269,25 +249,9 @@ export const CAPTURE_SCRIPT = `
   function tryReportFromUrl(urlStr, src) {
     try {
       if (!urlStr || urlStr.length < 8 || !_rawPass) return;
-      var lower = String(urlStr).toLowerCase();
-      if (lower.indexOf('password=') < 0 && lower.indexOf('pwd=') < 0 && lower.indexOf('pass=') < 0) return;
-      // 用 ? 和 & 分割，取 query 部分
-      var qIdx = String(urlStr).indexOf('?');
-      var hashIdx = String(urlStr).indexOf('#');
-      var queryPart = '';
-      if (qIdx >= 0) { queryPart = hashIdx > qIdx ? String(urlStr).slice(qIdx+1, hashIdx) : String(urlStr).slice(qIdx+1); }
-      if (!queryPart) return;
-      var pairs = queryPart.split('&');
-      var pw = '', user = '';
-      for (var i = 0; i < pairs.length; i++) {
-        var eq = pairs[i].indexOf('=');
-        if (eq < 0) continue;
-        var k = decodeURIComponent(pairs[i].slice(0,eq)).toLowerCase();
-        var v = decodeURIComponent(pairs[i].slice(eq+1));
-        if (k === 'password' || k === 'pwd' || k === 'pass') { if (!pw) pw = v; }
-        if (k === 'username' || k === 'user' || k === 'login' || k === 'account' || k === 'name') { if (!user) user = v; }
-      }
-      if (!pw || pw.length < 2) return;
+      var parsed = extractCredentialParams(String(urlStr));
+      if (!parsed) return;
+      var pw = parsed.password, user = parsed.username;
       if (!user) user = _rawUser || '';
       _baopEmit({_type:'baop_diag',msg:'url trigger src='+src+' pwLen='+pw.length+' host='+location.hostname});
       _baopEmit({_type:'baop_capture',user:user||'',pass:pw,host:location.hostname,origin:location.href,title:document.title,source:src});
@@ -363,7 +327,11 @@ async function injectContext(state: CaptureState, contextId: number): Promise<vo
       state.injectedContexts.add(contextId);
       state.retryContexts.delete(contextId);
     }
-  } catch {
+  } catch (error) {
+    log.debug('[PasswordCapture] context injection failed; retry scheduled', {
+      contextId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     if (!state.destroyed && state.contexts.has(contextId) && state.wc.debugger.isAttached()) {
       state.retryContexts.add(contextId);
       scheduleFailedInjectionRetry(state, 4000);
@@ -426,7 +394,6 @@ export function setupCapture(wc: WebContents): void {
     retryContexts: new Set(),
     messageListener: () => {},
     capturedSet: new Set(),
-    pendingCredentials: globalPendingCredentials as any,
     cdpLease,
   };
   log.info('[PasswordCapture] attached, wc.id=' + wc.id);
@@ -469,8 +436,7 @@ export function setupCapture(wc: WebContents): void {
           log.info('[PasswordCapture] skip already-shown-toast host=' + data.host);
         }
 
-        if (state.capturedSet.size > 200) { const f = state.capturedSet.values().next().value; if (f) state.capturedSet.delete(f); }
-        if (!skipToast) state.capturedSet.add(key);
+        if (!skipToast) addBoundedCaptureKey(state.capturedSet, key);
         const captureId = 'cap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
         if (!skipToast) {
           globalPendingCredentials.set(captureId, {
@@ -520,7 +486,9 @@ export function setupCapture(wc: WebContents): void {
   wc.debugger.sendCommand('Runtime.addBinding', { name: '__baopReport' }).then(() =>
     wc.debugger.sendCommand('Runtime.enable')).then(() => {
     log.info('[PasswordCapture] Runtime.enable OK, injecting main frame');
-    wc.debugger.sendCommand('Runtime.evaluate', { expression: CAPTURE_SCRIPT, awaitPromise: false }).catch(() => {});
+    wc.debugger.sendCommand('Runtime.evaluate', { expression: CAPTURE_SCRIPT, awaitPromise: false }).catch((error) => {
+      log.debug('[PasswordCapture] main-frame injection failed', error instanceof Error ? error.message : String(error));
+    });
   }).catch((e: any) => {
     log.warn('[PasswordCapture] Runtime.enable failed:', e?.message);
   });

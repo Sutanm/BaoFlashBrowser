@@ -6,6 +6,7 @@ import type { DownloadEngine } from '@shared/types/downloads';
 import type { FlashPluginChannel } from '@shared/types/flash';
 import { ArrowLeft, ChevronRight, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
 import { requiresMainConfigRestart } from '@renderer/services/settings-restart';
+import ToggleSwitch from '../controls/ToggleSwitch';
 
 interface SettingsPanelProps {
   onOpenUrl: (url: string, newTab: boolean) => void;
@@ -272,7 +273,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         <strong>{activeSectionTitle}</strong>
       </div>
       <div className="settings-grid">
-      <div className={`panel-card settings-section-card${activeSection !== 'general' ? ' settings-section-hidden' : ''}`}>
+      {activeSection === 'general' && (
+      <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.general()}</div>
         <div className="field">
           <div className="field-label">{LL.settings.homepage()}</div>
@@ -290,30 +292,22 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
             <span className="field-label" style={{ display: 'block' }}>{LL.settings.restoreSession()}</span>
             <span className="field-hint">{LL.settings.restoreSessionHint()}</span>
           </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={form.restoreSession}
-            className={`toggle-switch ${form.restoreSession ? 'on' : ''}`}
-            onClick={() => handleChange('restoreSession', !form.restoreSession)}
-          >
-            <span className="toggle-knob" />
-          </button>
+          <ToggleSwitch
+            checked={form.restoreSession}
+            label={LL.settings.restoreSession()}
+            onChange={(checked) => handleChange('restoreSession', checked)}
+          />
         </div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>
             <span className="field-label" style={{ display: 'block' }}>{LL.settings.suspendInactiveTabs()}</span>
             <span className="field-hint">{LL.settings.suspendInactiveTabsHint()}</span>
           </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={form.suspendInactiveTabs}
-            className={`toggle-switch ${form.suspendInactiveTabs ? 'on' : ''}`}
-            onClick={() => handleChange('suspendInactiveTabs', !form.suspendInactiveTabs)}
-          >
-            <span className="toggle-knob" />
-          </button>
+          <ToggleSwitch
+            checked={form.suspendInactiveTabs}
+            label={LL.settings.suspendInactiveTabs()}
+            onChange={(checked) => handleChange('suspendInactiveTabs', checked)}
+          />
         </div>
         <div className="field">
           <div className="field-label">{LL.settings.searchEngine()}</div>
@@ -331,8 +325,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           </select>
         </div>
       </div>
+      )}
 
-      <div className={`panel-card settings-section-card${activeSection !== 'engine' ? ' settings-section-hidden' : ''}`}>
+      {activeSection === 'engine' && (
+      <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.ruffle.flash()}</div>
         <div className="field">
           <div className="field-label">{LL.settings.flashPluginChannel()}</div>
@@ -366,20 +362,18 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         </div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{LL.settings.lowEndMode()}</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={mainForm.lowEndMode}
-            className={`toggle-switch ${mainForm.lowEndMode ? 'on' : ''}`}
-            onClick={() => handleMainChange('lowEndMode', !mainForm.lowEndMode)}
-          >
-            <span className="toggle-knob" />
-          </button>
+          <ToggleSwitch
+            checked={mainForm.lowEndMode}
+            label={LL.settings.lowEndMode()}
+            onChange={(checked) => handleMainChange('lowEndMode', checked)}
+          />
         </div>
         <div className="field-hint">{LL.settings.lowEndModeHint()}</div>
       </div>
+      )}
 
-      <div className={`panel-card settings-section-card${activeSection !== 'advanced' ? ' settings-section-hidden' : ''}`}>
+      {activeSection === 'advanced' && (
+      <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.userscriptCapacity.title()}</div>
         <div className="field-hint" style={{ marginBottom: 8 }}>{LL.settings.userscriptCapacity.hint()}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
@@ -407,8 +401,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           ))}
         </div>
       </div>
+      )}
 
-      <div className={`panel-card settings-section-card${activeSection !== 'engine' ? ' settings-section-hidden' : ''}`}>
+      {activeSection === 'engine' && (
+      <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.ruffle()}</div>
         <div className="field">
           <div className="field-label">{LL.settings.defaultEngine()}</div>
@@ -435,8 +431,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         </div>
         <div className="field-hint">{LL.settings.ruffleHint()}</div>
       </div>
+      )}
 
-      <div className={`panel-card settings-section-card${activeSection !== 'downloads' ? ' settings-section-hidden' : ''}`}>
+      {activeSection === 'downloads' && (
+      <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.download()}</div>
         <div className="field">
           <div className="field-label">{LL.settings.downloadEngine()}</div>
@@ -450,8 +448,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           </select>
         </div>
       </div>
+      )}
 
-      <div className={`panel-card settings-section-card${activeSection !== 'downloads' ? ' settings-section-hidden' : ''}`}>
+      {activeSection === 'downloads' && (
+      <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.screenshot.dir()}</div>
         <div className="field">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -468,23 +468,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           <div className="field-hint">{LL.settings.screenshot.captureHint()}</div>
         </div>
       </div>
+      )}
 
-      <div className={`panel-card settings-section-card${activeSection !== 'privacy' ? ' settings-section-hidden' : ''}`}>
+      {activeSection === 'privacy' && (
+      <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.sidebar.passwords()}</div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>
             <span className="field-label" style={{ display: 'block' }}>{LL.password.autoCapture()}</span>
             <span className="field-hint">{LL.password.autoCaptureHint()}</span>
           </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={autoCapture}
-            className={`toggle-switch ${autoCapture ? 'on' : ''}`}
-            onClick={() => handleAutoCaptureChange(!autoCapture)}
-          >
-            <span className="toggle-knob" />
-          </button>
+          <ToggleSwitch
+            checked={autoCapture}
+            label={LL.password.autoCapture()}
+            onChange={(checked) => void handleAutoCaptureChange(checked)}
+          />
         </div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>
@@ -496,15 +494,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
               </span>
             )}
           </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={autoFill}
-            className={`toggle-switch ${autoFill ? 'on' : ''}`}
-            onClick={() => handleAutoFillChange(!autoFill)}
-          >
-            <span className="toggle-knob" />
-          </button>
+          <ToggleSwitch
+            checked={autoFill}
+            label={LL.password.autoFill()}
+            onChange={(checked) => void handleAutoFillChange(checked)}
+          />
         </div>
         <div className="field">
           <div className="field-label">{LL.password.excludedSites()}</div>
@@ -540,8 +534,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           {resetConfirming ? LL.password.resetConfirm() : LL.password.resetBtn()}
         </button>
       </div>
+      )}
 
-      <div className={`panel-card settings-section-card${activeSection !== 'advanced' ? ' settings-section-hidden' : ''}`}>
+      {activeSection === 'advanced' && (
+      <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.diagnostics()}</div>
         <button
           onClick={handleOpenSwf}
@@ -565,6 +561,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           {exportingDiagnostics ? LL.settings.diagnosticsExporting() : LL.settings.diagnosticsExport()}
         </button>
       </div>
+      )}
       </div>
 
       <button

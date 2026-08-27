@@ -3,7 +3,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decideCapture, getScreenshotDir, type DecideInput } from '../src/main/modules/screenshot';
+import {
+  MAX_SCREENSHOT_DATA_PIXELS,
+  MAX_SCREENSHOT_DATA_PNG_BYTES,
+  decideCapture,
+  getScreenshotDir,
+  screenshotDataLimitError,
+  type DecideInput,
+} from '../src/main/modules/screenshot';
 
 const mockState = vi.hoisted(() => ({ screenshotDir: '', pictures: '' }));
 
@@ -48,6 +55,22 @@ describe('capture policy decisions', () => {
 
   it('allows inactive tab once hidden capture is enabled', () => {
     expect(decideCapture({ ...base, isActive: false, minimized: false, hiddenCaptureEnabled: true })).toEqual({ action: 'capture' });
+  });
+});
+
+describe('screenshot data budget', () => {
+  it('accepts screenshots within both limits', () => {
+    expect(screenshotDataLimitError(1920, 1080, 2 * 1024 * 1024)).toBeNull();
+  });
+
+  it('rejects an oversized pixel surface before base64 encoding', () => {
+    const result = screenshotDataLimitError(MAX_SCREENSHOT_DATA_PIXELS + 1, 1);
+    expect(result?.code).toBe('DATA_TOO_LARGE');
+  });
+
+  it('rejects an oversized encoded PNG', () => {
+    const result = screenshotDataLimitError(1920, 1080, MAX_SCREENSHOT_DATA_PNG_BYTES + 1);
+    expect(result?.code).toBe('DATA_TOO_LARGE');
   });
 });
 

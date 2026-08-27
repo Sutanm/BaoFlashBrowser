@@ -17,7 +17,6 @@ interface TopBarProps {
   isLoading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
-  isDark: boolean;
   flashEngineMode: FlashEngineMode;
   ruffleSource: 'bundled' | 'cdn';
   onSelectTab: (tabId: string) => void;
@@ -45,7 +44,6 @@ const TopBar: React.FC<TopBarProps> = ({
   isLoading,
   canGoBack,
   canGoForward,
-  isDark: _isDark,
   flashEngineMode,
   ruffleSource,
   onSelectTab,

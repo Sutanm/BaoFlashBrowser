@@ -57,6 +57,15 @@ const store = new Store<PasswordStoreSchema>({
 
 let _dekFromMaster: Buffer | null = null;
 let _dekForAutoFill: Buffer | null = null;
+const MIN_PASSWORD_LENGTH = 8;
+
+export function validatePasswordStrength(password: string): string | null {
+  if (!password || password.length < MIN_PASSWORD_LENGTH) return `at least ${MIN_PASSWORD_LENGTH} chars`;
+  if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
+    return 'must contain uppercase, lowercase and digit';
+  }
+  return null;
+}
 
 const autoFillKeyStore = new Store<{ key: string | null }>({
   name: 'password-autofill-key',
@@ -127,13 +136,8 @@ export async function init(): Promise<void> {
 }
 
 export async function setupMaster(password: string): Promise<boolean> {
-  const MIN_PASSWORD_LENGTH = 8;
-  if (!password || password.length < MIN_PASSWORD_LENGTH) {
-    throw new Error(`Master password at least ${MIN_PASSWORD_LENGTH} chars`);
-  }
-  if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
-    throw new Error('Master password must contain uppercase, lowercase and digit');
-  }
+  const invalidReason = validatePasswordStrength(password);
+  if (invalidReason) throw new Error(`Master password ${invalidReason}`);
   if (isInitialized()) throw new Error('Password store already initialized');
   const dek = crypto.randomBytes(KEY_LEN);
   const salt = crypto.randomBytes(SALT_LEN);
@@ -253,7 +257,9 @@ export function updateEntry(
 }
 
 export function deleteEntry(id: string): boolean {
-  const entries = (store.get('entries') || []).filter((e) => e.id !== id);
+  const current = store.get('entries') || [];
+  const entries = current.filter((e) => e.id !== id);
+  if (entries.length === current.length) return false;
   store.set('entries', entries);
   return true;
 }
@@ -327,13 +333,8 @@ export function getMetaForHost(host: string): { id: string; username: string }[]
 }
 
 export async function changeMaster(oldPwd: string, newPwd: string): Promise<boolean> {
-  const MIN_PASSWORD_LENGTH = 8;
-  if (!newPwd || newPwd.length < MIN_PASSWORD_LENGTH) {
-    throw new Error(`New master password at least ${MIN_PASSWORD_LENGTH} chars`);
-  }
-  if (!/[A-Z]/.test(newPwd) || !/[a-z]/.test(newPwd) || !/\d/.test(newPwd)) {
-    throw new Error('New master password must contain uppercase, lowercase and digit');
-  }
+  const invalidReason = validatePasswordStrength(newPwd);
+  if (invalidReason) throw new Error(`New master password ${invalidReason}`);
   if (!await unlockWithMaster(oldPwd)) return false;
   const dek = _dekFromMaster!;
   const salt = crypto.randomBytes(SALT_LEN);

@@ -11,7 +11,8 @@ describe('password capture page transport', () => {
   it('uses the CDP binding and never writes a captured password to console.log', () => {
     vi.useFakeTimers();
     const report = vi.fn();
-    Object.assign(window, { __baopReport: report });
+    const fetch = vi.fn().mockResolvedValue(undefined);
+    Object.assign(window, { __baopReport: report, fetch });
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     document.body.innerHTML = '<form><input name="username" value="bao"><input type="password" value="secret"></form>';
 
@@ -20,6 +21,12 @@ describe('password capture page transport', () => {
     const payloads = report.mock.calls.map(([value]) => JSON.parse(String(value)));
     expect(payloads).toContainEqual(expect.objectContaining({ _type: 'baop_capture', user: 'bao', pass: 'secret' }));
     expect(consoleSpy).not.toHaveBeenCalled();
+
+    window.fetch('/login', { method: 'POST', body: 'username=Bao+User&password=SeCrEt%21' });
+    const fetchPayloads = report.mock.calls.map(([value]) => JSON.parse(String(value)));
+    expect(fetchPayloads).toContainEqual(expect.objectContaining({
+      _type: 'baop_capture', user: 'Bao User', pass: 'SeCrEt!', source: 'fetch',
+    }));
 
     consoleSpy.mockRestore();
     vi.useRealTimers();

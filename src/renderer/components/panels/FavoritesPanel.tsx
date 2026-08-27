@@ -3,16 +3,13 @@ import { X as XIcon } from 'lucide-react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useDataStore } from '@renderer/store/useDataStore';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
+import { getHost } from '@renderer/services/url-utils';
 
 interface FavoritesPanelProps {
   currentUrl: string;
   currentTitle: string;
   currentFavicon?: string;
   onOpenUrl: (url: string, newTab: boolean) => void;
-}
-
-function getHost(url: string): string {
-  try { return new URL(url).hostname; } catch { return url; }
 }
 
 function getFaviconUrl(favicon: string | undefined, url: string): string {

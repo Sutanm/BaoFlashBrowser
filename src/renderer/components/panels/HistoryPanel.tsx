@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { useDataStore } from '@renderer/store/useDataStore';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { HistoryEntry } from '@shared/types/history';
+import { getHost } from '@renderer/services/url-utils';
 
 interface HistoryPanelProps {
   currentUrl: string;
@@ -11,10 +12,6 @@ interface HistoryPanelProps {
 }
 
 type DateGroup = 'today' | 'yesterday' | 'thisWeek' | 'older';
-
-function getHost(url: string): string {
-  try { return new URL(url).hostname; } catch { return url; }
-}
 
 function getDateGroup(ts: number): DateGroup {
   const t = dayjs(ts);

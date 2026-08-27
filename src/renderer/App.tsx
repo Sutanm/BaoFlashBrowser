@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import TopBar from './components/layout/TopBar';
 import DrawerSidebar from './components/layout/DrawerSidebar';
 import { isSidebarPanel, SIDEBAR_WIDTH } from './components/layout/DrawerSidebar';
@@ -25,7 +25,7 @@ const AutomationPage = lazy(() => import('./components/automation/AutomationPage
 
 const AppInner: React.FC = () => {
   const { LL, setLocale } = useI18nContext();
-  const { theme } = useTheme();
+  useTheme();
   const favorites = useDataStore((s) => s.favorites);
   const activeDownloadCount = useDataStore((s) => s.downloads.filter((d) => d.state === 'progressing' || d.state === 'paused').length);
   const settings = useDataStore((s) => s.settings);
@@ -189,12 +189,35 @@ const AppInner: React.FC = () => {
     else calcBoundsRef.current(false);
   }, [browserViewHidden]);
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     if (!activeTabId) return;
     const newMuted = !activeTab?.isMuted;
     window.electronAPI.tab.mute(activeTabId, newMuted);
     updateTab(activeTabId, { isMuted: newMuted });
-  };
+  }, [activeTab?.isMuted, activeTabId, updateTab]);
+
+  const handleBack = useCallback(() => { if (activeTabId) window.electronAPI.tab.goBack(activeTabId); }, [activeTabId]);
+  const handleForward = useCallback(() => { if (activeTabId) window.electronAPI.tab.goForward(activeTabId); }, [activeTabId]);
+  const handleStop = useCallback(() => { if (activeTabId) window.electronAPI.tab.stop(activeTabId); }, [activeTabId]);
+  const handleReload = useCallback(() => { if (activeTabId) window.electronAPI.tab.reload(activeTabId); }, [activeTabId]);
+  const isBookmarked = useMemo(() => Boolean(
+    activeTab?.url && activeTab.url !== 'about:newtab' && favorites.some((favorite) => favorite.url === activeTab.url),
+  ), [activeTab?.url, favorites]);
+  const handleToggleBookmark = useCallback(() => {
+    if (!activeTab?.url || activeTab.url === 'about:newtab') return;
+    const url = activeTab.url;
+    const rawTitle = activeTab.title || url;
+    const title = /^https?:\/\//.test(rawTitle) ? (() => { try { return new URL(rawTitle).hostname; } catch { return rawTitle; } })() : rawTitle;
+    const exists = favorites.some((favorite) => favorite.url === url);
+    setFavorites((prev) => exists
+      ? prev.filter((favorite) => favorite.url !== url)
+      : [{ url, title, favicon: activeTab.favicon, addedAt: Date.now() } as BookmarkEntry, ...prev]);
+    pushToast({
+      key: `bookmark:${url}`,
+      message: exists ? LL.bookmark.removed({ title }) : LL.bookmark.added({ title }),
+      type: exists ? 'info' : 'success',
+    });
+  }, [LL, activeTab, favorites, pushToast, setFavorites]);
 
   return (
     <div className="h-full flex flex-col relative" style={{ background: 'var(--bg-primary)' }}>
@@ -206,7 +229,6 @@ const AppInner: React.FC = () => {
         isLoading={activeTab?.isLoading || false}
         canGoBack={activeTab?.canGoBack || false}
         canGoForward={activeTab?.canGoForward || false}
-        isDark={theme === 'dark'}
         flashEngineMode={ruffleMode === 'ruffle' ? 'prefer-ruffle' : 'auto'}
         ruffleSource={settings.ruffleSource}
         sidebarOpen={sidebarOpen}
@@ -217,27 +239,13 @@ const AppInner: React.FC = () => {
         onCloseTab={closeTab}
         onNewTab={() => createTab()}
         onNavigate={handleNavigate}
-        onBack={() => { if (activeTabId) window.electronAPI.tab.goBack(activeTabId); }}
-        onForward={() => { if (activeTabId) window.electronAPI.tab.goForward(activeTabId); }}
-        onStop={() => { if (activeTabId) window.electronAPI.tab.stop(activeTabId); }}
-        onReload={() => { if (activeTabId) window.electronAPI.tab.reload(activeTabId); }}
+        onBack={handleBack}
+        onForward={handleForward}
+        onStop={handleStop}
+        onReload={handleReload}
         onToggleRuffle={handleToggleRuffle}
-        onToggleBookmark={() => {
-          if (!activeTab?.url || activeTab.url === 'about:newtab') return;
-          const url = activeTab.url;
-          const rawTitle = activeTab.title || url;
-          const title = /^https?:\/\//.test(rawTitle) ? (() => { try { return new URL(rawTitle).hostname; } catch { return rawTitle; } })() : rawTitle;
-          const exists = favorites.some((favorite) => favorite.url === url);
-          setFavorites((prev) => exists
-            ? prev.filter((favorite) => favorite.url !== url)
-            : [{ url, title, favicon: activeTab.favicon, addedAt: Date.now() } as BookmarkEntry, ...prev]);
-          pushToast({
-            key: `bookmark:${url}`,
-            message: exists ? LL.bookmark.removed({ title }) : LL.bookmark.added({ title }),
-            type: exists ? 'info' : 'success',
-          });
-        }}
-        isBookmarked={favorites.some((f) => f.url === activeTab?.url && activeTab?.url && activeTab.url !== 'about:newtab')}
+        onToggleBookmark={handleToggleBookmark}
+        isBookmarked={isBookmarked}
         onReorder={tm.reorderTabs}
       />
 
