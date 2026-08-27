@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      0.5.7
-// @updateHash  958e87a9a0b8
+// @updateHash  b16b81531f2a
 // @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
 // @match        *://*.github.com/*
@@ -1545,9 +1545,16 @@
   var require_previous_map = __commonJS({
     "node_modules/postcss/lib/previous-map.js"(exports, module) {
       "use strict";
-      var { existsSync, readFileSync } = require_fs();
+      var { existsSync, readFileSync, realpathSync } = require_fs();
       var { dirname, isAbsolute, join, relative, sep } = require_path();
       var { SourceMapConsumer, SourceMapGenerator } = require_source_map();
+      function realPath(path) {
+        try {
+          return realpathSync(path);
+        } catch {
+          return path;
+        }
+      }
       function fromBase64(str) {
         if (Buffer) {
           return Buffer.from(str, "base64").toString();
@@ -1612,7 +1619,7 @@
           if (!trusted && !this.unsafeMap) {
             if (!/\.map$/i.test(path)) return void 0;
             if (!cssFile) return void 0;
-            let rel = relative(dirname(cssFile), path);
+            let rel = relative(realPath(dirname(cssFile)), realPath(path));
             if (rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel)) {
               return void 0;
             }
@@ -1988,7 +1995,7 @@
           return list2.split(string, spaces);
         },
         split(string, separators, last) {
-          if (!string) return [];
+          if (typeof string !== "string") return [];
           let array = [];
           let current = "";
           let split = false;
@@ -4018,7 +4025,7 @@
       var Root2 = require_root();
       var Processor2 = class {
         constructor(plugins = []) {
-          this.version = "8.5.25";
+          this.version = "8.5.26";
           this.plugins = this.normalize(plugins);
         }
         normalize(plugins) {

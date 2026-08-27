@@ -1,14 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 
-export function sanitizeDownloadFilename(rawName: string): string {
-  const basename = path.posix.basename(rawName.replace(/\\/g, '/'));
-  let safe = Array.from(basename, (character) => character.charCodeAt(0) < 32 ? '_' : character)
+export function sanitizeDownloadFilename(rawName: string, fallback = 'download'): string {
+  const basename = path.posix.basename(String(rawName ?? '').replace(/\\/g, '/'));
+  let safe = Array.from(basename, (c) => c.charCodeAt(0) < 32 ? '_' : c)
     .join('')
     .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/^\.+/, '')
     .replace(/[. ]+$/g, '')
     .trim();
-  if (!safe) safe = 'download';
+  if (!safe) safe = fallback;
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(safe)) safe = '_' + safe;
   if (safe.length > 180) {
     const ext = path.extname(safe).slice(0, 20);

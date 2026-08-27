@@ -129,7 +129,7 @@ export function registerDownloadIPC(): void {
       log.warn('[Download] open rejected (dangerous extension):', savePath);
       return;
     }
-    if (fs.existsSync(savePath)) {
+    if (fs.existsSync(savePath) && !savePath.includes('\0')) {
       shell.openPath(savePath);
     }
   });
@@ -140,7 +140,7 @@ export function registerDownloadIPC(): void {
       return;
     }
     const dir = path.dirname(savePath);
-    if (fs.existsSync(dir)) shell.openPath(dir);
+    if (fs.existsSync(dir) && !dir.includes('\0')) shell.openPath(dir);
   });
 
   registerValidatedListener('download:start', z.object({

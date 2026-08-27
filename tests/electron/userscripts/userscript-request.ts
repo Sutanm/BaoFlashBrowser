@@ -3,7 +3,7 @@
 // in GmRequestService below.
 // Mirrors the planned src/main/modules/userscripts/userscript-request.ts.
 
-import { net } from 'electron';
+import ipaddr from 'ipaddr.js';
 
 export const DEFAULT_MAX_REDIRECTS = 5;
 export const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -29,27 +29,32 @@ export type AddressClass = 'loopback' | 'private' | 'linklocal' | 'unspecified' 
 export function classifyAddress(hostname: string): AddressClass {
   const host = String(hostname || '').toLowerCase().replace(/\.$/, '');
   if (!host) return 'reserved';
-  if (host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1') return 'loopback';
-  if (host === '::' || host === '0.0.0.0' || host === '0:0:0:0:0:0:0:0') return 'unspecified';
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
-    const parts = host.split('.').map(Number);
-    const [a, b] = parts;
-    if (a === 127) return 'loopback';
-    if (a === 10) return 'private';
-    if (a === 172 && b >= 16 && b <= 31) return 'private';
-    if (a === 192 && b === 168) return 'private';
-    if (a === 169 && b === 254) return 'linklocal';
-    if (a === 100 && b >= 64 && b <= 127) return 'reserved';
-    if (a === 192 && b === 0) return 'reserved';
-    if (a === 192 && b === 0 && parts[2] === 2) return 'reserved';
-    if (a >= 224) return 'reserved';
-    return 'public';
+  if (host === 'localhost') return 'loopback';
+  if (!ipaddr.isValid(host)) return 'public';
+  const addr = ipaddr.parse(host);
+  if (addr.kind() === 'ipv4') {
+    const range = addr.range();
+    switch (range) {
+      case 'loopback': return 'loopback';
+      case 'private': return 'private';
+      case 'linkLocal': return 'linklocal';
+      case 'unspecified': return 'unspecified';
+      case 'carrierGradeNat':
+      case 'broadcast':
+      case 'reserved': return 'reserved';
+      default: return 'public';
+    }
   }
-  if (host.startsWith('fe80:')) return 'linklocal';
-  if (host.startsWith('fc') || host.startsWith('fd')) return 'private';
-  if (host.startsWith('::ffff:')) return classifyAddress(host.slice(7));
-  if (host.includes(':')) return 'reserved';
-  return 'public';
+  const range = addr.range();
+  if (range === 'linkLocal') return 'linklocal';
+  if (range === 'uniqueLocal') return 'private';
+  if (range === 'unspecified') return 'unspecified';
+  if (range === 'loopback') return 'loopback';
+  if (range === 'ipv4Mapped') {
+    const embedded = (addr as ipaddr.IPv6).toIPv4Address();
+    return classifyAddress(embedded.toString());
+  }
+  return 'reserved';
 }
 
 export function isBlockedUrl(url: string, allowedLoopbackHosts?: string[]): boolean {

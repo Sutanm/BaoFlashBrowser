@@ -7,9 +7,9 @@ describe('userscript download filename sanitization', () => {
   });
 
   it('strips path separators to prevent traversal', () => {
-    expect(sanitizeFileName('../../etc/passwd')).toBe('etcpasswd');
+    expect(sanitizeFileName('../../etc/passwd')).toBe('passwd');
     expect(sanitizeFileName('..\\..\\win.ini')).toBe('win.ini');
-    expect(sanitizeFileName('a/b/c.txt')).toBe('abc.txt');
+    expect(sanitizeFileName('a/b/c.txt')).toBe('c.txt');
   });
 
   it('strips leading dots', () => {
@@ -18,8 +18,8 @@ describe('userscript download filename sanitization', () => {
   });
 
   it('removes control characters', () => {
-    expect(sanitizeFileName('evil\u0000name.txt')).toBe('evilname.txt');
-    expect(sanitizeFileName('line\nbreak.txt')).toBe('linebreak.txt');
+    expect(sanitizeFileName('evil\u0000name.txt')).toBe('evil_name.txt');
+    expect(sanitizeFileName('line\nbreak.txt')).toBe('line_break.txt');
   });
 
   it('truncates overlong names', () => {
