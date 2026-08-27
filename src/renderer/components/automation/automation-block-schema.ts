@@ -9,6 +9,7 @@ export const STEP_BLOCK_TYPES: Record<RenderableStepType, string> = {
   'click-image': 'bao_click_image',
   'click-coordinate': 'bao_click_image',
   'random-click-region': 'bao_random_click_region',
+  'vision-region': 'bao_vision_region',
   'move-to-image': 'bao_move_to_image',
   'move-to-coordinate': 'bao_move_to_image',
   'drag-image': 'bao_drag_image',

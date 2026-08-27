@@ -4,6 +4,7 @@ import type {
   AutomationCondition,
   AutomationStep,
   AutomationWorkflow,
+  AutomationRelativeRegion,
   ImageCondition,
   PositionCompareTarget,
   SequenceStep,
@@ -152,6 +153,12 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
       return value.region.right - value.region.left > padding * 2
         && value.region.bottom - value.region.top > padding * 2;
     }, 'random click padding must leave a non-empty region'),
+    z.object({
+      ...stepId,
+      type: z.literal('vision-region'),
+      region: relativeRegionSchema,
+      body: sequenceStepSchema,
+    }).strict(),
     z.object({
       ...stepId,
       type: z.literal('key-press'),
@@ -315,6 +322,52 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
   ]),
 );
 
+function intersectRelativeRegions(
+  outer: AutomationRelativeRegion | undefined,
+  inner: AutomationRelativeRegion,
+): AutomationRelativeRegion | null {
+  if (!outer) return inner;
+  const result = {
+    left: Math.max(outer.left, inner.left),
+    top: Math.max(outer.top, inner.top),
+    right: Math.min(outer.right, inner.right),
+    bottom: Math.min(outer.bottom, inner.bottom),
+  };
+  return result.left < result.right && result.top < result.bottom ? result : null;
+}
+
+function validateVisionRegions(workflow: AutomationWorkflow, ctx: z.RefinementCtx): void {
+  const visit = (step: AutomationStep, outer: AutomationRelativeRegion | undefined, path: Array<string | number>): void => {
+    if (step.type === 'vision-region') {
+      const effective = intersectRelativeRegions(outer, step.region);
+      if (!effective) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [...path, 'region'],
+          message: 'vision region does not overlap its parent search region',
+        });
+        return;
+      }
+      visit(step.body, effective, [...path, 'body']);
+      return;
+    }
+    if (step.type === 'sequence') step.steps.forEach((child, index) => visit(child, outer, [...path, 'steps', index]));
+    else if (step.type === 'if-image' || step.type === 'if-condition') {
+      visit(step.then, outer, [...path, 'then']);
+      if (step.else) visit(step.else, outer, [...path, 'else']);
+    } else if (step.type === 'wait-condition-branch') {
+      visit(step.success, outer, [...path, 'success']);
+      visit(step.timeout, outer, [...path, 'timeout']);
+    } else if (step.type === 'repeat' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') {
+      visit(step.body, outer, [...path, 'body']);
+    } else if (step.type === 'position-compare') {
+      visit(step.then, outer, [...path, 'then']);
+      if (step.else) visit(step.else, outer, [...path, 'else']);
+    }
+  };
+  visit(workflow.root, workflow.searchRegion, ['root']);
+}
+
 export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDef, unknown> = z.object({
   formatVersion: z.literal(1),
   id: idSchema,
@@ -323,7 +376,9 @@ export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDe
   searchRegion: relativeRegionSchema.optional(),
   readyWhen: automationConditionSchema.optional(),
   root: sequenceStepSchema,
-}).strict().refine((value) => !(value.searchRegion && value.readyWhen), 'region entry cannot also define readyWhen; add a wait step after the entry');
+}).strict()
+  .refine((value) => !(value.searchRegion && value.readyWhen), 'region entry cannot also define readyWhen; add a wait step after the entry')
+  .superRefine(validateVisionRegions);
 
 export const automationPackageManifestSchema: z.ZodType<AutomationPackageManifest> = z.object({
   format: z.literal('baoauto'),
@@ -394,6 +449,7 @@ export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<strin
         visit(step.timeout);
         break;
       case 'repeat': visit(step.body); break;
+      case 'vision-region': visit(step.body); break;
       case 'repeat-until-image':
         addImageAssets(step.condition);
         visit(step.body);

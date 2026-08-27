@@ -134,6 +134,13 @@ export type RandomClickRegionStep = {
   padding?: number;
 };
 
+export type VisionRegionStep = {
+  id?: string;
+  type: 'vision-region';
+  region: AutomationRelativeRegion;
+  body: SequenceStep;
+};
+
 export type KeyPressStep = {
   id?: string;
   type: 'key-press';
@@ -328,6 +335,7 @@ export type AutomationStep =
   | ClickImageStep
   | ClickCoordinateStep
   | RandomClickRegionStep
+  | VisionRegionStep
   | KeyPressStep
   | KeyHoldUntilImageStep
   | MoveToImageStep
@@ -408,6 +416,7 @@ export type AutomationMessage =
   | { key: 'step.clickImage'; params: { asset: string } }
   | { key: 'step.clickCoordinate'; params: { x: number; y: number } }
   | { key: 'step.randomClickRegion' }
+  | { key: 'step.visionRegion'; params: AutomationRelativeRegion }
   | { key: 'step.moveToImage'; params: { asset: string } }
   | { key: 'step.moveToCoordinate'; params: { x: number; y: number } }
   | { key: 'step.dragImage'; params: { source: string; target: string } }

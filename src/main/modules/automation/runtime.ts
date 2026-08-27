@@ -27,6 +27,14 @@ export type ImageMatch = {
   score: number;
   scale?: number;
   matchMs?: number;
+  captureMs?: number;
+  bitmapMs?: number;
+  totalMs?: number;
+  sceneBytes?: number;
+  wasmHeapBytes?: number;
+  templateCacheBytes?: number;
+  templateCacheEntries?: number;
+  testedScales?: number[];
   masked?: boolean;
   lowVariance?: boolean;
   templateStdDev?: number;
@@ -44,7 +52,7 @@ export type FindImageRequest = {
 
 export type AutomationDriver = {
   findImage(request: FindImageRequest, signal: AbortSignal): Promise<ImageMatch | null>;
-  resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal): Promise<{ x: number; y: number }>;
+  resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal, relativeRegion?: AutomationRelativeRegion): Promise<{ x: number; y: number }>;
   getCssViewport(): { width: number; height: number };
   click(
     match: ImageMatch,
@@ -142,6 +150,23 @@ function imageScales(scales?: number[]): number[] {
   return scales ?? [...DEFAULT_AUTOMATION_IMAGE_SCALES];
 }
 
+export function intersectAutomationRelativeRegions(
+  outer: AutomationRelativeRegion | undefined,
+  inner: AutomationRelativeRegion,
+): AutomationRelativeRegion {
+  if (!outer) return { ...inner };
+  const result = {
+    left: Math.max(outer.left, inner.left),
+    top: Math.max(outer.top, inner.top),
+    right: Math.min(outer.right, inner.right),
+    bottom: Math.min(outer.bottom, inner.bottom),
+  };
+  if (result.left >= result.right || result.top >= result.bottom) {
+    throw new Error('vision region does not overlap its parent search region');
+  }
+  return result;
+}
+
 class AutomationEndSignal extends Error {
   constructor(readonly result: 'success' | 'failure', message?: string) {
     super(message || (result === 'success' ? 'script ended successfully' : 'script ended with failure'));
@@ -152,6 +177,7 @@ export class AutomationRunner {
   private readonly workflow: AutomationWorkflow;
   private readonly driver: AutomationDriver;
   private readonly searchRegion: AutomationRelativeRegion | undefined;
+  private activeSearchRegion: AutomationRelativeRegion | undefined;
   private readonly maxExecutedSteps: number;
   private readonly maxDepth: number;
   private readonly random: () => number;
@@ -167,6 +193,7 @@ export class AutomationRunner {
     this.workflow = parseAutomationWorkflow(workflow);
     this.driver = driver;
     this.searchRegion = this.workflow.searchRegion;
+    this.activeSearchRegion = this.searchRegion;
     this.maxExecutedSteps = options.maxExecutedSteps ?? 10_000;
     this.maxDepth = options.maxDepth ?? 32;
     this.random = options.random ?? Math.random;
@@ -205,6 +232,7 @@ export class AutomationRunner {
     const forwardAbort = (): void => this.controller?.abort();
     options.signal?.addEventListener('abort', forwardAbort, { once: true });
     this.executedSteps = 0;
+    this.activeSearchRegion = this.searchRegion;
     this.stepMode = options.stepMode ?? false;
     this.stepPermits = this.stepMode ? 1 : 0;
     try {
@@ -285,7 +313,7 @@ export class AutomationRunner {
       alternatives: condition.alternatives,
       threshold: condition.threshold ?? 0.9,
       region: condition.region,
-      relativeRegion: condition.region ? undefined : this.searchRegion,
+      relativeRegion: condition.region ? undefined : this.activeSearchRegion,
       scales: imageScales(condition.scales),
       mask: condition.mask ?? 'auto',
     }, signal);
@@ -301,8 +329,8 @@ export class AutomationRunner {
     tolerancePx: number,
     signal: AbortSignal,
   ): Promise<boolean> {
-    const pointA = await this.driver.resolveTargetPoint(targetA, signal);
-    const pointB = await this.driver.resolveTargetPoint(targetB, signal);
+    const pointA = await this.driver.resolveTargetPoint(targetA, signal, this.activeSearchRegion);
+    const pointB = await this.driver.resolveTargetPoint(targetB, signal, this.activeSearchRegion);
     const cssViewport = this.driver.getCssViewport();
     const toleranceRelativeX = (tolerancePx / cssViewport.width) * 10_000;
     const toleranceRelativeY = (tolerancePx / cssViewport.height) * 10_000;
@@ -325,7 +353,7 @@ export class AutomationRunner {
         alternatives: step.alternatives,
         threshold: step.threshold ?? 0.9,
         region: step.region,
-        relativeRegion: step.region ? undefined : this.searchRegion,
+        relativeRegion: step.region ? undefined : this.activeSearchRegion,
         scales: imageScales(step.scales),
         mask: step.mask ?? 'auto',
       }, signal);
@@ -409,7 +437,7 @@ export class AutomationRunner {
         if (step.verifyBeforeClick) {
           const verified = await this.driver.findImage({
             asset: step.asset, threshold: step.threshold ?? 0.9, region: step.region,
-            relativeRegion: step.region ? undefined : this.searchRegion,
+            relativeRegion: step.region ? undefined : this.activeSearchRegion,
             alternatives: step.alternatives, scales: imageScales(step.scales), mask: step.mask ?? 'auto',
           }, signal);
           if (!verified) throw new Error(`image disappeared before click: ${step.asset}`);
@@ -469,6 +497,16 @@ export class AutomationRunner {
         await this.driver.clickPoint(coordinate, {
           button: step.button ?? 'left', clickCount: step.clickCount ?? 2,
         }, signal);
+        return;
+      }
+      case 'vision-region': {
+        const previousRegion = this.activeSearchRegion;
+        this.activeSearchRegion = intersectAutomationRelativeRegions(previousRegion, step.region);
+        try {
+          await this.execute(step.body, signal, depth + 1);
+        } finally {
+          this.activeSearchRegion = previousRegion;
+        }
         return;
       }
       case 'drag-image': {

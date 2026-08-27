@@ -18,6 +18,8 @@ export type AutomationCapturedImage = {
 export type AutomationCapturedFrame = {
   image: AutomationCapturedImage;
   bitmap?: Buffer;
+  bitmapSize?: { width: number; height: number };
+  deviceOrigin?: { x: number; y: number };
   deviceSize: { width: number; height: number };
   cssSize: { width: number; height: number };
 };
@@ -29,6 +31,13 @@ export type AutomationVisionMatcher = {
     options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null>;
+  findMany?(
+    assets: string[],
+    frame: AutomationCapturedFrame,
+    options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask },
+    signal: AbortSignal,
+  ): Promise<ImageMatch | null>;
+  getStats?(): Partial<ImageMatch>;
 };
 
 type DebuggerLike = {
@@ -44,7 +53,7 @@ export type AutomationWebContentsLike = {
   debugger: DebuggerLike;
   incrementCapturerCount(size?: { width: number; height: number }, stayHidden?: boolean): void;
   decrementCapturerCount(stayHidden?: boolean): void;
-  capturePage(): Promise<AutomationCapturedImage>;
+  capturePage(rect?: AutomationRegion): Promise<AutomationCapturedImage>;
   executeJavaScript(code: string): Promise<unknown>;
   loadURL(url: string): Promise<void>;
   reload(): void;
@@ -119,36 +128,6 @@ function describeKeyboardKey(input: string): KeyboardDescriptor {
   return { key: alias, text: alias.length === 1 ? alias : undefined };
 }
 
-export async function hideAutomationAssistantForCapture(
-  webContents: Pick<AutomationWebContentsLike, 'executeJavaScript'>,
-): Promise<string | null> {
-  try {
-    const previous = await webContents.executeJavaScript(`(() => {
-      const assistant = document.getElementById('bao-automation-frame-assistant');
-      if (!assistant) return null;
-      const previous = assistant.style.visibility;
-      assistant.style.visibility = 'hidden';
-      return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(previous))));
-    })()`);
-    return typeof previous === 'string' ? previous : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function restoreAutomationAssistantAfterCapture(
-  webContents: Pick<AutomationWebContentsLike, 'executeJavaScript' | 'isDestroyed'>,
-  previous: string | null,
-): Promise<void> {
-  if (previous === null || webContents.isDestroyed()) return;
-  try {
-    await webContents.executeJavaScript(`(() => {
-      const assistant = document.getElementById('bao-automation-frame-assistant');
-      if (assistant) assistant.style.visibility = ${JSON.stringify(previous)};
-    })()`);
-  } catch { /* Page navigation may destroy the document after capture. */ }
-}
-
 export function deviceMatchToCssPoint(
   match: ImageMatch,
   deviceSize: { width: number; height: number },
@@ -203,14 +182,15 @@ export function relativeSearchRegionToCssRegion(
 
 export class BrowserViewAutomationDriver implements AutomationDriver {
   private readonly webContents: AutomationWebContentsLike;
-  private readonly matcher: AutomationVisionMatcher;
+  private readonly matcher: AutomationVisionMatcher | null;
   private readonly options: BrowserViewAutomationDriverOptions;
   private lastFrame: AutomationCapturedFrame | null = null;
+  private lastVisionStatsLogAt = 0;
   private pointer = { x: 0, y: 0 };
 
   constructor(
     webContents: AutomationWebContentsLike,
-    matcher: AutomationVisionMatcher,
+    matcher: AutomationVisionMatcher | null,
     options: BrowserViewAutomationDriverOptions,
   ) {
     this.webContents = webContents;
@@ -219,44 +199,69 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   }
 
   async findImage(request: FindImageRequest, signal: AbortSignal): Promise<ImageMatch | null> {
+    const totalStartedAt = Date.now();
     this.throwIfAborted(signal);
     this.assertCurrent();
+    if (!this.matcher) throw new Error('automation workflow does not have a vision matcher');
     this.webContents.incrementCapturerCount();
-    let assistantVisibility: string | null = null;
-    let assistantRestored = false;
     try {
-      assistantVisibility = await hideAutomationAssistantForCapture(this.webContents);
-      const image = await this.webContents.capturePage();
+      const cssSize = this.options.getCssViewport();
+      const captureRegion = request.region
+        ?? (request.relativeRegion ? relativeSearchRegionToCssRegion(request.relativeRegion, cssSize) : undefined);
+      const captureStartedAt = Date.now();
+      const image = await this.webContents.capturePage(captureRegion);
+      const captureMs = Date.now() - captureStartedAt;
       if (image.isEmpty()) throw new Error('BrowserView capture is empty');
+      const bitmapSize = image.getSize();
+      const scaleX = captureRegion ? bitmapSize.width / captureRegion.width : 1;
+      const scaleY = captureRegion ? bitmapSize.height / captureRegion.height : 1;
+      const bitmapStartedAt = Date.now();
+      const bitmap = image.toBitmap();
+      const bitmapMs = Date.now() - bitmapStartedAt;
       const frame: AutomationCapturedFrame = {
         image,
-        bitmap: image.toBitmap(),
-        deviceSize: image.getSize(),
-        cssSize: this.options.getCssViewport(),
+        bitmap,
+        bitmapSize,
+        deviceOrigin: captureRegion
+          ? { x: Math.round(captureRegion.x * scaleX), y: Math.round(captureRegion.y * scaleY) }
+          : { x: 0, y: 0 },
+        deviceSize: captureRegion
+          ? { width: Math.round(cssSize.width * scaleX), height: Math.round(cssSize.height * scaleY) }
+          : bitmapSize,
+        cssSize,
       };
       this.lastFrame = frame;
-      await restoreAutomationAssistantAfterCapture(this.webContents, assistantVisibility);
-      assistantRestored = true;
-      let best: ImageMatch | null = null;
       const assets = [...new Set([request.asset, ...(request.alternatives ?? [])])];
-      for (const asset of assets) {
-        this.throwIfAborted(signal);
-        const match = await this.matcher.find(asset, frame, {
-          threshold: request.threshold,
-          region: request.region ?? (request.relativeRegion ? relativeSearchRegionToCssRegion(request.relativeRegion, frame.cssSize) : undefined),
-          scales: request.scales,
-          mask: request.mask,
-        }, signal);
-        if (match && (!best || match.score > best.score)) best = { ...match, asset };
+      const options = {
+        threshold: request.threshold,
+        // capturePage already restricted the frame to the requested region.
+        region: undefined,
+        scales: request.scales,
+        mask: request.mask,
+      };
+      let best: ImageMatch | null = null;
+      if (this.matcher.findMany) best = await this.matcher.findMany(assets, frame, options, signal);
+      else {
+        for (const asset of assets) {
+          this.throwIfAborted(signal);
+          const match = await this.matcher.find(asset, frame, options, signal);
+          if (match && (!best || match.score > best.score)) best = { ...match, asset };
+        }
       }
-      return best;
+      const totalMs = Date.now() - totalStartedAt;
+      const now = Date.now();
+      if (this.options.log && now - this.lastVisionStatsLogAt >= 5_000) {
+        this.lastVisionStatsLogAt = now;
+        const stats = this.matcher.getStats?.() ?? {};
+        this.options.log(`vision capture=${captureMs}ms bitmap=${bitmapMs}ms match=${stats.matchMs ?? best?.matchMs ?? '?'}ms total=${totalMs}ms scene=${stats.sceneBytes ?? best?.sceneBytes ?? bitmap.byteLength}B wasm=${stats.wasmHeapBytes ?? best?.wasmHeapBytes ?? '?'}B cache=${stats.templateCacheBytes ?? best?.templateCacheBytes ?? '?'}B/${stats.templateCacheEntries ?? best?.templateCacheEntries ?? '?'} entries`);
+      }
+      return best ? { ...best, captureMs, bitmapMs, totalMs } : null;
     } finally {
-      if (!assistantRestored) await restoreAutomationAssistantAfterCapture(this.webContents, assistantVisibility);
       this.webContents.decrementCapturerCount();
     }
   }
 
-  async resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal): Promise<{ x: number; y: number }> {
+  async resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal, relativeRegion?: AutomationRelativeRegion): Promise<{ x: number; y: number }> {
     if (target.kind === 'coordinate') {
       const cssSize = this.options.getCssViewport();
       return relativeCoordinateToCssPoint(target.coordinate, cssSize);
@@ -266,6 +271,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
       alternatives: target.alternatives,
       threshold: target.threshold ?? 0.9,
       region: target.region,
+      relativeRegion: target.region ? undefined : relativeRegion,
       scales: target.scales,
       mask: target.mask ?? 'auto',
     }, signal);

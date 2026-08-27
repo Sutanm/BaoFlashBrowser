@@ -2174,6 +2174,14 @@ type RootTranslation = {
 			 */
 			randomClickRegion: string
 			/**
+			 * 高​速​识​图​区​域​ ​左​上​ ​%​1​ ​右​下​ ​%​2
+			 */
+			visionRegion: string
+			/**
+			 * 仅​在​这​个​较​小​区​域​内​截​图​识​图​。​区​域​越​小​通​常​越​快​；​坐​标​点​击​、​键​盘​等​操​作​不​受​影​响​。
+			 */
+			visionRegionTooltip: string
+			/**
 			 * 打​开​网​址​ ​%​1
 			 */
 			navigate: string
@@ -2491,6 +2499,14 @@ type RootTranslation = {
 				 * 在​指​定​区​域​内​随​机​点​击
 				 */
 				randomClickRegion: string
+				/**
+				 * 在​高​速​识​图​区​域​ ​{​l​e​f​t​}​,​{​t​o​p​}​ ​到​ ​{​r​i​g​h​t​}​,​{​b​o​t​t​o​m​}​ ​内​执​行
+				 * @param {unknown} bottom
+				 * @param {unknown} left
+				 * @param {unknown} right
+				 * @param {unknown} top
+				 */
+				visionRegion: RequiredParams<'bottom' | 'left' | 'right' | 'top'>
 				/**
 				 * 移​动​到​图​片​ ​{​a​s​s​e​t​}
 				 * @param {unknown} asset
@@ -4753,6 +4769,14 @@ export type TranslationFunctions = {
 			 */
 			randomClickRegion: () => LocalizedString
 			/**
+			 * 高速识图区域 左上 %1 右下 %2
+			 */
+			visionRegion: () => LocalizedString
+			/**
+			 * 仅在这个较小区域内截图识图。区域越小通常越快；坐标点击、键盘等操作不受影响。
+			 */
+			visionRegionTooltip: () => LocalizedString
+			/**
 			 * 打开网址 %1
 			 */
 			navigate: () => LocalizedString
@@ -5051,6 +5075,10 @@ export type TranslationFunctions = {
 				 * 在指定区域内随机点击
 				 */
 				randomClickRegion: () => LocalizedString
+				/**
+				 * 在高速识图区域 {left},{top} 到 {right},{bottom} 内执行
+				 */
+				visionRegion: (arg: { bottom: unknown, left: unknown, right: unknown, top: unknown }) => LocalizedString
 				/**
 				 * 移动到图片 {asset}
 				 */

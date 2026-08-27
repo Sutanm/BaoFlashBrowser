@@ -109,6 +109,23 @@ describe('automation assets and .baoauto package', () => {
     })).toEqual(['trusted-input']);
   });
 
+  it('does not require vision for an image-region wrapper unless its body uses images', () => {
+    expect(inferAutomationCapabilities({
+      formatVersion: 1, id: 'region-coordinate', name: 'Region coordinate',
+      root: { type: 'sequence', steps: [{
+        type: 'vision-region', region: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
+        body: { type: 'sequence', steps: [{ type: 'click-coordinate', coordinate: { x: 5000, y: 5000 } }] },
+      }] },
+    })).toEqual(['trusted-input']);
+    expect(inferAutomationCapabilities({
+      formatVersion: 1, id: 'region-image', name: 'Region image',
+      root: { type: 'sequence', steps: [{
+        type: 'vision-region', region: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
+        body: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'button.png' }] },
+      }] },
+    })).toEqual(['vision']);
+  });
+
   it('infers vision only for image endpoints of a general drag', () => {
     expect(inferAutomationCapabilities({
       formatVersion: 1, id: 'mixed-drag', name: 'Mixed drag',

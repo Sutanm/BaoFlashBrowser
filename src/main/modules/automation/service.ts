@@ -4,7 +4,7 @@ import path from 'path';
 import log from 'electron-log';
 import type { AutomationRuntimeEvent, AutomationRunnerState, ImageMatch } from './runtime';
 import { AutomationRunner } from './runtime';
-import { BrowserViewAutomationDriver, hideAutomationAssistantForCapture, restoreAutomationAssistantAfterCapture } from './browserview-driver';
+import { BrowserViewAutomationDriver } from './browserview-driver';
 import { NativeImageTemplateProvider } from './native-image-template-provider';
 import { OpenCvWorkerMatcher } from './vision-worker-matcher';
 import { inferAutomationCapabilities, loadAutomationPackage, serializeAutomationPackage, type LoadedAutomationPackage } from './package';
@@ -58,7 +58,7 @@ type ActiveSession = {
   packageId: string;
   tabId: string;
   handle: AutomationTabHandle;
-  matcher: OpenCvWorkerMatcher;
+  matcher: OpenCvWorkerMatcher | null;
   runner: AutomationRunner;
   history?: { id: string; mode: 'run' | 'debug'; startedAt: number };
 };
@@ -391,19 +391,13 @@ export class AutomationService {
     const wc = tabManager.getWebContents(tabId);
     if (!wc) throw new Error('selected tab has no live BrowserView');
     wc.incrementCapturerCount();
-    let assistantVisibility: string | null = null;
-    let assistantRestored = false;
     try {
-      assistantVisibility = await hideAutomationAssistantForCapture(wc);
       const image = await wc.capturePage();
       if (image.isEmpty()) throw new Error('selected tab capture is empty');
       if (tabManager.getWebContents(tabId) !== wc) throw new Error('selected tab changed while capturing');
       const size = image.getSize();
-      await restoreAutomationAssistantAfterCapture(wc, assistantVisibility);
-      assistantRestored = true;
       return { png: Uint8Array.from(image.toPNG()), width: size.width, height: size.height };
     } finally {
-      if (!assistantRestored) await restoreAutomationAssistantAfterCapture(wc, assistantVisibility);
       wc.decrementCapturerCount();
     }
   }
@@ -476,7 +470,9 @@ export class AutomationService {
     const entry = this.packages.get(packageId);
     if (!entry) throw new Error('automation package is not loaded');
     const handle = tabManager.beginAutomation(tabId);
-    const matcher = this.createMatcher(entry);
+    const matcher = inferAutomationCapabilities(entry.source.workflow).includes('vision')
+      ? this.createMatcher(entry)
+      : null;
     const driver = this.createDriver(handle, matcher);
     const runner = new AutomationRunner(entry.source.workflow, driver, {
       onEvent: (event) => this.handleRuntimeEvent(event, packageId, tabId, entry.source.workflow.name),
@@ -536,7 +532,7 @@ export class AutomationService {
     await session.matcher.close();
   }
 
-  private createDriver(handle: AutomationTabHandle, matcher: OpenCvWorkerMatcher): BrowserViewAutomationDriver {
+  private createDriver(handle: AutomationTabHandle, matcher: OpenCvWorkerMatcher | null): BrowserViewAutomationDriver {
     return new BrowserViewAutomationDriver(handle.webContents, matcher, {
       getCssViewport: () => handle.getCssViewport(),
       assertCurrent: () => handle.assertCurrent(),
@@ -612,7 +608,10 @@ export class AutomationService {
     const visit = (step: AutomationStep, depth: number): void => {
       stepCount += step.type === 'sequence' ? 0 : 1; maxDepth = Math.max(maxDepth, depth);
       if (step.type === 'sequence') step.steps.forEach((child) => visit(child, depth + 1));
+      else if (step.type === 'vision-region') visit(step.body, depth + 1);
       else if (step.type === 'if-image' || step.type === 'if-condition') { visit(step.then, depth + 1); if (step.else) visit(step.else, depth + 1); }
+      else if (step.type === 'wait-condition-branch') { visit(step.success, depth + 1); visit(step.timeout, depth + 1); }
+      else if (step.type === 'position-compare') { visit(step.then, depth + 1); if (step.else) visit(step.else, depth + 1); }
       else if (step.type === 'repeat' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') visit(step.body, depth + 1);
     };
     visit(root, 0); return { stepCount, maxDepth };
@@ -706,6 +705,18 @@ export class AutomationService {
         currentStep: description, debugPaused: true, message: { key: 'status.pausedNext', params: { step: description } },
       });
     } else if (event.type === 'image-match') {
+      log.debug('[Automation] vision performance', {
+        asset: event.asset,
+        captureMs: event.match.captureMs,
+        bitmapMs: event.match.bitmapMs,
+        matchMs: event.match.matchMs,
+        totalMs: event.match.totalMs,
+        sceneBytes: event.match.sceneBytes,
+        wasmHeapBytes: event.match.wasmHeapBytes,
+        templateCacheBytes: event.match.templateCacheBytes,
+        templateCacheEntries: event.match.templateCacheEntries,
+        testedScales: event.match.testedScales,
+      });
       this.appendLog('success', { key: 'status.imageMatch', params: { asset: event.asset, score: (event.match.score * 100).toFixed(1), ms: event.match.matchMs?.toFixed(0) ?? '?' } }, this.status.executedSteps);
     } else if (event.type === 'random-click-coordinate') {
       const message: AutomationMessage = { key: 'status.randomClickCoordinate', params: event.coordinate };
@@ -732,6 +743,7 @@ export class AutomationService {
       case 'click-image': return { key: 'step.clickImage', params: { asset: step.asset } };
       case 'click-coordinate': return { key: 'step.clickCoordinate', params: step.coordinate };
       case 'random-click-region': return { key: 'step.randomClickRegion' };
+      case 'vision-region': return { key: 'step.visionRegion', params: step.region };
       case 'move-to-image': return { key: 'step.moveToImage', params: { asset: step.asset } };
       case 'move-to-coordinate': return { key: 'step.moveToCoordinate', params: step.coordinate };
       case 'drag-image': return { key: 'step.dragImage', params: { source: step.source.asset, target: step.target.asset } };
@@ -761,7 +773,7 @@ export class AutomationService {
     if (this.active !== session) return;
     this.active = null;
     session.handle.release();
-    await session.matcher.close();
+    await session.matcher?.close();
   }
 
   private setStatus(patch: Omit<AutomationServiceStatus, 'enabled'>): void {

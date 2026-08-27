@@ -182,6 +182,30 @@ describe('automation workflow schema', () => {
     })).toThrow(/cannot also define readyWhen/);
   });
 
+  it('validates nested fast recognition regions and collects assets inside them', () => {
+    const workflow = parseAutomationWorkflow({
+      formatVersion: 1, id: 'vision-region', name: 'Vision region',
+      searchRegion: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
+      root: { type: 'sequence', steps: [{
+        type: 'vision-region', region: { left: 2000, top: 2000, right: 8000, bottom: 8000 },
+        body: { type: 'sequence', steps: [{
+          type: 'vision-region', region: { left: 3000, top: 1000, right: 7000, bottom: 6000 },
+          body: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'inside.png' }] },
+        }] },
+      }] },
+    });
+    expect([...collectWorkflowAssetIds(workflow)]).toEqual(['inside.png']);
+
+    expect(() => parseAutomationWorkflow({
+      formatVersion: 1, id: 'disjoint-vision-region', name: 'Disjoint vision region',
+      searchRegion: { left: 0, top: 0, right: 4000, bottom: 4000 },
+      root: { type: 'sequence', steps: [{
+        type: 'vision-region', region: { left: 5000, top: 5000, right: 9000, bottom: 9000 },
+        body: { type: 'sequence', steps: [] },
+      }] },
+    })).toThrow(/does not overlap/);
+  });
+
   it('accepts the automatic image mask and rejects unknown mask modes', () => {
     const parsed = parseAutomationWorkflow({
       formatVersion: 1, id: 'auto-mask', name: 'Auto mask',

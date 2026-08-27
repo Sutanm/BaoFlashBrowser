@@ -19,6 +19,7 @@ class FakeWebContents extends EventEmitter implements AutomationWebContentsLike 
   attached = false;
   captures = 0;
   decrements = 0;
+  captureRects: Array<{ x: number; y: number; width: number; height: number } | undefined> = [];
   commands: Array<{ method: string; params?: Record<string, unknown> }> = [];
   loadedUrl = '';
   isDestroyed(): boolean { return false; }
@@ -38,7 +39,18 @@ class FakeWebContents extends EventEmitter implements AutomationWebContentsLike 
   };
   incrementCapturerCount(): void { this.captures += 1; }
   decrementCapturerCount(): void { this.decrements += 1; }
-  async capturePage(): Promise<AutomationCapturedImage> { return this.image; }
+  async capturePage(rect?: { x: number; y: number; width: number; height: number }): Promise<AutomationCapturedImage> {
+    this.captureRects.push(rect);
+    if (!rect) return this.image;
+    const width = Math.round(rect.width * 1.5);
+    const height = Math.round(rect.height * 1.5);
+    return {
+      isEmpty: () => false,
+      getSize: () => ({ width, height }),
+      toPNG: () => Buffer.from([1, 2, 3]),
+      toBitmap: () => Buffer.alloc(width * height * 4),
+    };
+  }
   async executeJavaScript(code: string): Promise<unknown> {
     this.commands.push({ method: 'Runtime.evaluateAssistantVisibility', params: { code } });
     return code.includes("visibility = 'hidden'") ? '' : undefined;
@@ -86,16 +98,14 @@ describe('BrowserView automation driver', () => {
     expect(wc.captures).toBe(1);
     expect(wc.decrements).toBe(1);
     expect(wc.attached).toBe(false);
-    expect(wc.commands.filter((command) => command.method !== 'Runtime.evaluateAssistantVisibility').map((command) => command.params)).toEqual([
+    expect(wc.commands.map((command) => command.params)).toEqual([
       { type: 'mouseMoved', x: 135, y: 215 },
       { type: 'mousePressed', x: 135, y: 215, button: 'left', clickCount: 1 },
       { type: 'mouseReleased', x: 135, y: 215, button: 'left', clickCount: 1 },
       { type: 'mousePressed', x: 135, y: 215, button: 'left', clickCount: 2 },
       { type: 'mouseReleased', x: 135, y: 215, button: 'left', clickCount: 2 },
     ]);
-    const visibilityCalls = wc.commands.filter((command) => command.method === 'Runtime.evaluateAssistantVisibility');
-    expect(visibilityCalls).toHaveLength(2);
-    expect(String(visibilityCalls[0].params?.code)).toContain("visibility = 'hidden'");
+    expect(wc.commands.some((command) => command.method === 'Runtime.evaluateAssistantVisibility')).toBe(false);
   });
 
   it('refuses navigation when another debugger client owns the tab', async () => {
@@ -130,8 +140,7 @@ describe('BrowserView automation driver', () => {
 
   it('clicks a relative coordinate without requiring a preceding capture', async () => {
     const wc = new FakeWebContents();
-    const matcher: AutomationVisionMatcher = { find: vi.fn(async () => null) };
-    const driver = new BrowserViewAutomationDriver(wc, matcher, { getCssViewport: () => ({ width: 901, height: 561 }) });
+    const driver = new BrowserViewAutomationDriver(wc, null, { getCssViewport: () => ({ width: 901, height: 561 }) });
     await driver.clickPoint({ x: 5000, y: 2500 }, { button: 'left', clickCount: 1 }, new AbortController().signal);
     expect(wc.captures).toBe(0);
     expect(wc.commands.map((command) => command.params)).toEqual([
@@ -143,8 +152,7 @@ describe('BrowserView automation driver', () => {
 
   it('moves and drags using normalized coordinates without capturing', async () => {
     const wc = new FakeWebContents();
-    const matcher: AutomationVisionMatcher = { find: vi.fn(async () => null) };
-    const driver = new BrowserViewAutomationDriver(wc, matcher, { getCssViewport: () => ({ width: 901, height: 561 }) });
+    const driver = new BrowserViewAutomationDriver(wc, null, { getCssViewport: () => ({ width: 901, height: 561 }) });
     const signal = new AbortController().signal;
     await driver.moveToPoint({ x: 5000, y: 2500 }, signal);
     await driver.dragTargets(
@@ -218,7 +226,23 @@ describe('BrowserView automation driver', () => {
     expect(match).toMatchObject({ asset: '角色/行走/right.png', score: 0.96 });
   });
 
-  it('passes a normalized entry region to OpenCV as a CSS search region', async () => {
+  it('uses one batch matcher request for an image group when supported', async () => {
+    const wc = new FakeWebContents();
+    const find = vi.fn(async () => null);
+    const findMany = vi.fn(async () => ({ ...MATCH, asset: 'B.png' }));
+    const driver = new BrowserViewAutomationDriver(wc, { find, findMany }, { getCssViewport: () => ({ width: 900, height: 560 }) });
+    const match = await driver.findImage({
+      asset: 'A.png', alternatives: ['B.png', 'A.png'], threshold: 0.9,
+    }, new AbortController().signal);
+
+    expect(wc.captures).toBe(1);
+    expect(find).not.toHaveBeenCalled();
+    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findMany.mock.calls[0][0]).toEqual(['A.png', 'B.png']);
+    expect(match).toMatchObject({ asset: 'B.png' });
+  });
+
+  it('captures a normalized entry region directly and preserves full-frame geometry', async () => {
     const wc = new FakeWebContents();
     const find = vi.fn(async () => MATCH);
     const driver = new BrowserViewAutomationDriver(wc, { find }, { getCssViewport: () => ({ width: 900, height: 560 }) });
@@ -226,7 +250,14 @@ describe('BrowserView automation driver', () => {
       asset: 'button.png', threshold: 0.9,
       relativeRegion: { left: 1000, top: 2000, right: 9000, bottom: 8000 },
     }, new AbortController().signal);
-    expect(find.mock.calls[0][2].region).toEqual({ x: 90, y: 112, width: 720, height: 336 });
+    expect(wc.captureRects).toEqual([{ x: 90, y: 112, width: 720, height: 336 }]);
+    expect(find.mock.calls[0][1]).toMatchObject({
+      bitmapSize: { width: 1080, height: 504 },
+      deviceOrigin: { x: 135, y: 168 },
+      deviceSize: { width: 1350, height: 840 },
+      cssSize: { width: 900, height: 560 },
+    });
+    expect(find.mock.calls[0][2].region).toBeUndefined();
   });
 
   it('waits for reload completion without keeping CDP attached', async () => {

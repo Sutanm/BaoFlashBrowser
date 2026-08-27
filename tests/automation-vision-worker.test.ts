@@ -103,15 +103,61 @@ describe('OpenCV automation vision worker', () => {
     const options = {
       threshold: 0.99,
       region: { x: 20, y: 12, width: 35, height: 30 },
-      scales: [1],
+      scales: [0.75, 1, 1.25],
       mask: 'auto' as const,
     };
     const first = await matcher.find('button.png', captured, options, signal);
     const second = await matcher.find('button.png', captured, options, signal);
     expect(first).toMatchObject({ x, y, width: templateWidth, height: templateHeight, scale: 1, masked: false });
     expect(first!.score).toBeGreaterThan(0.99);
+    expect(first!.testedScales).toEqual([1]);
+    expect(first!.sceneBytes).toBeLessThan(scene.byteLength);
+    expect(first!.wasmHeapBytes).toBeGreaterThan(0);
+    expect(first!.templateCacheEntries).toBe(1);
     expect(second).toMatchObject({ x, y });
     expect(source.load).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it('adds a directly captured region origin back to the global match coordinates', async () => {
+    const width = 48, height = 36, localX = 17, localY = 13, templateWidth = 9, templateHeight = 7;
+    const scene = patterned(width, height, 33);
+    const template = crop(scene, width, localX, localY, templateWidth, templateHeight);
+    const { matcher } = matcherFor({ cacheKey: 'region-origin@1', width: templateWidth, height: templateHeight, bgra: template });
+    const captured = frame(scene, width, height, 96, 72);
+    captured.bitmapSize = { width, height };
+    captured.deviceOrigin = { x: 120, y: 80 };
+    captured.deviceSize = { width: 320, height: 240 };
+    const result = await matcher.find('button.png', captured, {
+      threshold: 0.99, scales: [1], mask: 'none',
+    }, new AbortController().signal);
+
+    expect(result).toMatchObject({ x: 120 + localX, y: 80 + localY });
+  }, 30_000);
+
+  it('matches multiple templates against one scene request and returns the best asset', async () => {
+    const width = 96, height = 72, x = 41, y = 29, templateWidth = 14, templateHeight = 11;
+    const scene = patterned(width, height);
+    const matching = crop(scene, width, x, y, templateWidth, templateHeight);
+    const missing = patterned(templateWidth, templateHeight, 991);
+    const source: AutomationTemplateProvider = {
+      load: vi.fn(async (asset: string) => ({
+        cacheKey: `${asset}@1`, width: templateWidth, height: templateHeight,
+        bgra: asset === 'matching.png' ? matching : missing,
+      })),
+    };
+    const matcher = new OpenCvWorkerMatcher(new CachingAutomationTemplateProvider(source, 4), {
+      workerPath: path.resolve('src/main/modules/automation/vision-worker.cjs'),
+      requestTimeoutMs: 20_000,
+      maxCacheEntries: 4,
+      maxCacheBytes: 4 * 1024 * 1024,
+    });
+    workers.push(matcher);
+    const result = await matcher.findMany(['missing.png', 'matching.png'], frame(scene, width, height), {
+      threshold: 0.9, scales: [1], mask: 'none',
+    }, new AbortController().signal);
+
+    expect(result).toMatchObject({ asset: 'matching.png', x, y, width: templateWidth, height: templateHeight });
+    expect(source.load).toHaveBeenCalledTimes(2);
   }, 30_000);
 
   it('automatically uses PNG alpha as a template mask', async () => {

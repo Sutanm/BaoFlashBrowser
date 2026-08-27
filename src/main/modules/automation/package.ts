@@ -48,6 +48,7 @@ export function inferAutomationCapabilities(workflow: AutomationWorkflow): Autom
     if (['click-image', 'click-coordinate', 'random-click-region', 'move-to-image', 'move-to-coordinate', 'drag-image', 'drag', 'key-press', 'key-hold-until-image', 'text-input', 'scroll'].includes(step.type)) result.add('trusted-input');
     if (step.type === 'navigate' || step.type === 'reload') result.add('navigation');
     if (step.type === 'sequence') step.steps.forEach(visit);
+    else if (step.type === 'vision-region') visit(step.body);
     else if (step.type === 'if-image' || step.type === 'if-condition') { visitCondition(step.condition); visit(step.then); if (step.else) visit(step.else); }
     else if (step.type === 'wait-condition') visitCondition(step.condition);
     else if (step.type === 'wait-condition-branch') { visitCondition(step.condition); visit(step.success); visit(step.timeout); }

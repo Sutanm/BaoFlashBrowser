@@ -44,6 +44,8 @@ export function resolveAutomationMessage(message: AutomationMessage, LL: Transla
       return s.step.clickCoordinate(message.params);
     case 'step.randomClickRegion':
       return s.step.randomClickRegion();
+    case 'step.visionRegion':
+      return s.step.visionRegion(message.params);
     case 'step.moveToImage':
       return s.step.moveToImage(message.params);
     case 'step.moveToCoordinate':

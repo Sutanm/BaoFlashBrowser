@@ -305,6 +305,39 @@ describe('automation runtime', () => {
     expect(driver.requests[1].relativeRegion).toBeUndefined();
   });
 
+  it('intersects nested fast recognition regions and restores the outer region afterwards', async () => {
+    const driver = new FakeDriver();
+    for (const asset of ['outer.png', 'nested.png', 'restored.png', 'global.png']) driver.queue(asset, MATCH);
+    const runner = new AutomationRunner({
+      formatVersion: 1, id: 'scoped-vision', name: 'Scoped vision',
+      searchRegion: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
+      root: { type: 'sequence', steps: [
+        {
+          type: 'vision-region', region: { left: 2000, top: 500, right: 8000, bottom: 8000 },
+          body: { type: 'sequence', steps: [
+            { type: 'wait-image', asset: 'outer.png' },
+            {
+              type: 'vision-region', region: { left: 3000, top: 3000, right: 9500, bottom: 7000 },
+              body: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'nested.png' }] },
+            },
+            { type: 'wait-image', asset: 'restored.png' },
+            { type: 'click-coordinate', coordinate: { x: 5000, y: 5000 } },
+          ] },
+        },
+        { type: 'wait-image', asset: 'global.png' },
+      ] },
+    }, driver);
+
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.requests.map((request) => request.relativeRegion)).toEqual([
+      { left: 2000, top: 1000, right: 8000, bottom: 8000 },
+      { left: 3000, top: 3000, right: 8000, bottom: 7000 },
+      { left: 2000, top: 1000, right: 8000, bottom: 8000 },
+      { left: 1000, top: 1000, right: 9000, bottom: 9000 },
+    ]);
+    expect(driver.calls).toContain('click-point:5000,5000:left:1');
+  });
+
   it('passes every member of an image group to the driver', async () => {
     const driver = new FakeDriver();
     driver.queue('角色/行走/left.png', { ...MATCH, asset: '角色/行走/right.png' });

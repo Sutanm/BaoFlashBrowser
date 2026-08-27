@@ -31,6 +31,10 @@ const workflow = {
       success: { type: 'sequence', steps: [{ type: 'log', message: 'ready' }] },
       timeout: { type: 'sequence', steps: [{ type: 'end', result: 'failure', message: '页面未就绪' }] },
     },
+    {
+      type: 'vision-region', region: { left: 6000, top: 1000, right: 9500, bottom: 4000 },
+      body: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'buttons/start.png', timeoutMs: 2000 }] },
+    },
   ] },
 };
 const workflow2 = {

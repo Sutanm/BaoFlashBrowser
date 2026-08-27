@@ -80,10 +80,6 @@ type PendingRequest = {
   onAbort(): void;
 };
 
-function copyForTransfer(bytes: Uint8Array): Uint8Array {
-  return Uint8Array.from(bytes);
-}
-
 function cssRegionToDevice(
   region: AutomationRegion | undefined,
   frame: AutomationCapturedFrame,
@@ -99,6 +95,20 @@ function cssRegionToDevice(
   return { x, y, width: right - x, height: bottom - y };
 }
 
+function cropBgra(
+  bytes: Uint8Array,
+  sourceWidth: number,
+  region: AutomationRegion,
+): Uint8Array {
+  const result = new Uint8Array(region.width * region.height * 4);
+  const rowBytes = region.width * 4;
+  for (let row = 0; row < region.height; row += 1) {
+    const sourceStart = ((region.y + row) * sourceWidth + region.x) * 4;
+    result.set(bytes.subarray(sourceStart, sourceStart + rowBytes), row * rowBytes);
+  }
+  return result;
+}
+
 export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
   private readonly templates: AutomationTemplateProvider;
   private readonly options: Required<OpenCvWorkerMatcherOptions>;
@@ -111,14 +121,15 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly sentTemplates = new Set<string>();
+  private lastStats: Partial<ImageMatch> = {};
 
   constructor(templates: AutomationTemplateProvider, options: OpenCvWorkerMatcherOptions = {}) {
     this.templates = templates;
     this.options = {
       workerPath: options.workerPath ?? resolveVisionWorkerPath(),
       requestTimeoutMs: options.requestTimeoutMs ?? 15_000,
-      maxCacheEntries: options.maxCacheEntries ?? 64,
-      maxCacheBytes: options.maxCacheBytes ?? 128 * 1024 * 1024,
+      maxCacheEntries: options.maxCacheEntries ?? 32,
+      maxCacheBytes: options.maxCacheBytes ?? 64 * 1024 * 1024,
       maxSharedBytes: options.maxSharedBytes ?? 64 * 1024 * 1024,
     };
   }
@@ -135,29 +146,62 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null> {
+    return this.findMany([asset], frame, options, signal);
+  }
+
+  getStats(): Partial<ImageMatch> {
+    return { ...this.lastStats };
+  }
+
+  async findMany(
+    assets: string[],
+    frame: AutomationCapturedFrame,
+    options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask },
+    signal: AbortSignal,
+  ): Promise<ImageMatch | null> {
     if (signal.aborted) throw new Error('automation cancelled');
-    const template = await this.templates.load(asset, signal);
-    if (template.width <= 0 || template.height <= 0 || template.bgra.byteLength !== template.width * template.height * 4) {
-      throw new Error(`invalid template pixels for ${asset}`);
+    const uniqueAssets = [...new Set(assets)];
+    if (uniqueAssets.length === 0) throw new Error('at least one automation image asset is required');
+    const templates = await Promise.all(uniqueAssets.map(async (asset) => ({ asset, pixels: await this.templates.load(asset, signal) })));
+    for (const template of templates) {
+      if (template.pixels.width <= 0 || template.pixels.height <= 0
+        || template.pixels.bgra.byteLength !== template.pixels.width * template.pixels.height * 4) {
+        throw new Error(`invalid template pixels for ${template.asset}`);
+      }
     }
-    const sceneBytes = copyForTransfer(frame.bitmap ?? frame.image.toBitmap());
-    if (sceneBytes.byteLength !== frame.deviceSize.width * frame.deviceSize.height * 4) {
+    const bitmapSize = frame.bitmapSize ?? frame.deviceSize;
+    const deviceOrigin = frame.deviceOrigin ?? { x: 0, y: 0 };
+    const fullSceneBytes = frame.bitmap ?? frame.image.toBitmap();
+    if (fullSceneBytes.byteLength !== bitmapSize.width * bitmapSize.height * 4) {
       throw new Error('captured BGRA byte length does not match frame dimensions');
     }
-    const includeTemplate = !this.sentTemplates.has(template.cacheKey);
-    const templateBytes = includeTemplate ? copyForTransfer(template.bgra) : undefined;
+    const deviceRegion = cssRegionToDevice(options.region, frame);
+    const sceneBytes = deviceRegion
+      ? cropBgra(fullSceneBytes, bitmapSize.width, deviceRegion)
+      : fullSceneBytes;
+    const scene = deviceRegion
+      ? {
+        width: deviceRegion.width, height: deviceRegion.height,
+        originX: deviceOrigin.x + deviceRegion.x, originY: deviceOrigin.y + deviceRegion.y,
+      }
+      : { width: bitmapSize.width, height: bitmapSize.height, originX: deviceOrigin.x, originY: deviceOrigin.y };
+    const availableTemplateKeys = new Set(this.sentTemplates);
+    const templatePayloads = templates.map(({ asset, pixels }) => {
+      const include = !availableTemplateKeys.has(pixels.cacheKey);
+      availableTemplateKeys.add(pixels.cacheKey);
+      return { asset, pixels, include };
+    });
     const id = this.nextId++;
     this.ensureWorker();
     await this.waitUntilWorkerReady(signal);
 
-    return new Promise<ImageMatch | null>((resolve, reject) => {
+    const result = await new Promise<ImageMatch | null>((resolve, reject) => {
       const onAbort = (): void => this.restartWorker(new Error('automation cancelled'));
       const timer = setTimeout(() => {
         this.restartWorker(new Error(`OpenCV match timed out after ${this.options.requestTimeoutMs}ms`));
       }, this.options.requestTimeoutMs);
       this.pending.set(id, { resolve, reject, timer, signal, onAbort });
       signal.addEventListener('abort', onAbort, { once: true });
-      if (includeTemplate) this.sentTemplates.add(template.cacheKey);
       if (this.pending.size > 1) {
         this.pending.delete(id);
         clearTimeout(timer);
@@ -165,15 +209,22 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
         reject(new Error('OpenCV matcher accepts one request at a time'));
         return;
       }
+      let templateOffset = 0;
+      const templateMetadata = templatePayloads.map(({ asset, pixels, include }) => {
+        const byteLength = include ? pixels.bgra.byteLength : 0;
+        const descriptor = {
+          asset, cacheKey: pixels.cacheKey, width: pixels.width, height: pixels.height,
+          byteOffset: templateOffset, byteLength,
+        };
+        templateOffset += byteLength;
+        return descriptor;
+      });
       const metadata = Buffer.from(JSON.stringify({
         id,
-        scene: { width: frame.deviceSize.width, height: frame.deviceSize.height },
-        template: {
-          cacheKey: template.cacheKey, width: template.width, height: template.height,
-        },
+        scene,
+        templates: templateMetadata,
         options: {
           threshold: options.threshold,
-          region: cssRegionToDevice(options.region, frame),
           scales: options.scales ?? [1],
           mask: options.mask ?? 'auto',
         },
@@ -184,21 +235,30 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
         this.restartWorker(new Error('OpenCV worker shared channel is busy'));
         return;
       }
-      const totalBytes = metadata.byteLength + sceneBytes.byteLength + (templateBytes?.byteLength ?? 0);
+      const totalBytes = metadata.byteLength + sceneBytes.byteLength + templateOffset;
       if (totalBytes > data.byteLength) {
         this.restartWorker(new Error(`OpenCV request exceeds shared buffer budget: ${totalBytes} > ${data.byteLength}`));
         return;
       }
       data.set(metadata, 0);
       data.set(sceneBytes, metadata.byteLength);
-      if (templateBytes) data.set(templateBytes, metadata.byteLength + sceneBytes.byteLength);
+      const templateStart = metadata.byteLength + sceneBytes.byteLength;
+      for (let index = 0; index < templatePayloads.length; index += 1) {
+        const payload = templatePayloads[index];
+        if (!payload.include) continue;
+        const descriptor = templateMetadata[index];
+        data.set(payload.pixels.bgra, templateStart + descriptor.byteOffset);
+        this.sentTemplates.add(payload.pixels.cacheKey);
+      }
       Atomics.store(control, 1, id);
       Atomics.store(control, 2, metadata.byteLength);
       Atomics.store(control, 3, sceneBytes.byteLength);
-      Atomics.store(control, 4, templateBytes?.byteLength ?? 0);
+      Atomics.store(control, 4, templateOffset);
       Atomics.store(control, 0, 1);
       Atomics.notify(control, 0);
     });
+    this.lastStats = { ...this.lastStats, sceneBytes: sceneBytes.byteLength };
+    return result ? { ...result, sceneBytes: sceneBytes.byteLength } : null;
   }
 
   async close(): Promise<void> {
@@ -266,7 +326,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
 
   private handleMessage(value: unknown): void {
     if (!value || typeof value !== 'object') return;
-    const message = value as { type?: string; id?: unknown; error?: unknown; match?: unknown };
+    const message = value as { type?: string; id?: unknown; error?: unknown; match?: unknown; stats?: unknown };
     if (message.type === 'ready') {
       this.resolveWorkerReady?.();
       this.resolveWorkerReady = null;
@@ -284,7 +344,12 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     clearTimeout(pending.timer);
     pending.signal.removeEventListener('abort', pending.onAbort);
     if (message.type === 'error') pending.reject(new Error(typeof message.error === 'string' ? message.error : 'OpenCV worker error'));
-    else pending.resolve((message.match as ImageMatch | null | undefined) ?? null);
+    else {
+      const match = (message.match as ImageMatch | null | undefined) ?? null;
+      const stats = (message.stats as Partial<ImageMatch> | undefined) ?? {};
+      this.lastStats = { ...this.lastStats, ...stats };
+      pending.resolve(match ? { ...match, ...stats } : null);
+    }
   }
 
   private restartWorker(reason: Error): void {
