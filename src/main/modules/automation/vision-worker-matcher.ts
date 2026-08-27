@@ -60,6 +60,18 @@ export type OpenCvWorkerMatcherOptions = {
   maxSharedBytes?: number;
 };
 
+/**
+ * worker_threads 的 `new Worker(path)` 无法直接读取 asar 归档内的脚本：
+ * Electron 的 asar 集成只作用于主/渲染进程的 require 与 fs，Worker 入口文件
+ * 必须指向真实文件系统。打包时通过 electron-builder 的 asarUnpack 把
+ * vision-worker.cjs 释放到 `app.asar.unpacked/`，这里把 `__dirname` 拼出的
+ * asar 路径改写到解包目录；开发模式下路径不含 `app.asar`，原样返回。
+ */
+function resolveVisionWorkerPath(): string {
+  const candidate = path.join(__dirname, 'vision-worker.cjs');
+  return candidate.replace(/([/\\])app\.asar\1/, '$1app.asar.unpacked$1');
+}
+
 type PendingRequest = {
   resolve(value: ImageMatch | null): void;
   reject(error: Error): void;
@@ -103,7 +115,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
   constructor(templates: AutomationTemplateProvider, options: OpenCvWorkerMatcherOptions = {}) {
     this.templates = templates;
     this.options = {
-      workerPath: options.workerPath ?? path.join(__dirname, 'vision-worker.cjs'),
+      workerPath: options.workerPath ?? resolveVisionWorkerPath(),
       requestTimeoutMs: options.requestTimeoutMs ?? 15_000,
       maxCacheEntries: options.maxCacheEntries ?? 64,
       maxCacheBytes: options.maxCacheBytes ?? 128 * 1024 * 1024,

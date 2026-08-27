@@ -7,6 +7,18 @@ export type AutomationRegion = {
 
 export type AutomationImageMask = 'auto' | 'none' | 'alpha';
 
+export type AutomationCoordinate = {
+  x: number;
+  y: number;
+};
+
+export type AutomationRelativeRegion = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
 export type ImageCondition = {
   type: 'image-visible';
   asset: string;
@@ -32,7 +44,21 @@ export type NotCondition = {
   condition: AutomationCondition;
 };
 
-export type AutomationCondition = ImageCondition | AllCondition | AnyCondition | NotCondition;
+export type PositionCompareTarget =
+  | { kind: 'coordinate'; coordinate: AutomationCoordinate }
+  | { kind: 'image'; asset: string; alternatives?: string[]; threshold?: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask; offset?: { x: number; y: number } };
+
+export type PositionRelation = 'vertical' | 'horizontal' | 'overlap';
+
+export type PositionRelationCondition = {
+  type: 'position-relation';
+  targetA: PositionCompareTarget;
+  targetB: PositionCompareTarget;
+  relation: PositionRelation;
+  tolerancePx: number;
+};
+
+export type AutomationCondition = ImageCondition | AllCondition | AnyCondition | NotCondition | PositionRelationCondition;
 
 export type SequenceStep = {
   id?: string;
@@ -89,6 +115,23 @@ export type ClickImageStep = {
   offset?: { x: number; y: number };
   verifyBeforeClick?: boolean;
   maxMovementPx?: number;
+};
+
+export type ClickCoordinateStep = {
+  id?: string;
+  type: 'click-coordinate';
+  coordinate: AutomationCoordinate;
+  button?: 'left' | 'right' | 'middle';
+  clickCount?: number;
+};
+
+export type RandomClickRegionStep = {
+  id?: string;
+  type: 'random-click-region';
+  region: AutomationRelativeRegion;
+  button?: 'left' | 'right' | 'middle';
+  clickCount?: number;
+  padding?: number;
 };
 
 export type KeyPressStep = {
@@ -159,6 +202,13 @@ export type LogStep = {
   message: string;
 };
 
+export type NotificationStep = {
+  id?: string;
+  type: 'notification';
+  title: string;
+  body: string;
+};
+
 export type IfImageStep = {
   id?: string;
   type: 'if-image';
@@ -166,6 +216,38 @@ export type IfImageStep = {
   negate?: boolean;
   then: SequenceStep;
   else?: SequenceStep;
+};
+
+export type MoveToCoordinateStep = {
+  id?: string;
+  type: 'move-to-coordinate';
+  coordinate: AutomationCoordinate;
+};
+
+export type DragImageStep = {
+  id?: string;
+  type: 'drag-image';
+  source: ImageCondition;
+  target: ImageCondition;
+  timeoutMs?: number;
+  pollMs?: number;
+  button?: 'left' | 'right' | 'middle';
+  durationMs?: number;
+};
+
+export type AutomationPointerTarget =
+  | { kind: 'coordinate'; coordinate: AutomationCoordinate }
+  | { kind: 'image'; condition: ImageCondition };
+
+export type DragStep = {
+  id?: string;
+  type: 'drag';
+  source: AutomationPointerTarget;
+  target: AutomationPointerTarget;
+  timeoutMs?: number;
+  pollMs?: number;
+  button?: 'left' | 'right' | 'middle';
+  durationMs?: number;
 };
 
 export type IfConditionStep = {
@@ -182,6 +264,23 @@ export type WaitConditionStep = {
   condition: AutomationCondition;
   timeoutMs?: number;
   pollMs?: number;
+};
+
+export type WaitConditionBranchStep = {
+  id?: string;
+  type: 'wait-condition-branch';
+  condition: AutomationCondition;
+  timeoutMs?: number;
+  pollMs?: number;
+  success: SequenceStep;
+  timeout: SequenceStep;
+};
+
+export type EndStep = {
+  id?: string;
+  type: 'end';
+  result: 'success' | 'failure';
+  message?: string;
 };
 
 export type RepeatUntilConditionStep = {
@@ -210,32 +309,53 @@ export type RepeatStep = {
   body: SequenceStep;
 };
 
+export type PositionCompareStep = {
+  id?: string;
+  type: 'position-compare';
+  targetA: PositionCompareTarget;
+  targetB: PositionCompareTarget;
+  relation: PositionRelation;
+  tolerancePx: number;
+  then: SequenceStep;
+  else?: SequenceStep;
+};
+
 export type AutomationStep =
   | SequenceStep
   | DelayStep
   | WaitImageStep
   | WaitImageStateStep
   | ClickImageStep
+  | ClickCoordinateStep
+  | RandomClickRegionStep
   | KeyPressStep
   | KeyHoldUntilImageStep
   | MoveToImageStep
+  | MoveToCoordinateStep
+  | DragImageStep
+  | DragStep
   | TextInputStep
   | ScrollStep
   | NavigateStep
   | ReloadStep
   | LogStep
+  | NotificationStep
   | IfImageStep
   | IfConditionStep
   | WaitConditionStep
+  | WaitConditionBranchStep
+  | EndStep
   | RepeatStep
   | RepeatUntilImageStep
-  | RepeatUntilConditionStep;
+  | RepeatUntilConditionStep
+  | PositionCompareStep;
 
 export type AutomationWorkflow = {
   formatVersion: 1;
   id: string;
   name: string;
   description?: string;
+  searchRegion?: AutomationRelativeRegion;
   readyWhen?: AutomationCondition;
   root: SequenceStep;
 };
@@ -280,12 +400,18 @@ export type AutomationMessage =
   | { key: 'status.scriptCompleted' }
   | { key: 'status.scriptStopped' }
   | { key: 'status.imageMatch'; params: { asset: string; score: string; ms: string } }
+  | { key: 'status.randomClickCoordinate'; params: { x: number; y: number } }
   | { key: 'status.pausedNext'; params: { step: AutomationMessage } }
   | { key: 'step.sequence' }
   | { key: 'step.waitImage'; params: { asset: string } }
   | { key: 'step.waitImageState'; params: { asset: string; state: 'visible' | 'hidden' } }
   | { key: 'step.clickImage'; params: { asset: string } }
+  | { key: 'step.clickCoordinate'; params: { x: number; y: number } }
+  | { key: 'step.randomClickRegion' }
   | { key: 'step.moveToImage'; params: { asset: string } }
+  | { key: 'step.moveToCoordinate'; params: { x: number; y: number } }
+  | { key: 'step.dragImage'; params: { source: string; target: string } }
+  | { key: 'step.drag' }
   | { key: 'step.delay'; params: { ms: number } }
   | { key: 'step.keyPress'; params: { key: string } }
   | { key: 'step.keyHoldUntilImage'; params: { key: string; state: 'visible' | 'hidden'; asset: string } }
@@ -294,10 +420,15 @@ export type AutomationMessage =
   | { key: 'step.navigate' }
   | { key: 'step.reload' }
   | { key: 'step.log'; params: { message: string } }
+  | { key: 'step.notification'; params: { title: string } }
   | { key: 'step.ifImage'; params: { asset: string } }
   | { key: 'step.ifCondition' }
   | { key: 'step.waitCondition' }
+  | { key: 'step.waitConditionBranch' }
+  | { key: 'step.end'; params: { result: 'success' | 'failure'; message: string } }
   | { key: 'step.repeat'; params: { times: number } }
   | { key: 'step.repeatUntilImage'; params: { asset: string } }
   | { key: 'step.repeatUntilCondition' }
+  | { key: 'step.positionCompare'; params: { relation: string } }
+  | { key: 'step.positionRelation' }
   | { key: 'raw'; params: { text: string } };

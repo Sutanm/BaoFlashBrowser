@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AutomationRunner, type AutomationDriver, type FindImageRequest, type ImageMatch } from '../src/main/modules/automation/runtime';
+import { AutomationRunner, type AutomationDriver, type AutomationDriverPointerTarget, type FindImageRequest, type ImageMatch } from '../src/main/modules/automation/runtime';
 import type { AutomationWorkflow } from '../src/shared/automation/types';
 
 const MATCH: ImageMatch = { x: 100, y: 80, width: 40, height: 20, score: 0.97 };
@@ -24,8 +24,27 @@ class FakeDriver implements AutomationDriver {
     this.calls.push(`click:${options.button}:${options.clickCount}:${options.offset.x},${options.offset.y}`);
   }
 
+  async clickPoint(coordinate: { x: number; y: number }, options: { button: string; clickCount: number }): Promise<void> {
+    this.calls.push(`click-point:${coordinate.x},${coordinate.y}:${options.button}:${options.clickCount}`);
+  }
+
   async moveTo(_match: ImageMatch, offset: { x: number; y: number }): Promise<void> {
     this.calls.push(`move:${offset.x},${offset.y}`);
+  }
+
+  async moveToPoint(coordinate: { x: number; y: number }): Promise<void> {
+    this.calls.push(`move-point:${coordinate.x},${coordinate.y}`);
+  }
+
+  async drag(source: ImageMatch, target: ImageMatch, options: { button: string; durationMs: number }): Promise<void> {
+    this.calls.push(`drag:${options.button}:${options.durationMs}:${source.x},${source.y}->${target.x},${target.y}`);
+  }
+
+  async dragTargets(source: AutomationDriverPointerTarget, target: AutomationDriverPointerTarget, options: { button: string; durationMs: number }): Promise<void> {
+    const label = (value: AutomationDriverPointerTarget): string => value.kind === 'coordinate'
+      ? `coordinate:${value.coordinate.x},${value.coordinate.y}`
+      : `match:${value.match.x},${value.match.y}`;
+    this.calls.push(`drag-targets:${options.button}:${options.durationMs}:${label(source)}->${label(target)}`);
   }
 
   async pressKey(key: string, modifiers: string[]): Promise<void> {
@@ -158,6 +177,132 @@ describe('automation runtime', () => {
     await expect(runner.run()).resolves.toBe(true);
     expect(driver.requests[0].scales).toEqual([0.75, 1, 1.25]);
     expect(driver.requests[0].mask).toBe('auto');
+  });
+
+  it('finds both endpoints before dragging an image', async () => {
+    const driver = new FakeDriver();
+    driver.queue('A.png', MATCH);
+    driver.queue('B.png', { ...MATCH, x: 320, y: 240 });
+    const runner = new AutomationRunner({
+      formatVersion: 1, id: 'drag-image', name: 'Drag image',
+      root: { type: 'sequence', steps: [{
+        type: 'drag-image',
+        source: { type: 'image-visible', asset: 'A.png', threshold: 0.88 },
+        target: { type: 'image-visible', asset: 'B.png', threshold: 0.92 },
+        button: 'left', durationMs: 600,
+      }] },
+    }, driver);
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.calls).toEqual(['find:A.png', 'find:B.png', 'drag:left:600:100,80->320,240']);
+    expect(driver.requests.map((request) => request.threshold)).toEqual([0.88, 0.92]);
+  });
+
+  it('moves to coordinates and supports mixed coordinate/image drag targets', async () => {
+    const driver = new FakeDriver();
+    driver.queue('A.png', MATCH);
+    driver.queue('B.png', { ...MATCH, x: 300, y: 200 });
+    const runner = new AutomationRunner({
+      formatVersion: 1, id: 'pointer-targets', name: 'Pointer targets',
+      root: { type: 'sequence', steps: [
+        { type: 'move-to-coordinate', coordinate: { x: 6000, y: 3500 } },
+        { type: 'drag', source: { kind: 'image', condition: { type: 'image-visible', asset: 'A.png' } }, target: { kind: 'coordinate', coordinate: { x: 8000, y: 7000 } }, durationMs: 400 },
+        { type: 'drag', source: { kind: 'coordinate', coordinate: { x: 1000, y: 2000 } }, target: { kind: 'image', condition: { type: 'image-visible', asset: 'B.png' } }, button: 'right', durationMs: 0 },
+        { type: 'drag', source: { kind: 'coordinate', coordinate: { x: 2500, y: 2500 } }, target: { kind: 'coordinate', coordinate: { x: 7500, y: 7500 } } },
+      ] },
+    }, driver);
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.calls).toEqual([
+      'move-point:6000,3500',
+      'find:A.png',
+      'drag-targets:left:400:match:100,80->coordinate:8000,7000',
+      'find:B.png',
+      'drag-targets:right:0:coordinate:1000,2000->match:300,200',
+      'drag-targets:left:800:coordinate:2500,2500->coordinate:7500,7500',
+    ]);
+  });
+
+  it('runs the matching branch when a waited condition succeeds and the timeout branch otherwise', async () => {
+    const successDriver = new FakeDriver();
+    successDriver.queue('ready.png', null, MATCH);
+    const source = (id: string): AutomationWorkflow => ({
+      formatVersion: 1, id, name: id,
+      root: { type: 'sequence', steps: [{
+        type: 'wait-condition-branch', condition: { type: 'image-visible', asset: 'ready.png' }, timeoutMs: 100, pollMs: 50,
+        success: { type: 'sequence', steps: [{ type: 'key-press', key: 'Enter' }] },
+        timeout: { type: 'sequence', steps: [{ type: 'key-press', key: 'Escape' }] },
+      }] },
+    });
+    await expect(new AutomationRunner(source('wait-success'), successDriver).run()).resolves.toBe(true);
+    expect(successDriver.calls).toEqual(['find:ready.png', 'sleep:50', 'find:ready.png', 'key::Enter']);
+
+    const timeoutDriver = new FakeDriver();
+    await expect(new AutomationRunner(source('wait-timeout'), timeoutDriver).run()).resolves.toBe(true);
+    expect(timeoutDriver.calls).toEqual(['find:ready.png', 'sleep:50', 'find:ready.png', 'sleep:50', 'find:ready.png', 'key::Escape']);
+  });
+
+  it('ends successfully without running later steps and can deliberately fail with a reason', async () => {
+    const successDriver = new FakeDriver();
+    const successRunner = new AutomationRunner({
+      formatVersion: 1, id: 'end-success', name: 'End success',
+      root: { type: 'sequence', steps: [{ type: 'end', result: 'success', message: 'done' }, { type: 'key-press', key: 'A' }] },
+    }, successDriver);
+    await expect(successRunner.run()).resolves.toBe(true);
+    expect(successRunner.state).toBe('completed');
+    expect(successDriver.calls).toEqual([]);
+
+    const failureRunner = new AutomationRunner({
+      formatVersion: 1, id: 'end-failure', name: 'End failure',
+      root: { type: 'sequence', steps: [{ type: 'end', result: 'failure', message: '体力不足' }] },
+    }, new FakeDriver());
+    await expect(failureRunner.run()).rejects.toThrow('体力不足');
+    expect(failureRunner.state).toBe('failed');
+  });
+
+  it('clicks a relative coordinate without capturing or matching an image', async () => {
+    const driver = new FakeDriver();
+    const runner = new AutomationRunner({
+      formatVersion: 1, id: 'coordinate-click', name: 'Coordinate click',
+      root: { type: 'sequence', steps: [{ type: 'click-coordinate', coordinate: { x: 6250, y: 3750 }, button: 'right', clickCount: 2 }] },
+    }, driver);
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.calls).toEqual(['click-point:6250,3750:right:2']);
+    expect(driver.requests).toHaveLength(0);
+  });
+
+  it('randomly clicks one point inside the padded region and reuses it for a double click', async () => {
+    const driver = new FakeDriver();
+    const events: Array<{ x: number; y: number }> = [];
+    const runner = new AutomationRunner({
+      formatVersion: 1, id: 'random-region-click', name: 'Random region click',
+      root: { type: 'sequence', steps: [{
+        type: 'random-click-region', region: { left: 2000, top: 1000, right: 8000, bottom: 7000 }, padding: 100,
+      }] },
+    }, driver, {
+      random: () => 0.5,
+      onEvent: (event) => { if (event.type === 'random-click-coordinate') events.push(event.coordinate); },
+    });
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.calls).toEqual(['log:random click coordinate 5000,4000', 'click-point:5000,4000:left:2']);
+    expect(events).toEqual([{ x: 5000, y: 4000 }]);
+    expect(driver.requests).toHaveLength(0);
+  });
+
+  it('applies the entry search region to image operations unless a step overrides it', async () => {
+    const driver = new FakeDriver();
+    driver.queue('inside.png', MATCH);
+    driver.queue('override.png', MATCH);
+    const runner = new AutomationRunner({
+      formatVersion: 1, id: 'game-region', name: 'Game region',
+      searchRegion: { left: 1000, top: 2000, right: 9000, bottom: 8000 },
+      root: { type: 'sequence', steps: [
+        { type: 'wait-image', asset: 'inside.png' },
+        { type: 'wait-image', asset: 'override.png', region: { x: 10, y: 20, width: 300, height: 200 } },
+      ] },
+    }, driver);
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.requests[0]).toMatchObject({ relativeRegion: { left: 1000, top: 2000, right: 9000, bottom: 8000 } });
+    expect(driver.requests[1]).toMatchObject({ region: { x: 10, y: 20, width: 300, height: 200 } });
+    expect(driver.requests[1].relativeRegion).toBeUndefined();
   });
 
   it('passes every member of an image group to the driver', async () => {

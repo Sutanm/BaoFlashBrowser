@@ -123,11 +123,37 @@ app.whenReady().then(async () => {
   check('automation assistant opens as a three-tab floating control center', assistantControls?.open === true && assistantControls?.tabs === 3, assistantControls);
   check('automation capture keeps a visible cancel button without Escape copy', assistantControls?.captureCancel === '取消' && !assistantControls?.captureHelp?.includes('Esc'), assistantControls);
   check('automation capture help clears the top toast area', assistantControls?.captureHelpTop === '64px', assistantControls);
+  const coordinatePicker = await view.webContents.executeJavaScript(`(() => {
+    const root = document.getElementById('bao-automation-frame-assistant');
+    root?.querySelector('[data-view="capture"]')?.click();
+    root?.querySelector('.bao-coordinate')?.click();
+    const layer = document.getElementById('bao-automation-coordinate-layer');
+    const x = Math.round(innerWidth * 0.625); const y = Math.round(innerHeight * 0.375);
+    layer?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y }));
+    const shown = layer?.querySelector('.bao-coordinate-value')?.textContent;
+    const expected = Math.round(x / Math.max(1, innerWidth - 1) * 10000) + ',' + Math.round(y / Math.max(1, innerHeight - 1) * 10000);
+    const activeBeforeEscape = layer?.classList.contains('bao-active') || false;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return { activeBeforeEscape, activeAfterEscape: layer?.classList.contains('bao-active') || false, shown, expected, panelReopened: root?.classList.contains('bao-open') || false };
+  })()`);
+  check('coordinate picker shows directly reusable normalized X,Y values', coordinatePicker?.activeBeforeEscape === true && coordinatePicker?.shown === coordinatePicker?.expected, coordinatePicker);
+  check('coordinate picker exits with Escape and reopens Capture', coordinatePicker?.activeAfterEscape === false && coordinatePicker?.panelReopened === true, coordinatePicker);
+  const coordinateCopy = await view.webContents.executeJavaScript(`(async () => {
+    let pageClicks = 0;
+    document.querySelector('#bao-automation-frame-assistant .bao-coordinate')?.click();
+    document.addEventListener('click', () => { pageClicks += 1; }, { once: true });
+    const layer = document.getElementById('bao-automation-coordinate-layer');
+    const x = Math.round(innerWidth * 0.4); const y = Math.round(innerHeight * 0.6);
+    layer?.dispatchEvent(new PointerEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { copied: layer?.getAttribute('data-last-copied'), expected: Math.round(x / Math.max(1, innerWidth - 1) * 10000) + ',' + Math.round(y / Math.max(1, innerHeight - 1) * 10000), pageClicks, active: layer?.classList.contains('bao-active') || false };
+  })()`);
+  check('coordinate click copies X,Y, exits, and does not reach the page', coordinateCopy?.copied === coordinateCopy?.expected && coordinateCopy?.pageClicks === 0 && coordinateCopy?.active === false, coordinateCopy);
   await waitForPageCondition(
     view.webContents,
     "document.querySelector('#bao-automation-frame-assistant .bao-state-title')?.textContent === '执行完成'",
   );
-  const staleCompletionToasts = await view.webContents.executeJavaScript("document.querySelectorAll('#bao-automation-assistant-toasts .bao-toast').length");
+  const staleCompletionToasts = await view.webContents.executeJavaScript("[...document.querySelectorAll('#bao-automation-assistant-toasts .bao-toast')].filter((node) => node.textContent === '自动化脚本执行完成').length");
   check('historical completed status does not toast on a newly opened page', staleCompletionToasts === 0, staleCompletionToasts);
   automationState = 'running';
   await waitForPageCondition(

@@ -707,6 +707,10 @@ export class AutomationService {
       });
     } else if (event.type === 'image-match') {
       this.appendLog('success', { key: 'status.imageMatch', params: { asset: event.asset, score: (event.match.score * 100).toFixed(1), ms: event.match.matchMs?.toFixed(0) ?? '?' } }, this.status.executedSteps);
+    } else if (event.type === 'random-click-coordinate') {
+      const message: AutomationMessage = { key: 'status.randomClickCoordinate', params: event.coordinate };
+      this.setStatus({ state: this.status.state, packageId, tabId, workflowName, message });
+      this.appendLog('info', message, this.status.executedSteps);
     } else if (event.type === 'log') {
       log.info(`[Automation] ${event.message}`);
       this.setStatus({ state: this.status.state, packageId, tabId, workflowName, message: { key: 'raw', params: { text: event.message } } });
@@ -726,7 +730,12 @@ export class AutomationService {
       case 'wait-image': return { key: 'step.waitImage', params: { asset: step.asset } };
       case 'wait-image-state': return { key: 'step.waitImageState', params: { asset: step.asset, state: step.state } };
       case 'click-image': return { key: 'step.clickImage', params: { asset: step.asset } };
+      case 'click-coordinate': return { key: 'step.clickCoordinate', params: step.coordinate };
+      case 'random-click-region': return { key: 'step.randomClickRegion' };
       case 'move-to-image': return { key: 'step.moveToImage', params: { asset: step.asset } };
+      case 'move-to-coordinate': return { key: 'step.moveToCoordinate', params: step.coordinate };
+      case 'drag-image': return { key: 'step.dragImage', params: { source: step.source.asset, target: step.target.asset } };
+      case 'drag': return { key: 'step.drag' };
       case 'delay': return { key: 'step.delay', params: { ms: step.durationMs } };
       case 'key-press': return { key: 'step.keyPress', params: { key: step.key } };
       case 'key-hold-until-image': return { key: 'step.keyHoldUntilImage', params: { key: step.key, state: step.state, asset: step.asset } };
@@ -735,12 +744,16 @@ export class AutomationService {
       case 'navigate': return { key: 'step.navigate' };
       case 'reload': return { key: 'step.reload' };
       case 'log': return { key: 'step.log', params: { message: step.message } };
+      case 'notification': return { key: 'step.notification', params: { title: step.title } };
       case 'if-image': return { key: 'step.ifImage', params: { asset: step.condition.asset } };
       case 'if-condition': return { key: 'step.ifCondition' };
       case 'wait-condition': return { key: 'step.waitCondition' };
+      case 'wait-condition-branch': return { key: 'step.waitConditionBranch' };
+      case 'end': return { key: 'step.end', params: { result: step.result, message: step.message ?? '' } };
       case 'repeat': return { key: 'step.repeat', params: { times: step.times } };
       case 'repeat-until-image': return { key: 'step.repeatUntilImage', params: { asset: step.condition.asset } };
       case 'repeat-until-condition': return { key: 'step.repeatUntilCondition' };
+      case 'position-compare': return { key: 'step.positionCompare', params: { relation: step.relation } };
     }
   }
 

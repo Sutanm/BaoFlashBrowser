@@ -28,6 +28,8 @@ export function resolveAutomationMessage(message: AutomationMessage, LL: Transla
       return s.status.scriptStopped();
     case 'status.imageMatch':
       return s.status.imageMatch(message.params);
+    case 'status.randomClickCoordinate':
+      return s.status.randomClickCoordinate(message.params);
     case 'status.pausedNext':
       return s.status.pausedNext({ step: resolveAutomationMessage(message.params.step, LL) });
     case 'step.sequence':
@@ -38,8 +40,18 @@ export function resolveAutomationMessage(message: AutomationMessage, LL: Transla
       return s.step.waitImageState({ asset: message.params.asset, state: message.params.state === 'visible' ? s.state.visible() : s.state.hidden() });
     case 'step.clickImage':
       return s.step.clickImage(message.params);
+    case 'step.clickCoordinate':
+      return s.step.clickCoordinate(message.params);
+    case 'step.randomClickRegion':
+      return s.step.randomClickRegion();
     case 'step.moveToImage':
       return s.step.moveToImage(message.params);
+    case 'step.moveToCoordinate':
+      return s.step.moveToCoordinate(message.params);
+    case 'step.dragImage':
+      return s.step.dragImage(message.params);
+    case 'step.drag':
+      return s.step.drag();
     case 'step.delay':
       return s.step.delay(message.params);
     case 'step.keyPress':
@@ -56,17 +68,27 @@ export function resolveAutomationMessage(message: AutomationMessage, LL: Transla
       return s.step.reload();
     case 'step.log':
       return s.step.log(message.params);
+    case 'step.notification':
+      return s.step.notification(message.params);
     case 'step.ifImage':
       return s.step.ifImage(message.params);
     case 'step.ifCondition':
       return s.step.ifCondition();
     case 'step.waitCondition':
       return s.step.waitCondition();
+    case 'step.waitConditionBranch':
+      return s.step.waitConditionBranch();
+    case 'step.end':
+      return s.step.end({ result: message.params.result === 'success' ? s.step.endSuccess() : s.step.endFailure(), message: message.params.message });
     case 'step.repeat':
       return s.step.repeat(message.params);
     case 'step.repeatUntilImage':
       return s.step.repeatUntilImage(message.params);
     case 'step.repeatUntilCondition':
       return s.step.repeatUntilCondition();
+    case 'step.positionCompare':
+      return s.step.positionCompare(message.params);
+    case 'step.positionRelation':
+      return s.step.positionRelation();
   }
 }

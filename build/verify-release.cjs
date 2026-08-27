@@ -209,7 +209,7 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
 
 function verifySource() {
   const dist = path.join(projectRoot, 'dist');
-  for (const name of ['main.js', 'preload.js', 'webview-preload.js', 'renderer/index.html', 'renderer/bundle.js', 'renderer/bundle.css']) {
+  for (const name of ['main.js', 'preload.js', 'webview-preload.js', 'vision-worker.cjs', 'renderer/index.html', 'renderer/bundle.js', 'renderer/bundle.css']) {
     record(path.join(dist, name), `dist/${name}`);
   }
   if (fs.existsSync(path.join(dist, 'dist'))) fail('stale nested build output exists at dist/dist');
@@ -252,11 +252,25 @@ function verifyAsar(asarPath) {
     'dist/lib/ruffle/SourceHanSans-LICENSE.txt',
     'node_modules/electron-log/package.json',
     'node_modules/electron-store/package.json',
+    'node_modules/@techstark/opencv-js/package.json',
   ];
   for (const name of required) if (!entries.includes(name)) fail(`app.asar is missing ${name}`);
   if (!entries.some((name) => /^dist\/lib\/ruffle\/core\.ruffle\..+\.js$/.test(name))) fail('app.asar is missing a Ruffle core chunk');
   if (!entries.some((name) => /^dist\/lib\/ruffle\/.+\.wasm$/.test(name))) fail('app.asar is missing Ruffle WebAssembly');
   if (entries.some((name) => name.startsWith('dist/dist/'))) fail('app.asar contains stale dist/dist output');
+}
+
+function verifyVisionWorkerUnpacked(resourcesRoot) {
+  // worker_threads 无法从 asar 内加载脚本：vision-worker.cjs 与其运行时依赖
+  // @techstark/opencv-js 必须通过 asarUnpack 解包到 app.asar.unpacked/。
+  // 这里校验解包产物存在，防止有人误删 asarUnpack 配置后回归到打包报错。
+  const unpacked = path.join(resourcesRoot, 'app.asar.unpacked');
+  record(path.join(unpacked, 'dist', 'vision-worker.cjs'), 'unpacked vision worker');
+  record(path.join(unpacked, 'node_modules', '@techstark', 'opencv-js', 'package.json'), 'unpacked OpenCV.js manifest');
+  record(path.join(unpacked, 'node_modules', '@techstark', 'opencv-js', 'dist', 'opencv.js'), 'unpacked OpenCV.js bundle');
+  if (fs.existsSync(path.join(resourcesRoot, 'app.asar')) && !fs.existsSync(unpacked)) {
+    fail('app.asar.unpacked is missing — vision worker cannot be loaded by worker_threads');
+  }
 }
 
 function verifyUnpacked() {
@@ -273,6 +287,7 @@ function verifyUnpacked() {
     : path.join(root, 'resources');
   verifyAsar(path.join(resources, 'app.asar'));
   verifySelectedResources(resources);
+  verifyVisionWorkerUnpacked(resources);
 
   if (platform === 'win32') {
     const exes = fs.readdirSync(root).filter((name) => name.endsWith('.exe'));

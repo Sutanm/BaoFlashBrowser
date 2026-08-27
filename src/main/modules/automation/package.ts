@@ -32,20 +32,32 @@ export function inferAutomationCapabilities(workflow: AutomationWorkflow): Autom
       if (condition.mask === 'alpha' || condition.mask === 'auto') result.add('alpha-mask');
       if (condition.scales && condition.scales.length > 1) result.add('multi-scale');
     } else if (condition.type === 'not') { result.add('combined-conditions'); visitCondition(condition.condition); }
+    else if (condition.type === 'position-relation') { result.add('combined-conditions'); if (condition.targetA.kind === 'image') result.add('vision'); if (condition.targetB.kind === 'image') result.add('vision'); }
     else { result.add('combined-conditions'); condition.conditions.forEach(visitCondition); }
   };
   const visit = (step: import('../../../shared/automation/types').AutomationStep): void => {
+    if (step.type === 'drag-image') { visitCondition(step.source); visitCondition(step.target); }
+    if (step.type === 'drag') {
+      if (step.source.kind === 'image') visitCondition(step.source.condition);
+      if (step.target.kind === 'image') visitCondition(step.target.condition);
+    }
     if ('asset' in step && typeof step.asset === 'string') result.add('vision');
     if ('alternatives' in step && step.alternatives?.length) result.add('image-groups');
     if ('mask' in step && (step.mask === 'alpha' || step.mask === 'auto')) result.add('alpha-mask');
     if ('scales' in step && step.scales && step.scales.length > 1) result.add('multi-scale');
-    if (['click-image', 'move-to-image', 'key-press', 'key-hold-until-image', 'text-input', 'scroll'].includes(step.type)) result.add('trusted-input');
+    if (['click-image', 'click-coordinate', 'random-click-region', 'move-to-image', 'move-to-coordinate', 'drag-image', 'drag', 'key-press', 'key-hold-until-image', 'text-input', 'scroll'].includes(step.type)) result.add('trusted-input');
     if (step.type === 'navigate' || step.type === 'reload') result.add('navigation');
     if (step.type === 'sequence') step.steps.forEach(visit);
     else if (step.type === 'if-image' || step.type === 'if-condition') { visitCondition(step.condition); visit(step.then); if (step.else) visit(step.else); }
     else if (step.type === 'wait-condition') visitCondition(step.condition);
+    else if (step.type === 'wait-condition-branch') { visitCondition(step.condition); visit(step.success); visit(step.timeout); }
     else if (step.type === 'repeat' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') {
       if ('condition' in step) visitCondition(step.condition); visit(step.body);
+    }
+    else if (step.type === 'position-compare') {
+      if (step.targetA.kind === 'image') result.add('vision');
+      if (step.targetB.kind === 'image') result.add('vision');
+      visit(step.then); if (step.else) visit(step.else);
     }
   };
   if (workflow.readyWhen) visitCondition(workflow.readyWhen);

@@ -4,8 +4,8 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      2.0.3
-// @description  网页内自动化悬浮球：运行控制、素材识别与截图取材。
+// @version      2.1.2
+// @description  网页内自动化悬浮球：运行控制、素材识别、截图取材与相对坐标取点。
 // @match        http://*/*
 // @match        https://*/*
 // @match        file:///*
@@ -75,6 +75,7 @@
 #bao-automation-assistant-toasts{all:initial;position:fixed;z-index:2147483647;top:18px;left:50%;display:grid;gap:8px;transform:translateX(-50%);pointer-events:none;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-assistant-toasts .bao-toast{min-width:280px;padding:11px 15px;border:1px solid #9ec5ed38;border-radius:10px;background:#102039ee;box-shadow:0 12px 40px #0008;color:#dbeaff;animation:bao-toast-in .25s both}@keyframes bao-toast-in{from{transform:translateY(-12px);opacity:0}}
 #bao-automation-capture-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;overflow:hidden;background:#020914ed;color:#eef5ff;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif;cursor:crosshair}#bao-automation-capture-layer.bao-active{display:block}#bao-automation-capture-layer *{box-sizing:border-box}#bao-automation-capture-layer .bao-capture-image{position:absolute;max-width:100vw;max-height:100vh;object-fit:contain;left:50%;top:50%;transform:translate(-50%,-50%)}#bao-automation-capture-layer .bao-capture-help{position:absolute;z-index:4;top:64px;left:50%;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 16px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap}#bao-automation-capture-layer .bao-capture-cancel{height:28px;padding:0 11px;border-color:#ff9b9b55;background:#5f2637;color:#ffdce2;cursor:pointer}#bao-automation-capture-layer .bao-selection{position:absolute;z-index:2;display:none;border:2px solid #78b5ff;background:#64a4ff16;box-shadow:0 0 0 9999px #02091399}#bao-automation-capture-layer .bao-selection-info{position:absolute;left:-2px;bottom:calc(100% + 7px);padding:4px 7px;border-radius:5px;background:#3779cf;color:white;font-size:10px;white-space:nowrap}
 #bao-automation-capture-layer .bao-save{position:absolute;z-index:3;display:none;width:292px;gap:8px;padding:10px;border:1px solid #9ec6ee44;border-radius:12px;background:#0f2038f5;box-shadow:0 15px 45px #000b;cursor:default}#bao-automation-capture-layer .bao-save label{display:grid;gap:5px;color:#a9bbd0;font-size:10px}#bao-automation-capture-layer .bao-save input{width:100%;height:34px;padding:0 10px;border:1px solid #90b9e23d;border-radius:8px;background:#061321;color:#eff6ff}#bao-automation-capture-layer .bao-save small{color:#7890aa;font-size:9px}#bao-automation-capture-layer .bao-save-buttons,#bao-automation-capture-layer .bao-conflict-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}#bao-automation-capture-layer button{height:34px;border:1px solid #8eb8e22b;border-radius:8px;background:#142843;color:#dce9f8;cursor:pointer}#bao-automation-capture-layer button.bao-primary{background:#397cec;color:#fff}#bao-automation-capture-layer .bao-conflict{display:none;gap:7px;padding:8px;border:1px solid #ffb15b3b;border-radius:8px;background:#9a5b191f;color:#ffd2a0;font-size:10px}#bao-automation-capture-layer .bao-conflict.bao-show{display:grid}
+#bao-automation-coordinate-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;overflow:hidden;cursor:crosshair;background-image:linear-gradient(#77b3ff24 1px,transparent 1px),linear-gradient(90deg,#77b3ff24 1px,transparent 1px);background-size:10% 10%;box-shadow:inset 0 0 0 1px #77b3ff88;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif;color:#fff;user-select:none}#bao-automation-coordinate-layer.bao-active{display:block}#bao-automation-coordinate-layer .bao-coordinate-help{position:absolute;z-index:3;top:18px;left:50%;padding:9px 15px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap;pointer-events:none}#bao-automation-coordinate-layer .bao-coordinate-x,#bao-automation-coordinate-layer .bao-coordinate-y{position:absolute;z-index:1;background:#65b5ffcc;pointer-events:none}#bao-automation-coordinate-layer .bao-coordinate-x{top:0;bottom:0;width:1px}#bao-automation-coordinate-layer .bao-coordinate-y{right:0;left:0;height:1px}#bao-automation-coordinate-layer .bao-coordinate-value{position:absolute;z-index:2;padding:5px 8px;border:1px solid #80c2ff88;border-radius:6px;background:#0b2139ee;box-shadow:0 6px 20px #0008;color:#eaf6ff;font-weight:700;white-space:nowrap;pointer-events:none}
 `;
   (document.head || document.documentElement).appendChild(style);
 
@@ -83,7 +84,7 @@
   root.innerHTML = '<button class="bao-orb" aria-label="展开自动化助手"><i class="bao-ring"></i><span class="bao-orb-icon">⌘</span></button><aside class="bao-drawer"><i class="bao-handle"></i><header class="bao-head"><div class="bao-title"><strong>BaoFlash 自动化</strong><small>当前网页内控制中心</small></div><button class="bao-icon bao-peek" title="自动淡化">◐</button><button class="bao-icon bao-collapse" title="收起">×</button></header><nav class="bao-tabs"><button class="bao-tab bao-active" data-view="run">执行</button><button class="bao-tab" data-view="match">识别</button><button class="bao-tab" data-view="capture">取材</button></nav><div class="bao-views">'
     + '<section class="bao-view bao-active" data-panel="run"><div class="bao-card"><div class="bao-field"><label>自动化脚本</label><select class="bao-package-run"></select></div><div class="bao-run-state"><i class="bao-run-dot"></i><div class="bao-run-copy"><b class="bao-state-title">可以开始</b><span class="bao-state-detail">正在读取运行状态…</span></div><small class="bao-step">0 步</small></div><div class="bao-progress"><i></i></div></div><div class="bao-two"><button class="bao-button bao-primary bao-start">▶ 开始脚本</button><button class="bao-button bao-danger bao-stop" disabled>■ 停止</button></div><div class="bao-card" style="margin-top:10px"><div class="bao-card-head"><strong>最近运行信息</strong><small>关键事件会显示提示</small></div><div class="bao-log"><div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div></div></div><div class="bao-card"><div class="bao-card-head"><strong>显示方式</strong><small>不会改变游戏尺寸</small></div><div class="bao-mode-grid"><button class="bao-mode bao-active" data-mode="glass">磨砂</button><button class="bao-mode" data-mode="fade">自动淡化</button><button class="bao-mode" data-mode="compact">仅悬浮球</button></div></div></section>'
     + '<section class="bao-view" data-panel="match"><div class="bao-card"><div class="bao-card-head"><strong>UI 素材</strong><button class="bao-icon bao-refresh" title="刷新素材">↻</button></div><div class="bao-assets"></div><div class="bao-field"><label>识别阈值 <b class="bao-threshold-text">90%</b></label><input class="bao-threshold" type="range" min="50" max="100" value="90"></div><div class="bao-preview"><span>选择素材后捕获当前页面</span></div><p class="bao-result">助手只在截图瞬间隐藏，比对期间保持显示。</p><div class="bao-two"><button class="bao-button bao-primary bao-compare">⌖ 捕获并比对</button><button class="bao-button bao-monitor">连续监测</button></div></div><div class="bao-tip">动图目标建议只截取稳定部分，可显著提高识别率。</div></section>'
-    + '<section class="bao-view" data-panel="capture"><div class="bao-card"><div class="bao-card-head"><strong>页面内截图取材</strong><small>支持 Flash 游戏</small></div><p style="margin:0 0 12px;color:#9fb1c7;font-size:11px;line-height:1.7">冻结当前 BrowserView 画面，然后直接框选单个 UI 素材，无需第三方截图软件。</p><button class="bao-button bao-primary bao-capture" style="width:100%">▣ 进入框选取材</button></div><div class="bao-card"><div class="bao-card-head"><strong>命名规则</strong></div><div class="bao-tip">默认使用“截取素材_001.png”自动递增；框选后可以修改名称，按 Enter 保存。</div></div><div class="bao-card"><div class="bao-card-head"><strong>最近保存</strong><small>保存后立即刷新</small></div><div class="bao-assets bao-recent"></div></div></section>'
+    + '<section class="bao-view" data-panel="capture"><div class="bao-card"><div class="bao-card-head"><strong>页面内截图取材</strong><small>支持 Flash 游戏</small></div><p style="margin:0 0 12px;color:#9fb1c7;font-size:11px;line-height:1.7">冻结当前 BrowserView 画面，然后直接框选单个 UI 素材，无需第三方截图软件。</p><button class="bao-button bao-primary bao-capture" style="width:100%">▣ 进入框选取材</button></div><div class="bao-card"><div class="bao-card-head"><strong>相对坐标取点</strong><small>0–10000</small></div><p style="margin:0 0 12px;color:#9fb1c7;font-size:11px;line-height:1.7">显示覆盖整个网页的棋盘坐标。点击目标位置后自动复制可直接粘贴到积木的 X,Y 坐标。</p><button class="bao-button bao-primary bao-coordinate" style="width:100%">＋ 获取相对坐标</button></div><div class="bao-card"><div class="bao-card-head"><strong>命名规则</strong></div><div class="bao-tip">默认使用“截取素材_001.png”自动递增；框选后可以修改名称，按 Enter 保存。</div></div><div class="bao-card"><div class="bao-card-head"><strong>最近保存</strong><small>保存后立即刷新</small></div><div class="bao-assets bao-recent"></div></div></section>'
     + '</div></aside>';
   document.documentElement.appendChild(root);
 
@@ -91,6 +92,9 @@
   var captureLayer = document.createElement('div'); captureLayer.id = 'bao-automation-capture-layer';
   captureLayer.innerHTML = '<img class="bao-capture-image" alt=""><div class="bao-capture-help"><span>拖动框选需要识别的 UI 素材</span><button class="bao-capture-cancel" type="button">取消</button></div><div class="bao-selection"><span class="bao-selection-info">0 × 0</span></div><div class="bao-save"><label>素材名称<input class="bao-capture-name" type="text" autocomplete="off" spellcheck="false"></label><small>默认名称自动递增，也可以直接修改；按 Enter 保存</small><div class="bao-conflict"><span>该名称已经存在，要如何处理？</span><div class="bao-conflict-buttons"><button class="bao-replace">替换原素材</button><button class="bao-suffix">自动追加编号</button></div></div><div class="bao-save-buttons"><button class="bao-redo">重新框选</button><button class="bao-primary bao-save-crop">保存素材</button></div></div>';
   document.documentElement.appendChild(captureLayer);
+  var coordinateLayer = document.createElement('div'); coordinateLayer.id = 'bao-automation-coordinate-layer';
+  coordinateLayer.innerHTML = '<div class="bao-coordinate-help">移动鼠标查看坐标，单击复制 <b>X,Y</b>，按 Esc 取消</div><i class="bao-coordinate-x"></i><i class="bao-coordinate-y"></i><output class="bao-coordinate-value">5000,5000</output>';
+  document.documentElement.appendChild(coordinateLayer);
 
   var orb = root.querySelector('.bao-orb');
   var packageRun = root.querySelector('.bao-package-run');
@@ -126,12 +130,17 @@
     var map = {
       'status.scriptCompleted': '脚本执行完成', 'status.scriptStopped': '脚本已停止', 'status.stepNext': '可以执行下一步',
       'status.imageMatch': '识别到 ' + (p.asset || '') + ' · ' + (p.score || '') + '%',
+      'status.randomClickCoordinate': '本次随机点击坐标：' + (p.x || 0) + ',' + (p.y || 0),
       'status.runFailed': '运行失败：' + (p.detail || ''), 'status.readyCheckFailed': '就绪检查失败：' + (p.detail || ''),
       'step.clickImage': '点击图片：' + (p.asset || ''), 'step.waitImage': '等待图片：' + (p.asset || ''),
-      'step.moveToImage': '移动到图片：' + (p.asset || ''), 'step.delay': '等待 ' + (p.ms || 0) + 'ms',
+      'step.clickCoordinate': '点击坐标：' + (p.x || 0) + ',' + (p.y || 0),
+      'step.randomClickRegion': '在指定区域内随机点击',
+      'step.moveToImage': '移动到图片：' + (p.asset || ''), 'step.dragImage': '拖拽图片：' + (p.source || '') + ' → ' + (p.target || ''), 'step.delay': '等待 ' + (p.ms || 0) + 'ms',
+      'step.moveToCoordinate': '移动鼠标到：' + (p.x || 0) + ',' + (p.y || 0), 'step.drag': '拖拽到指定目标',
       'step.keyPress': '按键：' + (p.key || ''), 'step.textInput': '输入文本', 'step.scroll': '滚动页面',
       'step.navigate': '打开页面', 'step.reload': '刷新页面', 'step.ifImage': '判断图片：' + (p.asset || ''),
       'step.ifCondition': '判断组合条件', 'step.waitCondition': '等待组合条件', 'step.repeat': '循环 ' + (p.times || 0) + ' 次',
+      'step.waitConditionBranch': '等待条件并处理超时', 'step.end': '结束脚本：' + (p.result === 'failure' ? '执行失败' : '正常完成') + (p.message ? ' · ' + p.message : ''),
     };
     return map[message.key] || (message.key === 'raw' ? String(p.text || '') : message.key);
   }
@@ -212,6 +221,11 @@
     } catch (error) { toast(error.message || String(error)); }
   }
   function renderRecent(name) { var button = document.createElement('button'); button.className = 'bao-asset'; var label = document.createElement('span'); label.textContent = name; button.appendChild(label); recentHost.prepend(button); while (recentHost.children.length > 6) recentHost.lastChild.remove(); }
+  function coordinateAt(clientX, clientY) { return { x: Math.round(clientX / Math.max(1, innerWidth - 1) * 10000), y: Math.round(clientY / Math.max(1, innerHeight - 1) * 10000) }; }
+  function updateCoordinate(event) { var point = coordinateAt(event.clientX, event.clientY); var value = coordinateLayer.querySelector('.bao-coordinate-value'); coordinateLayer.querySelector('.bao-coordinate-x').style.left = event.clientX + 'px'; coordinateLayer.querySelector('.bao-coordinate-y').style.top = event.clientY + 'px'; value.textContent = point.x + ',' + point.y; value.style.left = Math.min(innerWidth - 96, event.clientX + 12) + 'px'; value.style.top = Math.min(innerHeight - 34, event.clientY + 12) + 'px'; return point; }
+  async function copyText(text) { try { await window.navigator.clipboard.writeText(text); return; } catch { /* Fall back for pages without clipboard permission. */ } var input = document.createElement('textarea'); input.value = text; input.style.cssText = 'position:fixed;left:-9999px;top:-9999px'; document.documentElement.appendChild(input); input.select(); document.execCommand('copy'); input.remove(); }
+  function beginCoordinatePick() { closePanel(); coordinateLayer.classList.add('bao-active'); toast('单击目标位置即可复制相对坐标'); }
+  function endCoordinatePick(reopen) { coordinateLayer.classList.remove('bao-active'); if (reopen) openPanel('capture'); }
 
   root.querySelectorAll('.bao-tab').forEach(function (tab) { tab.addEventListener('click', function () { selectView(tab.getAttribute('data-view')); }); });
   root.querySelector('.bao-collapse').addEventListener('click', closePanel); root.querySelector('.bao-peek').addEventListener('click', function () { root.classList.toggle('bao-peek'); });
@@ -223,6 +237,7 @@
   startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) return; startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error)); } });
   stopButton.addEventListener('click', async function () { try { await api.cancel(); toast('正在停止自动化脚本'); } catch (error) { toast(error.message || String(error)); } });
   root.querySelector('.bao-capture').addEventListener('click', function () { void beginCapture(); });
+  root.querySelector('.bao-coordinate').addEventListener('click', beginCoordinatePick);
   root.querySelectorAll('.bao-mode').forEach(function (button) { button.addEventListener('click', function () { root.querySelectorAll('.bao-mode').forEach(function (item) { item.classList.remove('bao-active'); }); button.classList.add('bao-active'); var mode = button.getAttribute('data-mode'); root.classList.toggle('bao-peek', mode === 'fade'); if (mode === 'compact') closePanel(); GM.setValue('displayMode', mode); }); });
 
   var dragging = null; var moved = false;
@@ -241,7 +256,10 @@
   captureLayer.querySelector('.bao-replace').addEventListener('click', function () { void saveCapture(true); });
   captureLayer.querySelector('.bao-suffix').addEventListener('click', function () { var input = captureLayer.querySelector('.bao-capture-name'); input.value = suffixName(cleanName(input.value)); captureLayer.querySelector('.bao-conflict').classList.remove('bao-show'); void saveCapture(false); });
   captureLayer.querySelector('.bao-capture-name').addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); void saveCapture(false); } else captureLayer.querySelector('.bao-conflict').classList.remove('bao-show'); });
-  window.addEventListener('keydown', function (event) { if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') { event.preventDefault(); openPanel(); } }, true);
+  coordinateLayer.addEventListener('pointermove', updateCoordinate);
+  coordinateLayer.addEventListener('click', function (event) { event.preventDefault(); event.stopImmediatePropagation(); var point = updateCoordinate(event); var text = point.x + ',' + point.y; void copyText(text).then(function () { coordinateLayer.setAttribute('data-last-copied', text); endCoordinatePick(true); toast('已复制坐标 ' + text); }); });
+  coordinateLayer.addEventListener('contextmenu', function (event) { event.preventDefault(); });
+  window.addEventListener('keydown', function (event) { if (coordinateLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); endCoordinatePick(true); return; } if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') { event.preventDefault(); openPanel(); } }, true);
 
   var savedPosition = GM.getValue('position', null); if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) { root.style.left = Math.max(8, Math.min(innerWidth - 64, savedPosition.x)) + 'px'; root.style.top = Math.max(60, Math.min(innerHeight - 64, savedPosition.y)) + 'px'; root.classList.toggle('bao-right', savedPosition.x > innerWidth / 2); }
   var displayMode = GM.getValue('displayMode', 'glass'); if (displayMode === 'fade') root.classList.add('bao-peek');

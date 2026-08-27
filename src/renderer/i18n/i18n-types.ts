@@ -2066,6 +2066,14 @@ type RootTranslation = {
 			 */
 			unsupportedBlock: RequiredParams<'type'>
 			/**
+			 * 相​对​坐​标​格​式​应​为​ ​X​,​Y​，​两​个​值​都​必​须​是​ ​0​ ​到​ ​1​0​0​0​0​ ​的​整​数
+			 */
+			invalidCoordinate: string
+			/**
+			 * 游​戏​区​域​的​右​下​坐​标​必​须​位​于​左​上​坐​标​的​右​下​方
+			 */
+			invalidSearchRegion: string
+			/**
 			 * 条​件​积​木​不​能​为​空
 			 */
 			conditionRequired: string
@@ -2077,6 +2085,10 @@ type RootTranslation = {
 			 * 无​条​件​启​动
 			 */
 			startUnconditional: string
+			/**
+			 * 限​定​游​戏​区​域​ ​左​上​ ​%​1​ ​右​下​ ​%​2
+			 */
+			startRegion: string
 			/**
 			 * 条​件​ ​%​1​ ​满​足​时​就​绪
 			 */
@@ -2110,13 +2122,29 @@ type RootTranslation = {
 			 */
 			waitImageState: string
 			/**
-			 * 点​击​图​片​ ​%​1​ ​%​2​ ​%​3​ ​次​ ​相​似​度​ ​%​4​ ​匹​配​ ​%​5​ ​点​击​前​确​认​ ​%​6​ ​最​大​移​动​ ​%​7​ ​像​素
+			 * 点​击​ ​%​1​ ​%​2​ ​%​3​ ​%​4​ ​次​ ​相​似​度​ ​%​5​ ​匹​配​ ​%​6​ ​点​击​前​确​认​ ​%​7​ ​最​大​移​动​ ​%​8​ ​像​素
 			 */
 			clickImage: string
+			/**
+			 * 填​写​坐​标
+			 */
+			coordinateTarget: string
 			/**
 			 * 移​动​到​图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3
 			 */
 			moveToImage: string
+			/**
+			 * 移​动​鼠​标​到​ ​%​1​ ​%​2​ ​相​似​度​ ​%​3​ ​匹​配​ ​%​4
+			 */
+			moveToTarget: string
+			/**
+			 * 拖​拽​图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3​ ​到​ ​%​4​ ​相​似​度​ ​%​5​ ​匹​配​ ​%​6​ ​使​用​ ​%​7​ ​持​续​ ​%​8​ ​毫​秒​ ​超​时​ ​%​9​ ​毫​秒
+			 */
+			dragImage: string
+			/**
+			 * 拖​拽​ ​%​1​ ​%​2​ ​相​似​度​ ​%​3​ ​匹​配​ ​%​4​ ​到​ ​%​5​ ​%​6​ ​相​似​度​ ​%​7​ ​匹​配​ ​%​8​ ​使​用​ ​%​9​ ​持​续​ ​%​1​0​ ​毫​秒​ ​超​时​ ​%​1​1​ ​毫​秒
+			 */
+			dragTarget: string
 			/**
 			 * 等​待​ ​%​1​ ​毫​秒
 			 */
@@ -2142,6 +2170,10 @@ type RootTranslation = {
 			 */
 			scroll: string
 			/**
+			 * 在​区​域​ ​左​上​ ​%​1​ ​右​下​ ​%​2​ ​内​随​机​ ​使​用​ ​%​3​ ​点​击​ ​%​4​ ​次​ ​边​缘​留​白​ ​%​5
+			 */
+			randomClickRegion: string
+			/**
 			 * 打​开​网​址​ ​%​1
 			 */
 			navigate: string
@@ -2153,6 +2185,18 @@ type RootTranslation = {
 			 * 记​录​日​志​ ​%​1
 			 */
 			log: string
+			/**
+			 * 向​桌​面​发​送​通​知​ ​标​题​ ​%​1​ ​内​容​ ​%​2
+			 */
+			notification: string
+			/**
+			 * 测​试​通​知
+			 */
+			notificationTitle: string
+			/**
+			 * 这​是​一​条​自​动​化​通​知
+			 */
+			notificationBody: string
 			/**
 			 * 如​果​ ​%​1​ ​图​片​ ​%​2​ ​相​似​度​ ​%​3​ ​匹​配​ ​%​4
 			 */
@@ -2178,9 +2222,45 @@ type RootTranslation = {
 			 */
 			conditionNot: string
 			/**
+			 * 目​标​A​ ​%​1​ ​%​2​ ​偏​移​ ​%​7​,​%​8​ ​相​对​B​ ​%​9​ ​%​1​0​ ​偏​移​ ​%​1​5​,​%​1​6​ ​关​系​ ​%​1​7​ ​容​差​ ​%​1​8​ ​p​x
+			 */
+			positionCondition: string
+			/**
+			 * 如​果​ ​目​标​A​ ​%​1​ ​%​2​ ​偏​移​ ​%​7​,​%​8​ ​相​对​B​ ​%​9​ ​%​1​0​ ​偏​移​ ​%​1​5​,​%​1​6​ ​关​系​ ​%​1​7​ ​容​差​ ​%​1​8​ ​p​x
+			 */
+			positionCompare: string
+			/**
+			 * 图​片
+			 */
+			imageTarget: string
+			/**
+			 * 垂​直​对​齐
+			 */
+			relationVertical: string
+			/**
+			 * 水​平​对​齐
+			 */
+			relationHorizontal: string
+			/**
+			 * 重​合
+			 */
+			relationOverlap: string
+			/**
 			 * 等​待​直​到​条​件​ ​%​1​ ​超​时​ ​%​2​ ​毫​秒
 			 */
 			waitCondition: string
+			/**
+			 * 等​待​条​件​ ​%​1​ ​最​多​ ​%​2​ ​毫​秒
+			 */
+			waitConditionBranch: string
+			/**
+			 * 成​功​时​ ​%​1
+			 */
+			onSuccess: string
+			/**
+			 * 超​时​时​ ​%​1
+			 */
+			onTimeout: string
 			/**
 			 * 那​么​ ​%​1
 			 */
@@ -2201,6 +2281,22 @@ type RootTranslation = {
 			 * 重​复​直​到​条​件​ ​%​1​ ​最​多​ ​%​2​ ​次
 			 */
 			repeatUntilCondition: string
+			/**
+			 * 结​束​脚​本​ ​结​果​ ​%​1​ ​说​明​ ​%​2
+			 */
+			end: string
+			/**
+			 * 正​常​完​成
+			 */
+			endSuccess: string
+			/**
+			 * 执​行​失​败
+			 */
+			endFailure: string
+			/**
+			 * 主​动​结​束
+			 */
+			endSample: string
 			/**
 			 * 出​现
 			 */
@@ -2261,6 +2357,18 @@ type RootTranslation = {
 			 * 输​入
 			 */
 			catInput: string
+			/**
+			 * 鼠​标​操​作
+			 */
+			catMouse: string
+			/**
+			 * 键​盘​与​文​字
+			 */
+			catKeyboard: string
+			/**
+			 * 识​别​与​等​待
+			 */
+			catRecognition: string
 			/**
 			 * 页​面
 			 */
@@ -2341,6 +2449,12 @@ type RootTranslation = {
 				 */
 				imageMatch: RequiredParams<'asset' | 'ms' | 'score'>
 				/**
+				 * 本​次​随​机​点​击​坐​标​：​{​x​}​,​{​y​}
+				 * @param {unknown} x
+				 * @param {unknown} y
+				 */
+				randomClickCoordinate: RequiredParams<'x' | 'y'>
+				/**
 				 * 已​暂​停​，​下​一​步​：​{​s​t​e​p​}
 				 * @param {unknown} step
 				 */
@@ -2368,10 +2482,36 @@ type RootTranslation = {
 				 */
 				clickImage: RequiredParams<'asset'>
 				/**
+				 * 点​击​坐​标​ ​{​x​}​,​{​y​}
+				 * @param {unknown} x
+				 * @param {unknown} y
+				 */
+				clickCoordinate: RequiredParams<'x' | 'y'>
+				/**
+				 * 在​指​定​区​域​内​随​机​点​击
+				 */
+				randomClickRegion: string
+				/**
 				 * 移​动​到​图​片​ ​{​a​s​s​e​t​}
 				 * @param {unknown} asset
 				 */
 				moveToImage: RequiredParams<'asset'>
+				/**
+				 * 移​动​鼠​标​到​坐​标​ ​{​x​}​,​{​y​}
+				 * @param {unknown} x
+				 * @param {unknown} y
+				 */
+				moveToCoordinate: RequiredParams<'x' | 'y'>
+				/**
+				 * 拖​拽​图​片​ ​{​s​o​u​r​c​e​}​ ​到​ ​{​t​a​r​g​e​t​}
+				 * @param {unknown} source
+				 * @param {unknown} target
+				 */
+				dragImage: RequiredParams<'source' | 'target'>
+				/**
+				 * 拖​拽​到​指​定​目​标
+				 */
+				drag: string
 				/**
 				 * 等​待​ ​{​m​s​}​ ​毫​秒
 				 * @param {unknown} ms
@@ -2411,6 +2551,11 @@ type RootTranslation = {
 				 */
 				log: RequiredParams<'message'>
 				/**
+				 * 向​桌​面​发​送​通​知​ ​{​t​i​t​l​e​}
+				 * @param {unknown} title
+				 */
+				notification: RequiredParams<'title'>
+				/**
 				 * 判​断​图​片​ ​{​a​s​s​e​t​}
 				 * @param {unknown} asset
 				 */
@@ -2423,6 +2568,24 @@ type RootTranslation = {
 				 * 等​待​组​合​条​件
 				 */
 				waitCondition: string
+				/**
+				 * 等​待​条​件​并​处​理​超​时
+				 */
+				waitConditionBranch: string
+				/**
+				 * 结​束​脚​本​：​{​r​e​s​u​l​t​}​ ​{​m​e​s​s​a​g​e​}
+				 * @param {unknown} message
+				 * @param {unknown} result
+				 */
+				end: RequiredParams<'message' | 'result'>
+				/**
+				 * 正​常​完​成
+				 */
+				endSuccess: string
+				/**
+				 * 执​行​失​败
+				 */
+				endFailure: string
 				/**
 				 * 重​复​ ​{​t​i​m​e​s​}​ ​次
 				 * @param {unknown} times
@@ -2437,6 +2600,15 @@ type RootTranslation = {
 				 * 重​复​直​到​组​合​条​件
 				 */
 				repeatUntilCondition: string
+				/**
+				 * 判​断​位​置​关​系​ ​{​r​e​l​a​t​i​o​n​}
+				 * @param {unknown} relation
+				 */
+				positionCompare: RequiredParams<'relation'>
+				/**
+				 * 判​断​位​置​关​系
+				 */
+				positionRelation: string
 			}
 		}
 		ipc: {
@@ -4473,6 +4645,14 @@ export type TranslationFunctions = {
 			 */
 			unsupportedBlock: (arg: { type: unknown }) => LocalizedString
 			/**
+			 * 相对坐标格式应为 X,Y，两个值都必须是 0 到 10000 的整数
+			 */
+			invalidCoordinate: () => LocalizedString
+			/**
+			 * 游戏区域的右下坐标必须位于左上坐标的右下方
+			 */
+			invalidSearchRegion: () => LocalizedString
+			/**
 			 * 条件积木不能为空
 			 */
 			conditionRequired: () => LocalizedString
@@ -4484,6 +4664,10 @@ export type TranslationFunctions = {
 			 * 无条件启动
 			 */
 			startUnconditional: () => LocalizedString
+			/**
+			 * 限定游戏区域 左上 %1 右下 %2
+			 */
+			startRegion: () => LocalizedString
 			/**
 			 * 条件 %1 满足时就绪
 			 */
@@ -4517,13 +4701,29 @@ export type TranslationFunctions = {
 			 */
 			waitImageState: () => LocalizedString
 			/**
-			 * 点击图片 %1 %2 %3 次 相似度 %4 匹配 %5 点击前确认 %6 最大移动 %7 像素
+			 * 点击 %1 %2 %3 %4 次 相似度 %5 匹配 %6 点击前确认 %7 最大移动 %8 像素
 			 */
 			clickImage: () => LocalizedString
+			/**
+			 * 填写坐标
+			 */
+			coordinateTarget: () => LocalizedString
 			/**
 			 * 移动到图片 %1 相似度 %2 匹配 %3
 			 */
 			moveToImage: () => LocalizedString
+			/**
+			 * 移动鼠标到 %1 %2 相似度 %3 匹配 %4
+			 */
+			moveToTarget: () => LocalizedString
+			/**
+			 * 拖拽图片 %1 相似度 %2 匹配 %3 到 %4 相似度 %5 匹配 %6 使用 %7 持续 %8 毫秒 超时 %9 毫秒
+			 */
+			dragImage: () => LocalizedString
+			/**
+			 * 拖拽 %1 %2 相似度 %3 匹配 %4 到 %5 %6 相似度 %7 匹配 %8 使用 %9 持续 %10 毫秒 超时 %11 毫秒
+			 */
+			dragTarget: () => LocalizedString
 			/**
 			 * 等待 %1 毫秒
 			 */
@@ -4549,6 +4749,10 @@ export type TranslationFunctions = {
 			 */
 			scroll: () => LocalizedString
 			/**
+			 * 在区域 左上 %1 右下 %2 内随机 使用 %3 点击 %4 次 边缘留白 %5
+			 */
+			randomClickRegion: () => LocalizedString
+			/**
 			 * 打开网址 %1
 			 */
 			navigate: () => LocalizedString
@@ -4560,6 +4764,18 @@ export type TranslationFunctions = {
 			 * 记录日志 %1
 			 */
 			log: () => LocalizedString
+			/**
+			 * 向桌面发送通知 标题 %1 内容 %2
+			 */
+			notification: () => LocalizedString
+			/**
+			 * 测试通知
+			 */
+			notificationTitle: () => LocalizedString
+			/**
+			 * 这是一条自动化通知
+			 */
+			notificationBody: () => LocalizedString
 			/**
 			 * 如果 %1 图片 %2 相似度 %3 匹配 %4
 			 */
@@ -4585,9 +4801,45 @@ export type TranslationFunctions = {
 			 */
 			conditionNot: () => LocalizedString
 			/**
+			 * 目标A %1 %2 偏移 %7,%8 相对B %9 %10 偏移 %15,%16 关系 %17 容差 %18 px
+			 */
+			positionCondition: () => LocalizedString
+			/**
+			 * 如果 目标A %1 %2 偏移 %7,%8 相对B %9 %10 偏移 %15,%16 关系 %17 容差 %18 px
+			 */
+			positionCompare: () => LocalizedString
+			/**
+			 * 图片
+			 */
+			imageTarget: () => LocalizedString
+			/**
+			 * 垂直对齐
+			 */
+			relationVertical: () => LocalizedString
+			/**
+			 * 水平对齐
+			 */
+			relationHorizontal: () => LocalizedString
+			/**
+			 * 重合
+			 */
+			relationOverlap: () => LocalizedString
+			/**
 			 * 等待直到条件 %1 超时 %2 毫秒
 			 */
 			waitCondition: () => LocalizedString
+			/**
+			 * 等待条件 %1 最多 %2 毫秒
+			 */
+			waitConditionBranch: () => LocalizedString
+			/**
+			 * 成功时 %1
+			 */
+			onSuccess: () => LocalizedString
+			/**
+			 * 超时时 %1
+			 */
+			onTimeout: () => LocalizedString
 			/**
 			 * 那么 %1
 			 */
@@ -4608,6 +4860,22 @@ export type TranslationFunctions = {
 			 * 重复直到条件 %1 最多 %2 次
 			 */
 			repeatUntilCondition: () => LocalizedString
+			/**
+			 * 结束脚本 结果 %1 说明 %2
+			 */
+			end: () => LocalizedString
+			/**
+			 * 正常完成
+			 */
+			endSuccess: () => LocalizedString
+			/**
+			 * 执行失败
+			 */
+			endFailure: () => LocalizedString
+			/**
+			 * 主动结束
+			 */
+			endSample: () => LocalizedString
 			/**
 			 * 出现
 			 */
@@ -4668,6 +4936,18 @@ export type TranslationFunctions = {
 			 * 输入
 			 */
 			catInput: () => LocalizedString
+			/**
+			 * 鼠标操作
+			 */
+			catMouse: () => LocalizedString
+			/**
+			 * 键盘与文字
+			 */
+			catKeyboard: () => LocalizedString
+			/**
+			 * 识别与等待
+			 */
+			catRecognition: () => LocalizedString
 			/**
 			 * 页面
 			 */
@@ -4738,6 +5018,10 @@ export type TranslationFunctions = {
 				 */
 				imageMatch: (arg: { asset: unknown, ms: unknown, score: unknown }) => LocalizedString
 				/**
+				 * 本次随机点击坐标：{x},{y}
+				 */
+				randomClickCoordinate: (arg: { x: unknown, y: unknown }) => LocalizedString
+				/**
 				 * 已暂停，下一步：{step}
 				 */
 				pausedNext: (arg: { step: unknown }) => LocalizedString
@@ -4760,9 +5044,29 @@ export type TranslationFunctions = {
 				 */
 				clickImage: (arg: { asset: unknown }) => LocalizedString
 				/**
+				 * 点击坐标 {x},{y}
+				 */
+				clickCoordinate: (arg: { x: unknown, y: unknown }) => LocalizedString
+				/**
+				 * 在指定区域内随机点击
+				 */
+				randomClickRegion: () => LocalizedString
+				/**
 				 * 移动到图片 {asset}
 				 */
 				moveToImage: (arg: { asset: unknown }) => LocalizedString
+				/**
+				 * 移动鼠标到坐标 {x},{y}
+				 */
+				moveToCoordinate: (arg: { x: unknown, y: unknown }) => LocalizedString
+				/**
+				 * 拖拽图片 {source} 到 {target}
+				 */
+				dragImage: (arg: { source: unknown, target: unknown }) => LocalizedString
+				/**
+				 * 拖拽到指定目标
+				 */
+				drag: () => LocalizedString
 				/**
 				 * 等待 {ms} 毫秒
 				 */
@@ -4796,6 +5100,10 @@ export type TranslationFunctions = {
 				 */
 				log: (arg: { message: unknown }) => LocalizedString
 				/**
+				 * 向桌面发送通知 {title}
+				 */
+				notification: (arg: { title: unknown }) => LocalizedString
+				/**
 				 * 判断图片 {asset}
 				 */
 				ifImage: (arg: { asset: unknown }) => LocalizedString
@@ -4808,6 +5116,22 @@ export type TranslationFunctions = {
 				 */
 				waitCondition: () => LocalizedString
 				/**
+				 * 等待条件并处理超时
+				 */
+				waitConditionBranch: () => LocalizedString
+				/**
+				 * 结束脚本：{result} {message}
+				 */
+				end: (arg: { message: unknown, result: unknown }) => LocalizedString
+				/**
+				 * 正常完成
+				 */
+				endSuccess: () => LocalizedString
+				/**
+				 * 执行失败
+				 */
+				endFailure: () => LocalizedString
+				/**
 				 * 重复 {times} 次
 				 */
 				repeat: (arg: { times: unknown }) => LocalizedString
@@ -4819,6 +5143,14 @@ export type TranslationFunctions = {
 				 * 重复直到组合条件
 				 */
 				repeatUntilCondition: () => LocalizedString
+				/**
+				 * 判断位置关系 {relation}
+				 */
+				positionCompare: (arg: { relation: unknown }) => LocalizedString
+				/**
+				 * 判断位置关系
+				 */
+				positionRelation: () => LocalizedString
 			}
 		}
 		ipc: {

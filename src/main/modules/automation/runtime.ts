@@ -1,6 +1,9 @@
 import { createActor, createMachine } from 'xstate';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import type {
+  AutomationCoordinate,
+  AutomationPointerTarget,
+  AutomationRelativeRegion,
   AutomationImageMask,
   AutomationRegion,
   AutomationCondition,
@@ -9,6 +12,7 @@ import type {
   ClickImageStep,
   KeyHoldUntilImageStep,
   MoveToImageStep,
+  PositionCompareTarget,
   WaitImageStep,
   WaitImageStateStep,
 } from '../../../shared/automation/types';
@@ -33,18 +37,39 @@ export type FindImageRequest = {
   alternatives?: string[];
   threshold: number;
   region?: AutomationRegion;
+  relativeRegion?: AutomationRelativeRegion;
   scales?: number[];
   mask?: AutomationImageMask;
 };
 
 export type AutomationDriver = {
   findImage(request: FindImageRequest, signal: AbortSignal): Promise<ImageMatch | null>;
+  resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal): Promise<{ x: number; y: number }>;
+  getCssViewport(): { width: number; height: number };
   click(
     match: ImageMatch,
     options: { button: 'left' | 'right' | 'middle'; clickCount: number; offset: { x: number; y: number } },
     signal: AbortSignal,
   ): Promise<void>;
   moveTo(match: ImageMatch, offset: { x: number; y: number }, signal: AbortSignal): Promise<void>;
+  moveToPoint(coordinate: AutomationCoordinate, signal: AbortSignal): Promise<void>;
+  drag(
+    source: ImageMatch,
+    target: ImageMatch,
+    options: { button: 'left' | 'right' | 'middle'; durationMs: number },
+    signal: AbortSignal,
+  ): Promise<void>;
+  dragTargets(
+    source: AutomationDriverPointerTarget,
+    target: AutomationDriverPointerTarget,
+    options: { button: 'left' | 'right' | 'middle'; durationMs: number },
+    signal: AbortSignal,
+  ): Promise<void>;
+  clickPoint(
+    coordinate: AutomationCoordinate,
+    options: { button: 'left' | 'right' | 'middle'; clickCount: number },
+    signal: AbortSignal,
+  ): Promise<void>;
   pressKey(key: string, modifiers: Array<'alt' | 'control' | 'meta' | 'shift'>, signal: AbortSignal): Promise<void>;
   keyDown(key: string, modifiers: Array<'alt' | 'control' | 'meta' | 'shift'>, signal: AbortSignal): Promise<void>;
   keyUp(key: string, modifiers: Array<'alt' | 'control' | 'meta' | 'shift'>, signal: AbortSignal): Promise<void>;
@@ -53,6 +78,7 @@ export type AutomationDriver = {
   navigate(url: string, signal: AbortSignal): Promise<void>;
   reload(signal: AbortSignal): Promise<void>;
   log(message: string): void;
+  notify(title: string, body: string): void;
   sleep(durationMs: number, signal: AbortSignal): Promise<void>;
   now(): number;
 };
@@ -63,6 +89,7 @@ export type AutomationRuntimeEvent =
   | { type: 'step-paused'; step: AutomationStep; nextStep: number }
   | { type: 'image-match'; asset: string; match: ImageMatch }
   | { type: 'image-miss'; asset: string }
+  | { type: 'random-click-coordinate'; coordinate: AutomationCoordinate }
   | { type: 'log'; message: string };
 
 export type AutomationRunnerState =
@@ -92,8 +119,13 @@ const lifecycleMachine = createMachine({
 export type AutomationRunnerOptions = {
   maxExecutedSteps?: number;
   maxDepth?: number;
+  random?: () => number;
   onEvent?: (event: AutomationRuntimeEvent) => void;
 };
+
+export type AutomationDriverPointerTarget =
+  | { kind: 'coordinate'; coordinate: AutomationCoordinate }
+  | { kind: 'match'; match: ImageMatch };
 
 export type AutomationRunOptions = {
   countdownMs?: number;
@@ -110,11 +142,19 @@ function imageScales(scales?: number[]): number[] {
   return scales ?? [...DEFAULT_AUTOMATION_IMAGE_SCALES];
 }
 
+class AutomationEndSignal extends Error {
+  constructor(readonly result: 'success' | 'failure', message?: string) {
+    super(message || (result === 'success' ? 'script ended successfully' : 'script ended with failure'));
+  }
+}
+
 export class AutomationRunner {
   private readonly workflow: AutomationWorkflow;
   private readonly driver: AutomationDriver;
+  private readonly searchRegion: AutomationRelativeRegion | undefined;
   private readonly maxExecutedSteps: number;
   private readonly maxDepth: number;
+  private readonly random: () => number;
   private readonly onEvent?: (event: AutomationRuntimeEvent) => void;
   private actor = createActor(lifecycleMachine);
   private controller: AbortController | null = null;
@@ -126,8 +166,10 @@ export class AutomationRunner {
   constructor(workflow: AutomationWorkflow, driver: AutomationDriver, options: AutomationRunnerOptions = {}) {
     this.workflow = parseAutomationWorkflow(workflow);
     this.driver = driver;
+    this.searchRegion = this.workflow.searchRegion;
     this.maxExecutedSteps = options.maxExecutedSteps ?? 10_000;
     this.maxDepth = options.maxDepth ?? 32;
+    this.random = options.random ?? Math.random;
     this.onEvent = options.onEvent;
     this.actor.start();
   }
@@ -175,7 +217,15 @@ export class AutomationRunner {
       }
       this.throwIfAborted(signal);
       this.send('START');
-      await this.execute(this.workflow.root, signal, 0);
+      try {
+        await this.execute(this.workflow.root, signal, 0);
+      } catch (error) {
+        if (error instanceof AutomationEndSignal && error.result === 'success') {
+          this.send('COMPLETE');
+          return true;
+        }
+        throw error;
+      }
       this.send('COMPLETE');
       return true;
     } catch (error) {
@@ -229,17 +279,39 @@ export class AutomationRunner {
       return false;
     }
     if (condition.type === 'not') return !await this.findCondition(condition.condition, signal, depth + 1);
+    if (condition.type === 'position-relation') return this.evaluatePositionRelation(condition.targetA, condition.targetB, condition.relation, condition.tolerancePx, signal);
     const match = await this.driver.findImage({
       asset: condition.asset,
       alternatives: condition.alternatives,
       threshold: condition.threshold ?? 0.9,
       region: condition.region,
+      relativeRegion: condition.region ? undefined : this.searchRegion,
       scales: imageScales(condition.scales),
       mask: condition.mask ?? 'auto',
     }, signal);
     if (match) this.onEvent?.({ type: 'image-match', asset: match.asset ?? condition.asset, match });
     else this.onEvent?.({ type: 'image-miss', asset: condition.asset });
     return Boolean(match);
+  }
+
+  private async evaluatePositionRelation(
+    targetA: PositionCompareTarget,
+    targetB: PositionCompareTarget,
+    relation: string,
+    tolerancePx: number,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const pointA = await this.driver.resolveTargetPoint(targetA, signal);
+    const pointB = await this.driver.resolveTargetPoint(targetB, signal);
+    const cssViewport = this.driver.getCssViewport();
+    const toleranceRelativeX = (tolerancePx / cssViewport.width) * 10_000;
+    const toleranceRelativeY = (tolerancePx / cssViewport.height) * 10_000;
+    switch (relation) {
+      case 'vertical': return Math.abs(pointA.x - pointB.x) <= toleranceRelativeX;
+      case 'horizontal': return Math.abs(pointA.y - pointB.y) <= toleranceRelativeY;
+      case 'overlap': return Math.hypot(pointA.x - pointB.x, pointA.y - pointB.y) <= Math.hypot(toleranceRelativeX, toleranceRelativeY);
+      default: throw new Error(`unknown position relation: ${relation}`);
+    }
   }
 
   private async waitForImage(step: WaitImageStep | WaitImageStateStep | ClickImageStep | MoveToImageStep | KeyHoldUntilImageStep, signal: AbortSignal): Promise<ImageMatch> {
@@ -253,6 +325,7 @@ export class AutomationRunner {
         alternatives: step.alternatives,
         threshold: step.threshold ?? 0.9,
         region: step.region,
+        relativeRegion: step.region ? undefined : this.searchRegion,
         scales: imageScales(step.scales),
         mask: step.mask ?? 'auto',
       }, signal);
@@ -288,15 +361,25 @@ export class AutomationRunner {
     }
   }
 
-  private async waitForCondition(condition: AutomationCondition, timeoutMs: number, pollMs: number, signal: AbortSignal): Promise<void> {
+  private async waitForConditionResult(condition: AutomationCondition, timeoutMs: number, pollMs: number, signal: AbortSignal): Promise<boolean> {
     const deadline = this.driver.now() + timeoutMs;
     while (true) {
       this.throwIfAborted(signal);
-      if (await this.findCondition(condition, signal)) return;
+      if (await this.findCondition(condition, signal)) return true;
       const remaining = deadline - this.driver.now();
-      if (remaining <= 0) throw new Error('timed out waiting for combined condition');
+      if (remaining <= 0) return false;
       await this.driver.sleep(Math.min(pollMs, remaining), signal);
     }
+  }
+
+  private async waitForCondition(condition: AutomationCondition, timeoutMs: number, pollMs: number, signal: AbortSignal): Promise<void> {
+    if (!await this.waitForConditionResult(condition, timeoutMs, pollMs, signal)) throw new Error('timed out waiting for combined condition');
+  }
+
+  private async resolvePointerTarget(target: AutomationPointerTarget, timeoutMs: number | undefined, pollMs: number | undefined, signal: AbortSignal): Promise<AutomationDriverPointerTarget> {
+    if (target.kind === 'coordinate') return target;
+    const match = await this.waitForImage({ ...target.condition, type: 'wait-image', timeoutMs, pollMs }, signal);
+    return { kind: 'match', match };
   }
 
   private async execute(step: AutomationStep, signal: AbortSignal, depth: number): Promise<void> {
@@ -326,6 +409,7 @@ export class AutomationRunner {
         if (step.verifyBeforeClick) {
           const verified = await this.driver.findImage({
             asset: step.asset, threshold: step.threshold ?? 0.9, region: step.region,
+            relativeRegion: step.region ? undefined : this.searchRegion,
             alternatives: step.alternatives, scales: imageScales(step.scales), mask: step.mask ?? 'auto',
           }, signal);
           if (!verified) throw new Error(`image disappeared before click: ${step.asset}`);
@@ -360,6 +444,51 @@ export class AutomationRunner {
         await this.driver.moveTo(match, step.offset ?? { x: 0, y: 0 }, signal);
         return;
       }
+      case 'move-to-coordinate':
+        await this.driver.moveToPoint(step.coordinate, signal);
+        return;
+      case 'click-coordinate':
+        await this.driver.clickPoint(step.coordinate, {
+          button: step.button ?? 'left', clickCount: step.clickCount ?? 1,
+        }, signal);
+        return;
+      case 'random-click-region': {
+        const padding = step.padding ?? 0;
+        const sample = (minimum: number, maximumExclusive: number): number => {
+          const value = this.random();
+          if (!Number.isFinite(value) || value < 0 || value >= 1) throw new Error('random source must return a number from 0 (inclusive) to 1 (exclusive)');
+          return minimum + Math.floor(value * (maximumExclusive - minimum));
+        };
+        const coordinate = {
+          x: sample(step.region.left + padding, step.region.right - padding),
+          y: sample(step.region.top + padding, step.region.bottom - padding),
+        };
+        const message = `random click coordinate ${coordinate.x},${coordinate.y}`;
+        this.driver.log(message);
+        this.onEvent?.({ type: 'random-click-coordinate', coordinate });
+        await this.driver.clickPoint(coordinate, {
+          button: step.button ?? 'left', clickCount: step.clickCount ?? 2,
+        }, signal);
+        return;
+      }
+      case 'drag-image': {
+        const waitOptions = { timeoutMs: step.timeoutMs, pollMs: step.pollMs };
+        const source = await this.waitForImage({ ...step.source, ...waitOptions, type: 'wait-image' }, signal);
+        const target = await this.waitForImage({ ...step.target, ...waitOptions, type: 'wait-image' }, signal);
+        await this.driver.drag(source, target, {
+          button: step.button ?? 'left',
+          durationMs: step.durationMs ?? 800,
+        }, signal);
+        return;
+      }
+      case 'drag': {
+        const source = await this.resolvePointerTarget(step.source, step.timeoutMs, step.pollMs, signal);
+        const target = await this.resolvePointerTarget(step.target, step.timeoutMs, step.pollMs, signal);
+        await this.driver.dragTargets(source, target, {
+          button: step.button ?? 'left', durationMs: step.durationMs ?? 800,
+        }, signal);
+        return;
+      }
       case 'text-input':
         await this.driver.typeText(step.text, step.intervalMs ?? 0, signal);
         return;
@@ -376,6 +505,9 @@ export class AutomationRunner {
         this.driver.log(step.message);
         this.onEvent?.({ type: 'log', message: step.message });
         return;
+      case 'notification':
+        this.driver.notify(step.title, step.body);
+        return;
       case 'if-image': {
         const found = await this.findCondition(step.condition, signal);
         const branch = (step.negate ? !found : found) ? step.then : step.else;
@@ -390,6 +522,13 @@ export class AutomationRunner {
       case 'wait-condition':
         await this.waitForCondition(step.condition, step.timeoutMs ?? 10_000, step.pollMs ?? 200, signal);
         return;
+      case 'wait-condition-branch': {
+        const matched = await this.waitForConditionResult(step.condition, step.timeoutMs ?? 10_000, step.pollMs ?? 200, signal);
+        await this.execute(matched ? step.success : step.timeout, signal, depth + 1);
+        return;
+      }
+      case 'end':
+        throw new AutomationEndSignal(step.result, step.message);
       case 'repeat':
         for (let index = 0; index < step.times; index += 1) await this.execute(step.body, signal, depth + 1);
         return;
@@ -410,6 +549,12 @@ export class AutomationRunner {
           if (step.delayMs) await this.driver.sleep(step.delayMs, signal);
         }
         throw new Error(`combined repeat-until condition not met after ${step.maxIterations} iterations`);
+      case 'position-compare': {
+        const matched = await this.evaluatePositionRelation(step.targetA, step.targetB, step.relation, step.tolerancePx, signal);
+        const branch = matched ? step.then : step.else;
+        if (branch) await this.execute(branch, signal, depth + 1);
+        return;
+      }
     }
   }
 

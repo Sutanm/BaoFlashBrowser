@@ -55,6 +55,14 @@ module.exports = {
       filter: ['package.json'],
     },
   ],
+  // worker_threads 的 `new Worker(path)` 无法从 asar 归档内加载脚本：
+  // 主进程 require 走 Electron 的 asar 集成，但 worker 入口文件由 Node 自行读取，
+  // 必须落在真实文件系统上。opencv-js 是 worker 运行时 require 的依赖，
+  // 与 worker 同目录树一起解包，保证 worker 解析 node_modules 时路径对得上。
+  asarUnpack: [
+    'dist/vision-worker.cjs',
+    'node_modules/@techstark/opencv-js/**/*',
+  ],
   extraResources: selectedResources(),
   win: {
     target: 'nsis',

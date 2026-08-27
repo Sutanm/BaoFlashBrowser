@@ -23,7 +23,7 @@ BaoFlashBrowser is more than a Flash browser. It brings together a **native PPAP
 
 ![Visual automation workbench](assets/readme/automation-workbench.png)
 
-Combine Entry, Image, Input, Page, Flow, and Debug blocks while managing image assets, scripts, and editable JSON in one workbench.
+Combine Entry, Mouse, Keyboard & Text, Recognition & Wait, Page, Flow, and Debug blocks while managing image assets, scripts, and editable JSON in one workbench.
 
 ### Capture and control without leaving the game
 
@@ -59,13 +59,13 @@ After verification, minimize the browser and let the workflow continue. Targets 
 
 - BrowserView captures and OpenCV template matching locate UI at runtime instead of replaying recorded screen coordinates.
 - BrowserView rendering remains active while the application is minimized, allowing capture, matching, and trusted mouse or keyboard input to continue.
-- Workflows support unconditional and image-ready entry points, waits, image clicks, pointer movement, key combinations, hold-until actions, text input, scrolling, navigation, and reloads.
-- Flow control includes `if / else`, `all / any / not` conditions, fixed-count loops, and loops that run until a condition becomes true.
+- Workflows support unconditional, game-region, and image-ready entry points, normalized-coordinate clicks, random region clicks, coordinate/image pointer movement and dragging, key combinations, hold-until actions, text input, scrolling, navigation, and reloads.
+- Flow control includes `if / else`, `all / any / not` conditions, success/timeout branches, explicit workflow endings, fixed-count loops, and loops that run until a condition becomes true.
 - Optional pre-click verification and movement limits reduce accidental clicks caused by animation or an unstable match.
 
 ### A Blockly workbench for non-programmers
 
-- Build scripts in `about:automation` from Entry, Image, Input, Page, Flow, and Debug blocks.
+- Build scripts in `about:automation` from Entry, Mouse, Keyboard & Text, Recognition & Wait, Page, Flow, and Debug blocks.
 - The same workflow can be edited as JSON, with validation and conversion in both directions.
 - Portable `.baoauto` packages contain both the validated workflow and its image assets, and can be imported, exported, copied, checked, and shared.
 - The asset test bench compares UI assets against a selected scene image, reports the score, and highlights the best matching region.

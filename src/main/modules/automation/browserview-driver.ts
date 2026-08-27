@@ -1,10 +1,12 @@
-import type { AutomationImageMask, AutomationRegion } from '../../../shared/automation/types';
+import type { AutomationCoordinate, AutomationImageMask, AutomationRegion, AutomationRelativeRegion, PositionCompareTarget } from '../../../shared/automation/types';
 import type {
   AutomationDriver,
+  AutomationDriverPointerTarget,
   FindImageRequest,
   ImageMatch,
 } from './runtime';
 import { acquireCdpLease } from '../cdp-lease';
+import { Notification } from 'electron';
 
 export type AutomationCapturedImage = {
   isEmpty(): boolean;
@@ -167,6 +169,38 @@ export function deviceMatchToCssPoint(
   return point;
 }
 
+export function relativeCoordinateToCssPoint(
+  coordinate: AutomationCoordinate,
+  cssSize: { width: number; height: number },
+): { x: number; y: number } {
+  if (cssSize.width <= 0 || cssSize.height <= 0) throw new Error('BrowserView dimensions must be positive');
+  if (!Number.isInteger(coordinate.x) || !Number.isInteger(coordinate.y)
+    || coordinate.x < 0 || coordinate.x > 10_000 || coordinate.y < 0 || coordinate.y > 10_000) {
+    throw new Error(`relative coordinate must be an integer from 0 to 10000: ${coordinate.x},${coordinate.y}`);
+  }
+  return {
+    x: coordinate.x / 10_000 * Math.max(0, cssSize.width - 1),
+    y: coordinate.y / 10_000 * Math.max(0, cssSize.height - 1),
+  };
+}
+
+export function relativeSearchRegionToCssRegion(
+  region: AutomationRelativeRegion,
+  cssSize: { width: number; height: number },
+): AutomationRegion {
+  if (cssSize.width <= 0 || cssSize.height <= 0) throw new Error('BrowserView dimensions must be positive');
+  if (![region.left, region.top, region.right, region.bottom].every(Number.isInteger)
+    || region.left < 0 || region.top < 0 || region.right > 10_000 || region.bottom > 10_000
+    || region.left >= region.right || region.top >= region.bottom) {
+    throw new Error('relative search region must use valid 0 to 10000 corners');
+  }
+  const x = Math.floor(region.left / 10_000 * cssSize.width);
+  const y = Math.floor(region.top / 10_000 * cssSize.height);
+  const right = Math.ceil(region.right / 10_000 * cssSize.width);
+  const bottom = Math.ceil(region.bottom / 10_000 * cssSize.height);
+  return { x, y, width: right - x, height: bottom - y };
+}
+
 export class BrowserViewAutomationDriver implements AutomationDriver {
   private readonly webContents: AutomationWebContentsLike;
   private readonly matcher: AutomationVisionMatcher;
@@ -209,7 +243,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
         this.throwIfAborted(signal);
         const match = await this.matcher.find(asset, frame, {
           threshold: request.threshold,
-          region: request.region,
+          region: request.region ?? (request.relativeRegion ? relativeSearchRegionToCssRegion(request.relativeRegion, frame.cssSize) : undefined),
           scales: request.scales,
           mask: request.mask,
         }, signal);
@@ -220,6 +254,27 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
       if (!assistantRestored) await restoreAutomationAssistantAfterCapture(this.webContents, assistantVisibility);
       this.webContents.decrementCapturerCount();
     }
+  }
+
+  async resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal): Promise<{ x: number; y: number }> {
+    if (target.kind === 'coordinate') {
+      const cssSize = this.options.getCssViewport();
+      return relativeCoordinateToCssPoint(target.coordinate, cssSize);
+    }
+    const match = await this.findImage({
+      asset: target.asset,
+      alternatives: target.alternatives,
+      threshold: target.threshold ?? 0.9,
+      region: target.region,
+      scales: target.scales,
+      mask: target.mask ?? 'auto',
+    }, signal);
+    if (!match) throw new Error(`image not found for position comparison: ${target.asset}`);
+    return this.toCssPoint(match, target.offset ?? { x: 0, y: 0 });
+  }
+
+  getCssViewport(): { width: number; height: number } {
+    return this.options.getCssViewport();
   }
 
   async click(
@@ -242,6 +297,83 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     const point = this.toCssPoint(match, offset);
     await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point }));
     this.pointer = point;
+  }
+
+  async moveToPoint(coordinate: AutomationCoordinate, signal: AbortSignal): Promise<void> {
+    const point = relativeCoordinateToCssPoint(coordinate, this.options.getCssViewport());
+    await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point }));
+    this.pointer = point;
+  }
+
+  async clickPoint(
+    coordinate: AutomationCoordinate,
+    options: { button: 'left' | 'right' | 'middle'; clickCount: number },
+    signal: AbortSignal,
+  ): Promise<void> {
+    const point = relativeCoordinateToCssPoint(coordinate, this.options.getCssViewport());
+    await this.withTransientCdp(signal, async (send) => {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+      for (let count = 1; count <= options.clickCount; count += 1) {
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: options.button, clickCount: count });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: options.button, clickCount: count });
+      }
+    });
+    this.pointer = point;
+  }
+
+  async drag(
+    source: ImageMatch,
+    target: ImageMatch,
+    options: { button: 'left' | 'right' | 'middle'; durationMs: number },
+    signal: AbortSignal,
+  ): Promise<void> {
+    const start = this.toCssPoint(source, { x: 0, y: 0 });
+    const end = this.toCssPoint(target, { x: 0, y: 0 });
+    await this.dispatchDrag(start, end, options, signal);
+  }
+
+  async dragTargets(
+    source: AutomationDriverPointerTarget,
+    target: AutomationDriverPointerTarget,
+    options: { button: 'left' | 'right' | 'middle'; durationMs: number },
+    signal: AbortSignal,
+  ): Promise<void> {
+    const resolve = (value: AutomationDriverPointerTarget): { x: number; y: number } => value.kind === 'coordinate'
+      ? relativeCoordinateToCssPoint(value.coordinate, this.options.getCssViewport())
+      : this.toCssPoint(value.match, { x: 0, y: 0 });
+    await this.dispatchDrag(resolve(source), resolve(target), options, signal);
+  }
+
+  private async dispatchDrag(
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    options: { button: 'left' | 'right' | 'middle'; durationMs: number },
+    signal: AbortSignal,
+  ): Promise<void> {
+    const buttonMask = { left: 1, right: 2, middle: 4 }[options.button];
+    let current = start;
+    await this.withTransientCdp(signal, async (send) => {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: options.button, buttons: buttonMask, clickCount: 1 });
+      try {
+        const steps = Math.max(1, Math.min(120, Math.ceil(options.durationMs / 16)));
+        const intervalMs = options.durationMs / steps;
+        for (let index = 1; index <= steps; index += 1) {
+          if (intervalMs > 0) await this.sleep(intervalMs, signal);
+          current = {
+            x: start.x + (end.x - start.x) * index / steps,
+            y: start.y + (end.y - start.y) * index / steps,
+          };
+          await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...current, button: options.button, buttons: buttonMask });
+        }
+      } finally {
+        // Release directly: the normal send wrapper intentionally rejects an aborted signal.
+        await this.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mouseReleased', ...current, button: options.button, buttons: 0, clickCount: 1,
+        }).catch(() => undefined);
+      }
+    });
+    this.pointer = current;
   }
 
   async pressKey(
@@ -344,6 +476,13 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   }
 
   log(message: string): void { this.options.log?.(message); }
+
+  notify(title: string, body: string): void {
+    try {
+      const notification = new Notification({ title, body, silent: true });
+      notification.show();
+    } catch { /* notifications unavailable */ }
+  }
 
   sleep(durationMs: number, signal: AbortSignal): Promise<void> {
     this.throwIfAborted(signal);

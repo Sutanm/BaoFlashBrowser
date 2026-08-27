@@ -12,6 +12,11 @@ const workflow = {
   root: { type: 'sequence', steps: [
     { type: 'wait-image', asset: 'buttons/start.png', alternatives: ['buttons/start-hover.png'], threshold: 0.9, timeoutMs: 10000, pollMs: 375, region: { x: 12, y: 18, width: 640, height: 360 }, scales: [0.8, 1, 1.2], mask: 'alpha' },
     { type: 'click-image', asset: 'buttons/start.png', threshold: 0.9, clickCount: 1, button: 'left', offset: { x: 7, y: -4 }, pollMs: 250 },
+    { type: 'click-coordinate', coordinate: { x: 6250, y: 3750 }, button: 'right', clickCount: 2 },
+    { type: 'random-click-region', region: { left: 2000, top: 1500, right: 8000, bottom: 7500 }, button: 'left', clickCount: 2, padding: 250 },
+    { type: 'move-to-coordinate', coordinate: { x: 6000, y: 3500 } },
+    { type: 'drag', source: { kind: 'coordinate', coordinate: { x: 2500, y: 5000 } }, target: { kind: 'image', condition: { type: 'image-visible', asset: 'pages/home.png', threshold: 0.91, mask: 'alpha' } }, button: 'left', durationMs: 700, timeoutMs: 12000 },
+    { type: 'drag-image', source: { type: 'image-visible', asset: 'buttons/start.png', alternatives: ['buttons/start-hover.png'], threshold: 0.88, mask: 'alpha' }, target: { type: 'image-visible', asset: 'pages/home.png', threshold: 0.93, mask: 'none' }, button: 'left', durationMs: 1200, timeoutMs: 15000, pollMs: 300 },
     {
       type: 'if-condition',
       condition: { type: 'any', conditions: [
@@ -21,12 +26,18 @@ const workflow = {
       then: { type: 'sequence', steps: [{ type: 'delay', durationMs: 25 }] },
       else: { type: 'sequence', steps: [] },
     },
+    {
+      type: 'wait-condition-branch', condition: { type: 'image-visible', asset: 'pages/home.png', threshold: 0.9 }, timeoutMs: 5000,
+      success: { type: 'sequence', steps: [{ type: 'log', message: 'ready' }] },
+      timeout: { type: 'sequence', steps: [{ type: 'end', result: 'failure', message: '页面未就绪' }] },
+    },
   ] },
 };
 const workflow2 = {
   formatVersion: 1,
   id: 'm4-smoke',
   name: 'M4 第二脚本',
+  searchRegion: { left: 1200, top: 800, right: 8800, bottom: 9200 },
   root: { type: 'sequence', steps: [{ type: 'delay', durationMs: 2222 }] },
 };
 

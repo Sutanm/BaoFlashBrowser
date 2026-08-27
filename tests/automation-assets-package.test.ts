@@ -101,4 +101,21 @@ describe('automation assets and .baoauto package', () => {
     }));
     expect(loaded.manifest.capabilities).toEqual(expected);
   });
+
+  it('marks coordinate-only workflows as trusted input without requiring vision', () => {
+    expect(inferAutomationCapabilities({
+      formatVersion: 1, id: 'coordinate-only', name: 'Coordinate only',
+      root: { type: 'sequence', steps: [{ type: 'click-coordinate', coordinate: { x: 5000, y: 5000 } }] },
+    })).toEqual(['trusted-input']);
+  });
+
+  it('infers vision only for image endpoints of a general drag', () => {
+    expect(inferAutomationCapabilities({
+      formatVersion: 1, id: 'mixed-drag', name: 'Mixed drag',
+      root: { type: 'sequence', steps: [{
+        type: 'drag', source: { kind: 'coordinate', coordinate: { x: 1000, y: 2000 } },
+        target: { kind: 'image', condition: { type: 'image-visible', asset: 'target.png', mask: 'auto' } },
+      }] },
+    })).toEqual(['alpha-mask', 'trusted-input', 'vision']);
+  });
 });
