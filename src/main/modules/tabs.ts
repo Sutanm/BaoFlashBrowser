@@ -107,6 +107,19 @@ class TabManager {
     return { ...this.rect };
   }
 
+  /** Inspect the active BrowserView with a transient CDP client, without creating a fixed-viewport automation lease. */
+  async inspectAutomationTarget<T>(tabId: string, inspect: (webContents: Electron.WebContents) => Promise<T>): Promise<T> {
+    if (this.activeId !== tabId) throw new Error('automation can only target the active tab');
+    const wc = this.getWebContents(tabId);
+    if (!wc) throw new Error('automation target has no live BrowserView');
+    if (this.automationTargets.has(tabId)) return inspect(wc);
+    teardownCapture(wc);
+    try { return await inspect(wc); }
+    finally {
+      if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc) && !this.automationTargets.has(tabId)) setupCapture(wc);
+    }
+  }
+
   /** Reserve the active BrowserView for one automation run and pause password CDP capture. */
   beginAutomation(tabId: string, viewport: AutomationViewport): AutomationTabHandle {
     if (this.activeId !== tabId) throw new Error('automation can only target the active tab');

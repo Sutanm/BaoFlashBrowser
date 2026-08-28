@@ -47,6 +47,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('userscript:automation-status', async () => ({ enabled: true, state: automationState, executedSteps: automationState === 'completed' ? 1 : 0, logs: [] }));
   ipcMain.handle('userscript:automation-coordinate-begin', async () => ({ ready: true }));
   ipcMain.handle('userscript:automation-coordinate-end', async () => ({ released: true }));
+  ipcMain.handle('userscript:automation-game-surfaces', async () => ({
+    candidates: [
+      { id: 'abcdef0123456789-0', fingerprint: 'abcdef', kind: 'flash', label: '测试 Flash', frameDepth: 2, frameUrl: 'http://frame.test/game', source: 'game.swf', rect: { x: 100, y: 120, width: 600, height: 400 }, score: 150 },
+      { id: 'abcdef0123456789-1', fingerprint: 'frame', kind: 'frame', label: 'iframe 游戏区域候选', frameDepth: 2, frameUrl: 'http://frame.test/game', source: 'http://frame.test/game', rect: { x: 90, y: 110, width: 620, height: 420 }, score: 50 },
+    ],
+    bound: null,
+  }));
+  ipcMain.handle('userscript:automation-game-surface-bind', async (_event, payload) => ({
+    bound: { id: payload.candidateId, fingerprint: 'abcdef', kind: 'flash', label: '测试 Flash', frameDepth: 2, frameUrl: 'http://frame.test/game', source: 'game.swf', rect: { x: 100, y: 120, width: 600, height: 400 }, score: 150 },
+  }));
+  ipcMain.handle('userscript:automation-game-surface-clear', async () => ({ cleared: true }));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   mod = require('../../release/tests/userscripts-admin-module.cjs');
@@ -183,6 +194,23 @@ app.whenReady().then(async () => {
     return { copied: layer?.getAttribute('data-last-copied'), expected: Math.round(x / Math.max(1, innerWidth - 1) * 10000) + ',' + Math.round(y / Math.max(1, innerHeight - 1) * 10000), pageClicks, active: layer?.classList.contains('bao-active') || false };
   })()`);
   check('coordinate click copies X,Y, exits, and does not reach the page', coordinateCopy?.copied === coordinateCopy?.expected && coordinateCopy?.pageClicks === 0 && coordinateCopy?.active === false, coordinateCopy);
+  const gameSurfacePicker = await view.webContents.executeJavaScript(`(async () => {
+    const root = document.getElementById('bao-automation-frame-assistant');
+    root?.classList.add('bao-open'); root?.querySelector('[data-view="capture"]')?.click();
+    root?.querySelector('.bao-game-select')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const layer = document.getElementById('bao-automation-game-layer');
+    const candidate = layer?.querySelector('.bao-game-candidate');
+    const boxes = [...(layer?.querySelectorAll('.bao-game-candidate') || [])];
+    const options = [...(layer?.querySelectorAll('.bao-game-option') || [])];
+    const flashAboveFrame = Number(boxes[0]?.style.zIndex) > Number(boxes[1]?.style.zIndex);
+    const listHasFlash = options.length === 2 && options[0]?.textContent?.includes('测试 Flash') && options[0]?.textContent?.includes('600 × 400');
+    const visible = layer?.classList.contains('bao-active') || false;
+    candidate?.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return { visible, flashAboveFrame, listHasFlash, candidates: layer?.querySelectorAll('.bao-game-candidate').length, closed: !layer?.classList.contains('bao-active'), button: root?.querySelector('.bao-game-select')?.textContent };
+  })()`);
+  check('game surface picker exposes a list fallback when PPAPI covers precise candidate boxes', gameSurfacePicker?.visible === true && gameSurfacePicker?.flashAboveFrame === true && gameSurfacePicker?.listHasFlash === true && gameSurfacePicker?.candidates === 0 && gameSurfacePicker?.closed === true && gameSurfacePicker?.button?.includes('测试 Flash'), gameSurfacePicker);
   await waitForPageCondition(
     view.webContents,
     "document.querySelector('#bao-automation-frame-assistant .bao-state-title')?.textContent === '执行完成'",

@@ -156,6 +156,30 @@ export function registerUserscriptsIPC(): void {
     return { ready: true as const };
   });
 
+  ipcMain.handle('userscript:automation-game-surfaces', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw); const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady();
+    return service.detectGameSurfaces(tabId);
+  });
+
+  ipcMain.handle('userscript:automation-game-surface-bind', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string(), candidateId: z.string().min(1).max(80).regex(/^[a-f0-9-]+$/u) }).strict().safeParse(raw);
+    const service = getAutomationService(); const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady();
+    return { bound: service.bindGameSurface(tabId, parsed.data.candidateId) };
+  });
+
+  ipcMain.handle('userscript:automation-game-surface-clear', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw); const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    service.clearGameSurface(tabId);
+    return { cleared: true as const };
+  });
+
   ipcMain.handle('userscript:automation-coordinate-end', async (event, raw: unknown) => {
     const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw); const service = getAutomationService();
     const tabId = tabManager.getTabIdForWebContents(event.sender.id);

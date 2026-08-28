@@ -61,6 +61,9 @@ export interface GmApi {
     assetPreview(packageId: string, asset: string): Promise<unknown>;
     captureFrame(): Promise<unknown>;
     saveCapture(packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }, overwrite?: boolean): Promise<unknown>;
+    detectGameSurfaces(): Promise<unknown>;
+    bindGameSurface(candidateId: string): Promise<unknown>;
+    clearGameSurface(): Promise<unknown>;
     beginCoordinatePick(): Promise<unknown>;
     endCoordinatePick(): Promise<unknown>;
   };
@@ -240,6 +243,9 @@ export function createGmApi(context: GmApiContext): GmApi {
     captureFrame: (): Promise<unknown> => bridge.invoke('userscript:automation-capture-frame', { scriptId: script.id }),
     saveCapture: (packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }, overwrite = false): Promise<unknown> =>
       bridge.invoke('userscript:automation-save-capture', { scriptId: script.id, packageId, token, asset, rect, overwrite }),
+    detectGameSurfaces: (): Promise<unknown> => bridge.invoke('userscript:automation-game-surfaces', { scriptId: script.id }),
+    bindGameSurface: (candidateId: string): Promise<unknown> => bridge.invoke('userscript:automation-game-surface-bind', { scriptId: script.id, candidateId }),
+    clearGameSurface: (): Promise<unknown> => bridge.invoke('userscript:automation-game-surface-clear', { scriptId: script.id }),
     beginCoordinatePick: (): Promise<unknown> => bridge.invoke('userscript:automation-coordinate-begin', { scriptId: script.id }),
     endCoordinatePick: (): Promise<unknown> => bridge.invoke('userscript:automation-coordinate-end', { scriptId: script.id }),
   };

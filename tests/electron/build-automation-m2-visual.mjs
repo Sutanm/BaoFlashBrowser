@@ -32,3 +32,14 @@ await esbuild.build({
   external: ['@techstark/opencv-js'],
   logLevel: 'info',
 });
+
+await esbuild.build({
+  entryPoints: ['tests/electron/automation-game-surface-smoke.ts'],
+  outfile: 'release/tests/automation-game-surface-smoke.cjs',
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node12',
+  external: ['electron'],
+  logLevel: 'info',
+});

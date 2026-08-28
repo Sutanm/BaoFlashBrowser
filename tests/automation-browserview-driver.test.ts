@@ -260,6 +260,35 @@ describe('BrowserView automation driver', () => {
     });
   });
 
+  it('maps coordinates and relative vision regions inside a selected game surface', async () => {
+    const wc = new FakeWebContents();
+    const find = vi.fn(async () => MATCH);
+    const transform = {
+      logicalSize: { width: 1280, height: 720 },
+      displaySize: { width: 640, height: 360 },
+      scaleX: 0.5,
+      scaleY: 0.5,
+    };
+    const driver = new BrowserViewAutomationDriver(wc, { find }, {
+      getCssViewport: () => transform.logicalSize,
+      getViewportTransform: () => transform,
+      getCoordinateSurface: () => ({ x: 100, y: 50, width: 400, height: 200 }),
+    });
+    const signal = new AbortController().signal;
+    await driver.clickPoint({ x: 5000, y: 5000 }, { button: 'left', clickCount: 1 }, signal);
+    await driver.findImage({
+      asset: 'button.png', threshold: 0.9,
+      relativeRegion: { left: 2500, top: 2500, right: 7500, bottom: 7500 },
+    }, signal);
+
+    expect(wc.commands.slice(0, 3).map((command) => command.params)).toEqual([
+      { type: 'mouseMoved', x: 299.75, y: 149.75 },
+      { type: 'mousePressed', x: 299.75, y: 149.75, button: 'left', clickCount: 1 },
+      { type: 'mouseReleased', x: 299.75, y: 149.75, button: 'left', clickCount: 1 },
+    ]);
+    expect(wc.captureRects).toEqual([{ x: 200, y: 100, width: 200, height: 100 }]);
+  });
+
   it('normalizes a windowed regional capture back to logical coordinates before matching', async () => {
     const wc = new FakeWebContents();
     const makeImage = (width: number, height: number): AutomationCapturedImage => ({

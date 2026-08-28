@@ -14,6 +14,7 @@ import { DEFAULT_AUTOMATION_VIEWPORT } from '../../../shared/automation/types';
 import type { AutomationImageMask, AutomationMessage, AutomationStep, AutomationWorkflow } from '../../../shared/automation/types';
 import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '../../../shared/provenance';
 import { tabManager, type AutomationTabHandle } from '../tabs';
+import { chooseMatchingGameSurface, chooseReplacementGameSurface, detectGameSurfaces as detectTabGameSurfaces, type GameSurfaceCandidate } from './game-surface-detector';
 
 export type AutomationServiceStatus = {
   enabled: boolean;
@@ -87,6 +88,12 @@ type IdleRuntimeMatcher = {
   closeTimer: NodeJS.Timeout;
 };
 
+type BoundGameSurface = {
+  webContentsId: number;
+  fingerprint: string;
+  candidate: GameSurfaceCandidate;
+};
+
 const RUNTIME_MATCHER_IDLE_MS = 60_000;
 
 export class AutomationService {
@@ -101,6 +108,8 @@ export class AutomationService {
   private authoringViewport: ActiveAuthoringViewport | null = null;
   private readonly imageTests = new Map<string, ImageTestSession>();
   private readonly runtimeMatchers = new Map<string, IdleRuntimeMatcher>();
+  private readonly detectedGameSurfaces = new Map<string, GameSurfaceCandidate[]>();
+  private readonly boundGameSurfaces = new Map<string, BoundGameSurface>();
   private status: AutomationServiceStatus;
   private nextLogId = 1;
   private runHistory: AutomationRunRecord[] = [];
@@ -119,6 +128,50 @@ export class AutomationService {
 
   getStatus(): AutomationServiceStatus { return { ...this.status }; }
 
+  async detectGameSurfaces(tabId: string): Promise<{ candidates: GameSurfaceCandidate[]; bound: GameSurfaceCandidate | null }> {
+    this.assertEnabled();
+    if (this.active || this.probe) throw new Error('another automation session is active');
+    if (this.authoringViewport && this.authoringViewport.tabId !== tabId) this.endAuthoringViewport(this.authoringViewport.tabId);
+    const candidates = this.authoringViewport?.tabId === tabId
+      ? await detectTabGameSurfaces(this.authoringViewport.handle.webContents)
+      : await tabManager.inspectAutomationTarget(tabId, detectTabGameSurfaces);
+    this.detectedGameSurfaces.set(tabId, candidates);
+    const binding = this.boundGameSurfaces.get(tabId);
+    const wc = tabManager.getWebContents(tabId);
+    const bound = binding && wc && binding.webContentsId === wc.id
+      ? chooseMatchingGameSurface(candidates, binding.fingerprint) ?? chooseReplacementGameSurface(candidates, binding.candidate) : null;
+    if (bound && binding) { binding.candidate = bound; binding.fingerprint = bound.fingerprint; }
+    return { candidates, bound };
+  }
+
+  bindGameSurface(tabId: string, candidateId: string): GameSurfaceCandidate {
+    const candidate = this.detectedGameSurfaces.get(tabId)?.find((item) => item.id === candidateId);
+    const wc = tabManager.getWebContents(tabId);
+    if (!candidate || !wc) throw new Error('game surface candidate expired; detect the page again');
+    this.boundGameSurfaces.set(tabId, { webContentsId: wc.id, fingerprint: candidate.fingerprint, candidate });
+    return candidate;
+  }
+
+  clearGameSurface(tabId: string): void {
+    this.detectedGameSurfaces.delete(tabId);
+    this.boundGameSurfaces.delete(tabId);
+  }
+
+  private async refreshBoundGameSurface(tabId: string): Promise<void> {
+    const binding = this.boundGameSurfaces.get(tabId);
+    if (!binding) return;
+    const wc = tabManager.getWebContents(tabId);
+    if (!wc || binding.webContentsId !== wc.id) {
+      this.clearGameSurface(tabId);
+      return;
+    }
+    const result = await this.detectGameSurfaces(tabId);
+    const candidate = chooseMatchingGameSurface(result.candidates, binding.fingerprint)
+      ?? chooseReplacementGameSurface(result.candidates, binding.candidate);
+    if (!candidate) throw new Error('无法重新定位已选择的游戏画面，请在自动化助手中重新选择');
+    binding.candidate = candidate; binding.fingerprint = candidate.fingerprint;
+  }
+
   async beginAuthoringViewport(tabId: string): Promise<void> {
     this.assertEnabled();
     if (this.active || this.probe) throw new Error('another automation session is active');
@@ -128,7 +181,10 @@ export class AutomationService {
       await this.authoringViewport.handle.ready;
       return;
     }
-    if (this.authoringViewport) throw new Error('another automation authoring session is active');
+    // Authoring is a short-lived, read-only reservation. Moving from the
+    // workbench or another tab to the assistant must transfer that reservation
+    // instead of leaving the next tab blocked for the five-minute idle timeout.
+    if (this.authoringViewport) this.endAuthoringViewport(this.authoringViewport.tabId);
     const handle = tabManager.beginAutomation(tabId, DEFAULT_AUTOMATION_VIEWPORT);
     const timer = this.scheduleAuthoringViewportRelease(tabId);
     this.authoringViewport = { tabId, handle, timer };
@@ -352,6 +408,7 @@ export class AutomationService {
 
   async checkReady(packageId: string, tabId: string): Promise<boolean> {
     this.assertEnabled();
+    await this.refreshBoundGameSurface(tabId);
     const session = this.ensureSession(packageId, tabId);
     try {
       await session.handle.ready;
@@ -369,6 +426,7 @@ export class AutomationService {
 
   async start(packageId: string, tabId: string, countdownMs = 0): Promise<boolean> {
     this.assertEnabled();
+    await this.refreshBoundGameSurface(tabId);
     const session = this.ensureSession(packageId, tabId);
     this.beginHistory(session, 'run');
     try {
@@ -653,6 +711,10 @@ export class AutomationService {
     return new BrowserViewAutomationDriver(handle.webContents, matcher, {
       getCssViewport: () => handle.getCssViewport(),
       getViewportTransform: () => handle.getViewportTransform(),
+      getCoordinateSurface: () => {
+        const binding = this.boundGameSurfaces.get(handle.tabId);
+        return binding?.webContentsId === handle.webContents.id ? { ...binding.candidate.rect } : null;
+      },
       assertCurrent: () => handle.assertCurrent(),
       log: (message) => log.info(`[Automation] ${message}`),
     });

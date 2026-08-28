@@ -71,6 +71,8 @@ export type AutomationWebContentsLike = {
 
 export type BrowserViewAutomationDriverOptions = {
   getCssViewport(): { width: number; height: number };
+  /** Selected game/player rectangle in the live BrowserView CSS coordinate space. */
+  getCoordinateSurface?: () => AutomationRegion | null;
   getViewportTransform?: () => {
     logicalSize: { width: number; height: number };
     displaySize: { width: number; height: number };
@@ -218,7 +220,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     if (!this.matcher) throw new Error('automation workflow does not have a vision matcher');
     const cssSize = this.options.getCssViewport();
     const captureRegion = request.region
-      ?? (request.relativeRegion ? relativeSearchRegionToCssRegion(request.relativeRegion, cssSize) : undefined);
+      ?? (request.relativeRegion ? this.relativeRegionToLogical(request.relativeRegion) : undefined);
     const displayCaptureRegion = captureRegion ? this.logicalRegionToDisplay(captureRegion) : undefined;
     const frameKey = captureRegion
       ? `${captureRegion.x},${captureRegion.y},${captureRegion.width},${captureRegion.height}`
@@ -320,8 +322,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
 
   async resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal, relativeRegion?: AutomationRelativeRegion): Promise<{ x: number; y: number }> {
     if (target.kind === 'coordinate') {
-      const cssSize = this.options.getCssViewport();
-      return relativeCoordinateToCssPoint(target.coordinate, cssSize);
+      return this.relativePointToLogical(target.coordinate);
     }
     const match = await this.findImage({
       asset: target.asset,
@@ -364,7 +365,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   }
 
   async moveToPoint(coordinate: AutomationCoordinate, signal: AbortSignal): Promise<void> {
-    const point = relativeCoordinateToCssPoint(coordinate, this.options.getCssViewport());
+    const point = this.relativePointToLogical(coordinate);
     await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...this.logicalPointToDisplay(point) }));
     this.pointer = point;
   }
@@ -374,7 +375,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     options: { button: 'left' | 'right' | 'middle'; clickCount: number },
     signal: AbortSignal,
   ): Promise<void> {
-    const point = relativeCoordinateToCssPoint(coordinate, this.options.getCssViewport());
+    const point = this.relativePointToLogical(coordinate);
     const displayPoint = this.logicalPointToDisplay(point);
     await this.withTransientCdp(signal, async (send) => {
       await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...displayPoint });
@@ -404,7 +405,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     signal: AbortSignal,
   ): Promise<void> {
     const resolve = (value: AutomationDriverPointerTarget): { x: number; y: number } => value.kind === 'coordinate'
-      ? relativeCoordinateToCssPoint(value.coordinate, this.options.getCssViewport())
+      ? this.relativePointToLogical(value.coordinate)
       : this.toCssPoint(value.match, { x: 0, y: 0 });
     await this.dispatchDrag(resolve(source), resolve(target), options, signal);
   }
@@ -593,6 +594,30 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     const right = Math.ceil((region.x + region.width) * transform.scaleX);
     const bottom = Math.ceil((region.y + region.height) * transform.scaleY);
     return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
+  }
+
+  private coordinateSurfaceLogical(): AutomationRegion {
+    const logical = this.options.getCssViewport();
+    const displaySurface = this.options.getCoordinateSurface?.();
+    if (!displaySurface) return { x: 0, y: 0, width: logical.width, height: logical.height };
+    const transform = this.viewportTransform();
+    const x = Math.max(0, Math.min(logical.width - 1, displaySurface.x / transform.scaleX));
+    const y = Math.max(0, Math.min(logical.height - 1, displaySurface.y / transform.scaleY));
+    const right = Math.max(x + 1, Math.min(logical.width, (displaySurface.x + displaySurface.width) / transform.scaleX));
+    const bottom = Math.max(y + 1, Math.min(logical.height, (displaySurface.y + displaySurface.height) / transform.scaleY));
+    return { x, y, width: right - x, height: bottom - y };
+  }
+
+  private relativePointToLogical(coordinate: AutomationCoordinate): { x: number; y: number } {
+    const surface = this.coordinateSurfaceLogical();
+    const local = relativeCoordinateToCssPoint(coordinate, { width: surface.width, height: surface.height });
+    return { x: surface.x + local.x, y: surface.y + local.y };
+  }
+
+  private relativeRegionToLogical(region: AutomationRelativeRegion): AutomationRegion {
+    const surface = this.coordinateSurfaceLogical();
+    const local = relativeSearchRegionToCssRegion(region, { width: surface.width, height: surface.height });
+    return { x: surface.x + local.x, y: surface.y + local.y, width: local.width, height: local.height };
   }
 
   private assertDebuggerDetached(action: string): void {

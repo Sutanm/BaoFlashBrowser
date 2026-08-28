@@ -51,6 +51,24 @@ describe('AutomationService feature boundary', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
+  it('transfers a stale authoring reservation when the user switches tabs', async () => {
+    const releases = new Map<string, ReturnType<typeof vi.fn>>();
+    vi.mocked(tabManager.beginAutomation).mockImplementation((tabId: string) => {
+      const release = vi.fn(); releases.set(tabId, release);
+      return {
+        tabId, engine: 'ppapi', release, ready: Promise.resolve(),
+        webContents: { id: tabId === 'tab-1' ? 1 : 2 },
+        getCssViewport: () => ({ width: 800, height: 600 }), assertCurrent: vi.fn(),
+      } as never;
+    });
+    const service = new AutomationService({ enabled: true });
+    await service.beginAuthoringViewport('tab-1');
+    await expect(service.beginAuthoringViewport('tab-2')).resolves.toBeUndefined();
+    expect(releases.get('tab-1')).toHaveBeenCalledTimes(1);
+    service.endAuthoringViewport('tab-2');
+    expect(releases.get('tab-2')).toHaveBeenCalledTimes(1);
+  });
+
   it('reuses an idle production vision matcher and releases it when the package changes', async () => {
     const release = vi.fn();
     vi.mocked(tabManager.beginAutomation).mockReturnValue({
