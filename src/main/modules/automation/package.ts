@@ -69,7 +69,7 @@ export function inferAutomationCapabilities(workflow: AutomationWorkflow): Autom
 function migratePackageDocuments(manifestValue: unknown, workflowValue: unknown): { manifest: AutomationPackageManifest; workflow: AutomationWorkflow } {
   const manifestRecord = manifestValue as { formatVersion?: unknown } | null;
   const workflowRecord = workflowValue as { formatVersion?: unknown } | null;
-  if (manifestRecord?.formatVersion !== 1 || workflowRecord?.formatVersion !== 1) throw new Error('unsupported automation package format version');
+  if (manifestRecord?.formatVersion !== 2 || workflowRecord?.formatVersion !== 2) throw new Error('unsupported automation package format version');
   const workflow = parseAutomationWorkflow(workflowValue);
   const manifest = parseAutomationPackageManifest(manifestValue);
   return { manifest: { ...manifest, capabilities: manifest.capabilities ?? inferAutomationCapabilities(workflow) }, workflow };

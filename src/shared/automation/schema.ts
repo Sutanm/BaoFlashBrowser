@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_AUTOMATION_VIEWPORT } from './types';
 import type {
   AutomationPackageManifest,
   AutomationCondition,
@@ -64,6 +65,12 @@ const relativeRegionSchema = z.object({
   bottom: z.number().int().min(1).max(10_000),
 }).strict().refine((value) => value.left < value.right && value.top < value.bottom, 'relative search region must have positive width and height');
 
+const automationViewportSchema = z.object({
+  mode: z.literal('fixed'),
+  width: z.literal(1280),
+  height: z.literal(720),
+}).strict();
+
 export const automationConditionSchema: z.ZodType<AutomationCondition, z.ZodTypeDef, unknown> = z.lazy(() =>
   z.union([
     imageConditionSchema,
@@ -112,7 +119,7 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
       type: z.literal('wait-image'),
       ...imageFields,
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
     }).strict(),
     z.object({
       ...stepId,
@@ -120,14 +127,14 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
       ...imageFields,
       state: z.enum(['visible', 'hidden']),
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
     }).strict(),
     z.object({
       ...stepId,
       type: z.literal('click-image'),
       ...imageFields,
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
       button: z.enum(['left', 'right', 'middle']).optional(),
       clickCount: z.number().int().min(1).max(3).optional(),
       offset: z.object({ x: z.number().int(), y: z.number().int() }).strict().optional(),
@@ -179,14 +186,14 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
       ...imageFields,
       state: z.enum(['visible', 'hidden']),
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
     }).strict(),
     z.object({
       ...stepId,
       type: z.literal('move-to-image'),
       ...imageFields,
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
       offset: z.object({ x: z.number().int(), y: z.number().int() }).strict().optional(),
     }).strict(),
     z.object({
@@ -200,7 +207,7 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
       source: imageConditionSchema,
       target: imageConditionSchema,
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
       button: z.enum(['left', 'right', 'middle']).optional(),
       durationMs: z.number().int().nonnegative().max(10_000).optional(),
     }).strict(),
@@ -216,7 +223,7 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
         z.object({ kind: z.literal('image'), condition: imageConditionSchema }).strict(),
       ]),
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
       button: z.enum(['left', 'right', 'middle']).optional(),
       durationMs: z.number().int().nonnegative().max(10_000).optional(),
     }).strict(),
@@ -269,14 +276,14 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
       type: z.literal('wait-condition'),
       condition: automationConditionSchema,
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
     }).strict(),
     z.object({
       ...stepId,
       type: z.literal('wait-condition-branch'),
       condition: automationConditionSchema,
       timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-      pollMs: z.number().int().min(25).max(60_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
       success: sequenceStepSchema,
       timeout: sequenceStepSchema,
     }).strict(),
@@ -369,7 +376,8 @@ function validateVisionRegions(workflow: AutomationWorkflow, ctx: z.RefinementCt
 }
 
 export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDef, unknown> = z.object({
-  formatVersion: z.literal(1),
+  formatVersion: z.literal(2),
+  viewport: automationViewportSchema.default(DEFAULT_AUTOMATION_VIEWPORT),
   id: idSchema,
   name: z.string().min(1).max(120),
   description: z.string().max(2000).optional(),
@@ -382,7 +390,7 @@ export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDe
 
 export const automationPackageManifestSchema: z.ZodType<AutomationPackageManifest> = z.object({
   format: z.literal('baoauto'),
-  formatVersion: z.literal(1),
+  formatVersion: z.literal(2),
   id: idSchema,
   name: z.string().min(1).max(120),
   workflow: z.literal('workflow.json'),

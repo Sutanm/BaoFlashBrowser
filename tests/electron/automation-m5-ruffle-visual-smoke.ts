@@ -90,7 +90,11 @@ app.whenReady().then(async () => {
   finally { if (wc.debugger.isAttached()) wc.debugger.detach(); }
   await delay(100);
   const before = await capture(wc);
-  const bounds = coloredBounds(before); const template = before.crop(bounds); const templateSize = template.getSize();
+  // Production v2 assets are saved at one bitmap pixel per logical viewport
+  // pixel. Mirror that format here instead of feeding a device-DPI crop back
+  // into a driver that intentionally scales canonical assets for capture DPI.
+  const canonicalBefore = before.resize(VIEWPORT);
+  const bounds = coloredBounds(canonicalBefore); const template = canonicalBefore.crop(bounds); const templateSize = template.getSize();
   const templates: AutomationTemplateProvider = { async load() { return { cacheKey: 'm5-ruffle-button@1', width: templateSize.width, height: templateSize.height, bgra: Uint8Array.from(template.toBitmap()) }; } };
   const matcher = new OpenCvWorkerMatcher(templates, { workerPath: path.join(__dirname, 'vision-worker.cjs'), requestTimeoutMs: 20_000 });
   const driver = new BrowserViewAutomationDriver(wc as unknown as AutomationWebContentsLike, matcher, { getCssViewport: () => VIEWPORT });

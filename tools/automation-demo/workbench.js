@@ -173,7 +173,8 @@
     const start = starts[0];
     const readyAsset = start.getFieldValue('ASSET');
     const workflow = {
-      formatVersion: 1,
+      formatVersion: 2,
+      viewport: { mode: 'fixed', width: 1280, height: 720 },
       id: $('workflow-id').value.trim(),
       name: $('workflow-name').value.trim(),
       description: $('workflow-description').value.trim() || undefined,
@@ -227,7 +228,7 @@
     const missing = state.assets.filter((asset) => !state.assetContents.has(asset));
     if (missing.length) throw new Error(`请重新扫描素材目录，缺少 ${missing.length} 个素材文件内容`);
     const manifest = {
-      format: 'baoauto', formatVersion: 1, id: workflow.id, name: workflow.name,
+      format: 'baoauto', formatVersion: 2, id: workflow.id, name: workflow.name,
       workflow: 'workflow.json', assets: 'assets/', createdBy: 'BaoFlash Automation Workbench',
     };
     const archive = {

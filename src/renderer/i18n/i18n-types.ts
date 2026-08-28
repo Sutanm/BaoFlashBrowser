@@ -2110,31 +2110,55 @@ type RootTranslation = {
 			 */
 			execute: string
 			/**
-			 * 识​别​到​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3​ ​时​就​绪
+			 * 识​别​到​图​片​ ​%​1​ ​时​就​绪
 			 */
 			start: string
 			/**
-			 * 等​待​图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3​ ​超​时​ ​%​4​ ​毫​秒
+			 * 等​待​图​片​ ​%​1
 			 */
 			waitImage: string
 			/**
-			 * 等​待​图​片​ ​%​1​ ​%​2​ ​匹​配​ ​%​3​ ​超​时​ ​%​4​ ​毫​秒
+			 * 等​待​图​片​ ​%​1​ ​%​2
 			 */
 			waitImageState: string
 			/**
-			 * 点​击​ ​%​1​ ​%​2​ ​%​3​ ​%​4​ ​次​ ​相​似​度​ ​%​5​ ​匹​配​ ​%​6​ ​点​击​前​确​认​ ​%​7​ ​最​大​移​动​ ​%​8​ ​像​素
+			 * 点​击​ ​%​1​ ​%​2​ ​使​用​ ​%​3​ ​%​4​ ​次
 			 */
 			clickImage: string
 			/**
-			 * 填​写​坐​标
+			 * 坐​标​(​点​此​可​选​图​片​)
 			 */
 			coordinateTarget: string
+			/**
+			 * 请​选​择​图​片​素​材
+			 */
+			imagePlaceholder: string
+			/**
+			 * 该​积​木​必​须​选​择​图​片​素​材
+			 */
+			imageRequired: string
+			/**
+			 * 相​似​度
+			 */
+			similarityLabel: string
+			/**
+			 * 匹​配
+			 */
+			matchLabel: string
+			/**
+			 * 点​击​前​确​认
+			 */
+			verifyBeforeClickLabel: string
+			/**
+			 * 最​大​移​动​(​像​素​)
+			 */
+			maxMovementLabel: string
 			/**
 			 * 移​动​到​图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3
 			 */
 			moveToImage: string
 			/**
-			 * 移​动​鼠​标​到​ ​%​1​ ​%​2​ ​相​似​度​ ​%​3​ ​匹​配​ ​%​4
+			 * 移​动​鼠​标​到​ ​%​1​ ​%​2
 			 */
 			moveToTarget: string
 			/**
@@ -2142,9 +2166,61 @@ type RootTranslation = {
 			 */
 			dragImage: string
 			/**
-			 * 拖​拽​ ​%​1​ ​%​2​ ​相​似​度​ ​%​3​ ​匹​配​ ​%​4​ ​到​ ​%​5​ ​%​6​ ​相​似​度​ ​%​7​ ​匹​配​ ​%​8​ ​使​用​ ​%​9​ ​持​续​ ​%​1​0​ ​毫​秒​ ​超​时​ ​%​1​1​ ​毫​秒
+			 * 拖​拽
 			 */
 			dragTarget: string
+			/**
+			 * 起​点​ ​%​1​ ​%​2
+			 */
+			sourceTarget: string
+			/**
+			 * 终​点​ ​%​1​ ​%​2
+			 */
+			targetTarget: string
+			/**
+			 * 起​点​相​似​度​ ​%​1
+			 */
+			sourceSimilarity: string
+			/**
+			 * 终​点​相​似​度​ ​%​1
+			 */
+			targetSimilarity: string
+			/**
+			 * 使​用​ ​%​1​ ​持​续​ ​%​2​ ​毫​秒
+			 */
+			dragAction: string
+			/**
+			 * 相​似​度​ ​%​1
+			 */
+			similarityRow: string
+			/**
+			 * 更​多​设​置
+			 */
+			moreSettings: string
+			/**
+			 * 收​起​设​置
+			 */
+			lessSettings: string
+			/**
+			 * %​1​匹​配​ ​%​2
+			 */
+			matchRow: string
+			/**
+			 * %​1​起​点​匹​配​ ​%​2
+			 */
+			sourceMatchRow: string
+			/**
+			 * %​1​终​点​匹​配​ ​%​2
+			 */
+			targetMatchRow: string
+			/**
+			 * %​1​点​击​前​确​认​ ​%​2​ ​最​大​移​动​ ​%​3​ ​像​素
+			 */
+			clickSafetyRow: string
+			/**
+			 * %​1​超​时​ ​%​2​ ​毫​秒​ ​最​短​检​测​周​期​ ​%​3​ ​毫​秒
+			 */
+			timingRow: string
 			/**
 			 * 等​待​ ​%​1​ ​毫​秒
 			 */
@@ -2158,7 +2234,7 @@ type RootTranslation = {
 			 */
 			keyCombo: string
 			/**
-			 * 按​住​ ​%​1​ ​直​到​图​片​ ​%​2​ ​%​3​ ​匹​配​ ​%​4​ ​超​时​ ​%​5​ ​毫​秒
+			 * 按​住​ ​%​1​ ​直​到​图​片​ ​%​2​ ​%​3
 			 */
 			holdKeyUntilImage: string
 			/**
@@ -2206,7 +2282,7 @@ type RootTranslation = {
 			 */
 			notificationBody: string
 			/**
-			 * 如​果​ ​%​1​ ​图​片​ ​%​2​ ​相​似​度​ ​%​3​ ​匹​配​ ​%​4
+			 * 如​果​ ​%​1​ ​图​片​ ​%​2
 			 */
 			ifImage: string
 			/**
@@ -2214,7 +2290,7 @@ type RootTranslation = {
 			 */
 			ifCondition: string
 			/**
-			 * 图​片​ ​%​1​ ​相​似​度​ ​%​2​ ​匹​配​ ​%​3
+			 * 图​片​ ​%​1
 			 */
 			imageCondition: string
 			/**
@@ -2230,15 +2306,39 @@ type RootTranslation = {
 			 */
 			conditionNot: string
 			/**
-			 * 目​标​A​ ​%​1​ ​%​2​ ​偏​移​ ​%​7​,​%​8​ ​相​对​B​ ​%​9​ ​%​1​0​ ​偏​移​ ​%​1​5​,​%​1​6​ ​关​系​ ​%​1​7​ ​容​差​ ​%​1​8​ ​p​x
+			 * 位​置​关​系​条​件
 			 */
 			positionCondition: string
 			/**
-			 * 如​果​ ​目​标​A​ ​%​1​ ​%​2​ ​偏​移​ ​%​7​,​%​8​ ​相​对​B​ ​%​9​ ​%​1​0​ ​偏​移​ ​%​1​5​,​%​1​6​ ​关​系​ ​%​1​7​ ​容​差​ ​%​1​8​ ​p​x
+			 * 如​果​位​置​关​系​成​立
 			 */
 			positionCompare: string
 			/**
-			 * 图​片
+			 * 目​标​A​ ​%​1
+			 */
+			targetAType: string
+			/**
+			 * 目​标​B​ ​%​1
+			 */
+			targetBType: string
+			/**
+			 * 坐​标​ ​%​1
+			 */
+			coordinateRow: string
+			/**
+			 * 图​片​ ​%​1​ ​相​似​度​ ​%​2
+			 */
+			imageRow: string
+			/**
+			 * 关​系​ ​%​1​ ​容​差​ ​%​2​ ​像​素
+			 */
+			positionRelationRow: string
+			/**
+			 * %​1​%​2​ ​匹​配​ ​%​3​ ​偏​移​ ​%​4​,​%​5
+			 */
+			positionAdvancedRow: string
+			/**
+			 * 图​片​素​材
 			 */
 			imageTarget: string
 			/**
@@ -2254,11 +2354,11 @@ type RootTranslation = {
 			 */
 			relationOverlap: string
 			/**
-			 * 等​待​直​到​条​件​ ​%​1​ ​超​时​ ​%​2​ ​毫​秒
+			 * 等​待​直​到​条​件​ ​%​1
 			 */
 			waitCondition: string
 			/**
-			 * 等​待​条​件​ ​%​1​ ​最​多​ ​%​2​ ​毫​秒
+			 * 等​待​条​件​ ​%​1
 			 */
 			waitConditionBranch: string
 			/**
@@ -2282,7 +2382,7 @@ type RootTranslation = {
 			 */
 			repeat: string
 			/**
-			 * 重​复​直​到​图​片​ ​%​1​ ​%​2​ ​匹​配​ ​%​3​ ​最​多​ ​%​4​ ​次
+			 * 重​复​直​到​图​片​ ​%​1​ ​%​2​ ​最​多​ ​%​3​ ​次
 			 */
 			repeatUntilImage: string
 			/**
@@ -2450,12 +2550,14 @@ type RootTranslation = {
 				 */
 				scriptStopped: string
 				/**
-				 * 识​别​到​ ​{​a​s​s​e​t​}​ ​·​ ​{​s​c​o​r​e​}​%​ ​·​ ​{​m​s​}​m​s
+				 * 识​别​到​ ​{​a​s​s​e​t​}​ ​·​ ​{​s​c​o​r​e​}​%​ ​·​ ​总​耗​时​ ​{​t​o​t​a​l​M​s​}​m​s​（​截​图​ ​{​c​a​p​t​u​r​e​M​s​}​m​s​ ​·​ ​匹​配​ ​{​m​a​t​c​h​M​s​}​m​s​）
 				 * @param {unknown} asset
-				 * @param {unknown} ms
+				 * @param {unknown} captureMs
+				 * @param {unknown} matchMs
 				 * @param {unknown} score
+				 * @param {unknown} totalMs
 				 */
-				imageMatch: RequiredParams<'asset' | 'ms' | 'score'>
+				imageMatch: RequiredParams<'asset' | 'captureMs' | 'matchMs' | 'score' | 'totalMs'>
 				/**
 				 * 本​次​随​机​点​击​坐​标​：​{​x​}​,​{​y​}
 				 * @param {unknown} x
@@ -4705,31 +4807,55 @@ export type TranslationFunctions = {
 			 */
 			execute: () => LocalizedString
 			/**
-			 * 识别到 %1 相似度 %2 匹配 %3 时就绪
+			 * 识别到图片 %1 时就绪
 			 */
 			start: () => LocalizedString
 			/**
-			 * 等待图片 %1 相似度 %2 匹配 %3 超时 %4 毫秒
+			 * 等待图片 %1
 			 */
 			waitImage: () => LocalizedString
 			/**
-			 * 等待图片 %1 %2 匹配 %3 超时 %4 毫秒
+			 * 等待图片 %1 %2
 			 */
 			waitImageState: () => LocalizedString
 			/**
-			 * 点击 %1 %2 %3 %4 次 相似度 %5 匹配 %6 点击前确认 %7 最大移动 %8 像素
+			 * 点击 %1 %2 使用 %3 %4 次
 			 */
 			clickImage: () => LocalizedString
 			/**
-			 * 填写坐标
+			 * 坐标(点此可选图片)
 			 */
 			coordinateTarget: () => LocalizedString
+			/**
+			 * 请选择图片素材
+			 */
+			imagePlaceholder: () => LocalizedString
+			/**
+			 * 该积木必须选择图片素材
+			 */
+			imageRequired: () => LocalizedString
+			/**
+			 * 相似度
+			 */
+			similarityLabel: () => LocalizedString
+			/**
+			 * 匹配
+			 */
+			matchLabel: () => LocalizedString
+			/**
+			 * 点击前确认
+			 */
+			verifyBeforeClickLabel: () => LocalizedString
+			/**
+			 * 最大移动(像素)
+			 */
+			maxMovementLabel: () => LocalizedString
 			/**
 			 * 移动到图片 %1 相似度 %2 匹配 %3
 			 */
 			moveToImage: () => LocalizedString
 			/**
-			 * 移动鼠标到 %1 %2 相似度 %3 匹配 %4
+			 * 移动鼠标到 %1 %2
 			 */
 			moveToTarget: () => LocalizedString
 			/**
@@ -4737,9 +4863,61 @@ export type TranslationFunctions = {
 			 */
 			dragImage: () => LocalizedString
 			/**
-			 * 拖拽 %1 %2 相似度 %3 匹配 %4 到 %5 %6 相似度 %7 匹配 %8 使用 %9 持续 %10 毫秒 超时 %11 毫秒
+			 * 拖拽
 			 */
 			dragTarget: () => LocalizedString
+			/**
+			 * 起点 %1 %2
+			 */
+			sourceTarget: () => LocalizedString
+			/**
+			 * 终点 %1 %2
+			 */
+			targetTarget: () => LocalizedString
+			/**
+			 * 起点相似度 %1
+			 */
+			sourceSimilarity: () => LocalizedString
+			/**
+			 * 终点相似度 %1
+			 */
+			targetSimilarity: () => LocalizedString
+			/**
+			 * 使用 %1 持续 %2 毫秒
+			 */
+			dragAction: () => LocalizedString
+			/**
+			 * 相似度 %1
+			 */
+			similarityRow: () => LocalizedString
+			/**
+			 * 更多设置
+			 */
+			moreSettings: () => LocalizedString
+			/**
+			 * 收起设置
+			 */
+			lessSettings: () => LocalizedString
+			/**
+			 * %1匹配 %2
+			 */
+			matchRow: () => LocalizedString
+			/**
+			 * %1起点匹配 %2
+			 */
+			sourceMatchRow: () => LocalizedString
+			/**
+			 * %1终点匹配 %2
+			 */
+			targetMatchRow: () => LocalizedString
+			/**
+			 * %1点击前确认 %2 最大移动 %3 像素
+			 */
+			clickSafetyRow: () => LocalizedString
+			/**
+			 * %1超时 %2 毫秒 最短检测周期 %3 毫秒
+			 */
+			timingRow: () => LocalizedString
 			/**
 			 * 等待 %1 毫秒
 			 */
@@ -4753,7 +4931,7 @@ export type TranslationFunctions = {
 			 */
 			keyCombo: () => LocalizedString
 			/**
-			 * 按住 %1 直到图片 %2 %3 匹配 %4 超时 %5 毫秒
+			 * 按住 %1 直到图片 %2 %3
 			 */
 			holdKeyUntilImage: () => LocalizedString
 			/**
@@ -4801,7 +4979,7 @@ export type TranslationFunctions = {
 			 */
 			notificationBody: () => LocalizedString
 			/**
-			 * 如果 %1 图片 %2 相似度 %3 匹配 %4
+			 * 如果 %1 图片 %2
 			 */
 			ifImage: () => LocalizedString
 			/**
@@ -4809,7 +4987,7 @@ export type TranslationFunctions = {
 			 */
 			ifCondition: () => LocalizedString
 			/**
-			 * 图片 %1 相似度 %2 匹配 %3
+			 * 图片 %1
 			 */
 			imageCondition: () => LocalizedString
 			/**
@@ -4825,15 +5003,39 @@ export type TranslationFunctions = {
 			 */
 			conditionNot: () => LocalizedString
 			/**
-			 * 目标A %1 %2 偏移 %7,%8 相对B %9 %10 偏移 %15,%16 关系 %17 容差 %18 px
+			 * 位置关系条件
 			 */
 			positionCondition: () => LocalizedString
 			/**
-			 * 如果 目标A %1 %2 偏移 %7,%8 相对B %9 %10 偏移 %15,%16 关系 %17 容差 %18 px
+			 * 如果位置关系成立
 			 */
 			positionCompare: () => LocalizedString
 			/**
-			 * 图片
+			 * 目标A %1
+			 */
+			targetAType: () => LocalizedString
+			/**
+			 * 目标B %1
+			 */
+			targetBType: () => LocalizedString
+			/**
+			 * 坐标 %1
+			 */
+			coordinateRow: () => LocalizedString
+			/**
+			 * 图片 %1 相似度 %2
+			 */
+			imageRow: () => LocalizedString
+			/**
+			 * 关系 %1 容差 %2 像素
+			 */
+			positionRelationRow: () => LocalizedString
+			/**
+			 * %1%2 匹配 %3 偏移 %4,%5
+			 */
+			positionAdvancedRow: () => LocalizedString
+			/**
+			 * 图片素材
 			 */
 			imageTarget: () => LocalizedString
 			/**
@@ -4849,11 +5051,11 @@ export type TranslationFunctions = {
 			 */
 			relationOverlap: () => LocalizedString
 			/**
-			 * 等待直到条件 %1 超时 %2 毫秒
+			 * 等待直到条件 %1
 			 */
 			waitCondition: () => LocalizedString
 			/**
-			 * 等待条件 %1 最多 %2 毫秒
+			 * 等待条件 %1
 			 */
 			waitConditionBranch: () => LocalizedString
 			/**
@@ -4877,7 +5079,7 @@ export type TranslationFunctions = {
 			 */
 			repeat: () => LocalizedString
 			/**
-			 * 重复直到图片 %1 %2 匹配 %3 最多 %4 次
+			 * 重复直到图片 %1 %2 最多 %3 次
 			 */
 			repeatUntilImage: () => LocalizedString
 			/**
@@ -5038,9 +5240,9 @@ export type TranslationFunctions = {
 				 */
 				scriptStopped: () => LocalizedString
 				/**
-				 * 识别到 {asset} · {score}% · {ms}ms
+				 * 识别到 {asset} · {score}% · 总耗时 {totalMs}ms（截图 {captureMs}ms · 匹配 {matchMs}ms）
 				 */
-				imageMatch: (arg: { asset: unknown, ms: unknown, score: unknown }) => LocalizedString
+				imageMatch: (arg: { asset: unknown, captureMs: unknown, matchMs: unknown, score: unknown, totalMs: unknown }) => LocalizedString
 				/**
 				 * 本次随机点击坐标：{x},{y}
 				 */

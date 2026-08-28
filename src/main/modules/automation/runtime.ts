@@ -29,8 +29,18 @@ export type ImageMatch = {
   matchMs?: number;
   captureMs?: number;
   bitmapMs?: number;
+  templateLoadMs?: number;
+  workerReadyMs?: number;
+  sharedCopyMs?: number;
+  sceneMatMs?: number;
+  grayMs?: number;
+  resizeMs?: number;
+  matchTemplateMs?: number;
+  scaledTemplateCacheHits?: number;
+  scaledTemplateCacheMisses?: number;
   totalMs?: number;
   sceneBytes?: number;
+  sceneTransferBytes?: number;
   wasmHeapBytes?: number;
   templateCacheBytes?: number;
   templateCacheEntries?: number;
@@ -52,6 +62,7 @@ export type FindImageRequest = {
 
 export type AutomationDriver = {
   findImage(request: FindImageRequest, signal: AbortSignal): Promise<ImageMatch | null>;
+  withFreshFrame?<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T>;
   resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal, relativeRegion?: AutomationRelativeRegion): Promise<{ x: number; y: number }>;
   getCssViewport(): { width: number; height: number };
   click(
@@ -295,18 +306,25 @@ export class AutomationRunner {
     if (signal.aborted) throw new Error('automation cancelled');
   }
 
-  private async findCondition(condition: AutomationCondition, signal: AbortSignal, depth = 0): Promise<boolean> {
+  private async findCondition(condition: AutomationCondition, signal: AbortSignal): Promise<boolean> {
+    if (this.driver.withFreshFrame) {
+      return this.driver.withFreshFrame(() => this.evaluateCondition(condition, signal, 0), signal);
+    }
+    return this.evaluateCondition(condition, signal, 0);
+  }
+
+  private async evaluateCondition(condition: AutomationCondition, signal: AbortSignal, depth: number): Promise<boolean> {
     this.throwIfAborted(signal);
     if (depth > this.maxDepth) throw new Error(`automation condition nesting exceeds ${this.maxDepth}`);
     if (condition.type === 'all') {
-      for (const child of condition.conditions) if (!await this.findCondition(child, signal, depth + 1)) return false;
+      for (const child of condition.conditions) if (!await this.evaluateCondition(child, signal, depth + 1)) return false;
       return true;
     }
     if (condition.type === 'any') {
-      for (const child of condition.conditions) if (await this.findCondition(child, signal, depth + 1)) return true;
+      for (const child of condition.conditions) if (await this.evaluateCondition(child, signal, depth + 1)) return true;
       return false;
     }
-    if (condition.type === 'not') return !await this.findCondition(condition.condition, signal, depth + 1);
+    if (condition.type === 'not') return !await this.evaluateCondition(condition.condition, signal, depth + 1);
     if (condition.type === 'position-relation') return this.evaluatePositionRelation(condition.targetA, condition.targetB, condition.relation, condition.tolerancePx, signal);
     const match = await this.driver.findImage({
       asset: condition.asset,
@@ -344,10 +362,11 @@ export class AutomationRunner {
 
   private async waitForImage(step: WaitImageStep | WaitImageStateStep | ClickImageStep | MoveToImageStep | KeyHoldUntilImageStep, signal: AbortSignal): Promise<ImageMatch> {
     const timeoutMs = step.timeoutMs ?? 10_000;
-    const pollMs = step.pollMs ?? 200;
+    const minCycleMs = step.minCycleMs ?? 0;
     const deadline = this.driver.now() + timeoutMs;
     while (true) {
       this.throwIfAborted(signal);
+      const cycleStartedAt = this.driver.now();
       const match = await this.driver.findImage({
         asset: step.asset,
         alternatives: step.alternatives,
@@ -364,7 +383,8 @@ export class AutomationRunner {
       this.onEvent?.({ type: 'image-miss', asset: step.asset });
       const remaining = deadline - this.driver.now();
       if (remaining <= 0) throw new Error(`timed out waiting for image: ${step.asset}`);
-      await this.driver.sleep(Math.min(pollMs, remaining), signal);
+      const waitMs = Math.min(Math.max(0, minCycleMs - (this.driver.now() - cycleStartedAt)), remaining);
+      if (waitMs > 0) await this.driver.sleep(waitMs, signal);
     }
   }
 
@@ -374,10 +394,11 @@ export class AutomationRunner {
       return;
     }
     const timeoutMs = step.timeoutMs ?? 10_000;
-    const pollMs = step.pollMs ?? 200;
+    const minCycleMs = step.minCycleMs ?? 0;
     const deadline = this.driver.now() + timeoutMs;
     while (true) {
       this.throwIfAborted(signal);
+      const cycleStartedAt = this.driver.now();
       const visible = await this.findCondition({
         type: 'image-visible', asset: step.asset, threshold: step.threshold, region: step.region,
         alternatives: step.alternatives, scales: step.scales, mask: step.mask ?? 'auto',
@@ -385,28 +406,31 @@ export class AutomationRunner {
       if (!visible) return;
       const remaining = deadline - this.driver.now();
       if (remaining <= 0) throw new Error(`timed out waiting for image to disappear: ${step.asset}`);
-      await this.driver.sleep(Math.min(pollMs, remaining), signal);
+      const waitMs = Math.min(Math.max(0, minCycleMs - (this.driver.now() - cycleStartedAt)), remaining);
+      if (waitMs > 0) await this.driver.sleep(waitMs, signal);
     }
   }
 
-  private async waitForConditionResult(condition: AutomationCondition, timeoutMs: number, pollMs: number, signal: AbortSignal): Promise<boolean> {
+  private async waitForConditionResult(condition: AutomationCondition, timeoutMs: number, minCycleMs: number, signal: AbortSignal): Promise<boolean> {
     const deadline = this.driver.now() + timeoutMs;
     while (true) {
       this.throwIfAborted(signal);
+      const cycleStartedAt = this.driver.now();
       if (await this.findCondition(condition, signal)) return true;
       const remaining = deadline - this.driver.now();
       if (remaining <= 0) return false;
-      await this.driver.sleep(Math.min(pollMs, remaining), signal);
+      const waitMs = Math.min(Math.max(0, minCycleMs - (this.driver.now() - cycleStartedAt)), remaining);
+      if (waitMs > 0) await this.driver.sleep(waitMs, signal);
     }
   }
 
-  private async waitForCondition(condition: AutomationCondition, timeoutMs: number, pollMs: number, signal: AbortSignal): Promise<void> {
-    if (!await this.waitForConditionResult(condition, timeoutMs, pollMs, signal)) throw new Error('timed out waiting for combined condition');
+  private async waitForCondition(condition: AutomationCondition, timeoutMs: number, minCycleMs: number, signal: AbortSignal): Promise<void> {
+    if (!await this.waitForConditionResult(condition, timeoutMs, minCycleMs, signal)) throw new Error('timed out waiting for combined condition');
   }
 
-  private async resolvePointerTarget(target: AutomationPointerTarget, timeoutMs: number | undefined, pollMs: number | undefined, signal: AbortSignal): Promise<AutomationDriverPointerTarget> {
+  private async resolvePointerTarget(target: AutomationPointerTarget, timeoutMs: number | undefined, minCycleMs: number | undefined, signal: AbortSignal): Promise<AutomationDriverPointerTarget> {
     if (target.kind === 'coordinate') return target;
-    const match = await this.waitForImage({ ...target.condition, type: 'wait-image', timeoutMs, pollMs }, signal);
+    const match = await this.waitForImage({ ...target.condition, type: 'wait-image', timeoutMs, minCycleMs }, signal);
     return { kind: 'match', match };
   }
 
@@ -510,7 +534,7 @@ export class AutomationRunner {
         return;
       }
       case 'drag-image': {
-        const waitOptions = { timeoutMs: step.timeoutMs, pollMs: step.pollMs };
+        const waitOptions = { timeoutMs: step.timeoutMs, minCycleMs: step.minCycleMs };
         const source = await this.waitForImage({ ...step.source, ...waitOptions, type: 'wait-image' }, signal);
         const target = await this.waitForImage({ ...step.target, ...waitOptions, type: 'wait-image' }, signal);
         await this.driver.drag(source, target, {
@@ -520,8 +544,8 @@ export class AutomationRunner {
         return;
       }
       case 'drag': {
-        const source = await this.resolvePointerTarget(step.source, step.timeoutMs, step.pollMs, signal);
-        const target = await this.resolvePointerTarget(step.target, step.timeoutMs, step.pollMs, signal);
+        const source = await this.resolvePointerTarget(step.source, step.timeoutMs, step.minCycleMs, signal);
+        const target = await this.resolvePointerTarget(step.target, step.timeoutMs, step.minCycleMs, signal);
         await this.driver.dragTargets(source, target, {
           button: step.button ?? 'left', durationMs: step.durationMs ?? 800,
         }, signal);
@@ -558,10 +582,10 @@ export class AutomationRunner {
         return;
       }
       case 'wait-condition':
-        await this.waitForCondition(step.condition, step.timeoutMs ?? 10_000, step.pollMs ?? 200, signal);
+        await this.waitForCondition(step.condition, step.timeoutMs ?? 10_000, step.minCycleMs ?? 0, signal);
         return;
       case 'wait-condition-branch': {
-        const matched = await this.waitForConditionResult(step.condition, step.timeoutMs ?? 10_000, step.pollMs ?? 200, signal);
+        const matched = await this.waitForConditionResult(step.condition, step.timeoutMs ?? 10_000, step.minCycleMs ?? 0, signal);
         await this.execute(matched ? step.success : step.timeout, signal, depth + 1);
         return;
       }

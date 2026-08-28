@@ -226,6 +226,79 @@ describe('BrowserView automation driver', () => {
     expect(match).toMatchObject({ asset: '角色/行走/right.png', score: 0.96 });
   });
 
+  it('maps logical input and a logical capture region through a fixed viewport scale', async () => {
+    const wc = new FakeWebContents();
+    const find = vi.fn(async () => MATCH);
+    const transform = {
+      logicalSize: { width: 900, height: 560 },
+      displaySize: { width: 720, height: 448 },
+      scaleX: 0.8,
+      scaleY: 0.8,
+    };
+    const driver = new BrowserViewAutomationDriver(wc, { find }, {
+      getCssViewport: () => transform.logicalSize,
+      getViewportTransform: () => transform,
+    });
+    const signal = new AbortController().signal;
+    await driver.clickPoint({ x: 5000, y: 2500 }, { button: 'left', clickCount: 1 }, signal);
+    await driver.findImage({
+      asset: 'button.png', threshold: 0.9,
+      relativeRegion: { left: 1000, top: 2000, right: 9000, bottom: 8000 },
+    }, signal);
+
+    expect(wc.commands.slice(0, 3).map((command) => command.params)).toEqual([
+      { type: 'mouseMoved', x: 359.6, y: 111.80000000000001 },
+      { type: 'mousePressed', x: 359.6, y: 111.80000000000001, button: 'left', clickCount: 1 },
+      { type: 'mouseReleased', x: 359.6, y: 111.80000000000001, button: 'left', clickCount: 1 },
+    ]);
+    expect(wc.captureRects).toEqual([{ x: 72, y: 89, width: 576, height: 270 }]);
+    expect(find.mock.calls[0][1]).toMatchObject({
+      bitmapSize: { width: 864, height: 405 },
+      deviceOrigin: { x: 108, y: 134 },
+      deviceSize: { width: 1080, height: 672 },
+      cssSize: { width: 900, height: 560 },
+    });
+  });
+
+  it('normalizes a windowed regional capture back to logical coordinates before matching', async () => {
+    const wc = new FakeWebContents();
+    const makeImage = (width: number, height: number): AutomationCapturedImage => ({
+      isEmpty: () => false,
+      getSize: () => ({ width, height }),
+      toPNG: () => Buffer.from([1, 2, 3]),
+      toBitmap: () => Buffer.alloc(width * height * 4),
+      resize: ({ width: nextWidth, height: nextHeight }) => makeImage(nextWidth, nextHeight),
+    });
+    wc.capturePage = vi.fn(async (rect) => {
+      wc.captureRects.push(rect);
+      return makeImage(Math.round((rect?.width ?? 450) * 1.25), Math.round((rect?.height ?? 305) * 1.25));
+    });
+    const find = vi.fn(async () => MATCH);
+    const transform = {
+      logicalSize: { width: 900, height: 560 },
+      displaySize: { width: 450, height: 305 },
+      scaleX: 0.5,
+      scaleY: 305 / 560,
+    };
+    const driver = new BrowserViewAutomationDriver(wc, { find }, {
+      getCssViewport: () => transform.logicalSize,
+      getViewportTransform: () => transform,
+    });
+    await driver.findImage({
+      asset: 'button.png', threshold: 0.9,
+      relativeRegion: { left: 1000, top: 2000, right: 9000, bottom: 8000 },
+    }, new AbortController().signal);
+
+    expect(wc.captureRects).toEqual([{ x: 45, y: 60, width: 360, height: 184 }]);
+    expect(find.mock.calls[0][1]).toMatchObject({
+      bitmapSize: { width: 720, height: 336 },
+      deviceOrigin: { x: 90, y: 112 },
+      deviceSize: { width: 900, height: 560 },
+      cssSize: { width: 900, height: 560 },
+    });
+    expect(find.mock.calls[0][2].scales).toEqual([1]);
+  });
+
   it('uses one batch matcher request for an image group when supported', async () => {
     const wc = new FakeWebContents();
     const find = vi.fn(async () => null);
@@ -240,6 +313,25 @@ describe('BrowserView automation driver', () => {
     expect(findMany).toHaveBeenCalledTimes(1);
     expect(findMany.mock.calls[0][0]).toEqual(['A.png', 'B.png']);
     expect(match).toMatchObject({ asset: 'B.png' });
+  });
+
+  it('shares one captured frame inside a condition evaluation scope', async () => {
+    const wc = new FakeWebContents();
+    const find = vi.fn(async () => MATCH);
+    const driver = new BrowserViewAutomationDriver(wc, { find }, { getCssViewport: () => ({ width: 900, height: 560 }) });
+    const signal = new AbortController().signal;
+    await driver.withFreshFrame(async () => {
+      await driver.findImage({ asset: 'A.png', threshold: 0.9 }, signal);
+      await driver.findImage({ asset: 'B.png', threshold: 0.9 }, signal);
+    }, signal);
+    expect(wc.captureRects).toEqual([undefined]);
+    expect(wc.captures).toBe(1);
+    expect(wc.decrements).toBe(1);
+    expect(find).toHaveBeenCalledTimes(2);
+    expect(find.mock.calls[0][1]).toBe(find.mock.calls[1][1]);
+
+    await driver.findImage({ asset: 'C.png', threshold: 0.9 }, signal);
+    expect(wc.captures).toBe(2);
   });
 
   it('captures a normalized entry region directly and preserves full-frame geometry', async () => {

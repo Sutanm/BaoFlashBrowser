@@ -79,7 +79,7 @@ export type WaitImageStep = {
   alternatives?: string[];
   threshold?: number;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
   region?: AutomationRegion;
   scales?: number[];
   mask?: AutomationImageMask;
@@ -93,7 +93,7 @@ export type WaitImageStateStep = {
   state: 'visible' | 'hidden';
   threshold?: number;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
   region?: AutomationRegion;
   scales?: number[];
   mask?: AutomationImageMask;
@@ -106,7 +106,7 @@ export type ClickImageStep = {
   alternatives?: string[];
   threshold?: number;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
   region?: AutomationRegion;
   scales?: number[];
   mask?: AutomationImageMask;
@@ -134,6 +134,18 @@ export type RandomClickRegionStep = {
   padding?: number;
 };
 
+export type AutomationViewport = {
+  mode: 'fixed';
+  width: 1280;
+  height: 720;
+};
+
+export const DEFAULT_AUTOMATION_VIEWPORT: AutomationViewport = Object.freeze({
+  mode: 'fixed',
+  width: 1280,
+  height: 720,
+});
+
 export type VisionRegionStep = {
   id?: string;
   type: 'vision-region';
@@ -158,7 +170,7 @@ export type KeyHoldUntilImageStep = {
   state: 'visible' | 'hidden';
   threshold?: number;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
   region?: AutomationRegion;
   scales?: number[];
   mask?: AutomationImageMask;
@@ -171,7 +183,7 @@ export type MoveToImageStep = {
   alternatives?: string[];
   threshold?: number;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
   region?: AutomationRegion;
   scales?: number[];
   mask?: AutomationImageMask;
@@ -237,7 +249,7 @@ export type DragImageStep = {
   source: ImageCondition;
   target: ImageCondition;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
   button?: 'left' | 'right' | 'middle';
   durationMs?: number;
 };
@@ -252,7 +264,7 @@ export type DragStep = {
   source: AutomationPointerTarget;
   target: AutomationPointerTarget;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
   button?: 'left' | 'right' | 'middle';
   durationMs?: number;
 };
@@ -270,7 +282,7 @@ export type WaitConditionStep = {
   type: 'wait-condition';
   condition: AutomationCondition;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
 };
 
 export type WaitConditionBranchStep = {
@@ -278,7 +290,7 @@ export type WaitConditionBranchStep = {
   type: 'wait-condition-branch';
   condition: AutomationCondition;
   timeoutMs?: number;
-  pollMs?: number;
+  minCycleMs?: number;
   success: SequenceStep;
   timeout: SequenceStep;
 };
@@ -359,7 +371,8 @@ export type AutomationStep =
   | PositionCompareStep;
 
 export type AutomationWorkflow = {
-  formatVersion: 1;
+  formatVersion: 2;
+  viewport: AutomationViewport;
   id: string;
   name: string;
   description?: string;
@@ -370,7 +383,7 @@ export type AutomationWorkflow = {
 
 export type AutomationPackageManifest = {
   format: 'baoauto';
-  formatVersion: 1;
+  formatVersion: 2;
   id: string;
   name: string;
   workflow: 'workflow.json';
@@ -407,7 +420,7 @@ export type AutomationMessage =
   | { key: 'status.stepNext' }
   | { key: 'status.scriptCompleted' }
   | { key: 'status.scriptStopped' }
-  | { key: 'status.imageMatch'; params: { asset: string; score: string; ms: string } }
+  | { key: 'status.imageMatch'; params: { asset: string; score: string; totalMs: string; captureMs: string; matchMs: string } }
   | { key: 'status.randomClickCoordinate'; params: { x: number; y: number } }
   | { key: 'status.pausedNext'; params: { step: AutomationMessage } }
   | { key: 'step.sequence' }

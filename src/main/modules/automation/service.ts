@@ -6,10 +6,11 @@ import type { AutomationRuntimeEvent, AutomationRunnerState, ImageMatch } from '
 import { AutomationRunner } from './runtime';
 import { BrowserViewAutomationDriver } from './browserview-driver';
 import { NativeImageTemplateProvider } from './native-image-template-provider';
-import { OpenCvWorkerMatcher } from './vision-worker-matcher';
+import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
 import { inferAutomationCapabilities, loadAutomationPackage, serializeAutomationPackage, type LoadedAutomationPackage } from './package';
 import { collectWorkflowAssetIds, parseAutomationWorkflow } from '../../../shared/automation/schema';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
+import { DEFAULT_AUTOMATION_VIEWPORT } from '../../../shared/automation/types';
 import type { AutomationImageMask, AutomationMessage, AutomationStep, AutomationWorkflow } from '../../../shared/automation/types';
 import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '../../../shared/provenance';
 import { tabManager, type AutomationTabHandle } from '../tabs';
@@ -75,6 +76,19 @@ type ImageTestSession = {
   closeTimer: NodeJS.Timeout;
 };
 
+type ActiveAuthoringViewport = {
+  tabId: string;
+  handle: AutomationTabHandle;
+  timer: NodeJS.Timeout;
+};
+
+type IdleRuntimeMatcher = {
+  matcher: OpenCvWorkerMatcher;
+  closeTimer: NodeJS.Timeout;
+};
+
+const RUNTIME_MATCHER_IDLE_MS = 60_000;
+
 export class AutomationService {
   private readonly enabled: boolean;
   private readonly emitStatus: (status: AutomationServiceStatus) => void;
@@ -84,7 +98,9 @@ export class AutomationService {
   private readonly packages = new Map<string, LoadedEntry>();
   private active: ActiveSession | null = null;
   private probe: ActiveProbe | null = null;
+  private authoringViewport: ActiveAuthoringViewport | null = null;
   private readonly imageTests = new Map<string, ImageTestSession>();
+  private readonly runtimeMatchers = new Map<string, IdleRuntimeMatcher>();
   private status: AutomationServiceStatus;
   private nextLogId = 1;
   private runHistory: AutomationRunRecord[] = [];
@@ -102,6 +118,37 @@ export class AutomationService {
   whenReady(): Promise<void> { return this.ready; }
 
   getStatus(): AutomationServiceStatus { return { ...this.status }; }
+
+  async beginAuthoringViewport(tabId: string): Promise<void> {
+    this.assertEnabled();
+    if (this.active || this.probe) throw new Error('another automation session is active');
+    if (this.authoringViewport?.tabId === tabId) {
+      clearTimeout(this.authoringViewport.timer);
+      this.authoringViewport.timer = this.scheduleAuthoringViewportRelease(tabId);
+      await this.authoringViewport.handle.ready;
+      return;
+    }
+    if (this.authoringViewport) throw new Error('another automation authoring session is active');
+    const handle = tabManager.beginAutomation(tabId, DEFAULT_AUTOMATION_VIEWPORT);
+    const timer = this.scheduleAuthoringViewportRelease(tabId);
+    this.authoringViewport = { tabId, handle, timer };
+    try { await handle.ready; }
+    catch (error) { this.endAuthoringViewport(tabId); throw error; }
+  }
+
+  endAuthoringViewport(tabId: string): void {
+    const active = this.authoringViewport;
+    if (!active || active.tabId !== tabId) return;
+    this.authoringViewport = null;
+    clearTimeout(active.timer);
+    active.handle.release();
+  }
+
+  private scheduleAuthoringViewportRelease(tabId: string): NodeJS.Timeout {
+    const timer = setTimeout(() => this.endAuthoringViewport(tabId), 5 * 60_000);
+    timer.unref();
+    return timer;
+  }
 
   listPackages(): Array<{ packageId: string; id: string; name: string; assets: string[] }> {
     return [...this.packages.values()].map((entry) => ({
@@ -174,22 +221,26 @@ export class AutomationService {
     entry.assetKeys = this.createEntry(entry.source).assetKeys;
     try { await this.persistEntry(entry); }
     catch (error) { entry.source.assets = previousAssets; entry.assetKeys = previousKeys; throw error; }
+    await this.closeRuntimeMatcher(packageId);
     return [...entry.source.assets.keys()];
   }
 
   async captureAssetFrame(tabId: string): Promise<{ png: Uint8Array; width: number; height: number }> {
     this.assertEnabled();
-    if (this.active || this.probe) throw new Error('another automation session is active');
-    const handle = tabManager.beginAutomation(tabId);
+    if (this.active || this.probe || this.authoringViewport) throw new Error('another automation session is active');
+    const handle = tabManager.beginAutomation(tabId, DEFAULT_AUTOMATION_VIEWPORT);
     const wc = handle.webContents;
-    wc.incrementCapturerCount();
+    let capturing = false;
     try {
+      await handle.ready;
+      wc.incrementCapturerCount();
+      capturing = true;
       const image = await wc.capturePage();
       if (image.isEmpty()) throw new Error('BrowserView capture is empty');
       const size = image.getSize();
       return { png: Uint8Array.from(image.toPNG()), width: size.width, height: size.height };
     } finally {
-      wc.decrementCapturerCount();
+      if (capturing) wc.decrementCapturerCount();
       handle.release();
     }
   }
@@ -205,6 +256,7 @@ export class AutomationService {
     entry.source.manifest = { ...entry.source.manifest, name: parsed.name };
     try { await this.persistEntry(entry); }
     catch (error) { entry.source.workflow = previousWorkflow; entry.source.manifest = previousManifest; throw error; }
+    await this.closeRuntimeMatcher(packageId);
     return parsed;
   }
 
@@ -221,18 +273,21 @@ export class AutomationService {
     if (exists && (this.active?.packageId === packageId || this.probe)) throw new Error('cannot replace a running automation script');
     const entry = this.createEntry(source);
     await this.persistEntry(entry, !exists);
-    if (exists) await this.closeImageTestSession(packageId);
+    if (exists) {
+      await this.closeImageTestSession(packageId);
+      await this.closeRuntimeMatcher(packageId);
+    }
     this.packages.set(packageId, entry);
     return { packageId, id: source.manifest.id, name: source.manifest.name, assets: [...source.assets.keys()] };
   }
 
   async createPackage(id: string, name: string): Promise<{ packageId: string; id: string; name: string; assets: string[] }> {
-    const workflow = parseAutomationWorkflow({ formatVersion: 1, id, name, root: { type: 'sequence', steps: [] } });
+    const workflow = parseAutomationWorkflow({ formatVersion: 2, viewport: DEFAULT_AUTOMATION_VIEWPORT, id, name, root: { type: 'sequence', steps: [] } });
     if (this.packages.has(workflow.id)) throw new Error(`automation script already exists: ${workflow.id}`);
     const source: LoadedAutomationPackage = {
       manifest: {
         format: 'baoauto',
-        formatVersion: 1,
+        formatVersion: 2,
         id: workflow.id,
         name: workflow.name,
         workflow: 'workflow.json',
@@ -271,6 +326,7 @@ export class AutomationService {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     }
     await this.closeImageTestSession(packageId);
+    await this.closeRuntimeMatcher(packageId);
     this.packages.delete(packageId);
     if (this.runHistory.some((record) => record.packageId === packageId)) {
       this.runHistory = this.runHistory.filter((record) => record.packageId !== packageId);
@@ -290,6 +346,7 @@ export class AutomationService {
     entry.assetKeys = this.createEntry(entry.source).assetKeys;
     try { await this.persistEntry(entry); }
     catch (error) { entry.source.assets = previousAssets; entry.assetKeys = previousKeys; throw error; }
+    await this.closeRuntimeMatcher(packageId);
     return [...entry.source.assets.keys()];
   }
 
@@ -297,6 +354,7 @@ export class AutomationService {
     this.assertEnabled();
     const session = this.ensureSession(packageId, tabId);
     try {
+      await session.handle.ready;
       const ready = await session.runner.checkReady();
       return ready;
     } catch (error) {
@@ -314,6 +372,7 @@ export class AutomationService {
     const session = this.ensureSession(packageId, tabId);
     this.beginHistory(session, 'run');
     try {
+      await session.handle.ready;
       return await session.runner.run({ countdownMs });
     } catch (error) {
       if (session.runner.state === 'cancelled') return false;
@@ -331,7 +390,7 @@ export class AutomationService {
     const session = this.ensureSession(packageId, tabId);
     this.beginHistory(session, 'debug');
     this.setStatus({ state: this.status.state, debugMode: true, debugPaused: false });
-    void session.runner.run({ stepMode: true }).catch((error) => {
+    void session.handle.ready.then(() => session.runner.run({ stepMode: true })).catch((error) => {
       if (session.runner.state === 'cancelled') return;
       this.setStatus({ state: session.runner.state, message: { key: 'status.runFailed', params: { detail: this.errorMessage(error) } }, debugPaused: false });
       this.appendLog('error', { key: 'status.runFailed', params: { detail: this.errorMessage(error) } }, this.status.executedSteps);
@@ -358,13 +417,14 @@ export class AutomationService {
     if (this.active || this.probe) throw new Error('another automation session is active');
     const entry = this.requirePackage(packageId);
     if (!entry.source.assets.has(asset)) throw new Error(`automation asset is missing: ${asset}`);
-    const handle = tabManager.beginAutomation(tabId);
+    const handle = tabManager.beginAutomation(tabId, entry.source.workflow.viewport);
     const matcher = this.createMatcher(entry);
     const controller = createAutomationAbortController();
     const probe = { controller, handle, matcher };
     this.probe = probe;
     this.setStatus({ state: 'checking', packageId, tabId, workflowName: entry.source.workflow.name, currentStep: { key: 'status.checkingAsset', params: { asset } }, executedSteps: 0, message: undefined });
     try {
+      await handle.ready;
       const driver = this.createDriver(handle, matcher);
       const match = await driver.findImage({ asset, threshold: options.threshold, scales: options.scales, mask: options.mask }, controller.signal);
       this.setStatus({
@@ -386,19 +446,36 @@ export class AutomationService {
     }
   }
 
-  async captureReferenceFrame(tabId: string): Promise<{ png: Uint8Array; width: number; height: number }> {
+  async captureReferenceFrame(tabId: string, options: { retainViewport?: boolean } = {}): Promise<{ png: Uint8Array; width: number; height: number }> {
     this.assertEnabled();
-    const wc = tabManager.getWebContents(tabId);
-    if (!wc) throw new Error('selected tab has no live BrowserView');
-    wc.incrementCapturerCount();
+    let handle: AutomationTabHandle;
+    let release = true;
+    if (options.retainViewport) {
+      await this.beginAuthoringViewport(tabId);
+      const authoring = this.authoringViewport;
+      if (!authoring || authoring.tabId !== tabId) throw new Error('automation authoring viewport is unavailable');
+      handle = authoring.handle;
+      release = false;
+    } else {
+      handle = tabManager.beginAutomation(tabId, DEFAULT_AUTOMATION_VIEWPORT);
+    }
+    const wc = handle.webContents;
+    let capturing = false;
+    let succeeded = false;
     try {
+      await handle.ready;
+      wc.incrementCapturerCount();
+      capturing = true;
       const image = await wc.capturePage();
       if (image.isEmpty()) throw new Error('selected tab capture is empty');
       if (tabManager.getWebContents(tabId) !== wc) throw new Error('selected tab changed while capturing');
       const size = image.getSize();
+      succeeded = true;
       return { png: Uint8Array.from(image.toPNG()), width: size.width, height: size.height };
     } finally {
-      wc.decrementCapturerCount();
+      if (capturing) wc.decrementCapturerCount();
+      if (release) handle.release();
+      else if (!succeeded) this.endAuthoringViewport(tabId);
     }
   }
 
@@ -462,16 +539,24 @@ export class AutomationService {
   }
 
   private ensureSession(packageId: string, tabId: string): ActiveSession {
-    if (this.probe) throw new Error('an automation asset test is active');
+    if (this.probe) throw new Error('an automation asset test session is active');
     if (this.active) {
       if (this.active.packageId === packageId && this.active.tabId === tabId) return this.active;
       throw new Error('another automation session is active');
     }
     const entry = this.packages.get(packageId);
     if (!entry) throw new Error('automation package is not loaded');
-    const handle = tabManager.beginAutomation(tabId);
+    let handle: AutomationTabHandle;
+    if (this.authoringViewport) {
+      if (this.authoringViewport.tabId !== tabId) throw new Error('another automation authoring session is active');
+      clearTimeout(this.authoringViewport.timer);
+      handle = this.authoringViewport.handle;
+      this.authoringViewport = null;
+    } else {
+      handle = tabManager.beginAutomation(tabId, entry.source.workflow.viewport);
+    }
     const matcher = inferAutomationCapabilities(entry.source.workflow).includes('vision')
-      ? this.createMatcher(entry)
+      ? this.acquireRuntimeMatcher(entry)
       : null;
     const driver = this.createDriver(handle, matcher);
     const runner = new AutomationRunner(entry.source.workflow, driver, {
@@ -496,7 +581,39 @@ export class AutomationService {
         return { bytes, cacheKey };
       },
     });
-    return new OpenCvWorkerMatcher(templates);
+    return new OpenCvWorkerMatcher(new CachingAutomationTemplateProvider(templates, 64));
+  }
+
+  private acquireRuntimeMatcher(entry: LoadedEntry): OpenCvWorkerMatcher {
+    const idle = this.runtimeMatchers.get(entry.id);
+    if (!idle) return this.createMatcher(entry);
+    this.runtimeMatchers.delete(entry.id);
+    clearTimeout(idle.closeTimer);
+    return idle.matcher;
+  }
+
+  private releaseRuntimeMatcher(packageId: string, matcher: OpenCvWorkerMatcher): void {
+    const existing = this.runtimeMatchers.get(packageId);
+    if (existing) {
+      clearTimeout(existing.closeTimer);
+      void existing.matcher.close();
+    }
+    const closeTimer = setTimeout(() => {
+      const idle = this.runtimeMatchers.get(packageId);
+      if (!idle || idle.matcher !== matcher) return;
+      this.runtimeMatchers.delete(packageId);
+      void matcher.close();
+    }, RUNTIME_MATCHER_IDLE_MS);
+    closeTimer.unref();
+    this.runtimeMatchers.set(packageId, { matcher, closeTimer });
+  }
+
+  private async closeRuntimeMatcher(packageId: string): Promise<void> {
+    const idle = this.runtimeMatchers.get(packageId);
+    if (!idle) return;
+    this.runtimeMatchers.delete(packageId);
+    clearTimeout(idle.closeTimer);
+    await idle.matcher.close();
   }
 
   private getImageTestSession(packageId: string, entry: LoadedEntry): ImageTestSession {
@@ -535,6 +652,7 @@ export class AutomationService {
   private createDriver(handle: AutomationTabHandle, matcher: OpenCvWorkerMatcher | null): BrowserViewAutomationDriver {
     return new BrowserViewAutomationDriver(handle.webContents, matcher, {
       getCssViewport: () => handle.getCssViewport(),
+      getViewportTransform: () => handle.getViewportTransform(),
       assertCurrent: () => handle.assertCurrent(),
       log: (message) => log.info(`[Automation] ${message}`),
     });
@@ -709,15 +827,34 @@ export class AutomationService {
         asset: event.asset,
         captureMs: event.match.captureMs,
         bitmapMs: event.match.bitmapMs,
+        templateLoadMs: event.match.templateLoadMs,
+        workerReadyMs: event.match.workerReadyMs,
+        sharedCopyMs: event.match.sharedCopyMs,
+        sceneMatMs: event.match.sceneMatMs,
+        grayMs: event.match.grayMs,
+        resizeMs: event.match.resizeMs,
+        matchTemplateMs: event.match.matchTemplateMs,
+        scaledTemplateCacheHits: event.match.scaledTemplateCacheHits,
+        scaledTemplateCacheMisses: event.match.scaledTemplateCacheMisses,
         matchMs: event.match.matchMs,
         totalMs: event.match.totalMs,
         sceneBytes: event.match.sceneBytes,
+        sceneTransferBytes: event.match.sceneTransferBytes,
         wasmHeapBytes: event.match.wasmHeapBytes,
         templateCacheBytes: event.match.templateCacheBytes,
         templateCacheEntries: event.match.templateCacheEntries,
         testedScales: event.match.testedScales,
       });
-      this.appendLog('success', { key: 'status.imageMatch', params: { asset: event.asset, score: (event.match.score * 100).toFixed(1), ms: event.match.matchMs?.toFixed(0) ?? '?' } }, this.status.executedSteps);
+      this.appendLog('success', {
+        key: 'status.imageMatch',
+        params: {
+          asset: event.asset,
+          score: (event.match.score * 100).toFixed(1),
+          totalMs: event.match.totalMs?.toFixed(0) ?? '?',
+          captureMs: event.match.captureMs?.toFixed(0) ?? '?',
+          matchMs: event.match.matchMs?.toFixed(0) ?? '?',
+        },
+      }, this.status.executedSteps);
     } else if (event.type === 'random-click-coordinate') {
       const message: AutomationMessage = { key: 'status.randomClickCoordinate', params: event.coordinate };
       this.setStatus({ state: this.status.state, packageId, tabId, workflowName, message });
@@ -773,7 +910,7 @@ export class AutomationService {
     if (this.active !== session) return;
     this.active = null;
     session.handle.release();
-    await session.matcher?.close();
+    if (session.matcher) this.releaseRuntimeMatcher(session.packageId, session.matcher);
   }
 
   private setStatus(patch: Omit<AutomationServiceStatus, 'enabled'>): void {

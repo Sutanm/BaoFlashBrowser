@@ -26,6 +26,7 @@ const BASE64_FILE = path.join(ROOT, 'tools', 'automation-probe', 'fixtures', 'ru
 const TEMP_SWF = path.join(OUTPUT_DIR, 'ruffle-button1.swf');
 const VIEWPORT = { width: 550, height: 420 };
 const SWF_TARGET = { x: 250, y: 200 };
+const FIXED_VIEWPORT_SCALE = Number(process.env.BAO_FIXED_VIEWPORT_SCALE || 1);
 const timeout = setTimeout(() => fail(new Error('timed out')), Number(process.env.SMOKE_TIMEOUT || 90000));
 let currentWindow = null;
 let finished = false;
@@ -114,7 +115,13 @@ function brightPixelRatio(image) {
 async function cdpMouse(wc, type, point) {
   wc.debugger.attach('1.3');
   try {
-    const payload = { type, x: point.x, y: point.y };
+    // Chromium 87 expects coordinates in displayed BrowserView DIPs here. The
+    // automation model stores logical CSS coordinates, so account for zoom.
+    const payload = {
+      type,
+      x: point.x * FIXED_VIEWPORT_SCALE,
+      y: point.y * FIXED_VIEWPORT_SCALE,
+    };
     if (type === 'mousePressed' || type === 'mouseReleased') {
       payload.button = 'left';
       payload.clickCount = 1;
@@ -137,7 +144,12 @@ function createHost(partition, plugins, contextIsolation) {
     },
   });
   win.addBrowserView(view);
-  view.setBounds({ x: 0, y: 0, ...VIEWPORT });
+  view.setBounds({
+    x: 0,
+    y: 0,
+    width: Math.round(VIEWPORT.width * FIXED_VIEWPORT_SCALE),
+    height: Math.round(VIEWPORT.height * FIXED_VIEWPORT_SCALE),
+  });
   currentWindow = win;
   return { win, view, wc: view.webContents };
 }
@@ -151,6 +163,8 @@ async function runPpapi(stageSize) {
       'embed,object{width:100%!important;height:100%!important}');
   });
   await wc.loadURL('file:///' + TEMP_SWF.replace(/\\/g, '/'));
+  wc.setZoomFactor(FIXED_VIEWPORT_SCALE);
+  await delay(250);
   await delay(1200);
   const embed = await wc.executeJavaScript(`(() => {
     const element = document.querySelector('embed,object');
@@ -158,6 +172,7 @@ async function runPpapi(stageSize) {
     const rect = element.getBoundingClientRect();
     return {
       x: rect.x, y: rect.y, width: rect.width, height: rect.height, tag: element.tagName,
+      viewport: { width: innerWidth, height: innerHeight },
       plugins: Array.from(navigator.plugins || []).map(plugin => ({ name: plugin.name, filename: plugin.filename })),
     };
   })()`);
@@ -197,6 +212,8 @@ async function runRuffle(swfBase64) {
   const traceMessages = [];
   wc.on('console-message', (_event, _level, message) => traceMessages.push(message));
   await wc.loadURL('data:text/html,<html><body style="margin:0;background:white"></body></html>');
+  wc.setZoomFactor(FIXED_VIEWPORT_SCALE);
+  await delay(250);
   const ruffleJs = fs.readFileSync(path.join(RESOURCE_DIR, 'ruffle.js'), 'utf8');
   const info = await wc.executeJavaScript(`(async () => {
     window.RufflePlayer = { config: { publicPath: 'ruffle-resource://', autoplay: 'on', scale: 'showAll' } };
@@ -213,6 +230,7 @@ async function runRuffle(swfBase64) {
     return {
       version: source.version,
       metadata: player.metadata,
+      viewport: { width: innerWidth, height: innerHeight },
       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
     };
   })()`, true);
@@ -235,7 +253,8 @@ async function runRuffle(swfBase64) {
   await delay(180);
   const released = await capture(wc, '13-ruffle-released');
   const result = {
-    version: info.version, metadata: info.metadata, minimized: win.isMinimized(), point,
+    version: info.version, metadata: info.metadata, viewport: info.viewport,
+    minimized: win.isMinimized(), point,
     hoverChanged: changedPixelRatio(before, hovered),
     pressChanged: changedPixelRatio(hovered, pressed),
     releaseChanged: changedPixelRatio(pressed, released),
@@ -259,7 +278,12 @@ app.whenReady().then(async () => {
   // plugins:false renderer cannot influence Chromium's legacy plugin startup.
   const ppapi = await runPpapi({ width: 550, height: 400 });
   const ruffle = await runRuffle(swfBase64);
-  const result = { fixture: 'ruffle-rs/ruffle from_shumway/button1', ppapi, ruffle };
+  const result = {
+    fixture: 'ruffle-rs/ruffle from_shumway/button1',
+    fixedViewportScale: FIXED_VIEWPORT_SCALE,
+    ppapi,
+    ruffle,
+  };
   fs.writeFileSync(path.join(OUTPUT_DIR, 'flash-input-result.json'), JSON.stringify(result, null, 2));
 
   const ruffleEvidence = Math.max(ruffle.hoverChanged, ruffle.pressChanged, ruffle.releaseChanged) > 0.0001 || ruffle.traces.length > 0;
@@ -268,6 +292,12 @@ app.whenReady().then(async () => {
   if (ppapi.rendered) {
     assert(ppapiEvidence, `PPAPI produced no observable pixel response: ${JSON.stringify(ppapi)}`);
   }
+  assert(Math.abs(ppapi.embed.viewport.width - VIEWPORT.width) <= 1 &&
+    Math.abs(ppapi.embed.viewport.height - VIEWPORT.height) <= 1,
+  `PPAPI logical viewport changed: ${JSON.stringify(ppapi.embed.viewport)}`);
+  assert(Math.abs(ruffle.viewport.width - VIEWPORT.width) <= 1 &&
+    Math.abs(ruffle.viewport.height - VIEWPORT.height) <= 1,
+  `Ruffle logical viewport changed: ${JSON.stringify(ruffle.viewport)}`);
   assert(ruffle.debuggerDetached && ppapi.debuggerDetached, 'debugger remained attached');
 
   const ppapiNote = ppapi.rendered ? 'PPAPI input verified' : 'PPAPI registered but did not render; recorded as an environment blocker';

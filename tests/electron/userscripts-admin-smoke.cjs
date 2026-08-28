@@ -45,6 +45,8 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('userscript:automation-list', async () => []);
   ipcMain.handle('userscript:automation-status', async () => ({ enabled: true, state: automationState, executedSteps: automationState === 'completed' ? 1 : 0, logs: [] }));
+  ipcMain.handle('userscript:automation-coordinate-begin', async () => ({ ready: true }));
+  ipcMain.handle('userscript:automation-coordinate-end', async () => ({ released: true }));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   mod = require('../../release/tests/userscripts-admin-module.cjs');
@@ -107,26 +109,56 @@ app.whenReady().then(async () => {
     "Boolean(document.getElementById('bao-automation-frame-assistant'))",
   );
   check('built-in automation assistant injects a page overlay', assistantOverlayVisible, assistantOverlayVisible);
-  const assistantControls = await view.webContents.executeJavaScript(`(() => {
+  const assistantControls = await view.webContents.executeJavaScript(`(async () => {
     const root = document.getElementById('bao-automation-frame-assistant');
     const captureLayer = document.getElementById('bao-automation-capture-layer');
     const captureHelp = captureLayer?.querySelector('.bao-capture-help');
-    root?.querySelector('.bao-orb')?.click();
+    if (root) root.style.transition = 'none';
+    const orb = root?.querySelector('.bao-orb');
+    orb?.focus();
+    const focusedButtonOutline = orb ? getComputedStyle(orb).outlineStyle : null;
+    orb?.click();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const openWidth = root?.getBoundingClientRect().width;
+    root?.classList.add('bao-right');
+    if (root) { root.style.left = 'auto'; root.style.right = '8px'; }
+    const orbRect = root?.querySelector('.bao-orb')?.getBoundingClientRect();
+    const views = root?.querySelector('.bao-views');
+    const outerOverflow = getComputedStyle(views).overflowY;
+    root?.querySelector('[data-view="capture"]')?.click();
+    const captureRect = root?.querySelector('[data-panel="capture"]')?.getBoundingClientRect();
+    const viewsRect = views?.getBoundingClientRect();
     return {
       open: root?.classList.contains('bao-open'),
       tabs: root?.querySelectorAll('.bao-tab').length,
+      width: openWidth,
+      focusedButtonOutline,
+      rightOrbVisible: Boolean(orbRect && orbRect.left >= 0 && orbRect.right <= innerWidth),
+      logOverflow: getComputedStyle(root?.querySelector('.bao-log')).overflowY,
+      outerOverflow,
+      captureHeight: root?.getBoundingClientRect().height,
+      captureFits: Boolean(captureRect && viewsRect && captureRect.bottom <= viewsRect.bottom + 1),
+      removedSectionsPresent: root?.textContent.includes('命名规则') || root?.textContent.includes('最近保存') || root?.textContent.includes('显示方式'),
       captureCancel: captureLayer?.querySelector('.bao-capture-cancel')?.textContent,
       captureHelp: captureHelp?.textContent,
       captureHelpTop: captureHelp ? getComputedStyle(captureHelp).top : null,
     };
   })()`);
   check('automation assistant opens as a three-tab floating control center', assistantControls?.open === true && assistantControls?.tabs === 3, assistantControls);
+  check('automation assistant uses a compact panel and scrollable run log', assistantControls?.width > 300 && assistantControls?.width <= 320 && assistantControls?.logOverflow === 'auto', assistantControls);
+  check('automation assistant buttons do not retain a visible focus outline', assistantControls?.focusedButtonOutline === 'none', assistantControls);
+  check('automation assistant avoids an outer scrollbar and fully fits Capture tools', assistantControls?.outerOverflow === 'hidden' && assistantControls?.captureHeight >= 175 && assistantControls?.captureFits === true, assistantControls);
+  check('automation assistant keeps the orb visible when docked on the right', assistantControls?.rightOrbVisible === true, assistantControls);
+  check('automation assistant removes low-value placeholder sections', assistantControls?.removedSectionsPresent === false, assistantControls);
+  const staysOpenOnResize = await view.webContents.executeJavaScript(`(() => { const root = document.getElementById('bao-automation-frame-assistant'); root?.classList.add('bao-open'); window.dispatchEvent(new Event('resize')); return root?.classList.contains('bao-open') || false; })()`);
+  check('automation assistant remains open when the page viewport changes', staysOpenOnResize === true, staysOpenOnResize);
   check('automation capture keeps a visible cancel button without Escape copy', assistantControls?.captureCancel === '取消' && !assistantControls?.captureHelp?.includes('Esc'), assistantControls);
   check('automation capture help clears the top toast area', assistantControls?.captureHelpTop === '64px', assistantControls);
-  const coordinatePicker = await view.webContents.executeJavaScript(`(() => {
+  const coordinatePicker = await view.webContents.executeJavaScript(`(async () => {
     const root = document.getElementById('bao-automation-frame-assistant');
     root?.querySelector('[data-view="capture"]')?.click();
     root?.querySelector('.bao-coordinate')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
     const layer = document.getElementById('bao-automation-coordinate-layer');
     const x = Math.round(innerWidth * 0.625); const y = Math.round(innerHeight * 0.375);
     layer?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y }));
@@ -134,6 +166,7 @@ app.whenReady().then(async () => {
     const expected = Math.round(x / Math.max(1, innerWidth - 1) * 10000) + ',' + Math.round(y / Math.max(1, innerHeight - 1) * 10000);
     const activeBeforeEscape = layer?.classList.contains('bao-active') || false;
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
     return { activeBeforeEscape, activeAfterEscape: layer?.classList.contains('bao-active') || false, shown, expected, panelReopened: root?.classList.contains('bao-open') || false };
   })()`);
   check('coordinate picker shows directly reusable normalized X,Y values', coordinatePicker?.activeBeforeEscape === true && coordinatePicker?.shown === coordinatePicker?.expected, coordinatePicker);
@@ -141,6 +174,7 @@ app.whenReady().then(async () => {
   const coordinateCopy = await view.webContents.executeJavaScript(`(async () => {
     let pageClicks = 0;
     document.querySelector('#bao-automation-frame-assistant .bao-coordinate')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
     document.addEventListener('click', () => { pageClicks += 1; }, { once: true });
     const layer = document.getElementById('bao-automation-coordinate-layer');
     const x = Math.round(innerWidth * 0.4); const y = Math.round(innerHeight * 0.6);

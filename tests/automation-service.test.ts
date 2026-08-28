@@ -51,6 +51,39 @@ describe('AutomationService feature boundary', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
+  it('reuses an idle production vision matcher and releases it when the package changes', async () => {
+    const release = vi.fn();
+    vi.mocked(tabManager.beginAutomation).mockReturnValue({
+      tabId: 'tab-vision', engine: 'ppapi', release,
+      webContents: { id: 2 }, getCssViewport: () => ({ width: 800, height: 600 }), assertCurrent: vi.fn(),
+    } as never);
+    const service = new AutomationService({ enabled: true });
+    const created = await service.createPackage('vision-reuse', 'Vision reuse');
+    await service.importAssets(created.packageId, new Map([['ready.png', new Uint8Array([137, 80, 78, 71])]]));
+    await service.updateWorkflow(created.packageId, {
+      formatVersion: 2, id: created.packageId, name: 'Vision reuse',
+      root: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'ready.png' }] },
+    });
+    type Session = { matcher: unknown };
+    type InspectableService = {
+      ensureSession(packageId: string, tabId: string): Session;
+      disposeSession(session: Session): Promise<void>;
+      runtimeMatchers: Map<string, { matcher: unknown }>;
+    };
+    const inspectable = service as unknown as InspectableService;
+    const first = inspectable.ensureSession(created.packageId, 'tab-vision');
+    await inspectable.disposeSession(first);
+    expect(inspectable.runtimeMatchers.get(created.packageId)?.matcher).toBe(first.matcher);
+
+    const second = inspectable.ensureSession(created.packageId, 'tab-vision');
+    expect(second.matcher).toBe(first.matcher);
+    await inspectable.disposeSession(second);
+    await service.updateWorkflow(created.packageId, {
+      formatVersion: 2, id: created.packageId, name: 'Vision reuse', root: { type: 'sequence', steps: [] },
+    });
+    expect(inspectable.runtimeMatchers.has(created.packageId)).toBe(false);
+  });
+
   it('persists created, edited, duplicated and deleted packages', async () => {
     const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'baoauto-service-'));
     temporaryRoots.push(storageDir);
@@ -58,7 +91,7 @@ describe('AutomationService feature boundary', () => {
     await service.whenReady();
     const created = await service.createPackage('daily-login', '每日登录');
     await service.updateWorkflow(created.packageId, {
-      formatVersion: 1, id: 'daily-login', name: '每日登录 v2',
+      formatVersion: 2, id: 'daily-login', name: '每日登录 v2',
       root: { type: 'sequence', steps: [{ type: 'delay', durationMs: 50 }] },
     });
     await service.importAssets(created.packageId, new Map([['buttons/start.png', new Uint8Array([137, 80, 78, 71])]]));
@@ -78,7 +111,7 @@ describe('AutomationService feature boundary', () => {
     expect(() => reloaded.getAsset(created.packageId, '../missing.png')).toThrow(/missing/);
     expect(reloaded.getAssetReferences(created.packageId, 'buttons/start.png')).toEqual({ referenced: false });
     await reloaded.updateWorkflow(created.packageId, {
-      formatVersion: 1, id: 'daily-login', name: '每日登录 v2',
+      formatVersion: 2, id: 'daily-login', name: '每日登录 v2',
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'buttons/start.png' }] },
     });
     expect(reloaded.getAssetReferences(created.packageId, 'buttons/start.png')).toEqual({ referenced: true });

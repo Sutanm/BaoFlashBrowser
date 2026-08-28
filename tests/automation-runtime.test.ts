@@ -9,15 +9,27 @@ class FakeDriver implements AutomationDriver {
   readonly calls: string[] = [];
   readonly requests: FindImageRequest[] = [];
   readonly answers = new Map<string, Array<ImageMatch | null>>();
+  readonly findDurations: number[] = [];
+  frameScopes = 0;
 
   queue(asset: string, ...answers: Array<ImageMatch | null>): void {
     this.answers.set(asset, answers);
   }
 
+  queueFindDurations(...durations: number[]): void {
+    this.findDurations.push(...durations);
+  }
+
   async findImage(request: FindImageRequest): Promise<ImageMatch | null> {
     this.calls.push(`find:${request.asset}`);
     this.requests.push(request);
+    this.time += this.findDurations.shift() ?? 0;
     return this.answers.get(request.asset)?.shift() ?? null;
+  }
+
+  async withFreshFrame<T>(operation: () => Promise<T>): Promise<T> {
+    this.frameScopes += 1;
+    return operation();
   }
 
   async click(_match: ImageMatch, options: { button: string; clickCount: number; offset: { x: number; y: number } }): Promise<void> {
@@ -85,14 +97,14 @@ class FakeDriver implements AutomationDriver {
 }
 
 const workflow: AutomationWorkflow = {
-  formatVersion: 1,
+  formatVersion: 2,
   id: 'runtime-demo',
   name: 'Runtime demo',
   readyWhen: { type: 'image-visible', asset: 'ready.png' },
   root: {
     type: 'sequence',
     steps: [
-      { type: 'click-image', asset: 'start.png', timeoutMs: 500, pollMs: 100, offset: { x: 3, y: -2 } },
+      { type: 'click-image', asset: 'start.png', timeoutMs: 500, minCycleMs: 100, offset: { x: 3, y: -2 } },
       {
         type: 'if-image',
         condition: { type: 'image-visible', asset: 'reward.png' },
@@ -144,7 +156,7 @@ describe('automation runtime', () => {
   it('treats a workflow without readyWhen as an unconditional entry', async () => {
     const driver = new FakeDriver();
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'unconditional', name: 'Unconditional',
+      formatVersion: 2, id: 'unconditional', name: 'Unconditional',
       root: { type: 'sequence', steps: [{ type: 'key-press', key: 'A', modifiers: ['control', 'shift'] }] },
     }, driver);
     await expect(runner.run()).resolves.toBe(true);
@@ -155,10 +167,10 @@ describe('automation runtime', () => {
     const driver = new FakeDriver();
     driver.queue('done.png', null, MATCH);
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'hold-key', name: 'Hold key',
+      formatVersion: 2, id: 'hold-key', name: 'Hold key',
       root: { type: 'sequence', steps: [{
         type: 'key-hold-until-image', key: 'Space', modifiers: ['shift'], asset: 'done.png',
-        state: 'visible', timeoutMs: 100, pollMs: 50,
+        state: 'visible', timeoutMs: 100, minCycleMs: 50,
       }] },
     }, driver);
     await expect(runner.run()).resolves.toBe(true);
@@ -171,7 +183,7 @@ describe('automation runtime', () => {
     const driver = new FakeDriver();
     driver.queue('button.png', MATCH);
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'default-scales', name: 'Default scales',
+      formatVersion: 2, id: 'default-scales', name: 'Default scales',
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'button.png' }] },
     }, driver);
     await expect(runner.run()).resolves.toBe(true);
@@ -184,7 +196,7 @@ describe('automation runtime', () => {
     driver.queue('A.png', MATCH);
     driver.queue('B.png', { ...MATCH, x: 320, y: 240 });
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'drag-image', name: 'Drag image',
+      formatVersion: 2, id: 'drag-image', name: 'Drag image',
       root: { type: 'sequence', steps: [{
         type: 'drag-image',
         source: { type: 'image-visible', asset: 'A.png', threshold: 0.88 },
@@ -202,7 +214,7 @@ describe('automation runtime', () => {
     driver.queue('A.png', MATCH);
     driver.queue('B.png', { ...MATCH, x: 300, y: 200 });
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'pointer-targets', name: 'Pointer targets',
+      formatVersion: 2, id: 'pointer-targets', name: 'Pointer targets',
       root: { type: 'sequence', steps: [
         { type: 'move-to-coordinate', coordinate: { x: 6000, y: 3500 } },
         { type: 'drag', source: { kind: 'image', condition: { type: 'image-visible', asset: 'A.png' } }, target: { kind: 'coordinate', coordinate: { x: 8000, y: 7000 } }, durationMs: 400 },
@@ -225,9 +237,9 @@ describe('automation runtime', () => {
     const successDriver = new FakeDriver();
     successDriver.queue('ready.png', null, MATCH);
     const source = (id: string): AutomationWorkflow => ({
-      formatVersion: 1, id, name: id,
+      formatVersion: 2, id, name: id,
       root: { type: 'sequence', steps: [{
-        type: 'wait-condition-branch', condition: { type: 'image-visible', asset: 'ready.png' }, timeoutMs: 100, pollMs: 50,
+        type: 'wait-condition-branch', condition: { type: 'image-visible', asset: 'ready.png' }, timeoutMs: 100, minCycleMs: 50,
         success: { type: 'sequence', steps: [{ type: 'key-press', key: 'Enter' }] },
         timeout: { type: 'sequence', steps: [{ type: 'key-press', key: 'Escape' }] },
       }] },
@@ -243,7 +255,7 @@ describe('automation runtime', () => {
   it('ends successfully without running later steps and can deliberately fail with a reason', async () => {
     const successDriver = new FakeDriver();
     const successRunner = new AutomationRunner({
-      formatVersion: 1, id: 'end-success', name: 'End success',
+      formatVersion: 2, id: 'end-success', name: 'End success',
       root: { type: 'sequence', steps: [{ type: 'end', result: 'success', message: 'done' }, { type: 'key-press', key: 'A' }] },
     }, successDriver);
     await expect(successRunner.run()).resolves.toBe(true);
@@ -251,7 +263,7 @@ describe('automation runtime', () => {
     expect(successDriver.calls).toEqual([]);
 
     const failureRunner = new AutomationRunner({
-      formatVersion: 1, id: 'end-failure', name: 'End failure',
+      formatVersion: 2, id: 'end-failure', name: 'End failure',
       root: { type: 'sequence', steps: [{ type: 'end', result: 'failure', message: '体力不足' }] },
     }, new FakeDriver());
     await expect(failureRunner.run()).rejects.toThrow('体力不足');
@@ -261,7 +273,7 @@ describe('automation runtime', () => {
   it('clicks a relative coordinate without capturing or matching an image', async () => {
     const driver = new FakeDriver();
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'coordinate-click', name: 'Coordinate click',
+      formatVersion: 2, id: 'coordinate-click', name: 'Coordinate click',
       root: { type: 'sequence', steps: [{ type: 'click-coordinate', coordinate: { x: 6250, y: 3750 }, button: 'right', clickCount: 2 }] },
     }, driver);
     await expect(runner.run()).resolves.toBe(true);
@@ -273,7 +285,7 @@ describe('automation runtime', () => {
     const driver = new FakeDriver();
     const events: Array<{ x: number; y: number }> = [];
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'random-region-click', name: 'Random region click',
+      formatVersion: 2, id: 'random-region-click', name: 'Random region click',
       root: { type: 'sequence', steps: [{
         type: 'random-click-region', region: { left: 2000, top: 1000, right: 8000, bottom: 7000 }, padding: 100,
       }] },
@@ -292,7 +304,7 @@ describe('automation runtime', () => {
     driver.queue('inside.png', MATCH);
     driver.queue('override.png', MATCH);
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'game-region', name: 'Game region',
+      formatVersion: 2, id: 'game-region', name: 'Game region',
       searchRegion: { left: 1000, top: 2000, right: 9000, bottom: 8000 },
       root: { type: 'sequence', steps: [
         { type: 'wait-image', asset: 'inside.png' },
@@ -305,11 +317,34 @@ describe('automation runtime', () => {
     expect(driver.requests[1].relativeRegion).toBeUndefined();
   });
 
+  it('uses a minimum cycle duration and retries immediately by default', async () => {
+    const limitedDriver = new FakeDriver();
+    limitedDriver.queue('limited.png', null, MATCH);
+    limitedDriver.queueFindDurations(70, 70);
+    const limitedRunner = new AutomationRunner({
+      formatVersion: 2, id: 'minimum-cycle', name: 'Minimum cycle',
+      root: { type: 'sequence', steps: [{
+        type: 'wait-image', asset: 'limited.png', timeoutMs: 500, minCycleMs: 100,
+      }] },
+    }, limitedDriver);
+    await expect(limitedRunner.run()).resolves.toBe(true);
+    expect(limitedDriver.calls).toEqual(['find:limited.png', 'sleep:30', 'find:limited.png']);
+
+    const immediateDriver = new FakeDriver();
+    immediateDriver.queue('immediate.png', null, MATCH);
+    const immediateRunner = new AutomationRunner({
+      formatVersion: 2, id: 'immediate-cycle', name: 'Immediate cycle',
+      root: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'immediate.png', timeoutMs: 500 }] },
+    }, immediateDriver);
+    await expect(immediateRunner.run()).resolves.toBe(true);
+    expect(immediateDriver.calls).toEqual(['find:immediate.png', 'find:immediate.png']);
+  });
+
   it('intersects nested fast recognition regions and restores the outer region afterwards', async () => {
     const driver = new FakeDriver();
     for (const asset of ['outer.png', 'nested.png', 'restored.png', 'global.png']) driver.queue(asset, MATCH);
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'scoped-vision', name: 'Scoped vision',
+      formatVersion: 2, id: 'scoped-vision', name: 'Scoped vision',
       searchRegion: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
       root: { type: 'sequence', steps: [
         {
@@ -342,7 +377,7 @@ describe('automation runtime', () => {
     const driver = new FakeDriver();
     driver.queue('角色/行走/left.png', { ...MATCH, asset: '角色/行走/right.png' });
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'image-group', name: 'Image group',
+      formatVersion: 2, id: 'image-group', name: 'Image group',
       root: { type: 'sequence', steps: [{
         type: 'click-image', asset: '角色/行走/left.png',
         alternatives: ['角色/行走/right.png', '角色/行走/up.png', '角色/行走/down.png'],
@@ -356,7 +391,7 @@ describe('automation runtime', () => {
     const driver = new FakeDriver();
     driver.queue('stable.png', MATCH, { ...MATCH, x: MATCH.x + 5 });
     const stable = new AutomationRunner({
-      formatVersion: 1, id: 'verified-click', name: 'Verified click',
+      formatVersion: 2, id: 'verified-click', name: 'Verified click',
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'stable.png', verifyBeforeClick: true, maxMovementPx: 8 }] },
     }, driver);
     await expect(stable.run()).resolves.toBe(true);
@@ -365,7 +400,7 @@ describe('automation runtime', () => {
     const movingDriver = new FakeDriver();
     movingDriver.queue('moving.png', MATCH, { ...MATCH, x: MATCH.x + 30 });
     const moving = new AutomationRunner({
-      formatVersion: 1, id: 'moving-click', name: 'Moving click',
+      formatVersion: 2, id: 'moving-click', name: 'Moving click',
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'moving.png', verifyBeforeClick: true, maxMovementPx: 8 }] },
     }, movingDriver);
     await expect(moving.run()).rejects.toThrow(/moved/);
@@ -394,7 +429,7 @@ describe('automation runtime', () => {
     driver.queue('three.png', MATCH);
     driver.queue('never-read.png', MATCH);
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'boolean-conditions', name: 'Boolean conditions',
+      formatVersion: 2, id: 'boolean-conditions', name: 'Boolean conditions',
       root: { type: 'sequence', steps: [{
         type: 'if-condition',
         condition: {
@@ -422,10 +457,10 @@ describe('automation runtime', () => {
     driver.queue('loop-a.png', null, null, MATCH);
     driver.queue('loop-b.png', MATCH);
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'condition-controls', name: 'Condition controls',
+      formatVersion: 2, id: 'condition-controls', name: 'Condition controls',
       root: { type: 'sequence', steps: [
         {
-          type: 'wait-condition', timeoutMs: 100, pollMs: 25,
+          type: 'wait-condition', timeoutMs: 100, minCycleMs: 25,
           condition: { type: 'all', conditions: [
             { type: 'image-visible', asset: 'wait-a.png' },
             { type: 'image-visible', asset: 'wait-b.png' },
@@ -446,15 +481,16 @@ describe('automation runtime', () => {
       'find:wait-a.png', 'sleep:25', 'find:wait-a.png', 'find:wait-b.png',
       'find:loop-a.png', 'find:loop-b.png',
     ]);
+    expect(driver.frameScopes).toBe(3);
   });
 
   it('releases a held key when the image wait times out', async () => {
     const driver = new FakeDriver();
     driver.queue('never.png', null, null);
     const runner = new AutomationRunner({
-      formatVersion: 1, id: 'hold-timeout', name: 'Hold timeout',
+      formatVersion: 2, id: 'hold-timeout', name: 'Hold timeout',
       root: { type: 'sequence', steps: [{
-        type: 'key-hold-until-image', key: 'ArrowRight', asset: 'never.png', state: 'visible', timeoutMs: 50, pollMs: 50,
+        type: 'key-hold-until-image', key: 'ArrowRight', asset: 'never.png', state: 'visible', timeoutMs: 50, minCycleMs: 50,
       }] },
     }, driver);
     await expect(runner.run()).rejects.toThrow(/timed out/);
@@ -477,9 +513,9 @@ describe('automation runtime', () => {
     driver.queue('pointer.png', MATCH);
     driver.queue('done.png', null, null, MATCH);
     const expanded: AutomationWorkflow = {
-      formatVersion: 1, id: 'expanded', name: 'Expanded',
+      formatVersion: 2, id: 'expanded', name: 'Expanded',
       root: { type: 'sequence', steps: [
-        { type: 'wait-image-state', asset: 'visible.png', state: 'hidden', timeoutMs: 200, pollMs: 50 },
+        { type: 'wait-image-state', asset: 'visible.png', state: 'hidden', timeoutMs: 200, minCycleMs: 50 },
         { type: 'move-to-image', asset: 'pointer.png', offset: { x: 4, y: 5 } },
         { type: 'text-input', text: '你好', intervalMs: 10 },
         { type: 'scroll', deltaX: 0, deltaY: 480 },
@@ -508,7 +544,7 @@ describe('automation runtime', () => {
     const driver = new FakeDriver();
     const paused: string[] = [];
     const stepped: AutomationWorkflow = {
-      formatVersion: 1, id: 'stepped', name: 'Stepped',
+      formatVersion: 2, id: 'stepped', name: 'Stepped',
       root: { type: 'sequence', steps: [
         { type: 'key-press', key: 'A' },
         { type: 'delay', durationMs: 10 },

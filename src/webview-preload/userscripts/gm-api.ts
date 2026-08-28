@@ -61,6 +61,8 @@ export interface GmApi {
     assetPreview(packageId: string, asset: string): Promise<unknown>;
     captureFrame(): Promise<unknown>;
     saveCapture(packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }, overwrite?: boolean): Promise<unknown>;
+    beginCoordinatePick(): Promise<unknown>;
+    endCoordinatePick(): Promise<unknown>;
   };
   handleWebRequestEvent(event: GmWebRequestEvent): void;
   info: Record<string, unknown>;
@@ -238,6 +240,8 @@ export function createGmApi(context: GmApiContext): GmApi {
     captureFrame: (): Promise<unknown> => bridge.invoke('userscript:automation-capture-frame', { scriptId: script.id }),
     saveCapture: (packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }, overwrite = false): Promise<unknown> =>
       bridge.invoke('userscript:automation-save-capture', { scriptId: script.id, packageId, token, asset, rect, overwrite }),
+    beginCoordinatePick: (): Promise<unknown> => bridge.invoke('userscript:automation-coordinate-begin', { scriptId: script.id }),
+    endCoordinatePick: (): Promise<unknown> => bridge.invoke('userscript:automation-coordinate-end', { scriptId: script.id }),
   };
 
   // --- GM_webRequest (OBSERVATION ONLY: no interception, no modification) ----

@@ -4,6 +4,7 @@ import * as zhHans from 'blockly/msg/zh-hans';
 import * as enMessages from 'blockly/msg/en';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { collectWorkflowAssetIds } from '@shared/automation/schema';
+import { DEFAULT_AUTOMATION_VIEWPORT } from '@shared/automation/types';
 import type { AutomationCondition, AutomationImageMask, AutomationPointerTarget, AutomationStep, AutomationWorkflow, ImageCondition, PositionCompareTarget, SequenceStep } from '@shared/automation/types';
 import { blockTypeForStep, compileScalarStep, writeScalarStepFields } from './automation-block-schema';
 
@@ -15,34 +16,80 @@ export interface AutomationBlocklyEditorHandle {
 
 const IMAGE_GROUP_PREFIX = '__bao_image_group__:';
 const COORDINATE_TARGET = '__bao_coordinate__';
+const IMAGE_PLACEHOLDER = '__bao_select_image__';
 const CLICK_TARGET_EXTENSION = 'bao_click_target_mode';
 const DRAG_TARGET_EXTENSION = 'bao_drag_target_mode';
+const MORE_SETTINGS_EXTENSION = 'bao_more_settings';
+
+function setFieldRowVisible(block: Blockly.Block, fieldName: string, visible: boolean): void {
+  block.getField(fieldName)?.getParentInput()?.setVisible(visible);
+}
+
+function setFieldVisible(block: Blockly.Block, fieldName: string, visible: boolean): void {
+  block.getField(fieldName)?.setVisible(visible);
+}
+
+function setAdvancedRowsVisible(block: Blockly.Block, visible: boolean): void {
+  for (const input of block.inputList) {
+    if (input.fieldRow.some((field) => field.name?.startsWith('ADVANCED_'))) input.setVisible(visible);
+  }
+}
+
+function moreSettingsExpanded(block: Blockly.Block): boolean {
+  return block.getFieldValue('MORE') === 'expanded';
+}
+
+function installLayoutUpdater(block: Blockly.Block, update: () => void): void {
+  block.setOnChange(() => {
+    update();
+    queueMicrotask(() => { if (!block.isDisposed()) update(); });
+  });
+  update();
+}
+
+if (!Blockly.Extensions.isRegistered(MORE_SETTINGS_EXTENSION)) {
+  Blockly.Extensions.register(MORE_SETTINGS_EXTENSION, function (this: Blockly.Block) {
+    const update = (): void => {
+      setAdvancedRowsVisible(this, moreSettingsExpanded(this));
+      if (this instanceof Blockly.BlockSvg && this.rendered) this.render();
+    };
+    installLayoutUpdater(this, update);
+  });
+}
 
 if (!Blockly.Extensions.isRegistered(CLICK_TARGET_EXTENSION)) {
   Blockly.Extensions.register(CLICK_TARGET_EXTENSION, function (this: Blockly.Block) {
     const updateFields = (): void => {
       const coordinateMode = this.getFieldValue('ASSET') === COORDINATE_TARGET;
-      this.getField('COORDINATE')?.setVisible(coordinateMode);
-      ['THRESHOLD', 'MASK', 'VERIFY', 'MOVEMENT'].forEach((name) => this.getField(name)?.setVisible(!coordinateMode));
+      // ASSET and COORDINATE share message0. Hiding the parent input here also
+      // hides the asset dropdown, making it impossible to choose another image.
+      setFieldVisible(this, 'COORDINATE', coordinateMode);
+      setFieldRowVisible(this, 'THRESHOLD', !coordinateMode);
+      setFieldRowVisible(this, 'MORE', !coordinateMode);
+      setAdvancedRowsVisible(this, !coordinateMode && moreSettingsExpanded(this));
       if (this instanceof Blockly.BlockSvg && this.rendered) this.render();
     };
-    this.setOnChange(updateFields);
-    updateFields();
+    installLayoutUpdater(this, updateFields);
   });
 }
 
 if (!Blockly.Extensions.isRegistered(DRAG_TARGET_EXTENSION)) {
   Blockly.Extensions.register(DRAG_TARGET_EXTENSION, function (this: Blockly.Block) {
     const updateFields = (): void => {
-      for (const prefix of ['SOURCE', 'TARGET']) {
-        const coordinateMode = this.getFieldValue(`${prefix}_ASSET`) === COORDINATE_TARGET;
-        this.getField(`${prefix}_COORDINATE`)?.setVisible(coordinateMode);
-        [`${prefix}_THRESHOLD`, `${prefix}_MASK`].forEach((name) => this.getField(name)?.setVisible(!coordinateMode));
-      }
+      const sourceImage = this.getFieldValue('SOURCE_ASSET') !== COORDINATE_TARGET;
+      const targetImage = this.getFieldValue('TARGET_ASSET') !== COORDINATE_TARGET;
+      setFieldVisible(this, 'SOURCE_COORDINATE', !sourceImage);
+      setFieldRowVisible(this, 'SOURCE_THRESHOLD', sourceImage);
+      setFieldVisible(this, 'TARGET_COORDINATE', !targetImage);
+      setFieldRowVisible(this, 'TARGET_THRESHOLD', targetImage);
+      setFieldRowVisible(this, 'MORE', sourceImage || targetImage);
+      const expanded = moreSettingsExpanded(this);
+      setFieldRowVisible(this, 'ADVANCED_SOURCE_MATCH_LABEL', expanded && sourceImage);
+      setFieldRowVisible(this, 'ADVANCED_TARGET_MATCH_LABEL', expanded && targetImage);
+      setFieldRowVisible(this, 'ADVANCED_TIMING_LABEL', expanded && (sourceImage || targetImage));
       if (this instanceof Blockly.BlockSvg && this.rendered) this.render();
     };
-    this.setOnChange(updateFields);
-    updateFields();
+    installLayoutUpdater(this, updateFields);
   });
 }
 
@@ -50,16 +97,19 @@ const POSITION_COMPARE_EXTENSION = 'bao_position_compare_mode';
 if (!Blockly.Extensions.isRegistered(POSITION_COMPARE_EXTENSION)) {
   Blockly.Extensions.register(POSITION_COMPARE_EXTENSION, function (this: Blockly.Block) {
     const updateFields = (): void => {
-      for (const prefix of ['A', 'B']) {
-        const coordinateMode = this.getFieldValue(`${prefix}_TYPE`) === 'coordinate';
-        this.getField(`${prefix}_ASSET`)?.setVisible(!coordinateMode);
-        this.getField(`${prefix}_COORDINATE`)?.setVisible(coordinateMode);
-        [`${prefix}_THRESHOLD`, `${prefix}_MASK`, `${prefix}_OFFSET_X`, `${prefix}_OFFSET_Y`].forEach((name) => this.getField(name)?.setVisible(!coordinateMode));
-      }
+      const aImage = this.getFieldValue('A_TYPE') === 'image';
+      const bImage = this.getFieldValue('B_TYPE') === 'image';
+      setFieldRowVisible(this, 'A_COORDINATE', !aImage);
+      setFieldRowVisible(this, 'A_ASSET', aImage);
+      setFieldRowVisible(this, 'B_COORDINATE', !bImage);
+      setFieldRowVisible(this, 'B_ASSET', bImage);
+      setFieldRowVisible(this, 'MORE', aImage || bImage);
+      const expanded = moreSettingsExpanded(this);
+      setFieldRowVisible(this, 'ADVANCED_A_LABEL', expanded && aImage);
+      setFieldRowVisible(this, 'ADVANCED_B_LABEL', expanded && bImage);
       if (this instanceof Blockly.BlockSvg && this.rendered) this.render();
     };
-    this.setOnChange(updateFields);
-    updateFields();
+    installLayoutUpdater(this, updateFields);
   });
 }
 
@@ -86,16 +136,20 @@ export function collectFolderImageGroups(assets: string[]): Array<{ folder: stri
   return [...folders].map(([folder, members]) => ({ folder, assets: members })).filter((group) => group.assets.length >= 2);
 }
 
-function assetField(assets: string[], fallback: string, name = 'ASSET'): { type: string; name: string; options: string[][] } {
-  const values = assets.length ? (assets.includes(fallback) ? assets : [fallback, ...assets]) : [fallback];
-  const options = values.map((value) => [value, value]);
-  for (const group of collectFolderImageGroups(assets)) options.push([`📚 ${group.folder} (${group.assets.length})`, imageGroupValue(group.assets)]);
+function appendImageGroupOptions(options: string[][], assets: string[]): void {
+  for (const group of collectFolderImageGroups(assets)) options.push([`${group.folder} (${group.assets.length})`, imageGroupValue(group.assets)]);
+}
+
+function assetField(assets: string[], placeholder: string, name = 'ASSET'): { type: string; name: string; options: string[][] } {
+  const options = [[placeholder, IMAGE_PLACEHOLDER], ...[...new Set(assets)].sort().map((value) => [value, value])];
+  appendImageGroupOptions(options, assets);
   return { type: 'field_dropdown', name, options };
 }
 
-function clickTargetField(assets: string[], coordinateLabel: string, fallback = 'button.png', name = 'ASSET'): { type: string; name: string; options: string[][] } {
-  const field = assetField(assets, fallback, name);
-  return { ...field, options: [[coordinateLabel, COORDINATE_TARGET], ...field.options] };
+function clickTargetField(assets: string[], coordinateLabel: string, name = 'ASSET'): { type: string; name: string; options: string[][] } {
+  const options = [...new Set(assets)].sort().map((asset) => [asset, asset]);
+  appendImageGroupOptions(options, assets);
+  return { type: 'field_dropdown', name, options: [[coordinateLabel, COORDINATE_TARGET], ...options] };
 }
 
 function buildBlockDefinitions(LL: ReturnType<typeof useI18nContext>['LL'], assets: string[]): Array<{ type: string; [key: string]: unknown }> {
@@ -105,21 +159,24 @@ function buildBlockDefinitions(LL: ReturnType<typeof useI18nContext>['LL'], asse
   const maskField = (name = 'MASK'): { type: string; name: string; options: string[][] } => ({
     type: 'field_dropdown', name, options: [[b.maskAuto(), 'auto'], [b.maskAlpha(), 'alpha'], [b.maskFull(), 'none']],
   });
-  return [
+  const labelField = (name: string, text: string): { type: string; name: string; text: string } => ({ type: 'field_label', name, text });
+  const markerField = (name: string): { type: string; name: string; text: string } => ({ type: 'field_label_serializable', name, text: '' });
+  const moreField = (): { type: string; name: string; options: string[][] } => ({ type: 'field_dropdown', name: 'MORE', options: [[b.moreSettings(), 'collapsed'], [b.lessSettings(), 'expanded']] });
+  const definitions: Array<{ type: string; [key: string]: unknown }> = [
     { type: 'bao_start_unconditional', message0: b.startUnconditional(), message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], colour: 265 },
     { type: 'bao_start_region', message0: b.startRegion(), args0: [{ type: 'field_input', name: 'TOP_LEFT', text: '0,0' }, { type: 'field_input', name: 'BOTTOM_RIGHT', text: '10000,10000' }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], colour: 265 },
     { type: 'bao_start_condition', message0: b.startCondition(), args0: [{ type: 'input_value', name: 'CONDITION', check: 'Boolean' }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], colour: 265 },
-    { type: 'bao_start', message0: b.start(), args0: [assetField(assets, 'ready.png'), { type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }, maskField()], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], colour: 265 },
-    { type: 'bao_wait_image', message0: b.waitImage(), args0: [assetField(assets, 'button.png'), { type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }, maskField(), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }], previousStatement: null, nextStatement: null, colour: 205 },
-    { type: 'bao_wait_image_state', message0: b.waitImageState(), args0: [assetField(assets, 'button.png'), { type: 'field_dropdown', name: 'STATE', options: [[appear, 'visible'], [disappear, 'hidden']] }, maskField(), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }], previousStatement: null, nextStatement: null, colour: 205 },
+    { type: 'bao_start', message0: b.start(), args0: [assetField(assets, b.imagePlaceholder())], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.execute(), args4: [{ type: 'input_statement', name: 'DO' }], extensions: [MORE_SETTINGS_EXTENSION], colour: 265 },
+    { type: 'bao_wait_image', message0: b.waitImage(), args0: [assetField(assets, b.imagePlaceholder())], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.timingRow(), args4: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 205 },
+    { type: 'bao_wait_image_state', message0: b.waitImageState(), args0: [assetField(assets, b.imagePlaceholder()), { type: 'field_dropdown', name: 'STATE', options: [[appear, 'visible'], [disappear, 'hidden']] }], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.timingRow(), args4: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 205 },
     { type: 'bao_vision_region', message0: b.visionRegion(), args0: [{ type: 'field_input', name: 'TOP_LEFT', text: '2500,2500' }, { type: 'field_input', name: 'BOTTOM_RIGHT', text: '7500,7500' }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], tooltip: b.visionRegionTooltip(), previousStatement: null, nextStatement: null, colour: 205 },
-    { type: 'bao_click_image', message0: b.clickImage(), args0: [clickTargetField(assets, b.coordinateTarget()), { type: 'field_input', name: 'COORDINATE', text: '5000,5000' }, { type: 'field_dropdown', name: 'BUTTON', options: [[b.leftButton(), 'left'], [b.rightButton(), 'right'], [b.middleButton(), 'middle']] }, { type: 'field_number', name: 'COUNT', value: 1, min: 1, max: 3 }, { type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }, maskField(), { type: 'field_checkbox', name: 'VERIFY', checked: true }, { type: 'field_number', name: 'MOVEMENT', value: 12, min: 0, max: 500 }], extensions: [CLICK_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 205 },
-    { type: 'bao_move_to_image', message0: b.moveToTarget(), args0: [clickTargetField(assets, b.coordinateTarget()), { type: 'field_input', name: 'COORDINATE', text: '5000,5000' }, { type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }, maskField()], extensions: [CLICK_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 120 },
-    { type: 'bao_drag_image', message0: b.dragTarget(), args0: [clickTargetField(assets, b.coordinateTarget(), 'A.png', 'SOURCE_ASSET'), { type: 'field_input', name: 'SOURCE_COORDINATE', text: '3000,5000' }, { type: 'field_number', name: 'SOURCE_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }, maskField('SOURCE_MASK'), clickTargetField(assets, b.coordinateTarget(), 'B.png', 'TARGET_ASSET'), { type: 'field_input', name: 'TARGET_COORDINATE', text: '7000,5000' }, { type: 'field_number', name: 'TARGET_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }, maskField('TARGET_MASK'), { type: 'field_dropdown', name: 'BUTTON', options: [[b.leftButton(), 'left'], [b.rightButton(), 'right'], [b.middleButton(), 'middle']] }, { type: 'field_number', name: 'DURATION', value: 800, min: 0, max: 10000 }, { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }], extensions: [DRAG_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 120 },
+    { type: 'bao_click_image', message0: b.clickImage(), args0: [clickTargetField(assets, b.coordinateTarget()), { type: 'field_input', name: 'COORDINATE', text: '5000,5000' }, { type: 'field_dropdown', name: 'BUTTON', options: [[b.leftButton(), 'left'], [b.rightButton(), 'right'], [b.middleButton(), 'middle']] }, { type: 'field_number', name: 'COUNT', value: 1, min: 1, max: 3 }], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.clickSafetyRow(), args4: [markerField('ADVANCED_SAFETY_LABEL'), { type: 'field_checkbox', name: 'VERIFY', checked: false }, { type: 'field_number', name: 'MOVEMENT', value: 12, min: 0, max: 500 }], message5: b.timingRow(), args5: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [CLICK_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 205 },
+    { type: 'bao_move_to_image', message0: b.moveToTarget(), args0: [clickTargetField(assets, b.coordinateTarget()), { type: 'field_input', name: 'COORDINATE', text: '5000,5000' }], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.timingRow(), args4: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [CLICK_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 120 },
+    { type: 'bao_drag_image', message0: b.dragTarget(), message1: b.sourceTarget(), args1: [clickTargetField(assets, b.coordinateTarget(), 'SOURCE_ASSET'), { type: 'field_input', name: 'SOURCE_COORDINATE', text: '3000,5000' }], message2: b.sourceSimilarity(), args2: [{ type: 'field_number', name: 'SOURCE_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message3: b.targetTarget(), args3: [clickTargetField(assets, b.coordinateTarget(), 'TARGET_ASSET'), { type: 'field_input', name: 'TARGET_COORDINATE', text: '7000,5000' }], message4: b.targetSimilarity(), args4: [{ type: 'field_number', name: 'TARGET_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message5: b.dragAction(), args5: [{ type: 'field_dropdown', name: 'BUTTON', options: [[b.leftButton(), 'left'], [b.rightButton(), 'right'], [b.middleButton(), 'middle']] }, { type: 'field_number', name: 'DURATION', value: 800, min: 0, max: 10000 }], message6: '%1', args6: [moreField()], message7: b.sourceMatchRow(), args7: [markerField('ADVANCED_SOURCE_MATCH_LABEL'), maskField('SOURCE_MASK')], message8: b.targetMatchRow(), args8: [markerField('ADVANCED_TARGET_MATCH_LABEL'), maskField('TARGET_MASK')], message9: b.timingRow(), args9: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [DRAG_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 120 },
     { type: 'bao_delay', message0: b.delay(), args0: [{ type: 'field_number', name: 'DURATION', value: 500, min: 0, max: 3600000 }], previousStatement: null, nextStatement: null, colour: 45 },
     { type: 'bao_key_press', message0: b.keyPress(), args0: [{ type: 'field_input', name: 'KEY', text: 'Enter' }], previousStatement: null, nextStatement: null, colour: 120 },
     { type: 'bao_key_combo', message0: b.keyCombo(), args0: [{ type: 'field_checkbox', name: 'CONTROL', checked: true }, { type: 'field_checkbox', name: 'ALT', checked: false }, { type: 'field_checkbox', name: 'SHIFT', checked: false }, { type: 'field_checkbox', name: 'META', checked: false }, { type: 'field_input', name: 'KEY', text: 'A' }], previousStatement: null, nextStatement: null, colour: 120 },
-    { type: 'bao_hold_key_until_image', message0: b.holdKeyUntilImage(), args0: [{ type: 'field_input', name: 'KEY', text: 'Space' }, assetField(assets, 'done.png'), { type: 'field_dropdown', name: 'STATE', options: [[appear, 'visible'], [disappear, 'hidden']] }, maskField(), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }], previousStatement: null, nextStatement: null, colour: 120 },
+    { type: 'bao_hold_key_until_image', message0: b.holdKeyUntilImage(), args0: [{ type: 'field_input', name: 'KEY', text: 'Space' }, assetField(assets, b.imagePlaceholder()), { type: 'field_dropdown', name: 'STATE', options: [[appear, 'visible'], [disappear, 'hidden']] }], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.timingRow(), args4: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 120 },
     { type: 'bao_text_input', message0: b.textInput(), args0: [{ type: 'field_input', name: 'TEXT', text: b.textSample() }, { type: 'field_number', name: 'INTERVAL', value: 0, min: 0, max: 10000 }], previousStatement: null, nextStatement: null, colour: 120 },
     { type: 'bao_scroll', message0: b.scroll(), args0: [{ type: 'field_number', name: 'X', value: 0, min: -100000, max: 100000 }, { type: 'field_number', name: 'Y', value: 480, min: -100000, max: 100000 }], previousStatement: null, nextStatement: null, colour: 120 },
     { type: 'bao_random_click_region', message0: b.randomClickRegion(), args0: [{ type: 'field_input', name: 'TOP_LEFT', text: '2000,2000' }, { type: 'field_input', name: 'BOTTOM_RIGHT', text: '8000,8000' }, { type: 'field_dropdown', name: 'BUTTON', options: [[b.leftButton(), 'left'], [b.rightButton(), 'right'], [b.middleButton(), 'middle']] }, { type: 'field_number', name: 'COUNT', value: 2, min: 1, max: 3 }, { type: 'field_number', name: 'PADDING', value: 0, min: 0, max: 4999 }], previousStatement: null, nextStatement: null, colour: 120 },
@@ -127,55 +184,22 @@ function buildBlockDefinitions(LL: ReturnType<typeof useI18nContext>['LL'], asse
     { type: 'bao_reload', message0: b.reload(), previousStatement: null, nextStatement: null, colour: 170 },
     { type: 'bao_log', message0: b.log(), args0: [{ type: 'field_input', name: 'MESSAGE', text: b.logSample() }], previousStatement: null, nextStatement: null, colour: 65 },
     { type: 'bao_notification', message0: b.notification(), args0: [{ type: 'field_input', name: 'TITLE', text: b.notificationTitle() }, { type: 'field_input', name: 'BODY', text: b.notificationBody() }], previousStatement: null, nextStatement: null, colour: 65 },
-    { type: 'bao_if_image', message0: b.ifImage(), args0: [{ type: 'field_dropdown', name: 'MODE', options: [[b.found(), 'found'], [b.notFound(), 'missing']] }, assetField(assets, 'button.png'), { type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }, maskField()], message1: b.then(), args1: [{ type: 'input_statement', name: 'THEN' }], message2: b.otherwise(), args2: [{ type: 'input_statement', name: 'ELSE' }], previousStatement: null, nextStatement: null, colour: 330 },
+    { type: 'bao_if_image', message0: b.ifImage(), args0: [{ type: 'field_dropdown', name: 'MODE', options: [[b.found(), 'found'], [b.notFound(), 'missing']] }, assetField(assets, b.imagePlaceholder())], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.then(), args4: [{ type: 'input_statement', name: 'THEN' }], message5: b.otherwise(), args5: [{ type: 'input_statement', name: 'ELSE' }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 330 },
     { type: 'bao_if_condition', message0: b.ifCondition(), args0: [{ type: 'input_value', name: 'CONDITION', check: 'Boolean' }], message1: b.then(), args1: [{ type: 'input_statement', name: 'THEN' }], message2: b.otherwise(), args2: [{ type: 'input_statement', name: 'ELSE' }], previousStatement: null, nextStatement: null, colour: 330 },
-    { type: 'bao_condition_image', message0: b.imageCondition(), args0: [assetField(assets, 'button.png'), { type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }, maskField()], output: 'Boolean', colour: 205 },
+    { type: 'bao_condition_image', message0: b.imageCondition(), args0: [assetField(assets, b.imagePlaceholder())], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], extensions: [MORE_SETTINGS_EXTENSION], output: 'Boolean', colour: 205 },
     { type: 'bao_condition_and', message0: b.conditionAndMany(), args0: [{ type: 'input_value', name: 'ITEM0', check: 'Boolean' }, { type: 'input_value', name: 'ITEM1', check: 'Boolean' }, { type: 'input_value', name: 'ITEM2', check: 'Boolean' }, { type: 'input_value', name: 'ITEM3', check: 'Boolean' }], output: 'Boolean', colour: 330 },
     { type: 'bao_condition_or', message0: b.conditionOrMany(), args0: [{ type: 'input_value', name: 'ITEM0', check: 'Boolean' }, { type: 'input_value', name: 'ITEM1', check: 'Boolean' }, { type: 'input_value', name: 'ITEM2', check: 'Boolean' }, { type: 'input_value', name: 'ITEM3', check: 'Boolean' }], output: 'Boolean', colour: 330 },
     { type: 'bao_condition_not', message0: b.conditionNot(), args0: [{ type: 'input_value', name: 'VALUE', check: 'Boolean' }], output: 'Boolean', colour: 330 },
-    { type: 'bao_condition_position', message0: b.positionCondition(), args0: [
-      { type: 'field_dropdown', name: 'A_TYPE', options: [[b.imageTarget(), 'image'], [b.coordinateTarget(), 'coordinate']] },
-      assetField(assets, 'A.png', 'A_ASSET'),
-      { type: 'field_input', name: 'A_COORDINATE', text: '5000,5000' },
-      { type: 'field_number', name: 'A_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 },
-      maskField('A_MASK'),
-      { type: 'field_number', name: 'A_OFFSET_X', value: 0 },
-      { type: 'field_number', name: 'A_OFFSET_Y', value: 0 },
-      { type: 'field_dropdown', name: 'B_TYPE', options: [[b.imageTarget(), 'image'], [b.coordinateTarget(), 'coordinate']] },
-      assetField(assets, 'B.png', 'B_ASSET'),
-      { type: 'field_input', name: 'B_COORDINATE', text: '5000,5000' },
-      { type: 'field_number', name: 'B_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 },
-      maskField('B_MASK'),
-      { type: 'field_number', name: 'B_OFFSET_X', value: 0 },
-      { type: 'field_number', name: 'B_OFFSET_Y', value: 0 },
-      { type: 'field_dropdown', name: 'RELATION', options: [[b.relationVertical(), 'vertical'], [b.relationHorizontal(), 'horizontal'], [b.relationOverlap(), 'overlap']] },
-      { type: 'field_number', name: 'TOLERANCE', value: 10, min: 1, max: 5000 },
-    ], output: 'Boolean', extensions: [POSITION_COMPARE_EXTENSION], colour: 205 },
-    { type: 'bao_position_compare', message0: b.positionCompare(), args0: [
-      { type: 'field_dropdown', name: 'A_TYPE', options: [[b.imageTarget(), 'image'], [b.coordinateTarget(), 'coordinate']] },
-      assetField(assets, 'A.png', 'A_ASSET'),
-      { type: 'field_input', name: 'A_COORDINATE', text: '5000,5000' },
-      { type: 'field_number', name: 'A_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 },
-      maskField('A_MASK'),
-      { type: 'field_number', name: 'A_OFFSET_X', value: 0 },
-      { type: 'field_number', name: 'A_OFFSET_Y', value: 0 },
-      { type: 'field_dropdown', name: 'B_TYPE', options: [[b.imageTarget(), 'image'], [b.coordinateTarget(), 'coordinate']] },
-      assetField(assets, 'B.png', 'B_ASSET'),
-      { type: 'field_input', name: 'B_COORDINATE', text: '5000,5000' },
-      { type: 'field_number', name: 'B_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 },
-      maskField('B_MASK'),
-      { type: 'field_number', name: 'B_OFFSET_X', value: 0 },
-      { type: 'field_number', name: 'B_OFFSET_Y', value: 0 },
-      { type: 'field_dropdown', name: 'RELATION', options: [[b.relationVertical(), 'vertical'], [b.relationHorizontal(), 'horizontal'], [b.relationOverlap(), 'overlap']] },
-      { type: 'field_number', name: 'TOLERANCE', value: 10, min: 1, max: 5000 },
-    ], message1: b.then(), args1: [{ type: 'input_statement', name: 'THEN' }], message2: b.otherwise(), args2: [{ type: 'input_statement', name: 'ELSE' }], extensions: [POSITION_COMPARE_EXTENSION], previousStatement: null, nextStatement: null, colour: 330 },
-    { type: 'bao_wait_condition', message0: b.waitCondition(), args0: [{ type: 'input_value', name: 'CONDITION', check: 'Boolean' }, { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }], previousStatement: null, nextStatement: null, colour: 330 },
-    { type: 'bao_wait_condition_branch', message0: b.waitConditionBranch(), args0: [{ type: 'input_value', name: 'CONDITION', check: 'Boolean' }, { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }], message1: b.onSuccess(), args1: [{ type: 'input_statement', name: 'SUCCESS' }], message2: b.onTimeout(), args2: [{ type: 'input_statement', name: 'TIMEOUT_BRANCH' }], previousStatement: null, nextStatement: null, colour: 330 },
+    { type: 'bao_condition_position', message0: b.positionCondition(), message1: b.targetAType(), args1: [{ type: 'field_dropdown', name: 'A_TYPE', options: [[b.coordinateTarget(), 'coordinate'], [b.imageTarget(), 'image']] }], message2: b.coordinateRow(), args2: [{ type: 'field_input', name: 'A_COORDINATE', text: '5000,5000' }], message3: b.imageRow(), args3: [assetField(assets, b.imagePlaceholder(), 'A_ASSET'), { type: 'field_number', name: 'A_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message4: b.targetBType(), args4: [{ type: 'field_dropdown', name: 'B_TYPE', options: [[b.coordinateTarget(), 'coordinate'], [b.imageTarget(), 'image']] }], message5: b.coordinateRow(), args5: [{ type: 'field_input', name: 'B_COORDINATE', text: '5000,5000' }], message6: b.imageRow(), args6: [assetField(assets, b.imagePlaceholder(), 'B_ASSET'), { type: 'field_number', name: 'B_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message7: b.positionRelationRow(), args7: [{ type: 'field_dropdown', name: 'RELATION', options: [[b.relationVertical(), 'vertical'], [b.relationHorizontal(), 'horizontal'], [b.relationOverlap(), 'overlap']] }, { type: 'field_number', name: 'TOLERANCE', value: 10, min: 1, max: 5000 }], message8: '%1', args8: [moreField()], message9: b.positionAdvancedRow(), args9: [markerField('ADVANCED_A_LABEL'), labelField('A_MORE_LABEL', 'A'), maskField('A_MASK'), { type: 'field_number', name: 'A_OFFSET_X', value: 0 }, { type: 'field_number', name: 'A_OFFSET_Y', value: 0 }], message10: b.positionAdvancedRow(), args10: [markerField('ADVANCED_B_LABEL'), labelField('B_MORE_LABEL', 'B'), maskField('B_MASK'), { type: 'field_number', name: 'B_OFFSET_X', value: 0 }, { type: 'field_number', name: 'B_OFFSET_Y', value: 0 }], output: 'Boolean', extensions: [POSITION_COMPARE_EXTENSION], colour: 205 },
+    { type: 'bao_position_compare', message0: b.positionCompare(), message1: b.targetAType(), args1: [{ type: 'field_dropdown', name: 'A_TYPE', options: [[b.coordinateTarget(), 'coordinate'], [b.imageTarget(), 'image']] }], message2: b.coordinateRow(), args2: [{ type: 'field_input', name: 'A_COORDINATE', text: '5000,5000' }], message3: b.imageRow(), args3: [assetField(assets, b.imagePlaceholder(), 'A_ASSET'), { type: 'field_number', name: 'A_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message4: b.targetBType(), args4: [{ type: 'field_dropdown', name: 'B_TYPE', options: [[b.coordinateTarget(), 'coordinate'], [b.imageTarget(), 'image']] }], message5: b.coordinateRow(), args5: [{ type: 'field_input', name: 'B_COORDINATE', text: '5000,5000' }], message6: b.imageRow(), args6: [assetField(assets, b.imagePlaceholder(), 'B_ASSET'), { type: 'field_number', name: 'B_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message7: b.positionRelationRow(), args7: [{ type: 'field_dropdown', name: 'RELATION', options: [[b.relationVertical(), 'vertical'], [b.relationHorizontal(), 'horizontal'], [b.relationOverlap(), 'overlap']] }, { type: 'field_number', name: 'TOLERANCE', value: 10, min: 1, max: 5000 }], message8: '%1', args8: [moreField()], message9: b.positionAdvancedRow(), args9: [markerField('ADVANCED_A_LABEL'), labelField('A_MORE_LABEL', 'A'), maskField('A_MASK'), { type: 'field_number', name: 'A_OFFSET_X', value: 0 }, { type: 'field_number', name: 'A_OFFSET_Y', value: 0 }], message10: b.positionAdvancedRow(), args10: [markerField('ADVANCED_B_LABEL'), labelField('B_MORE_LABEL', 'B'), maskField('B_MASK'), { type: 'field_number', name: 'B_OFFSET_X', value: 0 }, { type: 'field_number', name: 'B_OFFSET_Y', value: 0 }], message11: b.then(), args11: [{ type: 'input_statement', name: 'THEN' }], message12: b.otherwise(), args12: [{ type: 'input_statement', name: 'ELSE' }], extensions: [POSITION_COMPARE_EXTENSION], previousStatement: null, nextStatement: null, colour: 330 },
+    { type: 'bao_wait_condition', message0: b.waitCondition(), args0: [{ type: 'input_value', name: 'CONDITION', check: 'Boolean' }], message1: '%1', args1: [moreField()], message2: b.timingRow(), args2: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 330 },
+    { type: 'bao_wait_condition_branch', message0: b.waitConditionBranch(), args0: [{ type: 'input_value', name: 'CONDITION', check: 'Boolean' }], message1: '%1', args1: [moreField()], message2: b.timingRow(), args2: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], message3: b.onSuccess(), args3: [{ type: 'input_statement', name: 'SUCCESS' }], message4: b.onTimeout(), args4: [{ type: 'input_statement', name: 'TIMEOUT_BRANCH' }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 330 },
     { type: 'bao_repeat', message0: b.repeat(), args0: [{ type: 'field_number', name: 'TIMES', value: 2, min: 1, max: 1000 }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], previousStatement: null, nextStatement: null, colour: 20 },
-    { type: 'bao_repeat_until_image', message0: b.repeatUntilImage(), args0: [assetField(assets, 'button.png'), { type: 'field_dropdown', name: 'UNTIL', options: [[appear, 'visible'], [disappear, 'hidden']] }, maskField(), { type: 'field_number', name: 'MAX', value: 20, min: 1, max: 1000 }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], previousStatement: null, nextStatement: null, colour: 20 },
+    { type: 'bao_repeat_until_image', message0: b.repeatUntilImage(), args0: [assetField(assets, b.imagePlaceholder()), { type: 'field_dropdown', name: 'UNTIL', options: [[appear, 'visible'], [disappear, 'hidden']] }, { type: 'field_number', name: 'MAX', value: 20, min: 1, max: 1000 }], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.execute(), args4: [{ type: 'input_statement', name: 'DO' }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 20 },
     { type: 'bao_repeat_until_condition', message0: b.repeatUntilCondition(), args0: [{ type: 'input_value', name: 'CONDITION', check: 'Boolean' }, { type: 'field_number', name: 'MAX', value: 20, min: 1, max: 1000 }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], previousStatement: null, nextStatement: null, colour: 20 },
     { type: 'bao_end', message0: b.end(), args0: [{ type: 'field_dropdown', name: 'RESULT', options: [[b.endSuccess(), 'success'], [b.endFailure(), 'failure']] }, { type: 'field_input', name: 'MESSAGE', text: b.endSample() }], previousStatement: null, nextStatement: null, colour: 65 },
   ];
+  return definitions;
 }
 
 function buildToolbox(LL: ReturnType<typeof useI18nContext>['LL']): Blockly.utils.toolbox.ToolboxDefinition {
@@ -200,6 +224,11 @@ function imageTarget(block: Blockly.Block, field = 'ASSET'): { asset: string; al
   const group = decodeImageGroup(value);
   return group?.length ? { asset: group[0], alternatives: group.slice(1) } : { asset: value, alternatives: undefined };
 }
+function requiredImageTarget(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockly.Block, field = 'ASSET'): { asset: string; alternatives?: string[] } {
+  const target = imageTarget(block, field);
+  if (target.asset === IMAGE_PLACEHOLDER) throw new Error(LL.automation.blockly.imageRequired());
+  return target;
+}
 function imageTargetValue(value: { asset: string; alternatives?: string[] }): string {
   return value.alternatives?.length ? imageGroupValue([value.asset, ...value.alternatives]) : value.asset;
 }
@@ -222,7 +251,7 @@ function relativeSearchRegion(LL: ReturnType<typeof useI18nContext>['LL'], block
   if (topLeft.x >= bottomRight.x || topLeft.y >= bottomRight.y) throw new Error(LL.automation.blockly.invalidSearchRegion());
   return { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y };
 }
-function assetCondition(block: Blockly.Block) { return { type: 'image-visible' as const, ...imageTarget(block), threshold: number(block, 'THRESHOLD') || .9, mask: imageMask(block) }; }
+function assetCondition(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockly.Block) { return { type: 'image-visible' as const, ...requiredImageTarget(LL, block), threshold: number(block, 'THRESHOLD') || .9, mask: imageMask(block) }; }
 function positionCompareTarget(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockly.Block, prefix: 'A' | 'B'): PositionCompareTarget {
   if (block.getFieldValue(`${prefix}_TYPE`) === 'coordinate') {
     return { kind: 'coordinate', coordinate: relativeCoordinate(LL, block, `${prefix}_COORDINATE`) };
@@ -230,7 +259,7 @@ function positionCompareTarget(LL: ReturnType<typeof useI18nContext>['LL'], bloc
   const offset = { x: number(block, `${prefix}_OFFSET_X`) || 0, y: number(block, `${prefix}_OFFSET_Y`) || 0 };
   return {
     kind: 'image',
-    asset: String(block.getFieldValue(`${prefix}_ASSET`)),
+    asset: requiredImageTarget(LL, block, `${prefix}_ASSET`).asset,
     threshold: number(block, `${prefix}_THRESHOLD`) || .9,
     mask: imageMask(block, `${prefix}_MASK`),
     offset: (offset.x !== 0 || offset.y !== 0) ? offset : undefined,
@@ -251,7 +280,7 @@ function pointerTarget(LL: ReturnType<typeof useI18nContext>['LL'], block: Block
   }
   return {
     kind: 'image',
-    condition: { type: 'image-visible', ...imageTarget(block, `${prefix}_ASSET`), threshold: number(block, `${prefix}_THRESHOLD`) || .9, mask: imageMask(block, `${prefix}_MASK`) },
+    condition: { type: 'image-visible', ...requiredImageTarget(LL, block, `${prefix}_ASSET`), threshold: number(block, `${prefix}_THRESHOLD`) || .9, mask: imageMask(block, `${prefix}_MASK`) },
   };
 }
 function preserved<T extends object>(block: Blockly.Block): Partial<T> {
@@ -268,7 +297,7 @@ function modifiers(block: Blockly.Block): Array<'alt' | 'control' | 'meta' | 'sh
 function compileCondition(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockly.Block | null): AutomationCondition {
   if (!block) throw new Error(LL.automation.blockly.conditionRequired());
   switch (block.type) {
-    case 'bao_condition_image': return { ...preserved<ImageCondition>(block), ...assetCondition(block) };
+    case 'bao_condition_image': return { ...preserved<ImageCondition>(block), ...assetCondition(LL, block) };
     case 'bao_condition_position': return { ...preserved<AutomationCondition>(block), ...positionCompareCondition(LL, block) };
     case 'bao_condition_and':
     case 'bao_condition_or': {
@@ -292,14 +321,14 @@ function compileBlock(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockl
   const scalarStep = compileScalarStep(block.type, (name) => block.getFieldValue(name), extra as unknown as Record<string, unknown>);
   if (scalarStep) return scalarStep;
   switch (block.type) {
-    case 'bao_wait_image': return { ...extra, type: 'wait-image', ...imageTarget(block), threshold: number(block, 'THRESHOLD'), mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT') } as AutomationStep;
-    case 'bao_wait_image_state': return { ...extra, type: 'wait-image-state', ...imageTarget(block), state: block.getFieldValue('STATE') === 'hidden' ? 'hidden' : 'visible', mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT') } as AutomationStep;
+    case 'bao_wait_image': return { ...extra, type: 'wait-image', ...requiredImageTarget(LL, block), threshold: number(block, 'THRESHOLD'), mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') } as AutomationStep;
+    case 'bao_wait_image_state': return { ...extra, type: 'wait-image-state', ...requiredImageTarget(LL, block), threshold: number(block, 'THRESHOLD'), state: block.getFieldValue('STATE') === 'hidden' ? 'hidden' : 'visible', mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') } as AutomationStep;
     case 'bao_click_image':
       if (block.getFieldValue('ASSET') === COORDINATE_TARGET) return { ...(extra.type === 'click-coordinate' ? extra : {}), type: 'click-coordinate', coordinate: relativeCoordinate(LL, block), button: block.getFieldValue('BUTTON'), clickCount: number(block, 'COUNT') as 1 | 2 | 3 } as AutomationStep;
-      return { ...(extra.type === 'click-image' ? extra : {}), type: 'click-image', ...imageTarget(block), threshold: number(block, 'THRESHOLD'), mask: imageMask(block), button: block.getFieldValue('BUTTON'), clickCount: number(block, 'COUNT') as 1 | 2 | 3, verifyBeforeClick: block.getFieldValue('VERIFY') === 'TRUE', maxMovementPx: number(block, 'MOVEMENT') } as AutomationStep;
+      return { ...(extra.type === 'click-image' ? extra : {}), type: 'click-image', ...requiredImageTarget(LL, block), threshold: number(block, 'THRESHOLD'), mask: imageMask(block), button: block.getFieldValue('BUTTON'), clickCount: number(block, 'COUNT') as 1 | 2 | 3, verifyBeforeClick: block.getFieldValue('VERIFY') === 'TRUE', maxMovementPx: number(block, 'MOVEMENT'), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') } as AutomationStep;
     case 'bao_move_to_image':
       if (block.getFieldValue('ASSET') === COORDINATE_TARGET) return { ...(extra.type === 'move-to-coordinate' ? extra : {}), type: 'move-to-coordinate', coordinate: relativeCoordinate(LL, block) } as AutomationStep;
-      return { ...(extra.type === 'move-to-image' ? extra : {}), type: 'move-to-image', ...imageTarget(block), threshold: number(block, 'THRESHOLD'), mask: imageMask(block) } as AutomationStep;
+      return { ...(extra.type === 'move-to-image' ? extra : {}), type: 'move-to-image', ...requiredImageTarget(LL, block), threshold: number(block, 'THRESHOLD'), mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') } as AutomationStep;
     case 'bao_drag_image': {
       let source = pointerTarget(LL, block, 'SOURCE');
       let target = pointerTarget(LL, block, 'TARGET');
@@ -311,7 +340,7 @@ function compileBlock(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockl
       const savedTarget = savedLegacyTarget ?? (savedDragTarget?.kind === 'image' ? savedDragTarget.condition : undefined);
       if (source.kind === 'image') source = { kind: 'image', condition: { ...savedSource, ...source.condition } };
       if (target.kind === 'image') target = { kind: 'image', condition: { ...savedTarget, ...target.condition } };
-      const options = { button: block.getFieldValue('BUTTON'), durationMs: number(block, 'DURATION'), timeoutMs: number(block, 'TIMEOUT') };
+      const options = { button: block.getFieldValue('BUTTON'), durationMs: number(block, 'DURATION'), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') };
       if (source.kind === 'image' && target.kind === 'image') return {
         ...(extra.type === 'drag-image' ? extra : {}), type: 'drag-image', source: source.condition, target: target.condition, ...options,
       } as AutomationStep;
@@ -319,16 +348,16 @@ function compileBlock(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockl
     }
     case 'bao_key_press': return { ...extra, type: 'key-press', key: String(block.getFieldValue('KEY')) } as AutomationStep;
     case 'bao_key_combo': return { ...extra, type: 'key-press', key: String(block.getFieldValue('KEY')), modifiers: modifiers(block) } as AutomationStep;
-    case 'bao_hold_key_until_image': return { ...extra, type: 'key-hold-until-image', key: String(block.getFieldValue('KEY')), ...imageTarget(block), state: block.getFieldValue('STATE') === 'hidden' ? 'hidden' : 'visible', mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT') } as AutomationStep;
+    case 'bao_hold_key_until_image': return { ...extra, type: 'key-hold-until-image', key: String(block.getFieldValue('KEY')), ...requiredImageTarget(LL, block), threshold: number(block, 'THRESHOLD'), state: block.getFieldValue('STATE') === 'hidden' ? 'hidden' : 'visible', mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') } as AutomationStep;
     case 'bao_random_click_region': return { ...extra, type: 'random-click-region', region: relativeSearchRegion(LL, block), button: block.getFieldValue('BUTTON'), clickCount: number(block, 'COUNT'), padding: number(block, 'PADDING') } as AutomationStep;
     case 'bao_vision_region': return { ...extra, type: 'vision-region', region: relativeSearchRegion(LL, block), body: compileSequence(LL, block.getInputTargetBlock('DO'), extra.type === 'vision-region' ? extra.body : undefined) } as AutomationStep;
-    case 'bao_if_image': return { ...extra, type: 'if-image', condition: { ...(extra.type === 'if-image' ? extra.condition : {}), ...assetCondition(block) }, negate: block.getFieldValue('MODE') === 'missing', then: compileSequence(LL, block.getInputTargetBlock('THEN'), extra.type === 'if-image' ? extra.then : undefined), else: compileSequence(LL, block.getInputTargetBlock('ELSE'), extra.type === 'if-image' ? extra.else : undefined) } as AutomationStep;
+    case 'bao_if_image': return { ...extra, type: 'if-image', condition: { ...(extra.type === 'if-image' ? extra.condition : {}), ...assetCondition(LL, block) }, negate: block.getFieldValue('MODE') === 'missing', then: compileSequence(LL, block.getInputTargetBlock('THEN'), extra.type === 'if-image' ? extra.then : undefined), else: compileSequence(LL, block.getInputTargetBlock('ELSE'), extra.type === 'if-image' ? extra.else : undefined) } as AutomationStep;
     case 'bao_if_condition': return { ...extra, type: 'if-condition', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), then: compileSequence(LL, block.getInputTargetBlock('THEN'), extra.type === 'if-condition' ? extra.then : undefined), else: compileSequence(LL, block.getInputTargetBlock('ELSE'), extra.type === 'if-condition' ? extra.else : undefined) } as AutomationStep;
-    case 'bao_wait_condition': return { ...extra, type: 'wait-condition', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), timeoutMs: number(block, 'TIMEOUT') } as AutomationStep;
-    case 'bao_wait_condition_branch': return { ...extra, type: 'wait-condition-branch', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), timeoutMs: number(block, 'TIMEOUT'), success: compileSequence(LL, block.getInputTargetBlock('SUCCESS'), extra.type === 'wait-condition-branch' ? extra.success : undefined), timeout: compileSequence(LL, block.getInputTargetBlock('TIMEOUT_BRANCH'), extra.type === 'wait-condition-branch' ? extra.timeout : undefined) } as AutomationStep;
+    case 'bao_wait_condition': return { ...extra, type: 'wait-condition', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') } as AutomationStep;
+    case 'bao_wait_condition_branch': return { ...extra, type: 'wait-condition-branch', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE'), success: compileSequence(LL, block.getInputTargetBlock('SUCCESS'), extra.type === 'wait-condition-branch' ? extra.success : undefined), timeout: compileSequence(LL, block.getInputTargetBlock('TIMEOUT_BRANCH'), extra.type === 'wait-condition-branch' ? extra.timeout : undefined) } as AutomationStep;
     case 'bao_end': return { ...extra, type: 'end', result: block.getFieldValue('RESULT') === 'failure' ? 'failure' : 'success', message: String(block.getFieldValue('MESSAGE') || '') || undefined } as AutomationStep;
     case 'bao_repeat': return { ...extra, type: 'repeat', times: number(block, 'TIMES'), body: compileSequence(LL, block.getInputTargetBlock('DO'), extra.type === 'repeat' ? extra.body : undefined) } as AutomationStep;
-    case 'bao_repeat_until_image': return { ...extra, type: 'repeat-until-image', condition: { ...(extra.type === 'repeat-until-image' ? extra.condition : {}), type: 'image-visible', ...imageTarget(block), mask: imageMask(block) }, until: block.getFieldValue('UNTIL') === 'hidden' ? 'hidden' : 'visible', maxIterations: number(block, 'MAX'), body: compileSequence(LL, block.getInputTargetBlock('DO'), extra.type === 'repeat-until-image' ? extra.body : undefined) } as AutomationStep;
+    case 'bao_repeat_until_image': return { ...extra, type: 'repeat-until-image', condition: { ...(extra.type === 'repeat-until-image' ? extra.condition : {}), type: 'image-visible', ...requiredImageTarget(LL, block), threshold: number(block, 'THRESHOLD'), mask: imageMask(block) }, until: block.getFieldValue('UNTIL') === 'hidden' ? 'hidden' : 'visible', maxIterations: number(block, 'MAX'), body: compileSequence(LL, block.getInputTargetBlock('DO'), extra.type === 'repeat-until-image' ? extra.body : undefined) } as AutomationStep;
     case 'bao_repeat_until_condition': return { ...extra, type: 'repeat-until-condition', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), maxIterations: number(block, 'MAX'), body: compileSequence(LL, block.getInputTargetBlock('DO'), extra.type === 'repeat-until-condition' ? extra.body : undefined) } as AutomationStep;
     case 'bao_position_compare': return { ...extra, type: 'position-compare', targetA: positionCompareTarget(LL, block, 'A'), targetB: positionCompareTarget(LL, block, 'B'), relation: block.getFieldValue('RELATION') || 'vertical', tolerancePx: number(block, 'TOLERANCE') || 10, then: compileSequence(LL, block.getInputTargetBlock('THEN'), extra.type === 'position-compare' ? extra.then : undefined), else: compileSequence(LL, block.getInputTargetBlock('ELSE'), extra.type === 'position-compare' ? extra.else : undefined) } as AutomationStep;
     default: throw new Error(LL.automation.blockly.unsupportedBlock({ type: block.type }));
@@ -357,16 +386,16 @@ function createStep(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Bloc
   preserve(block, step);
   if (writeScalarStepFields(step, (name, value) => setField(block, name, value))) return block;
   switch (step.type) {
-    case 'wait-image': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs); break;
-    case 'wait-image-state': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'STATE', step.state); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs); break;
-    case 'click-image': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'BUTTON', step.button); setField(block, 'COUNT', step.clickCount); setField(block, 'VERIFY', (step.verifyBeforeClick ?? false) ? 'TRUE' : 'FALSE'); setField(block, 'MOVEMENT', step.maxMovementPx ?? 12); break;
+    case 'wait-image': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
+    case 'wait-image-state': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'STATE', step.state); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
+    case 'click-image': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'BUTTON', step.button); setField(block, 'COUNT', step.clickCount); setField(block, 'VERIFY', (step.verifyBeforeClick ?? false) ? 'TRUE' : 'FALSE'); setField(block, 'MOVEMENT', step.maxMovementPx ?? 12); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
     case 'click-coordinate': setField(block, 'ASSET', COORDINATE_TARGET); setField(block, 'COORDINATE', `${step.coordinate.x},${step.coordinate.y}`); setField(block, 'BUTTON', step.button); setField(block, 'COUNT', step.clickCount); break;
     case 'random-click-region': setField(block, 'TOP_LEFT', `${step.region.left},${step.region.top}`); setField(block, 'BOTTOM_RIGHT', `${step.region.right},${step.region.bottom}`); setField(block, 'BUTTON', step.button ?? 'left'); setField(block, 'COUNT', step.clickCount ?? 2); setField(block, 'PADDING', step.padding ?? 0); break;
     case 'vision-region': setField(block, 'TOP_LEFT', `${step.region.left},${step.region.top}`); setField(block, 'BOTTOM_RIGHT', `${step.region.right},${step.region.bottom}`); connectSequence(LL, workspace, block, 'DO', step.body); break;
-    case 'move-to-image': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); break;
+    case 'move-to-image': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
     case 'move-to-coordinate': setField(block, 'ASSET', COORDINATE_TARGET); setField(block, 'COORDINATE', `${step.coordinate.x},${step.coordinate.y}`); break;
-    case 'drag-image': setField(block, 'SOURCE_ASSET', imageTargetValue(step.source)); setField(block, 'SOURCE_THRESHOLD', step.source.threshold); setField(block, 'SOURCE_MASK', step.source.mask ?? 'auto'); setField(block, 'TARGET_ASSET', imageTargetValue(step.target)); setField(block, 'TARGET_THRESHOLD', step.target.threshold); setField(block, 'TARGET_MASK', step.target.mask ?? 'auto'); setField(block, 'BUTTON', step.button); setField(block, 'DURATION', step.durationMs); setField(block, 'TIMEOUT', step.timeoutMs); break;
-    case 'drag': setPointerTarget(block, 'SOURCE', step.source); setPointerTarget(block, 'TARGET', step.target); setField(block, 'BUTTON', step.button); setField(block, 'DURATION', step.durationMs); setField(block, 'TIMEOUT', step.timeoutMs); break;
+    case 'drag-image': setField(block, 'SOURCE_ASSET', imageTargetValue(step.source)); setField(block, 'SOURCE_THRESHOLD', step.source.threshold); setField(block, 'SOURCE_MASK', step.source.mask ?? 'auto'); setField(block, 'TARGET_ASSET', imageTargetValue(step.target)); setField(block, 'TARGET_THRESHOLD', step.target.threshold); setField(block, 'TARGET_MASK', step.target.mask ?? 'auto'); setField(block, 'BUTTON', step.button); setField(block, 'DURATION', step.durationMs); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
+    case 'drag': setPointerTarget(block, 'SOURCE', step.source); setPointerTarget(block, 'TARGET', step.target); setField(block, 'BUTTON', step.button); setField(block, 'DURATION', step.durationMs); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
     case 'key-press':
       setField(block, 'KEY', step.key);
       setField(block, 'ALT', step.modifiers?.includes('alt') ? 'TRUE' : 'FALSE');
@@ -374,14 +403,14 @@ function createStep(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Bloc
       setField(block, 'META', step.modifiers?.includes('meta') ? 'TRUE' : 'FALSE');
       setField(block, 'SHIFT', step.modifiers?.includes('shift') ? 'TRUE' : 'FALSE');
       break;
-    case 'key-hold-until-image': setField(block, 'KEY', step.key); setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'STATE', step.state); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs); break;
+    case 'key-hold-until-image': setField(block, 'KEY', step.key); setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'STATE', step.state); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
     case 'if-image': setField(block, 'ASSET', imageTargetValue(step.condition)); setField(block, 'THRESHOLD', step.condition.threshold); setField(block, 'MASK', step.condition.mask ?? 'auto'); setField(block, 'MODE', step.negate ? 'missing' : 'found'); connectSequence(LL, workspace, block, 'THEN', step.then); if (step.else) connectSequence(LL, workspace, block, 'ELSE', step.else); break;
     case 'if-condition': connectCondition(LL, workspace, block, 'CONDITION', step.condition); connectSequence(LL, workspace, block, 'THEN', step.then); if (step.else) connectSequence(LL, workspace, block, 'ELSE', step.else); break;
-    case 'wait-condition': connectCondition(LL, workspace, block, 'CONDITION', step.condition); setField(block, 'TIMEOUT', step.timeoutMs); break;
-    case 'wait-condition-branch': connectCondition(LL, workspace, block, 'CONDITION', step.condition); setField(block, 'TIMEOUT', step.timeoutMs); connectSequence(LL, workspace, block, 'SUCCESS', step.success); connectSequence(LL, workspace, block, 'TIMEOUT_BRANCH', step.timeout); break;
+    case 'wait-condition': connectCondition(LL, workspace, block, 'CONDITION', step.condition); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
+    case 'wait-condition-branch': connectCondition(LL, workspace, block, 'CONDITION', step.condition); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); connectSequence(LL, workspace, block, 'SUCCESS', step.success); connectSequence(LL, workspace, block, 'TIMEOUT_BRANCH', step.timeout); break;
     case 'end': setField(block, 'RESULT', step.result); setField(block, 'MESSAGE', step.message); break;
     case 'repeat': setField(block, 'TIMES', step.times); connectSequence(LL, workspace, block, 'DO', step.body); break;
-    case 'repeat-until-image': setField(block, 'ASSET', imageTargetValue(step.condition)); setField(block, 'UNTIL', step.until); setField(block, 'MASK', step.condition.mask ?? 'auto'); setField(block, 'MAX', step.maxIterations); connectSequence(LL, workspace, block, 'DO', step.body); break;
+    case 'repeat-until-image': setField(block, 'ASSET', imageTargetValue(step.condition)); setField(block, 'UNTIL', step.until); setField(block, 'THRESHOLD', step.condition.threshold); setField(block, 'MASK', step.condition.mask ?? 'auto'); setField(block, 'MAX', step.maxIterations); connectSequence(LL, workspace, block, 'DO', step.body); break;
     case 'repeat-until-condition': connectCondition(LL, workspace, block, 'CONDITION', step.condition); setField(block, 'MAX', step.maxIterations); connectSequence(LL, workspace, block, 'DO', step.body); break;
     case 'position-compare':
       setField(block, 'A_TYPE', step.targetA.kind === 'image' ? 'image' : 'coordinate');
@@ -471,7 +500,7 @@ const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { pack
       Blockly.Xml.domToWorkspace(xmlRef.current, workspace);
       xmlRef.current = null;
     } else {
-      loadIntoWorkspace(LL, workspace, workflowRef.current ?? { formatVersion: 1, id: 'new-automation', name: LL.automation.blockly.defaultWorkflowName(), root: { type: 'sequence', steps: [] } });
+      loadIntoWorkspace(LL, workspace, workflowRef.current ?? { formatVersion: 2, viewport: DEFAULT_AUTOMATION_VIEWPORT, id: 'new-automation', name: LL.automation.blockly.defaultWorkflowName(), root: { type: 'sequence', steps: [] } });
     }
     const observer = new ResizeObserver(() => Blockly.svgResize(workspace)); observer.observe(host);
     const draftKey = `baoauto:draft:${packageId || 'new-automation'}`;
@@ -507,12 +536,13 @@ const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { pack
       const readyAsset = conditional ? String(starts[0].getFieldValue('ASSET') || '').trim() : '';
       const readySource = preserved<ImageCondition>(starts[0]);
       return {
-        formatVersion: 1,
+        formatVersion: 2,
+        viewport: source?.viewport ?? DEFAULT_AUTOMATION_VIEWPORT,
         id: source?.id ?? 'new-automation',
         name: source?.name ?? LL.automation.blockly.defaultWorkflowName(),
         description: source?.description,
         ...(regional ? { searchRegion: relativeSearchRegion(LL, starts[0]) } : {}),
-        ...(combined ? { readyWhen: compileCondition(LL, starts[0].getInputTargetBlock('CONDITION')) } : readyAsset ? { readyWhen: { ...readySource, type: 'image-visible' as const, ...imageTarget(starts[0]), threshold: number(starts[0], 'THRESHOLD'), mask: imageMask(starts[0]) } } : {}),
+        ...(combined ? { readyWhen: compileCondition(LL, starts[0].getInputTargetBlock('CONDITION')) } : readyAsset ? { readyWhen: { ...readySource, type: 'image-visible' as const, ...requiredImageTarget(LL, starts[0]), threshold: number(starts[0], 'THRESHOLD'), mask: imageMask(starts[0]) } } : {}),
         root: compileSequence(LL, starts[0].getInputTargetBlock('DO'), source?.root),
       };
     },

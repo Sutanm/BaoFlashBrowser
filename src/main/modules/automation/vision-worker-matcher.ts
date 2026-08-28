@@ -121,6 +121,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly sentTemplates = new Set<string>();
+  private sentFrameId: number | undefined;
   private lastStats: Partial<ImageMatch> = {};
 
   constructor(templates: AutomationTemplateProvider, options: OpenCvWorkerMatcherOptions = {}) {
@@ -162,7 +163,9 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     if (signal.aborted) throw new Error('automation cancelled');
     const uniqueAssets = [...new Set(assets)];
     if (uniqueAssets.length === 0) throw new Error('at least one automation image asset is required');
+    const templateLoadStartedAt = Date.now();
     const templates = await Promise.all(uniqueAssets.map(async (asset) => ({ asset, pixels: await this.templates.load(asset, signal) })));
+    const templateLoadMs = Date.now() - templateLoadStartedAt;
     for (const template of templates) {
       if (template.pixels.width <= 0 || template.pixels.height <= 0
         || template.pixels.bgra.byteLength !== template.pixels.width * template.pixels.height * 4) {
@@ -185,6 +188,9 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
         originX: deviceOrigin.x + deviceRegion.x, originY: deviceOrigin.y + deviceRegion.y,
       }
       : { width: bitmapSize.width, height: bitmapSize.height, originX: deviceOrigin.x, originY: deviceOrigin.y };
+    const reusableFrameId = deviceRegion ? undefined : frame.frameId;
+    const reuseScene = reusableFrameId !== undefined && this.sentFrameId === reusableFrameId;
+    const sceneTransferBytes = reuseScene ? new Uint8Array(0) : sceneBytes;
     const availableTemplateKeys = new Set(this.sentTemplates);
     const templatePayloads = templates.map(({ asset, pixels }) => {
       const include = !availableTemplateKeys.has(pixels.cacheKey);
@@ -192,8 +198,11 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
       return { asset, pixels, include };
     });
     const id = this.nextId++;
+    const workerReadyStartedAt = Date.now();
     this.ensureWorker();
     await this.waitUntilWorkerReady(signal);
+    const workerReadyMs = Date.now() - workerReadyStartedAt;
+    let sharedCopyMs = 0;
 
     const result = await new Promise<ImageMatch | null>((resolve, reject) => {
       const onAbort = (): void => this.restartWorker(new Error('automation cancelled'));
@@ -221,7 +230,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
       });
       const metadata = Buffer.from(JSON.stringify({
         id,
-        scene,
+        scene: { ...scene, frameId: reusableFrameId ?? id, reuse: reuseScene },
         templates: templateMetadata,
         options: {
           threshold: options.threshold,
@@ -235,14 +244,15 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
         this.restartWorker(new Error('OpenCV worker shared channel is busy'));
         return;
       }
-      const totalBytes = metadata.byteLength + sceneBytes.byteLength + templateOffset;
+      const totalBytes = metadata.byteLength + sceneTransferBytes.byteLength + templateOffset;
       if (totalBytes > data.byteLength) {
         this.restartWorker(new Error(`OpenCV request exceeds shared buffer budget: ${totalBytes} > ${data.byteLength}`));
         return;
       }
+      const sharedCopyStartedAt = Date.now();
       data.set(metadata, 0);
-      data.set(sceneBytes, metadata.byteLength);
-      const templateStart = metadata.byteLength + sceneBytes.byteLength;
+      data.set(sceneTransferBytes, metadata.byteLength);
+      const templateStart = metadata.byteLength + sceneTransferBytes.byteLength;
       for (let index = 0; index < templatePayloads.length; index += 1) {
         const payload = templatePayloads[index];
         if (!payload.include) continue;
@@ -250,15 +260,21 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
         data.set(payload.pixels.bgra, templateStart + descriptor.byteOffset);
         this.sentTemplates.add(payload.pixels.cacheKey);
       }
+      sharedCopyMs = Date.now() - sharedCopyStartedAt;
+      this.sentFrameId = reusableFrameId;
       Atomics.store(control, 1, id);
       Atomics.store(control, 2, metadata.byteLength);
-      Atomics.store(control, 3, sceneBytes.byteLength);
+      Atomics.store(control, 3, sceneTransferBytes.byteLength);
       Atomics.store(control, 4, templateOffset);
       Atomics.store(control, 0, 1);
       Atomics.notify(control, 0);
     });
-    this.lastStats = { ...this.lastStats, sceneBytes: sceneBytes.byteLength };
-    return result ? { ...result, sceneBytes: sceneBytes.byteLength } : null;
+    const requestStats = {
+      templateLoadMs, workerReadyMs, sharedCopyMs,
+      sceneBytes: sceneBytes.byteLength, sceneTransferBytes: sceneTransferBytes.byteLength,
+    };
+    this.lastStats = { ...this.lastStats, ...requestStats };
+    return result ? { ...result, ...requestStats } : null;
   }
 
   async close(): Promise<void> {
@@ -270,6 +286,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     this.workerReady = null;
     this.rejectAll(new Error('OpenCV matcher closed'));
     this.sentTemplates.clear();
+    this.sentFrameId = undefined;
     this.sharedControl = null;
     this.sharedData = null;
     if (worker) await worker.terminate();
@@ -362,6 +379,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     this.resolveWorkerReady = null;
     this.rejectWorkerReady = null;
     this.sentTemplates.clear();
+    this.sentFrameId = undefined;
     this.rejectAll(reason);
     if (worker) void worker.terminate();
   }

@@ -1,0 +1,5 @@
+{
+  "name": "bao-automation-viewport-linux-probe",
+  "private": true,
+  "main": "automation-fixed-viewport-probe.cjs"
+}

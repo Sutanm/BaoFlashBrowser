@@ -5,9 +5,24 @@ import {
 } from '../src/shared/automation/schema';
 
 describe('automation workflow schema', () => {
+  it('uses the v2 fixed logical viewport and rejects v1 workflows', () => {
+    const workflow = parseAutomationWorkflow({
+      formatVersion: 2, id: 'fixed-viewport', name: 'Fixed viewport',
+      root: { type: 'sequence', steps: [] },
+    });
+    expect(workflow.viewport).toEqual({ mode: 'fixed', width: 1280, height: 720 });
+    expect(() => parseAutomationWorkflow({
+      formatVersion: 1, id: 'legacy', name: 'Legacy', root: { type: 'sequence', steps: [] },
+    })).toThrow();
+    expect(() => parseAutomationWorkflow({
+      formatVersion: 2, viewport: { mode: 'fixed', width: 320, height: 200 },
+      id: 'tiny', name: 'Tiny', root: { type: 'sequence', steps: [] },
+    })).toThrow();
+  });
+
   it('validates branches and collects every referenced asset', () => {
     const workflow = parseAutomationWorkflow({
-      formatVersion: 1,
+      formatVersion: 2,
       id: 'daily-login',
       name: '每日登录',
       readyWhen: { type: 'image-visible', asset: 'pages/home.png', threshold: 0.91 },
@@ -65,13 +80,13 @@ describe('automation workflow schema', () => {
 
   it('rejects unsafe asset ids and unbounded repeat counts', () => {
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1,
+      formatVersion: 2,
       id: 'bad',
       name: 'Bad',
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: '../secret.png' }] },
     })).toThrow();
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1,
+      formatVersion: 2,
       id: 'bad-repeat',
       name: 'Bad repeat',
       root: { type: 'sequence', steps: [{ type: 'repeat', times: 1001, body: { type: 'sequence', steps: [] } }] },
@@ -80,7 +95,7 @@ describe('automation workflow schema', () => {
 
   it('allows only http(s) navigation', () => {
     const base = {
-      formatVersion: 1, id: 'navigation', name: 'Navigation',
+      formatVersion: 2, id: 'navigation', name: 'Navigation',
       root: { type: 'sequence', steps: [] as unknown[] },
     };
     expect(() => parseAutomationWorkflow({ ...base, root: { type: 'sequence', steps: [{ type: 'navigate', url: 'file:///secret' }] } })).toThrow();
@@ -89,25 +104,25 @@ describe('automation workflow schema', () => {
 
   it('rejects duplicate combination-key modifiers', () => {
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'duplicate-modifier', name: 'Duplicate modifier',
+      formatVersion: 2, id: 'duplicate-modifier', name: 'Duplicate modifier',
       root: { type: 'sequence', steps: [{ type: 'key-press', key: 'A', modifiers: ['control', 'control'] }] },
     })).toThrow(/modifiers must be unique/);
   });
 
   it('validates guarded image clicks', () => {
     expect(parseAutomationWorkflow({
-      formatVersion: 1, id: 'guarded-click', name: 'Guarded click',
+      formatVersion: 2, id: 'guarded-click', name: 'Guarded click',
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'button.png', verifyBeforeClick: true, maxMovementPx: 12 }] },
     }).root.steps[0]).toMatchObject({ verifyBeforeClick: true, maxMovementPx: 12 });
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'bad-guard', name: 'Bad guard',
+      formatVersion: 2, id: 'bad-guard', name: 'Bad guard',
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'button.png', maxMovementPx: 501 }] },
     })).toThrow();
   });
 
   it('bounds drag duration and validates both image endpoints', () => {
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'bad-drag', name: 'Bad drag',
+      formatVersion: 2, id: 'bad-drag', name: 'Bad drag',
       root: { type: 'sequence', steps: [{
         type: 'drag-image', source: { type: 'image-visible', asset: 'A.png' },
         target: { type: 'image-visible', asset: '../B.png' }, durationMs: 10_001,
@@ -117,20 +132,20 @@ describe('automation workflow schema', () => {
 
   it('validates normalized coordinate clicks without adding image assets', () => {
     const workflow = parseAutomationWorkflow({
-      formatVersion: 1, id: 'coordinate-click', name: 'Coordinate click',
+      formatVersion: 2, id: 'coordinate-click', name: 'Coordinate click',
       root: { type: 'sequence', steps: [{ type: 'click-coordinate', coordinate: { x: 0, y: 10000 }, clickCount: 2 }] },
     });
     expect(workflow.root.steps[0]).toMatchObject({ coordinate: { x: 0, y: 10000 } });
     expect([...collectWorkflowAssetIds(workflow)]).toEqual([]);
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'bad-coordinate', name: 'Bad coordinate',
+      formatVersion: 2, id: 'bad-coordinate', name: 'Bad coordinate',
       root: { type: 'sequence', steps: [{ type: 'click-coordinate', coordinate: { x: 10001, y: 1 } }] },
     })).toThrow();
   });
 
   it('validates random region clicks and requires padding to leave usable space', () => {
     const workflow = parseAutomationWorkflow({
-      formatVersion: 1, id: 'random-region-click', name: 'Random region click',
+      formatVersion: 2, id: 'random-region-click', name: 'Random region click',
       root: { type: 'sequence', steps: [{
         type: 'random-click-region', region: { left: 1000, top: 2000, right: 9000, bottom: 8000 },
         button: 'right', clickCount: 3, padding: 500,
@@ -139,7 +154,7 @@ describe('automation workflow schema', () => {
     expect(workflow.root.steps[0]).toMatchObject({ type: 'random-click-region', padding: 500 });
     expect([...collectWorkflowAssetIds(workflow)]).toEqual([]);
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'bad-random-region-click', name: 'Bad random region click',
+      formatVersion: 2, id: 'bad-random-region-click', name: 'Bad random region click',
       root: { type: 'sequence', steps: [{
         type: 'random-click-region', region: { left: 1000, top: 1000, right: 2000, bottom: 2000 }, padding: 500,
       }] },
@@ -148,7 +163,7 @@ describe('automation workflow schema', () => {
 
   it('validates general pointer targets, timeout branches and explicit script endings', () => {
     const workflow = parseAutomationWorkflow({
-      formatVersion: 1, id: 'general-controls', name: 'General controls',
+      formatVersion: 2, id: 'general-controls', name: 'General controls',
       root: { type: 'sequence', steps: [
         { type: 'move-to-coordinate', coordinate: { x: 5000, y: 4000 } },
         { type: 'drag', source: { kind: 'coordinate', coordinate: { x: 1000, y: 2000 } }, target: { kind: 'image', condition: { type: 'image-visible', asset: 'drop.png' } } },
@@ -157,34 +172,46 @@ describe('automation workflow schema', () => {
     });
     expect([...collectWorkflowAssetIds(workflow)].sort()).toEqual(['done.png', 'drop.png']);
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'bad-pointer', name: 'Bad pointer',
+      formatVersion: 2, id: 'bad-pointer', name: 'Bad pointer',
       root: { type: 'sequence', steps: [{ type: 'drag', source: { kind: 'coordinate', coordinate: { x: -1, y: 0 } }, target: { kind: 'coordinate', coordinate: { x: 1, y: 1 } } }] },
     })).toThrow();
   });
 
   it('validates a normalized default image search region', () => {
     const workflow = parseAutomationWorkflow({
-      formatVersion: 1, id: 'game-region', name: 'Game region',
+      formatVersion: 2, id: 'game-region', name: 'Game region',
       searchRegion: { left: 1000, top: 750, right: 9000, bottom: 9250 },
       root: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'game/button.png' }] },
     });
     expect(workflow.searchRegion).toEqual({ left: 1000, top: 750, right: 9000, bottom: 9250 });
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'inverted-region', name: 'Inverted region',
+      formatVersion: 2, id: 'inverted-region', name: 'Inverted region',
       searchRegion: { left: 8000, top: 1000, right: 2000, bottom: 9000 },
       root: { type: 'sequence', steps: [] },
     })).toThrow(/positive width/);
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'two-entries', name: 'Two entries',
+      formatVersion: 2, id: 'two-entries', name: 'Two entries',
       searchRegion: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
       readyWhen: { type: 'image-visible', asset: 'ready.png' },
       root: { type: 'sequence', steps: [] },
     })).toThrow(/cannot also define readyWhen/);
   });
 
+  it('accepts the new minimum-cycle field and rejects the removed poll field', () => {
+    const base = {
+      formatVersion: 2, id: 'cycle-format', name: 'Cycle format',
+      root: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'ready.png', minCycleMs: 0 }] },
+    };
+    expect(() => parseAutomationWorkflow(base)).not.toThrow();
+    expect(() => parseAutomationWorkflow({
+      ...base,
+      root: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'ready.png', pollMs: 200 }] },
+    })).toThrow();
+  });
+
   it('validates nested fast recognition regions and collects assets inside them', () => {
     const workflow = parseAutomationWorkflow({
-      formatVersion: 1, id: 'vision-region', name: 'Vision region',
+      formatVersion: 2, id: 'vision-region', name: 'Vision region',
       searchRegion: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
       root: { type: 'sequence', steps: [{
         type: 'vision-region', region: { left: 2000, top: 2000, right: 8000, bottom: 8000 },
@@ -197,7 +224,7 @@ describe('automation workflow schema', () => {
     expect([...collectWorkflowAssetIds(workflow)]).toEqual(['inside.png']);
 
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'disjoint-vision-region', name: 'Disjoint vision region',
+      formatVersion: 2, id: 'disjoint-vision-region', name: 'Disjoint vision region',
       searchRegion: { left: 0, top: 0, right: 4000, bottom: 4000 },
       root: { type: 'sequence', steps: [{
         type: 'vision-region', region: { left: 5000, top: 5000, right: 9000, bottom: 9000 },
@@ -208,21 +235,21 @@ describe('automation workflow schema', () => {
 
   it('accepts the automatic image mask and rejects unknown mask modes', () => {
     const parsed = parseAutomationWorkflow({
-      formatVersion: 1, id: 'auto-mask', name: 'Auto mask',
+      formatVersion: 2, id: 'auto-mask', name: 'Auto mask',
       readyWhen: { type: 'image-visible', asset: 'ready.png', mask: 'auto' },
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'button.png', mask: 'auto' }] },
     });
     expect(parsed.readyWhen).toMatchObject({ mask: 'auto' });
     expect(parsed.root.steps[0]).toMatchObject({ mask: 'auto' });
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'bad-mask', name: 'Bad mask',
+      formatVersion: 2, id: 'bad-mask', name: 'Bad mask',
       root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'button.png', mask: 'background-removal' }] },
     })).toThrow();
   });
 
   it('supports a combined readiness condition and collects its assets', () => {
     const workflow = parseAutomationWorkflow({
-      formatVersion: 1, id: 'combined-ready', name: 'Combined ready',
+      formatVersion: 2, id: 'combined-ready', name: 'Combined ready',
       readyWhen: { type: 'all', conditions: [
         { type: 'image-visible', asset: 'page.png' },
         { type: 'not', condition: { type: 'image-visible', asset: 'popup.png' } },
@@ -234,7 +261,7 @@ describe('automation workflow schema', () => {
 
   it('validates image groups and collects all member assets', () => {
     const workflow = parseAutomationWorkflow({
-      formatVersion: 1, id: 'directions', name: 'Directions',
+      formatVersion: 2, id: 'directions', name: 'Directions',
       readyWhen: {
         type: 'image-visible', asset: '角色/行走/left.png',
         alternatives: ['角色/行走/right.png', '角色/行走/up.png', '角色/行走/down.png'],
@@ -245,7 +272,7 @@ describe('automation workflow schema', () => {
       '角色/行走/down.png', '角色/行走/left.png', '角色/行走/right.png', '角色/行走/up.png',
     ]);
     expect(() => parseAutomationWorkflow({
-      formatVersion: 1, id: 'duplicate-group', name: 'Duplicate group',
+      formatVersion: 2, id: 'duplicate-group', name: 'Duplicate group',
       root: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'a.png', alternatives: ['b.png', 'b.png'] }] },
     })).toThrow(/alternatives must be unique/);
   });

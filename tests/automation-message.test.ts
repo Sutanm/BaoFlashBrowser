@@ -20,7 +20,7 @@ const ll = {
         stepNext: vi.fn(() => 'next'),
         scriptCompleted: vi.fn(() => 'done'),
         scriptStopped: vi.fn(() => 'stopped'),
-        imageMatch: vi.fn((p: { asset: string; score: string; ms: string }) => `img ${p.asset} ${p.score}% ${p.ms}ms`),
+        imageMatch: vi.fn((p: { asset: string; score: string; totalMs: string; captureMs: string; matchMs: string }) => `img ${p.asset} ${p.score}% ${p.totalMs}ms`),
         pausedNext: vi.fn((p: { step: string }) => `paused next ${p.step}`),
       },
       step: {
@@ -77,7 +77,7 @@ describe('resolveAutomationMessage against real dictionaries', () => {
       { key: 'status.stepNext' },
       { key: 'status.scriptCompleted' },
       { key: 'status.scriptStopped' },
-      { key: 'status.imageMatch', params: { asset: 'a.png', score: '85.0', ms: '10' } },
+      { key: 'status.imageMatch', params: { asset: 'a.png', score: '85.0', totalMs: '18', captureMs: '5', matchMs: '10' } },
       { key: 'status.randomClickCoordinate', params: { x: 5000, y: 4000 } },
       { key: 'status.pausedNext', params: { step: { key: 'step.clickImage', params: { asset: 'b.png' } } } },
       { key: 'step.sequence' },

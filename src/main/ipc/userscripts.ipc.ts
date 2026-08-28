@@ -15,6 +15,7 @@ import type { UserscriptReport } from '../../shared/userscript-types';
 import { getAutomationService } from './automation.ipc';
 import { tabManager } from '../modules/tabs';
 import { previewRectToSource } from '../modules/automation/capture-geometry';
+import { DEFAULT_AUTOMATION_VIEWPORT } from '../../shared/automation/types';
 
 const commandIdSchema = z.object({ commandId: z.string() });
 
@@ -33,7 +34,7 @@ export function registerUserscriptsIPC(): void {
     const installed = active?.getScriptMetadata(scriptId);
     return Boolean(scriptId === AUTOMATION_ASSISTANT_SCRIPT_ID && registration && installed?.enabled && installed.metadata.grant.includes('GM_baoAutomation'));
   };
-  const assistantCaptures = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
+  const assistantCaptures = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
   const expireAssistantCaptures = (): void => {
     const cutoff = Date.now() - 2 * 60_000;
     for (const [token, capture] of assistantCaptures) if (capture.createdAt < cutoff) {
@@ -64,16 +65,18 @@ export function registerUserscriptsIPC(): void {
     const tabId = tabManager.getTabIdForWebContents(event.sender.id);
     if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
     await service.whenReady();
-    const captured = await service.captureReferenceFrame(tabId);
-    const image = nativeImage.createFromBuffer(Buffer.from(captured.png));
-    if (image.isEmpty()) throw new Error('page capture is empty');
-    const match = await service.testAssetOnImage(parsed.data.packageId, parsed.data.asset, { width: captured.width, height: captured.height, bgra: Uint8Array.from(image.toBitmap()) }, { scales: parsed.data.options.scales, mask: parsed.data.options.mask });
-    const scale = Math.min(1, 900 / captured.width, 600 / captured.height);
-    const previewWidth = Math.max(1, Math.round(captured.width * scale));
-    const previewHeight = Math.max(1, Math.round(captured.height * scale));
+    const captured = await service.captureReferenceFrame(tabId, { retainViewport: true });
+    const source = nativeImage.createFromBuffer(Buffer.from(captured.png));
+    if (source.isEmpty()) throw new Error('page capture is empty');
+    const image = source.getSize().width === DEFAULT_AUTOMATION_VIEWPORT.width && source.getSize().height === DEFAULT_AUTOMATION_VIEWPORT.height
+      ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
+    const match = await service.testAssetOnImage(parsed.data.packageId, parsed.data.asset, { width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, bgra: Uint8Array.from(image.toBitmap()) }, { scales: parsed.data.options.scales, mask: parsed.data.options.mask });
+    const scale = Math.min(1, 900 / DEFAULT_AUTOMATION_VIEWPORT.width, 600 / DEFAULT_AUTOMATION_VIEWPORT.height);
+    const previewWidth = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.width * scale));
+    const previewHeight = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.height * scale));
     const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
     const threshold = parsed.data.options.threshold ?? .9;
-    return { dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: captured.width, sourceHeight: captured.height, candidate: match, matched: Boolean(match && match.score >= threshold), threshold };
+    return { dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height, candidate: match, matched: Boolean(match && match.score >= threshold), threshold };
   });
 
   ipcMain.handle('userscript:automation-status', async (event, raw: unknown) => {
@@ -132,15 +135,33 @@ export function registerUserscriptsIPC(): void {
     const tabId = tabManager.getTabIdForWebContents(event.sender.id);
     if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
     await service.whenReady(); expireAssistantCaptures();
-    const captured = await service.captureReferenceFrame(tabId); const image = nativeImage.createFromBuffer(Buffer.from(captured.png));
-    if (image.isEmpty()) throw new Error('unable to decode captured BrowserView frame');
-    const scale = Math.min(1, 1600 / captured.width, 1000 / captured.height);
-    const previewWidth = Math.max(1, Math.round(captured.width * scale)); const previewHeight = Math.max(1, Math.round(captured.height * scale));
+    const captured = await service.captureReferenceFrame(tabId, { retainViewport: true }); const source = nativeImage.createFromBuffer(Buffer.from(captured.png));
+    if (source.isEmpty()) throw new Error('unable to decode captured BrowserView frame');
+    const image = source.getSize().width === DEFAULT_AUTOMATION_VIEWPORT.width && source.getSize().height === DEFAULT_AUTOMATION_VIEWPORT.height
+      ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
+    const scale = Math.min(1, 1600 / DEFAULT_AUTOMATION_VIEWPORT.width, 1000 / DEFAULT_AUTOMATION_VIEWPORT.height);
+    const previewWidth = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.width * scale)); const previewHeight = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.height * scale));
     const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
     const token = randomBytes(16).toString('hex'); const timer = setTimeout(() => assistantCaptures.delete(token), 2 * 60_000); timer.unref();
-    assistantCaptures.set(token, { image, previewWidth, previewHeight, createdAt: Date.now(), timer });
+    assistantCaptures.set(token, { image, previewWidth, previewHeight, sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height, createdAt: Date.now(), timer });
     while (assistantCaptures.size > 3) { const oldest = assistantCaptures.keys().next().value as string; const removed = assistantCaptures.get(oldest); if (removed) clearTimeout(removed.timer); assistantCaptures.delete(oldest); }
-    return { token, dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: captured.width, sourceHeight: captured.height };
+    return { token, dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height };
+  });
+
+  ipcMain.handle('userscript:automation-coordinate-begin', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw); const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady(); await service.beginAuthoringViewport(tabId);
+    return { ready: true as const };
+  });
+
+  ipcMain.handle('userscript:automation-coordinate-end', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw); const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    service.endAuthoringViewport(tabId);
+    return { released: true as const };
   });
 
   ipcMain.handle('userscript:automation-save-capture', async (event, raw: unknown) => {
@@ -155,10 +176,15 @@ export function registerUserscriptsIPC(): void {
     const existing = service.getPackage(parsed.data.packageId).assets.includes(parsed.data.asset);
     if (existing && !parsed.data.overwrite) return { conflict: true as const, asset: parsed.data.asset };
     const crop = previewRectToSource(parsed.data.rect, { width: capture.previewWidth, height: capture.previewHeight }, capture.image.getSize());
-    const bytes = new Uint8Array(capture.image.crop(crop).toPNG());
+    const logicalWidth = Math.max(1, Math.round(crop.width * DEFAULT_AUTOMATION_VIEWPORT.width / capture.sourceWidth));
+    const logicalHeight = Math.max(1, Math.round(crop.height * DEFAULT_AUTOMATION_VIEWPORT.height / capture.sourceHeight));
+    const cropped = capture.image.crop(crop);
+    const normalized = crop.width === logicalWidth && crop.height === logicalHeight
+      ? cropped : cropped.resize({ width: logicalWidth, height: logicalHeight, quality: 'best' });
+    const bytes = new Uint8Array(normalized.toPNG());
     const assets = await service.importAssets(parsed.data.packageId, new Map([[parsed.data.asset, bytes]]));
     clearTimeout(capture.timer); assistantCaptures.delete(parsed.data.token);
-    return { conflict: false as const, asset: parsed.data.asset, width: crop.width, height: crop.height, assets };
+    return { conflict: false as const, asset: parsed.data.asset, width: logicalWidth, height: logicalHeight, assets };
   });
 
   // Script logging: sinks into electron-log so it lands in userData/logs/main.log.

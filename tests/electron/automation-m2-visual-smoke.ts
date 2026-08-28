@@ -74,7 +74,7 @@ app.whenReady().then(async () => {
     { getCssViewport: () => VIEWPORT },
   );
   const workflow: AutomationWorkflow = {
-    formatVersion: 1, id: 'm2-visual', name: 'M2 visual loop',
+    formatVersion: 2, id: 'm2-visual', name: 'M2 visual loop',
     root: { type: 'sequence', steps: [{
       type: 'click-image', asset: 'target.png', threshold: 0.9,
       region: { x: 50, y: 300, width: 400, height: 220 }, scales: [1], mask: 'none',

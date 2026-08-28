@@ -93,6 +93,33 @@ describe('OpenCV automation vision worker', () => {
     expect(source.load).not.toHaveBeenCalled();
   }, 30_000);
 
+  it('wakes promptly after being idle', async () => {
+    const width = 64, height = 48, x = 22, y = 17, templateWidth = 10, templateHeight = 8;
+    const scene = patterned(width, height, 72);
+    const template = crop(scene, width, x, y, templateWidth, templateHeight);
+    const { matcher } = matcherFor({ cacheKey: 'idle@1', width: templateWidth, height: templateHeight, bgra: template });
+    await matcher.warmup(new AbortController().signal);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const startedAt = Date.now();
+    const result = await matcher.find('idle.png', frame(scene, width, height), {
+      threshold: 0.99, scales: [1], mask: 'none',
+    }, new AbortController().signal);
+    expect(result).toMatchObject({ x, y });
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+  }, 30_000);
+
+  it('returns no match when a search region cannot contain the template', async () => {
+    const scene = patterned(40, 30, 14);
+    const template = patterned(16, 12, 99);
+    const { matcher } = matcherFor({ cacheKey: 'too-large@1', width: 16, height: 12, bgra: template });
+    await expect(matcher.find('too-large.png', frame(scene, 40, 30), {
+      threshold: 0.9,
+      region: { x: 5, y: 5, width: 8, height: 6 },
+      scales: [0.75, 1, 1.25],
+      mask: 'none',
+    }, new AbortController().signal)).resolves.toBeNull();
+  }, 30_000);
+
   it('finds an exact template inside a CSS-defined ROI and reuses the worker cache', async () => {
     const width = 96, height = 72, x = 41, y = 29, templateWidth = 14, templateHeight = 11;
     const scene = patterned(width, height);
@@ -115,6 +142,27 @@ describe('OpenCV automation vision worker', () => {
     expect(first!.wasmHeapBytes).toBeGreaterThan(0);
     expect(first!.templateCacheEntries).toBe(1);
     expect(second).toMatchObject({ x, y });
+    expect(source.load).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it('reuses scaled grayscale templates and masks across frames', async () => {
+    const width = 160, height = 120, x = 52, y = 38, templateWidth = 32, templateHeight = 24;
+    const scene = patterned(width, height, 817);
+    const template = crop(scene, width, x, y, templateWidth, templateHeight);
+    const { matcher, source } = matcherFor({ cacheKey: 'scaled-cache@1', width: templateWidth, height: templateHeight, bgra: template });
+    const signal = new AbortController().signal;
+    const options = { threshold: -1, scales: [0.75, 1.25], mask: 'auto' as const };
+    const captured = frame(scene, width, height);
+    captured.frameId = 101;
+    const first = await matcher.find('scaled.png', captured, options, signal);
+    const second = await matcher.find('scaled.png', captured, options, signal);
+    expect(first).toMatchObject({ scaledTemplateCacheHits: 0, scaledTemplateCacheMisses: 2 });
+    expect(second).toMatchObject({ scaledTemplateCacheHits: 2, scaledTemplateCacheMisses: 0 });
+    expect(second!.templateCacheBytes).toBe(first!.templateCacheBytes);
+    expect(first!.sceneTransferBytes).toBe(scene.byteLength);
+    expect(second!.sceneTransferBytes).toBe(0);
+    expect(second!.sceneMatMs).toBe(0);
+    expect(second!.grayMs).toBe(0);
     expect(source.load).toHaveBeenCalledTimes(1);
   }, 30_000);
 

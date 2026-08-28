@@ -42,6 +42,8 @@
     "probe": "node tools/probe/host.cjs",
     "probe:deep": "electron tools/probe/host-electron.cjs",
     "probe:automation-input": "electron tests/electron/automation-m0-input-smoke.cjs",
+    "probe:automation-viewport": "electron tests/electron/automation-fixed-viewport-probe.cjs",
+    "probe:automation-viewport-engines": "npm run build && cross-env BAO_FIXED_VIEWPORT_SCALE=0.8 electron tests/electron/automation-m0-flash-input-smoke.cjs",
     "probe:automation-visual": "electron tests/electron/automation-m0-visual-smoke.cjs",
     "probe:automation-blockly": "electron tests/electron/automation-m0-blockly-smoke.cjs",
     "probe:automation-flash": "electron tests/electron/automation-m0-flash-input-smoke.cjs",

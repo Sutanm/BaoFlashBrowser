@@ -11,8 +11,14 @@ const control = new Int32Array(workerData.controlBuffer);
 const sharedData = new Uint8Array(workerData.dataBuffer);
 const cache = new Map();
 let cacheBytes = 0;
+let retainedScene = null;
 
 function destroy(entry) {
+  for (const scaled of entry.scaled.values()) {
+    scaled.gray.delete();
+    scaled.alpha.delete();
+  }
+  entry.scaled.clear();
   entry.gray.delete();
   entry.alpha.delete();
   cacheBytes -= entry.bytes;
@@ -30,6 +36,10 @@ function trimCache() {
     cache.delete(oldest[0]);
     destroy(oldest[1]);
   }
+}
+
+function hasCacheRoom(additionalBytes) {
+  return additionalBytes <= maxCacheBytes && cacheBytes + additionalBytes <= maxCacheBytes;
 }
 
 function standardDeviation(values, mask) {
@@ -83,7 +93,7 @@ function loadTemplate(cv, descriptor) {
   const hasUsefulAlpha = transparentPixels >= minimumTransparentPixels && alphaPixels > 0 && alphaPixels < pixelCount;
   const entry = {
     gray, alpha, width: descriptor.width, height: descriptor.height, stdDev, maskedStdDev,
-    alphaPixels, hasUsefulAlpha, bytes: gray.data.length + alpha.data.length,
+    alphaPixels, hasUsefulAlpha, scaled: new Map(), bytes: gray.data.length + alpha.data.length,
   };
   if (entry.bytes > maxCacheBytes) {
     gray.delete();
@@ -96,13 +106,71 @@ function loadTemplate(cv, descriptor) {
   return entry;
 }
 
+function scaledTemplate(cv, template, scale, timings) {
+  if (scale === 1) return { gray: template.gray, alpha: template.alpha, ephemeral: false };
+  const scaleKey = String(scale);
+  const existing = template.scaled.get(scaleKey);
+  if (existing) {
+    timings.scaledTemplateCacheHits += 1;
+    return { ...existing, ephemeral: false };
+  }
+  timings.scaledTemplateCacheMisses += 1;
+  const width = Math.max(1, Math.round(template.width * scale));
+  const height = Math.max(1, Math.round(template.height * scale));
+  const gray = new cv.Mat();
+  const alpha = new cv.Mat();
+  const resizeStartedAt = Date.now();
+  cv.resize(template.gray, gray, new cv.Size(width, height), 0, 0, scale < 1 ? cv.INTER_AREA : cv.INTER_LINEAR);
+  cv.resize(template.alpha, alpha, new cv.Size(width, height), 0, 0, cv.INTER_NEAREST);
+  timings.resizeMs += Date.now() - resizeStartedAt;
+  const bytes = gray.data.length + alpha.data.length;
+  if (!hasCacheRoom(bytes)) return { gray, alpha, ephemeral: true };
+  const scaled = { gray, alpha, bytes };
+  template.scaled.set(scaleKey, scaled);
+  template.bytes += bytes;
+  cacheBytes += bytes;
+  return { ...scaled, ephemeral: false };
+}
+
 function match(cv, request) {
   const startedAt = Date.now();
-  const sceneBgra = cv.matFromArray(request.scene.height, request.scene.width, cv.CV_8UC4, request.scene.bgra);
-  const sceneGray = new cv.Mat();
+  const timings = {
+    sceneMatMs: 0, grayMs: 0, resizeMs: 0, matchTemplateMs: 0,
+    scaledTemplateCacheHits: 0, scaledTemplateCacheMisses: 0,
+  };
+  let sceneGray;
+  if (request.scene.reuse) {
+    if (!retainedScene || retainedScene.frameId !== request.scene.frameId
+      || retainedScene.width !== request.scene.width || retainedScene.height !== request.scene.height) {
+      throw new Error(`captured frame cache miss: ${request.scene.frameId}`);
+    }
+    sceneGray = retainedScene.gray;
+  } else {
+    const sceneMatStartedAt = Date.now();
+    const sceneBgra = cv.matFromArray(request.scene.height, request.scene.width, cv.CV_8UC4, request.scene.bgra);
+    timings.sceneMatMs += Date.now() - sceneMatStartedAt;
+    const nextGray = new cv.Mat();
+    try {
+      const grayStartedAt = Date.now();
+      cv.cvtColor(sceneBgra, nextGray, cv.COLOR_BGRA2GRAY);
+      timings.grayMs += Date.now() - grayStartedAt;
+    } catch (error) {
+      nextGray.delete();
+      throw error;
+    } finally {
+      sceneBgra.delete();
+    }
+    if (retainedScene) retainedScene.gray.delete();
+    retainedScene = {
+      frameId: request.scene.frameId,
+      width: request.scene.width,
+      height: request.scene.height,
+      gray: nextGray,
+    };
+    sceneGray = nextGray;
+  }
   let roi = null;
   try {
-    cv.cvtColor(sceneBgra, sceneGray, cv.COLOR_BGRA2GRAY);
     const region = request.options.region || { x: 0, y: 0, width: request.scene.width, height: request.scene.height };
     roi = sceneGray.roi(new cv.Rect(region.x, region.y, region.width, region.height));
     let best = null;
@@ -112,6 +180,7 @@ function match(cv, request) {
       ? [[1], requestedScales.filter((scale) => scale !== 1)]
       : [requestedScales];
     const testedScales = [];
+    let usableCandidateCount = 0;
     for (let passIndex = 0; passIndex < scalePasses.length; passIndex += 1) {
       const pass = scalePasses[passIndex];
       testedScales.push(...pass);
@@ -121,23 +190,23 @@ function match(cv, request) {
           const width = Math.max(1, Math.round(template.width * scale));
           const height = Math.max(1, Math.round(template.height * scale));
           if (width > region.width || height > region.height) continue;
-          const scaledGray = new cv.Mat();
-          const scaledMask = new cv.Mat();
+          usableCandidateCount += 1;
+          const scaled = scaledTemplate(cv, template, scale, timings);
           const result = new cv.Mat();
           try {
-            cv.resize(template.gray, scaledGray, new cv.Size(width, height), 0, 0, scale < 1 ? cv.INTER_AREA : cv.INTER_LINEAR);
             const maskMode = request.options.mask || 'auto';
             const masked = maskMode === 'alpha' || (maskMode === 'auto' && template.hasUsefulAlpha);
             if (masked && template.alphaPixels === 0) throw new Error(`template alpha mask is empty: ${descriptor.cacheKey}`);
             const templateStdDev = masked ? template.maskedStdDev : template.stdDev;
             const lowVariance = templateStdDev < 4;
             const method = masked ? cv.TM_CCORR_NORMED : lowVariance ? cv.TM_SQDIFF_NORMED : cv.TM_CCOEFF_NORMED;
+            const matchTemplateStartedAt = Date.now();
             if (masked) {
-              cv.resize(template.alpha, scaledMask, new cv.Size(width, height), 0, 0, cv.INTER_NEAREST);
-              cv.matchTemplate(roi, scaledGray, result, method, scaledMask);
+              cv.matchTemplate(roi, scaled.gray, result, method, scaled.alpha);
             } else {
-              cv.matchTemplate(roi, scaledGray, result, method);
+              cv.matchTemplate(roi, scaled.gray, result, method);
             }
+            timings.matchTemplateMs += Date.now() - matchTemplateStartedAt;
             const located = cv.minMaxLoc(result);
             const score = method === cv.TM_SQDIFF_NORMED ? 1 - located.minVal : located.maxVal;
             const location = method === cv.TM_SQDIFF_NORMED ? located.minLoc : located.maxLoc;
@@ -156,8 +225,10 @@ function match(cv, request) {
               };
             }
           } finally {
-            scaledGray.delete();
-            scaledMask.delete();
+            if (scaled.ephemeral) {
+              scaled.gray.delete();
+              scaled.alpha.delete();
+            }
             result.delete();
           }
         }
@@ -167,14 +238,18 @@ function match(cv, request) {
       // matching behavior remains conservative.
       if (passIndex === 0 && best && best.score >= Math.max(0.98, request.options.threshold)) break;
     }
-    if (!best || best.score < request.options.threshold) return null;
+    if (usableCandidateCount === 0) {
+      // A narrow ROI is a normal no-match condition. It can happen when the
+      // user reuses a large material in a smaller fast-search area; do not
+      // abort the entire workflow or its wait loop for that case.
+      return { match: null, stats: { ...timings, matchMs: Date.now() - startedAt } };
+    }
+    if (!best || best.score < request.options.threshold) return { match: null, stats: { ...timings, matchMs: Date.now() - startedAt } };
     best.matchMs = Date.now() - startedAt;
     best.testedScales = testedScales;
-    return best;
+    return { match: best, stats: { ...timings, matchMs: best.matchMs } };
   } finally {
     if (roi) roi.delete();
-    sceneGray.delete();
-    sceneBgra.delete();
   }
 }
 
@@ -201,8 +276,9 @@ function poll(cv) {
     const result = match(cv, request);
     Atomics.store(control, 0, 0);
     parentPort.postMessage({
-      type: 'result', id, match: result,
+      type: 'result', id, match: result.match,
       stats: {
+        ...result.stats,
         matchMs: Date.now() - matchStartedAt,
         wasmHeapBytes: cv.HEAP8 && cv.HEAP8.buffer ? cv.HEAP8.buffer.byteLength : 0,
         templateCacheBytes: cacheBytes,
@@ -217,11 +293,11 @@ function poll(cv) {
 
 function start(cv) {
   parentPort.postMessage({ type: 'ready' });
-  // Sleep until the main thread publishes a request. The previous 2 ms timer
-  // woke this worker roughly 500 times per second even while automation was
-  // idle, which wasted CPU without improving request latency.
+  // Electron 11's old Node runtime can occasionally miss a notify after this
+  // worker has slept for a while. A short timeout bounds that cold-idle delay
+  // while still reducing idle wakeups from roughly 500/s to at most 20/s.
   while (true) {
-    Atomics.wait(control, 0, 0);
+    Atomics.wait(control, 0, 0, 50);
     poll(cv);
   }
 }
@@ -234,6 +310,8 @@ try {
 }
 
 process.on('exit', () => {
+  if (retainedScene) retainedScene.gray.delete();
+  retainedScene = null;
   for (const entry of cache.values()) destroy(entry);
   cache.clear();
 });

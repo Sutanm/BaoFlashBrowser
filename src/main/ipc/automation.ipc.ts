@@ -9,6 +9,7 @@ import { AutomationService } from '../modules/automation/service';
 import { loadAutomationPackage } from '../modules/automation/package';
 import { scanAutomationAssets } from '../modules/automation/assets';
 import { previewRectToSource } from '../modules/automation/capture-geometry';
+import { DEFAULT_AUTOMATION_VIEWPORT } from '../../shared/automation/types';
 
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
 const packageId = z.string().min(1).max(160);
@@ -31,7 +32,7 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
     appVersion: app.getVersion(),
     emitStatus: (status) => getWin()?.webContents.send('automation:status-changed', status),
   });
-  const captures = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
+  const captures = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
   const testScenes = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
   const liveTestScenes = new Map<string, { image: Electron.NativeImage; previewWidth: number; previewHeight: number; createdAt: number; timer: NodeJS.Timeout }>();
   const linkedAssetFolders = new Map<string, { packageId: string; root: string }>();
@@ -167,8 +168,10 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
   createValidatedHandler('automation:capture-test-scene-tab', z.object({ tabId }).strict(), async ({ tabId: id }) => {
     await service.whenReady();
     const captured = await service.captureReferenceFrame(id);
-    const image = nativeImage.createFromBuffer(Buffer.from(captured.png));
-    if (image.isEmpty()) throw new Error('unable to decode selected tab capture');
+    const source = nativeImage.createFromBuffer(Buffer.from(captured.png));
+    if (source.isEmpty()) throw new Error('unable to decode selected tab capture');
+    const image = source.getSize().width === DEFAULT_AUTOMATION_VIEWPORT.width && source.getSize().height === DEFAULT_AUTOMATION_VIEWPORT.height
+      ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
     return retainTestScene(image, `tab-${id}.png`, liveTestScenes);
   });
   createValidatedHandler('automation:test-asset-on-scene', z.object({
@@ -224,21 +227,23 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
   createValidatedHandler('automation:capture-asset-frame', z.object({ tabId }).strict(), async ({ tabId: id }) => {
     await service.whenReady(); expireCaptures();
     const captured = await service.captureAssetFrame(id);
-    const image = nativeImage.createFromBuffer(Buffer.from(captured.png));
-    if (image.isEmpty()) throw new Error('unable to decode captured BrowserView frame');
-    const scale = Math.min(1, 900 / captured.width, 560 / captured.height);
-    const previewWidth = Math.max(1, Math.round(captured.width * scale));
-    const previewHeight = Math.max(1, Math.round(captured.height * scale));
+    const source = nativeImage.createFromBuffer(Buffer.from(captured.png));
+    if (source.isEmpty()) throw new Error('unable to decode captured BrowserView frame');
+    const image = source.getSize().width === DEFAULT_AUTOMATION_VIEWPORT.width && source.getSize().height === DEFAULT_AUTOMATION_VIEWPORT.height
+      ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
+    const scale = Math.min(1, 900 / DEFAULT_AUTOMATION_VIEWPORT.width, 560 / DEFAULT_AUTOMATION_VIEWPORT.height);
+    const previewWidth = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.width * scale));
+    const previewHeight = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.height * scale));
     const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
     const token = randomBytes(16).toString('hex');
     const timer = setTimeout(() => captures.delete(token), 2 * 60_000); timer.unref();
-    captures.set(token, { image, previewWidth, previewHeight, createdAt: Date.now(), timer });
+    captures.set(token, { image, previewWidth, previewHeight, sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height, createdAt: Date.now(), timer });
     while (captures.size > 3) {
       const oldest = captures.keys().next().value as string;
       const removed = captures.get(oldest); if (removed) clearTimeout(removed.timer);
       captures.delete(oldest);
     }
-    return { token, dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: captured.width, sourceHeight: captured.height };
+    return { token, dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height };
   });
   createValidatedHandler('automation:save-captured-asset', z.object({
     packageId, token: z.string().regex(/^[a-f0-9]{32}$/), asset: writableAssetId,
@@ -249,11 +254,16 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
     if (!capture) throw new Error('captured frame expired; capture the page again');
     const sourceSize = capture.image.getSize();
     const crop = previewRectToSource(rect, { width: capture.previewWidth, height: capture.previewHeight }, sourceSize);
-    const bytes = new Uint8Array(capture.image.crop(crop).toPNG());
+    const logicalWidth = Math.max(1, Math.round(crop.width * DEFAULT_AUTOMATION_VIEWPORT.width / capture.sourceWidth));
+    const logicalHeight = Math.max(1, Math.round(crop.height * DEFAULT_AUTOMATION_VIEWPORT.height / capture.sourceHeight));
+    const cropped = capture.image.crop(crop);
+    const normalized = crop.width === logicalWidth && crop.height === logicalHeight
+      ? cropped : cropped.resize({ width: logicalWidth, height: logicalHeight, quality: 'best' });
+    const bytes = new Uint8Array(normalized.toPNG());
     const assets = await service.importAssets(id, new Map([[asset, bytes]]));
     clearTimeout(capture.timer);
     captures.delete(token);
-    return { asset, width: crop.width, height: crop.height, assets };
+    return { asset, width: logicalWidth, height: logicalHeight, assets };
   });
   createValidatedHandler('automation:update-workflow', z.object({ packageId, workflow: z.unknown() }).strict(), async ({ packageId: id, workflow }) => {
     await service.whenReady(); return service.updateWorkflow(id, workflow);

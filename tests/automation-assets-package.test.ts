@@ -17,11 +17,11 @@ function makeProject(): string {
   fs.writeFileSync(path.join(root, 'assets', 'pages', 'home.webp'), Buffer.from([82, 73, 70, 70]));
   fs.writeFileSync(path.join(root, 'assets', 'ignore.txt'), 'not an image');
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({
-    format: 'baoauto', formatVersion: 1, id: 'demo', name: 'Demo',
+    format: 'baoauto', formatVersion: 2, id: 'demo', name: 'Demo',
     workflow: 'workflow.json', assets: 'assets/', createdBy: 'M1 test',
   }));
   fs.writeFileSync(path.join(root, 'workflow.json'), JSON.stringify({
-    formatVersion: 1, id: 'demo', name: 'Demo',
+    formatVersion: 2, id: 'demo', name: 'Demo',
     readyWhen: { type: 'image-visible', asset: 'pages/home.webp' },
     root: { type: 'sequence', steps: [{ type: 'click-image', asset: 'buttons/start.png' }] },
   }));
@@ -82,9 +82,9 @@ describe('automation assets and .baoauto package', () => {
     expect(() => loadAutomationPackage(zipSync(archive))).toThrow(/unsupported automation asset type/);
   });
 
-  it('infers package capabilities while loading an older version-1 manifest', () => {
+  it('infers package capabilities while loading a v2 manifest without a capabilities cache', () => {
     const workflow = {
-      formatVersion: 1 as const, id: 'capabilities', name: 'Capabilities',
+      formatVersion: 2 as const, id: 'capabilities', name: 'Capabilities',
       readyWhen: { type: 'all' as const, conditions: [
         { type: 'image-visible' as const, asset: 'a.png', scales: [.75, 1] },
         { type: 'image-visible' as const, asset: 'b.png', alternatives: ['a.png'], mask: 'auto' as const },
@@ -94,7 +94,7 @@ describe('automation assets and .baoauto package', () => {
     const expected = ['alpha-mask', 'combined-conditions', 'image-groups', 'multi-scale', 'navigation', 'trusted-input', 'vision'];
     expect(inferAutomationCapabilities(workflow)).toEqual(expected);
     const loaded = loadAutomationPackage(zipSync({
-      'manifest.json': strToU8(JSON.stringify({ format: 'baoauto', formatVersion: 1, id: workflow.id, name: workflow.name, workflow: 'workflow.json', assets: 'assets/' })),
+      'manifest.json': strToU8(JSON.stringify({ format: 'baoauto', formatVersion: 2, id: workflow.id, name: workflow.name, workflow: 'workflow.json', assets: 'assets/' })),
       'workflow.json': strToU8(JSON.stringify(workflow)),
       'assets/a.png': new Uint8Array([1]),
       'assets/b.png': new Uint8Array([2]),
@@ -104,21 +104,30 @@ describe('automation assets and .baoauto package', () => {
 
   it('marks coordinate-only workflows as trusted input without requiring vision', () => {
     expect(inferAutomationCapabilities({
-      formatVersion: 1, id: 'coordinate-only', name: 'Coordinate only',
+      formatVersion: 2, id: 'coordinate-only', name: 'Coordinate only',
       root: { type: 'sequence', steps: [{ type: 'click-coordinate', coordinate: { x: 5000, y: 5000 } }] },
     })).toEqual(['trusted-input']);
   });
 
+  it('rejects legacy v1 package documents instead of guessing viewport semantics', () => {
+    const archive = unzipSync(createAutomationPackage(makeProject()));
+    const manifest = JSON.parse(new TextDecoder().decode(archive['manifest.json']));
+    const workflow = JSON.parse(new TextDecoder().decode(archive['workflow.json']));
+    archive['manifest.json'] = strToU8(JSON.stringify({ ...manifest, formatVersion: 1 }));
+    archive['workflow.json'] = strToU8(JSON.stringify({ ...workflow, formatVersion: 1 }));
+    expect(() => loadAutomationPackage(zipSync(archive))).toThrow(/unsupported automation package format version/);
+  });
+
   it('does not require vision for an image-region wrapper unless its body uses images', () => {
     expect(inferAutomationCapabilities({
-      formatVersion: 1, id: 'region-coordinate', name: 'Region coordinate',
+      formatVersion: 2, id: 'region-coordinate', name: 'Region coordinate',
       root: { type: 'sequence', steps: [{
         type: 'vision-region', region: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
         body: { type: 'sequence', steps: [{ type: 'click-coordinate', coordinate: { x: 5000, y: 5000 } }] },
       }] },
     })).toEqual(['trusted-input']);
     expect(inferAutomationCapabilities({
-      formatVersion: 1, id: 'region-image', name: 'Region image',
+      formatVersion: 2, id: 'region-image', name: 'Region image',
       root: { type: 'sequence', steps: [{
         type: 'vision-region', region: { left: 1000, top: 1000, right: 9000, bottom: 9000 },
         body: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'button.png' }] },
@@ -128,7 +137,7 @@ describe('automation assets and .baoauto package', () => {
 
   it('infers vision only for image endpoints of a general drag', () => {
     expect(inferAutomationCapabilities({
-      formatVersion: 1, id: 'mixed-drag', name: 'Mixed drag',
+      formatVersion: 2, id: 'mixed-drag', name: 'Mixed drag',
       root: { type: 'sequence', steps: [{
         type: 'drag', source: { kind: 'coordinate', coordinate: { x: 1000, y: 2000 } },
         target: { kind: 'image', condition: { type: 'image-visible', asset: 'target.png', mask: 'auto' } },

@@ -6,6 +6,7 @@ import { setupCapture, teardownCapture } from './password-capture';
 import { fillPasswordsInWebContents, PasswordFillResult } from './password-fill';
 import { getFillCredentialForUrl, isAutoFillEnabled } from './password-store';
 import { getUserscriptManager } from './userscripts';
+import type { AutomationViewport } from '../../shared/automation/types';
 
 interface TabEntry {
   id: string;
@@ -25,9 +26,26 @@ export interface AutomationTabHandle {
   readonly tabId: string;
   readonly webContents: Electron.WebContents;
   readonly engine: 'ppapi' | 'ruffle';
+  readonly ready: Promise<void>;
   getCssViewport(): { width: number; height: number };
+  getViewportTransform(): AutomationViewportTransform;
   assertCurrent(): void;
   release(): void;
+}
+
+export interface AutomationViewportTransform {
+  logicalSize: { width: number; height: number };
+  displaySize: { width: number; height: number };
+  scaleX: number;
+  scaleY: number;
+}
+
+interface AutomationViewportLease {
+  token: symbol;
+  webContentsId: number;
+  viewport: AutomationViewport;
+  transform: AutomationViewportTransform;
+  refreshVersion: number;
 }
 
 function needsBrowserView(url: string): boolean {
@@ -53,7 +71,7 @@ class TabManager {
   private passwordFillTimers = new Map<number, Set<ReturnType<typeof setTimeout>>>();
   private passwordFormSignalTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private passwordFillInFlight = new Set<number>();
-  private automationTargets = new Map<string, symbol>();
+  private automationTargets = new Map<string, AutomationViewportLease>();
 
   private _isCurrentWebContents(tabId: string, wc: Electron.WebContents): boolean {
     const tab = this.tabs.get(tabId);
@@ -90,39 +108,120 @@ class TabManager {
   }
 
   /** Reserve the active BrowserView for one automation run and pause password CDP capture. */
-  beginAutomation(tabId: string): AutomationTabHandle {
+  beginAutomation(tabId: string, viewport: AutomationViewport): AutomationTabHandle {
     if (this.activeId !== tabId) throw new Error('automation can only target the active tab');
     if (this.automationTargets.has(tabId)) throw new Error('this tab already has an automation run');
     const tab = this.tabs.get(tabId);
     const wc = tab?.browserView?.webContents;
     if (!tab || !wc || wc.isDestroyed()) throw new Error('automation target has no live BrowserView');
+    if (this.rect.width <= 0 || this.rect.height <= 0) throw new Error('automation BrowserView has no available display area');
     const token = Symbol(`automation:${tabId}:${wc.id}`);
-    this.automationTargets.set(tabId, token);
+    const lease: AutomationViewportLease = {
+      token,
+      webContentsId: wc.id,
+      viewport: { ...viewport },
+      transform: {
+        logicalSize: { width: viewport.width, height: viewport.height },
+        displaySize: { width: this.rect.width, height: this.rect.height },
+        scaleX: 1,
+        scaleY: 1,
+      },
+      refreshVersion: 0,
+    };
+    this.automationTargets.set(tabId, lease);
     teardownCapture(wc);
+    try { this._applyAutomationViewport(tabId, wc); }
+    catch (error) {
+      this.automationTargets.delete(tabId);
+      setupCapture(wc);
+      throw error;
+    }
+    const ready = this._waitForAutomationViewport(tabId, wc, lease);
     let released = false;
     const assertCurrent = (): void => {
-      if (released || this.automationTargets.get(tabId) !== token) throw new Error('automation target was released');
+      if (released || this.automationTargets.get(tabId)?.token !== token) throw new Error('automation target was released');
       if (this.activeId !== tabId || wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc)) {
-        throw new Error('automation target is no longer the active BrowserView');
+        throw new Error('automation target tab changed while running; keep the script tab active');
       }
     };
     return {
       tabId,
       webContents: wc,
       engine: tab.isRuffle ? 'ruffle' : 'ppapi',
+      ready,
       getCssViewport: () => {
         assertCurrent();
-        return { width: this.rect.width, height: this.rect.height };
+        return { ...lease.transform.logicalSize };
+      },
+      getViewportTransform: () => {
+        assertCurrent();
+        return {
+          logicalSize: { ...lease.transform.logicalSize },
+          displaySize: { ...lease.transform.displaySize },
+          scaleX: lease.transform.scaleX,
+          scaleY: lease.transform.scaleY,
+        };
       },
       assertCurrent,
       release: () => {
         if (released) return;
         released = true;
-        if (this.automationTargets.get(tabId) !== token) return;
+        if (this.automationTargets.get(tabId)?.token !== token) return;
         this.automationTargets.delete(tabId);
-        if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc)) setupCapture(wc);
+        if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc)) {
+          tab.browserView?.setBounds(this.activeId === tabId ? this.rect : HIDDEN_BOUNDS);
+          setupCapture(wc);
+        }
       },
     };
+  }
+
+  private _applyAutomationViewport(tabId: string, wc: Electron.WebContents): void {
+    const lease = this.automationTargets.get(tabId);
+    const tab = this.tabs.get(tabId);
+    if (!lease || lease.webContentsId !== wc.id || !tab?.browserView || this.activeId !== tabId) return;
+    if (this.rect.width <= 0 || this.rect.height <= 0) return;
+    // Automation uses a virtual logical canvas. Never resize or zoom the live
+    // page: doing so causes visible flicker, reflow and closes page overlays.
+    tab.browserView.setBounds(this.rect);
+    const refreshVersion = ++lease.refreshVersion;
+    void this._settleAutomationViewport(tabId, wc, lease, refreshVersion);
+  }
+
+  private async _waitForAutomationViewport(tabId: string, wc: Electron.WebContents, lease: AutomationViewportLease): Promise<void> {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const refreshVersion = lease.refreshVersion;
+      await this._settleAutomationViewport(tabId, wc, lease, refreshVersion);
+      if (refreshVersion === lease.refreshVersion
+        && lease.transform.displaySize.width > 0 && lease.transform.displaySize.height > 0) return;
+    }
+    throw new Error('automation viewport dimensions are unavailable');
+  }
+
+  private async _settleAutomationViewport(tabId: string, wc: Electron.WebContents, lease: AutomationViewportLease, refreshVersion: number): Promise<void> {
+    // BrowserView.setBounds returns before Chromium publishes the new
+    // innerWidth/innerHeight. Poll briefly so a maximize/windowed transition
+    // cannot leave automation using the previous window's transform.
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      if (wc.isDestroyed() || this.automationTargets.get(tabId)?.token !== lease.token || lease.refreshVersion !== refreshVersion) return;
+      try {
+        const size = await wc.executeJavaScript('({width:innerWidth,height:innerHeight})') as { width?: number; height?: number };
+        if (wc.isDestroyed() || this.automationTargets.get(tabId)?.token !== lease.token || lease.refreshVersion !== refreshVersion) return;
+        const width = Number(size.width); const height = Number(size.height);
+        if (width <= 0 || height <= 0) continue;
+        lease.transform = {
+          logicalSize: { width: lease.viewport.width, height: lease.viewport.height },
+          displaySize: { width, height },
+          scaleX: width / lease.viewport.width,
+          scaleY: height / lease.viewport.height,
+        };
+        const zoom = wc.getZoomFactor();
+        const expectedWidth = this.rect.width / zoom;
+        const expectedHeight = this.rect.height / zoom;
+        if (Math.abs(width - expectedWidth) <= 2 && Math.abs(height - expectedHeight) <= 2) return;
+      } catch { /* renderer may be navigating */ }
+    }
   }
 
   setPreload(path: string): void { this.preloadPath = path; }
@@ -141,7 +240,10 @@ class TabManager {
 
   setBounds(x: number, y: number, width: number, height: number): void {
     this.rect = { x, y, width, height };
-    this.tabs.get(this.activeId || '')?.browserView?.setBounds(this.rect);
+    const tabId = this.activeId || '';
+    const wc = this.tabs.get(tabId)?.browserView?.webContents;
+    if (wc && this.automationTargets.has(tabId)) this._applyAutomationViewport(tabId, wc);
+    else this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
   }
 
   create(tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }): void {
@@ -272,6 +374,7 @@ class TabManager {
           );
         }
       } catch { /* must not break navigation */ }
+      this._applyAutomationViewport(tabId, wc);
       if (!this._isCurrentWebContents(tabId, wc) || !mainNavigationPending) return;
       // The top-level DOM is usable even if a game/login iframe is still fetching.
       // End the visible spinner here; capture setup remains deferred until did-stop-loading.
@@ -372,11 +475,14 @@ class TabManager {
   activate(tabId: string): void {
     if (this.activeId && this.activeId !== tabId) this.tabs.get(this.activeId)?.browserView?.setBounds(HIDDEN_BOUNDS);
     this.activeId = tabId;
-    this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
+    const wc = this.tabs.get(tabId)?.browserView?.webContents;
+    if (wc && this.automationTargets.has(tabId)) this._applyAutomationViewport(tabId, wc);
+    else this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
   }
 
   close(tabId: string): void {
     const tab = this.tabs.get(tabId); if (!tab) return;
+    this.automationTargets.delete(tabId);
     if (tab.browserView) { const view = tab.browserView; tab.browserView = null; this._disposeView(view); }
     this.tabs.delete(tabId);
     if (this.activeId === tabId) this.activeId = null;
@@ -403,7 +509,7 @@ class TabManager {
 
   destroyAll(): void {
     for (const tab of this.tabs.values()) if (tab.browserView) this._disposeView(tab.browserView);
-    this.tabs.clear(); this.wcToId.clear(); this.activeId = null;
+    this.tabs.clear(); this.wcToId.clear(); this.automationTargets.clear(); this.activeId = null;
   }
 
   refreshPasswordCapture(enabled: boolean): void {
@@ -492,7 +598,7 @@ class TabManager {
   }
 
   stop(tabId: string): void { this.tabs.get(tabId)?.browserView?.webContents.stop(); }
-  setZoom(tabId: string, factor: number): void { const tab = this.tabs.get(tabId); if (tab) { tab.zoomFactor = factor; tab.browserView?.webContents.setZoomFactor(factor); } }
+  setZoom(tabId: string, factor: number): void { const tab = this.tabs.get(tabId); if (tab) { tab.zoomFactor = factor; tab.browserView?.webContents.setZoomFactor(factor); const wc = tab.browserView?.webContents; const lease = this.automationTargets.get(tabId); if (wc && lease) { const refreshVersion = ++lease.refreshVersion; void this._settleAutomationViewport(tabId, wc, lease, refreshVersion); } } }
   setMuted(tabId: string, muted: boolean): void { const tab = this.tabs.get(tabId); if (tab) { tab.muted = muted; tab.browserView?.webContents.setAudioMuted(muted); } }
   openDevTools(tabId: string): void { this.tabs.get(tabId)?.browserView?.webContents.openDevTools({ mode: 'detach' }); }
   findInPage(tabId: string, text: string, options?: Electron.FindInPageOptions): void { this.tabs.get(tabId)?.browserView?.webContents.findInPage(text, options); }

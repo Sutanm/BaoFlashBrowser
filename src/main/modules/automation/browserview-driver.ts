@@ -13,16 +13,22 @@ export type AutomationCapturedImage = {
   getSize(): { width: number; height: number };
   toPNG(): Buffer;
   toBitmap(): Buffer;
+  resize?(options: { width: number; height: number; quality?: 'good' | 'better' | 'best' }): AutomationCapturedImage;
 };
 
 export type AutomationCapturedFrame = {
+  frameId?: number;
   image: AutomationCapturedImage;
   bitmap?: Buffer;
   bitmapSize?: { width: number; height: number };
   deviceOrigin?: { x: number; y: number };
   deviceSize: { width: number; height: number };
   cssSize: { width: number; height: number };
+  captureMs?: number;
+  bitmapMs?: number;
 };
+
+let nextAutomationFrameId = 1;
 
 export type AutomationVisionMatcher = {
   find(
@@ -65,6 +71,12 @@ export type AutomationWebContentsLike = {
 
 export type BrowserViewAutomationDriverOptions = {
   getCssViewport(): { width: number; height: number };
+  getViewportTransform?: () => {
+    logicalSize: { width: number; height: number };
+    displaySize: { width: number; height: number };
+    scaleX: number;
+    scaleY: number;
+  };
   navigationTimeoutMs?: number;
   log?: (message: string) => void;
   assertCurrent?: () => void;
@@ -185,6 +197,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   private readonly matcher: AutomationVisionMatcher | null;
   private readonly options: BrowserViewAutomationDriverOptions;
   private lastFrame: AutomationCapturedFrame | null = null;
+  private scopedFrames: Map<string, AutomationCapturedFrame> | null = null;
   private lastVisionStatsLogAt = 0;
   private pointer = { x: 0, y: 0 };
 
@@ -203,40 +216,75 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     this.throwIfAborted(signal);
     this.assertCurrent();
     if (!this.matcher) throw new Error('automation workflow does not have a vision matcher');
-    this.webContents.incrementCapturerCount();
-    try {
-      const cssSize = this.options.getCssViewport();
-      const captureRegion = request.region
-        ?? (request.relativeRegion ? relativeSearchRegionToCssRegion(request.relativeRegion, cssSize) : undefined);
-      const captureStartedAt = Date.now();
-      const image = await this.webContents.capturePage(captureRegion);
-      const captureMs = Date.now() - captureStartedAt;
-      if (image.isEmpty()) throw new Error('BrowserView capture is empty');
-      const bitmapSize = image.getSize();
-      const scaleX = captureRegion ? bitmapSize.width / captureRegion.width : 1;
-      const scaleY = captureRegion ? bitmapSize.height / captureRegion.height : 1;
-      const bitmapStartedAt = Date.now();
-      const bitmap = image.toBitmap();
-      const bitmapMs = Date.now() - bitmapStartedAt;
-      const frame: AutomationCapturedFrame = {
-        image,
-        bitmap,
-        bitmapSize,
-        deviceOrigin: captureRegion
-          ? { x: Math.round(captureRegion.x * scaleX), y: Math.round(captureRegion.y * scaleY) }
-          : { x: 0, y: 0 },
-        deviceSize: captureRegion
-          ? { width: Math.round(cssSize.width * scaleX), height: Math.round(cssSize.height * scaleY) }
-          : bitmapSize,
-        cssSize,
-      };
-      this.lastFrame = frame;
-      const assets = [...new Set([request.asset, ...(request.alternatives ?? [])])];
+    const cssSize = this.options.getCssViewport();
+    const captureRegion = request.region
+      ?? (request.relativeRegion ? relativeSearchRegionToCssRegion(request.relativeRegion, cssSize) : undefined);
+    const displayCaptureRegion = captureRegion ? this.logicalRegionToDisplay(captureRegion) : undefined;
+    const frameKey = captureRegion
+      ? `${captureRegion.x},${captureRegion.y},${captureRegion.width},${captureRegion.height}`
+      : 'full';
+    let frame = this.scopedFrames?.get(frameKey);
+    if (!frame) {
+      this.webContents.incrementCapturerCount();
+      try {
+        const captureStartedAt = Date.now();
+        const sourceImage = await this.webContents.capturePage(displayCaptureRegion);
+        const captureMs = Date.now() - captureStartedAt;
+        if (sourceImage.isEmpty()) throw new Error('BrowserView capture is empty');
+        const logicalCaptureSize = captureRegion
+          ? { width: captureRegion.width, height: captureRegion.height }
+          : cssSize;
+        const sourceSize = sourceImage.getSize();
+        const normalized = Boolean(sourceImage.resize)
+          && (sourceSize.width !== logicalCaptureSize.width || sourceSize.height !== logicalCaptureSize.height);
+        const image = normalized
+          ? sourceImage.resize!({ ...logicalCaptureSize, quality: 'best' })
+          : sourceImage;
+        const bitmapSize = image.getSize();
+        const transform = this.viewportTransform();
+        const deviceScaleX = displayCaptureRegion ? bitmapSize.width / displayCaptureRegion.width
+          : bitmapSize.width / transform.displaySize.width;
+        const deviceScaleY = displayCaptureRegion ? bitmapSize.height / displayCaptureRegion.height
+          : bitmapSize.height / transform.displaySize.height;
+        const bitmapStartedAt = Date.now();
+        const bitmap = image.toBitmap();
+        const bitmapMs = Date.now() - bitmapStartedAt;
+        frame = {
+          frameId: nextAutomationFrameId++,
+          image,
+          bitmap,
+          bitmapSize,
+          deviceOrigin: normalized && captureRegion
+            ? { x: captureRegion.x, y: captureRegion.y }
+            : captureRegion
+              ? { x: Math.round((displayCaptureRegion?.x ?? 0) * deviceScaleX), y: Math.round((displayCaptureRegion?.y ?? 0) * deviceScaleY) }
+              : { x: 0, y: 0 },
+          deviceSize: normalized
+            ? { ...cssSize }
+            : captureRegion
+              ? { width: Math.round(transform.displaySize.width * deviceScaleX), height: Math.round(transform.displaySize.height * deviceScaleY) }
+              : bitmapSize,
+          cssSize,
+          captureMs,
+          bitmapMs,
+        };
+        this.scopedFrames?.set(frameKey, frame);
+      } finally {
+        this.webContents.decrementCapturerCount();
+      }
+    }
+    this.lastFrame = frame;
+    const assets = [...new Set([request.asset, ...(request.alternatives ?? [])])];
       const options = {
         threshold: request.threshold,
         // capturePage already restricted the frame to the requested region.
         region: undefined,
-        scales: request.scales,
+        // Assets captured by the v2 workbench are normalized to one bitmap
+        // pixel per logical CSS pixel. Match them at the live capture density.
+        scales: (request.scales ?? [1]).map((scale) => scale * Math.sqrt(
+          frame!.deviceSize.width / frame!.cssSize.width
+          * frame!.deviceSize.height / frame!.cssSize.height,
+        )),
         mask: request.mask,
       };
       let best: ImageMatch | null = null;
@@ -253,11 +301,20 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
       if (this.options.log && now - this.lastVisionStatsLogAt >= 5_000) {
         this.lastVisionStatsLogAt = now;
         const stats = this.matcher.getStats?.() ?? {};
-        this.options.log(`vision capture=${captureMs}ms bitmap=${bitmapMs}ms match=${stats.matchMs ?? best?.matchMs ?? '?'}ms total=${totalMs}ms scene=${stats.sceneBytes ?? best?.sceneBytes ?? bitmap.byteLength}B wasm=${stats.wasmHeapBytes ?? best?.wasmHeapBytes ?? '?'}B cache=${stats.templateCacheBytes ?? best?.templateCacheBytes ?? '?'}B/${stats.templateCacheEntries ?? best?.templateCacheEntries ?? '?'} entries`);
+        this.options.log(`vision capture=${frame.captureMs ?? '?'}ms bitmap=${frame.bitmapMs ?? '?'}ms templates=${stats.templateLoadMs ?? best?.templateLoadMs ?? '?'}ms worker=${stats.workerReadyMs ?? best?.workerReadyMs ?? '?'}ms shared-copy=${stats.sharedCopyMs ?? best?.sharedCopyMs ?? '?'}ms scene-mat=${stats.sceneMatMs ?? best?.sceneMatMs ?? '?'}ms gray=${stats.grayMs ?? best?.grayMs ?? '?'}ms resize=${stats.resizeMs ?? best?.resizeMs ?? '?'}ms match-template=${stats.matchTemplateMs ?? best?.matchTemplateMs ?? '?'}ms scaled-cache=${stats.scaledTemplateCacheHits ?? best?.scaledTemplateCacheHits ?? '?'}/${stats.scaledTemplateCacheMisses ?? best?.scaledTemplateCacheMisses ?? '?'} hit/miss match=${stats.matchMs ?? best?.matchMs ?? '?'}ms total=${totalMs}ms scene=${stats.sceneBytes ?? best?.sceneBytes ?? frame.bitmap?.byteLength ?? '?'}B transfer=${stats.sceneTransferBytes ?? best?.sceneTransferBytes ?? '?'}B wasm=${stats.wasmHeapBytes ?? best?.wasmHeapBytes ?? '?'}B cache=${stats.templateCacheBytes ?? best?.templateCacheBytes ?? '?'}B/${stats.templateCacheEntries ?? best?.templateCacheEntries ?? '?'} entries`);
       }
-      return best ? { ...best, captureMs, bitmapMs, totalMs } : null;
+      return best ? { ...best, captureMs: frame.captureMs, bitmapMs: frame.bitmapMs, totalMs } : null;
+  }
+
+  async withFreshFrame<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    this.throwIfAborted(signal);
+    if (this.scopedFrames) return operation();
+    const frames = new Map<string, AutomationCapturedFrame>();
+    this.scopedFrames = frames;
+    try {
+      return await operation();
     } finally {
-      this.webContents.decrementCapturerCount();
+      if (this.scopedFrames === frames) this.scopedFrames = null;
     }
   }
 
@@ -289,11 +346,12 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     signal: AbortSignal,
   ): Promise<void> {
     const point = this.toCssPoint(match, options.offset);
+    const displayPoint = this.logicalPointToDisplay(point);
     await this.withTransientCdp(signal, async (send) => {
-      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...displayPoint });
       for (let count = 1; count <= options.clickCount; count += 1) {
-        await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: options.button, clickCount: count });
-        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: options.button, clickCount: count });
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...displayPoint, button: options.button, clickCount: count });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...displayPoint, button: options.button, clickCount: count });
       }
     });
     this.pointer = point;
@@ -301,13 +359,13 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
 
   async moveTo(match: ImageMatch, offset: { x: number; y: number }, signal: AbortSignal): Promise<void> {
     const point = this.toCssPoint(match, offset);
-    await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point }));
+    await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...this.logicalPointToDisplay(point) }));
     this.pointer = point;
   }
 
   async moveToPoint(coordinate: AutomationCoordinate, signal: AbortSignal): Promise<void> {
     const point = relativeCoordinateToCssPoint(coordinate, this.options.getCssViewport());
-    await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point }));
+    await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...this.logicalPointToDisplay(point) }));
     this.pointer = point;
   }
 
@@ -317,11 +375,12 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     signal: AbortSignal,
   ): Promise<void> {
     const point = relativeCoordinateToCssPoint(coordinate, this.options.getCssViewport());
+    const displayPoint = this.logicalPointToDisplay(point);
     await this.withTransientCdp(signal, async (send) => {
-      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...displayPoint });
       for (let count = 1; count <= options.clickCount; count += 1) {
-        await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: options.button, clickCount: count });
-        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: options.button, clickCount: count });
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...displayPoint, button: options.button, clickCount: count });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...displayPoint, button: options.button, clickCount: count });
       }
     });
     this.pointer = point;
@@ -359,8 +418,9 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     const buttonMask = { left: 1, right: 2, middle: 4 }[options.button];
     let current = start;
     await this.withTransientCdp(signal, async (send) => {
-      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
-      await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: options.button, buttons: buttonMask, clickCount: 1 });
+      const displayStart = this.logicalPointToDisplay(start);
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...displayStart });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...displayStart, button: options.button, buttons: buttonMask, clickCount: 1 });
       try {
         const steps = Math.max(1, Math.min(120, Math.ceil(options.durationMs / 16)));
         const intervalMs = options.durationMs / steps;
@@ -370,12 +430,12 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
             x: start.x + (end.x - start.x) * index / steps,
             y: start.y + (end.y - start.y) * index / steps,
           };
-          await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...current, button: options.button, buttons: buttonMask });
+          await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...this.logicalPointToDisplay(current), button: options.button, buttons: buttonMask });
         }
       } finally {
         // Release directly: the normal send wrapper intentionally rejects an aborted signal.
         await this.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
-          type: 'mouseReleased', ...current, button: options.button, buttons: 0, clickCount: 1,
+          type: 'mouseReleased', ...this.logicalPointToDisplay(current), button: options.button, buttons: 0, clickCount: 1,
         }).catch(() => undefined);
       }
     });
@@ -443,8 +503,11 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   }
 
   async scroll(deltaX: number, deltaY: number, signal: AbortSignal): Promise<void> {
+    const displayPoint = this.logicalPointToDisplay(this.pointer);
+    const transform = this.viewportTransform();
     await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', {
-      type: 'mouseWheel', x: this.pointer.x, y: this.pointer.y, deltaX, deltaY,
+      type: 'mouseWheel', x: displayPoint.x, y: displayPoint.y,
+      deltaX: deltaX * transform.scaleX, deltaY: deltaY * transform.scaleY,
     }));
   }
 
@@ -504,6 +567,32 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   private toCssPoint(match: ImageMatch, offset: { x: number; y: number }): { x: number; y: number } {
     if (!this.lastFrame) throw new Error('input action requires a preceding image match');
     return deviceMatchToCssPoint(match, this.lastFrame.deviceSize, this.lastFrame.cssSize, offset);
+  }
+
+  private viewportTransform(): {
+    logicalSize: { width: number; height: number };
+    displaySize: { width: number; height: number };
+    scaleX: number;
+    scaleY: number;
+  } {
+    const supplied = this.options.getViewportTransform?.();
+    if (supplied) return supplied;
+    const logicalSize = this.options.getCssViewport();
+    return { logicalSize, displaySize: { ...logicalSize }, scaleX: 1, scaleY: 1 };
+  }
+
+  private logicalPointToDisplay(point: { x: number; y: number }): { x: number; y: number } {
+    const transform = this.viewportTransform();
+    return { x: point.x * transform.scaleX, y: point.y * transform.scaleY };
+  }
+
+  private logicalRegionToDisplay(region: AutomationRegion): AutomationRegion {
+    const transform = this.viewportTransform();
+    const x = Math.floor(region.x * transform.scaleX);
+    const y = Math.floor(region.y * transform.scaleY);
+    const right = Math.ceil((region.x + region.width) * transform.scaleX);
+    const bottom = Math.ceil((region.y + region.height) * transform.scaleY);
+    return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
   }
 
   private assertDebuggerDetached(action: string): void {
