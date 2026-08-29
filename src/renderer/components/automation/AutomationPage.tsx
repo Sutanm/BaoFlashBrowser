@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, Box, Braces, CheckCircle2, Copy, Download, FolderPlus, FolderSync, Image, PackageOpen, Plus, RefreshCw, Save, ScanSearch, Search, ShieldCheck, Trash2, Upload, Workflow } from 'lucide-react';
+import { Archive, Box, Braces, CheckCircle2, Copy, Download, FileText, FolderPlus, FolderSync, Image, PackageOpen, Plus, RefreshCw, Save, ScanSearch, Search, ShieldCheck, Trash2, Upload, Workflow } from 'lucide-react';
 import type { AutomationWorkflow } from '@shared/automation/types';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import AutomationBlocklyEditor, { collectFolderImageGroups, type AutomationBlocklyEditorHandle } from './AutomationBlocklyEditor';
 import AutomationAssetTestBench from './AutomationAssetTestBench';
+import AutomationOcrTestBench from './AutomationOcrTestBench';
 import './automation.css';
 
 type PackageSummary = { packageId: string; id: string; name: string; assets: string[] };
@@ -26,7 +27,7 @@ export default function AutomationPage(): React.JSX.Element {
   const [assetReferenced, setAssetReferenced] = useState(false);
   const [json, setJson] = useState('');
   const [jsonDirty, setJsonDirty] = useState(false);
-  const [mode, setMode] = useState<'blocks' | 'json' | 'test'>('blocks');
+  const [mode, setMode] = useState<'blocks' | 'json' | 'test' | 'ocr'>('blocks');
   const [notice, setNotice] = useState<string>(LL.automation.page.noticeInitial());
   const [busy, setBusy] = useState(false);
   const [enabled, setEnabled] = useState(false);
@@ -355,6 +356,7 @@ export default function AutomationPage(): React.JSX.Element {
               <button type="button" className={mode === 'blocks' ? 'active' : ''} onClick={() => void showBlocksEditor()}><Workflow />{LL.automation.page.blocksTab()}</button>
               <button type="button" className={mode === 'json' ? 'active' : ''} onClick={showJsonEditor}><Braces />{LL.automation.page.jsonTab()}</button>
               <button type="button" className={mode === 'test' ? 'active' : ''} onClick={() => setMode('test')}><ScanSearch />{LL.automation.page.testBenchTab()}</button>
+              <button type="button" className={mode === 'ocr' ? 'active' : ''} onClick={() => setMode('ocr')}><FileText />{LL.automation.page.ocrTestBenchTab()}</button>
               <span className={dirty ? 'dirty' : ''}><CheckCircle2 />{dirty ? LL.automation.page.unsaved() : notice}</span>
             </div>
             <div className="automation-editor-content" hidden={mode !== 'blocks'}><AutomationBlocklyEditor key={selectedId} ref={editorRef} packageId={selectedId} initialWorkflow={workflow} assets={assets} onDirtyChange={setDirty} /></div>
@@ -363,6 +365,7 @@ export default function AutomationPage(): React.JSX.Element {
               <button type="button" onClick={() => void applyJson()} disabled={busy}>{LL.automation.page.applyJson()}</button>
             </div>
             <div className="automation-test-editor" hidden={mode !== 'test'}><AutomationAssetTestBench packageId={selectedId} assets={assets} onAssetsChanged={(next) => { setAssets(next); void refreshPackages(selectedId); }} /></div>
+            <div className="automation-test-editor" hidden={mode !== 'ocr'}><AutomationOcrTestBench /></div>
           </> : <div className="automation-editor-empty"><Workflow /><h2>{LL.automation.page.emptyEditorTitle()}</h2><p>{LL.automation.page.emptyEditorHint()}</p></div>}
         </main>
       </div>

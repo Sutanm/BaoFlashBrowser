@@ -27,6 +27,10 @@ export type AutomationCapturedFrame = {
   deviceOrigin?: { x: number; y: number };
   deviceSize: { width: number; height: number };
   cssSize: { width: number; height: number };
+  // Present only when the capture was narrowed to a source region (game surface):
+  // the region's LOGICAL size in the 1280×720 canvas, used to convert the
+  // region-local match coordinate back to a full logical point.
+  regionCssSize?: { width: number; height: number };
   captureMs?: number;
   bitmapMs?: number;
 };
@@ -173,6 +177,20 @@ export function deviceMatchToCssPoint(
   return point;
 }
 
+// Convert a region-local match (bitmap pixel space, origin 0,0) into a full
+// logical 1280×720 canvas point: normalize the region bitmap pixels into the
+// region's logical size, then add the region's logical offset (game surface).
+export function deviceMatchToLogicalRegionPoint(
+  match: ImageMatch,
+  bitmapSize: { width: number; height: number },
+  regionCssSize: { width: number; height: number },
+  deviceOrigin: { x: number; y: number } = { x: 0, y: 0 },
+  offset: { x: number; y: number } = { x: 0, y: 0 },
+): { x: number; y: number } {
+  const local = deviceMatchToCssPoint(match, bitmapSize, regionCssSize, { x: 0, y: 0 });
+  return { x: local.x + deviceOrigin.x + offset.x, y: local.y + deviceOrigin.y + offset.y };
+}
+
 export function relativeCoordinateToCssPoint(
   coordinate: AutomationCoordinate,
   cssSize: { width: number; height: number },
@@ -306,6 +324,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
               ? { width: Math.round(transform.displaySize.width * deviceScaleX), height: Math.round(transform.displaySize.height * deviceScaleY) }
               : bitmapSize,
           cssSize,
+          regionCssSize: captureRegion && normalized ? { ...logicalCaptureSize } : undefined,
           captureMs,
           bitmapMs,
         };
@@ -695,6 +714,13 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
 
   private toCssPoint(match: ImageMatch, offset: { x: number; y: number }): { x: number; y: number } {
     if (!this.lastFrame) throw new Error('input action requires a preceding image match');
+    // Region capture: match coords are region-local (bitmap pixel space), the
+    // regionCssSize carries the region's logical size, and deviceOrigin holds the
+    // region's logical offset. Convert bitMap→region logical, then add the
+    // logical offset to land in the full 1280×720 logical canvas.
+    if (this.lastFrame.regionCssSize) {
+      return deviceMatchToLogicalRegionPoint(match, this.lastFrame.bitmapSize ?? this.lastFrame.deviceSize, this.lastFrame.regionCssSize, this.lastFrame.deviceOrigin ?? { x: 0, y: 0 }, offset);
+    }
     return deviceMatchToCssPoint(match, this.lastFrame.deviceSize, this.lastFrame.cssSize, offset);
   }
 

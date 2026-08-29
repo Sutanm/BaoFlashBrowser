@@ -4,6 +4,7 @@ import {
   BrowserViewAutomationDriver,
   cssPointToRelativeCoordinate,
   deviceMatchToCssPoint,
+  deviceMatchToLogicalRegionPoint,
   relativeCoordinateToCssPoint,
   relativeSearchRegionToCssRegion,
   type AutomationCapturedImage,
@@ -69,6 +70,26 @@ describe('BrowserView automation driver', () => {
   it('rejects an offset that moves input outside the BrowserView', () => {
     expect(() => deviceMatchToCssPoint(MATCH, { width: 1350, height: 840 }, { width: 900, height: 560 }, { x: -500, y: 0 }))
       .toThrow(/outside the BrowserView/);
+  });
+
+  it('maps a game-surface region match back to a full logical point (DPR drift)', () => {
+    // Reproduces a real 150%-DPR region capture: the page is captured at physical
+    // pixels (1427×843) but the game surface is 712.36×435.57 logical. A region
+    // match at bitmap (620,496) must land on the character's full-logical position
+    // (≈662,272 + half-size), not drift below the surface.
+    const regionMatch: ImageMatch = { x: 620, y: 496, width: 91, height: 117, score: 0.98 };
+    const point = deviceMatchToLogicalRegionPoint(regionMatch, { width: 1427, height: 843 }, { width: 712.36, height: 435.57 }, { x: 352.68, y: 15.5 });
+    expect(point.x).toBeCloseTo((620 + 91 / 2) * (712.36 / 1427) + 352.68, 2);
+    expect(point.y).toBeCloseTo((496 + 117 / 2) * (435.57 / 843) + 15.5, 2);
+    // Must stay inside the full logical canvas, not drift to the announcement area.
+    expect(point.x).toBeGreaterThan(0);
+    expect(point.y).toBeGreaterThan(0);
+  });
+
+  it('keeps full-page matches unchanged when no region offset is supplied', () => {
+    const full: ImageMatch = { x: 400, y: 200, width: 80, height: 60, score: 0.97 };
+    expect(deviceMatchToCssPoint(full, { width: 1280, height: 720 }, { width: 1280, height: 720 }))
+      .toEqual({ x: 440, y: 230 });
   });
 
   it('converts normalized coordinates independently of capture dimensions', () => {

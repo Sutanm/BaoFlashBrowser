@@ -1499,6 +1499,10 @@ type RootTranslation = {
 			 */
 			testBenchTab: string
 			/**
+			 * 文​字​识​别​测​试​台
+			 */
+			ocrTestBenchTab: string
+			/**
 			 * 校​验​并​应​用​ ​J​S​O​N
 			 */
 			applyJson: string
@@ -2082,6 +2086,112 @@ type RootTranslation = {
 			 * 当​前​脚​本​还​没​有​ ​U​I​ ​素​材
 			 */
 			noAssets: string
+		}
+		ocrTestBench: {
+			/**
+			 * 文​字​识​别​测​试​台
+			 */
+			title: string
+			/**
+			 * 在​选​中​的​场​景​图​上​离​线​识​别​文​字
+			 */
+			subtitle: string
+			/**
+			 * 要​识​别​的​文​字
+			 */
+			text: string
+			/**
+			 * 例​如​：​开​始​游​戏
+			 */
+			textPlaceholder: string
+			/**
+			 * 最​低​可​信​度
+			 */
+			minScore: string
+			/**
+			 * 匹​配​方​式
+			 */
+			matchMode: string
+			/**
+			 * 包​含​文​字
+			 */
+			matchContains: string
+			/**
+			 * 完​全​一​致
+			 */
+			matchExact: string
+			/**
+			 * 识​别
+			 */
+			recognize: string
+			/**
+			 * 识​别​中
+			 */
+			recognizing: string
+			/**
+			 * 选​择​目​标​场​景​图
+			 */
+			openSceneTitle: string
+			/**
+			 * 图​片​文​件
+			 */
+			imageFilter: string
+			/**
+			 * 导​入​目​标​场​景
+			 */
+			importScene: string
+			/**
+			 * 选​中​的​图​片​会​填​满​识​别​区​域
+			 */
+			importSceneHint: string
+			/**
+			 * 更​换​场​景
+			 */
+			replaceScene: string
+			/**
+			 * 缩​小
+			 */
+			zoomOut: string
+			/**
+			 * 放​大
+			 */
+			zoomIn: string
+			/**
+			 * 适​应​场​景
+			 */
+			fitScene: string
+			/**
+			 * 聚​焦​场​景
+			 */
+			focusScene: string
+			/**
+			 * 退​出​聚​焦
+			 */
+			exitFocus: string
+			/**
+			 * 找​到​ ​{​c​o​u​n​t​}​ ​处​匹​配​文​字
+			 * @param {unknown} count
+			 */
+			hits: RequiredParams<'count'>
+			/**
+			 * {​t​e​x​t​}​ ​·​ ​{​m​s​}​m​s
+			 * @param {unknown} ms
+			 * @param {unknown} text
+			 */
+			timing: RequiredParams<'ms' | 'text'>
+			/**
+			 * 未​找​到​「​{​t​e​x​t​}​」
+			 * @param {unknown} text
+			 */
+			noHit: RequiredParams<'text'>
+			/**
+			 * 场​景​中​没​有​可​识​别​的​文​字
+			 */
+			noText: string
+			/**
+			 * 导​入​场​景​图​并​输​入​要​识​别​的​文​字
+			 */
+			waiting: string
 		}
 		blockly: {
 			/**
@@ -4383,6 +4493,10 @@ export type TranslationFunctions = {
 			 */
 			testBenchTab: () => LocalizedString
 			/**
+			 * 文字识别测试台
+			 */
+			ocrTestBenchTab: () => LocalizedString
+			/**
 			 * 校验并应用 JSON
 			 */
 			applyJson: () => LocalizedString
@@ -4916,6 +5030,108 @@ export type TranslationFunctions = {
 			 * 当前脚本还没有 UI 素材
 			 */
 			noAssets: () => LocalizedString
+		}
+		ocrTestBench: {
+			/**
+			 * 文字识别测试台
+			 */
+			title: () => LocalizedString
+			/**
+			 * 在选中的场景图上离线识别文字
+			 */
+			subtitle: () => LocalizedString
+			/**
+			 * 要识别的文字
+			 */
+			text: () => LocalizedString
+			/**
+			 * 例如：开始游戏
+			 */
+			textPlaceholder: () => LocalizedString
+			/**
+			 * 最低可信度
+			 */
+			minScore: () => LocalizedString
+			/**
+			 * 匹配方式
+			 */
+			matchMode: () => LocalizedString
+			/**
+			 * 包含文字
+			 */
+			matchContains: () => LocalizedString
+			/**
+			 * 完全一致
+			 */
+			matchExact: () => LocalizedString
+			/**
+			 * 识别
+			 */
+			recognize: () => LocalizedString
+			/**
+			 * 识别中
+			 */
+			recognizing: () => LocalizedString
+			/**
+			 * 选择目标场景图
+			 */
+			openSceneTitle: () => LocalizedString
+			/**
+			 * 图片文件
+			 */
+			imageFilter: () => LocalizedString
+			/**
+			 * 导入目标场景
+			 */
+			importScene: () => LocalizedString
+			/**
+			 * 选中的图片会填满识别区域
+			 */
+			importSceneHint: () => LocalizedString
+			/**
+			 * 更换场景
+			 */
+			replaceScene: () => LocalizedString
+			/**
+			 * 缩小
+			 */
+			zoomOut: () => LocalizedString
+			/**
+			 * 放大
+			 */
+			zoomIn: () => LocalizedString
+			/**
+			 * 适应场景
+			 */
+			fitScene: () => LocalizedString
+			/**
+			 * 聚焦场景
+			 */
+			focusScene: () => LocalizedString
+			/**
+			 * 退出聚焦
+			 */
+			exitFocus: () => LocalizedString
+			/**
+			 * 找到 {count} 处匹配文字
+			 */
+			hits: (arg: { count: unknown }) => LocalizedString
+			/**
+			 * {text} · {ms}ms
+			 */
+			timing: (arg: { ms: unknown, text: unknown }) => LocalizedString
+			/**
+			 * 未找到「{text}」
+			 */
+			noHit: (arg: { text: unknown }) => LocalizedString
+			/**
+			 * 场景中没有可识别的文字
+			 */
+			noText: () => LocalizedString
+			/**
+			 * 导入场景图并输入要识别的文字
+			 */
+			waiting: () => LocalizedString
 		}
 		blockly: {
 			/**

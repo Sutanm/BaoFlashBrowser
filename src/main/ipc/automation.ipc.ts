@@ -187,6 +187,27 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
     if (!match) return { candidate: null, matched: false, threshold };
     return { candidate: match, matched: match.score >= threshold, threshold };
   });
+  createValidatedHandler('automation:test-text-on-scene', z.object({
+    token: z.string().regex(/^[a-f0-9]{32}$/), text: z.string().trim().min(1).max(200),
+    match: z.enum(['contains', 'exact']), minScore: z.number().min(0).max(1),
+  }).strict(), async ({ token, text, match, minScore }) => {
+    await service.whenReady(); expireScenes(testScenes); expireScenes(liveTestScenes);
+    const scene = testScenes.get(token) ?? liveTestScenes.get(token);
+    if (!scene) throw new Error('target scene expired; import it again');
+    const size = scene.image.getSize();
+    const recognized = await service.testTextOnImage({ width: size.width, height: size.height, bgra: Uint8Array.from(scene.image.toBitmap()) });
+    const query = text;
+    const candidates = recognized.items.flatMap((item) => {
+      const xs = item.box.map((point) => point[0]);
+      const ys = item.box.map((point) => point[1]);
+      const x = Math.min(...xs); const y = Math.min(...ys);
+      const right = Math.max(...xs); const bottom = Math.max(...ys);
+      if (![x, y, right, bottom].every(Number.isFinite) || right <= x || bottom <= y) return [];
+      const textMatched = match === 'exact' ? item.text === query : item.text.includes(query);
+      return [{ text: item.text, score: item.score, x, y, width: right - x, height: bottom - y, matched: textMatched && item.score >= minScore }];
+    });
+    return { sourceWidth: size.width, sourceHeight: size.height, candidates, matched: candidates.some((item) => item.matched), ocrMs: recognized.ocrMs };
+  });
   createValidatedHandler('automation:warmup-vision', z.object({ packageId }).strict(), async ({ packageId: id }) => {
     await service.whenReady(); await service.warmupVision(id); return { ready: true as const };
   });

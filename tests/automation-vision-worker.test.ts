@@ -166,20 +166,23 @@ describe('OpenCV automation vision worker', () => {
     expect(source.load).toHaveBeenCalledTimes(1);
   }, 30_000);
 
-  it('adds a directly captured region origin back to the global match coordinates', async () => {
+  it('returns a region-local match when the capture carries a source-region origin', async () => {
     const width = 48, height = 36, localX = 17, localY = 13, templateWidth = 9, templateHeight = 7;
     const scene = patterned(width, height, 33);
     const template = crop(scene, width, localX, localY, templateWidth, templateHeight);
     const { matcher } = matcherFor({ cacheKey: 'region-origin@1', width: templateWidth, height: templateHeight, bgra: template });
     const captured = frame(scene, width, height, 96, 72);
     captured.bitmapSize = { width, height };
+    // A directly-captured source region: the match location lives in the region's
+    // bitmap pixel space, so the matcher must NOT fold a raw logical origin into
+    // it (that would make the clickable point drift). The driver adds the origin.
     captured.deviceOrigin = { x: 120, y: 80 };
     captured.deviceSize = { width: 320, height: 240 };
     const result = await matcher.find('button.png', captured, {
       threshold: 0.99, scales: [1], mask: 'none',
     }, new AbortController().signal);
 
-    expect(result).toMatchObject({ x: 120 + localX, y: 80 + localY });
+    expect(result).toMatchObject({ x: localX, y: localY });
   }, 30_000);
 
   it('matches multiple templates against one scene request and returns the best asset', async () => {

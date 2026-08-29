@@ -59,45 +59,66 @@ export function registerUserscriptsIPC(): void {
   ipcMain.handle('userscript:automation-match', async (event, raw: unknown) => {
     const parsed = z.object({
       scriptId: z.string(), packageId: z.string().min(1).max(160), asset: z.string().min(1).max(512),
-      options: z.object({ threshold: z.number().min(.1).max(1).optional(), scales: z.array(z.number().min(.25).max(4)).min(1).max(16).optional(), mask: z.enum(['auto', 'none', 'alpha']).optional() }).strict(),
-    }).strict().safeParse(raw);
-    const service = getAutomationService();
-    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
-    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
-    await service.whenReady();
-    const captured = await service.captureReferenceFrame(tabId, { retainViewport: true });
-    const source = nativeImage.createFromBuffer(Buffer.from(captured.png));
-    if (source.isEmpty()) throw new Error('page capture is empty');
-    const image = source.getSize().width === DEFAULT_AUTOMATION_VIEWPORT.width && source.getSize().height === DEFAULT_AUTOMATION_VIEWPORT.height
-      ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
-    const match = await service.testAssetOnImage(parsed.data.packageId, parsed.data.asset, { width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, bgra: Uint8Array.from(image.toBitmap()) }, { scales: parsed.data.options.scales, mask: parsed.data.options.mask });
-    const scale = Math.min(1, 900 / DEFAULT_AUTOMATION_VIEWPORT.width, 600 / DEFAULT_AUTOMATION_VIEWPORT.height);
-    const previewWidth = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.width * scale));
-    const previewHeight = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.height * scale));
-    const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
-    const threshold = parsed.data.options.threshold ?? .9;
-    return { dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height, candidate: match, matched: Boolean(match && match.score >= threshold), threshold };
-  });
-
-  ipcMain.handle('userscript:automation-ocr-test', async (event, raw: unknown) => {
-    const parsed = z.object({
-      scriptId: z.string(), text: z.string().trim().min(1).max(200),
-      match: z.enum(['contains', 'exact']), minScore: z.number().min(0).max(1),
+      options: z.object({ threshold: z.number().min(.1).max(1).optional(), scales: z.array(z.number().min(.25).max(4)).min(1).max(16).optional(), mask: z.enum(['auto', 'none', 'alpha']).optional(), region: z.object({ x: z.number().min(0), y: z.number().min(0), width: z.number().min(1), height: z.number().min(1) }).optional() }).strict(),
     }).strict().safeParse(raw);
     const service = getAutomationService();
     const tabId = tabManager.getTabIdForWebContents(event.sender.id);
     if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
     await service.whenReady();
     const captureStartedAt = Date.now();
-    const captured = await service.captureReferenceFrame(tabId, { retainViewport: true });
+    // When a bound game surface region is supplied (live-viewport CSS px), capture
+    // only that area at native resolution so template matching sees the UI at the
+    // same pixel scale as the asset (no full-page downscale). Otherwise fall back
+    // to a full-page capture normalized to the 1280×720 logical canvas.
+    const captured = await service.captureReferenceFrame(tabId, { retainViewport: true, cssRegion: parsed.data.options.region });
     const captureMs = Date.now() - captureStartedAt;
     const source = nativeImage.createFromBuffer(Buffer.from(captured.png));
     if (source.isEmpty()) throw new Error('page capture is empty');
-    const image = source.getSize().width === DEFAULT_AUTOMATION_VIEWPORT.width && source.getSize().height === DEFAULT_AUTOMATION_VIEWPORT.height
-      ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
+    let image = source;
+    if (!parsed.data.options.region) {
+      const sourceSize = source.getSize();
+      image = sourceSize.width === DEFAULT_AUTOMATION_VIEWPORT.width && sourceSize.height === DEFAULT_AUTOMATION_VIEWPORT.height
+        ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
+    }
+    const sceneSize = image.getSize();
+    const match = await service.testAssetOnImage(parsed.data.packageId, parsed.data.asset, { width: sceneSize.width, height: sceneSize.height, bgra: Uint8Array.from(image.toBitmap()) }, { scales: parsed.data.options.scales, mask: parsed.data.options.mask });
+    const scale = Math.min(1, 900 / sceneSize.width, 600 / sceneSize.height);
+    const previewWidth = Math.max(1, Math.round(sceneSize.width * scale));
+    const previewHeight = Math.max(1, Math.round(sceneSize.height * scale));
+    const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
+    const threshold = parsed.data.options.threshold ?? .9;
+    return { dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: sceneSize.width, sourceHeight: sceneSize.height, candidate: match, matched: Boolean(match && match.score >= threshold), threshold, captureMs };
+  });
+
+  ipcMain.handle('userscript:automation-ocr-test', async (event, raw: unknown) => {
+    const parsed = z.object({
+      scriptId: z.string(), text: z.string().trim().min(1).max(200),
+      match: z.enum(['contains', 'exact']), minScore: z.number().min(0).max(1),
+      region: z.object({ x: z.number().min(0), y: z.number().min(0), width: z.number().min(1), height: z.number().min(1) }).optional(),
+    }).strict().safeParse(raw);
+    const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady();
+    const captureStartedAt = Date.now();
+    // When a bound game surface region is supplied (live-viewport CSS px), capture
+    // only that area at native resolution so OCR sees it at the same pixel scale
+    // as it appears in-game. Otherwise fall back to a full-page capture normalized
+    // to the 1280×720 logical canvas.
+    const captured = await service.captureReferenceFrame(tabId, { retainViewport: true, cssRegion: parsed.data.region });
+    const captureMs = Date.now() - captureStartedAt;
+    const source = nativeImage.createFromBuffer(Buffer.from(captured.png));
+    if (source.isEmpty()) throw new Error('page capture is empty');
+    let image = source;
+    if (!parsed.data.region) {
+      const sourceSize = source.getSize();
+      image = sourceSize.width === DEFAULT_AUTOMATION_VIEWPORT.width && sourceSize.height === DEFAULT_AUTOMATION_VIEWPORT.height
+        ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
+    }
+    const sceneSize = image.getSize();
     const recognized = await service.testTextOnImage({
-      width: DEFAULT_AUTOMATION_VIEWPORT.width,
-      height: DEFAULT_AUTOMATION_VIEWPORT.height,
+      width: sceneSize.width,
+      height: sceneSize.height,
       bgra: Uint8Array.from(image.toBitmap()),
     });
     const query = parsed.data.text;
@@ -110,13 +131,13 @@ export function registerUserscriptsIPC(): void {
       const textMatched = parsed.data.match === 'exact' ? item.text === query : item.text.includes(query);
       return [{ text: item.text, score: item.score, x, y, width: right - x, height: bottom - y, matched: textMatched && item.score >= parsed.data.minScore }];
     });
-    const scale = Math.min(1, 900 / DEFAULT_AUTOMATION_VIEWPORT.width, 600 / DEFAULT_AUTOMATION_VIEWPORT.height);
-    const previewWidth = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.width * scale));
-    const previewHeight = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.height * scale));
+    const scale = Math.min(1, 900 / sceneSize.width, 600 / sceneSize.height);
+    const previewWidth = Math.max(1, Math.round(sceneSize.width * scale));
+    const previewHeight = Math.max(1, Math.round(sceneSize.height * scale));
     const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
     return {
       dataUrl: preview.toDataURL(), previewWidth, previewHeight,
-      sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height,
+      sourceWidth: sceneSize.width, sourceHeight: sceneSize.height,
       candidates, matched: candidates.some((item) => item.matched), captureMs, ocrMs: recognized.ocrMs,
     };
   });
@@ -196,6 +217,18 @@ export function registerUserscriptsIPC(): void {
     if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
     await service.whenReady(); await service.beginAuthoringViewport(tabId);
     return { ready: true as const, viewport: DEFAULT_AUTOMATION_VIEWPORT };
+  });
+
+  // Warm up the authoring viewport reservation so the first capture in a fresh
+  // session does not absorb the one-time beginAutomation/_settle cost. The
+  // reservation is kept alive (the 5-minute idle timer re-arms on every call),
+  // so subsequent captureReferenceFrame calls hit the cached authoring viewport.
+  ipcMain.handle('userscript:automation-authoring-warm', async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw); const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady(); await service.beginAuthoringViewport(tabId);
+    return { warm: true as const };
   });
 
   ipcMain.handle('userscript:automation-game-surfaces', async (event, raw: unknown) => {

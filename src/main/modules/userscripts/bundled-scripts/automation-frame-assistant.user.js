@@ -4,7 +4,7 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      2.4.0
+// @version      2.4.4
 // @description  网页内自动化悬浮球：运行控制、图片与文字识别测试、截图取材、游戏画面绑定与相对坐标取点。
 // @match        http://*/*
 // @match        https://*/*
@@ -142,6 +142,7 @@
     root.setAttribute('data-view', view);
     fitOpenPanel();
     if (view === 'match' || view === 'capture') void refreshPackages();
+    if (view === 'match') void api.warmAuthoring().catch(function () { /* Best-effort warm-up. */ });
   }
   function currentPackage() { return state.packages.find(function (item) { return item.packageId === packageRun.value; }); }
   function messageText(message) {
@@ -206,13 +207,13 @@
   async function warmSelected() { var pkg = currentPackage(); if (!pkg || !selectedAsset) return; try { await api.warmup(pkg.packageId, selectedAsset); } catch { /* Best-effort idle warmup. */ } }
   function renderMatch(value) {
     preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
-    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); resultText.textContent = (value.matched ? '匹配成功' : '最佳候选低于阈值') + ' · 坐标 ' + Math.round(value.candidate.x) + ', ' + Math.round(value.candidate.y) + ' · ' + (value.candidate.matchMs || 0) + 'ms'; }
+    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); resultText.textContent = (value.matched ? '匹配成功' : '最佳候选低于阈值') + ' · 坐标 ' + Math.round(value.candidate.x) + ', ' + Math.round(value.candidate.y) + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · ' + (value.candidate.matchMs || 0) + 'ms'; }
     else resultText.textContent = '没有找到匹配候选'; preview.appendChild(wrap);
   }
   function renderOcr(value) {
     preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
-    (value.candidates || []).forEach(function (candidate) {
-      var hit = document.createElement('span'); hit.className = 'bao-hit' + (candidate.matched ? ' bao-ok' : '');
+    (value.candidates || []).filter(function (candidate) { return candidate.matched; }).forEach(function (candidate) {
+      var hit = document.createElement('span'); hit.className = 'bao-hit bao-ok';
       hit.style.left = candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = candidate.y / value.sourceHeight * 100 + '%';
       hit.style.width = candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = candidate.height / value.sourceHeight * 100 + '%';
       var badge = document.createElement('b'); badge.textContent = candidate.text + ' · ' + (candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit);
@@ -230,10 +231,21 @@
     preview.innerHTML = '<span>' + (state.matchMode === 'text' ? '输入文字后捕获页面' : '选择素材后捕获页面') + '</span>';
     resultText.textContent = state.matchMode === 'text' ? 'OCR 在本机离线运行，仅 OCR 版可用' : '选择素材开始测试';
   }
+  function ocrRegion() {
+    // Bound game surface rect, in live-viewport CSS px — the exact coordinate
+    // space capturePage(rect) expects. Returning it lets the main process
+    // capture ONLY that area at native resolution, keeping the scene at the same
+    // pixel scale as the asset/text templates (no full-page downscale).
+    var rect = visibleGameSurfaceRect(); if (!rect) return undefined;
+    var x = Math.round(rect.x); var y = Math.round(rect.y);
+    var width = Math.round(rect.width); var height = Math.round(rect.height);
+    if (width <= 0 || height <= 0) return undefined;
+    return { x: Math.max(0, x), y: Math.max(0, y), width, height };
+  }
   async function compareText() {
     var text = String(ocrText.value || '').trim(); if (!text) { resultText.textContent = '请先输入要识别的文字'; ocrText.focus(); return; }
     var score = Math.max(0, Math.min(1, Number(ocrScore.value) || 0)); ocrScore.value = String(score);
-    var value = await api.ocrTest(text, { match: ocrMatch.value, minScore: score }); renderOcr(value);
+    var value = await api.ocrTest(text, { match: ocrMatch.value, minScore: score, region: ocrRegion() }); renderOcr(value);
   }
   async function compare() {
     if (state.busy) return;
@@ -241,7 +253,7 @@
     state.busy = true; resultText.textContent = '正在捕获当前页面…';
     try {
       if (state.matchMode === 'text') await compareText();
-      else { var value = await api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'auto' }); renderMatch(value); }
+      else { var value = await api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'auto', region: ocrRegion() }); renderMatch(value); }
     }
     catch (error) { resultText.textContent = error.message || String(error); }
     finally { state.busy = false; }

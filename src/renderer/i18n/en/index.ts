@@ -415,6 +415,7 @@ const en: Translation = {
       blocksTab: 'Blocks',
       jsonTab: 'JSON Code',
       testBenchTab: 'Asset Test Bench',
+      ocrTestBenchTab: 'Text Test Bench',
       applyJson: 'Validate and Apply JSON',
       emptyEditorTitle: 'Select or Import a Script',
       emptyEditorHint: 'Scripts appear in the library on the left.',
@@ -501,6 +502,15 @@ const en: Translation = {
       matched: 'Matched', belowThreshold: 'Best candidate is below threshold', noCandidate: 'No usable match candidate', waiting: 'Import a scene and select an asset below to begin',
       metrics: 'Score {score}% · ({x}, {y}) · {width}×{height} · scale {scale} · {ms}ms', lowVariance: 'This asset has very low contrast (standard deviation {value}). Solid-color matching is active; include more edge detail if possible.',
       assetStrip: 'UI Assets', assetStripHint: 'Click an asset to compare it against the scene', importAssets: 'Import Assets', importAssetsTitle: 'Import UI Assets', imported: 'Assets updated: {count}', noAssets: 'This script has no UI assets yet',
+    },
+    ocrTestBench: {
+      title: 'Text Recognition Bench', subtitle: 'Recognize text in a selected scene image (offline OCR)',
+      text: 'Text to recognize', textPlaceholder: 'e.g. 开始游戏', minScore: 'Min confidence',
+      matchMode: 'Match mode', matchContains: 'Contains text', matchExact: 'Exact match', recognize: 'Recognize', recognizing: 'Recognizing',
+      openSceneTitle: 'Select Target Scene Image', imageFilter: 'Image Files', importScene: 'Import Target Scene', importSceneHint: 'The selected image fills the main recognition area', replaceScene: 'Replace Scene',
+      zoomOut: 'Zoom out', zoomIn: 'Zoom in', fitScene: 'Fit scene', focusScene: 'Focus scene', exitFocus: 'Exit focus view',
+      hits: 'Found {count} matched text', timing: '{text} · {ms}ms',
+      noHit: 'No match found for “{text}”', noText: 'No recognizable text in the scene', waiting: 'Import a scene and enter text to recognize',
     },
     blockly: {
       workspaceNotReady: 'Block workspace not ready',

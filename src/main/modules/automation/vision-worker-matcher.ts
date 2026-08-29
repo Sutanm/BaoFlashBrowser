@@ -182,12 +182,24 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     const sceneBytes = deviceRegion
       ? cropBgra(fullSceneBytes, bitmapSize.width, deviceRegion)
       : fullSceneBytes;
+    // When the caller already narrowed the capture to a source region via
+    // capturePage (findImage passes region: undefined), deviceOrigin holds the
+    // region's LOGICAL offset but the matched location lives in the region's
+    // bitmap pixel space. Do NOT fold a raw logical origin into the match here:
+    // mixing the two coordinate spaces makes the clickable point drift outside
+    // the surface. Report the match as region-local; the driver converts via the
+    // region bitmap→logical scale and adds the logical offset itself. Full-page
+    // matches (origin 0,0) are unaffected.
+    const regionLocal = Boolean(deviceOrigin.x || deviceOrigin.y);
     const scene = deviceRegion
       ? {
         width: deviceRegion.width, height: deviceRegion.height,
         originX: deviceOrigin.x + deviceRegion.x, originY: deviceOrigin.y + deviceRegion.y,
       }
-      : { width: bitmapSize.width, height: bitmapSize.height, originX: deviceOrigin.x, originY: deviceOrigin.y };
+      : {
+        width: bitmapSize.width, height: bitmapSize.height,
+        originX: regionLocal ? 0 : deviceOrigin.x, originY: regionLocal ? 0 : deviceOrigin.y,
+      };
     const reusableFrameId = deviceRegion ? undefined : frame.frameId;
     const reuseScene = reusableFrameId !== undefined && this.sentFrameId === reusableFrameId;
     const sceneTransferBytes = reuseScene ? new Uint8Array(0) : sceneBytes;

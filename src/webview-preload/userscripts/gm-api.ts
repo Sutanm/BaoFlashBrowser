@@ -231,14 +231,15 @@ export function createGmApi(context: GmApiContext): GmApi {
       const result = await bridge.invoke('userscript:automation-list', { scriptId: script.id });
       return Array.isArray(result) ? result as Array<{ packageId: string; name: string; assets: string[] }> : [];
     },
-    match: (packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha' }): Promise<unknown> =>
+    match: (packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha'; region?: { x: number; y: number; width: number; height: number } }): Promise<unknown> =>
       bridge.invoke('userscript:automation-match', { scriptId: script.id, packageId, asset, options: options ?? {} }),
-    ocrTest: (text: string, options?: { match?: 'contains' | 'exact'; minScore?: number }): Promise<unknown> =>
+    ocrTest: (text: string, options?: { match?: 'contains' | 'exact'; minScore?: number; region?: { x: number; y: number; width: number; height: number } }): Promise<unknown> =>
       bridge.invoke('userscript:automation-ocr-test', {
         scriptId: script.id,
         text,
         match: options?.match ?? 'contains',
         minScore: options?.minScore ?? .5,
+        region: options?.region,
       }),
     status: (): Promise<unknown> => bridge.invoke('userscript:automation-status', { scriptId: script.id }),
     start: (packageId: string, countdownMs = 0): Promise<unknown> =>
@@ -256,6 +257,7 @@ export function createGmApi(context: GmApiContext): GmApi {
     clearGameSurface: (): Promise<unknown> => bridge.invoke('userscript:automation-game-surface-clear', { scriptId: script.id }),
     beginCoordinatePick: (): Promise<unknown> => bridge.invoke('userscript:automation-coordinate-begin', { scriptId: script.id }),
     endCoordinatePick: (): Promise<unknown> => bridge.invoke('userscript:automation-coordinate-end', { scriptId: script.id }),
+    warmAuthoring: (): Promise<unknown> => bridge.invoke('userscript:automation-authoring-warm', { scriptId: script.id }),
   };
 
   // --- GM_webRequest (OBSERVATION ONLY: no interception, no modification) ----

@@ -18,6 +18,13 @@ type PendingRequest = {
 const OCR_EXECUTABLE = 'PaddleOCR-json.exe';
 const STARTUP_TIMEOUT_MS = 30_000;
 
+// Electron 11 ships Node 12, which predates fs.promises.rm (Node 14.14).
+// fs.promises.rmdir with { recursive } has existed since Node 12.10 but the
+// installed @types/node (25.x) dropped that overload; cast to keep both happy.
+function removeTempDir(dir: string): Promise<void> {
+  return (fs.promises.rmdir as unknown as (p: string, o: { recursive: boolean }) => Promise<void>)(dir, { recursive: true });
+}
+
 export function bundledOcrDirectory(): string {
   const packaged = path.join(process.resourcesPath ?? '', 'native', 'ocr');
   if (process.resourcesPath && fs.existsSync(path.join(process.resourcesPath, 'app.asar'))) return packaged;
@@ -98,7 +105,7 @@ export class PaddleOcrEngine {
         await fs.promises.writeFile(imagePath, bitmapToBmp(frame.bitmap, frame.bitmapSize.width, frame.bitmapSize.height));
         return await this.request({ image_path: imagePath }, signal);
       } finally {
-        await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        await removeTempDir(tempDir).catch(() => {});
       }
     } finally {
       release();
@@ -125,7 +132,10 @@ export class PaddleOcrEngine {
     // The executable's built-in defaults already point at the selected Chinese
     // detector/recognizer. v1.4.1's CLI config_path parsing rejects a valid
     // relative .txt path, so do not pass it in pipe mode.
-    const child = spawn(executable, [], { cwd: this.directory, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    // Cap the CPU thread pool: the default 10 threads each reserve an MKL-DNN
+    // workspace, which is the main contributor to the ~600MB resident set.
+    // Single-image recognition has ample headroom at 4 threads.
+    const child = spawn(executable, ['-cpu_threads=4'], { cwd: this.directory, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');

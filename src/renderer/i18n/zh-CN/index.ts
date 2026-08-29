@@ -438,6 +438,7 @@ const zhCN: BaseTranslation = {
       blocksTab: '积木编辑',
       jsonTab: 'JSON 代码',
       testBenchTab: '素材测试台',
+      ocrTestBenchTab: '文字识别测试台',
       applyJson: '校验并应用 JSON',
       emptyEditorTitle: '选择或导入一个脚本',
       emptyEditorHint: '脚本会显示在左侧脚本库中。',
@@ -524,6 +525,15 @@ const zhCN: BaseTranslation = {
       matched: '匹配成功', belowThreshold: '最佳候选低于阈值', noCandidate: '没有可用的匹配候选', waiting: '导入场景图并选择下方素材开始测试',
       metrics: '匹配度 {score}% · 坐标 ({x}, {y}) · {width}×{height} · 缩放 {scale} · {ms}ms', lowVariance: '素材对比度很低（标准差 {value}），已切换纯色匹配模式；建议裁入更多边缘特征。',
       assetStrip: 'UI 素材', assetStripHint: '点击素材即可在场景图中比对', importAssets: '导入素材', importAssetsTitle: '导入 UI 素材', imported: '素材已更新，共 {count} 个', noAssets: '当前脚本还没有 UI 素材',
+    },
+    ocrTestBench: {
+      title: '文字识别测试台', subtitle: '在选中的场景图上离线识别文字',
+      text: '要识别的文字', textPlaceholder: '例如：开始游戏', minScore: '最低可信度',
+      matchMode: '匹配方式', matchContains: '包含文字', matchExact: '完全一致', recognize: '识别', recognizing: '识别中',
+      openSceneTitle: '选择目标场景图', imageFilter: '图片文件', importScene: '导入目标场景', importSceneHint: '选中的图片会填满识别区域', replaceScene: '更换场景',
+      zoomOut: '缩小', zoomIn: '放大', fitScene: '适应场景', focusScene: '聚焦场景', exitFocus: '退出聚焦',
+      hits: '找到 {count} 处匹配文字', timing: '{text} · {ms}ms',
+      noHit: '未找到「{text}」', noText: '场景中没有可识别的文字', waiting: '导入场景图并输入要识别的文字',
     },
     blockly: {
       workspaceNotReady: '积木工作区尚未就绪',

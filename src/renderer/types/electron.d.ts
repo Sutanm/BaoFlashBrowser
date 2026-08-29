@@ -341,6 +341,11 @@ declare global {
           candidate: { x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number; masked?: boolean; lowVariance?: boolean; templateStdDev?: number } | null;
           matched: boolean; threshold: number;
         }>;
+        testTextOnScene(token: string, text: string, match: 'contains' | 'exact', minScore: number): Promise<{
+          sourceWidth: number; sourceHeight: number;
+          candidates: Array<{ text: string; score: number; x: number; y: number; width: number; height: number; matched: boolean }>;
+          matched: boolean; ocrMs: number;
+        }>;
         warmupVision(packageId: string): Promise<{ ready: boolean }>;
         importAssetFiles(packageId: string, i18n?: { title?: string; filterName?: string }): Promise<{ canceled: boolean; assets?: string[] }>;
         getAssetReferences(packageId: string, asset: string): Promise<{ referenced: boolean }>;

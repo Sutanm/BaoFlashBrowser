@@ -538,7 +538,7 @@ export class AutomationService {
     }
   }
 
-  async captureReferenceFrame(tabId: string, options: { retainViewport?: boolean } = {}): Promise<{ png: Uint8Array; width: number; height: number }> {
+  async captureReferenceFrame(tabId: string, options: { retainViewport?: boolean; cssRegion?: { x: number; y: number; width: number; height: number } } = {}): Promise<{ png: Uint8Array; width: number; height: number }> {
     this.assertEnabled();
     let handle: AutomationTabHandle;
     let release = true;
@@ -558,7 +558,12 @@ export class AutomationService {
       await handle.ready;
       wc.incrementCapturerCount();
       capturing = true;
-      const image = await wc.capturePage();
+      // When a source region is supplied (bound game surface, in live-viewport
+      // CSS/DIP px), capture only that area at its native resolution instead of
+      // the whole page. This keeps the scene in the same pixel scale as the UI
+      // asset templates, so template matching scores stay meaningful instead of
+      // degrading from a full-page downscale where the surface shrinks.
+      const image = options.cssRegion ? await wc.capturePage(options.cssRegion) : await wc.capturePage();
       if (image.isEmpty()) throw new Error('selected tab capture is empty');
       if (tabManager.getWebContents(tabId) !== wc) throw new Error('selected tab changed while capturing');
       const size = image.getSize();
