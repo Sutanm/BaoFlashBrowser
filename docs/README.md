@@ -1,6 +1,6 @@
 # BaoFlashBrowser 文档索引
 
-> 当前产品版本：1.1.1。最近核对日期：2026-08-23。
+> 当前产品版本：1.1.1。最近核对日期：2026-08-29。
 
 本文用于区分“描述当前实现的文档”和“保留决策过程的历史记录”。遇到冲突时，以当前源码、`package.json`、CI 工作流和 `AGENTS.md` 为准。
 
@@ -10,8 +10,8 @@
 | --- | --- | --- |
 | 项目入口 | [`../README.md`](../README.md)、[`../README_EN.md`](../README_EN.md) | 功能、平台支持、源码运行与下载 |
 | 发行说明 | [`../RELEASE_NOTES.md`](../RELEASE_NOTES.md) | 当前正式版内容、安装包大小与 SHA-256 |
-| 自动化零基础入门 | [`automation-blockly-beginner-guide.md`](automation-blockly-beginner-guide.md) | 面向完全不会编程的用户，逐块解释全部积木和示例 |
-| 自动化使用 | [`automation-user-guide.md`](automation-user-guide.md) | 工作台、积木/JSON、素材、悬浮助手与脚本包 |
+| 自动化零基础入门 | [`automation-blockly-beginner-guide.md`](automation-blockly-beginner-guide.md) | 面向完全不会编程的用户，逐块解释全部积木、游戏画面特征串、两套坐标和示例 |
+| 自动化使用 | [`automation-user-guide.md`](automation-user-guide.md) | 工作台、积木/JSON、素材、游戏画面定位、悬浮助手与脚本包 |
 | 用户脚本使用 | [`userscript-user-guide.md`](userscript-user-guide.md) | 安装、管理和常见问题 |
 | 用户脚本开发 | [`userscript-developer-guide.md`](userscript-developer-guide.md) | 运行时、GM API、安全边界与测试 |
 | 模块设计 | [`modules/00-overview.md`](modules/00-overview.md) | 当前源码模块入口；各模块文档以此为目录 |

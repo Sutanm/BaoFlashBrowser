@@ -185,6 +185,8 @@ class AutomationEndSignal extends Error {
   }
 }
 
+class AutomationBreakSignal extends Error {}
+
 export class AutomationRunner {
   private readonly workflow: AutomationWorkflow;
   private readonly driver: AutomationDriver;
@@ -197,6 +199,8 @@ export class AutomationRunner {
   private actor = createActor(lifecycleMachine);
   private controller: AbortController | null = null;
   private executedSteps = 0;
+  private budgetExecutedSteps = 0;
+  private unboundedLoopDepth = 0;
   private stepMode = false;
   private stepPermits = 0;
   private releaseStep: (() => void) | null = null;
@@ -245,6 +249,8 @@ export class AutomationRunner {
     const forwardAbort = (): void => this.controller?.abort();
     options.signal?.addEventListener('abort', forwardAbort, { once: true });
     this.executedSteps = 0;
+    this.budgetExecutedSteps = 0;
+    this.unboundedLoopDepth = 0;
     this.activeSearchRegion = this.searchRegion;
     this.driver.setCoordinateSpace(this.workflow.coordinateSpace ?? 'page');
     this.stepMode = options.stepMode ?? false;
@@ -281,6 +287,7 @@ export class AutomationRunner {
       this.stepMode = false;
       this.stepPermits = 0;
       this.releaseStep = null;
+      this.unboundedLoopDepth = 0;
     }
   }
 
@@ -439,7 +446,8 @@ export class AutomationRunner {
     if (depth > this.maxDepth) throw new Error(`automation nesting exceeds ${this.maxDepth}`);
     if (this.stepMode && step.type !== 'sequence') await this.waitForStepPermit(step, signal);
     this.executedSteps += 1;
-    if (this.executedSteps > this.maxExecutedSteps) throw new Error(`automation step budget exceeds ${this.maxExecutedSteps}`);
+    if (this.unboundedLoopDepth === 0) this.budgetExecutedSteps += 1;
+    if (this.budgetExecutedSteps > this.maxExecutedSteps) throw new Error(`automation step budget exceeds ${this.maxExecutedSteps}`);
     this.onEvent?.({ type: 'step-start', step, executedSteps: this.executedSteps });
 
     switch (step.type) {
@@ -606,14 +614,33 @@ export class AutomationRunner {
       case 'end':
         throw new AutomationEndSignal(step.result, step.message);
       case 'repeat':
-        for (let index = 0; index < step.times; index += 1) await this.execute(step.body, signal, depth + 1);
+        for (let index = 0; index < step.times; index += 1) {
+          try { await this.execute(step.body, signal, depth + 1); }
+          catch (error) { if (error instanceof AutomationBreakSignal) return; throw error; }
+        }
         return;
+      case 'forever':
+        this.unboundedLoopDepth += 1;
+        try {
+          while (true) {
+            this.throwIfAborted(signal);
+            try { await this.execute(step.body, signal, depth + 1); }
+            catch (error) { if (error instanceof AutomationBreakSignal) return; throw error; }
+            // Yield after every pass so an empty or coordinate-only loop remains stoppable.
+            await this.driver.sleep(0, signal);
+          }
+        } finally {
+          this.unboundedLoopDepth -= 1;
+        }
+      case 'break':
+        throw new AutomationBreakSignal();
       case 'repeat-until-image':
         for (let index = 0; index <= step.maxIterations; index += 1) {
           const visible = await this.findCondition(step.condition, signal);
           if ((step.until === 'visible' && visible) || (step.until === 'hidden' && !visible)) return;
           if (index === step.maxIterations) break;
-          await this.execute(step.body, signal, depth + 1);
+          try { await this.execute(step.body, signal, depth + 1); }
+          catch (error) { if (error instanceof AutomationBreakSignal) return; throw error; }
           if (step.delayMs) await this.driver.sleep(step.delayMs, signal);
         }
         throw new Error(`repeat-until condition not met after ${step.maxIterations} iterations: ${step.condition.asset}`);
@@ -621,7 +648,8 @@ export class AutomationRunner {
         for (let index = 0; index <= step.maxIterations; index += 1) {
           if (await this.findCondition(step.condition, signal)) return;
           if (index === step.maxIterations) break;
-          await this.execute(step.body, signal, depth + 1);
+          try { await this.execute(step.body, signal, depth + 1); }
+          catch (error) { if (error instanceof AutomationBreakSignal) return; throw error; }
           if (step.delayMs) await this.driver.sleep(step.delayMs, signal);
         }
         throw new Error(`combined repeat-until condition not met after ${step.maxIterations} iterations`);

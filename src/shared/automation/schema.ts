@@ -318,6 +318,15 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
     }).strict(),
     z.object({
       ...stepId,
+      type: z.literal('forever'),
+      body: sequenceStepSchema,
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('break'),
+    }).strict(),
+    z.object({
+      ...stepId,
       type: z.literal('repeat-until-image'),
       condition: imageConditionSchema,
       until: z.enum(['visible', 'hidden']),
@@ -387,7 +396,7 @@ function validateVisionRegions(workflow: AutomationWorkflow, ctx: z.RefinementCt
     } else if (step.type === 'wait-condition-branch') {
       visit(step.success, outer, [...path, 'success']);
       visit(step.timeout, outer, [...path, 'timeout']);
-    } else if (step.type === 'repeat' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') {
+    } else if (step.type === 'repeat' || step.type === 'forever' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') {
       visit(step.body, outer, [...path, 'body']);
     } else if (step.type === 'position-compare') {
       visit(step.then, outer, [...path, 'then']);
@@ -398,6 +407,31 @@ function validateVisionRegions(workflow: AutomationWorkflow, ctx: z.RefinementCt
   if (usesGameSpace && !workflow.gameSurface) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['gameSurface'], message: 'game coordinate space requires a game surface feature' });
   }
+}
+
+function validateBreakPlacement(workflow: AutomationWorkflow, ctx: z.RefinementCtx): void {
+  const visit = (step: AutomationStep, loopDepth: number, path: Array<string | number>): void => {
+    if (step.type === 'break') {
+      if (loopDepth === 0) ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path,
+        message: 'break step must be inside a loop',
+      });
+      return;
+    }
+    if (step.type === 'sequence') step.steps.forEach((child, index) => visit(child, loopDepth, [...path, 'steps', index]));
+    else if (step.type === 'repeat' || step.type === 'forever' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') {
+      visit(step.body, loopDepth + 1, [...path, 'body']);
+    } else if (step.type === 'vision-region' || step.type === 'coordinate-space') visit(step.body, loopDepth, [...path, 'body']);
+    else if (step.type === 'if-image' || step.type === 'if-condition' || step.type === 'position-compare') {
+      visit(step.then, loopDepth, [...path, 'then']);
+      if (step.else) visit(step.else, loopDepth, [...path, 'else']);
+    } else if (step.type === 'wait-condition-branch') {
+      visit(step.success, loopDepth, [...path, 'success']);
+      visit(step.timeout, loopDepth, [...path, 'timeout']);
+    }
+  };
+  visit(workflow.root, 0, ['root']);
 }
 
 export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDef, unknown> = z.object({
@@ -415,7 +449,8 @@ export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDe
 }).strict()
   .refine((value) => !(value.searchRegion && value.readyWhen), 'region entry cannot also define readyWhen; add a wait step after the entry')
   .refine((value) => value.coordinateSpace !== 'game' || Boolean(value.gameSurface), 'game entry requires a game surface feature')
-  .superRefine(validateVisionRegions);
+  .superRefine(validateVisionRegions)
+  .superRefine(validateBreakPlacement);
 
 export const automationPackageManifestSchema: z.ZodType<AutomationPackageManifest> = z.object({
   format: z.literal('baoauto'),
@@ -485,7 +520,8 @@ export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<strin
         visit(step.success);
         visit(step.timeout);
         break;
-      case 'repeat': visit(step.body); break;
+      case 'repeat':
+      case 'forever': visit(step.body); break;
       case 'vision-region': visit(step.body); break;
       case 'coordinate-space': visit(step.body); break;
       case 'repeat-until-image':

@@ -831,7 +831,7 @@ export class AutomationService {
       else if (step.type === 'if-image' || step.type === 'if-condition') { visit(step.then, depth + 1); if (step.else) visit(step.else, depth + 1); }
       else if (step.type === 'wait-condition-branch') { visit(step.success, depth + 1); visit(step.timeout, depth + 1); }
       else if (step.type === 'position-compare') { visit(step.then, depth + 1); if (step.else) visit(step.else, depth + 1); }
-      else if (step.type === 'repeat' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') visit(step.body, depth + 1);
+      else if (step.type === 'repeat' || step.type === 'forever' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') visit(step.body, depth + 1);
     };
     visit(root, 0); return { stepCount, maxDepth };
   }
@@ -1002,6 +1002,8 @@ export class AutomationService {
       case 'wait-condition-branch': return { key: 'step.waitConditionBranch' };
       case 'end': return { key: 'step.end', params: { result: step.result, message: step.message ?? '' } };
       case 'repeat': return { key: 'step.repeat', params: { times: step.times } };
+      case 'forever': return { key: 'step.forever' };
+      case 'break': return { key: 'step.breakLoop' };
       case 'repeat-until-image': return { key: 'step.repeatUntilImage', params: { asset: step.condition.asset } };
       case 'repeat-until-condition': return { key: 'step.repeatUntilCondition' };
       case 'position-compare': return { key: 'step.positionCompare', params: { relation: step.relation } };

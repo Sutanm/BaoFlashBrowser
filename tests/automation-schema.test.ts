@@ -197,6 +197,35 @@ describe('automation workflow schema', () => {
     })).toThrow(/cannot also define readyWhen/);
   });
 
+  it('validates forever loops and only permits break inside a loop', () => {
+    expect(parseAutomationWorkflow({
+      formatVersion: 2,
+      id: 'forever-loop',
+      name: 'Forever loop',
+      root: {
+        type: 'sequence',
+        steps: [{
+          type: 'forever',
+          body: {
+            type: 'sequence',
+            steps: [{
+              type: 'if-condition',
+              condition: { type: 'image-visible', asset: 'done.png' },
+              then: { type: 'sequence', steps: [{ type: 'break' }] },
+            }],
+          },
+        }],
+      },
+    }).root.steps[0]).toMatchObject({ type: 'forever' });
+
+    expect(() => parseAutomationWorkflow({
+      formatVersion: 2,
+      id: 'orphan-break',
+      name: 'Orphan break',
+      root: { type: 'sequence', steps: [{ type: 'break' }] },
+    })).toThrow(/break step must be inside a loop/);
+  });
+
   it('requires a copied game-surface feature for game coordinate scopes', () => {
     const gameSurface = {
       version: 1 as const, kind: 'flash' as const, label: 'Flash · game', source: 'game.swf',

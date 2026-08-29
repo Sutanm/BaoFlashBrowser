@@ -59,8 +59,9 @@ After verification, minimize the browser and let the workflow continue. Targets 
 
 - BrowserView captures and OpenCV template matching locate UI at runtime instead of replaying recorded screen coordinates.
 - BrowserView rendering remains active while the application is minimized, allowing capture, matching, and trusted mouse or keyboard input to continue.
-- Workflows support unconditional, game-region, and image-ready entry points, normalized-coordinate clicks, random region clicks, coordinate/image pointer movement and dragging, key combinations, hold-until actions, text input, scrolling, navigation, and reloads.
-- Flow control includes `if / else`, `all / any / not` conditions, success/timeout branches, explicit workflow endings, fixed-count loops, and loops that run until a condition becomes true.
+- Workflows can automatically reacquire a selected Flash, Ruffle, Canvas, or nested-frame game surface. Whole-page and game-surface coordinate spaces can be mixed in one workflow, and resize events trigger a settle-and-reacquire step.
+- They also support manual game regions, image-ready entry points, normalized-coordinate clicks, random region clicks, coordinate/image pointer movement and dragging, key combinations, hold-until actions, text input, scrolling, navigation, and reloads.
+- Flow control includes `if / else`, `all / any / not` conditions, success/timeout branches, explicit workflow endings, fixed-count and forever loops, breaking the nearest loop, and loops that run until a condition becomes true.
 - Optional pre-click verification and movement limits reduce accidental clicks caused by animation or an unstable match.
 
 ### A Blockly workbench for non-programmers
@@ -75,7 +76,8 @@ After verification, minimize the browser and let the workflow continue. Targets 
 - A floating orb opens controls for script selection, readiness checks, countdown or immediate start, cancellation, progress, and logs.
 - Capture a single UI asset directly from a frozen game frame without using third-party screenshot software.
 - Adjust thresholds, capture and compare, or continuously monitor a target from inside the page.
-- The assistant briefly hides only while a capture is taken, then immediately returns. It can also collapse, move to the opposite edge, or fade automatically.
+- The assistant can select a game surface, copy its reusable feature string, and capture directly reusable whole-page or game-surface coordinates.
+- The assistant and other in-page overlays remain visible during recognition and execution. Collapse, move, fade, or disable them when they overlap a recognition or click region.
 
 ### A complete userscript platform
 

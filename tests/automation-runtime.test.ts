@@ -138,6 +138,49 @@ const workflow: AutomationWorkflow = {
 };
 
 describe('automation runtime', () => {
+  it('repeats forever and breaks only out of the nearest loop', async () => {
+    const driver = new FakeDriver();
+    const runner = new AutomationRunner({
+      formatVersion: 2,
+      id: 'forever-break',
+      name: 'Forever break',
+      root: {
+        type: 'sequence',
+        steps: [
+          {
+            type: 'forever',
+            body: {
+              type: 'sequence',
+              steps: [
+                { type: 'log', message: 'outer-start' },
+                {
+                  type: 'forever',
+                  body: { type: 'sequence', steps: [
+                    { type: 'log', message: 'inner' },
+                    { type: 'break' },
+                    { type: 'log', message: 'inner-unreachable' },
+                  ] },
+                },
+                { type: 'log', message: 'outer-after-inner' },
+                { type: 'break' },
+                { type: 'log', message: 'outer-unreachable' },
+              ],
+            },
+          },
+          { type: 'log', message: 'after-loop' },
+        ],
+      },
+    }, driver, { maxExecutedSteps: 3 });
+
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.calls).toEqual([
+      'log:outer-start',
+      'log:inner',
+      'log:outer-after-inner',
+      'log:after-loop',
+    ]);
+  });
+
   it('checks readiness, polls, branches, loops and completes deterministically', async () => {
     const driver = new FakeDriver();
     driver.queue('ready.png', MATCH);

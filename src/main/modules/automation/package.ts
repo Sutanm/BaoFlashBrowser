@@ -52,7 +52,7 @@ export function inferAutomationCapabilities(workflow: AutomationWorkflow): Autom
     else if (step.type === 'if-image' || step.type === 'if-condition') { visitCondition(step.condition); visit(step.then); if (step.else) visit(step.else); }
     else if (step.type === 'wait-condition') visitCondition(step.condition);
     else if (step.type === 'wait-condition-branch') { visitCondition(step.condition); visit(step.success); visit(step.timeout); }
-    else if (step.type === 'repeat' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') {
+    else if (step.type === 'repeat' || step.type === 'forever' || step.type === 'repeat-until-image' || step.type === 'repeat-until-condition') {
       if ('condition' in step) visitCondition(step.condition); visit(step.body);
     }
     else if (step.type === 'position-compare') {

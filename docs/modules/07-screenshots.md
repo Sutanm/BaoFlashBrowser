@@ -11,7 +11,7 @@
 | `src/main/modules/screenshot.ts` | 捕获决策、隐藏/最小化标签捕获、裁剪、保存路径与 PNG 写入 |
 | `src/main/modules/screenshot-http.ts` | `127.0.0.1:44123` 的开发态 POST 入口与 token 验证 |
 | `src/main/ipc/screenshot.ipc.ts` | `capture`、`capture-active`、`reveal`、`set-dir` |
-| `src/main/modules/automation/browserview-driver.ts` | 自动化截图及助手隐藏/恢复 |
+| `src/main/modules/automation/browserview-driver.ts` | 自动化区域截图与截图原点换算；页面浮窗保持显示 |
 
 ## 3 核心行为
 

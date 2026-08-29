@@ -30,6 +30,8 @@ export const STEP_BLOCK_TYPES: Record<RenderableStepType, string> = {
   'wait-condition': 'bao_wait_condition',
   'wait-condition-branch': 'bao_wait_condition_branch',
   repeat: 'bao_repeat',
+  forever: 'bao_forever',
+  break: 'bao_break',
   'repeat-until-image': 'bao_repeat_until_image',
   'repeat-until-condition': 'bao_repeat_until_condition',
   'position-compare': 'bao_position_compare',

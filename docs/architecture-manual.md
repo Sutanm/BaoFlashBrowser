@@ -836,7 +836,7 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 ---
 
-> 基础架构记录始于 2026-07-31，自动化章节更新于 2026-08-14 | Electron 11.5.0 / Chromium 87
+> 基础架构记录始于 2026-07-31，自动化章节更新于 2026-08-29 | Electron 11.5.0 / Chromium 87
 
 ---
 
@@ -887,7 +887,7 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 ## 12. 视觉自动化平台
 
-> 集成版本：1.1.0。用户手册见 `docs/automation-user-guide.md`，M0–M5 的设计和探针记录位于 `docs/superpowers/specs/2026-08-09-automation-*.md`。
+> 集成版本：1.1.1，自动化坐标与游戏画面定位最近核对于 2026-08-29。用户手册见 `docs/automation-user-guide.md`，M0–M5 的设计和探针记录位于 `docs/superpowers/specs/2026-08-09-automation-*.md`。
 
 ### 12.1 模块布局
 
@@ -896,10 +896,12 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 | `src/shared/automation/types.ts` / `schema.ts` | 工作流、步骤、组合条件、脚本包清单及 zod 校验 |
 | `src/main/modules/automation/runtime.ts` | 顺序、分支、循环、等待、取消和运行状态 |
 | `browserview-driver.ts` | BrowserView 截图、可信鼠标/键盘输入、导航和最小化执行 |
+| `game-surface-detector.ts` | 跨 frame/DOM 世界探测游戏候选、特征评分与运行时重定位 |
 | `vision-worker.cjs` / `vision-worker-matcher.ts` | OpenCV 模板匹配、预热、缓存、超时与工作线程隔离 |
 | `service.ts` | 脚本包存储、运行编排、素材测试、状态与历史 |
 | `package.ts` / `assets.ts` | `.baoauto` 导入导出、路径安全、素材扫描与诊断 |
 | `src/main/ipc/automation.ipc.ts` | 工作台、测试台、取材、运行和调试 IPC |
+| `src/shared/automation/game-surface-feature.ts` | `BFG1:` 游戏画面特征串编码、解码与显示标签 |
 | `AutomationPage.tsx` | `about:automation` 脚本库与编辑器壳 |
 | `AutomationBlocklyEditor.tsx` | Blockly 定义、工作流双向转换和积木工具箱 |
 | `AutomationAssetTestBench.tsx` | 指定场景图、素材列表、匹配分数和高亮结果 |
@@ -922,11 +924,13 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 测试台和正式执行必须从同一 BrowserView 内容截图链路取图。悬浮助手和其他页面浮窗在截图及正式识别期间始终显示，不得为了取图反复切换可见性；用户应将浮窗移出目标区域，或按需禁用助手。不能通过改变 BrowserView 尺寸的侧边栏来承担执行期的唯一反馈。
 
-纯坐标工作流不创建 OpenCV 匹配器。视觉工作流设置搜索区域后直接调用 `capturePage(rect)` 捕获该区域，并记录区域在完整 BrowserView 中的设备像素原点，匹配结果返回前加回原点。`vision-region` 是可嵌套的识图作用域：运行时将它与入口 `searchRegion` 及外层作用域逐层取交集，退出时恢复外层范围；仅图片识别继承该范围，坐标与键盘操作不受影响。schema 会拒绝完全无交集的嵌套区域。候选素材在同一 Worker 请求中共享场景灰度图；包含 1 倍缩放时先执行 1 倍匹配，只有高置信命中才跳过其余缩放。主进程到 Worker 使用 BGRA 共享内存，不经过 PNG 或 Base64。视觉性能日志按频率限制记录截图、位图转换、匹配、总耗时、场景字节数、WASM 堆及模板缓存。
+纯坐标工作流不创建 OpenCV 匹配器。视觉工作流设置搜索区域后直接调用 `capturePage(rect)` 捕获该区域，并记录区域在完整 BrowserView 中的设备像素原点，匹配结果返回前加回原点。`vision-region` 是可嵌套的识图作用域：运行时将它与入口、当前坐标空间及外层作用域逐层取交集，退出时恢复外层范围；仅图片识别继承该范围，坐标与键盘操作不受影响。游戏坐标空间中的显式区域始终再与当前游戏画面相交，不能逃逸到网页外壳。切换 `coordinate-space` 时不继承外层相对区域，因为相同的 `0–10000` 在页面和游戏空间代表不同矩形。候选素材在同一 Worker 请求中共享场景灰度图；包含 1 倍缩放时先执行 1 倍匹配，只有高置信命中才跳过其余缩放。主进程到 Worker 使用 BGRA 共享内存，不经过 PNG 或 Base64。视觉性能日志按频率限制记录截图、位图转换、匹配、总耗时、场景字节数、WASM 堆及模板缓存。
 
 ### 12.3 坐标语义
 
-工作流不持久化桌面绝对坐标。模板匹配返回 BrowserView 内容坐标，可信输入在执行瞬间换算并发送给目标 `webContents`。积木中的 `region` 和点击 `offset` 也属于内容图坐标，因此窗口移动和最小化不会改变其语义；页面缩放或游戏内部缩放仍可能改变目标像素外观。
+工作流不持久化桌面绝对坐标。`page` 和 `game` 两套坐标都以 `0–10000` 表示，并通过固定 `1280×720` 逻辑视口换算到 CSS/设备像素；前者覆盖完整 BrowserView，后者覆盖当前可见游戏画面。正反换算使用同一端点公式，量化往返误差不超过一个相对坐标单位。
+
+游戏画面 locator 保存类型、标签、资源来源、frame URL 和参考尺寸，不保存一次性的屏幕矩形。窗口 `setBounds` 会递增 viewport revision；下一次识图或输入先等待尺寸稳定，再重新探测并刷新绑定。跨渲染类型回退必须存在强来源或 frame 证据，多个候选得分接近则中止。模板匹配返回 BrowserView 内容坐标，可信输入在执行瞬间换算并发送给目标 `webContents`；窗口移动和最小化不会改变语义，但网站自身响应式重排仍会影响页面坐标。
 
 ### 12.4 `.baoauto` 边界
 
@@ -939,7 +943,7 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 ### 12.5 页面内助手的权限边界
 
-自动化相框助手通过内置用户脚本运行，但只获得 `GM.baoAutomation` 暴露的专用能力：列出脚本和素材、读取状态、启动/停止、截图比对及保存框选素材。它不能直接访问 Node.js、任意 Electron IPC 或本地文件系统。
+自动化相框助手通过内置用户脚本运行，但只获得 `GM.baoAutomation` 暴露的专用能力：列出脚本和素材、读取状态、启动/停止、截图比对、保存框选素材、坐标取点及游戏候选选择。它不能直接访问 Node.js、任意 Electron IPC 或本地文件系统。复制特征串使用受控剪贴板写入；工作台读取则经过独立白名单 IPC，不向普通网页开放。
 
 修改助手源码后必须执行完整构建或用户脚本管理 smoke。它与 CSS 修复器一样以文本嵌入主 bundle，直接启动旧 `dist/main.js` 会测试到陈旧版本。
 
@@ -947,6 +951,7 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 - `npm run probe:automation-m4`：工作台与 Blockly。
 - `npm run probe:automation-m5-engines`：Web、PPAPI 注册和 Ruffle 的最小化视觉/输入链路。
-- `npm run test:userscripts-admin`：内置助手、可见取消按钮和取材布局。
+- `npm run test:userscripts-admin`：内置助手、可见取消按钮、游戏候选、特征串复制/清除及页面/游戏坐标端点。
+- `tests/automation-browserview-driver.test.ts`、`automation-game-surface-detector.test.ts`、`automation-game-surface-feature.test.ts`：区域交集、坐标往返、窗口 revision 重定位、候选回退与特征串校验。
 - `npm run test:smokes`：用户脚本、菜单命令和兼容性组合回归。
 - 最终安装包仍需在真实 PPAPI 游戏人工验证，不得用“插件注册成功”代替“插件内容已渲染并接受输入”。

@@ -23,4 +23,9 @@ describe('automation block schema', () => {
     expect(blockTypeForStep({ type: 'key-press', key: 'A' })).toBe('bao_key_press');
     expect(blockTypeForStep({ type: 'key-press', key: 'A', modifiers: ['control'] })).toBe('bao_key_combo');
   });
+
+  it('maps forever and break flow steps to their Blockly blocks', () => {
+    expect(blockTypeForStep({ type: 'forever', body: { type: 'sequence', steps: [] } })).toBe('bao_forever');
+    expect(blockTypeForStep({ type: 'break' })).toBe('bao_break');
+  });
 });

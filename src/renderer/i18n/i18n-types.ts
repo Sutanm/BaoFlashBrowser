@@ -2446,6 +2446,14 @@ type RootTranslation = {
 			 */
 			repeat: string
 			/**
+			 * 一​直​重​复
+			 */
+			forever: string
+			/**
+			 * 跳​出​当​前​循​环
+			 */
+			breakLoop: string
+			/**
 			 * 重​复​直​到​图​片​ ​%​1​ ​%​2​ ​最​多​ ​%​3​ ​次
 			 */
 			repeatUntilImage: string
@@ -2778,6 +2786,14 @@ type RootTranslation = {
 				 * @param {unknown} times
 				 */
 				repeat: RequiredParams<'times'>
+				/**
+				 * 一​直​重​复
+				 */
+				forever: string
+				/**
+				 * 跳​出​当​前​循​环
+				 */
+				breakLoop: string
 				/**
 				 * 重​复​直​到​ ​{​a​s​s​e​t​}
 				 * @param {unknown} asset
@@ -5212,6 +5228,14 @@ export type TranslationFunctions = {
 			 */
 			repeat: () => LocalizedString
 			/**
+			 * 一直重复
+			 */
+			forever: () => LocalizedString
+			/**
+			 * 跳出当前循环
+			 */
+			breakLoop: () => LocalizedString
+			/**
 			 * 重复直到图片 %1 %2 最多 %3 次
 			 */
 			repeatUntilImage: () => LocalizedString
@@ -5502,6 +5526,14 @@ export type TranslationFunctions = {
 				 * 重复 {times} 次
 				 */
 				repeat: (arg: { times: unknown }) => LocalizedString
+				/**
+				 * 一直重复
+				 */
+				forever: () => LocalizedString
+				/**
+				 * 跳出当前循环
+				 */
+				breakLoop: () => LocalizedString
 				/**
 				 * 重复直到 {asset}
 				 */

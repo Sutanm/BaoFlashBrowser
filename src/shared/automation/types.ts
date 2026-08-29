@@ -347,6 +347,17 @@ export type RepeatStep = {
   body: SequenceStep;
 };
 
+export type ForeverStep = {
+  id?: string;
+  type: 'forever';
+  body: SequenceStep;
+};
+
+export type BreakStep = {
+  id?: string;
+  type: 'break';
+};
+
 export type PositionCompareStep = {
   id?: string;
   type: 'position-compare';
@@ -386,6 +397,8 @@ export type AutomationStep =
   | WaitConditionBranchStep
   | EndStep
   | RepeatStep
+  | ForeverStep
+  | BreakStep
   | RepeatUntilImageStep
   | RepeatUntilConditionStep
   | PositionCompareStep;
@@ -473,6 +486,8 @@ export type AutomationMessage =
   | { key: 'step.waitConditionBranch' }
   | { key: 'step.end'; params: { result: 'success' | 'failure'; message: string } }
   | { key: 'step.repeat'; params: { times: number } }
+  | { key: 'step.forever' }
+  | { key: 'step.breakLoop' }
   | { key: 'step.repeatUntilImage'; params: { asset: string } }
   | { key: 'step.repeatUntilCondition' }
   | { key: 'step.positionCompare'; params: { relation: string } }

@@ -90,6 +90,10 @@ export function resolveAutomationMessage(message: AutomationMessage, LL: Transla
       return s.step.repeatUntilImage(message.params);
     case 'step.repeatUntilCondition':
       return s.step.repeatUntilCondition();
+    case 'step.forever':
+      return s.step.forever();
+    case 'step.breakLoop':
+      return s.step.breakLoop();
     case 'step.positionCompare':
       return s.step.positionCompare(message.params);
     case 'step.positionRelation':
