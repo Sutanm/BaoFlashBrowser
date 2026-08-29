@@ -289,7 +289,8 @@ describe('BrowserView automation driver', () => {
     expect(wc.captureRects).toEqual([{ x: 72, y: 89, width: 576, height: 270 }]);
     expect(find.mock.calls[0][1]).toMatchObject({
       bitmapSize: { width: 864, height: 405 },
-      deviceOrigin: { x: 108, y: 134 },
+      deviceOrigin: { x: 90, y: 112 },
+      regionCssSize: { width: 720, height: 336 },
       deviceSize: { width: 1080, height: 672 },
       cssSize: { width: 900, height: 560 },
     });
@@ -477,7 +478,8 @@ describe('BrowserView automation driver', () => {
     expect(wc.captureRects).toEqual([{ x: 90, y: 112, width: 720, height: 336 }]);
     expect(find.mock.calls[0][1]).toMatchObject({
       bitmapSize: { width: 1080, height: 504 },
-      deviceOrigin: { x: 135, y: 168 },
+      deviceOrigin: { x: 90, y: 112 },
+      regionCssSize: { width: 720, height: 336 },
       deviceSize: { width: 1350, height: 840 },
       cssSize: { width: 900, height: 560 },
     });

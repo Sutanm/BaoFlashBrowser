@@ -313,18 +313,20 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
           image,
           bitmap,
           bitmapSize,
-          deviceOrigin: normalized && captureRegion
-            ? { x: captureRegion.x, y: captureRegion.y }
-            : captureRegion
-              ? { x: Math.round((displayCaptureRegion?.x ?? 0) * deviceScaleX), y: Math.round((displayCaptureRegion?.y ?? 0) * deviceScaleY) }
-              : { x: 0, y: 0 },
+          // deviceOrigin carries the source region's LOGICAL offset (captureRegion,
+          // in the 1280×720 canvas) whenever a region is captured — the same contract
+          // findText uses. The region branch of toCssPoint converts bitmapSize→
+          // regionCssSize then adds this logical origin, so keeping a raw physical
+          // displayCaptureRegion*scaleX here would mix physical/logical spaces and
+          // drift the click point. Full-page captures (origin 0,0) are unaffected.
+          deviceOrigin: captureRegion ? { x: captureRegion.x, y: captureRegion.y } : { x: 0, y: 0 },
           deviceSize: normalized
             ? { ...cssSize }
             : captureRegion
               ? { width: Math.round(transform.displaySize.width * deviceScaleX), height: Math.round(transform.displaySize.height * deviceScaleY) }
               : bitmapSize,
           cssSize,
-          regionCssSize: captureRegion && normalized ? { ...logicalCaptureSize } : undefined,
+          regionCssSize: captureRegion ? { ...logicalCaptureSize } : undefined,
           captureMs,
           bitmapMs,
         };
@@ -408,6 +410,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
           deviceOrigin: captureRegion ? { x: captureRegion.x, y: captureRegion.y } : { x: 0, y: 0 },
           deviceSize: normalized ? { ...cssSize } : (captureRegion ? { ...logicalCaptureSize } : bitmapSize),
           cssSize,
+          regionCssSize: captureRegion ? { ...logicalCaptureSize } : undefined,
           captureMs,
           bitmapMs: Date.now() - bitmapStartedAt,
         };
@@ -428,10 +431,15 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     if (!best) return null;
     const xs = best.box.map((point) => point[0]);
     const ys = best.box.map((point) => point[1]);
-    const left = Math.min(...xs) + (frame.deviceOrigin?.x ?? 0);
-    const top = Math.min(...ys) + (frame.deviceOrigin?.y ?? 0);
-    const right = Math.max(...xs) + (frame.deviceOrigin?.x ?? 0);
-    const bottom = Math.max(...ys) + (frame.deviceOrigin?.y ?? 0);
+    // The OCR box is expressed in the frame bitmap pixel space (game-surface
+    // region). Keep it region-local (no deviceOrigin folded in) so the region
+    // branch of toCssPoint can convert it through bitmapSize→regionCssSize and
+    // then add the logical deviceOrigin — same contract as findImage. Adding a
+    // raw logical origin here would drift the clickable point outside the surface.
+    const left = Math.min(...xs);
+    const top = Math.min(...ys);
+    const right = Math.max(...xs);
+    const bottom = Math.max(...ys);
     return {
       text: best.text,
       x: left,
