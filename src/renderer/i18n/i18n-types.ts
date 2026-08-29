@@ -796,6 +796,10 @@ type RootTranslation = {
 		 */
 		system: string
 		/**
+		 * 高​级
+		 */
+		advanced: string
+		/**
 		 * 兼​容​性​诊​断
 		 */
 		diagnostics: string
@@ -823,6 +827,34 @@ type RootTranslation = {
 		 * 诊​断​报​告​导​出​失​败
 		 */
 		diagnosticsFailed: string
+		/**
+		 * 网​页​缓​存
+		 */
+		cacheTitle: string
+		/**
+		 * 清​除​网​页​ ​H​T​T​P​ ​缓​存​，​不​会​删​除​ ​C​o​o​k​i​e​、​登​录​状​态​、​历​史​记​录​、​收​藏​、​密​码​或​用​户​脚​本​数​据​。​已​打​开​的​页​面​不​会​自​动​刷​新​。
+		 */
+		cacheHint: string
+		/**
+		 * 清​理​网​页​缓​存
+		 */
+		cacheClear: string
+		/**
+		 * 再​次​点​击​确​认​清​理
+		 */
+		cacheConfirm: string
+		/**
+		 * 正​在​清​理​缓​存​…
+		 */
+		cacheClearing: string
+		/**
+		 * 网​页​缓​存​已​清​理
+		 */
+		cacheCleared: string
+		/**
+		 * 网​页​缓​存​清​理​失​败
+		 */
+		cacheClearFailed: string
 		/**
 		 * 语​言
 		 */
@@ -3601,6 +3633,10 @@ export type TranslationFunctions = {
 		 */
 		system: () => LocalizedString
 		/**
+		 * 高级
+		 */
+		advanced: () => LocalizedString
+		/**
 		 * 兼容性诊断
 		 */
 		diagnostics: () => LocalizedString
@@ -3628,6 +3664,34 @@ export type TranslationFunctions = {
 		 * 诊断报告导出失败
 		 */
 		diagnosticsFailed: () => LocalizedString
+		/**
+		 * 网页缓存
+		 */
+		cacheTitle: () => LocalizedString
+		/**
+		 * 清除网页 HTTP 缓存，不会删除 Cookie、登录状态、历史记录、收藏、密码或用户脚本数据。已打开的页面不会自动刷新。
+		 */
+		cacheHint: () => LocalizedString
+		/**
+		 * 清理网页缓存
+		 */
+		cacheClear: () => LocalizedString
+		/**
+		 * 再次点击确认清理
+		 */
+		cacheConfirm: () => LocalizedString
+		/**
+		 * 正在清理缓存…
+		 */
+		cacheClearing: () => LocalizedString
+		/**
+		 * 网页缓存已清理
+		 */
+		cacheCleared: () => LocalizedString
+		/**
+		 * 网页缓存清理失败
+		 */
+		cacheClearFailed: () => LocalizedString
 		/**
 		 * 语言
 		 */

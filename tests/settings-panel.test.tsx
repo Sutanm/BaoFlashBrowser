@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TypesafeI18n from '../src/renderer/i18n/i18n-react';
@@ -24,7 +24,10 @@ function renderPanel() {
 }
 
 describe('SettingsPanel section rendering', () => {
+  const clearCache = vi.fn();
+
   beforeEach(() => {
+    clearCache.mockReset().mockResolvedValue({ clearedSessions: 2 });
     loadAllLocales();
     Object.defineProperty(window, 'electronAPI', {
       configurable: true,
@@ -36,6 +39,7 @@ describe('SettingsPanel section rendering', () => {
             autoCapture: true, autoFill: true, autoFillReady: false, excludedSites: [],
           }),
         },
+        cache: { clear: clearCache },
       },
     });
   });
@@ -59,5 +63,19 @@ describe('SettingsPanel section rendering', () => {
     fireEvent.click(container.querySelector<HTMLButtonElement>('.settings-page-head button')!);
     fireEvent.click(categories()[0]);
     expect(screen.getByPlaceholderText('about:newtab')).toHaveValue('https://example.com/home');
+  });
+
+  it('requires confirmation before clearing both browser caches', async () => {
+    const { container } = renderPanel();
+    const categories = Array.from(container.querySelectorAll<HTMLButtonElement>('.settings-category-row'));
+    fireEvent.click(categories[4]);
+
+    const clearButton = screen.getByRole('button', { name: '清理网页缓存' });
+    fireEvent.click(clearButton);
+    expect(clearCache).not.toHaveBeenCalled();
+    expect(clearButton).toHaveTextContent('再次点击确认清理');
+
+    fireEvent.click(clearButton);
+    await waitFor(() => expect(clearCache).toHaveBeenCalledTimes(1));
   });
 });

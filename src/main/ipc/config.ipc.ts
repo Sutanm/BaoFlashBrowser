@@ -5,6 +5,7 @@ import { createValidatedHandler } from '../utils/ipc-wrapper';
 import { loadConfig, saveConfig, type Config } from '../modules/config';
 import { applyCapacityConfig } from '../modules/userscripts';
 import { isPathWithinDirectory } from '../utils/download-path';
+import { clearBrowserCache } from '../modules/session-manager';
 
 const capacityField = (min: number, max: number) => z.number().int().min(min).max(max);
 
@@ -16,6 +17,7 @@ const pathField = (field: string) => z.string().max(32767).optional().refine(
 
 export function registerConfigIPC(): void {
   createHandler('load-config', () => loadConfig());
+  createValidatedHandler('cache:clear', z.object({}).optional(), () => clearBrowserCache());
   createValidatedHandler('save-config', z.object({
     flashVersion: z.string().regex(/^\d+\.\d+\.\d+\.\d+$/).optional(),
     flashPluginChannel: z.enum(['stable', 'experimental']).optional(),

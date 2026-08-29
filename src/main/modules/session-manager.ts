@@ -219,3 +219,11 @@ export function initSession(): void {
   setupSessionOnce(session.fromPartition('persist:'));
 }
 
+/** Clear HTTP caches without touching cookies, site storage, or user data. */
+export async function clearBrowserCache(): Promise<{ clearedSessions: number }> {
+  const sessions = [session.defaultSession, session.fromPartition('persist:')];
+  await Promise.all(sessions.map((sess) => sess.clearCache()));
+  log.info(`[SessionManager] cleared HTTP cache for ${sessions.length} sessions`);
+  return { clearedSessions: sessions.length };
+}
+

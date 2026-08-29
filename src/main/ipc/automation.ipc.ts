@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { app, BrowserWindow, dialog, nativeImage } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, nativeImage } from 'electron';
 import { z } from 'zod';
 import { automationWorkflowSchema } from '../../shared/automation/schema';
 import { createValidatedHandler } from '../utils/ipc-wrapper';
@@ -78,6 +78,7 @@ export function registerAutomationIPC(getWin: () => BrowserWindow | null): Autom
   };
 
   createValidatedHandler('automation:capabilities', z.object({}).optional(), () => service.getStatus());
+  createValidatedHandler('automation:read-clipboard', z.object({}).optional(), () => clipboard.readText());
   createValidatedHandler('automation:validate-workflow', z.object({ workflow: z.unknown() }).strict(), ({ workflow }) => {
     const result = automationWorkflowSchema.safeParse(workflow);
     return result.success

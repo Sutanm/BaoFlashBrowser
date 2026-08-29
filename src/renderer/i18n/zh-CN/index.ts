@@ -236,6 +236,7 @@ const zhCN: BaseTranslation = {
     themeSwitchToLight: '切换到亮色',
     themeSwitchToDark: '切换到暗色',
     system: '跟随系统',
+    advanced: '高级',
     diagnostics: '兼容性诊断',
     openLocalSwf: '打开本地 SWF 游戏',
     diagnosticsHint: '导出运行环境、组件哈希和最近日志。账号路径、网址参数、口令与令牌会被脱敏。',
@@ -243,6 +244,13 @@ const zhCN: BaseTranslation = {
     diagnosticsExporting: '正在生成报告…',
     diagnosticsSaved: '诊断报告已保存',
     diagnosticsFailed: '诊断报告导出失败',
+    cacheTitle: '网页缓存',
+    cacheHint: '清除网页 HTTP 缓存，不会删除 Cookie、登录状态、历史记录、收藏、密码或用户脚本数据。已打开的页面不会自动刷新。',
+    cacheClear: '清理网页缓存',
+    cacheConfirm: '再次点击确认清理',
+    cacheClearing: '正在清理缓存…',
+    cacheCleared: '网页缓存已清理',
+    cacheClearFailed: '网页缓存清理失败',
     // 语言
     language: '语言',
     // 用户脚本容量

@@ -23,8 +23,10 @@ const DRAG_TARGET_EXTENSION = 'bao_drag_target_mode';
 const MORE_SETTINGS_EXTENSION = 'bao_more_settings';
 const GAME_SURFACE_FIELD = 'field_game_surface_feature';
 
-class GameSurfaceFeatureField extends Blockly.Field<string> {
+export class GameSurfaceFeatureField extends Blockly.Field<string> {
+  EDITABLE = true;
   SERIALIZABLE = true;
+  CURSOR = 'pointer';
   private readonly importLabel: string;
 
   constructor(value = '', importLabel = '从剪贴板导入特征串') {
@@ -44,13 +46,15 @@ class GameSurfaceFeatureField extends Blockly.Field<string> {
     catch { return '特征串无效（点击重新导入）'; }
   }
 
+  isClickableInFlyout(_autoClosingFlyout: boolean): boolean {
+    return true;
+  }
+
   protected showEditor_(): void {
     void (async () => {
-      let text = '';
-      try { text = await navigator.clipboard.readText(); }
-      catch { text = window.prompt(this.importLabel, '') ?? ''; }
-      if (!text.trim()) return;
       try {
+        const text = await window.electronAPI.automation.readClipboard();
+        if (!text.trim()) throw new Error('剪贴板中没有游戏画面特征串');
         const normalized = encodeGameSurfaceFeature(decodeGameSurfaceFeature(text));
         const workspace = this.getSourceBlock()?.workspace;
         if (!workspace) return;

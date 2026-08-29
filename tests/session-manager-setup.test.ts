@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
   const makeSession = () => ({
+    clearCache: vi.fn().mockResolvedValue(undefined),
     setUserAgent: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
     webRequest: {
@@ -43,5 +44,14 @@ describe('session manager setup', () => {
     expect(mocks.defaultSession.setUserAgent).toHaveBeenCalledTimes(1);
     expect(mocks.persistentSession.setUserAgent).toHaveBeenCalledTimes(1);
     expect(mocks.setupDownloadHandlers).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears both browser HTTP caches without clearing site storage', async () => {
+    vi.resetModules();
+    const { clearBrowserCache } = await import('../src/main/modules/session-manager');
+
+    await expect(clearBrowserCache()).resolves.toEqual({ clearedSessions: 2 });
+    expect(mocks.defaultSession.clearCache).toHaveBeenCalledTimes(1);
+    expect(mocks.persistentSession.clearCache).toHaveBeenCalledTimes(1);
   });
 });

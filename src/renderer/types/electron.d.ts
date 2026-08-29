@@ -131,6 +131,7 @@ declare global {
 
       invoke(channel: 'load-config'): Promise<MainConfig | null>;
       invoke(channel: 'save-config', payload: Partial<MainConfig>): Promise<boolean>;
+      invoke(channel: 'cache:clear', payload?: Record<string, never>): Promise<{ clearedSessions: number }>;
       invoke(channel: 'download:aria2-status'): Promise<Aria2StatusPayload | null>;
       invoke(channel: 'download:get-dir'): Promise<string>;
       invoke(channel: 'download:set-dir', payload: { title?: string }): Promise<string>;
@@ -196,6 +197,10 @@ declare global {
 
       config: {
         get(): Promise<MainConfig | null>;
+      };
+
+      cache: {
+        clear(): Promise<{ clearedSessions: number }>;
       };
 
       dl: {
@@ -298,6 +303,7 @@ declare global {
       };
 
       automation: {
+        readClipboard(): Promise<string>;
         capabilities(): Promise<AutomationStatus>;
         validateWorkflow(workflow: unknown): Promise<
           { valid: true; workflow: import('@shared/automation/types').AutomationWorkflow }

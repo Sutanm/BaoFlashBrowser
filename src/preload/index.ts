@@ -19,6 +19,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'tab:reload', 'tab:stop', 'tab:zoom', 'tab:mute', 'tab:devtools', 'tab:find', 'tab:stopFind',
   'tab:setBounds', 'tab:setRuffleMode',
   'load-config', 'save-config',
+  'cache:clear',
   'download:aria2-status', 'download:get-dir', 'download:set-dir', 'download:delete-file',
   'download:list', 'download:sync-records', 'download:remove-record', 'download:clear-finished',
   'password:status', 'password:setup', 'password:unlock', 'password:lock',
@@ -38,7 +39,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'userscripts:export-source',
   'userscripts:list-values', 'userscripts:set-value-admin', 'userscripts:delete-value-admin',
   'screenshot:capture', 'screenshot:capture-active', 'screenshot:reveal', 'screenshot:set-dir',
-  'automation:capabilities', 'automation:validate-workflow', 'automation:open-package', 'automation:install-package',
+  'automation:capabilities', 'automation:read-clipboard', 'automation:validate-workflow', 'automation:open-package', 'automation:install-package',
   'automation:status', 'automation:check-ready', 'automation:start', 'automation:cancel',
   'automation:list-packages', 'automation:get-package', 'automation:update-workflow', 'automation:export-package',
   'automation:diagnose-package', 'automation:list-run-history', 'automation:clear-run-history',
@@ -114,6 +115,10 @@ const electronAPI = {
 
   config: {
     get: () => safeInvoke('load-config'),
+  },
+
+  cache: {
+    clear: () => safeInvoke('cache:clear', {}),
   },
 
   dl: {
@@ -212,6 +217,7 @@ const electronAPI = {
 
   automation: {
     capabilities: () => safeInvoke('automation:capabilities', {}),
+    readClipboard: () => safeInvoke('automation:read-clipboard', {}) as Promise<string>,
     validateWorkflow: (workflow: unknown) => safeInvoke('automation:validate-workflow', { workflow }),
     openPackage: (i18n?: { title?: string; filterName?: string }) => safeInvoke('automation:open-package', i18n),
     installPackage: (token: string, replace?: boolean) => safeInvoke('automation:install-package', { token, replace }),

@@ -61,6 +61,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   const [passwordStoreInitialized, setPasswordStoreInitialized] = useState(false);
   const [excludedSitesText, setExcludedSitesText] = useState('');
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
+  const [cacheConfirming, setCacheConfirming] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection | null>(null);
   const loadedMainFormRef = useRef<MainConfigForm>({ ...DEFAULT_MAIN_CONFIG });
 
@@ -227,6 +229,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     }
   }, [pushToast, LL]);
 
+  const handleClearCache = useCallback(async () => {
+    if (!cacheConfirming) { setCacheConfirming(true); return; }
+    setCacheConfirming(false);
+    setClearingCache(true);
+    try {
+      await window.electronAPI.cache.clear();
+      pushToast({ message: LL.settings.cacheCleared(), type: 'success' });
+    } catch {
+      pushToast({ message: LL.settings.cacheClearFailed(), type: 'error' });
+    } finally {
+      setClearingCache(false);
+    }
+  }, [cacheConfirming, pushToast, LL]);
+
   const handleOpenSwf = useCallback(async () => {
     const url = await window.electronAPI.file.openSwf();
     if (url) onOpenUrl(url, true);
@@ -242,7 +258,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     { id: 'engine', title: `${LL.ruffle.flash()} / Ruffle`, description: `${LL.settings.spoofVersion()} · ${LL.settings.defaultEngine()}`, icon: Gauge },
     { id: 'downloads', title: `${LL.settings.download()} / ${LL.settings.screenshot.dir()}`, description: `${LL.settings.downloadEngine()} · ${LL.settings.screenshot.selectDir()}`, icon: Download },
     { id: 'privacy', title: LL.sidebar.passwords(), description: `${LL.password.autoCapture()} · ${LL.password.autoFill()}`, icon: Shield },
-    { id: 'advanced', title: LL.settings.diagnostics(), description: `${LL.settings.userscriptCapacity.title()} · ${LL.settings.openLocalSwf()}`, icon: Wrench },
+    { id: 'advanced', title: LL.settings.advanced(), description: `${LL.settings.userscriptCapacity.title()} · ${LL.settings.cacheTitle()}`, icon: Wrench },
   ];
 
   if (!activeSection) {
@@ -559,6 +575,27 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           }}
         >
           {exportingDiagnostics ? LL.settings.diagnosticsExporting() : LL.settings.diagnosticsExport()}
+        </button>
+      </div>
+      )}
+
+      {activeSection === 'advanced' && (
+      <div className="panel-card settings-section-card">
+        <div className="panel-card-title">{LL.settings.cacheTitle()}</div>
+        <div className="field-hint" style={{ marginBottom: 8 }}>{LL.settings.cacheHint()}</div>
+        <button
+          type="button"
+          disabled={clearingCache}
+          onClick={() => void handleClearCache()}
+          onBlur={() => setCacheConfirming(false)}
+          style={{
+            width: '100%', padding: 8, borderRadius: 6, border: 'none',
+            background: cacheConfirming ? '#e67e22' : 'var(--bg-hover)',
+            color: cacheConfirming ? '#fff' : 'var(--text-primary)', fontSize: 13,
+            cursor: clearingCache ? 'wait' : 'pointer', opacity: clearingCache ? 0.7 : 1,
+          }}
+        >
+          {clearingCache ? LL.settings.cacheClearing() : cacheConfirming ? LL.settings.cacheConfirm() : LL.settings.cacheClear()}
         </button>
       </div>
       )}
