@@ -153,7 +153,7 @@ export function registerUserscriptsIPC(): void {
     const tabId = tabManager.getTabIdForWebContents(event.sender.id);
     if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
     await service.whenReady(); await service.beginAuthoringViewport(tabId);
-    return { ready: true as const };
+    return { ready: true as const, viewport: DEFAULT_AUTOMATION_VIEWPORT };
   });
 
   ipcMain.handle('userscript:automation-game-surfaces', async (event, raw: unknown) => {

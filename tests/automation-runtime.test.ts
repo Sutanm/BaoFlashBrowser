@@ -8,9 +8,20 @@ class FakeDriver implements AutomationDriver {
   time = 0;
   readonly calls: string[] = [];
   readonly requests: FindImageRequest[] = [];
+  readonly findSpaces: Array<'page' | 'game'> = [];
+  readonly targetPoints = new Map<string, { x: number; y: number }>();
   readonly answers = new Map<string, Array<ImageMatch | null>>();
   readonly findDurations: number[] = [];
   frameScopes = 0;
+  coordinateSpace: 'page' | 'game' = 'page';
+  readonly coordinateSpaces: Array<'page' | 'game'> = [];
+
+  setCoordinateSpace(space: 'page' | 'game'): 'page' | 'game' {
+    const previous = this.coordinateSpace;
+    this.coordinateSpace = space;
+    this.coordinateSpaces.push(space);
+    return previous;
+  }
 
   queue(asset: string, ...answers: Array<ImageMatch | null>): void {
     this.answers.set(asset, answers);
@@ -23,6 +34,7 @@ class FakeDriver implements AutomationDriver {
   async findImage(request: FindImageRequest): Promise<ImageMatch | null> {
     this.calls.push(`find:${request.asset}`);
     this.requests.push(request);
+    this.findSpaces.push(this.coordinateSpace);
     this.time += this.findDurations.shift() ?? 0;
     return this.answers.get(request.asset)?.shift() ?? null;
   }
@@ -31,6 +43,13 @@ class FakeDriver implements AutomationDriver {
     this.frameScopes += 1;
     return operation();
   }
+
+  async resolveTargetPoint(target: import('../src/shared/automation/types').PositionCompareTarget): Promise<{ x: number; y: number }> {
+    if (target.kind === 'coordinate') return target.coordinate;
+    return this.targetPoints.get(target.asset) ?? { x: 0, y: 0 };
+  }
+
+  getCssViewport(): { width: number; height: number } { return { width: 1280, height: 720 }; }
 
   async click(_match: ImageMatch, options: { button: string; clickCount: number; offset: { x: number; y: number } }): Promise<void> {
     this.calls.push(`click:${options.button}:${options.clickCount}:${options.offset.x},${options.offset.y}`);
@@ -86,6 +105,8 @@ class FakeDriver implements AutomationDriver {
   async reload(): Promise<void> { this.calls.push('reload'); }
 
   log(message: string): void { this.calls.push(`log:${message}`); }
+
+  notify(title: string, body: string): void { this.calls.push(`notify:${title}:${body}`); }
 
   async sleep(durationMs: number, signal: AbortSignal): Promise<void> {
     if (signal.aborted) throw new Error('automation cancelled');
@@ -315,6 +336,58 @@ describe('automation runtime', () => {
     expect(driver.requests[0]).toMatchObject({ relativeRegion: { left: 1000, top: 2000, right: 9000, bottom: 8000 } });
     expect(driver.requests[1]).toMatchObject({ region: { x: 10, y: 20, width: 300, height: 200 } });
     expect(driver.requests[1].relativeRegion).toBeUndefined();
+  });
+
+  it('switches page and game coordinate scopes and restores the entry space', async () => {
+    const driver = new FakeDriver();
+    driver.queue('page.png', MATCH);
+    driver.queue('game.png', MATCH);
+    driver.queue('entry.png', MATCH);
+    const runner = new AutomationRunner({
+      formatVersion: 2,
+      id: 'coordinate-spaces',
+      name: 'Coordinate spaces',
+      coordinateSpace: 'game',
+      gameSurface: {
+        version: 1, kind: 'flash', label: 'Flash · game', source: 'game.swf',
+        frameUrl: 'https://example.test/frame.html', width: 950, height: 562,
+      },
+      root: { type: 'sequence', steps: [
+        {
+          type: 'coordinate-space', space: 'page',
+          body: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'page.png', timeoutMs: 1 }] },
+        },
+        {
+          type: 'coordinate-space', space: 'game',
+          body: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'game.png', timeoutMs: 1 }] },
+        },
+        { type: 'wait-image', asset: 'entry.png', timeoutMs: 1 },
+      ] },
+    }, driver);
+
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.findSpaces).toEqual(['page', 'game', 'game']);
+    expect(driver.coordinateSpace).toBe('game');
+  });
+
+  it('compares position tolerance in logical pixels', async () => {
+    const driver = new FakeDriver();
+    driver.targetPoints.set('A.png', { x: 100, y: 100 });
+    driver.targetPoints.set('B.png', { x: 111, y: 500 });
+    const runner = new AutomationRunner({
+      formatVersion: 2, id: 'pixel-tolerance', name: 'Pixel tolerance',
+      root: { type: 'sequence', steps: [{
+        type: 'if-condition',
+        condition: {
+          type: 'position-relation', relation: 'vertical', tolerancePx: 10,
+          targetA: { kind: 'image', asset: 'A.png' }, targetB: { kind: 'image', asset: 'B.png' },
+        },
+        then: { type: 'sequence', steps: [{ type: 'key-press', key: 'T' }] },
+        else: { type: 'sequence', steps: [{ type: 'key-press', key: 'F' }] },
+      }] },
+    }, driver);
+    await expect(runner.run()).resolves.toBe(true);
+    expect(driver.calls).toEqual(['key::F']);
   });
 
   it('uses a minimum cycle duration and retries immediately by default', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseMatchingGameSurface, chooseReplacementGameSurface, type GameSurfaceCandidate } from '../src/main/modules/automation/game-surface-detector';
+import { chooseLocatedGameSurface, chooseMatchingGameSurface, chooseReplacementGameSurface, gameSurfaceLocatorFromCandidate, type GameSurfaceCandidate } from '../src/main/modules/automation/game-surface-detector';
 
 const candidate = (id: string, fingerprint: string, x: number): GameSurfaceCandidate => ({
   id,
@@ -36,5 +36,33 @@ describe('game surface detector matching', () => {
     const previous = candidate('plugin', 'plugin', 100);
     const frame = { ...previous, id: 'frame', fingerprint: 'frame', kind: 'frame' as const, label: 'iframe 游戏区域候选', source: previous.frameUrl };
     expect(chooseReplacementGameSurface([frame], previous)).toBe(frame);
+  });
+
+  it('locates the author-selected game after its position and size change', () => {
+    const selected = candidate('selected', 'selected-fingerprint', 100);
+    const locator = gameSurfaceLocatorFromCandidate(selected);
+    const moved = { ...selected, id: 'moved', fingerprint: 'moved', rect: { x: 420, y: 80, width: 950, height: 712.5 } };
+    const other = { ...candidate('other', 'other', 20), source: 'https://example.test/other.swf', label: 'Flash other game' };
+    expect(chooseLocatedGameSurface([other, moved], locator)).toBe(moved);
+  });
+
+  it('refuses to guess when two candidates match the copied feature equally', () => {
+    const selected = candidate('selected', 'selected-fingerprint', 100);
+    const locator = gameSurfaceLocatorFromCandidate(selected);
+    expect(chooseLocatedGameSurface([
+      { ...selected, id: 'first', fingerprint: 'first' },
+      { ...selected, id: 'second', fingerprint: 'second', rect: { ...selected.rect, x: 800 } },
+    ], locator)).toBeNull();
+  });
+
+  it('falls back from a disappeared Flash node to its strongly matching iframe', () => {
+    const selected = candidate('selected', 'selected-fingerprint', 100);
+    const locator = gameSurfaceLocatorFromCandidate(selected);
+    const frame = {
+      ...selected,
+      id: 'frame', fingerprint: 'frame', kind: 'frame' as const,
+      label: 'iframe 游戏区域候选', source: selected.frameUrl,
+    };
+    expect(chooseLocatedGameSurface([frame], locator)).toBe(frame);
   });
 });

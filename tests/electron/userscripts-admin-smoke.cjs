@@ -174,7 +174,7 @@ app.whenReady().then(async () => {
     const x = Math.round(innerWidth * 0.625); const y = Math.round(innerHeight * 0.375);
     layer?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y }));
     const shown = layer?.querySelector('.bao-coordinate-value')?.textContent;
-    const expected = Math.round(x / Math.max(1, innerWidth - 1) * 10000) + ',' + Math.round(y / Math.max(1, innerHeight - 1) * 10000);
+    const expected = Math.round(x / Math.max(1, innerWidth - innerWidth / 1280) * 10000) + ',' + Math.round(y / Math.max(1, innerHeight - innerHeight / 720) * 10000);
     const activeBeforeEscape = layer?.classList.contains('bao-active') || false;
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -191,7 +191,7 @@ app.whenReady().then(async () => {
     const x = Math.round(innerWidth * 0.4); const y = Math.round(innerHeight * 0.6);
     layer?.dispatchEvent(new PointerEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    return { copied: layer?.getAttribute('data-last-copied'), expected: Math.round(x / Math.max(1, innerWidth - 1) * 10000) + ',' + Math.round(y / Math.max(1, innerHeight - 1) * 10000), pageClicks, active: layer?.classList.contains('bao-active') || false };
+    return { copied: layer?.getAttribute('data-last-copied'), expected: Math.round(x / Math.max(1, innerWidth - innerWidth / 1280) * 10000) + ',' + Math.round(y / Math.max(1, innerHeight - innerHeight / 720) * 10000), pageClicks, active: layer?.classList.contains('bao-active') || false };
   })()`);
   check('coordinate click copies X,Y, exits, and does not reach the page', coordinateCopy?.copied === coordinateCopy?.expected && coordinateCopy?.pageClicks === 0 && coordinateCopy?.active === false, coordinateCopy);
   const gameSurfacePicker = await view.webContents.executeJavaScript(`(async () => {
@@ -211,6 +211,31 @@ app.whenReady().then(async () => {
     return { visible, flashAboveFrame, listHasFlash, candidates: layer?.querySelectorAll('.bao-game-candidate').length, closed: !layer?.classList.contains('bao-active'), button: root?.querySelector('.bao-game-select')?.textContent };
   })()`);
   check('game surface picker exposes a list fallback when PPAPI covers precise candidate boxes', gameSurfacePicker?.visible === true && gameSurfacePicker?.flashAboveFrame === true && gameSurfacePicker?.listHasFlash === true && gameSurfacePicker?.candidates === 0 && gameSurfacePicker?.closed === true && gameSurfacePicker?.button?.includes('测试 Flash'), gameSurfacePicker);
+  const gameCoordinatePicker = await view.webContents.executeJavaScript(`(async () => {
+    const root = document.getElementById('bao-automation-frame-assistant');
+    root?.querySelector('.bao-coordinate')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const layer = document.getElementById('bao-automation-coordinate-layer');
+    const x = 100 + 600 * 0.4; const y = 120 + 400 * 0.6;
+    layer?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y }));
+    const expected = Math.round((x - 100) / Math.max(1, 600 - innerWidth / 1280) * 10000) + ',' + Math.round((y - 120) / Math.max(1, 400 - innerHeight / 720) * 10000);
+    const shown = layer?.querySelector('.bao-coordinate-value')?.textContent;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return { shown, expected };
+  })()`);
+  check('game coordinate picker uses the same endpoint transform as runtime', gameCoordinatePicker?.shown === gameCoordinatePicker?.expected, gameCoordinatePicker);
+  const gameSurfaceFeature = await view.webContents.executeJavaScript(`(async () => {
+    const root = document.getElementById('bao-automation-frame-assistant');
+    const copy = root?.querySelector('.bao-game-copy');
+    copy?.click();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const feature = copy?.getAttribute('data-last-copied') || '';
+    root?.querySelector('.bao-game-clear')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return { feature, selected: root?.querySelector('.bao-game-select')?.textContent, bound: root?.querySelector('.bao-game-actions')?.classList.contains('bao-bound') || false };
+  })()`);
+  check('game surface feature is directly copyable and selection can be cleared', gameSurfaceFeature?.feature?.startsWith('BFG1:') && gameSurfaceFeature?.selected === '选择游戏画面' && gameSurfaceFeature?.bound === false, gameSurfaceFeature);
   await waitForPageCondition(
     view.webContents,
     "document.querySelector('#bao-automation-frame-assistant .bao-state-title')?.textContent === '执行完成'",

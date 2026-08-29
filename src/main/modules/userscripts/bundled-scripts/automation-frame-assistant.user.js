@@ -4,7 +4,7 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      2.2.3
+// @version      2.3.1
 // @description  网页内自动化悬浮球：运行控制、素材识别、截图取材、游戏画面绑定与相对坐标取点。
 // @match        http://*/*
 // @match        https://*/*
@@ -26,7 +26,7 @@
   var api = GM.baoAutomation;
   var state = {
     packages: [], busy: false, monitor: 0, statusTimer: 0, lastState: '', statusInitialized: false,
-    capture: null, selection: null, gameSurface: null, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1,
+    capture: null, selection: null, gameSurface: null, coordinateViewport: { width: 1280, height: 720 }, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1,
   };
   var style = document.createElement('style');
   style.id = 'bao-automation-assistant-style';
@@ -66,6 +66,7 @@
 #bao-automation-frame-assistant .bao-field{display:grid;gap:4px;margin-bottom:7px}#bao-automation-frame-assistant .bao-field label{color:#9eb0c5;font-size:9px}#bao-automation-frame-assistant select,#bao-automation-frame-assistant input[type=text],#bao-automation-frame-assistant input[type=number]{width:100%;height:29px;padding:0 8px;border:1px solid #95bce526;border-radius:7px;background:#071524d9;color:#e9f2ff}
 #bao-automation-frame-assistant input[type=range]{width:100%;accent-color:#5998ff}
 #bao-automation-frame-assistant .bao-two{display:grid;grid-template-columns:1fr 1fr;gap:6px}#bao-automation-frame-assistant .bao-button{height:30px;padding:0 9px;border:1px solid #8eb8e22b;border-radius:7px;background:#10223a;color:#c8d7ea;cursor:pointer}#bao-automation-frame-assistant .bao-button:hover{background:#183254}#bao-automation-frame-assistant .bao-button.bao-primary{border-color:#699fff;background:linear-gradient(#4b8bff,#3971db);color:#fff;box-shadow:0 4px 14px #397ce933}#bao-automation-frame-assistant .bao-button.bao-danger{color:#ffabb0}#bao-automation-frame-assistant .bao-button:disabled{opacity:.45;cursor:not-allowed}
+#bao-automation-frame-assistant .bao-game-actions{display:grid;grid-template-columns:1fr;gap:6px;margin-top:7px}#bao-automation-frame-assistant .bao-game-actions.bao-bound{grid-template-columns:minmax(0,1fr) 82px 62px}#bao-automation-frame-assistant .bao-game-copy,#bao-automation-frame-assistant .bao-game-clear{display:none}#bao-automation-frame-assistant .bao-game-actions.bao-bound .bao-game-copy,#bao-automation-frame-assistant .bao-game-actions.bao-bound .bao-game-clear{display:block}
 #bao-automation-frame-assistant .bao-run-state{display:flex;align-items:center;gap:11px}#bao-automation-frame-assistant .bao-run-dot{width:11px;height:11px;border-radius:50%;background:#6d7f94;box-shadow:0 0 0 5px #6d7f9422}#bao-automation-frame-assistant .bao-run-state.bao-live .bao-run-dot{background:#6ea8ff;box-shadow:0 0 0 5px #6ea8ff20;animation:bao-pulse 1s ease-in-out infinite}@keyframes bao-pulse{50%{transform:scale(.72);opacity:.6}}
 #bao-automation-frame-assistant .bao-run-copy{min-width:0;flex:1}#bao-automation-frame-assistant .bao-run-copy b{display:block}#bao-automation-frame-assistant .bao-run-copy span{display:block;overflow:hidden;margin-top:3px;color:#9cafc7;font-size:10px;text-overflow:ellipsis;white-space:nowrap}#bao-automation-frame-assistant .bao-step{color:#9cafc7;font-size:10px}
 #bao-automation-frame-assistant .bao-progress{height:4px;margin-top:8px;overflow:hidden;border-radius:99px;background:#ffffff10}#bao-automation-frame-assistant .bao-progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4489ff,#69d8e8);transition:width .35s}
@@ -89,7 +90,7 @@
   root.innerHTML = '<button class="bao-orb" aria-label="展开自动化助手"><i class="bao-ring"></i><span class="bao-orb-icon">⌘</span></button><aside class="bao-drawer"><i class="bao-handle"></i><header class="bao-head"><div class="bao-title"><strong>BaoFlash 自动化</strong></div><button class="bao-icon bao-collapse" title="收起">×</button></header><nav class="bao-tabs"><button class="bao-tab bao-active" data-view="run">执行</button><button class="bao-tab" data-view="match">识别</button><button class="bao-tab" data-view="capture">取材</button></nav><div class="bao-views">'
     + '<section class="bao-view bao-active" data-panel="run"><div class="bao-card"><div class="bao-field"><label>自动化脚本</label><select class="bao-package-run"></select></div><div class="bao-run-state"><i class="bao-run-dot"></i><div class="bao-run-copy"><b class="bao-state-title">可以开始</b><span class="bao-state-detail">正在读取运行状态…</span></div><small class="bao-step">0 步</small></div><div class="bao-progress"><i></i></div></div><div class="bao-two"><button class="bao-button bao-primary bao-start">开始脚本</button><button class="bao-button bao-danger bao-stop" disabled>停止</button></div><div class="bao-card" style="margin-top:7px"><div class="bao-card-head"><strong>运行记录</strong></div><div class="bao-log"><div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div></div></div></section>'
     + '<section class="bao-view" data-panel="match"><div class="bao-card"><div class="bao-card-head"><strong>UI 素材</strong><button class="bao-icon bao-refresh" title="刷新素材">↻</button></div><div class="bao-assets"></div><div class="bao-field"><label>识别阈值 <b class="bao-threshold-text">90%</b></label><input class="bao-threshold" type="range" min="50" max="100" value="90"></div><div class="bao-preview"><span>选择素材后捕获页面</span></div><p class="bao-result">选择素材开始测试</p><div class="bao-two"><button class="bao-button bao-primary bao-compare">捕获并比对</button><button class="bao-button bao-monitor">连续监测</button></div></div></section>'
-    + '<section class="bao-view" data-panel="capture"><div class="bao-card"><div class="bao-card-head"><strong>取材工具</strong><small>坐标范围 0–10000</small></div><div class="bao-two"><button class="bao-button bao-primary bao-capture">框选图片素材</button><button class="bao-button bao-primary bao-coordinate">获取相对坐标</button></div><button class="bao-button bao-game-select" style="width:100%;margin-top:7px">选择游戏画面</button></div></section>'
+    + '<section class="bao-view" data-panel="capture"><div class="bao-card"><div class="bao-card-head"><strong>取材工具</strong><small>坐标范围 0–10000</small></div><div class="bao-two"><button class="bao-button bao-primary bao-capture">框选图片素材</button><button class="bao-button bao-primary bao-coordinate">获取相对坐标</button></div><div class="bao-game-actions"><button class="bao-button bao-game-select">选择游戏画面</button><button class="bao-button bao-game-copy">复制特征串</button><button class="bao-button bao-danger bao-game-clear">取消选择</button></div></div></section>'
     + '</div></aside>';
   document.documentElement.appendChild(root);
 
@@ -235,19 +236,34 @@
       captureLayer.classList.remove('bao-active'); state.capture = null; state.selection = null; await refreshPackages(); openPanel('capture'); toast('素材“' + name + '”已保存并选中'); selectedAsset = name;
     } catch (error) { toast(error.message || String(error)); }
   }
+  function visibleGameSurfaceRect() {
+    var rect = state.gameSurface && state.gameSurface.rect; if (!rect) return null;
+    var left = Math.max(0, Number(rect.x) || 0); var top = Math.max(0, Number(rect.y) || 0);
+    var right = Math.min(innerWidth, (Number(rect.x) || 0) + (Number(rect.width) || 0));
+    var bottom = Math.min(innerHeight, (Number(rect.y) || 0) + (Number(rect.height) || 0));
+    return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : null;
+  }
   function coordinateAt(clientX, clientY) {
-    var rect = state.gameSurface && state.gameSurface.rect;
+    var rect = visibleGameSurfaceRect();
     var left = rect ? rect.x : 0; var top = rect ? rect.y : 0;
-    var width = rect ? rect.width : Math.max(1, innerWidth - 1); var height = rect ? rect.height : Math.max(1, innerHeight - 1);
+    var width = rect ? rect.width : innerWidth; var height = rect ? rect.height : innerHeight;
+    var stepX = innerWidth / Math.max(1, Number(state.coordinateViewport.width) || 1280);
+    var stepY = innerHeight / Math.max(1, Number(state.coordinateViewport.height) || 720);
     return {
-      x: Math.max(0, Math.min(10000, Math.round((clientX - left) / Math.max(1, width) * 10000))),
-      y: Math.max(0, Math.min(10000, Math.round((clientY - top) / Math.max(1, height) * 10000))),
+      x: Math.max(0, Math.min(10000, Math.round((clientX - left) / Math.max(1, width - stepX) * 10000))),
+      y: Math.max(0, Math.min(10000, Math.round((clientY - top) / Math.max(1, height - stepY) * 10000))),
     };
   }
   function updateCoordinate(event) { var point = coordinateAt(event.clientX, event.clientY); var value = coordinateLayer.querySelector('.bao-coordinate-value'); coordinateLayer.querySelector('.bao-coordinate-x').style.left = event.clientX + 'px'; coordinateLayer.querySelector('.bao-coordinate-y').style.top = event.clientY + 'px'; value.textContent = point.x + ',' + point.y; value.style.left = Math.min(innerWidth - 96, event.clientX + 12) + 'px'; value.style.top = Math.min(innerHeight - 34, event.clientY + 12) + 'px'; return point; }
   async function copyText(text) { try { await window.navigator.clipboard.writeText(text); return; } catch { /* Fall back for pages without clipboard permission. */ } var input = document.createElement('textarea'); input.value = text; input.style.cssText = 'position:fixed;left:-9999px;top:-9999px'; document.documentElement.appendChild(input); input.select(); document.execCommand('copy'); input.remove(); }
+  function gameSurfaceFeature(candidate) {
+    var rect = candidate && candidate.rect || {}; var clean = function (value) { return String(value || '').split(/[?#]/)[0].slice(0, 600); };
+    var payload = { version: 1, kind: candidate.kind, label: String(candidate.label || '').slice(0, 200), source: clean(candidate.source), frameUrl: clean(candidate.frameUrl), width: Math.max(1, Math.round(Number(rect.width) || 1)), height: Math.max(1, Math.round(Number(rect.height) || 1)) };
+    var bytes = new window.TextEncoder().encode(JSON.stringify(payload)); var binary = ''; for (var index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+    return 'BFG1:' + window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
   function showCoordinateSurface() {
-    var marker = coordinateLayer.querySelector('.bao-coordinate-surface'); var rect = state.gameSurface && state.gameSurface.rect;
+    var marker = coordinateLayer.querySelector('.bao-coordinate-surface'); var rect = visibleGameSurfaceRect();
     coordinateLayer.classList.toggle('bao-surface', Boolean(rect));
     if (!rect) return;
     marker.style.left = rect.x + 'px'; marker.style.top = rect.y + 'px'; marker.style.width = rect.width + 'px'; marker.style.height = rect.height + 'px';
@@ -259,6 +275,7 @@
   }
   function updateGameButton() {
     var button = root.querySelector('.bao-game-select');
+    root.querySelector('.bao-game-actions').classList.toggle('bao-bound', Boolean(state.gameSurface));
     button.textContent = state.gameSurface ? '已选择：' + surfaceLabel(state.gameSurface) : '选择游戏画面';
     button.title = state.gameSurface ? '坐标和高速识图区域将相对此画面计算；点击可重新选择' : '跨多层 iframe 查找 Flash、Ruffle 或 Canvas 游戏画面';
   }
@@ -299,7 +316,10 @@
   async function beginCoordinatePick() {
     try {
       if (state.gameSurface) { var detected = await api.detectGameSurfaces(); state.gameSurface = detected && detected.bound ? detected.bound : state.gameSurface; updateGameButton(); }
-      await api.beginCoordinatePick(); showCoordinateSurface(); coordinateLayer.classList.add('bao-active');
+      var coordinateSession = await api.beginCoordinatePick();
+      if (coordinateSession && coordinateSession.viewport) state.coordinateViewport = coordinateSession.viewport;
+      if (state.gameSurface && !visibleGameSurfaceRect()) throw new Error('游戏画面当前不在可见页面内');
+      showCoordinateSurface(); coordinateLayer.classList.add('bao-active');
       toast(state.gameSurface ? '坐标以绿色游戏画面为范围，单击即可复制' : '单击目标位置即可复制页面相对坐标');
     } catch (error) { openPanel('capture'); toast(error.message || String(error)); }
   }
@@ -318,6 +338,15 @@
   root.querySelector('.bao-capture').addEventListener('click', function () { void beginCapture(); });
   root.querySelector('.bao-coordinate').addEventListener('click', function () { void beginCoordinatePick(); });
   root.querySelector('.bao-game-select').addEventListener('click', function () { void beginGameSelect(); });
+  root.querySelector('.bao-game-copy').addEventListener('click', function () {
+    if (!state.gameSurface) return;
+    var feature = gameSurfaceFeature(state.gameSurface);
+    void copyText(feature).then(function () { root.querySelector('.bao-game-copy').setAttribute('data-last-copied', feature); toast('已复制游戏画面特征串，请到入口积木中导入'); });
+  });
+  root.querySelector('.bao-game-clear').addEventListener('click', async function () {
+    try { await api.clearGameSurface(); state.gameSurface = null; updateGameButton(); toast('已恢复为整个页面坐标和识图范围'); }
+    catch (error) { toast('取消失败：' + (error && error.message ? error.message : String(error))); }
+  });
   gameLayer.querySelector('.bao-game-cancel').addEventListener('click', closeGameSelect);
   var dragging = null; var moved = false;
   function placeCollapsedRoot(x, y) {

@@ -65,6 +65,7 @@ export type AutomationDriver = {
   withFreshFrame?<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T>;
   resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal, relativeRegion?: AutomationRelativeRegion): Promise<{ x: number; y: number }>;
   getCssViewport(): { width: number; height: number };
+  setCoordinateSpace(space: 'page' | 'game'): 'page' | 'game';
   click(
     match: ImageMatch,
     options: { button: 'left' | 'right' | 'middle'; clickCount: number; offset: { x: number; y: number } },
@@ -205,6 +206,7 @@ export class AutomationRunner {
     this.driver = driver;
     this.searchRegion = this.workflow.searchRegion;
     this.activeSearchRegion = this.searchRegion;
+    this.driver.setCoordinateSpace(this.workflow.coordinateSpace ?? 'page');
     this.maxExecutedSteps = options.maxExecutedSteps ?? 10_000;
     this.maxDepth = options.maxDepth ?? 32;
     this.random = options.random ?? Math.random;
@@ -244,6 +246,7 @@ export class AutomationRunner {
     options.signal?.addEventListener('abort', forwardAbort, { once: true });
     this.executedSteps = 0;
     this.activeSearchRegion = this.searchRegion;
+    this.driver.setCoordinateSpace(this.workflow.coordinateSpace ?? 'page');
     this.stepMode = options.stepMode ?? false;
     this.stepPermits = this.stepMode ? 1 : 0;
     try {
@@ -349,13 +352,10 @@ export class AutomationRunner {
   ): Promise<boolean> {
     const pointA = await this.driver.resolveTargetPoint(targetA, signal, this.activeSearchRegion);
     const pointB = await this.driver.resolveTargetPoint(targetB, signal, this.activeSearchRegion);
-    const cssViewport = this.driver.getCssViewport();
-    const toleranceRelativeX = (tolerancePx / cssViewport.width) * 10_000;
-    const toleranceRelativeY = (tolerancePx / cssViewport.height) * 10_000;
     switch (relation) {
-      case 'vertical': return Math.abs(pointA.x - pointB.x) <= toleranceRelativeX;
-      case 'horizontal': return Math.abs(pointA.y - pointB.y) <= toleranceRelativeY;
-      case 'overlap': return Math.hypot(pointA.x - pointB.x, pointA.y - pointB.y) <= Math.hypot(toleranceRelativeX, toleranceRelativeY);
+      case 'vertical': return Math.abs(pointA.x - pointB.x) <= tolerancePx;
+      case 'horizontal': return Math.abs(pointA.y - pointB.y) <= tolerancePx;
+      case 'overlap': return Math.hypot(pointA.x - pointB.x, pointA.y - pointB.y) <= tolerancePx;
       default: throw new Error(`unknown position relation: ${relation}`);
     }
   }
@@ -530,6 +530,20 @@ export class AutomationRunner {
           await this.execute(step.body, signal, depth + 1);
         } finally {
           this.activeSearchRegion = previousRegion;
+        }
+        return;
+      }
+      case 'coordinate-space': {
+        const previousSpace = this.driver.setCoordinateSpace(step.space);
+        const previousRegion = this.activeSearchRegion;
+        // A relative recognition region belongs to the coordinate space in
+        // which it was declared and must not leak across a space boundary.
+        this.activeSearchRegion = undefined;
+        try {
+          await this.execute(step.body, signal, depth + 1);
+        } finally {
+          this.activeSearchRegion = previousRegion;
+          this.driver.setCoordinateSpace(previousSpace);
         }
         return;
       }

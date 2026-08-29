@@ -14,7 +14,7 @@ import { DEFAULT_AUTOMATION_VIEWPORT } from '../../../shared/automation/types';
 import type { AutomationImageMask, AutomationMessage, AutomationStep, AutomationWorkflow } from '../../../shared/automation/types';
 import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '../../../shared/provenance';
 import { tabManager, type AutomationTabHandle } from '../tabs';
-import { chooseMatchingGameSurface, chooseReplacementGameSurface, detectGameSurfaces as detectTabGameSurfaces, type GameSurfaceCandidate } from './game-surface-detector';
+import { chooseLocatedGameSurface, chooseMatchingGameSurface, chooseReplacementGameSurface, detectGameSurfaces as detectTabGameSurfaces, type GameSurfaceCandidate } from './game-surface-detector';
 
 export type AutomationServiceStatus = {
   enabled: boolean;
@@ -170,6 +170,28 @@ export class AutomationService {
       ?? chooseReplacementGameSurface(result.candidates, binding.candidate);
     if (!candidate) throw new Error('无法重新定位已选择的游戏画面，请在自动化助手中重新选择');
     binding.candidate = candidate; binding.fingerprint = candidate.fingerprint;
+  }
+
+  private async prepareWorkflowGameSurface(entry: LoadedEntry, tabId: string, wait: boolean): Promise<boolean> {
+    const locator = entry.source.workflow.gameSurface;
+    if (!locator) {
+      await this.refreshBoundGameSurface(tabId);
+      return true;
+    }
+    const timeoutMs = wait ? (entry.source.workflow.gameSurfaceTimeoutMs ?? 30_000) : 0;
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const result = await this.detectGameSurfaces(tabId);
+      const candidate = chooseLocatedGameSurface(result.candidates, locator);
+      const wc = tabManager.getWebContents(tabId);
+      if (candidate && wc) {
+        this.boundGameSurfaces.set(tabId, { webContentsId: wc.id, fingerprint: candidate.fingerprint, candidate });
+        return true;
+      }
+      if (!wait || Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return false;
   }
 
   async beginAuthoringViewport(tabId: string): Promise<void> {
@@ -408,7 +430,8 @@ export class AutomationService {
 
   async checkReady(packageId: string, tabId: string): Promise<boolean> {
     this.assertEnabled();
-    await this.refreshBoundGameSurface(tabId);
+    const entry = this.requirePackage(packageId);
+    if (!await this.prepareWorkflowGameSurface(entry, tabId, false)) return false;
     const session = this.ensureSession(packageId, tabId);
     try {
       await session.handle.ready;
@@ -426,7 +449,8 @@ export class AutomationService {
 
   async start(packageId: string, tabId: string, countdownMs = 0): Promise<boolean> {
     this.assertEnabled();
-    await this.refreshBoundGameSurface(tabId);
+    const entry = this.requirePackage(packageId);
+    if (!await this.prepareWorkflowGameSurface(entry, tabId, true)) throw new Error('未找到脚本指定的游戏画面');
     const session = this.ensureSession(packageId, tabId);
     this.beginHistory(session, 'run');
     try {
@@ -443,8 +467,10 @@ export class AutomationService {
     }
   }
 
-  startDebug(packageId: string, tabId: string): boolean {
+  async startDebug(packageId: string, tabId: string): Promise<boolean> {
     this.assertEnabled();
+    const entry = this.requirePackage(packageId);
+    if (!await this.prepareWorkflowGameSurface(entry, tabId, true)) throw new Error('未找到脚本指定的游戏画面');
     const session = this.ensureSession(packageId, tabId);
     this.beginHistory(session, 'debug');
     this.setStatus({ state: this.status.state, debugMode: true, debugPaused: false });
@@ -616,7 +642,7 @@ export class AutomationService {
     const matcher = inferAutomationCapabilities(entry.source.workflow).includes('vision')
       ? this.acquireRuntimeMatcher(entry)
       : null;
-    const driver = this.createDriver(handle, matcher);
+    const driver = this.createDriver(handle, matcher, entry.source.workflow.gameSurface);
     const runner = new AutomationRunner(entry.source.workflow, driver, {
       onEvent: (event) => this.handleRuntimeEvent(event, packageId, tabId, entry.source.workflow.name),
     });
@@ -707,13 +733,26 @@ export class AutomationService {
     await session.matcher.close();
   }
 
-  private createDriver(handle: AutomationTabHandle, matcher: OpenCvWorkerMatcher | null): BrowserViewAutomationDriver {
+  private createDriver(handle: AutomationTabHandle, matcher: OpenCvWorkerMatcher | null, locator?: AutomationWorkflow['gameSurface']): BrowserViewAutomationDriver {
     return new BrowserViewAutomationDriver(handle.webContents, matcher, {
       getCssViewport: () => handle.getCssViewport(),
       getViewportTransform: () => handle.getViewportTransform(),
+      getViewportRevision: () => handle.getViewportRevision?.() ?? 0,
+      waitForViewport: () => handle.waitForViewport?.() ?? Promise.resolve(),
       getCoordinateSurface: () => {
         const binding = this.boundGameSurfaces.get(handle.tabId);
         return binding?.webContentsId === handle.webContents.id ? { ...binding.candidate.rect } : null;
+      },
+      refreshCoordinateSurface: async () => {
+        const binding = this.boundGameSurfaces.get(handle.tabId);
+        if (!binding || binding.webContentsId !== handle.webContents.id) throw new Error('游戏画面坐标不可用：游戏画面绑定已失效');
+        const candidates = await detectTabGameSurfaces(handle.webContents);
+        const candidate = locator
+          ? chooseLocatedGameSurface(candidates, locator)
+          : chooseMatchingGameSurface(candidates, binding.fingerprint) ?? chooseReplacementGameSurface(candidates, binding.candidate);
+        if (!candidate) throw new Error('窗口变化后无法重新定位游戏画面');
+        binding.candidate = candidate;
+        binding.fingerprint = candidate.fingerprint;
       },
       assertCurrent: () => handle.assertCurrent(),
       log: (message) => log.info(`[Automation] ${message}`),
@@ -788,7 +827,7 @@ export class AutomationService {
     const visit = (step: AutomationStep, depth: number): void => {
       stepCount += step.type === 'sequence' ? 0 : 1; maxDepth = Math.max(maxDepth, depth);
       if (step.type === 'sequence') step.steps.forEach((child) => visit(child, depth + 1));
-      else if (step.type === 'vision-region') visit(step.body, depth + 1);
+      else if (step.type === 'vision-region' || step.type === 'coordinate-space') visit(step.body, depth + 1);
       else if (step.type === 'if-image' || step.type === 'if-condition') { visit(step.then, depth + 1); if (step.else) visit(step.else, depth + 1); }
       else if (step.type === 'wait-condition-branch') { visit(step.success, depth + 1); visit(step.timeout, depth + 1); }
       else if (step.type === 'position-compare') { visit(step.then, depth + 1); if (step.else) visit(step.else, depth + 1); }
@@ -943,6 +982,7 @@ export class AutomationService {
       case 'click-coordinate': return { key: 'step.clickCoordinate', params: step.coordinate };
       case 'random-click-region': return { key: 'step.randomClickRegion' };
       case 'vision-region': return { key: 'step.visionRegion', params: step.region };
+      case 'coordinate-space': return { key: 'step.coordinateSpace', params: { space: step.space === 'game' ? '游戏画面' : '整个页面' } };
       case 'move-to-image': return { key: 'step.moveToImage', params: { asset: step.asset } };
       case 'move-to-coordinate': return { key: 'step.moveToCoordinate', params: step.coordinate };
       case 'drag-image': return { key: 'step.dragImage', params: { source: step.source.asset, target: step.target.asset } };

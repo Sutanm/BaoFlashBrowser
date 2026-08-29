@@ -153,6 +153,25 @@ export type VisionRegionStep = {
   body: SequenceStep;
 };
 
+export type AutomationCoordinateSpace = 'page' | 'game';
+
+export type AutomationGameSurfaceLocator = {
+  version: 1;
+  kind: 'flash' | 'ruffle' | 'canvas' | 'frame';
+  label: string;
+  source: string;
+  frameUrl: string;
+  width: number;
+  height: number;
+};
+
+export type CoordinateSpaceStep = {
+  id?: string;
+  type: 'coordinate-space';
+  space: AutomationCoordinateSpace;
+  body: SequenceStep;
+};
+
 export type KeyPressStep = {
   id?: string;
   type: 'key-press';
@@ -348,6 +367,7 @@ export type AutomationStep =
   | ClickCoordinateStep
   | RandomClickRegionStep
   | VisionRegionStep
+  | CoordinateSpaceStep
   | KeyPressStep
   | KeyHoldUntilImageStep
   | MoveToImageStep
@@ -376,6 +396,9 @@ export type AutomationWorkflow = {
   id: string;
   name: string;
   description?: string;
+  coordinateSpace?: AutomationCoordinateSpace;
+  gameSurface?: AutomationGameSurfaceLocator;
+  gameSurfaceTimeoutMs?: number;
   searchRegion?: AutomationRelativeRegion;
   readyWhen?: AutomationCondition;
   root: SequenceStep;
@@ -430,6 +453,7 @@ export type AutomationMessage =
   | { key: 'step.clickCoordinate'; params: { x: number; y: number } }
   | { key: 'step.randomClickRegion' }
   | { key: 'step.visionRegion'; params: AutomationRelativeRegion }
+  | { key: 'step.coordinateSpace'; params: { space: string } }
   | { key: 'step.moveToImage'; params: { asset: string } }
   | { key: 'step.moveToCoordinate'; params: { x: number; y: number } }
   | { key: 'step.dragImage'; params: { source: string; target: string } }

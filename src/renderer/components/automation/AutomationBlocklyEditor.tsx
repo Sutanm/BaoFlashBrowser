@@ -5,7 +5,8 @@ import * as enMessages from 'blockly/msg/en';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { collectWorkflowAssetIds } from '@shared/automation/schema';
 import { DEFAULT_AUTOMATION_VIEWPORT } from '@shared/automation/types';
-import type { AutomationCondition, AutomationImageMask, AutomationPointerTarget, AutomationStep, AutomationWorkflow, ImageCondition, PositionCompareTarget, SequenceStep } from '@shared/automation/types';
+import type { AutomationCondition, AutomationGameSurfaceLocator, AutomationImageMask, AutomationPointerTarget, AutomationStep, AutomationWorkflow, ImageCondition, PositionCompareTarget, SequenceStep } from '@shared/automation/types';
+import { decodeGameSurfaceFeature, encodeGameSurfaceFeature, gameSurfaceFeatureLabel } from '@shared/automation/game-surface-feature';
 import { blockTypeForStep, compileScalarStep, writeScalarStepFields } from './automation-block-schema';
 
 export interface AutomationBlocklyEditorHandle {
@@ -20,6 +21,53 @@ const IMAGE_PLACEHOLDER = '__bao_select_image__';
 const CLICK_TARGET_EXTENSION = 'bao_click_target_mode';
 const DRAG_TARGET_EXTENSION = 'bao_drag_target_mode';
 const MORE_SETTINGS_EXTENSION = 'bao_more_settings';
+const GAME_SURFACE_FIELD = 'field_game_surface_feature';
+
+class GameSurfaceFeatureField extends Blockly.Field<string> {
+  SERIALIZABLE = true;
+  private readonly importLabel: string;
+
+  constructor(value = '', importLabel = '从剪贴板导入特征串') {
+    super(value);
+    this.importLabel = importLabel;
+    this.maxDisplayLength = 34;
+  }
+
+  static fromJson(options: { value?: string; importLabel?: string }): GameSurfaceFeatureField {
+    return new GameSurfaceFeatureField(options.value ?? '', options.importLabel);
+  }
+
+  protected getText_(): string {
+    const value = this.getValue() || '';
+    if (!value) return this.importLabel;
+    try { return gameSurfaceFeatureLabel(decodeGameSurfaceFeature(value)); }
+    catch { return '特征串无效（点击重新导入）'; }
+  }
+
+  protected showEditor_(): void {
+    void (async () => {
+      let text = '';
+      try { text = await navigator.clipboard.readText(); }
+      catch { text = window.prompt(this.importLabel, '') ?? ''; }
+      if (!text.trim()) return;
+      try {
+        const normalized = encodeGameSurfaceFeature(decodeGameSurfaceFeature(text));
+        const workspace = this.getSourceBlock()?.workspace;
+        if (!workspace) return;
+        for (const block of workspace.getAllBlocks(false)) {
+          const field = block.getField('GAME_SURFACE');
+          if (field && field !== this) field.setValue(normalized);
+        }
+        this.setValue(normalized);
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : String(error));
+      }
+    })();
+  }
+}
+
+try { Blockly.fieldRegistry.register(GAME_SURFACE_FIELD, GameSurfaceFeatureField); }
+catch { /* Renderer hot reload can evaluate this module after registration. */ }
 
 function setFieldRowVisible(block: Blockly.Block, fieldName: string, visible: boolean): void {
   block.getField(fieldName)?.getParentInput()?.setVisible(visible);
@@ -161,15 +209,19 @@ function buildBlockDefinitions(LL: ReturnType<typeof useI18nContext>['LL'], asse
   });
   const labelField = (name: string, text: string): { type: string; name: string; text: string } => ({ type: 'field_label', name, text });
   const markerField = (name: string): { type: string; name: string; text: string } => ({ type: 'field_label_serializable', name, text: '' });
+  const gameSurfaceField = (): { type: string; name: string; value: string; importLabel: string } => ({ type: GAME_SURFACE_FIELD, name: 'GAME_SURFACE', value: '', importLabel: b.importGameSurfaceFeature() });
   const moreField = (): { type: string; name: string; options: string[][] } => ({ type: 'field_dropdown', name: 'MORE', options: [[b.moreSettings(), 'collapsed'], [b.lessSettings(), 'expanded']] });
   const definitions: Array<{ type: string; [key: string]: unknown }> = [
     { type: 'bao_start_unconditional', message0: b.startUnconditional(), message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], colour: 265 },
+    { type: 'bao_start_game', message0: b.startGameSurface(), args0: [gameSurfaceField()], message1: b.gameCoordinateHint(), message2: b.execute(), args2: [{ type: 'input_statement', name: 'DO' }], colour: 265 },
     { type: 'bao_start_region', message0: b.startRegion(), args0: [{ type: 'field_input', name: 'TOP_LEFT', text: '0,0' }, { type: 'field_input', name: 'BOTTOM_RIGHT', text: '10000,10000' }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], colour: 265 },
     { type: 'bao_start_condition', message0: b.startCondition(), args0: [{ type: 'input_value', name: 'CONDITION', check: 'Boolean' }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], colour: 265 },
     { type: 'bao_start', message0: b.start(), args0: [assetField(assets, b.imagePlaceholder())], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.execute(), args4: [{ type: 'input_statement', name: 'DO' }], extensions: [MORE_SETTINGS_EXTENSION], colour: 265 },
     { type: 'bao_wait_image', message0: b.waitImage(), args0: [assetField(assets, b.imagePlaceholder())], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.timingRow(), args4: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 205 },
     { type: 'bao_wait_image_state', message0: b.waitImageState(), args0: [assetField(assets, b.imagePlaceholder()), { type: 'field_dropdown', name: 'STATE', options: [[appear, 'visible'], [disappear, 'hidden']] }], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.timingRow(), args4: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [MORE_SETTINGS_EXTENSION], previousStatement: null, nextStatement: null, colour: 205 },
     { type: 'bao_vision_region', message0: b.visionRegion(), args0: [{ type: 'field_input', name: 'TOP_LEFT', text: '2500,2500' }, { type: 'field_input', name: 'BOTTOM_RIGHT', text: '7500,7500' }], message1: b.execute(), args1: [{ type: 'input_statement', name: 'DO' }], tooltip: b.visionRegionTooltip(), previousStatement: null, nextStatement: null, colour: 205 },
+    { type: 'bao_coordinate_space_game', message0: b.inGameCoordinates(), args0: [gameSurfaceField()], message1: b.gameCoordinateHint(), message2: b.execute(), args2: [{ type: 'input_statement', name: 'DO' }], previousStatement: null, nextStatement: null, colour: 185 },
+    { type: 'bao_coordinate_space_page', message0: b.inPageCoordinates(), message1: b.pageCoordinateHint(), message2: b.execute(), args2: [{ type: 'input_statement', name: 'DO' }], previousStatement: null, nextStatement: null, colour: 185 },
     { type: 'bao_click_image', message0: b.clickImage(), args0: [clickTargetField(assets, b.coordinateTarget()), { type: 'field_input', name: 'COORDINATE', text: '5000,5000' }, { type: 'field_dropdown', name: 'BUTTON', options: [[b.leftButton(), 'left'], [b.rightButton(), 'right'], [b.middleButton(), 'middle']] }, { type: 'field_number', name: 'COUNT', value: 1, min: 1, max: 3 }], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.clickSafetyRow(), args4: [markerField('ADVANCED_SAFETY_LABEL'), { type: 'field_checkbox', name: 'VERIFY', checked: false }, { type: 'field_number', name: 'MOVEMENT', value: 12, min: 0, max: 500 }], message5: b.timingRow(), args5: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [CLICK_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 205 },
     { type: 'bao_move_to_image', message0: b.moveToTarget(), args0: [clickTargetField(assets, b.coordinateTarget()), { type: 'field_input', name: 'COORDINATE', text: '5000,5000' }], message1: b.similarityRow(), args1: [{ type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message2: '%1', args2: [moreField()], message3: b.matchRow(), args3: [markerField('ADVANCED_MATCH_LABEL'), maskField()], message4: b.timingRow(), args4: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [CLICK_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 120 },
     { type: 'bao_drag_image', message0: b.dragTarget(), message1: b.sourceTarget(), args1: [clickTargetField(assets, b.coordinateTarget(), 'SOURCE_ASSET'), { type: 'field_input', name: 'SOURCE_COORDINATE', text: '3000,5000' }], message2: b.sourceSimilarity(), args2: [{ type: 'field_number', name: 'SOURCE_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message3: b.targetTarget(), args3: [clickTargetField(assets, b.coordinateTarget(), 'TARGET_ASSET'), { type: 'field_input', name: 'TARGET_COORDINATE', text: '7000,5000' }], message4: b.targetSimilarity(), args4: [{ type: 'field_number', name: 'TARGET_THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], message5: b.dragAction(), args5: [{ type: 'field_dropdown', name: 'BUTTON', options: [[b.leftButton(), 'left'], [b.rightButton(), 'right'], [b.middleButton(), 'middle']] }, { type: 'field_number', name: 'DURATION', value: 800, min: 0, max: 10000 }], message6: '%1', args6: [moreField()], message7: b.sourceMatchRow(), args7: [markerField('ADVANCED_SOURCE_MATCH_LABEL'), maskField('SOURCE_MASK')], message8: b.targetMatchRow(), args8: [markerField('ADVANCED_TARGET_MATCH_LABEL'), maskField('TARGET_MASK')], message9: b.timingRow(), args9: [markerField('ADVANCED_TIMING_LABEL'), { type: 'field_number', name: 'TIMEOUT', value: 10000, min: 1, max: 3600000 }, { type: 'field_number', name: 'MIN_CYCLE', value: 0, min: 0, max: 60000 }], extensions: [DRAG_TARGET_EXTENSION], previousStatement: null, nextStatement: null, colour: 120 },
@@ -207,11 +259,11 @@ function buildToolbox(LL: ReturnType<typeof useI18nContext>['LL']): Blockly.util
   return {
     kind: 'categoryToolbox',
     contents: [
-      { kind: 'category', name: b.catEntry(), colour: '265', contents: ['bao_start_unconditional', 'bao_start_region', 'bao_start', 'bao_start_condition'].map((type) => ({ kind: 'block', type })) },
+      { kind: 'category', name: b.catEntry(), colour: '265', contents: ['bao_start_unconditional', 'bao_start_game', 'bao_start_region', 'bao_start', 'bao_start_condition'].map((type) => ({ kind: 'block', type })) },
       { kind: 'category', name: b.catMouse(), colour: '120', contents: ['bao_click_image', 'bao_random_click_region', 'bao_move_to_image', 'bao_drag_image', 'bao_scroll'].map((type) => ({ kind: 'block', type })) },
       { kind: 'category', name: b.catKeyboard(), colour: '105', contents: ['bao_key_press', 'bao_key_combo', 'bao_hold_key_until_image', 'bao_text_input'].map((type) => ({ kind: 'block', type })) },
       { kind: 'category', name: b.catRecognition(), colour: '205', contents: ['bao_vision_region', 'bao_wait_image', 'bao_wait_image_state', 'bao_delay'].map((type) => ({ kind: 'block', type })) },
-      { kind: 'category', name: b.catPage(), colour: '170', contents: ['bao_navigate', 'bao_reload'].map((type) => ({ kind: 'block', type })) },
+      { kind: 'category', name: b.catPage(), colour: '170', contents: ['bao_coordinate_space_game', 'bao_coordinate_space_page', 'bao_navigate', 'bao_reload'].map((type) => ({ kind: 'block', type })) },
       { kind: 'category', name: b.catFlow(), colour: '330', contents: ['bao_if_condition', 'bao_wait_condition', 'bao_wait_condition_branch', 'bao_repeat_until_condition', 'bao_condition_image', 'bao_condition_position', 'bao_condition_and', 'bao_condition_or', 'bao_condition_not', 'bao_if_image', 'bao_position_compare', 'bao_repeat', 'bao_repeat_until_image'].map((type) => ({ kind: 'block', type })) },
       { kind: 'category', name: b.catDebug(), colour: '65', contents: ['bao_log', 'bao_notification', 'bao_end'].map((type) => ({ kind: 'block', type })) },
     ],
@@ -351,6 +403,8 @@ function compileBlock(LL: ReturnType<typeof useI18nContext>['LL'], block: Blockl
     case 'bao_hold_key_until_image': return { ...extra, type: 'key-hold-until-image', key: String(block.getFieldValue('KEY')), ...requiredImageTarget(LL, block), threshold: number(block, 'THRESHOLD'), state: block.getFieldValue('STATE') === 'hidden' ? 'hidden' : 'visible', mask: imageMask(block), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') } as AutomationStep;
     case 'bao_random_click_region': return { ...extra, type: 'random-click-region', region: relativeSearchRegion(LL, block), button: block.getFieldValue('BUTTON'), clickCount: number(block, 'COUNT'), padding: number(block, 'PADDING') } as AutomationStep;
     case 'bao_vision_region': return { ...extra, type: 'vision-region', region: relativeSearchRegion(LL, block), body: compileSequence(LL, block.getInputTargetBlock('DO'), extra.type === 'vision-region' ? extra.body : undefined) } as AutomationStep;
+    case 'bao_coordinate_space_game': return { ...extra, type: 'coordinate-space', space: 'game', body: compileSequence(LL, block.getInputTargetBlock('DO'), extra.type === 'coordinate-space' ? extra.body : undefined) } as AutomationStep;
+    case 'bao_coordinate_space_page': return { ...extra, type: 'coordinate-space', space: 'page', body: compileSequence(LL, block.getInputTargetBlock('DO'), extra.type === 'coordinate-space' ? extra.body : undefined) } as AutomationStep;
     case 'bao_if_image': return { ...extra, type: 'if-image', condition: { ...(extra.type === 'if-image' ? extra.condition : {}), ...assetCondition(LL, block) }, negate: block.getFieldValue('MODE') === 'missing', then: compileSequence(LL, block.getInputTargetBlock('THEN'), extra.type === 'if-image' ? extra.then : undefined), else: compileSequence(LL, block.getInputTargetBlock('ELSE'), extra.type === 'if-image' ? extra.else : undefined) } as AutomationStep;
     case 'bao_if_condition': return { ...extra, type: 'if-condition', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), then: compileSequence(LL, block.getInputTargetBlock('THEN'), extra.type === 'if-condition' ? extra.then : undefined), else: compileSequence(LL, block.getInputTargetBlock('ELSE'), extra.type === 'if-condition' ? extra.else : undefined) } as AutomationStep;
     case 'bao_wait_condition': return { ...extra, type: 'wait-condition', condition: compileCondition(LL, block.getInputTargetBlock('CONDITION')), timeoutMs: number(block, 'TIMEOUT'), minCycleMs: number(block, 'MIN_CYCLE') } as AutomationStep;
@@ -381,7 +435,9 @@ function setPointerTarget(block: Blockly.Block, prefix: 'SOURCE' | 'TARGET', tar
 
 function createStep(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Blockly.WorkspaceSvg, step: AutomationStep): Blockly.BlockSvg {
   if (step.type === 'sequence') throw new Error('sequence cannot be rendered as a statement block');
-  const blockType = blockTypeForStep(step);
+  const blockType = step.type === 'coordinate-space'
+    ? (step.space === 'game' ? 'bao_coordinate_space_game' : 'bao_coordinate_space_page')
+    : blockTypeForStep(step);
   const block = workspace.newBlock(blockType); block.initSvg(); block.render();
   preserve(block, step);
   if (writeScalarStepFields(step, (name, value) => setField(block, name, value))) return block;
@@ -392,6 +448,7 @@ function createStep(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Bloc
     case 'click-coordinate': setField(block, 'ASSET', COORDINATE_TARGET); setField(block, 'COORDINATE', `${step.coordinate.x},${step.coordinate.y}`); setField(block, 'BUTTON', step.button); setField(block, 'COUNT', step.clickCount); break;
     case 'random-click-region': setField(block, 'TOP_LEFT', `${step.region.left},${step.region.top}`); setField(block, 'BOTTOM_RIGHT', `${step.region.right},${step.region.bottom}`); setField(block, 'BUTTON', step.button ?? 'left'); setField(block, 'COUNT', step.clickCount ?? 2); setField(block, 'PADDING', step.padding ?? 0); break;
     case 'vision-region': setField(block, 'TOP_LEFT', `${step.region.left},${step.region.top}`); setField(block, 'BOTTOM_RIGHT', `${step.region.right},${step.region.bottom}`); connectSequence(LL, workspace, block, 'DO', step.body); break;
+    case 'coordinate-space': connectSequence(LL, workspace, block, 'DO', step.body); break;
     case 'move-to-image': setField(block, 'ASSET', imageTargetValue(step)); setField(block, 'THRESHOLD', step.threshold); setField(block, 'MASK', step.mask ?? 'auto'); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
     case 'move-to-coordinate': setField(block, 'ASSET', COORDINATE_TARGET); setField(block, 'COORDINATE', `${step.coordinate.x},${step.coordinate.y}`); break;
     case 'drag-image': setField(block, 'SOURCE_ASSET', imageTargetValue(step.source)); setField(block, 'SOURCE_THRESHOLD', step.source.threshold); setField(block, 'SOURCE_MASK', step.source.mask ?? 'auto'); setField(block, 'TARGET_ASSET', imageTargetValue(step.target)); setField(block, 'TARGET_THRESHOLD', step.target.threshold); setField(block, 'TARGET_MASK', step.target.mask ?? 'auto'); setField(block, 'BUTTON', step.button); setField(block, 'DURATION', step.durationMs); setField(block, 'TIMEOUT', step.timeoutMs ?? 10000); setField(block, 'MIN_CYCLE', step.minCycleMs ?? 0); break;
@@ -510,6 +567,13 @@ const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { pack
     }
     const onWorkspaceChange = (event: Blockly.Events.Abstract): void => {
       if (event.isUiEvent || event.type === Blockly.Events.FINISHED_LOADING) return;
+      const featureFields = workspace.getAllBlocks(false)
+        .map((block) => block.getField('GAME_SURFACE'))
+        .filter((field): field is Blockly.Field => Boolean(field));
+      const sharedFeature = featureFields.map((field) => String(field.getValue() || '').trim()).find(Boolean);
+      if (sharedFeature) {
+        for (const field of featureFields) if (!String(field.getValue() || '').trim()) field.setValue(sharedFeature);
+      }
       localStorage.setItem(draftKey, Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(workspace)));
       onDirtyChange?.(true);
     };
@@ -527,20 +591,30 @@ const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { pack
   useImperativeHandle(ref, () => ({
     compile: () => {
       const workspace = workspaceRef.current; if (!workspace) throw new Error(LL.automation.blockly.workspaceNotReady());
-      const starts = workspace.getTopBlocks(true).filter((block) => block.type === 'bao_start' || block.type === 'bao_start_unconditional' || block.type === 'bao_start_condition' || block.type === 'bao_start_region');
+      const starts = workspace.getTopBlocks(true).filter((block) => block.type === 'bao_start' || block.type === 'bao_start_unconditional' || block.type === 'bao_start_condition' || block.type === 'bao_start_region' || block.type === 'bao_start_game');
       if (starts.length !== 1) throw new Error(LL.automation.blockly.requireOneStart());
       const source = workflowRef.current;
       const conditional = starts[0].type === 'bao_start';
       const combined = starts[0].type === 'bao_start_condition';
       const regional = starts[0].type === 'bao_start_region';
+      const gameEntry = starts[0].type === 'bao_start_game';
       const readyAsset = conditional ? String(starts[0].getFieldValue('ASSET') || '').trim() : '';
       const readySource = preserved<ImageCondition>(starts[0]);
+      const featureTokens = [...new Set(workspace.getAllBlocks(false).map((block) => String(block.getFieldValue('GAME_SURFACE') || '').trim()).filter(Boolean))];
+      if (featureTokens.length > 1) throw new Error(LL.automation.blockly.gameSurfaceFeatureMismatch());
+      let gameSurface: AutomationGameSurfaceLocator | undefined;
+      if (featureTokens.length) gameSurface = decodeGameSurfaceFeature(featureTokens[0]);
+      const needsGameSurface = gameEntry || workspace.getAllBlocks(false).some((block) => block.type === 'bao_coordinate_space_game');
+      if (needsGameSurface && !gameSurface) throw new Error(LL.automation.blockly.gameSurfaceFeatureRequired());
       return {
         formatVersion: 2,
         viewport: source?.viewport ?? DEFAULT_AUTOMATION_VIEWPORT,
         id: source?.id ?? 'new-automation',
         name: source?.name ?? LL.automation.blockly.defaultWorkflowName(),
         description: source?.description,
+        ...(gameEntry ? { coordinateSpace: 'game' as const } : {}),
+        ...(gameSurface ? { gameSurface } : {}),
+        ...(source?.gameSurfaceTimeoutMs ? { gameSurfaceTimeoutMs: source.gameSurfaceTimeoutMs } : {}),
         ...(regional ? { searchRegion: relativeSearchRegion(LL, starts[0]) } : {}),
         ...(combined ? { readyWhen: compileCondition(LL, starts[0].getInputTargetBlock('CONDITION')) } : readyAsset ? { readyWhen: { ...readySource, type: 'image-visible' as const, ...requiredImageTarget(LL, starts[0]), threshold: number(starts[0], 'THRESHOLD'), mask: imageMask(starts[0]) } } : {}),
         root: compileSequence(LL, starts[0].getInputTargetBlock('DO'), source?.root),
@@ -555,12 +629,15 @@ const AutomationBlocklyEditor = forwardRef<AutomationBlocklyEditorHandle, { pack
 
 function loadIntoWorkspace(LL: ReturnType<typeof useI18nContext>['LL'], workspace: Blockly.WorkspaceSvg, workflow: AutomationWorkflow): void {
   workspace.clear();
-  const startType = workflow.searchRegion ? 'bao_start_region' : !workflow.readyWhen ? 'bao_start_unconditional' : workflow.readyWhen.type === 'image-visible' ? 'bao_start' : 'bao_start_condition';
+  const startType = workflow.coordinateSpace === 'game' ? 'bao_start_game' : workflow.searchRegion ? 'bao_start_region' : !workflow.readyWhen ? 'bao_start_unconditional' : workflow.readyWhen.type === 'image-visible' ? 'bao_start' : 'bao_start_condition';
   const start = workspace.newBlock(startType); start.initSvg(); start.render();
-  if (workflow.searchRegion) { setField(start, 'TOP_LEFT', `${workflow.searchRegion.left},${workflow.searchRegion.top}`); setField(start, 'BOTTOM_RIGHT', `${workflow.searchRegion.right},${workflow.searchRegion.bottom}`); }
+  const featureToken = workflow.gameSurface ? encodeGameSurfaceFeature(workflow.gameSurface) : '';
+  if (startType === 'bao_start_game') setField(start, 'GAME_SURFACE', featureToken);
+  else if (workflow.searchRegion) { setField(start, 'TOP_LEFT', `${workflow.searchRegion.left},${workflow.searchRegion.top}`); setField(start, 'BOTTOM_RIGHT', `${workflow.searchRegion.right},${workflow.searchRegion.bottom}`); }
   else if (workflow.readyWhen?.type === 'image-visible') { preserve(start, workflow.readyWhen); setField(start, 'ASSET', imageTargetValue(workflow.readyWhen)); setField(start, 'THRESHOLD', workflow.readyWhen.threshold ?? .9); setField(start, 'MASK', workflow.readyWhen.mask ?? 'auto'); }
   else if (workflow.readyWhen) connectCondition(LL, workspace, start, 'CONDITION', workflow.readyWhen);
   connectSequence(LL, workspace, start, 'DO', workflow.root);
+  if (featureToken) for (const block of workspace.getAllBlocks(false)) if (block.getField('GAME_SURFACE')) setField(block, 'GAME_SURFACE', featureToken);
   start.moveBy(36, 30);
 }
 

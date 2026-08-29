@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { describe, expect, it, vi } from 'vitest';
 import {
   BrowserViewAutomationDriver,
+  cssPointToRelativeCoordinate,
   deviceMatchToCssPoint,
   relativeCoordinateToCssPoint,
   relativeSearchRegionToCssRegion,
@@ -226,6 +227,19 @@ describe('BrowserView automation driver', () => {
     expect(match).toMatchObject({ asset: '角色/行走/right.png', score: 0.96 });
   });
 
+  it('round-trips page and game coordinates through the same logical point', () => {
+    const page = { x: 0, y: 0, width: 1280, height: 720 };
+    const game = { x: 200, y: 100, width: 800, height: 400 };
+    const gameCoordinate = { x: 4168, y: 7333 };
+    const local = relativeCoordinateToCssPoint(gameCoordinate, { width: game.width, height: game.height });
+    const logicalPoint = { x: game.x + local.x, y: game.y + local.y };
+    const pageCoordinate = cssPointToRelativeCoordinate(logicalPoint, page);
+    const pagePoint = relativeCoordinateToCssPoint(pageCoordinate, { width: page.width, height: page.height });
+    const roundTrip = cssPointToRelativeCoordinate(pagePoint, game);
+    expect(Math.abs(roundTrip.x - gameCoordinate.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(roundTrip.y - gameCoordinate.y)).toBeLessThanOrEqual(1);
+  });
+
   it('maps logical input and a logical capture region through a fixed viewport scale', async () => {
     const wc = new FakeWebContents();
     const find = vi.fn(async () => MATCH);
@@ -274,6 +288,7 @@ describe('BrowserView automation driver', () => {
       getViewportTransform: () => transform,
       getCoordinateSurface: () => ({ x: 100, y: 50, width: 400, height: 200 }),
     });
+    driver.setCoordinateSpace('game');
     const signal = new AbortController().signal;
     await driver.clickPoint({ x: 5000, y: 5000 }, { button: 'left', clickCount: 1 }, signal);
     await driver.findImage({
@@ -287,6 +302,73 @@ describe('BrowserView automation driver', () => {
       { type: 'mouseReleased', x: 299.75, y: 149.75, button: 'left', clickCount: 1 },
     ]);
     expect(wc.captureRects).toEqual([{ x: 200, y: 100, width: 200, height: 100 }]);
+  });
+
+  it('crops ordinary OpenCV matching to the game surface only in game coordinates', async () => {
+    const wc = new FakeWebContents();
+    const find = vi.fn(async () => MATCH);
+    const driver = new BrowserViewAutomationDriver(wc, { find }, {
+      getCssViewport: () => ({ width: 1280, height: 720 }),
+      getViewportTransform: () => ({
+        logicalSize: { width: 1280, height: 720 },
+        displaySize: { width: 640, height: 360 },
+        scaleX: 0.5,
+        scaleY: 0.5,
+      }),
+      getCoordinateSurface: () => ({ x: 100, y: 50, width: 400, height: 200 }),
+    });
+    const signal = new AbortController().signal;
+
+    driver.setCoordinateSpace('game');
+    await driver.findImage({ asset: 'inside.png', threshold: 0.9 }, signal);
+    driver.setCoordinateSpace('page');
+    await driver.findImage({ asset: 'outside.png', threshold: 0.9 }, signal);
+
+    expect(wc.captureRects).toEqual([
+      { x: 100, y: 50, width: 400, height: 200 },
+      undefined,
+    ]);
+  });
+
+  it('intersects explicit image regions with the game surface', async () => {
+    const wc = new FakeWebContents();
+    const driver = new BrowserViewAutomationDriver(wc, { find: vi.fn(async () => MATCH) }, {
+      getCssViewport: () => ({ width: 1280, height: 720 }),
+      getViewportTransform: () => ({
+        logicalSize: { width: 1280, height: 720 }, displaySize: { width: 640, height: 360 }, scaleX: 0.5, scaleY: 0.5,
+      }),
+      getCoordinateSurface: () => ({ x: 100, y: 50, width: 400, height: 200 }),
+    });
+    driver.setCoordinateSpace('game');
+    const signal = new AbortController().signal;
+    await driver.findImage({ asset: 'inside.png', threshold: 0.9, region: { x: 100, y: 50, width: 200, height: 200 } }, signal);
+    expect(wc.captureRects).toEqual([{ x: 100, y: 50, width: 50, height: 75 }]);
+    await expect(driver.findImage({ asset: 'outside.png', threshold: 0.9, region: { x: 0, y: 0, width: 100, height: 50 } }, signal))
+      .rejects.toThrow(/does not overlap the game surface/);
+  });
+
+  it('reacquires the game surface after the live viewport changes', async () => {
+    const wc = new FakeWebContents();
+    let revision = 1;
+    let surface = { x: 100, y: 50, width: 400, height: 200 };
+    const refresh = vi.fn(async () => { surface = { x: 150, y: 75, width: 300, height: 150 }; });
+    const waitForViewport = vi.fn(async () => undefined);
+    const driver = new BrowserViewAutomationDriver(wc, null, {
+      getCssViewport: () => ({ width: 1280, height: 720 }),
+      getViewportTransform: () => ({
+        logicalSize: { width: 1280, height: 720 }, displaySize: { width: 640, height: 360 }, scaleX: 0.5, scaleY: 0.5,
+      }),
+      getCoordinateSurface: () => surface,
+      getViewportRevision: () => revision,
+      waitForViewport,
+      refreshCoordinateSurface: refresh,
+    });
+    driver.setCoordinateSpace('game');
+    revision = 2;
+    await driver.clickPoint({ x: 5000, y: 5000 }, { button: 'left', clickCount: 1 }, new AbortController().signal);
+    expect(waitForViewport).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(wc.commands[0].params).toMatchObject({ type: 'mouseMoved', x: 299.75, y: 149.75 });
   });
 
   it('normalizes a windowed regional capture back to logical coordinates before matching', async () => {

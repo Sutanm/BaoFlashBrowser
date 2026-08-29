@@ -79,6 +79,9 @@ export type BrowserViewAutomationDriverOptions = {
     scaleX: number;
     scaleY: number;
   };
+  getViewportRevision?: () => number;
+  waitForViewport?: () => Promise<void>;
+  refreshCoordinateSurface?: () => Promise<void>;
   navigationTimeoutMs?: number;
   log?: (message: string) => void;
   assertCurrent?: () => void;
@@ -194,6 +197,26 @@ export function relativeSearchRegionToCssRegion(
   return { x, y, width: right - x, height: bottom - y };
 }
 
+export function cssPointToRelativeCoordinate(
+  point: { x: number; y: number },
+  surface: AutomationRegion,
+): AutomationCoordinate {
+  if (surface.width <= 0 || surface.height <= 0) throw new Error('coordinate surface dimensions must be positive');
+  return {
+    x: Math.max(0, Math.min(10_000, Math.round((point.x - surface.x) / Math.max(1, surface.width - 1) * 10_000))),
+    y: Math.max(0, Math.min(10_000, Math.round((point.y - surface.y) / Math.max(1, surface.height - 1) * 10_000))),
+  };
+}
+
+function intersectAutomationRegions(first: AutomationRegion, second: AutomationRegion): AutomationRegion {
+  const x = Math.max(first.x, second.x);
+  const y = Math.max(first.y, second.y);
+  const right = Math.min(first.x + first.width, second.x + second.width);
+  const bottom = Math.min(first.y + first.height, second.y + second.height);
+  if (right <= x || bottom <= y) throw new Error('image search region does not overlap the game surface');
+  return { x, y, width: right - x, height: bottom - y };
+}
+
 export class BrowserViewAutomationDriver implements AutomationDriver {
   private readonly webContents: AutomationWebContentsLike;
   private readonly matcher: AutomationVisionMatcher | null;
@@ -202,6 +225,8 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   private scopedFrames: Map<string, AutomationCapturedFrame> | null = null;
   private lastVisionStatsLogAt = 0;
   private pointer = { x: 0, y: 0 };
+  private coordinateSpace: 'page' | 'game' = 'page';
+  private viewportRevision: number | undefined;
 
   constructor(
     webContents: AutomationWebContentsLike,
@@ -211,6 +236,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     this.webContents = webContents;
     this.matcher = matcher;
     this.options = options;
+    this.viewportRevision = options.getViewportRevision?.();
   }
 
   async findImage(request: FindImageRequest, signal: AbortSignal): Promise<ImageMatch | null> {
@@ -218,9 +244,14 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     this.throwIfAborted(signal);
     this.assertCurrent();
     if (!this.matcher) throw new Error('automation workflow does not have a vision matcher');
+    await this.ensureCoordinateSurfaceCurrent(signal);
     const cssSize = this.options.getCssViewport();
-    const captureRegion = request.region
+    const gameSurface = this.coordinateSpace === 'game' ? this.coordinateSurfaceLogical() : undefined;
+    const requestedRegion = request.region
       ?? (request.relativeRegion ? this.relativeRegionToLogical(request.relativeRegion) : undefined);
+    const captureRegion = gameSurface
+      ? (requestedRegion ? intersectAutomationRegions(requestedRegion, gameSurface) : gameSurface)
+      : requestedRegion;
     const displayCaptureRegion = captureRegion ? this.logicalRegionToDisplay(captureRegion) : undefined;
     const frameKey = captureRegion
       ? `${captureRegion.x},${captureRegion.y},${captureRegion.width},${captureRegion.height}`
@@ -321,6 +352,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   }
 
   async resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal, relativeRegion?: AutomationRelativeRegion): Promise<{ x: number; y: number }> {
+    await this.ensureCoordinateSurfaceCurrent(signal);
     if (target.kind === 'coordinate') {
       return this.relativePointToLogical(target.coordinate);
     }
@@ -339,6 +371,12 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
 
   getCssViewport(): { width: number; height: number } {
     return this.options.getCssViewport();
+  }
+
+  setCoordinateSpace(space: 'page' | 'game'): 'page' | 'game' {
+    const previous = this.coordinateSpace;
+    this.coordinateSpace = space;
+    return previous;
   }
 
   async click(
@@ -365,6 +403,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
   }
 
   async moveToPoint(coordinate: AutomationCoordinate, signal: AbortSignal): Promise<void> {
+    await this.ensureCoordinateSurfaceCurrent(signal);
     const point = this.relativePointToLogical(coordinate);
     await this.withTransientCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...this.logicalPointToDisplay(point) }));
     this.pointer = point;
@@ -375,6 +414,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     options: { button: 'left' | 'right' | 'middle'; clickCount: number },
     signal: AbortSignal,
   ): Promise<void> {
+    await this.ensureCoordinateSurfaceCurrent(signal);
     const point = this.relativePointToLogical(coordinate);
     const displayPoint = this.logicalPointToDisplay(point);
     await this.withTransientCdp(signal, async (send) => {
@@ -404,6 +444,7 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
     options: { button: 'left' | 'right' | 'middle'; durationMs: number },
     signal: AbortSignal,
   ): Promise<void> {
+    await this.ensureCoordinateSurfaceCurrent(signal);
     const resolve = (value: AutomationDriverPointerTarget): { x: number; y: number } => value.kind === 'coordinate'
       ? this.relativePointToLogical(value.coordinate)
       : this.toCssPoint(value.match, { x: 0, y: 0 });
@@ -598,14 +639,32 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
 
   private coordinateSurfaceLogical(): AutomationRegion {
     const logical = this.options.getCssViewport();
+    if (this.coordinateSpace === 'page') return { x: 0, y: 0, width: logical.width, height: logical.height };
     const displaySurface = this.options.getCoordinateSurface?.();
-    if (!displaySurface) return { x: 0, y: 0, width: logical.width, height: logical.height };
+    if (!displaySurface) throw new Error('游戏画面坐标不可用：没有找到脚本指定的游戏画面');
     const transform = this.viewportTransform();
     const x = Math.max(0, Math.min(logical.width - 1, displaySurface.x / transform.scaleX));
     const y = Math.max(0, Math.min(logical.height - 1, displaySurface.y / transform.scaleY));
     const right = Math.max(x + 1, Math.min(logical.width, (displaySurface.x + displaySurface.width) / transform.scaleX));
     const bottom = Math.max(y + 1, Math.min(logical.height, (displaySurface.y + displaySurface.height) / transform.scaleY));
     return { x, y, width: right - x, height: bottom - y };
+  }
+
+  private async ensureCoordinateSurfaceCurrent(signal: AbortSignal): Promise<void> {
+    if (this.coordinateSpace !== 'game' || !this.options.refreshCoordinateSurface) return;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const revision = this.options.getViewportRevision?.();
+      if (revision === undefined || revision === this.viewportRevision) return;
+      this.throwIfAborted(signal);
+      await this.options.waitForViewport?.();
+      this.throwIfAborted(signal);
+      await this.options.refreshCoordinateSurface();
+      if ((this.options.getViewportRevision?.() ?? revision) === revision) {
+        this.viewportRevision = revision;
+        return;
+      }
+    }
+    throw new Error('窗口仍在变化，暂时无法稳定定位游戏画面');
   }
 
   private relativePointToLogical(coordinate: AutomationCoordinate): { x: number; y: number } {

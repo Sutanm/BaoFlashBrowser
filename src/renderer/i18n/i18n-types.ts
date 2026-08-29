@@ -2078,6 +2078,14 @@ type RootTranslation = {
 			 */
 			conditionRequired: string
 			/**
+			 * 请​先​从​游​戏​页​面​复​制​游​戏​画​面​特​征​串​，​再​点​击​积​木​上​的​“​从​剪​贴​板​导​入​特​征​串​”
+			 */
+			gameSurfaceFeatureRequired: string
+			/**
+			 * 脚​本​中​存​在​不​同​的​游​戏​画​面​特​征​串​，​请​重​新​导​入​同​一​个​特​征​串
+			 */
+			gameSurfaceFeatureMismatch: string
+			/**
 			 * 新​自​动​化​脚​本
 			 */
 			defaultWorkflowName: string
@@ -2085,6 +2093,30 @@ type RootTranslation = {
 			 * 无​条​件​启​动
 			 */
 			startUnconditional: string
+			/**
+			 * 自​动​找​到​游​戏​画​面​ ​%​1​ ​后​启​动
+			 */
+			startGameSurface: string
+			/**
+			 * 从​剪​贴​板​导​入​特​征​串
+			 */
+			importGameSurfaceFeature: string
+			/**
+			 * 以​下​积​木​使​用​游​戏​画​面​坐​标​（​识​图​仅​处​理​游​戏​画​面​）
+			 */
+			gameCoordinateHint: string
+			/**
+			 * 以​下​积​木​使​用​整​个​页​面​坐​标
+			 */
+			pageCoordinateHint: string
+			/**
+			 * 在​游​戏​画​面​ ​%​1​ ​坐​标​内​执​行
+			 */
+			inGameCoordinates: string
+			/**
+			 * 在​整​个​页​面​坐​标​内​执​行
+			 */
+			inPageCoordinates: string
 			/**
 			 * 限​定​游​戏​区​域​ ​左​上​ ​%​1​ ​右​下​ ​%​2
 			 */
@@ -2609,6 +2641,11 @@ type RootTranslation = {
 				 * @param {unknown} top
 				 */
 				visionRegion: RequiredParams<'bottom' | 'left' | 'right' | 'top'>
+				/**
+				 * 在​{​s​p​a​c​e​}​坐​标​内​执​行
+				 * @param {unknown} space
+				 */
+				coordinateSpace: RequiredParams<'space'>
 				/**
 				 * 移​动​到​图​片​ ​{​a​s​s​e​t​}
 				 * @param {unknown} asset
@@ -4775,6 +4812,14 @@ export type TranslationFunctions = {
 			 */
 			conditionRequired: () => LocalizedString
 			/**
+			 * 请先从游戏页面复制游戏画面特征串，再点击积木上的“从剪贴板导入特征串”
+			 */
+			gameSurfaceFeatureRequired: () => LocalizedString
+			/**
+			 * 脚本中存在不同的游戏画面特征串，请重新导入同一个特征串
+			 */
+			gameSurfaceFeatureMismatch: () => LocalizedString
+			/**
 			 * 新自动化脚本
 			 */
 			defaultWorkflowName: () => LocalizedString
@@ -4782,6 +4827,30 @@ export type TranslationFunctions = {
 			 * 无条件启动
 			 */
 			startUnconditional: () => LocalizedString
+			/**
+			 * 自动找到游戏画面 %1 后启动
+			 */
+			startGameSurface: () => LocalizedString
+			/**
+			 * 从剪贴板导入特征串
+			 */
+			importGameSurfaceFeature: () => LocalizedString
+			/**
+			 * 以下积木使用游戏画面坐标（识图仅处理游戏画面）
+			 */
+			gameCoordinateHint: () => LocalizedString
+			/**
+			 * 以下积木使用整个页面坐标
+			 */
+			pageCoordinateHint: () => LocalizedString
+			/**
+			 * 在游戏画面 %1 坐标内执行
+			 */
+			inGameCoordinates: () => LocalizedString
+			/**
+			 * 在整个页面坐标内执行
+			 */
+			inPageCoordinates: () => LocalizedString
 			/**
 			 * 限定游戏区域 左上 %1 右下 %2
 			 */
@@ -5281,6 +5350,10 @@ export type TranslationFunctions = {
 				 * 在高速识图区域 {left},{top} 到 {right},{bottom} 内执行
 				 */
 				visionRegion: (arg: { bottom: unknown, left: unknown, right: unknown, top: unknown }) => LocalizedString
+				/**
+				 * 在{space}坐标内执行
+				 */
+				coordinateSpace: (arg: { space: unknown }) => LocalizedString
 				/**
 				 * 移动到图片 {asset}
 				 */

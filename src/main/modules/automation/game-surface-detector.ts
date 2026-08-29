@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import type { WebContents } from 'electron';
+import type { AutomationGameSurfaceLocator } from '../../../shared/automation/types';
 import { acquireCdpLease } from '../cdp-lease';
 
 export type GameSurfaceKind = 'flash' | 'ruffle' | 'canvas' | 'frame';
@@ -533,6 +534,50 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
 
 export function chooseMatchingGameSurface(candidates: GameSurfaceCandidate[], fingerprint: string): GameSurfaceCandidate | null {
   return candidates.find((candidate) => candidate.fingerprint === fingerprint) ?? null;
+}
+
+function sourceName(value: string): string {
+  const clean = value.split(/[?#]/u)[0].replace(/\\/g, '/');
+  return clean.slice(clean.lastIndexOf('/') + 1).toLowerCase();
+}
+
+export function gameSurfaceLocatorFromCandidate(candidate: GameSurfaceCandidate): AutomationGameSurfaceLocator {
+  return {
+    version: 1,
+    kind: candidate.kind,
+    label: candidate.label,
+    source: candidate.source,
+    frameUrl: candidate.frameUrl,
+    width: Math.round(candidate.rect.width),
+    height: Math.round(candidate.rect.height),
+  };
+}
+
+/** Find the surface selected by the script author without relying on volatile DOM ids. */
+export function chooseLocatedGameSurface(candidates: GameSurfaceCandidate[], locator: AutomationGameSurfaceLocator): GameSurfaceCandidate | null {
+  const scored = candidates.map((candidate) => {
+    let score = candidate.kind === locator.kind ? 100 : 0;
+    let identityEvidence = 0;
+    if (locator.label && candidate.label === locator.label) score += 80;
+    if (locator.source && candidate.source === locator.source) { score += 170; identityEvidence += 2; }
+    else if (sourceName(locator.source) && sourceName(candidate.source) === sourceName(locator.source)) { score += 110; identityEvidence += 1; }
+    if (locator.frameUrl && candidate.frameUrl === locator.frameUrl) { score += 100; identityEvidence += 2; }
+    else if (sourceName(locator.frameUrl) && sourceName(candidate.frameUrl) === sourceName(locator.frameUrl)) { score += 55; identityEvidence += 1; }
+    const locatorRatio = locator.width / Math.max(1, locator.height);
+    const candidateRatio = candidate.rect.width / Math.max(1, candidate.rect.height);
+    score += Math.max(0, 50 - Math.abs(Math.log(Math.max(.01, candidateRatio / locatorRatio))) * 70);
+    const sizeRatio = Math.sqrt(candidate.rect.width * candidate.rect.height / Math.max(1, locator.width * locator.height));
+    score += Math.max(0, 30 - Math.abs(Math.log(Math.max(.01, sizeRatio))) * 25);
+    // A changed renderer kind (Flash -> iframe/Ruffle/Canvas) is allowed only
+    // when URL/source evidence still identifies the same game. Dimensions and
+    // generic labels alone are not safe enough on pages with several players.
+    if (candidate.kind !== locator.kind && identityEvidence === 0) score = -Infinity;
+    return { candidate, score };
+  }).sort((left, right) => right.score - left.score || right.candidate.score - left.candidate.score);
+  const best = scored[0]; const second = scored[1];
+  if (!best || best.score < 65) return null;
+  if (second && best.score - second.score < 12) return null;
+  return best.candidate;
 }
 
 /** Reacquire a player that replaced its DOM node while retaining the same logical game area. */

@@ -6,6 +6,7 @@ import type {
   AutomationStep,
   AutomationWorkflow,
   AutomationRelativeRegion,
+  AutomationGameSurfaceLocator,
   ImageCondition,
   PositionCompareTarget,
   SequenceStep,
@@ -69,6 +70,16 @@ const automationViewportSchema = z.object({
   mode: z.literal('fixed'),
   width: z.literal(1280),
   height: z.literal(720),
+}).strict();
+
+const gameSurfaceLocatorSchema: z.ZodType<AutomationGameSurfaceLocator> = z.object({
+  version: z.literal(1),
+  kind: z.enum(['flash', 'ruffle', 'canvas', 'frame']),
+  label: z.string().max(200),
+  source: z.string().max(600),
+  frameUrl: z.string().max(600),
+  width: z.number().int().positive().max(16384),
+  height: z.number().int().positive().max(16384),
 }).strict();
 
 export const automationConditionSchema: z.ZodType<AutomationCondition, z.ZodTypeDef, unknown> = z.lazy(() =>
@@ -164,6 +175,12 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
       ...stepId,
       type: z.literal('vision-region'),
       region: relativeRegionSchema,
+      body: sequenceStepSchema,
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('coordinate-space'),
+      space: z.enum(['page', 'game']),
       body: sequenceStepSchema,
     }).strict(),
     z.object({
@@ -344,6 +361,7 @@ function intersectRelativeRegions(
 }
 
 function validateVisionRegions(workflow: AutomationWorkflow, ctx: z.RefinementCtx): void {
+  let usesGameSpace = workflow.coordinateSpace === 'game';
   const visit = (step: AutomationStep, outer: AutomationRelativeRegion | undefined, path: Array<string | number>): void => {
     if (step.type === 'vision-region') {
       const effective = intersectRelativeRegions(outer, step.region);
@@ -359,6 +377,10 @@ function validateVisionRegions(workflow: AutomationWorkflow, ctx: z.RefinementCt
       return;
     }
     if (step.type === 'sequence') step.steps.forEach((child, index) => visit(child, outer, [...path, 'steps', index]));
+    else if (step.type === 'coordinate-space') {
+      if (step.space === 'game') usesGameSpace = true;
+      visit(step.body, undefined, [...path, 'body']);
+    }
     else if (step.type === 'if-image' || step.type === 'if-condition') {
       visit(step.then, outer, [...path, 'then']);
       if (step.else) visit(step.else, outer, [...path, 'else']);
@@ -373,6 +395,9 @@ function validateVisionRegions(workflow: AutomationWorkflow, ctx: z.RefinementCt
     }
   };
   visit(workflow.root, workflow.searchRegion, ['root']);
+  if (usesGameSpace && !workflow.gameSurface) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['gameSurface'], message: 'game coordinate space requires a game surface feature' });
+  }
 }
 
 export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDef, unknown> = z.object({
@@ -381,11 +406,15 @@ export const automationWorkflowSchema: z.ZodType<AutomationWorkflow, z.ZodTypeDe
   id: idSchema,
   name: z.string().min(1).max(120),
   description: z.string().max(2000).optional(),
+  coordinateSpace: z.enum(['page', 'game']).optional(),
+  gameSurface: gameSurfaceLocatorSchema.optional(),
+  gameSurfaceTimeoutMs: z.number().int().positive().max(300_000).optional(),
   searchRegion: relativeRegionSchema.optional(),
   readyWhen: automationConditionSchema.optional(),
   root: sequenceStepSchema,
 }).strict()
   .refine((value) => !(value.searchRegion && value.readyWhen), 'region entry cannot also define readyWhen; add a wait step after the entry')
+  .refine((value) => value.coordinateSpace !== 'game' || Boolean(value.gameSurface), 'game entry requires a game surface feature')
   .superRefine(validateVisionRegions);
 
 export const automationPackageManifestSchema: z.ZodType<AutomationPackageManifest> = z.object({
@@ -458,6 +487,7 @@ export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<strin
         break;
       case 'repeat': visit(step.body); break;
       case 'vision-region': visit(step.body); break;
+      case 'coordinate-space': visit(step.body); break;
       case 'repeat-until-image':
         addImageAssets(step.condition);
         visit(step.body);

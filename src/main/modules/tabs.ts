@@ -29,6 +29,8 @@ export interface AutomationTabHandle {
   readonly ready: Promise<void>;
   getCssViewport(): { width: number; height: number };
   getViewportTransform(): AutomationViewportTransform;
+  getViewportRevision?(): number;
+  waitForViewport?(): Promise<void>;
   assertCurrent(): void;
   release(): void;
 }
@@ -175,6 +177,8 @@ class TabManager {
           scaleY: lease.transform.scaleY,
         };
       },
+      getViewportRevision: () => lease.refreshVersion,
+      waitForViewport: () => this._waitForAutomationViewport(tabId, wc, lease),
       assertCurrent,
       release: () => {
         if (released) return;

@@ -197,6 +197,28 @@ describe('automation workflow schema', () => {
     })).toThrow(/cannot also define readyWhen/);
   });
 
+  it('requires a copied game-surface feature for game coordinate scopes', () => {
+    const gameSurface = {
+      version: 1 as const, kind: 'flash' as const, label: 'Flash · game', source: 'game.swf',
+      frameUrl: 'https://example.test/frame.html', width: 950, height: 562,
+    };
+    const workflow = parseAutomationWorkflow({
+      formatVersion: 2, id: 'game-coordinate-scope', name: 'Game coordinate scope', gameSurface,
+      root: { type: 'sequence', steps: [{
+        type: 'coordinate-space', space: 'game',
+        body: { type: 'sequence', steps: [{ type: 'wait-image', asset: 'inside.png' }] },
+      }] },
+    });
+    expect(workflow.gameSurface).toEqual(gameSurface);
+    expect([...collectWorkflowAssetIds(workflow)]).toEqual(['inside.png']);
+    expect(() => parseAutomationWorkflow({
+      formatVersion: 2, id: 'missing-game-feature', name: 'Missing game feature',
+      root: { type: 'sequence', steps: [{
+        type: 'coordinate-space', space: 'game', body: { type: 'sequence', steps: [] },
+      }] },
+    })).toThrow(/game surface feature/);
+  });
+
   it('accepts the new minimum-cycle field and rejects the removed poll field', () => {
     const base = {
       formatVersion: 2, id: 'cycle-format', name: 'Cycle format',
