@@ -15,9 +15,11 @@ import type { AutomationImageMask, AutomationMessage, AutomationStep, Automation
 import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '../../../shared/provenance';
 import { tabManager, type AutomationTabHandle } from '../tabs';
 import { chooseLocatedGameSurface, chooseMatchingGameSurface, chooseReplacementGameSurface, detectGameSurfaces as detectTabGameSurfaces, type GameSurfaceCandidate } from './game-surface-detector';
+import { bundledOcrAvailable, PaddleOcrEngine, type OcrTextItem } from './paddle-ocr-engine';
 
 export type AutomationServiceStatus = {
   enabled: boolean;
+  ocrBundled: boolean;
   state: AutomationRunnerState;
   packageId?: string;
   workflowName?: string;
@@ -110,6 +112,7 @@ export class AutomationService {
   private readonly runtimeMatchers = new Map<string, IdleRuntimeMatcher>();
   private readonly detectedGameSurfaces = new Map<string, GameSurfaceCandidate[]>();
   private readonly boundGameSurfaces = new Map<string, BoundGameSurface>();
+  private readonly ocr = new PaddleOcrEngine();
   private status: AutomationServiceStatus;
   private nextLogId = 1;
   private runHistory: AutomationRunRecord[] = [];
@@ -120,13 +123,18 @@ export class AutomationService {
     this.emitStatus = options.emitStatus ?? (() => {});
     this.storageDir = options.storageDir ? path.resolve(options.storageDir) : undefined;
     this.appVersion = options.appVersion ?? '0.0.0';
-    this.status = { enabled: this.enabled, state: 'idle' };
+    this.status = { enabled: this.enabled, ocrBundled: bundledOcrAvailable(), state: 'idle' };
     this.ready = this.initialize();
   }
 
   whenReady(): Promise<void> { return this.ready; }
 
   getStatus(): AutomationServiceStatus { return { ...this.status }; }
+
+  async shutdown(): Promise<void> {
+    this.cancel();
+    await this.ocr.close();
+  }
 
   async detectGameSurfaces(tabId: string): Promise<{ candidates: GameSurfaceCandidate[]; bound: GameSurfaceCandidate | null }> {
     this.assertEnabled();
@@ -630,6 +638,9 @@ export class AutomationService {
     }
     const entry = this.packages.get(packageId);
     if (!entry) throw new Error('automation package is not loaded');
+    if (inferAutomationCapabilities(entry.source.workflow).includes('ocr') && !this.ocr.available) {
+      throw new Error('当前安装的是标准版，不包含 OCR；请安装 BaoFlashBrowser OCR 版');
+    }
     let handle: AutomationTabHandle;
     if (this.authoringViewport) {
       if (this.authoringViewport.tabId !== tabId) throw new Error('another automation authoring session is active');
@@ -666,6 +677,32 @@ export class AutomationService {
       },
     });
     return new OpenCvWorkerMatcher(new CachingAutomationTemplateProvider(templates, 64));
+  }
+
+  async testTextOnImage(
+    scene: { width: number; height: number; bgra: Uint8Array },
+  ): Promise<{ items: OcrTextItem[]; ocrMs: number }> {
+    this.assertEnabled();
+    if (this.active || this.probe) throw new Error('another automation session is active');
+    if (!this.ocr.available) throw new Error('当前安装的是标准版，不包含 OCR；请安装 BaoFlashBrowser OCR 版');
+    if (scene.width <= 0 || scene.height <= 0 || scene.bgra.byteLength !== scene.width * scene.height * 4) {
+      throw new Error('invalid OCR target scene pixels');
+    }
+    const controller = createAutomationAbortController();
+    const startedAt = Date.now();
+    const items = await this.ocr.recognize({
+      image: {
+        isEmpty: () => false,
+        getSize: () => ({ width: scene.width, height: scene.height }),
+        toPNG: () => Buffer.alloc(0),
+        toBitmap: () => Buffer.from(scene.bgra),
+      },
+      bitmap: Buffer.from(scene.bgra),
+      bitmapSize: { width: scene.width, height: scene.height },
+      deviceSize: { width: scene.width, height: scene.height },
+      cssSize: { width: scene.width, height: scene.height },
+    }, controller.signal);
+    return { items, ocrMs: Date.now() - startedAt };
   }
 
   private acquireRuntimeMatcher(entry: LoadedEntry): OpenCvWorkerMatcher {
@@ -755,6 +792,7 @@ export class AutomationService {
         binding.fingerprint = candidate.fingerprint;
       },
       assertCurrent: () => handle.assertCurrent(),
+      ocr: this.ocr.available ? this.ocr : undefined,
       log: (message) => log.info(`[Automation] ${message}`),
     });
   }
@@ -960,6 +998,18 @@ export class AutomationService {
       const message: AutomationMessage = { key: 'status.randomClickCoordinate', params: event.coordinate };
       this.setStatus({ state: this.status.state, packageId, tabId, workflowName, message });
       this.appendLog('info', message, this.status.executedSteps);
+    } else if (event.type === 'text-match') {
+      const message: AutomationMessage = {
+        key: 'status.textMatch',
+        params: {
+          text: event.match.text,
+          score: (event.match.score * 100).toFixed(1),
+          totalMs: event.match.totalMs?.toFixed(0) ?? '?',
+          captureMs: event.match.captureMs?.toFixed(0) ?? '?',
+        },
+      };
+      this.setStatus({ state: this.status.state, packageId, tabId, workflowName, message });
+      this.appendLog('success', message, this.status.executedSteps);
     } else if (event.type === 'log') {
       log.info(`[Automation] ${event.message}`);
       this.setStatus({ state: this.status.state, packageId, tabId, workflowName, message: { key: 'raw', params: { text: event.message } } });
@@ -980,6 +1030,8 @@ export class AutomationService {
       case 'wait-image-state': return { key: 'step.waitImageState', params: { asset: step.asset, state: step.state } };
       case 'click-image': return { key: 'step.clickImage', params: { asset: step.asset } };
       case 'click-coordinate': return { key: 'step.clickCoordinate', params: step.coordinate };
+      case 'wait-text-state': return { key: 'step.waitTextState', params: { text: step.text, state: step.state } };
+      case 'click-text': return { key: 'step.clickText', params: { text: step.text } };
       case 'random-click-region': return { key: 'step.randomClickRegion' };
       case 'vision-region': return { key: 'step.visionRegion', params: step.region };
       case 'coordinate-space': return { key: 'step.coordinateSpace', params: { space: step.space === 'game' ? '游戏画面' : '整个页面' } };
@@ -1017,8 +1069,8 @@ export class AutomationService {
     if (session.matcher) this.releaseRuntimeMatcher(session.packageId, session.matcher);
   }
 
-  private setStatus(patch: Omit<AutomationServiceStatus, 'enabled'>): void {
-    this.status = { ...this.status, ...patch, enabled: this.enabled };
+  private setStatus(patch: Omit<AutomationServiceStatus, 'enabled' | 'ocrBundled'>): void {
+    this.status = { ...this.status, ...patch, enabled: this.enabled, ocrBundled: this.ocr.available };
     this.emitStatus(this.getStatus());
   }
 

@@ -14,6 +14,7 @@ function option(name, fallback) {
 const stage = option('stage', 'source');
 const platform = option('platform', process.platform);
 const arch = option('arch', process.arch);
+const ocrMode = option('ocr', 'none');
 const explicitRoot = option('root', '');
 const allowMissingArtifact = args.includes('--allow-missing-artifact');
 const failures = [];
@@ -207,6 +208,19 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
   }
 }
 
+function verifyOcr(resourcesRoot, packaged) {
+  const ocrRoot = packaged ? path.join(resourcesRoot, 'native', 'ocr') : path.join(resourcesRoot, 'native', 'ocr', 'win64');
+  if (ocrMode === 'bundled') {
+    if (platform !== 'win32' || arch !== 'x64') fail('bundled OCR is currently supported only for win32-x64');
+    expectArch(path.join(ocrRoot, 'PaddleOCR-json.exe'), 'x64', 'pe', 'PaddleOCR-json runtime');
+    record(path.join(ocrRoot, 'LICENSE'), 'PaddleOCR-json license');
+    const modelFiles = walk(ocrRoot).filter((file) => /\.(onnx|pdmodel|pdiparams)$/i.test(file));
+    if (modelFiles.length === 0) fail(`OCR bundle has no model files: ${relative(ocrRoot)}`);
+  } else if (ocrMode === 'none' && packaged && fs.existsSync(ocrRoot)) {
+    fail('standard package unexpectedly contains OCR runtime');
+  }
+}
+
 function verifySource() {
   const dist = path.join(projectRoot, 'dist');
   for (const name of ['main.js', 'preload.js', 'webview-preload.js', 'vision-worker.cjs', 'renderer/index.html', 'renderer/bundle.js', 'renderer/bundle.css']) {
@@ -215,6 +229,7 @@ function verifySource() {
   if (fs.existsSync(path.join(dist, 'dist'))) fail('stale nested build output exists at dist/dist');
   verifyRuffle(dist);
   verifySelectedResources(projectRoot, false);
+  if (ocrMode === 'bundled') verifyOcr(projectRoot, false);
 }
 
 function packageExeMatches(dir) {
@@ -224,7 +239,7 @@ function packageExeMatches(dir) {
 
 function findUnpackedRoot() {
   if (explicitRoot) return path.resolve(projectRoot, explicitRoot);
-  const release = path.join(projectRoot, 'release');
+  const release = path.join(projectRoot, 'release', ocrMode === 'bundled' ? 'ocr' : 'standard');
   if (!fs.existsSync(release)) return '';
   return fs.readdirSync(release, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && (
@@ -287,6 +302,7 @@ function verifyUnpacked() {
     : path.join(root, 'resources');
   verifyAsar(path.join(resources, 'app.asar'));
   verifySelectedResources(resources);
+  verifyOcr(resources, true);
   verifyVisionWorkerUnpacked(resources);
 
   if (platform === 'win32') {
@@ -297,6 +313,7 @@ function verifyUnpacked() {
 
     const installers = walk(path.join(projectRoot, 'release'))
       .filter((file) => file.endsWith(`-${arch}.exe`) && !file.includes(`${path.sep}${path.basename(root)}${path.sep}`))
+      .filter((file) => ocrMode === 'bundled' ? path.basename(file).includes('-OCR-') : !path.basename(file).includes('-OCR-'))
       .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
     if (installers[0]) record(installers[0], 'NSIS installer');
     else if (!allowMissingArtifact) fail(`missing ${arch} NSIS installer under release/`);
@@ -323,13 +340,14 @@ const manifest = {
   generatedAt: new Date().toISOString(),
   stage,
   target: `${platform}-${arch}`,
+  profile: ocrMode === 'bundled' ? 'ocr' : 'standard',
   passed: failures.length === 0,
   files: checkedFiles,
   failures,
 };
 const manifestDir = path.join(projectRoot, 'release', 'manifests');
 fs.mkdirSync(manifestDir, { recursive: true });
-const manifestPath = path.join(manifestDir, `${platform}-${arch}-${stage}.json`);
+const manifestPath = path.join(manifestDir, `${platform}-${arch}-${ocrMode === 'bundled' ? 'ocr' : 'standard'}-${stage}.json`);
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
 if (failures.length) {

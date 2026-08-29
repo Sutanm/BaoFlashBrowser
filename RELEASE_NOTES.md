@@ -1,24 +1,31 @@
-# BaoFlashBrowser v1.1.1 正式版
+# BaoFlashBrowser v1.1.2 正式版
 
-BaoFlashBrowser 1.1.1 在 1.1.0 自动化平台基础上补齐实验性 Flash/macOS 打包、`.baoauto` ZIP 导入导出，并修复积木/JSON 同步及自动化完成提示的状态问题。Electron 继续固定为 11.5.0 / Chromium 87。
+BaoFlashBrowser 1.1.2 加入本地离线 OCR、页面与游戏画面双坐标体系、游戏画面自动绑定，并继续优化截图和图片识别链路。Electron 继续固定为 11.5.0 / Chromium 87。
 
 ## 下载
 
 | 平台 | 安装包 | 支持状态 |
 | --- | --- | --- |
-| Windows x64 | `BaoFlashBrowser-1.1.1-x64.exe` | 主要支持 |
-| Windows ia32 | `BaoFlashBrowser-1.1.1-ia32.exe` | 未完全测试 |
-| Linux x64 | `BaoFlashBrowser-1.1.1-x86_64.AppImage` | 有限支持 |
+| Windows x64 标准版 | `BaoFlashBrowser-1.1.2-x64.exe` | 不捆绑 OCR，支持坐标和图片识别 |
+| Windows x64 OCR 版 | `BaoFlashBrowser-OCR-1.1.2-x64.exe` | 捆绑离线 OCR，支持简体中文、英文和数字 |
 
-正式安装包见 [GitHub v1.1.1 Release](https://github.com/Sutanm/BaoFlashBrowser/releases/tag/v1.1.1)。Windows 安装包未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。
+已经安装标准版的用户可以直接运行 OCR 版安装包覆盖安装，脚本、素材和用户数据不受影响。Windows 安装包未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。
 
 ## 文件校验
 
 | 文件 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `BaoFlashBrowser-1.1.1-x64.exe` | 95,408,809 字节 | `36688A2063EACEED9640F1DB4B24DECCBD8A789162D6E5077D12844683DC91FA` |
-| `BaoFlashBrowser-1.1.1-ia32.exe` | 82,107,998 字节 | `62DB22A69C9D0DD0EC7E5CA2F7E51885969FF4476B60F6B9EBE5405A8AEF9F35` |
-| `BaoFlashBrowser-1.1.1-x86_64.AppImage` | 118,412,753 字节 | `903DE0465230F2BA44228F8DA4668C83ECA1E9C947119E8791608A84524C54F9` |
+| `BaoFlashBrowser-1.1.2-x64.exe` | 91,931,821 字节 | `1E57880F032329D16C3C94A71B44851D8EE8881F8D1B4697A7E2CE374D050A6D` |
+| `BaoFlashBrowser-OCR-1.1.2-x64.exe` | 149,896,773 字节 | `64DE8FE47F4AB009DE623870FA8FEE2550F33518604756539EBF9FE6332E4E5A` |
+
+## 1.1.2 更新
+
+- 新增“点击文字”“等待文字出现/消失”和“文字条件”积木，支持包含/完全一致与最低可信度。
+- OCR 在本机离线运行；OCR-only 脚本不会启动 OpenCV，混合条件会复用同一张截图。
+- 悬浮助手“识别”页加入图片/文字测试切换，可显示文字框、可信度、截图耗时和 OCR 耗时。
+- Windows x64 提供标准版和 OCR 捆绑版两套安装包，标准版不包含 OCR 运行库。
+- 新增页面坐标与游戏画面坐标入口、游戏画面特征串、自动重新定位以及高速识图区域。
+- 优化截图传输、OpenCV 工作线程复用和区域识别性能。
 
 ## 1.1.1 更新
 

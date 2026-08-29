@@ -31,7 +31,8 @@ export function inferAutomationCapabilities(workflow: AutomationWorkflow): Autom
       if (condition.alternatives?.length) result.add('image-groups');
       if (condition.mask === 'alpha' || condition.mask === 'auto') result.add('alpha-mask');
       if (condition.scales && condition.scales.length > 1) result.add('multi-scale');
-    } else if (condition.type === 'not') { result.add('combined-conditions'); visitCondition(condition.condition); }
+    } else if (condition.type === 'text-visible') result.add('ocr');
+    else if (condition.type === 'not') { result.add('combined-conditions'); visitCondition(condition.condition); }
     else if (condition.type === 'position-relation') { result.add('combined-conditions'); if (condition.targetA.kind === 'image') result.add('vision'); if (condition.targetB.kind === 'image') result.add('vision'); }
     else { result.add('combined-conditions'); condition.conditions.forEach(visitCondition); }
   };
@@ -42,10 +43,11 @@ export function inferAutomationCapabilities(workflow: AutomationWorkflow): Autom
       if (step.target.kind === 'image') visitCondition(step.target.condition);
     }
     if ('asset' in step && typeof step.asset === 'string') result.add('vision');
+    if (step.type === 'wait-text-state' || step.type === 'click-text') result.add('ocr');
     if ('alternatives' in step && step.alternatives?.length) result.add('image-groups');
     if ('mask' in step && (step.mask === 'alpha' || step.mask === 'auto')) result.add('alpha-mask');
     if ('scales' in step && step.scales && step.scales.length > 1) result.add('multi-scale');
-    if (['click-image', 'click-coordinate', 'random-click-region', 'move-to-image', 'move-to-coordinate', 'drag-image', 'drag', 'key-press', 'key-hold-until-image', 'text-input', 'scroll'].includes(step.type)) result.add('trusted-input');
+    if (['click-image', 'click-coordinate', 'click-text', 'random-click-region', 'move-to-image', 'move-to-coordinate', 'drag-image', 'drag', 'key-press', 'key-hold-until-image', 'text-input', 'scroll'].includes(step.type)) result.add('trusted-input');
     if (step.type === 'navigate' || step.type === 'reload') result.add('navigation');
     if (step.type === 'sequence') step.steps.forEach(visit);
     else if (step.type === 'vision-region' || step.type === 'coordinate-space') visit(step.body);

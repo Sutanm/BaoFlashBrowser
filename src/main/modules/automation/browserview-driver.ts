@@ -3,8 +3,11 @@ import type {
   AutomationDriver,
   AutomationDriverPointerTarget,
   FindImageRequest,
+  FindTextRequest,
   ImageMatch,
+  TextMatch,
 } from './runtime';
+import type { OcrTextItem } from './paddle-ocr-engine';
 import { acquireCdpLease } from '../cdp-lease';
 import { Notification } from 'electron';
 
@@ -46,6 +49,10 @@ export type AutomationVisionMatcher = {
   getStats?(): Partial<ImageMatch>;
 };
 
+export type AutomationOcrEngine = {
+  recognize(frame: AutomationCapturedFrame, signal: AbortSignal): Promise<OcrTextItem[]>;
+};
+
 type DebuggerLike = {
   isAttached(): boolean;
   attach(protocolVersion?: string): void;
@@ -85,6 +92,7 @@ export type BrowserViewAutomationDriverOptions = {
   navigationTimeoutMs?: number;
   log?: (message: string) => void;
   assertCurrent?: () => void;
+  ocr?: AutomationOcrEngine;
 };
 
 type KeyboardDescriptor = {
@@ -337,6 +345,85 @@ export class BrowserViewAutomationDriver implements AutomationDriver {
         this.options.log(`vision capture=${frame.captureMs ?? '?'}ms bitmap=${frame.bitmapMs ?? '?'}ms templates=${stats.templateLoadMs ?? best?.templateLoadMs ?? '?'}ms worker=${stats.workerReadyMs ?? best?.workerReadyMs ?? '?'}ms shared-copy=${stats.sharedCopyMs ?? best?.sharedCopyMs ?? '?'}ms scene-mat=${stats.sceneMatMs ?? best?.sceneMatMs ?? '?'}ms gray=${stats.grayMs ?? best?.grayMs ?? '?'}ms resize=${stats.resizeMs ?? best?.resizeMs ?? '?'}ms match-template=${stats.matchTemplateMs ?? best?.matchTemplateMs ?? '?'}ms scaled-cache=${stats.scaledTemplateCacheHits ?? best?.scaledTemplateCacheHits ?? '?'}/${stats.scaledTemplateCacheMisses ?? best?.scaledTemplateCacheMisses ?? '?'} hit/miss match=${stats.matchMs ?? best?.matchMs ?? '?'}ms total=${totalMs}ms scene=${stats.sceneBytes ?? best?.sceneBytes ?? frame.bitmap?.byteLength ?? '?'}B transfer=${stats.sceneTransferBytes ?? best?.sceneTransferBytes ?? '?'}B wasm=${stats.wasmHeapBytes ?? best?.wasmHeapBytes ?? '?'}B cache=${stats.templateCacheBytes ?? best?.templateCacheBytes ?? '?'}B/${stats.templateCacheEntries ?? best?.templateCacheEntries ?? '?'} entries`);
       }
       return best ? { ...best, captureMs: frame.captureMs, bitmapMs: frame.bitmapMs, totalMs } : null;
+  }
+
+  async findText(request: FindTextRequest, signal: AbortSignal): Promise<TextMatch | null> {
+    const totalStartedAt = Date.now();
+    this.throwIfAborted(signal);
+    this.assertCurrent();
+    if (!this.options.ocr) throw new Error('当前安装的是标准版，不包含 OCR；请安装 BaoFlashBrowser OCR 版');
+    await this.ensureCoordinateSurfaceCurrent(signal);
+    const cssSize = this.options.getCssViewport();
+    const gameSurface = this.coordinateSpace === 'game' ? this.coordinateSurfaceLogical() : undefined;
+    const requestedRegion = request.region
+      ?? (request.relativeRegion ? this.relativeRegionToLogical(request.relativeRegion) : undefined);
+    const captureRegion = gameSurface
+      ? (requestedRegion ? intersectAutomationRegions(requestedRegion, gameSurface) : gameSurface)
+      : requestedRegion;
+    const displayCaptureRegion = captureRegion ? this.logicalRegionToDisplay(captureRegion) : undefined;
+    // Share the exact same captured frame with OpenCV when a combined
+    // condition evaluates image and text inside one withFreshFrame scope.
+    const frameKey = captureRegion
+      ? `${captureRegion.x},${captureRegion.y},${captureRegion.width},${captureRegion.height}`
+      : 'full';
+    let frame = this.scopedFrames?.get(frameKey);
+    if (!frame) {
+      this.webContents.incrementCapturerCount();
+      try {
+        const captureStartedAt = Date.now();
+        const sourceImage = await this.webContents.capturePage(displayCaptureRegion);
+        const captureMs = Date.now() - captureStartedAt;
+        if (sourceImage.isEmpty()) throw new Error('BrowserView OCR capture is empty');
+        const logicalCaptureSize = captureRegion
+          ? { width: captureRegion.width, height: captureRegion.height }
+          : cssSize;
+        const sourceSize = sourceImage.getSize();
+        const normalized = Boolean(sourceImage.resize)
+          && (sourceSize.width !== logicalCaptureSize.width || sourceSize.height !== logicalCaptureSize.height);
+        const image = normalized ? sourceImage.resize!({ ...logicalCaptureSize, quality: 'best' }) : sourceImage;
+        const bitmapSize = image.getSize();
+        const bitmapStartedAt = Date.now();
+        const bitmap = image.toBitmap();
+        frame = {
+          frameId: nextAutomationFrameId++, image, bitmap, bitmapSize,
+          deviceOrigin: captureRegion ? { x: captureRegion.x, y: captureRegion.y } : { x: 0, y: 0 },
+          deviceSize: normalized ? { ...cssSize } : (captureRegion ? { ...logicalCaptureSize } : bitmapSize),
+          cssSize,
+          captureMs,
+          bitmapMs: Date.now() - bitmapStartedAt,
+        };
+        this.scopedFrames?.set(frameKey, frame);
+      } finally {
+        this.webContents.decrementCapturerCount();
+      }
+    }
+    this.lastFrame = frame;
+    const items = await this.options.ocr.recognize(frame, signal);
+    const query = request.text.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const candidates = items.filter((item) => {
+      if (item.score < request.minScore) return false;
+      const text = item.text.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+      return request.match === 'exact' ? text === query : text.includes(query);
+    });
+    const best = candidates.sort((a, b) => b.score - a.score)[0];
+    if (!best) return null;
+    const xs = best.box.map((point) => point[0]);
+    const ys = best.box.map((point) => point[1]);
+    const left = Math.min(...xs) + (frame.deviceOrigin?.x ?? 0);
+    const top = Math.min(...ys) + (frame.deviceOrigin?.y ?? 0);
+    const right = Math.max(...xs) + (frame.deviceOrigin?.x ?? 0);
+    const bottom = Math.max(...ys) + (frame.deviceOrigin?.y ?? 0);
+    return {
+      text: best.text,
+      x: left,
+      y: top,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+      score: best.score,
+      captureMs: frame.captureMs,
+      bitmapMs: frame.bitmapMs,
+      totalMs: Date.now() - totalStartedAt,
+    };
   }
 
   async withFreshFrame<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {

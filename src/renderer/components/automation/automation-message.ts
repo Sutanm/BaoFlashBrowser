@@ -28,6 +28,8 @@ export function resolveAutomationMessage(message: AutomationMessage, LL: Transla
       return s.status.scriptStopped();
     case 'status.imageMatch':
       return s.status.imageMatch(message.params);
+    case 'status.textMatch':
+      return s.status.textMatch(message.params);
     case 'status.randomClickCoordinate':
       return s.status.randomClickCoordinate(message.params);
     case 'status.pausedNext':
@@ -42,6 +44,10 @@ export function resolveAutomationMessage(message: AutomationMessage, LL: Transla
       return s.step.clickImage(message.params);
     case 'step.clickCoordinate':
       return s.step.clickCoordinate(message.params);
+    case 'step.waitTextState':
+      return s.step.waitTextState({ text: message.params.text, state: message.params.state === 'visible' ? s.state.visible() : s.state.hidden() });
+    case 'step.clickText':
+      return s.step.clickText(message.params);
     case 'step.randomClickRegion':
       return s.step.randomClickRegion();
     case 'step.visionRegion':

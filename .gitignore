@@ -20,3 +20,5 @@ blog.md
 blog-technical.md
 docs/images/
 .idea/workspace.xml
+native/ocr/win64/
+.cache/

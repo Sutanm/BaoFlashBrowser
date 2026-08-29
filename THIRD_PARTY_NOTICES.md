@@ -35,6 +35,14 @@ BaoFlashBrowser 的源代码采用 MIT License。安装包内的第三方组件�
 - 许可证：Apache License 2.0
 - 用途：自动化工作台的可视化积木编辑器。
 
+## PaddleOCR-json（仅 Windows x64 OCR 版）
+
+- 项目：https://github.com/hiroi-sora/PaddleOCR-json
+- 捆绑版本：1.4.1，简体中文 PP-OCRv3 模型（同时识别英文字母和数字）
+- 许可证：Apache License 2.0
+- 用途：本地离线文字识别与文字位置检测。
+- OCR 运行目录中随附上游 `LICENSE` 和运行时元数据；标准版安装包不包含此组件。
+
 ## fflate
 
 - npm 包：`fflate` 0.8.3

@@ -29,6 +29,16 @@ export type ImageCondition = {
   mask?: AutomationImageMask;
 };
 
+export type AutomationTextMatchMode = 'contains' | 'exact';
+
+export type TextCondition = {
+  type: 'text-visible';
+  text: string;
+  match?: AutomationTextMatchMode;
+  minScore?: number;
+  region?: AutomationRegion;
+};
+
 export type AllCondition = {
   type: 'all';
   conditions: AutomationCondition[];
@@ -58,7 +68,7 @@ export type PositionRelationCondition = {
   tolerancePx: number;
 };
 
-export type AutomationCondition = ImageCondition | AllCondition | AnyCondition | NotCondition | PositionRelationCondition;
+export type AutomationCondition = ImageCondition | TextCondition | AllCondition | AnyCondition | NotCondition | PositionRelationCondition;
 
 export type SequenceStep = {
   id?: string;
@@ -132,6 +142,32 @@ export type RandomClickRegionStep = {
   button?: 'left' | 'right' | 'middle';
   clickCount?: number;
   padding?: number;
+};
+
+export type WaitTextStateStep = {
+  id?: string;
+  type: 'wait-text-state';
+  text: string;
+  match?: AutomationTextMatchMode;
+  state: 'visible' | 'hidden';
+  minScore?: number;
+  timeoutMs?: number;
+  minCycleMs?: number;
+  region?: AutomationRegion;
+};
+
+export type ClickTextStep = {
+  id?: string;
+  type: 'click-text';
+  text: string;
+  match?: AutomationTextMatchMode;
+  minScore?: number;
+  timeoutMs?: number;
+  minCycleMs?: number;
+  region?: AutomationRegion;
+  button?: 'left' | 'right' | 'middle';
+  clickCount?: number;
+  offset?: { x: number; y: number };
 };
 
 export type AutomationViewport = {
@@ -376,6 +412,8 @@ export type AutomationStep =
   | WaitImageStateStep
   | ClickImageStep
   | ClickCoordinateStep
+  | WaitTextStateStep
+  | ClickTextStep
   | RandomClickRegionStep
   | VisionRegionStep
   | CoordinateSpaceStep
@@ -431,6 +469,7 @@ export type AutomationPackageManifest = {
 
 export type AutomationCapability =
   | 'vision'
+  | 'ocr'
   | 'alpha-mask'
   | 'image-groups'
   | 'multi-scale'
@@ -457,6 +496,7 @@ export type AutomationMessage =
   | { key: 'status.scriptCompleted' }
   | { key: 'status.scriptStopped' }
   | { key: 'status.imageMatch'; params: { asset: string; score: string; totalMs: string; captureMs: string; matchMs: string } }
+  | { key: 'status.textMatch'; params: { text: string; score: string; totalMs: string; captureMs: string } }
   | { key: 'status.randomClickCoordinate'; params: { x: number; y: number } }
   | { key: 'status.pausedNext'; params: { step: AutomationMessage } }
   | { key: 'step.sequence' }
@@ -464,6 +504,8 @@ export type AutomationMessage =
   | { key: 'step.waitImageState'; params: { asset: string; state: 'visible' | 'hidden' } }
   | { key: 'step.clickImage'; params: { asset: string } }
   | { key: 'step.clickCoordinate'; params: { x: number; y: number } }
+  | { key: 'step.waitTextState'; params: { text: string; state: 'visible' | 'hidden' } }
+  | { key: 'step.clickText'; params: { text: string } }
   | { key: 'step.randomClickRegion' }
   | { key: 'step.visionRegion'; params: AutomationRelativeRegion }
   | { key: 'step.coordinateSpace'; params: { space: string } }

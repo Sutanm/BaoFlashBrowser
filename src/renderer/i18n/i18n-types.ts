@@ -2110,6 +2110,10 @@ type RootTranslation = {
 			 */
 			conditionRequired: string
 			/**
+			 * 要​识​别​的​文​字​不​能​为​空
+			 */
+			textRequired: string
+			/**
 			 * 请​先​从​游​戏​页​面​复​制​游​戏​画​面​特​征​串​，​再​点​击​积​木​上​的​“​从​剪​贴​板​导​入​特​征​串​”
 			 */
 			gameSurfaceFeatureRequired: string
@@ -2185,6 +2189,34 @@ type RootTranslation = {
 			 * 等​待​图​片​ ​%​1​ ​%​2
 			 */
 			waitImageState: string
+			/**
+			 * 等​待​文​字​ ​%​1​ ​%​2​ ​匹​配​ ​%​3
+			 */
+			waitTextState: string
+			/**
+			 * 点​击​文​字​ ​%​1​ ​匹​配​ ​%​2​ ​使​用​ ​%​3​ ​%​4​ ​次
+			 */
+			clickText: string
+			/**
+			 * 文​字​ ​%​1​ ​匹​配​ ​%​2​ ​置​信​度​ ​%​3
+			 */
+			textCondition: string
+			/**
+			 * 包​含
+			 */
+			textContains: string
+			/**
+			 * 完​全​相​同
+			 */
+			textExact: string
+			/**
+			 * 最​低​置​信​度​ ​%​1
+			 */
+			ocrScoreRow: string
+			/**
+			 * 需​要​ ​B​a​o​F​l​a​s​h​B​r​o​w​s​e​r​ ​O​C​R​ ​版​；​标​准​版​可​编​辑​积​木​，​但​执​行​时​会​提​示​安​装​ ​O​C​R​ ​版​。
+			 */
+			ocrRequired: string
 			/**
 			 * 点​击​ ​%​1​ ​%​2​ ​使​用​ ​%​3​ ​%​4​ ​次
 			 */
@@ -2631,6 +2663,14 @@ type RootTranslation = {
 				 */
 				imageMatch: RequiredParams<'asset' | 'captureMs' | 'matchMs' | 'score' | 'totalMs'>
 				/**
+				 * 识​别​到​文​字​ ​{​t​e​x​t​}​ ​·​ ​{​s​c​o​r​e​}​%​ ​·​ ​总​耗​时​ ​{​t​o​t​a​l​M​s​}​m​s​（​截​图​ ​{​c​a​p​t​u​r​e​M​s​}​m​s​）
+				 * @param {unknown} captureMs
+				 * @param {unknown} score
+				 * @param {unknown} text
+				 * @param {unknown} totalMs
+				 */
+				textMatch: RequiredParams<'captureMs' | 'score' | 'text' | 'totalMs'>
+				/**
 				 * 本​次​随​机​点​击​坐​标​：​{​x​}​,​{​y​}
 				 * @param {unknown} x
 				 * @param {unknown} y
@@ -2669,6 +2709,17 @@ type RootTranslation = {
 				 * @param {unknown} y
 				 */
 				clickCoordinate: RequiredParams<'x' | 'y'>
+				/**
+				 * 等​待​文​字​{​s​t​a​t​e​}​ ​{​t​e​x​t​}
+				 * @param {unknown} state
+				 * @param {unknown} text
+				 */
+				waitTextState: RequiredParams<'state' | 'text'>
+				/**
+				 * 点​击​文​字​ ​{​t​e​x​t​}
+				 * @param {unknown} text
+				 */
+				clickText: RequiredParams<'text'>
 				/**
 				 * 在​指​定​区​域​内​随​机​点​击
 				 */
@@ -4892,6 +4943,10 @@ export type TranslationFunctions = {
 			 */
 			conditionRequired: () => LocalizedString
 			/**
+			 * 要识别的文字不能为空
+			 */
+			textRequired: () => LocalizedString
+			/**
 			 * 请先从游戏页面复制游戏画面特征串，再点击积木上的“从剪贴板导入特征串”
 			 */
 			gameSurfaceFeatureRequired: () => LocalizedString
@@ -4967,6 +5022,34 @@ export type TranslationFunctions = {
 			 * 等待图片 %1 %2
 			 */
 			waitImageState: () => LocalizedString
+			/**
+			 * 等待文字 %1 %2 匹配 %3
+			 */
+			waitTextState: () => LocalizedString
+			/**
+			 * 点击文字 %1 匹配 %2 使用 %3 %4 次
+			 */
+			clickText: () => LocalizedString
+			/**
+			 * 文字 %1 匹配 %2 置信度 %3
+			 */
+			textCondition: () => LocalizedString
+			/**
+			 * 包含
+			 */
+			textContains: () => LocalizedString
+			/**
+			 * 完全相同
+			 */
+			textExact: () => LocalizedString
+			/**
+			 * 最低置信度 %1
+			 */
+			ocrScoreRow: () => LocalizedString
+			/**
+			 * 需要 BaoFlashBrowser OCR 版；标准版可编辑积木，但执行时会提示安装 OCR 版。
+			 */
+			ocrRequired: () => LocalizedString
 			/**
 			 * 点击 %1 %2 使用 %3 %4 次
 			 */
@@ -5401,6 +5484,10 @@ export type TranslationFunctions = {
 				 */
 				imageMatch: (arg: { asset: unknown, captureMs: unknown, matchMs: unknown, score: unknown, totalMs: unknown }) => LocalizedString
 				/**
+				 * 识别到文字 {text} · {score}% · 总耗时 {totalMs}ms（截图 {captureMs}ms）
+				 */
+				textMatch: (arg: { captureMs: unknown, score: unknown, text: unknown, totalMs: unknown }) => LocalizedString
+				/**
 				 * 本次随机点击坐标：{x},{y}
 				 */
 				randomClickCoordinate: (arg: { x: unknown, y: unknown }) => LocalizedString
@@ -5430,6 +5517,14 @@ export type TranslationFunctions = {
 				 * 点击坐标 {x},{y}
 				 */
 				clickCoordinate: (arg: { x: unknown, y: unknown }) => LocalizedString
+				/**
+				 * 等待文字{state} {text}
+				 */
+				waitTextState: (arg: { state: unknown, text: unknown }) => LocalizedString
+				/**
+				 * 点击文字 {text}
+				 */
+				clickText: (arg: { text: unknown }) => LocalizedString
 				/**
 				 * 在指定区域内随机点击
 				 */

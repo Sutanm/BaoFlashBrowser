@@ -4,8 +4,8 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      2.3.1
-// @description  网页内自动化悬浮球：运行控制、素材识别、截图取材、游戏画面绑定与相对坐标取点。
+// @version      2.4.0
+// @description  网页内自动化悬浮球：运行控制、图片与文字识别测试、截图取材、游戏画面绑定与相对坐标取点。
 // @match        http://*/*
 // @match        https://*/*
 // @match        file:///*
@@ -25,7 +25,7 @@
 
   var api = GM.baoAutomation;
   var state = {
-    packages: [], busy: false, monitor: 0, statusTimer: 0, lastState: '', statusInitialized: false,
+    packages: [], busy: false, monitor: 0, statusTimer: 0, lastState: '', statusInitialized: false, matchMode: 'image',
     capture: null, selection: null, gameSurface: null, coordinateViewport: { width: 1280, height: 720 }, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1,
   };
   var style = document.createElement('style');
@@ -72,6 +72,7 @@
 #bao-automation-frame-assistant .bao-progress{height:4px;margin-top:8px;overflow:hidden;border-radius:99px;background:#ffffff10}#bao-automation-frame-assistant .bao-progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4489ff,#69d8e8);transition:width .35s}
 #bao-automation-frame-assistant .bao-log{display:grid;max-height:145px;gap:5px;overflow-y:auto;padding-right:3px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar{width:5px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar-thumb{border-radius:5px;background:#7691b052}#bao-automation-frame-assistant .bao-log-row{display:grid;grid-template-columns:43px 1fr;gap:6px;color:#9fb0c3;font-size:9px}#bao-automation-frame-assistant .bao-log-row time{color:#668098}#bao-automation-frame-assistant .bao-log-row span{overflow-wrap:anywhere}#bao-automation-frame-assistant .bao-log-row.bao-good span{color:#76dba8}#bao-automation-frame-assistant .bao-log-row.bao-bad span{color:#ff858c}
 #bao-automation-frame-assistant .bao-assets{display:flex;gap:5px;overflow:auto;padding:1px 1px 5px}#bao-automation-frame-assistant .bao-asset{position:relative;display:grid;flex:0 0 64px;height:56px;place-items:center;overflow:hidden;border:1px solid #91b9df24;border-radius:7px;background:#071320;color:#a9bbcf;cursor:pointer}#bao-automation-frame-assistant .bao-asset.bao-selected{border-color:#73aaff;box-shadow:0 0 0 2px #73aaff22}#bao-automation-frame-assistant .bao-asset img{max-width:44px;max-height:34px;object-fit:contain}#bao-automation-frame-assistant .bao-asset span{position:absolute;right:2px;bottom:1px;left:2px;overflow:hidden;font-size:8px;text-align:center;text-overflow:ellipsis;white-space:nowrap}
+#bao-automation-frame-assistant .bao-match-modes{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:7px}#bao-automation-frame-assistant .bao-match-mode{height:27px;border:1px solid #8eb8e22b;border-radius:7px;background:#10223a;color:#9fb2c9;cursor:pointer}#bao-automation-frame-assistant .bao-match-mode.bao-active{border-color:#699fff;background:#356dc4;color:#fff}#bao-automation-frame-assistant .bao-test-settings.bao-hidden{display:none}#bao-automation-frame-assistant .bao-ocr-row{display:grid;grid-template-columns:1fr 88px;gap:6px}
 #bao-automation-frame-assistant .bao-preview{display:grid;min-height:105px;place-items:center;overflow:auto;border:3px solid #6e5138;border-radius:6px;background:#07101d;box-shadow:inset 0 0 0 1px #be946b}#bao-automation-frame-assistant .bao-image{position:relative;max-width:100%}#bao-automation-frame-assistant .bao-image img{display:block;width:100%;max-height:210px;object-fit:contain}#bao-automation-frame-assistant .bao-hit{position:absolute;border:2px solid #ffca28;background:#ffca2826;box-shadow:0 0 8px #ffca28;pointer-events:none}#bao-automation-frame-assistant .bao-hit.bao-ok{border-color:#31d17c;background:#31d17c26;box-shadow:0 0 8px #31d17c}#bao-automation-frame-assistant .bao-hit b{position:absolute;left:-2px;bottom:100%;padding:1px 3px;background:#ffca28;color:#172033;font-size:9px;white-space:nowrap}#bao-automation-frame-assistant .bao-hit.bao-ok b{background:#31d17c}
 #bao-automation-frame-assistant .bao-result{margin:8px 0 0;color:#9fb1c7;font-size:10px}#bao-automation-frame-assistant .bao-score{color:#72dba5;font-size:25px;font-weight:700}#bao-automation-frame-assistant .bao-tip{padding:10px;border-radius:9px;background:#4b79d414;color:#b6c9e1;font-size:10px;line-height:1.6}
 #bao-automation-assistant-toasts{all:initial;position:fixed;z-index:2147483647;top:18px;left:50%;display:grid;gap:8px;transform:translateX(-50%);pointer-events:none;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-assistant-toasts .bao-toast{min-width:280px;padding:11px 15px;border:1px solid #9ec5ed38;border-radius:10px;background:#102039ee;box-shadow:0 12px 40px #0008;color:#dbeaff;animation:bao-toast-in .25s both}@keyframes bao-toast-in{from{transform:translateY(-12px);opacity:0}}
@@ -89,7 +90,7 @@
   root.setAttribute('data-view', 'run');
   root.innerHTML = '<button class="bao-orb" aria-label="展开自动化助手"><i class="bao-ring"></i><span class="bao-orb-icon">⌘</span></button><aside class="bao-drawer"><i class="bao-handle"></i><header class="bao-head"><div class="bao-title"><strong>BaoFlash 自动化</strong></div><button class="bao-icon bao-collapse" title="收起">×</button></header><nav class="bao-tabs"><button class="bao-tab bao-active" data-view="run">执行</button><button class="bao-tab" data-view="match">识别</button><button class="bao-tab" data-view="capture">取材</button></nav><div class="bao-views">'
     + '<section class="bao-view bao-active" data-panel="run"><div class="bao-card"><div class="bao-field"><label>自动化脚本</label><select class="bao-package-run"></select></div><div class="bao-run-state"><i class="bao-run-dot"></i><div class="bao-run-copy"><b class="bao-state-title">可以开始</b><span class="bao-state-detail">正在读取运行状态…</span></div><small class="bao-step">0 步</small></div><div class="bao-progress"><i></i></div></div><div class="bao-two"><button class="bao-button bao-primary bao-start">开始脚本</button><button class="bao-button bao-danger bao-stop" disabled>停止</button></div><div class="bao-card" style="margin-top:7px"><div class="bao-card-head"><strong>运行记录</strong></div><div class="bao-log"><div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div></div></div></section>'
-    + '<section class="bao-view" data-panel="match"><div class="bao-card"><div class="bao-card-head"><strong>UI 素材</strong><button class="bao-icon bao-refresh" title="刷新素材">↻</button></div><div class="bao-assets"></div><div class="bao-field"><label>识别阈值 <b class="bao-threshold-text">90%</b></label><input class="bao-threshold" type="range" min="50" max="100" value="90"></div><div class="bao-preview"><span>选择素材后捕获页面</span></div><p class="bao-result">选择素材开始测试</p><div class="bao-two"><button class="bao-button bao-primary bao-compare">捕获并比对</button><button class="bao-button bao-monitor">连续监测</button></div></div></section>'
+    + '<section class="bao-view" data-panel="match"><div class="bao-card"><div class="bao-match-modes"><button class="bao-match-mode bao-active" data-match-mode="image">图片识别</button><button class="bao-match-mode" data-match-mode="text">文字识别</button></div><div class="bao-test-settings bao-image-settings"><div class="bao-card-head"><strong>UI 素材</strong><button class="bao-button bao-refresh" style="height:25px">刷新素材</button></div><div class="bao-assets"></div><div class="bao-field"><label>识别阈值 <b class="bao-threshold-text">90%</b></label><input class="bao-threshold" type="range" min="50" max="100" value="90"></div></div><div class="bao-test-settings bao-text-settings bao-hidden"><div class="bao-field"><label>要识别的文字</label><input class="bao-ocr-text" type="text" maxlength="200" placeholder="例如：开始游戏"></div><div class="bao-ocr-row"><div class="bao-field"><label>匹配方式</label><select class="bao-ocr-match"><option value="contains">包含文字</option><option value="exact">完全一致</option></select></div><div class="bao-field"><label>最低可信度</label><input class="bao-ocr-score" type="number" min="0" max="1" step="0.01" value="0.5"></div></div></div><div class="bao-preview"><span>选择测试方式后捕获页面</span></div><p class="bao-result">选择图片或输入文字开始测试</p><div class="bao-two"><button class="bao-button bao-primary bao-compare">捕获并比对</button><button class="bao-button bao-monitor">连续监测</button></div></div></section>'
     + '<section class="bao-view" data-panel="capture"><div class="bao-card"><div class="bao-card-head"><strong>取材工具</strong><small>坐标范围 0–10000</small></div><div class="bao-two"><button class="bao-button bao-primary bao-capture">框选图片素材</button><button class="bao-button bao-primary bao-coordinate">获取相对坐标</button></div><div class="bao-game-actions"><button class="bao-button bao-game-select">选择游戏画面</button><button class="bao-button bao-game-copy">复制特征串</button><button class="bao-button bao-danger bao-game-clear">取消选择</button></div></div></section>'
     + '</div></aside>';
   document.documentElement.appendChild(root);
@@ -109,6 +110,9 @@
   var packageRun = root.querySelector('.bao-package-run');
   var assetsHost = root.querySelector('[data-panel="match"] .bao-assets');
   var threshold = root.querySelector('.bao-threshold');
+  var ocrText = root.querySelector('.bao-ocr-text');
+  var ocrMatch = root.querySelector('.bao-ocr-match');
+  var ocrScore = root.querySelector('.bao-ocr-score');
   var preview = root.querySelector('.bao-preview');
   var resultText = root.querySelector('.bao-result');
   var startButton = root.querySelector('.bao-start');
@@ -205,10 +209,40 @@
     if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); resultText.textContent = (value.matched ? '匹配成功' : '最佳候选低于阈值') + ' · 坐标 ' + Math.round(value.candidate.x) + ', ' + Math.round(value.candidate.y) + ' · ' + (value.candidate.matchMs || 0) + 'ms'; }
     else resultText.textContent = '没有找到匹配候选'; preview.appendChild(wrap);
   }
+  function renderOcr(value) {
+    preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
+    (value.candidates || []).forEach(function (candidate) {
+      var hit = document.createElement('span'); hit.className = 'bao-hit' + (candidate.matched ? ' bao-ok' : '');
+      hit.style.left = candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = candidate.y / value.sourceHeight * 100 + '%';
+      hit.style.width = candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = candidate.height / value.sourceHeight * 100 + '%';
+      var badge = document.createElement('b'); badge.textContent = candidate.text + ' · ' + (candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit);
+    });
+    preview.appendChild(wrap);
+    var matchedCount = (value.candidates || []).filter(function (candidate) { return candidate.matched; }).length;
+    resultText.textContent = (value.matched ? '找到 ' + matchedCount + ' 处匹配文字' : '未找到目标文字') + ' · 总耗时 ' + ((value.captureMs || 0) + (value.ocrMs || 0)) + 'ms（截图 ' + (value.captureMs || 0) + 'ms · OCR ' + (value.ocrMs || 0) + 'ms）';
+  }
+  function selectMatchMode(mode) {
+    stopMonitor(); state.matchMode = mode === 'text' ? 'text' : 'image';
+    root.querySelectorAll('.bao-match-mode').forEach(function (button) { button.classList.toggle('bao-active', button.getAttribute('data-match-mode') === state.matchMode); });
+    root.querySelector('.bao-image-settings').classList.toggle('bao-hidden', state.matchMode !== 'image');
+    root.querySelector('.bao-text-settings').classList.toggle('bao-hidden', state.matchMode !== 'text');
+    root.querySelector('.bao-compare').textContent = state.matchMode === 'text' ? '捕获并识别' : '捕获并比对';
+    preview.innerHTML = '<span>' + (state.matchMode === 'text' ? '输入文字后捕获页面' : '选择素材后捕获页面') + '</span>';
+    resultText.textContent = state.matchMode === 'text' ? 'OCR 在本机离线运行，仅 OCR 版可用' : '选择素材开始测试';
+  }
+  async function compareText() {
+    var text = String(ocrText.value || '').trim(); if (!text) { resultText.textContent = '请先输入要识别的文字'; ocrText.focus(); return; }
+    var score = Math.max(0, Math.min(1, Number(ocrScore.value) || 0)); ocrScore.value = String(score);
+    var value = await api.ocrTest(text, { match: ocrMatch.value, minScore: score }); renderOcr(value);
+  }
   async function compare() {
-    if (state.busy) return; await refreshPackages(); var pkg = currentPackage(); if (!pkg || !selectedAsset) return;
+    if (state.busy) return;
+    if (state.matchMode === 'image') { await refreshPackages(); var pkg = currentPackage(); if (!pkg || !selectedAsset) return; }
     state.busy = true; resultText.textContent = '正在捕获当前页面…';
-    try { var value = await api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'auto' }); renderMatch(value); }
+    try {
+      if (state.matchMode === 'text') await compareText();
+      else { var value = await api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'auto' }); renderMatch(value); }
+    }
     catch (error) { resultText.textContent = error.message || String(error); }
     finally { state.busy = false; }
   }
@@ -329,8 +363,10 @@
   root.addEventListener('pointerup', function (event) { var button = event.target.closest && event.target.closest('button'); if (button) button.blur(); });
   root.querySelector('.bao-collapse').addEventListener('click', closePanel);
   root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages().then(function () { toast('素材列表已刷新'); }); });
+  root.querySelectorAll('.bao-match-mode').forEach(function (button) { button.addEventListener('click', function () { selectMatchMode(button.getAttribute('data-match-mode')); }); });
   packageRun.addEventListener('change', function () { selectedAsset = ''; renderAssets(''); void warmSelected(); });
   threshold.addEventListener('input', function () { root.querySelector('.bao-threshold-text').textContent = threshold.value + '%'; });
+  ocrText.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); void compare(); } });
   root.querySelector('.bao-compare').addEventListener('click', function () { void compare(); });
   root.querySelector('.bao-monitor').addEventListener('click', function () { if (state.monitor) stopMonitor(); else { void compare(); state.monitor = setInterval(function () { void compare(); }, 1800); root.querySelector('.bao-monitor').textContent = '停止监测'; } });
   startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) return; startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error)); } });

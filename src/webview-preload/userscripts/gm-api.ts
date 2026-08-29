@@ -54,6 +54,7 @@ export interface GmApi {
   baoAutomation: {
     listPackages(): Promise<Array<{ packageId: string; name: string; assets: string[] }>>;
     match(packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha' }): Promise<unknown>;
+    ocrTest(text: string, options?: { match?: 'contains' | 'exact'; minScore?: number }): Promise<unknown>;
     status(): Promise<unknown>;
     start(packageId: string, countdownMs?: number): Promise<unknown>;
     cancel(): Promise<unknown>;
@@ -232,6 +233,13 @@ export function createGmApi(context: GmApiContext): GmApi {
     },
     match: (packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha' }): Promise<unknown> =>
       bridge.invoke('userscript:automation-match', { scriptId: script.id, packageId, asset, options: options ?? {} }),
+    ocrTest: (text: string, options?: { match?: 'contains' | 'exact'; minScore?: number }): Promise<unknown> =>
+      bridge.invoke('userscript:automation-ocr-test', {
+        scriptId: script.id,
+        text,
+        match: options?.match ?? 'contains',
+        minScore: options?.minScore ?? .5,
+      }),
     status: (): Promise<unknown> => bridge.invoke('userscript:automation-status', { scriptId: script.id }),
     start: (packageId: string, countdownMs = 0): Promise<unknown> =>
       bridge.invoke('userscript:automation-start', { scriptId: script.id, packageId, countdownMs }),

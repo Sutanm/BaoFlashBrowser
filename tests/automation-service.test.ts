@@ -20,12 +20,12 @@ afterEach(() => { for (const root of temporaryRoots.splice(0)) fs.rmSync(root, {
 describe('AutomationService feature boundary', () => {
   it('enables the production automation feature by default', () => {
     const service = new AutomationService();
-    expect(service.getStatus()).toEqual({ enabled: true, state: 'idle' });
+    expect(service.getStatus()).toEqual({ enabled: true, ocrBundled: expect.any(Boolean), state: 'idle' });
   });
 
   it('allows package authoring while execution is disabled', async () => {
     const service = new AutomationService({ enabled: false });
-    expect(service.getStatus()).toEqual({ enabled: false, state: 'idle' });
+    expect(service.getStatus()).toEqual({ enabled: false, ocrBundled: expect.any(Boolean), state: 'idle' });
     const created = await service.createPackage('offline-authoring', '离线编辑');
     expect(service.getPackage(created.packageId).workflow.name).toBe('离线编辑');
     await expect(service.checkReady(created.packageId, 'tab-1')).rejects.toThrow(/disabled/);
@@ -36,7 +36,7 @@ describe('AutomationService feature boundary', () => {
     const service = new AutomationService({ enabled: true, emitStatus: (status) => statuses.push(status) });
     await service.cancel();
     expect(statuses).toEqual([]);
-    expect(service.getStatus()).toEqual({ enabled: true, state: 'idle' });
+    expect(service.getStatus()).toEqual({ enabled: true, ocrBundled: expect.any(Boolean), state: 'idle' });
   });
 
   it('releases the active-tab reservation after a standalone readiness check', async () => {

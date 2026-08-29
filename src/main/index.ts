@@ -155,7 +155,7 @@ registerUserscriptsIPC();
 
   app.on('window-all-closed', () => {
     stopMemoryMonitor();
-    void automationService?.cancel();
+    void automationService?.shutdown();
     killAria2();
     app.quit();
   });

@@ -109,6 +109,14 @@ describe('automation assets and .baoauto package', () => {
     })).toEqual(['trusted-input']);
   });
 
+  it('marks text recognition workflows as OCR without requiring OpenCV vision', () => {
+    expect(inferAutomationCapabilities({
+      formatVersion: 2, id: 'ocr-only', name: 'OCR only',
+      readyWhen: { type: 'text-visible', text: '开始游戏', match: 'contains' },
+      root: { type: 'sequence', steps: [{ type: 'click-text', text: '登录' }] },
+    })).toEqual(['ocr', 'trusted-input']);
+  });
+
   it('rejects legacy v1 package documents instead of guessing viewport semantics', () => {
     const archive = unzipSync(createAutomationPackage(makeProject()));
     const manifest = JSON.parse(new TextDecoder().decode(archive['manifest.json']));

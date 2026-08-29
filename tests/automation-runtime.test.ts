@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AutomationRunner, type AutomationDriver, type AutomationDriverPointerTarget, type FindImageRequest, type ImageMatch } from '../src/main/modules/automation/runtime';
+import { AutomationRunner, type AutomationDriver, type AutomationDriverPointerTarget, type FindImageRequest, type FindTextRequest, type ImageMatch, type TextMatch } from '../src/main/modules/automation/runtime';
 import type { AutomationWorkflow } from '../src/shared/automation/types';
 
 const MATCH: ImageMatch = { x: 100, y: 80, width: 40, height: 20, score: 0.97 };
@@ -11,6 +11,7 @@ class FakeDriver implements AutomationDriver {
   readonly findSpaces: Array<'page' | 'game'> = [];
   readonly targetPoints = new Map<string, { x: number; y: number }>();
   readonly answers = new Map<string, Array<ImageMatch | null>>();
+  readonly textAnswers = new Map<string, Array<TextMatch | null>>();
   readonly findDurations: number[] = [];
   frameScopes = 0;
   coordinateSpace: 'page' | 'game' = 'page';
@@ -37,6 +38,11 @@ class FakeDriver implements AutomationDriver {
     this.findSpaces.push(this.coordinateSpace);
     this.time += this.findDurations.shift() ?? 0;
     return this.answers.get(request.asset)?.shift() ?? null;
+  }
+
+  async findText(request: FindTextRequest): Promise<TextMatch | null> {
+    this.calls.push(`find-text:${request.text}:${request.match}:${request.minScore}`);
+    return this.textAnswers.get(request.text)?.shift() ?? null;
   }
 
   async withFreshFrame<T>(operation: () => Promise<T>): Promise<T> {

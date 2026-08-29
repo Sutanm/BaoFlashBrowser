@@ -10,11 +10,13 @@ import type {
   AutomationStep,
   AutomationWorkflow,
   ClickImageStep,
+  ClickTextStep,
   KeyHoldUntilImageStep,
   MoveToImageStep,
   PositionCompareTarget,
   WaitImageStep,
   WaitImageStateStep,
+  WaitTextStateStep,
 } from '../../../shared/automation/types';
 import { parseAutomationWorkflow } from '../../../shared/automation/schema';
 
@@ -60,8 +62,19 @@ export type FindImageRequest = {
   mask?: AutomationImageMask;
 };
 
+export type TextMatch = ImageMatch & { text: string };
+
+export type FindTextRequest = {
+  text: string;
+  match: 'contains' | 'exact';
+  minScore: number;
+  region?: AutomationRegion;
+  relativeRegion?: AutomationRelativeRegion;
+};
+
 export type AutomationDriver = {
   findImage(request: FindImageRequest, signal: AbortSignal): Promise<ImageMatch | null>;
+  findText(request: FindTextRequest, signal: AbortSignal): Promise<TextMatch | null>;
   withFreshFrame?<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T>;
   resolveTargetPoint(target: PositionCompareTarget, signal: AbortSignal, relativeRegion?: AutomationRelativeRegion): Promise<{ x: number; y: number }>;
   getCssViewport(): { width: number; height: number };
@@ -109,6 +122,8 @@ export type AutomationRuntimeEvent =
   | { type: 'step-paused'; step: AutomationStep; nextStep: number }
   | { type: 'image-match'; asset: string; match: ImageMatch }
   | { type: 'image-miss'; asset: string }
+  | { type: 'text-match'; text: string; match: TextMatch }
+  | { type: 'text-miss'; text: string }
   | { type: 'random-click-coordinate'; coordinate: AutomationCoordinate }
   | { type: 'log'; message: string };
 
@@ -336,6 +351,18 @@ export class AutomationRunner {
     }
     if (condition.type === 'not') return !await this.evaluateCondition(condition.condition, signal, depth + 1);
     if (condition.type === 'position-relation') return this.evaluatePositionRelation(condition.targetA, condition.targetB, condition.relation, condition.tolerancePx, signal);
+    if (condition.type === 'text-visible') {
+      const match = await this.driver.findText({
+        text: condition.text,
+        match: condition.match ?? 'contains',
+        minScore: condition.minScore ?? 0.5,
+        region: condition.region,
+        relativeRegion: condition.region ? undefined : this.activeSearchRegion,
+      }, signal);
+      if (match) this.onEvent?.({ type: 'text-match', text: condition.text, match });
+      else this.onEvent?.({ type: 'text-miss', text: condition.text });
+      return Boolean(match);
+    }
     const match = await this.driver.findImage({
       asset: condition.asset,
       alternatives: condition.alternatives,
@@ -415,6 +442,48 @@ export class AutomationRunner {
       if (remaining <= 0) throw new Error(`timed out waiting for image to disappear: ${step.asset}`);
       const waitMs = Math.min(Math.max(0, minCycleMs - (this.driver.now() - cycleStartedAt)), remaining);
       if (waitMs > 0) await this.driver.sleep(waitMs, signal);
+    }
+  }
+
+  private async waitForText(step: WaitTextStateStep | ClickTextStep, signal: AbortSignal): Promise<TextMatch> {
+    const timeoutMs = step.timeoutMs ?? 10_000;
+    const minCycleMs = step.minCycleMs ?? 0;
+    const deadline = this.driver.now() + timeoutMs;
+    while (true) {
+      this.throwIfAborted(signal);
+      const cycleStartedAt = this.driver.now();
+      const match = await this.driver.findText({
+        text: step.text,
+        match: step.match ?? 'contains',
+        minScore: step.minScore ?? 0.5,
+        region: step.region,
+        relativeRegion: step.region ? undefined : this.activeSearchRegion,
+      }, signal);
+      if (match) {
+        this.onEvent?.({ type: 'text-match', text: step.text, match });
+        return match;
+      }
+      this.onEvent?.({ type: 'text-miss', text: step.text });
+      const remaining = deadline - this.driver.now();
+      if (remaining <= 0) throw new Error(`timed out waiting for text: ${step.text}`);
+      const waitMs = Math.min(Math.max(0, minCycleMs - (this.driver.now() - cycleStartedAt)), remaining);
+      if (waitMs > 0) await this.driver.sleep(waitMs, signal);
+    }
+  }
+
+  private async waitForTextState(step: WaitTextStateStep, signal: AbortSignal): Promise<void> {
+    if (step.state === 'visible') { await this.waitForText(step, signal); return; }
+    const timeoutMs = step.timeoutMs ?? 10_000;
+    const minCycleMs = step.minCycleMs ?? 0;
+    const deadline = this.driver.now() + timeoutMs;
+    while (true) {
+      const visible = await this.findCondition({
+        type: 'text-visible', text: step.text, match: step.match, minScore: step.minScore, region: step.region,
+      }, signal);
+      if (!visible) return;
+      const remaining = deadline - this.driver.now();
+      if (remaining <= 0) throw new Error(`timed out waiting for text to disappear: ${step.text}`);
+      if (minCycleMs > 0) await this.driver.sleep(Math.min(minCycleMs, remaining), signal);
     }
   }
 
@@ -528,6 +597,16 @@ export class AutomationRunner {
         this.onEvent?.({ type: 'random-click-coordinate', coordinate });
         await this.driver.clickPoint(coordinate, {
           button: step.button ?? 'left', clickCount: step.clickCount ?? 2,
+        }, signal);
+        return;
+      }
+      case 'wait-text-state':
+        await this.waitForTextState(step, signal);
+        return;
+      case 'click-text': {
+        const match = await this.waitForText(step, signal);
+        await this.driver.click(match, {
+          button: step.button ?? 'left', clickCount: step.clickCount ?? 1, offset: step.offset ?? { x: 0, y: 0 },
         }, signal);
         return;
       }

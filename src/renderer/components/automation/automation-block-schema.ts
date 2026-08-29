@@ -8,6 +8,8 @@ export const STEP_BLOCK_TYPES: Record<RenderableStepType, string> = {
   'wait-image-state': 'bao_wait_image_state',
   'click-image': 'bao_click_image',
   'click-coordinate': 'bao_click_image',
+  'wait-text-state': 'bao_wait_text_state',
+  'click-text': 'bao_click_text',
   'random-click-region': 'bao_random_click_region',
   'vision-region': 'bao_vision_region',
   'coordinate-space': 'bao_coordinate_space_page',

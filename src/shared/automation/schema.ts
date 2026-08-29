@@ -8,6 +8,7 @@ import type {
   AutomationRelativeRegion,
   AutomationGameSurfaceLocator,
   ImageCondition,
+  TextCondition,
   PositionCompareTarget,
   SequenceStep,
 } from './types';
@@ -43,6 +44,18 @@ const imageFields = {
 export const imageConditionSchema: z.ZodType<ImageCondition> = z.object({
   type: z.literal('image-visible'),
   ...imageFields,
+}).strict();
+
+const textFields = {
+  text: z.string().trim().min(1).max(500),
+  match: z.enum(['contains', 'exact']).optional(),
+  minScore: z.number().min(0).max(1).optional(),
+  region: regionSchema.optional(),
+};
+
+export const textConditionSchema: z.ZodType<TextCondition> = z.object({
+  type: z.literal('text-visible'),
+  ...textFields,
 }).strict();
 
 const coordinateSchema = z.object({
@@ -85,6 +98,7 @@ const gameSurfaceLocatorSchema: z.ZodType<AutomationGameSurfaceLocator> = z.obje
 export const automationConditionSchema: z.ZodType<AutomationCondition, z.ZodTypeDef, unknown> = z.lazy(() =>
   z.union([
     imageConditionSchema,
+    textConditionSchema,
     z.object({
       type: z.literal('all'),
       conditions: z.array(automationConditionSchema).min(2).max(16),
@@ -158,6 +172,24 @@ export const automationStepSchema: z.ZodType<AutomationStep, z.ZodTypeDef, unkno
       coordinate: coordinateSchema,
       button: z.enum(['left', 'right', 'middle']).optional(),
       clickCount: z.number().int().min(1).max(3).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('wait-text-state'),
+      ...textFields,
+      state: z.enum(['visible', 'hidden']),
+      timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
+    }).strict(),
+    z.object({
+      ...stepId,
+      type: z.literal('click-text'),
+      ...textFields,
+      timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+      minCycleMs: z.number().int().min(0).max(60_000).optional(),
+      button: z.enum(['left', 'right', 'middle']).optional(),
+      clickCount: z.number().int().min(1).max(3).optional(),
+      offset: z.object({ x: z.number().int(), y: z.number().int() }).strict().optional(),
     }).strict(),
     z.object({
       ...stepId,
@@ -461,7 +493,7 @@ export const automationPackageManifestSchema: z.ZodType<AutomationPackageManifes
   assets: z.literal('assets/'),
   createdBy: z.string().min(1).max(120).optional(),
   minimumAppVersion: z.string().regex(/^\d+\.\d+\.\d+$/).optional(),
-  capabilities: z.array(z.enum(['vision', 'alpha-mask', 'image-groups', 'multi-scale', 'trusted-input', 'navigation', 'combined-conditions'])).max(16).refine(
+  capabilities: z.array(z.enum(['vision', 'ocr', 'alpha-mask', 'image-groups', 'multi-scale', 'trusted-input', 'navigation', 'combined-conditions'])).max(16).refine(
     (values) => new Set(values).size === values.length,
     'automation capabilities must be unique',
   ).optional(),
@@ -486,6 +518,7 @@ export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<strin
   };
   const visitCondition = (condition: AutomationCondition): void => {
     if (condition.type === 'image-visible') addImageAssets(condition);
+    else if (condition.type === 'text-visible') return;
     else if (condition.type === 'position-relation') { addPositionTargetAssets(condition.targetA); addPositionTargetAssets(condition.targetB); }
     else if (condition.type === 'not') visitCondition(condition.condition);
     else condition.conditions.forEach(visitCondition);
@@ -540,6 +573,8 @@ export function collectWorkflowAssetIds(workflow: AutomationWorkflow): Set<strin
         break;
       case 'delay':
       case 'click-coordinate':
+      case 'wait-text-state':
+      case 'click-text':
       case 'move-to-coordinate':
       case 'random-click-region':
       case 'end':

@@ -79,6 +79,48 @@ export function registerUserscriptsIPC(): void {
     return { dataUrl: preview.toDataURL(), previewWidth, previewHeight, sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height, candidate: match, matched: Boolean(match && match.score >= threshold), threshold };
   });
 
+  ipcMain.handle('userscript:automation-ocr-test', async (event, raw: unknown) => {
+    const parsed = z.object({
+      scriptId: z.string(), text: z.string().trim().min(1).max(200),
+      match: z.enum(['contains', 'exact']), minScore: z.number().min(0).max(1),
+    }).strict().safeParse(raw);
+    const service = getAutomationService();
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    if (!parsed.success || !service || !tabId || !automationGrant(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    await service.whenReady();
+    const captureStartedAt = Date.now();
+    const captured = await service.captureReferenceFrame(tabId, { retainViewport: true });
+    const captureMs = Date.now() - captureStartedAt;
+    const source = nativeImage.createFromBuffer(Buffer.from(captured.png));
+    if (source.isEmpty()) throw new Error('page capture is empty');
+    const image = source.getSize().width === DEFAULT_AUTOMATION_VIEWPORT.width && source.getSize().height === DEFAULT_AUTOMATION_VIEWPORT.height
+      ? source : source.resize({ width: DEFAULT_AUTOMATION_VIEWPORT.width, height: DEFAULT_AUTOMATION_VIEWPORT.height, quality: 'best' });
+    const recognized = await service.testTextOnImage({
+      width: DEFAULT_AUTOMATION_VIEWPORT.width,
+      height: DEFAULT_AUTOMATION_VIEWPORT.height,
+      bgra: Uint8Array.from(image.toBitmap()),
+    });
+    const query = parsed.data.text;
+    const candidates = recognized.items.flatMap((item) => {
+      const xs = item.box.map((point) => point[0]);
+      const ys = item.box.map((point) => point[1]);
+      const x = Math.min(...xs); const y = Math.min(...ys);
+      const right = Math.max(...xs); const bottom = Math.max(...ys);
+      if (![x, y, right, bottom].every(Number.isFinite) || right <= x || bottom <= y) return [];
+      const textMatched = parsed.data.match === 'exact' ? item.text === query : item.text.includes(query);
+      return [{ text: item.text, score: item.score, x, y, width: right - x, height: bottom - y, matched: textMatched && item.score >= parsed.data.minScore }];
+    });
+    const scale = Math.min(1, 900 / DEFAULT_AUTOMATION_VIEWPORT.width, 600 / DEFAULT_AUTOMATION_VIEWPORT.height);
+    const previewWidth = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.width * scale));
+    const previewHeight = Math.max(1, Math.round(DEFAULT_AUTOMATION_VIEWPORT.height * scale));
+    const preview = scale < 1 ? image.resize({ width: previewWidth, height: previewHeight }) : image;
+    return {
+      dataUrl: preview.toDataURL(), previewWidth, previewHeight,
+      sourceWidth: DEFAULT_AUTOMATION_VIEWPORT.width, sourceHeight: DEFAULT_AUTOMATION_VIEWPORT.height,
+      candidates, matched: candidates.some((item) => item.matched), captureMs, ocrMs: recognized.ocrMs,
+    };
+  });
+
   ipcMain.handle('userscript:automation-status', async (event, raw: unknown) => {
     const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw);
     const service = getAutomationService();

@@ -69,7 +69,7 @@ BaoFlashBrowser 不只是一个 Flash 浏览器。它将 **PPAPI/Ruffle 双引�
 
 ### 面向普通用户的积木工作台
 
-- 在 `about:automation` 中像 Scratch 一样组合入口、鼠标操作、键盘与文字、识别与等待、页面、流程和调试积木。
+- 在 `about:automation` 中像 Scratch 一样组合入口、鼠标操作、键盘与文字、图片/OCR 识别与等待、页面、流程和调试积木。
 - 同一工作流也可以直接编辑 JSON，积木与 JSON 可相互转换和校验。
 - `.baoauto` 脚本包同时保存工作流和图片素材，支持导入、导出、复制、检查和分享。
 - 素材测试台可把 UI 素材放到指定场景图中比对，显示分数并高亮最佳匹配区域。
@@ -144,7 +144,7 @@ BaoFlashBrowser 不只是一个 Flash 浏览器。它将 **PPAPI/Ruffle 双引�
 - [GitHub Releases](https://github.com/Sutanm/BaoFlashBrowser/releases)
 - [Gitee Releases](https://gitee.com/sutanm/BaoFlashBrowser/releases)
 - [v1.1.1 实验性 Flash/macOS 支持说明](docs/experimental-platform-support.md)
-- [v1.1.1 发行说明](RELEASE_NOTES.md)
+- [v1.1.2 发行说明](RELEASE_NOTES.md)
 
 Windows 安装包当前**未进行代码签名**，安装或首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对页面公布的 SHA-256；也可以按照下方步骤从源码运行当前版本。
 
@@ -187,7 +187,9 @@ sudo apt install -y libnss3 libgtk-3-0 libx11-xcb1 libxtst6 libxss1 \
 
 ```bash
 npm run check       # i18n、类型检查、Lint、单元测试和生产构建
-npm run build:win64 # Windows x64 NSIS
+npm run build:win64          # Windows x64 标准版（不含 OCR）
+npm run build:win64:standard # 同上，名称更明确
+npm run build:win64:ocr      # Windows x64 OCR 版（首次构建会下载并校验离线 OCR）
 npm run build:win32 # Windows ia32 NSIS（未完全测试）
 npm run build:linux # Linux x64 AppImage，建议在 Linux/WSL 中执行
 npm run build:mac   # macOS Intel x64 实验 DMG/ZIP，必须在 macOS 上执行，未经任何测试
@@ -195,7 +197,7 @@ npm run build:mac   # macOS Intel x64 实验 DMG/ZIP，必须在 macOS 上执行
 
 `build:mac` 会校验仓库内实验性 Flash DMG 的 SHA-256，在临时目录中提取完整插件，并将解码后的 `PepperFlashPlayer.plugin` 直接捆绑进 `.app`；原始 DMG 不会进入最终安装包。也可以在 GitHub Actions 中手动运行 **Package experimental macOS build** 工作流获取 DMG/ZIP。
 
-发布脚本会检查 Ruffle、字体、PPAPI、aria2、鼠标钩子和目标架构，校验结果写入 `release/manifests/`。macOS 构建成功只代表资源和安装包结构通过检查，不代表 Flash 已在真实 Mac 上验证可用。
+Windows x64 同时提供两种安装包：标准版体积较小，不包含也不会启动 OCR；OCR 版额外携带 PaddleOCR-json 简中模型，可使用“点击文字”“等待文字”和“文字条件”积木。两版使用同一套应用代码，含 OCR 的脚本在标准版仍可编辑，但运行时会明确提示安装 OCR 版。发布脚本会检查 Ruffle、字体、PPAPI、aria2、鼠标钩子、OCR 隔离和目标架构，校验结果写入 `release/manifests/`。macOS 构建成功只代表资源和安装包结构通过检查，不代表 Flash 已在真实 Mac 上验证可用。
 
 ## 浏览器基础能力
 

@@ -1,6 +1,6 @@
 {
   "name": "bao-flash-browser",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Cross-platform Flash browser based on Electron",
   "main": "dist/main.js",
   "scripts": {
@@ -21,10 +21,14 @@
     "check": "npm run i18n && npm run typecheck && npm run lint && npm run test -- --run && npm run build",
     "verify:release": "node build/verify-release.cjs",
     "prepare:release": "node build/prepare-release.cjs",
+    "prepare:ocr": "node build/prepare-ocr-runtime.cjs",
+    "prepare:electron:win64": "cross-env BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=x64 node build/prepare-electron-runtime.cjs",
     "start": "npm run i18n && npm run build && electron .",
     "icon": "node build/make-icon.js",
     "build:win": "npm run build:win64",
-    "build:win64": "npm run build && npm run verify:release -- --stage source --platform win32 --arch x64 && npm run prepare:release && cross-env BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=x64 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config build/electron-builder.config.cjs --win --x64 --publish never && npm run verify:release -- --stage unpacked --platform win32 --arch x64",
+    "build:win64": "npm run build:win64:standard",
+    "build:win64:standard": "npm run prepare:electron:win64 && npm run build && npm run verify:release -- --stage source --platform win32 --arch x64 --ocr none && npm run prepare:release && cross-env BAO_ELECTRON_DIST=.cache/electron/win32-x64-11.5.0 BAO_OCR_BUNDLE=0 BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=x64 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config build/electron-builder.config.cjs --win --x64 --publish never && npm run verify:release -- --stage unpacked --platform win32 --arch x64 --ocr none",
+    "build:win64:ocr": "npm run prepare:electron:win64 && npm run prepare:ocr && npm run build && npm run verify:release -- --stage source --platform win32 --arch x64 --ocr bundled && npm run prepare:release && cross-env BAO_ELECTRON_DIST=.cache/electron/win32-x64-11.5.0 BAO_OCR_BUNDLE=1 BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=x64 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config build/electron-builder.config.cjs --win --x64 --publish never && npm run verify:release -- --stage unpacked --platform win32 --arch x64 --ocr bundled",
     "build:win32": "npm run build && npm run verify:release -- --stage source --platform win32 --arch ia32 && npm run prepare:release && cross-env BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=ia32 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config build/electron-builder.config.cjs --win --ia32 --publish never && npm run verify:release -- --stage unpacked --platform win32 --arch ia32",
     "build:linux": "npm run build && npm run verify:release -- --stage source --platform linux --arch x64 && npm run prepare:release && cross-env BAO_TARGET_PLATFORM=linux BAO_TARGET_ARCH=x64 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --config build/electron-builder.config.cjs --linux --x64 --publish never && npm run verify:release -- --stage unpacked --platform linux --arch x64",
     "prepare:mac-flash": "bash scripts/prepare-macos-flash.sh",

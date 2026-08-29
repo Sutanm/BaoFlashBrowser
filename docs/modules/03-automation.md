@@ -2,7 +2,7 @@
 
 ## 1 范围与目标
 
-自动化平台用 BrowserView 截图和 OpenCV 模板匹配定位网页、Ruffle 或 PPAPI 内容中的可见目标，再通过 CDP 发送可信鼠标和键盘输入。用户通过 Blockly 或 JSON 编辑同一份工作流，并可把工作流和素材打包为 `.baoauto`。
+自动化平台用 BrowserView 截图，通过 OpenCV 模板匹配或可选的 PaddleOCR-json 定位网页、Ruffle、PPAPI 内容中的可见目标，再通过 CDP 发送可信鼠标和键盘输入。用户通过 Blockly 或 JSON 编辑同一份工作流，并可把工作流和素材打包为 `.baoauto`。
 
 自动化只控制应用内指定标签，不控制桌面或其他应用；密码捕获由 05 模块负责，两者通过 CDP 租约互斥。
 
@@ -16,6 +16,7 @@
 | `src/main/modules/automation/game-surface-detector.ts` | 跨多层 iframe 探测 Flash、Ruffle、Canvas 和框架候选，并按特征重新定位 |
 | `src/main/modules/automation/vision-worker.cjs` | 独立 worker 中的 OpenCV 匹配与缓存 |
 | `src/main/modules/automation/vision-worker-matcher.ts` | worker 协议、请求队列、超时和资源释放 |
+| `src/main/modules/automation/paddle-ocr-engine.ts` | 可选 OCR 子进程、管道协议、临时 BMP 和取消/关闭处理 |
 | `src/main/modules/automation/native-image-template-provider.ts` | 从已安装包加载模板像素 |
 | `src/main/modules/automation/package.ts` | `.baoauto` ZIP 序列化、导入、体积/路径/数量校验 |
 | `src/main/modules/automation/assets.ts` | 素材扫描和目录监视 |
@@ -42,13 +43,13 @@ automation:start / debug-start
   → 完成、取消或异常时释放 worker 请求、按键和 CDP 租约
 ```
 
-模板匹配默认尝试 `0.75 / 1 / 1.25` 三种缩放。图片组在同一帧中比较多个成员并采用最高分结果；透明素材可使用 alpha 遮罩。纯坐标工作流不创建 OpenCV worker。
+模板匹配默认尝试 `0.75 / 1 / 1.25` 三种缩放。图片组在同一帧中比较多个成员并采用最高分结果；透明素材可使用 alpha 遮罩。纯坐标工作流不创建 OpenCV worker。OCR 只在工作流声明 `ocr` 能力且第一次执行文字识别时启动常驻子进程；标准版没有 OCR 资源并在创建会话前给出明确错误。截图原始 BGRA 像素写为临时 BMP 交给 OCR，避免 PNG/Base64 编码，结果框再映射回同一逻辑坐标。
 
 流程支持固定次数、条件上限和真正无上限的 `forever` 循环。`break` 以内部控制信号传播，由最近一层循环捕获；循环外的 `break` 在 schema 校验阶段被拒绝。`forever` 每轮主动让出事件循环以保证取消请求可响应，其内部步骤不计入有限工作流的执行步数预算。
 
 工作流可使用 `page`（整个 BrowserView）或 `game`（已定位游戏画面）坐标空间。两者都向用户显示为 `0–10000`，driver 以固定 `1280×720` 逻辑视口完成相对坐标、CSS 坐标和设备像素换算。`coordinate-space` 节点临时切换空间，退出后恢复；跨空间时不继承外层相对识图区域。
 
-游戏入口保存的是 `BFG1:` 特征串解码后的 locator，不保存一次性的页面矩形。开始运行和窗口尺寸变化后，service 重新探测当前候选；同类型优先，只有来源/框架证据足够强时才允许 Flash 与 iframe、Ruffle 或 Canvas 之间回退。候选含糊时拒绝猜测。游戏空间中的所有 OpenCV 请求都会和当前游戏画面取交集，包括显式 `region` 与嵌套高速识图区域。
+游戏入口保存的是 `BFG1:` 特征串解码后的 locator，不保存一次性的页面矩形。开始运行和窗口尺寸变化后，service 重新探测当前候选；同类型优先，只有来源/框架证据足够强时才允许 Flash 与 iframe、Ruffle 或 Canvas 之间回退。候选含糊时拒绝猜测。游戏空间中的 OpenCV 与 OCR 请求都会和当前游戏画面取交集，包括显式 `region` 与嵌套高速识图区域。
 
 ### 3.3 包与素材
 
@@ -82,6 +83,7 @@ automation:start / debug-start
 - Web/Ruffle/PPAPI 注册与输入：`npm run probe:automation-m5-engines`。
 - 用户脚本助手：`npm run test:userscripts-admin`。
 - PPAPI 插件注册可自动验证，但真实游戏渲染、识图和可信输入仍需人工发布回归。
+- Windows x64 标准版用 `npm run build:win64:standard`，OCR 版用 `npm run build:win64:ocr`；后者固定校验官方 OCR 归档 SHA-256 并只保留简中模型。发布校验必须证明标准版不含 OCR、OCR 版含运行时/模型/许可证。
 
 ## 7 雷区
 

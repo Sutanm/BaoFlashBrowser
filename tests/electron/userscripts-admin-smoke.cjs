@@ -45,6 +45,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('userscript:automation-list', async () => []);
   ipcMain.handle('userscript:automation-status', async () => ({ enabled: true, state: automationState, executedSteps: automationState === 'completed' ? 1 : 0, logs: [] }));
+  ipcMain.handle('userscript:automation-ocr-test', async () => ({ dataUrl: '', sourceWidth: 1280, sourceHeight: 720, candidates: [], matched: false, captureMs: 1, ocrMs: 1 }));
   ipcMain.handle('userscript:automation-coordinate-begin', async () => ({ ready: true }));
   ipcMain.handle('userscript:automation-coordinate-end', async () => ({ released: true }));
   ipcMain.handle('userscript:automation-game-surfaces', async () => ({
@@ -153,9 +154,11 @@ app.whenReady().then(async () => {
       captureCancel: captureLayer?.querySelector('.bao-capture-cancel')?.textContent,
       captureHelp: captureHelp?.textContent,
       captureHelpTop: captureHelp ? getComputedStyle(captureHelp).top : null,
+      hasOcrTest: Boolean(root?.querySelector('[data-match-mode="text"]') && root?.querySelector('.bao-ocr-text')),
     };
   })()`);
   check('automation assistant opens as a three-tab floating control center', assistantControls?.open === true && assistantControls?.tabs === 3, assistantControls);
+  check('automation assistant exposes an OCR text test mode', assistantControls?.hasOcrTest === true, assistantControls);
   check('automation assistant uses a compact panel and scrollable run log', assistantControls?.width > 300 && assistantControls?.width <= 320 && assistantControls?.logOverflow === 'auto', assistantControls);
   check('automation assistant buttons do not retain a visible focus outline', assistantControls?.focusedButtonOutline === 'none', assistantControls);
   check('automation assistant avoids an outer scrollbar and fully fits Capture tools', assistantControls?.outerOverflow === 'hidden' && assistantControls?.captureHeight >= 175 && assistantControls?.captureFits === true, assistantControls);

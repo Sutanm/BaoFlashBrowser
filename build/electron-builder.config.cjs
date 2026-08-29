@@ -3,15 +3,18 @@ const path = require('path');
 
 const targetPlatform = process.env.BAO_TARGET_PLATFORM || process.platform;
 const targetArch = process.env.BAO_TARGET_ARCH || process.arch;
+const bundleOcr = process.env.BAO_OCR_BUNDLE === '1';
 
 function selectedResources() {
   if (targetPlatform === 'win32' && targetArch === 'x64') {
-    return [
+    const resources = [
       { from: 'plugins/win64', to: 'plugins/win64' },
       { from: 'plugins/experimental/win64', to: 'plugins/experimental/win64' },
       { from: 'native/aria2/aria2c.exe', to: 'native/aria2/aria2c.exe' },
       { from: 'native/mouse-hook.exe', to: 'native/mouse-hook.exe' },
     ];
+    if (bundleOcr) resources.push({ from: 'native/ocr/win64', to: 'native/ocr' });
+    return resources;
   }
 
   if (targetPlatform === 'win32' && targetArch === 'ia32') {
@@ -42,7 +45,8 @@ function selectedResources() {
 module.exports = {
   appId: 'com.bao.flashbrowser',
   productName: targetPlatform === 'darwin' ? 'BaoFlashBrowser Experimental' : 'BaoFlashBrowser',
-  directories: { output: 'release' },
+  directories: { output: bundleOcr ? 'release/ocr' : 'release/standard' },
+  ...(process.env.BAO_ELECTRON_DIST ? { electronDist: path.resolve(__dirname, '..', process.env.BAO_ELECTRON_DIST) } : {}),
   files: [
     {
       from: 'dist',
@@ -89,7 +93,7 @@ module.exports = {
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
-    artifactName: '${productName}-${version}-${arch}.${ext}',
+    artifactName: bundleOcr ? 'BaoFlashBrowser-OCR-${version}-${arch}.${ext}' : 'BaoFlashBrowser-${version}-${arch}.${ext}',
   },
   beforePack: async () => {
     if (targetPlatform !== 'linux') return;
