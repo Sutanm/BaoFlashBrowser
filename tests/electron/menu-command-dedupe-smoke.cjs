@@ -57,8 +57,6 @@ app.whenReady().then(async () => {
       accepted: true,
     });
   });
-  ipcMain.handle('userscript:automation-list', async () => []);
-  ipcMain.handle('userscript:automation-status', async () => ({ state: 'idle', executedSteps: 0, logs: [] }));
 
   const srv = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

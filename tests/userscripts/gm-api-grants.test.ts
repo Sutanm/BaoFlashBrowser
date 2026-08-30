@@ -49,9 +49,13 @@ describe('userscript @grant enforcement', () => {
     expect(granted.modern).toHaveProperty('getResourceURL');
   });
 
-  it('exposes the BaoFlash automation bridge only for its explicit private grant', () => {
-    const api = fakeApi();
-    expect(grantGmApi(api, []).modern).not.toHaveProperty('baoAutomation');
-    expect(grantGmApi(api, ['GM_baoAutomation']).modern).toHaveProperty('baoAutomation');
+  it('exposes the Automation Core bridge only to the dedicated grant', () => {
+    const denied = grantGmApi(fakeApi(), []);
+    const granted = grantGmApi(fakeApi(), ['GM_baoAutomation']);
+
+    expect(denied.modern).not.toHaveProperty('baoAutomation');
+    expect(granted.modern).toHaveProperty('baoAutomation');
+    expect(granted.legacy).not.toHaveProperty('GM_baoAutomation');
   });
+
 });

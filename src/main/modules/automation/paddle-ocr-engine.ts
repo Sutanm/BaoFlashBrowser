@@ -2,13 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import type { AutomationCapturedFrame } from './browserview-driver';
-
-export type OcrTextItem = {
-  text: string;
-  score: number;
-  box: Array<[number, number]>;
-};
+import type { AutomationCapturedFrame, OcrTextItem } from './capability-contracts';
+export type { OcrTextItem } from './capability-contracts';
 
 type PendingRequest = {
   resolve: (items: OcrTextItem[]) => void;
@@ -17,6 +12,7 @@ type PendingRequest = {
 
 const OCR_EXECUTABLE = 'PaddleOCR-json.exe';
 const STARTUP_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 // Electron 11 ships Node 12, which predates fs.promises.rm (Node 14.14).
 // fs.promises.rmdir with { recursive } has existed since Node 12.10 but the
@@ -80,7 +76,7 @@ export class PaddleOcrEngine {
   private queue: Promise<void> = Promise.resolve();
   private readonly directory: string;
 
-  constructor(directory = bundledOcrDirectory()) {
+  constructor(directory = bundledOcrDirectory(), private readonly requestTimeoutMs = REQUEST_TIMEOUT_MS) {
     this.directory = directory;
   }
 
@@ -143,7 +139,11 @@ export class PaddleOcrEngine {
     child.on('error', (error) => this.fail(error));
     child.on('exit', (code) => this.fail(new Error(`OCR engine exited with code ${String(code)}`)));
     this.startup = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('OCR engine startup timed out')), STARTUP_TIMEOUT_MS);
+      const timer = setTimeout(() => {
+        child.kill();
+        if (this.child === child) { this.child = null; this.startup = null; }
+        reject(new Error('OCR engine startup timed out'));
+      }, STARTUP_TIMEOUT_MS);
       const onData = (chunk: string): void => {
         if (!chunk.includes('OCR init completed')) return;
         clearTimeout(timer);
@@ -161,16 +161,30 @@ export class PaddleOcrEngine {
     const child = this.child;
     if (!child || child.killed) return Promise.reject(new Error('OCR engine is not running'));
     return new Promise<OcrTextItem[]>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pending?.reject !== rejectPending) return;
+        this.pending = null;
+        child.kill();
+        if (this.child === child) { this.child = null; this.startup = null; }
+        signal.removeEventListener('abort', onAbort);
+        reject(new Error(`OCR request timed out after ${this.requestTimeoutMs}ms`));
+      }, this.requestTimeoutMs);
       const onAbort = (): void => {
-        if (this.pending?.reject === reject) this.pending = null;
+        if (this.pending?.reject === rejectPending) this.pending = null;
+        clearTimeout(timer);
         child.kill();
         if (this.child === child) { this.child = null; this.startup = null; }
         reject(new Error('automation cancelled'));
       };
+      const rejectPending = (error: Error): void => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      };
       signal.addEventListener('abort', onAbort, { once: true });
       this.pending = {
-        resolve: (items) => { signal.removeEventListener('abort', onAbort); resolve(items); },
-        reject: (error) => { signal.removeEventListener('abort', onAbort); reject(error); },
+        resolve: (items) => { clearTimeout(timer); signal.removeEventListener('abort', onAbort); resolve(items); },
+        reject: rejectPending,
       };
       child.stdin.write(`${JSON.stringify(payload)}\n`, 'utf8', (error) => { if (error) this.fail(error); });
     });

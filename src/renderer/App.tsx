@@ -278,7 +278,7 @@ const AppInner: React.FC = () => {
           <UserscriptsPage />
         </div>
         {automationMounted && <div style={{ display: isOnAutomation ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column', minWidth: 0 }}>
-          <Suspense fallback={<div className="internal-page-loading">{LL.automation.page.loading()}</div>}><AutomationPage /></Suspense>
+          <Suspense fallback={<div className="internal-page-loading">Loading Automation 2.0…</div>}><AutomationPage /></Suspense>
         </div>}
         <div style={{ display: isCrashed ? 'flex' : 'none', flex: '1 1 0%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, minWidth: 0 }}>
           <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>

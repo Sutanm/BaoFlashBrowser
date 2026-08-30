@@ -62,6 +62,11 @@ const builds = [
   },
   {
     ...shared,
+    entryPoints: ['src/javascript-sandbox-preload/index.ts'],
+    outfile: 'dist/javascript-sandbox-preload.js',
+  },
+  {
+    ...shared,
     entryPoints: ['src/main/modules/automation/vision-worker.cjs'],
     outfile: 'dist/vision-worker.cjs',
   },

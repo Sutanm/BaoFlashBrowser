@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import type { WebContents } from 'electron';
-import type { AutomationGameSurfaceLocator } from '../../../shared/automation/types';
-import { acquireCdpLease } from '../cdp-lease';
+import type { GameSurfaceFeature } from '../../../shared/automation/core';
+import { acquireAutomationCdpLease, createCdpLeaseWatchdog } from '../cdp-lease';
 
 export type GameSurfaceKind = 'flash' | 'ruffle' | 'canvas' | 'frame';
 
@@ -16,6 +16,48 @@ export type GameSurfaceCandidate = {
   rect: { x: number; y: number; width: number; height: number };
   score: number;
 };
+
+function sourceName(value: string): string {
+  const clean = value.split(/[?#]/u)[0].replace(/\\/g, '/');
+  return clean.slice(clean.lastIndexOf('/') + 1).toLowerCase();
+}
+
+export function gameSurfaceFeatureFromCandidate(candidate: GameSurfaceCandidate): GameSurfaceFeature {
+  return {
+    version: 1,
+    kind: candidate.kind,
+    label: candidate.label,
+    source: candidate.source,
+    frameUrl: candidate.frameUrl,
+    width: Math.round(candidate.rect.width),
+    height: Math.round(candidate.rect.height),
+  };
+}
+
+/** Match the author-selected game area using stable URL/source and geometry evidence. */
+export function chooseLocatedGameSurface(candidates: readonly GameSurfaceCandidate[], feature: GameSurfaceFeature): GameSurfaceCandidate | null {
+  const scored = candidates.map((candidate) => {
+    let score = candidate.kind === feature.kind ? 100 : 0;
+    let identityEvidence = 0;
+    if (feature.label && candidate.label === feature.label) score += 80;
+    if (feature.source && candidate.source === feature.source) { score += 170; identityEvidence += 2; }
+    else if (sourceName(feature.source) && sourceName(candidate.source) === sourceName(feature.source)) { score += 110; identityEvidence += 1; }
+    if (feature.frameUrl && candidate.frameUrl === feature.frameUrl) { score += 100; identityEvidence += 2; }
+    else if (sourceName(feature.frameUrl) && sourceName(candidate.frameUrl) === sourceName(feature.frameUrl)) { score += 55; identityEvidence += 1; }
+    const featureRatio = feature.width / Math.max(1, feature.height);
+    const candidateRatio = candidate.rect.width / Math.max(1, candidate.rect.height);
+    score += Math.max(0, 50 - Math.abs(Math.log(Math.max(.01, candidateRatio / featureRatio))) * 70);
+    const sizeRatio = Math.sqrt(candidate.rect.width * candidate.rect.height / Math.max(1, feature.width * feature.height));
+    score += Math.max(0, 30 - Math.abs(Math.log(Math.max(.01, sizeRatio))) * 25);
+    if (candidate.kind !== feature.kind && identityEvidence === 0) score = -Infinity;
+    return { candidate, score };
+  }).sort((left, right) => right.score - left.score || right.candidate.score - left.candidate.score);
+  const best = scored[0];
+  const second = scored[1];
+  if (!best || best.score < 65) return null;
+  if (second && best.score - second.score < 12) return null;
+  return best.candidate;
+}
 
 type FrameRecord = { id: string; parentId?: string; url: string; depth: number };
 type AttachedTarget = { sessionId: string; targetId: string; url: string };
@@ -160,39 +202,47 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
     if (frameId) contexts.set(`${targetSessionId ?? 'root'}:${context.id}`, { contextId: context.id, frameId, sessionId: targetSessionId });
     if (debugDetection && frameId) console.log('[automation-surface] context', targetSessionId ?? 'root', context.id, frameId);
   };
-  const lease = acquireCdpLease(webContents, 'automation');
+  const lease = await acquireAutomationCdpLease(webContents);
+  const watchdog = createCdpLeaseWatchdog(lease, 'game surface detection', 6_000, 1_500);
+  const sendCommand = <T = unknown>(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<T> =>
+    watchdog.run(method, () => webContents.debugger.sendCommand(method, params, sessionId) as Promise<T>);
+  const pause = (milliseconds: number): Promise<void> => watchdog.run(
+    `wait ${milliseconds}ms for target discovery`,
+    () => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    milliseconds + 250,
+  );
   try {
     webContents.debugger.on('message', onMessage);
     try {
-      await webContents.debugger.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
-      await webContents.debugger.sendCommand('Target.setDiscoverTargets', { discover: true });
+      await sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+      await sendCommand('Target.setDiscoverTargets', { discover: true });
     } catch { /* Targets without OOPIF support continue through the root session. */ }
-    await webContents.debugger.sendCommand('Page.enable');
-    await webContents.debugger.sendCommand('DOM.enable');
-    await webContents.debugger.sendCommand('Runtime.enable');
+    await sendCommand('Page.enable');
+    await sendCommand('DOM.enable');
+    await sendCommand('Runtime.enable');
     const enabledSessions = new Set<string>();
     for (let round = 0; round < 4; round += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await pause(30);
       const pending = [...attachedSessions.keys()].filter((sessionId) => !enabledSessions.has(sessionId));
       for (const sessionId of pending) {
         enabledSessions.add(sessionId);
         try {
-          await webContents.debugger.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sessionId);
-          await webContents.debugger.sendCommand('Page.enable', {}, sessionId);
-          await webContents.debugger.sendCommand('DOM.enable', {}, sessionId);
-          await webContents.debugger.sendCommand('Runtime.enable', {}, sessionId);
+          await sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sessionId);
+          await sendCommand('Page.enable', {}, sessionId);
+          await sendCommand('DOM.enable', {}, sessionId);
+          await sendCommand('Runtime.enable', {}, sessionId);
         } catch { /* A subframe can navigate or disappear during discovery. */ }
       }
       if (!pending.length && round >= 1) break;
     }
-    const frameTree = frameTreeRecords(await webContents.debugger.sendCommand('Page.getFrameTree'));
+    const frameTree = frameTreeRecords(await sendCommand('Page.getFrameTree'));
     const sessionRootFrames = new Map<string, string>();
     // An out-of-process iframe has its own Page domain. Its frame normally
     // also appears in the root frame tree, but its document and Runtime world
     // are available only through the attached target session.
     for (const sessionId of enabledSessions) {
       try {
-        const sessionTree = frameTreeRecords(await webContents.debugger.sendCommand('Page.getFrameTree', {}, sessionId));
+        const sessionTree = frameTreeRecords(await sendCommand('Page.getFrameTree', {}, sessionId));
         const root = [...sessionTree.values()].find((frame) => !frame.parentId);
         if (root) sessionRootFrames.set(sessionId, root.id);
         for (const frame of sessionTree.values()) {
@@ -218,7 +268,7 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
     // cross-origin-capable document context for every frame in the tree.
     for (const frame of frameTree.values()) {
       try {
-        const isolated = await webContents.debugger.sendCommand('Page.createIsolatedWorld', {
+        const isolated = await sendCommand('Page.createIsolatedWorld', {
           frameId: frame.id,
           worldName: `bao-game-surface-${frame.id}`,
           grantUniveralAccess: false,
@@ -233,7 +283,7 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
     }
     let flattenedNodes: FlattenedNode[] = [];
     try {
-      const flattened = await webContents.debugger.sendCommand('DOM.getFlattenedDocument', { depth: -1, pierce: true }) as { nodes?: FlattenedNode[] };
+      const flattened = await sendCommand('DOM.getFlattenedDocument', { depth: -1, pierce: true }) as { nodes?: FlattenedNode[] };
       flattenedNodes = flattened.nodes ?? [];
     } catch { /* Runtime contexts remain the primary path on older targets. */ }
     const seenBackendNodes = new Set(flattenedNodes.map((node) => node.backendNodeId).filter(Boolean));
@@ -256,7 +306,7 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
     // contentDocument property, so walk the actual tree as well. XHTML Flash
     // hosts (for example an <object> below a namespaced <html>) depend on this.
     try {
-      const documentTree = await webContents.debugger.sendCommand('DOM.getDocument', {
+      const documentTree = await sendCommand('DOM.getDocument', {
         depth: -1,
         pierce: true,
       }) as { root?: FlattenedNode };
@@ -270,10 +320,10 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
     for (const frame of frameTree.values()) {
       if (!frame.parentId) continue;
       try {
-        const owner = await webContents.debugger.sendCommand('DOM.getFrameOwner', { frameId: frame.id }) as { backendNodeId?: number };
+        const owner = await sendCommand('DOM.getFrameOwner', { frameId: frame.id }) as { backendNodeId?: number };
         if (!owner.backendNodeId) continue;
         frameOwnerBackendNodes.set(frame.id, owner.backendNodeId);
-        const described = await webContents.debugger.sendCommand('DOM.describeNode', {
+        const described = await sendCommand('DOM.describeNode', {
           backendNodeId: owner.backendNodeId,
           depth: -1,
           pierce: true,
@@ -287,7 +337,7 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
 
     for (const context of contexts.values()) {
       try {
-        const response = await webContents.debugger.sendCommand('Runtime.evaluate', {
+        const response = await sendCommand('Runtime.evaluate', {
           expression: DETECT_EXPRESSION, contextId: context.contextId, returnByValue: true,
         }, context.sessionId) as { result?: { value?: { href?: unknown; viewport?: { width?: unknown; height?: unknown }; results?: unknown[] } } };
         const value = response.result?.value;
@@ -308,7 +358,7 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
     // a contextId runs in that target's main frame directly.
     for (const [sessionId, frameId] of sessionRootFrames) {
       try {
-        const response = await webContents.debugger.sendCommand('Runtime.evaluate', {
+        const response = await sendCommand('Runtime.evaluate', {
           expression: DETECT_EXPRESSION,
           returnByValue: true,
         }, sessionId) as { result?: { value?: { href?: unknown; viewport?: { width?: unknown; height?: unknown }; results?: unknown[] } } };
@@ -353,12 +403,12 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
       try {
         let backendNodeId = frameOwnerBackendNodes.get(frame.id);
         if (!backendNodeId) {
-          const owner = await webContents.debugger.sendCommand('DOM.getFrameOwner', { frameId: frame.id }) as { backendNodeId?: number };
+          const owner = await sendCommand('DOM.getFrameOwner', { frameId: frame.id }) as { backendNodeId?: number };
           backendNodeId = owner.backendNodeId;
           if (backendNodeId) frameOwnerBackendNodes.set(frame.id, backendNodeId);
         }
         if (!backendNodeId) continue;
-        const box = await webContents.debugger.sendCommand('DOM.getBoxModel', { backendNodeId }) as { model?: { content?: number[] } };
+        const box = await sendCommand('DOM.getBoxModel', { backendNodeId }) as { model?: { content?: number[] } };
         const rect = rectFromQuad(box.model?.content);
         if (rect) ownerRects.set(frame.id, rect);
       } catch { /* sandboxed or detached frame */ }
@@ -458,7 +508,7 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
       const kind: GameSurfaceKind = tag.startsWith('ruffle-') ? 'ruffle' : tag === 'canvas' ? 'canvas' : 'flash';
       const flashEvidence = /shockwave|flash/u.test(type) || /\.swf(?:$|[?#])/iu.test(source);
       try {
-        const box = await webContents.debugger.sendCommand('DOM.getBoxModel', { backendNodeId: node.backendNodeId }) as { model?: { content?: number[] } };
+        const box = await sendCommand('DOM.getBoxModel', { backendNodeId: node.backendNodeId }) as { model?: { content?: number[] } };
         const rect = rectFromQuad(box.model?.content);
         if (!rect || rect.width < 80 || rect.height < 60) continue;
         if ((tag === 'embed' || tag === 'object') && !flashEvidence && rect.width * rect.height < 40000) continue;
@@ -480,24 +530,24 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
     // iframe -> XHTML -> object#picaTown[data="Swfloader.swf"].
     let searchId = '';
     try {
-      const search = await webContents.debugger.sendCommand('DOM.performSearch', {
+      const search = await sendCommand('DOM.performSearch', {
         query: 'object, embed, ruffle-player, ruffle-embed, canvas',
         includeUserAgentShadowDOM: true,
       }) as { searchId?: string; resultCount?: number };
       searchId = search.searchId ?? '';
       const count = Math.min(100, Math.max(0, search.resultCount ?? 0));
       if (searchId && count) {
-        const results = await webContents.debugger.sendCommand('DOM.getSearchResults', { searchId, fromIndex: 0, toIndex: count }) as { nodeIds?: number[] };
+        const results = await sendCommand('DOM.getSearchResults', { searchId, fromIndex: 0, toIndex: count }) as { nodeIds?: number[] };
         for (const nodeId of results.nodeIds ?? []) {
           try {
-            const described = await webContents.debugger.sendCommand('DOM.describeNode', { nodeId, depth: 0, pierce: true }) as { node?: FlattenedNode };
+            const described = await sendCommand('DOM.describeNode', { nodeId, depth: 0, pierce: true }) as { node?: FlattenedNode };
             const node = described.node; if (!node) continue;
             const tag = node.nodeName.toLowerCase(); const attributes = attributesOf(node);
             const source = safeUrl(attributes.get('src') || attributes.get('data') || '');
             const type = String(attributes.get('type') || '').toLowerCase();
             const kind: GameSurfaceKind = tag.startsWith('ruffle-') ? 'ruffle' : tag === 'canvas' ? 'canvas' : 'flash';
             const flashEvidence = /shockwave|flash/u.test(type) || /\.swf(?:$|[?#])/iu.test(source);
-            const box = await webContents.debugger.sendCommand('DOM.getBoxModel', { nodeId }) as { model?: { content?: number[] } };
+            const box = await sendCommand('DOM.getBoxModel', { nodeId }) as { model?: { content?: number[] } };
             const rect = rectFromQuad(box.model?.content);
             if (!rect || rect.width < 80 || rect.height < 60) continue;
             if ((tag === 'embed' || tag === 'object') && !flashEvidence && rect.width * rect.height < 40000) continue;
@@ -514,8 +564,9 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
       }
     } catch { /* DOM.performSearch is a best-effort legacy-page fallback. */ }
     finally {
-      if (searchId) try { await webContents.debugger.sendCommand('DOM.discardSearchResults', { searchId }); } catch { /* detached */ }
+      if (searchId) try { await sendCommand('DOM.discardSearchResults', { searchId }); } catch { /* detached */ }
     }
+    watchdog.throwIfExpired();
     const sorted = candidates.sort((left, right) => right.score - left.score || right.rect.width * right.rect.height - left.rect.width * left.rect.height);
     const distinct: GameSurfaceCandidate[] = [];
     for (const candidate of sorted) {
@@ -527,78 +578,8 @@ export async function detectGameSurfaces(webContents: WebContents): Promise<Game
     }
     return distinct;
   } finally {
+    watchdog.close();
     try { webContents.debugger.removeListener('message', onMessage); } catch { /* destroyed */ }
     lease.release();
   }
-}
-
-export function chooseMatchingGameSurface(candidates: GameSurfaceCandidate[], fingerprint: string): GameSurfaceCandidate | null {
-  return candidates.find((candidate) => candidate.fingerprint === fingerprint) ?? null;
-}
-
-function sourceName(value: string): string {
-  const clean = value.split(/[?#]/u)[0].replace(/\\/g, '/');
-  return clean.slice(clean.lastIndexOf('/') + 1).toLowerCase();
-}
-
-export function gameSurfaceLocatorFromCandidate(candidate: GameSurfaceCandidate): AutomationGameSurfaceLocator {
-  return {
-    version: 1,
-    kind: candidate.kind,
-    label: candidate.label,
-    source: candidate.source,
-    frameUrl: candidate.frameUrl,
-    width: Math.round(candidate.rect.width),
-    height: Math.round(candidate.rect.height),
-  };
-}
-
-/** Find the surface selected by the script author without relying on volatile DOM ids. */
-export function chooseLocatedGameSurface(candidates: GameSurfaceCandidate[], locator: AutomationGameSurfaceLocator): GameSurfaceCandidate | null {
-  const scored = candidates.map((candidate) => {
-    let score = candidate.kind === locator.kind ? 100 : 0;
-    let identityEvidence = 0;
-    if (locator.label && candidate.label === locator.label) score += 80;
-    if (locator.source && candidate.source === locator.source) { score += 170; identityEvidence += 2; }
-    else if (sourceName(locator.source) && sourceName(candidate.source) === sourceName(locator.source)) { score += 110; identityEvidence += 1; }
-    if (locator.frameUrl && candidate.frameUrl === locator.frameUrl) { score += 100; identityEvidence += 2; }
-    else if (sourceName(locator.frameUrl) && sourceName(candidate.frameUrl) === sourceName(locator.frameUrl)) { score += 55; identityEvidence += 1; }
-    const locatorRatio = locator.width / Math.max(1, locator.height);
-    const candidateRatio = candidate.rect.width / Math.max(1, candidate.rect.height);
-    score += Math.max(0, 50 - Math.abs(Math.log(Math.max(.01, candidateRatio / locatorRatio))) * 70);
-    const sizeRatio = Math.sqrt(candidate.rect.width * candidate.rect.height / Math.max(1, locator.width * locator.height));
-    score += Math.max(0, 30 - Math.abs(Math.log(Math.max(.01, sizeRatio))) * 25);
-    // A changed renderer kind (Flash -> iframe/Ruffle/Canvas) is allowed only
-    // when URL/source evidence still identifies the same game. Dimensions and
-    // generic labels alone are not safe enough on pages with several players.
-    if (candidate.kind !== locator.kind && identityEvidence === 0) score = -Infinity;
-    return { candidate, score };
-  }).sort((left, right) => right.score - left.score || right.candidate.score - left.candidate.score);
-  const best = scored[0]; const second = scored[1];
-  if (!best || best.score < 65) return null;
-  if (second && best.score - second.score < 12) return null;
-  return best.candidate;
-}
-
-/** Reacquire a player that replaced its DOM node while retaining the same logical game area. */
-export function chooseReplacementGameSurface(candidates: GameSurfaceCandidate[], previous: GameSurfaceCandidate): GameSurfaceCandidate | null {
-  const sameKind = candidates.filter((candidate) => candidate.kind === previous.kind);
-  const nonFrame = candidates.filter((candidate) => candidate.kind !== 'frame');
-  const pool = sameKind.length ? sameKind : nonFrame.length ? nonFrame : candidates;
-  if (!pool.length) return null;
-  const scored = pool.map((candidate) => {
-    let score = 0;
-    if (candidate.kind === previous.kind) score += 25;
-    if (candidate.source && previous.source && candidate.source === previous.source) score += 70;
-    if (candidate.frameUrl && previous.frameUrl && candidate.frameUrl === previous.frameUrl) score += 55;
-    if (candidate.label === previous.label) score += 15;
-    if (candidate.frameDepth === previous.frameDepth) score += 8;
-    const previousRatio = previous.rect.width / Math.max(1, previous.rect.height);
-    const candidateRatio = candidate.rect.width / Math.max(1, candidate.rect.height);
-    score += Math.max(0, 20 - Math.abs(Math.log(Math.max(.01, candidateRatio / previousRatio))) * 20);
-    return { candidate, score };
-  }).sort((left, right) => right.score - left.score || right.candidate.score - left.candidate.score);
-  const best = scored[0];
-  const minimum = pool.length === 1 ? 45 : 65;
-  return best && best.score >= minimum ? best.candidate : null;
 }

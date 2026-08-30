@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bao 自动化工作台 · 交互原型</title>
+  <style>
+    :root {
+      --bg:#f3f5f8; --panel:#fff; --line:#dfe4eb; --text:#202631; --muted:#6e7888;
+      --blue:#3478ef; --blue-soft:#eaf2ff; --purple:#7654b5; --green:#4d9b62; --amber:#b77a22;
+      --shadow:0 8px 24px rgba(40,52,72,.09); --radius:12px;
+    }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe UI","Microsoft YaHei",sans-serif;overflow:hidden}
+    button,input,select,textarea{font:inherit} button{cursor:pointer;color:inherit}
+    .app{height:100vh;display:grid;grid-template-rows:64px 1fr 34px}
+    .topbar{display:flex;align-items:center;gap:18px;padding:0 20px;background:#fff;border-bottom:1px solid var(--line);z-index:4}
+    .brand{display:flex;align-items:center;gap:10px;min-width:218px}.brand-mark{width:32px;height:32px;border-radius:9px;background:linear-gradient(145deg,#4c91ff,#316be4);color:white;display:grid;place-items:center;font-weight:800}.brand strong{display:block;font-size:16px}.brand small{color:var(--muted)}
+    .package-picker{height:38px;min-width:210px;border:1px solid var(--line);border-radius:9px;background:#f8fafc;padding:0 12px;display:flex;align-items:center;gap:8px}.package-picker b{flex:1;text-align:left}.package-picker span{color:var(--muted)}
+    .breadcrumb{display:flex;align-items:center;gap:8px;color:#7a8493}.breadcrumb b{color:#303846}.breadcrumb .sep{color:#b1b8c2}.runtime-state{display:flex;align-items:center;gap:6px;margin-left:10px;color:#468354;font-size:12px}.runtime-state:before{content:"";width:7px;height:7px;border-radius:50%;background:#54a66a}
+    .top-actions{margin-left:auto;display:flex;gap:8px}.btn{height:36px;border:1px solid var(--line);border-radius:8px;background:white;padding:0 13px;display:inline-flex;align-items:center;gap:7px;font-weight:600}.btn:hover{background:#f5f8fc}.btn.primary{background:var(--blue);border-color:var(--blue);color:white}.btn.ghost{border-color:transparent;background:transparent}.btn.small{height:30px;padding:0 9px;font-size:12px}.btn.danger{color:#bd4141}
+    .body{min-height:0;display:grid;grid-template-columns:232px 1fr}
+    .sidebar{background:#f8fafc;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;padding:14px 12px;gap:12px}
+    .side-title{display:flex;align-items:center;justify-content:space-between;padding:2px 6px;color:#778192;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.count{background:#e7ebf1;border-radius:99px;padding:1px 7px;color:#647084}
+    .flow-card{width:100%;display:flex;gap:10px;align-items:center;border:1px solid transparent;background:transparent;border-radius:10px;padding:9px;text-align:left}.flow-card:hover{background:#edf2f8}.flow-card.selected{border-color:#bcd1fb;background:var(--blue-soft)}.flow-icon{width:32px;height:32px;border-radius:8px;background:white;color:var(--blue);display:grid;place-items:center;font-size:15px;border:1px solid #e1e7ef}.flow-icon.ts{color:#3177c6}.flow-icon.js{color:#947000;background:#fff8cf}.flow-card span{min-width:0}.flow-card strong,.flow-card small{display:block}.flow-card small{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.entry-add{width:100%;height:34px;border:1px dashed #bfc9d6;border-radius:8px;background:white;color:#56708f;font-weight:650}.entry-add:hover{border-color:#6f9bea;background:#f2f7ff}
+    .quick-nav{display:grid;gap:4px}.quick-nav button{height:36px;border:0;border-radius:8px;background:transparent;text-align:left;padding:0 10px;color:#5e6878}.quick-nav button:hover,.quick-nav button.active{background:#e9eef6;color:#2f68ca;font-weight:700}.quick-nav i{display:inline-block;width:22px;font-style:normal}
+    .sidebar-note{margin-top:auto;border:1px solid #d7e3fa;background:#f1f6ff;border-radius:10px;padding:10px;color:#49617f;font-size:12px}.sidebar-note b{display:block;margin-bottom:3px;color:#31517c}
+    .workspace{min-width:0;min-height:0;position:relative}.view{position:absolute;inset:0;display:none}.view.active{display:flex}
+    .statusbar{height:34px;background:#fff;border-top:1px solid var(--line);display:flex;align-items:center;padding:0 18px;gap:18px;color:#727d8e;font-size:12px}.statusbar .ok{color:#3f8752}.statusbar span:last-child{margin-left:auto}
+
+    /* Flow */
+    .flow-view{display:grid!important;grid-template-columns:176px minmax(480px,1fr) 278px}.view:not(.active).flow-view{display:none!important}.flow-view.context-collapsed{grid-template-columns:176px minmax(480px,1fr) 46px}.flow-view.context-collapsed .resource-tray>*:not(.context-collapse){display:none}.flow-view.context-collapsed .resource-tray{align-items:center}
+    .toolbox{background:#fff;border-right:1px solid var(--line);padding:12px 9px;overflow:auto}.toolbox h3{font-size:12px;color:#7b8493;margin:2px 8px 10px}.category{width:100%;height:42px;border:0;border-radius:9px;background:transparent;margin-bottom:4px;text-align:left;padding:0 10px;font-weight:650;display:flex;align-items:center;gap:9px}.category:hover{background:#f3f5f8}.category.active{background:#eee8fa;color:#65439e}.dot{width:10px;height:10px;border-radius:3px}.category[data-color="purple"] .dot{background:#8058bc}.category[data-color="green"] .dot{background:#52a365}.category[data-color="blue"] .dot{background:#5288b4}.category[data-color="amber"] .dot{background:#c68b32}.category[data-color="pink"] .dot{background:#b85a7d}.category[data-color="teal"] .dot{background:#45a29a}
+    .canvas-wrap{min-width:0;display:grid;grid-template-rows:46px 1fr;background:#fbfcfe}.canvas-toolbar{display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--line);background:#fff;gap:8px}.canvas-toolbar strong{margin-right:auto}.canvas-toolbar .hint{color:var(--muted);font-size:12px}.canvas{position:relative;overflow:auto;background-color:#fcfdff;background-image:radial-gradient(#d9e4f3 1px,transparent 1px);background-size:20px 20px;padding:28px 26px}
+    .block-stack{width:max-content;min-width:510px;filter:drop-shadow(0 3px 2px rgba(42,55,77,.10))}.block{color:white;font-weight:600;border-radius:7px;padding:10px 12px;display:flex;align-items:center;gap:7px;min-height:42px}.block.entry{background:#7654b5;border:3px solid #f1c63a;border-radius:12px 8px 8px 12px;display:block;padding:8px 10px 10px}.block.entry .line{display:flex;align-items:center;gap:7px}.block.entry .sub{font-size:12px;font-weight:500;opacity:.9;margin:7px 0 7px}.block.action{background:#53a564;margin-left:26px;width:max-content}.block.wait{background:#4c8db5;margin-left:26px;width:max-content}.block .field{height:27px;border-radius:5px;border:1px solid rgba(0,0,0,.22);background:#f7fbff;color:#263142;padding:3px 8px;font-weight:600;box-shadow:inset 0 1px 2px rgba(0,0,0,.06)}.field.coord{width:112px;text-align:center;letter-spacing:.02em}.block .select{background:#dfeaf5;color:#263142;padding:4px 8px;border-radius:4px}.paste{border:0;border-radius:5px;background:#fff;color:#4d6f9b;padding:4px 7px;font-size:12px}.paste:hover{background:#eaf2ff}.empty-slot{height:34px;margin:0 0 0 26px;border-left:16px solid #7654b5}
+    .flyout{position:absolute;left:10px;top:12px;width:278px;background:#fff;border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);padding:10px;display:none}.flyout.show{display:block}.flyout-head{display:flex;justify-content:space-between;align-items:center;margin:0 2px 8px}.flyout-head span{color:var(--muted);font-size:12px}.mini-block{border:0;color:white;border-radius:7px;padding:8px 10px;margin:7px 0;text-align:left;font-weight:600;display:block}.mini-block.purple{background:#7654b5}.mini-block.green{background:#53a564}.mini-block.blue{background:#4c8db5}.mini-block.amber{background:#bb842f}.mini-block.pink{background:#b65b7b}
+    .resource-tray{background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}.tray-head{padding:12px;border-bottom:1px solid var(--line)}.tray-head .row{display:flex;align-items:center;justify-content:space-between}.tray-head strong{font-size:14px}.tray-head p{margin:4px 0 8px;color:var(--muted);font-size:12px}.search{height:32px;width:100%;border:1px solid var(--line);border-radius:7px;padding:0 9px}.assets{padding:10px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start}.asset{border:1px solid var(--line);background:#fff;border-radius:9px;padding:6px;text-align:left}.asset:hover,.asset.selected{border-color:#6b9cf3;box-shadow:0 0 0 2px #dce9ff}.thumb{height:66px;border-radius:6px;background:linear-gradient(135deg,#27374c,#55738e);display:grid;place-items:center;color:#d8edff;font-size:12px;position:relative;overflow:hidden}.thumb:before{content:"";position:absolute;width:30px;height:24px;background:#d9a84a;border-radius:4px;box-shadow:36px 8px 0 #77a969}.thumb span{z-index:1;background:#1d2938cc;padding:2px 5px;border-radius:3px}.asset b{display:block;margin-top:5px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.asset small{color:var(--muted)}.tray-footer{margin-top:auto;padding:10px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:7px}
+
+    /* Assets */
+    .asset-center{width:100%;display:grid;grid-template-rows:58px 1fr}.section-bar{display:flex;align-items:center;padding:0 18px;background:#fff;border-bottom:1px solid var(--line);gap:9px}.section-bar h2{font-size:16px;margin:0 auto 0 0}.section-bar p{margin:0;color:var(--muted)}
+    .asset-layout{min-height:0;display:grid;grid-template-columns:1fr 330px;gap:14px;padding:14px;overflow:auto}.asset-library-card,.preview-card,.test-card,.api-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 2px 6px rgba(45,58,78,.04)}.asset-library-card{padding:15px}.asset-library-card h3{margin:0 0 4px}.asset-library-card>p{margin:0 0 14px;color:var(--muted)}.asset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:11px}.asset-big{border:1px solid var(--line);border-radius:10px;background:white;padding:7px;text-align:left}.asset-big:hover{border-color:#77a2ee;transform:translateY(-1px)}.asset-big .thumb{height:94px}.asset-big b,.asset-big small{display:block;margin-top:5px}.asset-big small{color:var(--muted)}.preview-card{padding:16px;align-self:start;position:sticky;top:0}.preview-large{height:180px;border-radius:10px;background:linear-gradient(135deg,#223247,#4d718c);display:grid;place-items:center;color:white;margin:12px 0}.preview-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px}.preview-meta div{background:#f5f7fa;border-radius:7px;padding:8px}.preview-actions{display:flex;gap:7px;margin-top:12px}
+
+    /* Test center */
+    .test-center{width:100%;display:grid;grid-template-rows:58px 1fr}.segmented{display:flex;background:#edf1f6;padding:3px;border-radius:8px}.segmented button{height:30px;border:0;background:transparent;border-radius:6px;padding:0 11px;color:#667184}.segmented button.active{background:white;color:#2869d3;box-shadow:0 1px 3px rgba(0,0,0,.1);font-weight:700}.test-layout{display:grid;grid-template-columns:260px 1fr 280px;gap:14px;padding:14px;min-height:0}.test-card{padding:14px;overflow:auto}.test-card h3{margin:0 0 5px}.test-card p{color:var(--muted);font-size:12px;margin:0 0 12px}.scene{height:100%;min-height:410px;border-radius:10px;background:linear-gradient(145deg,#16283b,#42627d);position:relative;overflow:hidden}.scene:before{content:"测试场景 · game-screen.png";position:absolute;left:14px;top:12px;color:#cfe4f4;font-size:12px}.mock-panel{position:absolute;left:20%;top:22%;width:60%;height:56%;border:2px solid #7196b1;background:#203d54;border-radius:8px}.mock-button{position:absolute;left:59%;top:61%;width:16%;height:9%;background:#d8a33f;border-radius:5px}.match-box{position:absolute;left:57.5%;top:59%;width:19%;height:13%;border:3px solid #54d47a;box-shadow:0 0 0 2px #173b24aa}.match-box span{position:absolute;left:-3px;top:-25px;background:#42b866;color:white;border-radius:4px;padding:2px 6px;font-size:12px}.control-group{display:grid;gap:9px;margin-top:12px}.control-group label{font-size:12px;color:#626e80}.control-group input,.control-group select{width:100%;height:34px;margin-top:4px;border:1px solid var(--line);border-radius:7px;padding:0 8px}.result-good{border:1px solid #bfe3c8;background:#effaf2;color:#347a47;border-radius:8px;padding:10px;margin-top:12px}.result-good b{display:block;font-size:15px}
+
+    /* Code/API */
+    .code-center{width:100%;display:grid;grid-template-rows:58px 1fr}.code-layout{min-height:0;display:grid;grid-template-columns:310px 1fr}.api-docs{background:#fff;border-right:1px solid var(--line);overflow:auto;padding:14px}.api-intro{border:1px solid #cfe0ff;background:#f1f6ff;border-radius:10px;padding:11px;margin-bottom:12px}.api-intro b{display:block;color:#315f9c}.api-intro p{margin:4px 0 0;color:#5d7088;font-size:12px}.doc-search{height:34px;width:100%;border:1px solid var(--line);border-radius:7px;padding:0 10px;margin-bottom:10px}.api-group{margin:14px 0}.api-group h4{margin:0 0 6px;color:#7c8797;font-size:11px;text-transform:uppercase}.api-item{width:100%;border:0;background:transparent;border-radius:7px;text-align:left;padding:8px 9px;font-family:Consolas,monospace}.api-item:hover,.api-item.active{background:#edf4ff;color:#2867c7}.code-editor{display:grid;grid-template-rows:42px 1fr 74px;background:#18202d;color:#d7e2f0;min-width:0}.editor-head{display:flex;align-items:center;border-bottom:1px solid #303c4d;padding:0 12px;gap:7px}.editor-tab{height:30px;border:0;border-radius:6px;background:#263142;color:#dce7f5;padding:0 12px}.editor-head span{margin-left:auto;color:#8fa0b6;font-size:12px}.code{margin:0;padding:18px 20px;font:14px/1.7 Consolas,"SFMono-Regular",monospace;white-space:pre;overflow:auto;color:#d6deeb}.kw{color:#c792ea}.fn{color:#82aaff}.str{color:#c3e88d}.num{color:#f78c6c}.comment{color:#66788d}.permission-bar{border-top:1px solid #303c4d;background:#202a39;display:flex;align-items:center;padding:10px 14px;gap:10px}.permission-bar b{font-size:12px}.chip{border:1px solid #47566b;border-radius:99px;padding:4px 9px;color:#b8c5d6;font-size:11px}.permission-bar .btn{margin-left:auto}
+    .block.script{background:#a56b36;margin-left:26px;width:max-content}.resource-tray{position:relative}.context-collapse{position:absolute;left:-13px;top:12px;width:26px;height:26px;border:1px solid var(--line);border-radius:50%;background:white;z-index:3;padding:0;box-shadow:0 2px 5px rgba(0,0,0,.08)}
+    .code-layout{grid-template-columns:1fr 330px}.api-docs{grid-column:2;grid-row:1;border-right:0;border-left:1px solid var(--line)}.code-editor{grid-column:1;grid-row:1}
+    .modal-backdrop{position:fixed;inset:0;background:#18233370;display:none;align-items:center;justify-content:center;z-index:20}.modal-backdrop.show{display:flex}.modal{width:min(680px,90vw);max-height:82vh;overflow:auto;background:#fff;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.24);padding:20px}.modal h2{margin:0 0 6px}.modal>p{margin:0 0 18px;color:var(--muted)}.entry-types{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.entry-type{border:1px solid var(--line);border-radius:10px;background:#fff;padding:16px;text-align:left}.entry-type:hover{border-color:#6f9bea;background:#f5f9ff}.entry-type b,.entry-type span{display:block}.entry-type b{font-size:15px;margin-bottom:4px}.entry-type span{font-size:12px;color:var(--muted)}.modal-actions{display:flex;justify-content:flex-end;margin-top:18px}.docs-modal{width:min(960px,92vw)}.docs-grid{display:grid;grid-template-columns:210px 1fr;gap:20px}.docs-toc{border-right:1px solid var(--line);display:grid;align-content:start;gap:4px}.docs-toc button{border:0;background:transparent;text-align:left;padding:8px;border-radius:6px}.docs-toc button:first-child{background:#edf4ff;color:#2867c7}.docs-content h3{margin-top:0}.signature{background:#18202d;color:#d8e5f4;border-radius:8px;padding:12px;font-family:Consolas,monospace}.docs-content table{width:100%;border-collapse:collapse}.docs-content th,.docs-content td{border-bottom:1px solid var(--line);padding:9px;text-align:left;font-size:12px}
+    .toast{position:fixed;right:18px;bottom:48px;background:#253244;color:white;border-radius:9px;padding:10px 14px;box-shadow:var(--shadow);opacity:0;transform:translateY(10px);pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:none}
+    @media(max-width:1100px){.body{grid-template-columns:190px 1fr}.flow-view{grid-template-columns:150px minmax(420px,1fr) 230px}.brand{min-width:180px}.package-picker{display:none}.breadcrumb{display:none}.test-layout{grid-template-columns:220px 1fr}.test-layout>.test-card:last-child{display:none}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark">B</div><div><strong>自动化工作台</strong><small>Automation 2.0</small></div></div>
+    <button class="package-picker"><span>当前项目</span><b>跑商助手</b>⌄</button>
+    <div class="breadcrumb"><span>跑商助手</span><span class="sep">/</span><b id="currentLocation">主流程</b><span class="runtime-state">Core 已就绪</span></div>
+    <div class="top-actions"><button class="btn ghost">导入</button><button class="btn ghost">导出</button><button class="btn" id="runMain">▶ 运行主入口</button><button class="btn primary" id="saveBtn">保存</button></div>
+  </header>
+
+  <div class="body">
+    <aside class="sidebar">
+      <div class="side-title"><span>主入口</span><span class="count">1</span></div>
+      <button class="flow-card selected entry-link" data-view="flow" data-location="主流程"><span class="flow-icon">▦</span><span><strong>主流程</strong><small>Blockly · 点击运行时执行</small></span></button>
+      <button class="entry-add" id="changeEntry">更换主入口</button>
+      <div class="side-title"><span>可复用脚本</span><span class="count">2</span></div>
+      <button class="flow-card script-link" data-view="code" data-location="price-check.ts"><span class="flow-icon ts">TS</span><span><strong>价格判断</strong><small>price-check.ts · 可被积木调用</small></span></button>
+      <button class="flow-card script-link" data-view="code" data-location="auto-buy.js"><span class="flow-icon js">JS</span><span><strong>自动购买</strong><small>auto-buy.js · 可被积木调用</small></span></button>
+      <button class="entry-add" id="addEntry">＋ 新建 JS / TS 脚本</button>
+      <div class="side-title"><span>资源工具</span></div>
+      <div class="quick-nav">
+        <button data-view="assets" data-location="素材中心"><i>▧</i>管理素材</button>
+        <button data-view="test" data-location="测试中心"><i>⌕</i>测试识别</button>
+        <button data-view="code" data-location="接口文档"><i>?</i>接口文档</button>
+      </div>
+      <div class="sidebar-note"><b>一个默认主入口</b>脚本可以独立设为主入口，也可以作为“运行脚本”积木被 Blockly 调用。</div>
+    </aside>
+
+    <main class="workspace">
+      <section class="view flow-view active" id="view-flow">
+        <aside class="toolbox">
+          <h3>按要做的事情查找积木</h3>
+          <button class="category active" data-color="purple" data-cat="开始与范围"><span class="dot"></span>开始与范围</button>
+          <button class="category" data-color="green" data-cat="点击与拖动"><span class="dot"></span>点击与拖动</button>
+          <button class="category" data-color="blue" data-cat="识别与等待"><span class="dot"></span>识别与等待</button>
+          <button class="category" data-color="amber" data-cat="键盘与输入"><span class="dot"></span>键盘与输入</button>
+          <button class="category" data-color="pink" data-cat="判断与循环"><span class="dot"></span>判断与循环</button>
+          <button class="category" data-color="teal" data-cat="读取与变量"><span class="dot"></span>读取与变量</button>
+          <button class="category" data-color="amber" data-cat="脚本与扩展"><span class="dot"></span>脚本与扩展</button>
+          <button class="category" data-color="blue" data-cat="页面与消息"><span class="dot"></span>页面与消息</button>
+        </aside>
+        <div class="canvas-wrap">
+          <div class="canvas-toolbar"><strong>流程：低价自动购买</strong><span class="hint">坐标可以直接粘贴为 x,y</span><button class="btn small">撤销</button><button class="btn small">整理积木</button></div>
+          <div class="canvas">
+            <div class="block-stack">
+              <div class="block entry"><div class="line">指定游戏画面 <span class="field">Canvas 760×150</span> 后启动</div><div class="sub">以下积木使用游戏画面坐标（0–10000）</div><div class="line">执行</div></div>
+              <div class="empty-slot"></div>
+              <div class="block action">点击 <span class="select">坐标</span><input class="field coord" value="400,7061" aria-label="相对坐标"/><button class="paste" data-paste>粘贴坐标</button> 按键 <span class="select">左键⌄</span></div>
+              <div class="block script">运行脚本 <span class="select">price-check.ts⌄</span> 参数 <span class="field">价格区域</span> 结果保存到 <span class="field">price</span></div>
+              <div class="block wait">等待图片 <span class="select">buy-button.png⌄</span> 出现，最长 <span class="field">10 秒</span></div>
+            </div>
+            <div class="flyout" id="flyout"><div class="flyout-head"><b>开始与范围</b><span>拖入画布</span></div><button class="mini-block purple">无条件启动</button><button class="mini-block purple">限定区域 左上 0,0 右下 10000,10000</button><button class="mini-block purple">指定游戏画面后启动</button></div>
+          </div>
+        </div>
+        <aside class="resource-tray">
+          <button class="context-collapse" id="flowContextToggle" title="收起素材面板">›</button>
+          <div class="tray-head"><div class="row"><strong>素材托盘</strong><button class="btn small" id="importAsset1">＋ 导入</button></div><p>拖到图片积木，或点击插入当前积木。</p><input class="search" placeholder="搜索素材…" /></div>
+          <div class="assets">
+            <button class="asset selected" data-name="buy-button.png"><div class="thumb"><span>购买按钮</span></div><b>buy-button.png</b><small>82 × 31</small></button>
+            <button class="asset" data-name="price-120.png"><div class="thumb"><span>价格 120</span></div><b>price-120.png</b><small>56 × 22</small></button>
+            <button class="asset" data-name="shop-icon.png"><div class="thumb"><span>商店</span></div><b>shop-icon.png</b><small>48 × 48</small></button>
+            <button class="asset" data-name="confirm.png"><div class="thumb"><span>确认</span></div><b>confirm.png</b><small>74 × 29</small></button>
+          </div>
+          <div class="tray-footer"><button class="btn small" data-view="assets">管理素材</button><button class="btn small" data-view="test">立即测试</button></div>
+        </aside>
+      </section>
+
+      <section class="view" id="view-assets">
+        <div class="asset-center">
+          <div class="section-bar"><div><h2>素材中心</h2><p>导入、预览、替换和整理识图素材</p></div><button class="btn" id="importFolder">导入文件夹</button><button class="btn primary" id="importAsset2">＋ 导入图片</button></div>
+          <div class="asset-layout">
+            <div class="asset-library-card"><h3>跑商助手素材包 <span class="count">6</span></h3><p>素材属于当前自动化包，Blockly 和 JS/TS 共用。</p><div class="asset-grid">
+              <button class="asset-big selected" data-name="buy-button.png"><div class="thumb"><span>购买按钮</span></div><b>buy-button.png</b><small>已用于 2 个积木</small></button>
+              <button class="asset-big" data-name="price-120.png"><div class="thumb"><span>价格 120</span></div><b>price-120.png</b><small>未引用</small></button>
+              <button class="asset-big" data-name="shop-icon.png"><div class="thumb"><span>商店</span></div><b>shop-icon.png</b><small>已用于 1 个积木</small></button>
+              <button class="asset-big" data-name="confirm.png"><div class="thumb"><span>确认</span></div><b>confirm.png</b><small>已用于 1 个积木</small></button>
+              <button class="asset-big" data-name="city-a.png"><div class="thumb"><span>城市 A</span></div><b>city-a.png</b><small>未引用</small></button>
+              <button class="asset-big" data-name="close.png"><div class="thumb"><span>关闭</span></div><b>close.png</b><small>已用于 1 个积木</small></button>
+            </div></div>
+            <aside class="preview-card"><h3 id="previewName">buy-button.png</h3><div class="preview-large">素材预览<br/>购买按钮</div><div class="preview-meta"><div><b>尺寸</b><br/>82 × 31</div><div><b>引用</b><br/>2 个积木</div><div><b>透明通道</b><br/>已检测</div><div><b>建议阈值</b><br/>0.88–0.94</div></div><div class="preview-actions"><button class="btn">替换</button><button class="btn" data-view="test">在场景中测试</button><button class="btn danger">删除</button></div></aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-test">
+        <div class="test-center">
+          <div class="section-bar"><div><h2>测试中心</h2><p>保存前验证图片识别和 OCR，不必先运行完整流程</p></div><div class="segmented"><button class="active">图片对比</button><button>文字识别 OCR</button></div><button class="btn">更换测试场景</button></div>
+          <div class="test-layout">
+            <aside class="test-card"><h3>选择素材</h3><p>从当前素材包中选择要测试的图片。</p><select><option>buy-button.png</option><option>shop-icon.png</option><option>confirm.png</option></select><div class="control-group"><label>相似度阈值 90%<input type="range" min="10" max="100" value="90"/></label><label>缩放范围<select><option>自动（推荐）</option><option>固定 100%</option></select></label><label>识别范围<input value="0,0 → 10000,10000"/></label></div><button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" id="compareBtn">开始对比</button><div class="result-good" id="compareResult"><b>匹配成功 · 96.4%</b>位置 6120,6840 · 耗时 38ms</div></aside>
+            <div class="scene"><div class="mock-panel"></div><div class="mock-button"></div><div class="match-box" id="matchBox"><span>96.4%</span></div></div>
+            <aside class="test-card"><h3>结果说明</h3><p>绿色框是实际找到的位置。结果可直接回填到积木。</p><div class="preview-meta"><div><b>相对坐标</b><br/>6120,6840</div><div><b>原图坐标</b><br/>587,369</div><div><b>匹配缩放</b><br/>1.00×</div><div><b>耗时</b><br/>38 ms</div></div><button class="btn" style="width:100%;justify-content:center;margin-top:12px" data-copy="6120,6840">复制相对坐标</button><button class="btn" style="width:100%;justify-content:center;margin-top:8px" data-view="flow">返回积木编排</button></aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-code">
+        <div class="code-center">
+          <div class="section-bar"><div><h2>price-check.ts</h2><p>TypeScript · 可被积木调用 · 沙箱运行</p></div><button class="btn" id="setAsEntry">设为主入口</button><button class="btn" id="fullDocs">完整接口文档</button><button class="btn primary" id="addScript">＋ 新建脚本</button></div>
+          <div class="code-layout">
+            <aside class="api-docs"><div class="api-intro"><b>当前 API 快速参考</b><p>这里只显示编辑时最相关的签名和示例；完整文档在独立文档中心。</p></div><input class="doc-search" placeholder="搜索接口，例如 click、readNumber…"/><div class="api-group"><h4>当前文件使用</h4><button class="api-item active">bao.ocr.readNumber(region)</button><button class="api-item">bao.input.click(target)</button><button class="api-item">bao.locator.image(asset)</button><button class="api-item">bao.log.info(message)</button></div><div class="api-group"><h4>上下文</h4><button class="api-item">素材包：6 个素材</button><button class="api-item">游戏区域：Canvas 760×150</button><button class="api-item">脚本权限：4 项</button></div></aside>
+            <div class="code-editor"><div class="editor-head"><button class="editor-tab">price-check.ts</button><button class="editor-tab">＋</button><span>TypeScript 类型提示 · 沙箱运行</span></div><pre class="code"><span class="comment">// 使用与积木相同的游戏区域和素材</span>
+<span class="kw">const</span> price = <span class="kw">await</span> bao.ocr.<span class="fn">readNumber</span>({
+  from: <span class="str">"1200,1800"</span>,
+  to: <span class="str">"4200,2800"</span>
+});
+
+<span class="kw">if</span> (price &lt; <span class="num">100</span>) {
+  <span class="kw">await</span> bao.input.<span class="fn">click</span>(
+    bao.locator.<span class="fn">image</span>(<span class="str">"buy-button.png"</span>)
+  );
+  bao.log.<span class="fn">info</span>(<span class="str">`已购买，价格 ${price}`</span>);
+}</pre><div class="permission-bar"><b>本脚本权限</b><span class="chip">✓ input</span><span class="chip">✓ vision</span><span class="chip">✓ ocr</span><span class="chip">✓ log</span><button class="btn">检查</button><button class="btn primary">运行脚本</button></div></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <footer class="statusbar"><span class="ok">● Automation Core 已就绪</span><span>主入口：Blockly 主流程</span><span>游戏区域：Canvas 760×150</span><span>素材：6</span><span>未保存的原型改动</span></footer>
+</div>
+<div class="modal-backdrop" id="entryModal">
+  <div class="modal"><h2>新建脚本</h2><p>脚本默认作为可复用模块，可由“运行脚本”积木调用；需要时也可以设为主入口。</p><div class="entry-types">
+    <button class="entry-type" data-create="JavaScript"><b>JS JavaScript</b><span>直接使用 bao.* API，保存后在沙箱中执行。</span></button>
+    <button class="entry-type" data-create="TypeScript"><b>TS TypeScript</b><span>具有完整类型提示，保存时编译为沙箱脚本。</span></button>
+  </div><div class="modal-actions"><button class="btn" data-close-modal>取消</button></div></div>
+</div>
+<div class="modal-backdrop" id="mainEntryModal">
+  <div class="modal"><h2>选择主入口</h2><p>点击顶部“运行”时只执行这里选中的一个入口。脚本仍可被其他入口调用。</p><div class="entry-types">
+    <button class="entry-type" data-main-entry="主流程"><b>▦ 主流程</b><span>Blockly 积木 · 当前主入口</span></button>
+    <button class="entry-type" data-main-entry="price-check.ts"><b>TS price-check.ts</b><span>完全使用 TypeScript 启动，不需要积木。</span></button>
+    <button class="entry-type" data-main-entry="auto-buy.js"><b>JS auto-buy.js</b><span>完全使用 JavaScript 启动，不需要积木。</span></button>
+  </div><div class="modal-actions"><button class="btn" data-close-modal>取消</button></div></div>
+</div>
+<div class="modal-backdrop" id="docsModal">
+  <div class="modal docs-modal"><h2>Automation API 完整文档</h2><p>文档随应用离线提供；编辑器内只显示与当前代码相关的快速参考。</p><div class="docs-grid">
+    <nav class="docs-toc"><button>快速开始</button><button>权限与沙箱</button><button>坐标与游戏区域</button><button>Locator</button><button>bao.input</button><button>bao.vision</button><button>bao.ocr</button><button>bao.page</button><button>bao.time</button><button>示例：跑商</button></nav>
+    <article class="docs-content"><h3>bao.ocr.readNumber</h3><p>读取指定区域中的数字，返回可直接参与计算的 number。区域坐标可以使用可粘贴的 <code>x,y</code> 字符串。</p><div class="signature">bao.ocr.readNumber(region: Region): Promise&lt;number&gt;</div><h4>参数</h4><table><tr><th>字段</th><th>类型</th><th>说明</th></tr><tr><td>from</td><td>"x,y"</td><td>区域左上角相对坐标</td></tr><tr><td>to</td><td>"x,y"</td><td>区域右下角相对坐标</td></tr></table><h4>示例</h4><div class="signature">const price = await bao.ocr.readNumber({<br>  from: "1200,1800", to: "4200,2800"<br>});</div></article>
+  </div><div class="modal-actions"><button class="btn primary" data-close-modal>关闭文档</button></div></div>
+</div>
+<div class="toast" id="toast">已完成</div>
+<script>
+  const toast = document.getElementById('toast');
+  function showToast(text){ toast.textContent=text; toast.classList.add('show'); clearTimeout(showToast.t); showToast.t=setTimeout(()=>toast.classList.remove('show'),1800); }
+  function showView(name){
+    document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='view-'+name));
+    document.querySelectorAll('.quick-nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
+  }
+  document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{showView(b.dataset.view);if(b.dataset.location)document.getElementById('currentLocation').textContent=b.dataset.location;}));
+  document.querySelectorAll('.flow-card').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.flow-card').forEach(x=>x.classList.remove('selected'));b.classList.add('selected')}));
+  document.querySelectorAll('.category').forEach(btn=>btn.addEventListener('click',()=>{
+    document.querySelectorAll('.category').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
+    const fly=document.getElementById('flyout'), head=fly.querySelector('b'); head.textContent=btn.dataset.cat; fly.classList.add('show');
+    const samples={
+      '开始与范围':['无条件启动','限定区域 0,0 → 10000,10000','指定游戏画面后启动'],
+      '点击与拖动':['点击 [图片/文字/坐标]','移动到 [目标]','从 [目标] 拖到 [目标]'],
+      '识别与等待':['等待图片出现','等待文字出现','查找目标并保存结果'],
+      '键盘与输入':['按键 Enter','输入文字','滚动页面'],
+      '判断与循环':['如果…那么…','重复执行','继续下一轮'],
+      '读取与变量':['读取文字','读取数字','设置变量'],
+      '脚本与扩展':['运行脚本 [选择脚本]','传入脚本参数','保存脚本返回值'],
+      '页面与消息':['打开网页','刷新页面','显示通知']
+    };
+    fly.querySelectorAll('.mini-block').forEach((el,i)=>{el.textContent=samples[btn.dataset.cat][i]||'';el.style.display=samples[btn.dataset.cat][i]?'block':'none'});
+  }));
+  document.querySelector('.canvas').addEventListener('click',e=>{if(!e.target.closest('.flyout')&&!e.target.closest('.category'))document.getElementById('flyout').classList.remove('show')});
+  document.querySelectorAll('[data-paste]').forEach(b=>b.addEventListener('click',()=>{b.previousElementSibling.value='400,7061';showToast('已粘贴相对坐标 400,7061')}));
+  document.querySelectorAll('.asset,.asset-big').forEach(a=>a.addEventListener('click',()=>{document.querySelectorAll('.asset,.asset-big').forEach(x=>x.classList.remove('selected'));a.classList.add('selected');const name=a.dataset.name;if(document.getElementById('previewName'))document.getElementById('previewName').textContent=name;showToast('已选择 '+name)}));
+  ['importAsset1','importAsset2','importFolder'].forEach(id=>document.getElementById(id)?.addEventListener('click',()=>showToast('Demo：打开素材导入窗口')));
+  document.getElementById('saveBtn').addEventListener('click',()=>showToast('Demo：自动化包已保存'));
+  const entryModal=document.getElementById('entryModal'),mainEntryModal=document.getElementById('mainEntryModal'),docsModal=document.getElementById('docsModal');
+  document.getElementById('addEntry').addEventListener('click',()=>entryModal.classList.add('show'));
+  document.getElementById('addScript').addEventListener('click',()=>entryModal.classList.add('show'));
+  document.getElementById('changeEntry').addEventListener('click',()=>mainEntryModal.classList.add('show'));
+  document.getElementById('setAsEntry').addEventListener('click',()=>mainEntryModal.classList.add('show'));
+  document.getElementById('fullDocs').addEventListener('click',()=>docsModal.classList.add('show'));
+  document.querySelectorAll('[data-close-modal]').forEach(b=>b.addEventListener('click',()=>b.closest('.modal-backdrop').classList.remove('show')));
+  document.querySelectorAll('.modal-backdrop').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('show')}));
+  document.querySelectorAll('[data-create]').forEach(b=>b.addEventListener('click',()=>{entryModal.classList.remove('show');showToast('Demo：已新建 '+b.dataset.create+' 可复用脚本');showView('code')}));
+  document.querySelectorAll('[data-main-entry]').forEach(b=>b.addEventListener('click',()=>{mainEntryModal.classList.remove('show');showToast('主入口已切换为 '+b.dataset.mainEntry)}));
+  document.getElementById('runMain').addEventListener('click',()=>showToast('正在运行唯一主入口：主流程'));
+  document.getElementById('flowContextToggle').addEventListener('click',e=>{const view=document.getElementById('view-flow');view.classList.toggle('context-collapsed');e.currentTarget.textContent=view.classList.contains('context-collapsed')?'‹':'›'});
+  document.getElementById('compareBtn').addEventListener('click',()=>{document.getElementById('matchBox').animate([{opacity:.15,transform:'scale(.96)'},{opacity:1,transform:'scale(1)'}],{duration:450});showToast('对比完成：匹配度 96.4%')});
+  document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>showToast('已复制 '+b.dataset.copy)));
+  document.querySelectorAll('.api-item').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.api-item').forEach(x=>x.classList.remove('active'));b.classList.add('active');showToast('Demo 文档：'+b.textContent)}));
+</script>
+</body>
+</html>

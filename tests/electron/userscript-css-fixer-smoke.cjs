@@ -167,10 +167,6 @@ app.whenReady().then(async () => {
   ipcMain.on('userscript:report', (event, payload) => {
     mod.getUserscriptManager()?.acceptReport(event.sender.id, payload);
   });
-  ipcMain.handle('userscript:automation-list', async () => []);
-  ipcMain.handle('userscript:automation-status', async () => ({
-    state: 'idle', executedSteps: 0, logs: [],
-  }));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require('../../release/tests/userscripts-admin-module.cjs');

@@ -1,6 +1,6 @@
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AutomationCapturedFrame } from '../src/main/modules/automation/browserview-driver';
+import type { AutomationCapturedFrame } from '../src/main/modules/automation/capability-contracts';
 import {
   OpenCvWorkerMatcher,
   CachingAutomationTemplateProvider,

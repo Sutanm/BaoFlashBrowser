@@ -52,21 +52,22 @@ export interface GmApi {
     onErrorOccurred?: (event: GmWebRequestEvent) => void;
   }): void;
   baoAutomation: {
-    listPackages(): Promise<Array<{ packageId: string; name: string; assets: string[] }>>;
-    match(packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha' }): Promise<unknown>;
-    ocrTest(text: string, options?: { match?: 'contains' | 'exact'; minScore?: number }): Promise<unknown>;
+    listPackages(): Promise<Array<{ packageId: string; name: string; assets: string[]; profiles: string[]; frontends: Array<{ id: string; kind: 'blockly' | 'javascript'; name: string }> }>>;
     status(): Promise<unknown>;
     start(packageId: string, countdownMs?: number): Promise<unknown>;
     cancel(): Promise<unknown>;
-    warmup(packageId: string, asset?: string): Promise<unknown>;
     assetPreview(packageId: string, asset: string): Promise<unknown>;
-    captureFrame(): Promise<unknown>;
-    saveCapture(packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }, overwrite?: boolean): Promise<unknown>;
+    captureFrame(region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }): Promise<unknown>;
+    saveCapture(packageId: string, token: string, assetName: string, rect: { x: number; y: number; width: number; height: number }, overwrite?: boolean): Promise<unknown>;
+    match(packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha'; region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number } }): Promise<unknown>;
+    ocrTest(text: string, options?: { match?: 'contains' | 'exact'; minScore?: number; region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number } }): Promise<unknown>;
     detectGameSurfaces(): Promise<unknown>;
     bindGameSurface(candidateId: string): Promise<unknown>;
     clearGameSurface(): Promise<unknown>;
     beginCoordinatePick(): Promise<unknown>;
     endCoordinatePick(): Promise<unknown>;
+    warmup(packageId: string, asset?: string): Promise<unknown>;
+    warmAuthoring(): Promise<unknown>;
   };
   handleWebRequestEvent(event: GmWebRequestEvent): void;
   info: Record<string, unknown>;
@@ -226,41 +227,7 @@ export function createGmApi(context: GmApiContext): GmApi {
     });
   };
 
-  const baoAutomation = {
-    listPackages: async (): Promise<Array<{ packageId: string; name: string; assets: string[] }>> => {
-      const result = await bridge.invoke('userscript:automation-list', { scriptId: script.id });
-      return Array.isArray(result) ? result as Array<{ packageId: string; name: string; assets: string[] }> : [];
-    },
-    match: (packageId: string, asset: string, options?: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha'; region?: { x: number; y: number; width: number; height: number } }): Promise<unknown> =>
-      bridge.invoke('userscript:automation-match', { scriptId: script.id, packageId, asset, options: options ?? {} }),
-    ocrTest: (text: string, options?: { match?: 'contains' | 'exact'; minScore?: number; region?: { x: number; y: number; width: number; height: number } }): Promise<unknown> =>
-      bridge.invoke('userscript:automation-ocr-test', {
-        scriptId: script.id,
-        text,
-        match: options?.match ?? 'contains',
-        minScore: options?.minScore ?? .5,
-        region: options?.region,
-      }),
-    status: (): Promise<unknown> => bridge.invoke('userscript:automation-status', { scriptId: script.id }),
-    start: (packageId: string, countdownMs = 0): Promise<unknown> =>
-      bridge.invoke('userscript:automation-start', { scriptId: script.id, packageId, countdownMs }),
-    cancel: (): Promise<unknown> => bridge.invoke('userscript:automation-cancel', { scriptId: script.id }),
-    warmup: (packageId: string, asset?: string): Promise<unknown> =>
-      bridge.invoke('userscript:automation-warmup', { scriptId: script.id, packageId, asset }),
-    assetPreview: (packageId: string, asset: string): Promise<unknown> =>
-      bridge.invoke('userscript:automation-asset-preview', { scriptId: script.id, packageId, asset }),
-    captureFrame: (): Promise<unknown> => bridge.invoke('userscript:automation-capture-frame', { scriptId: script.id }),
-    saveCapture: (packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }, overwrite = false): Promise<unknown> =>
-      bridge.invoke('userscript:automation-save-capture', { scriptId: script.id, packageId, token, asset, rect, overwrite }),
-    detectGameSurfaces: (): Promise<unknown> => bridge.invoke('userscript:automation-game-surfaces', { scriptId: script.id }),
-    bindGameSurface: (candidateId: string): Promise<unknown> => bridge.invoke('userscript:automation-game-surface-bind', { scriptId: script.id, candidateId }),
-    clearGameSurface: (): Promise<unknown> => bridge.invoke('userscript:automation-game-surface-clear', { scriptId: script.id }),
-    beginCoordinatePick: (): Promise<unknown> => bridge.invoke('userscript:automation-coordinate-begin', { scriptId: script.id }),
-    endCoordinatePick: (): Promise<unknown> => bridge.invoke('userscript:automation-coordinate-end', { scriptId: script.id }),
-    warmAuthoring: (): Promise<unknown> => bridge.invoke('userscript:automation-authoring-warm', { scriptId: script.id }),
-  };
-
-  // --- GM_webRequest (OBSERVATION ONLY: no interception, no modification) ----
+ // --- GM_webRequest (OBSERVATION ONLY: no interception, no modification) ----
   let webRequestCallbacks: Partial<Record<GmWebRequestEvent['phase'], (event: GmWebRequestEvent) => void>> | null = null;
 
   const webRequest = (details: {
@@ -548,6 +515,74 @@ export function createGmApi(context: GmApiContext): GmApi {
     }
     bridge.send('userscript:menu-invoked', { scriptId: script.id, documentId, commandId: `${documentId}:${script.id}:${commandId}` });
     return true;
+  };
+
+  let automationPackages: Array<{ packageId: string; name: string; mainEntryId: string; assets: string[]; profiles: string[]; frontends: Array<{ id: string; kind: 'blockly' | 'javascript'; name: string }> }> = [];
+  let automationPackageId = '';
+  let automationCandidates: Array<{ id: string; [key: string]: unknown }> = [];
+  let automationBoundSurface: { id: string; [key: string]: unknown } | null = null;
+  const baoAutomation = {
+    listPackages: async (): Promise<Array<{ packageId: string; name: string; mainEntryId: string; assets: string[]; profiles: string[]; frontends: Array<{ id: string; kind: 'blockly' | 'javascript'; name: string }> }>> => {
+      const result = await bridge.invoke('userscript:automation-v3-list', { scriptId: script.id });
+      automationPackages = Array.isArray(result) ? result as typeof automationPackages : [];
+      if (!automationPackages.some((item) => item.packageId === automationPackageId)) automationPackageId = automationPackages[0]?.packageId ?? '';
+      return automationPackages;
+    },
+    status: async (): Promise<unknown> => bridge.invoke('userscript:automation-v3-status', { scriptId: script.id }),
+    start: async (packageId: string, _countdownMs = 0): Promise<unknown> => {
+      automationPackageId = packageId;
+      if (!automationPackages.length) await baoAutomation.listPackages();
+      const selected = automationPackages.find((item) => item.packageId === packageId);
+      const frontendId = selected?.mainEntryId;
+      if (!frontendId) throw new Error('当前包没有可运行的 Frontend');
+      return bridge.invoke('userscript:automation-v3-start', { scriptId: script.id, packageId, frontendId });
+    },
+    cancel: (): Promise<unknown> => bridge.invoke('userscript:automation-v3-cancel', { scriptId: script.id }),
+    assetPreview: (packageId: string, asset: string): Promise<unknown> => bridge.invoke('userscript:automation-v3-asset-preview', { scriptId: script.id, packageId, asset }),
+    captureFrame: (region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }): Promise<unknown> => {
+      if (!automationPackageId) throw new Error('请先选择自动化包');
+      return bridge.invoke('userscript:automation-v3-capture', { scriptId: script.id, packageId: automationPackageId, region });
+    },
+    saveCapture: (packageId: string, token: string, assetName: string, rect: { x: number; y: number; width: number; height: number }, overwrite = false): Promise<unknown> => bridge.invoke('userscript:automation-v3-save-capture', { scriptId: script.id, packageId, token, assetName, rect, overwrite }),
+    match: (packageId: string, asset: string, options: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha'; region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number } } = {}): Promise<unknown> => {
+      automationPackageId = packageId;
+      return bridge.invoke('userscript:automation-v3-match', { scriptId: script.id, packageId, asset, threshold: options.threshold ?? .9, scales: options.scales, mask: options.mask, region: options.region });
+    },
+    ocrTest: (text: string, options: { match?: 'contains' | 'exact'; minScore?: number; region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number } } = {}): Promise<unknown> => {
+      if (!automationPackageId) throw new Error('请先选择自动化包');
+      return bridge.invoke('userscript:automation-v3-ocr', { scriptId: script.id, packageId: automationPackageId, text, match: options.match ?? 'contains', minConfidence: options.minScore ?? .5, region: options.region });
+    },
+    detectGameSurfaces: async (): Promise<unknown> => {
+      const result = await bridge.invoke('userscript:automation-v3-surfaces', { scriptId: script.id });
+      automationCandidates = Array.isArray(result) ? result as typeof automationCandidates : [];
+      if (automationBoundSurface) {
+        const fingerprint = automationBoundSurface.fingerprint;
+        automationBoundSurface = automationCandidates.find((item) =>
+          (fingerprint && item.fingerprint === fingerprint) || item.id === automationBoundSurface?.id,
+        ) ?? null;
+      }
+      return { candidates: automationCandidates, bound: automationBoundSurface };
+    },
+    bindGameSurface: async (candidateId: string): Promise<unknown> => {
+      automationBoundSurface = automationCandidates.find((item) => item.id === candidateId) ?? null;
+      if (!automationBoundSurface) throw new Error('游戏画面候选已经失效');
+      return { bound: automationBoundSurface };
+    },
+    clearGameSurface: async (): Promise<unknown> => { automationBoundSurface = null; return { cleared: true }; },
+    beginCoordinatePick: async (): Promise<unknown> => ({ ready: true, viewport: { width: 1280, height: 720 } }),
+    endCoordinatePick: async (): Promise<unknown> => ({ released: true }),
+    warmup: async (packageId: string, asset?: string): Promise<unknown> => {
+      automationPackageId = packageId;
+      const tasks: Promise<unknown>[] = [bridge.invoke('userscript:automation-v3-warm', { scriptId: script.id, packageId })];
+      if (asset) tasks.push(baoAutomation.assetPreview(packageId, asset));
+      await Promise.all(tasks);
+      return { warm: true };
+    },
+    warmAuthoring: async (): Promise<unknown> => {
+      if (!automationPackageId) await baoAutomation.listPackages();
+      if (!automationPackageId) return { warm: false };
+      return bridge.invoke('userscript:automation-v3-warm', { scriptId: script.id, packageId: automationPackageId });
+    },
   };
 
   const gm = {

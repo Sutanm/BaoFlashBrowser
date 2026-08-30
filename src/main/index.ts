@@ -19,7 +19,7 @@ import { registerDiagnosticsIPC } from './ipc/diagnostics.ipc';
 import { registerUserscriptsIPC } from './ipc/userscripts.ipc';
 import { setupJsPatchInterceptor } from './modules/js-patch-service';
 import { registerUserscriptsAdminIPC } from './ipc/userscripts-admin.ipc';
-import { registerAutomationIPC } from './ipc/automation.ipc';
+import { registerAutomationV3IPC } from './ipc/automation-v3.ipc';
 import { initUserscriptManager } from './modules/userscripts';
 import { init as initPasswordStore } from './modules/password-store';
 import { tabManager } from './modules/tabs';
@@ -28,7 +28,7 @@ import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, preventCleanShutdownMark } from './modules/session-recovery';
 import { startMemoryMonitor, stopMemoryMonitor } from './modules/memory-monitor';
 
-let automationService: ReturnType<typeof registerAutomationIPC> | null = null;
+let automationService: ReturnType<typeof registerAutomationV3IPC> | null = null;
 
 function bootstrap(): void {
   if (!app.requestSingleInstanceLock()) {
@@ -115,7 +115,8 @@ function bootstrap(): void {
     }
 
     // 窗口优先创建，首屏最快展示
-    createWindow();
+    const mainWindow = createWindow();
+    mainWindow.on('restore', () => tabManager.refreshActiveViewAfterHostRestore());
     tabManager.setPreload(path.join(__dirname, 'webview-preload.js'));
     initSession();
     registerZoomShortcuts();
@@ -132,7 +133,7 @@ initUserscriptManager();
 setupJsPatchInterceptor();
 registerUserscriptsIPC();
     registerUserscriptsAdminIPC(() => getMainWindow());
-    automationService = registerAutomationIPC(() => getMainWindow());
+    automationService = registerAutomationV3IPC(() => getMainWindow());
     startMemoryMonitor();
 
     // 调试截图 HTTP 口子：仅开发模式 + BAO_SCREENSHOT_HTTP=1（发布版零监听端口）

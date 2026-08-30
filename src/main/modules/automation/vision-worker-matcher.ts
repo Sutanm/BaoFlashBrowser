@@ -1,11 +1,12 @@
 import path from 'path';
 import { Worker } from 'worker_threads';
-import type { AutomationImageMask, AutomationRegion } from '../../../shared/automation/types';
-import type { ImageMatch } from './runtime';
 import type {
+  AutomationCapabilityRegion,
   AutomationCapturedFrame,
+  AutomationImageMask,
   AutomationVisionMatcher,
-} from './browserview-driver';
+  ImageMatch,
+} from './capability-contracts';
 
 export type AutomationTemplatePixels = {
   cacheKey: string;
@@ -81,9 +82,9 @@ type PendingRequest = {
 };
 
 function cssRegionToDevice(
-  region: AutomationRegion | undefined,
+  region: AutomationCapabilityRegion | undefined,
   frame: AutomationCapturedFrame,
-): AutomationRegion | undefined {
+): AutomationCapabilityRegion | undefined {
   if (!region) return undefined;
   const scaleX = frame.deviceSize.width / frame.cssSize.width;
   const scaleY = frame.deviceSize.height / frame.cssSize.height;
@@ -98,7 +99,7 @@ function cssRegionToDevice(
 function cropBgra(
   bytes: Uint8Array,
   sourceWidth: number,
-  region: AutomationRegion,
+  region: AutomationCapabilityRegion,
 ): Uint8Array {
   const result = new Uint8Array(region.width * region.height * 4);
   const rowBytes = region.width * 4;
@@ -144,7 +145,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
   async find(
     asset: string,
     frame: AutomationCapturedFrame,
-    options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask },
+    options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null> {
     return this.findMany([asset], frame, options, signal);
@@ -157,7 +158,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
   async findMany(
     assets: string[],
     frame: AutomationCapturedFrame,
-    options: { threshold: number; region?: AutomationRegion; scales?: number[]; mask?: AutomationImageMask },
+    options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null> {
     if (signal.aborted) throw new Error('automation cancelled');

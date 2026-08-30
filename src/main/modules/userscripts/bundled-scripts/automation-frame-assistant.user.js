@@ -4,8 +4,9 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      2.4.4
-// @description  网页内自动化悬浮球：运行控制、图片与文字识别测试、截图取材、游戏画面绑定与相对坐标取点。
+// @version      3.3.2
+// @updateHash  294fb5856faf
+// @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
 // @match        file:///*
@@ -26,7 +27,7 @@
   var api = GM.baoAutomation;
   var state = {
     packages: [], busy: false, monitor: 0, statusTimer: 0, lastState: '', statusInitialized: false, matchMode: 'image',
-    capture: null, selection: null, gameSurface: null, coordinateViewport: { width: 1280, height: 720 }, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1,
+    capture: null, selection: null, gameSurface: null, surfaceViewport: null, surfaceRefreshTimer: 0, coordinateViewport: { width: 1280, height: 720 }, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1,
   };
   var style = document.createElement('style');
   style.id = 'bao-automation-assistant-style';
@@ -68,12 +69,12 @@
 #bao-automation-frame-assistant .bao-two{display:grid;grid-template-columns:1fr 1fr;gap:6px}#bao-automation-frame-assistant .bao-button{height:30px;padding:0 9px;border:1px solid #8eb8e22b;border-radius:7px;background:#10223a;color:#c8d7ea;cursor:pointer}#bao-automation-frame-assistant .bao-button:hover{background:#183254}#bao-automation-frame-assistant .bao-button.bao-primary{border-color:#699fff;background:linear-gradient(#4b8bff,#3971db);color:#fff;box-shadow:0 4px 14px #397ce933}#bao-automation-frame-assistant .bao-button.bao-danger{color:#ffabb0}#bao-automation-frame-assistant .bao-button:disabled{opacity:.45;cursor:not-allowed}
 #bao-automation-frame-assistant .bao-game-actions{display:grid;grid-template-columns:1fr;gap:6px;margin-top:7px}#bao-automation-frame-assistant .bao-game-actions.bao-bound{grid-template-columns:minmax(0,1fr) 82px 62px}#bao-automation-frame-assistant .bao-game-copy,#bao-automation-frame-assistant .bao-game-clear{display:none}#bao-automation-frame-assistant .bao-game-actions.bao-bound .bao-game-copy,#bao-automation-frame-assistant .bao-game-actions.bao-bound .bao-game-clear{display:block}
 #bao-automation-frame-assistant .bao-run-state{display:flex;align-items:center;gap:11px}#bao-automation-frame-assistant .bao-run-dot{width:11px;height:11px;border-radius:50%;background:#6d7f94;box-shadow:0 0 0 5px #6d7f9422}#bao-automation-frame-assistant .bao-run-state.bao-live .bao-run-dot{background:#6ea8ff;box-shadow:0 0 0 5px #6ea8ff20;animation:bao-pulse 1s ease-in-out infinite}@keyframes bao-pulse{50%{transform:scale(.72);opacity:.6}}
-#bao-automation-frame-assistant .bao-run-copy{min-width:0;flex:1}#bao-automation-frame-assistant .bao-run-copy b{display:block}#bao-automation-frame-assistant .bao-run-copy span{display:block;overflow:hidden;margin-top:3px;color:#9cafc7;font-size:10px;text-overflow:ellipsis;white-space:nowrap}#bao-automation-frame-assistant .bao-step{color:#9cafc7;font-size:10px}
+#bao-automation-frame-assistant .bao-run-copy{min-width:0;flex:1}#bao-automation-frame-assistant .bao-run-copy b{display:block}#bao-automation-frame-assistant .bao-run-copy span{display:block;overflow:hidden;margin-top:3px;color:#9cafc7;font-size:10px;text-overflow:ellipsis;white-space:nowrap}#bao-automation-frame-assistant .bao-run-state.bao-live .bao-state-title,#bao-automation-frame-assistant .bao-run-state.bao-live .bao-state-detail{color:#76dba8}#bao-automation-frame-assistant .bao-step{color:#9cafc7;font-size:10px}
 #bao-automation-frame-assistant .bao-progress{height:4px;margin-top:8px;overflow:hidden;border-radius:99px;background:#ffffff10}#bao-automation-frame-assistant .bao-progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4489ff,#69d8e8);transition:width .35s}
 #bao-automation-frame-assistant .bao-log{display:grid;max-height:145px;gap:5px;overflow-y:auto;padding-right:3px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar{width:5px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar-thumb{border-radius:5px;background:#7691b052}#bao-automation-frame-assistant .bao-log-row{display:grid;grid-template-columns:43px 1fr;gap:6px;color:#9fb0c3;font-size:9px}#bao-automation-frame-assistant .bao-log-row time{color:#668098}#bao-automation-frame-assistant .bao-log-row span{overflow-wrap:anywhere}#bao-automation-frame-assistant .bao-log-row.bao-good span{color:#76dba8}#bao-automation-frame-assistant .bao-log-row.bao-bad span{color:#ff858c}
 #bao-automation-frame-assistant .bao-assets{display:flex;gap:5px;overflow:auto;padding:1px 1px 5px}#bao-automation-frame-assistant .bao-asset{position:relative;display:grid;flex:0 0 64px;height:56px;place-items:center;overflow:hidden;border:1px solid #91b9df24;border-radius:7px;background:#071320;color:#a9bbcf;cursor:pointer}#bao-automation-frame-assistant .bao-asset.bao-selected{border-color:#73aaff;box-shadow:0 0 0 2px #73aaff22}#bao-automation-frame-assistant .bao-asset img{max-width:44px;max-height:34px;object-fit:contain}#bao-automation-frame-assistant .bao-asset span{position:absolute;right:2px;bottom:1px;left:2px;overflow:hidden;font-size:8px;text-align:center;text-overflow:ellipsis;white-space:nowrap}
 #bao-automation-frame-assistant .bao-match-modes{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:7px}#bao-automation-frame-assistant .bao-match-mode{height:27px;border:1px solid #8eb8e22b;border-radius:7px;background:#10223a;color:#9fb2c9;cursor:pointer}#bao-automation-frame-assistant .bao-match-mode.bao-active{border-color:#699fff;background:#356dc4;color:#fff}#bao-automation-frame-assistant .bao-test-settings.bao-hidden{display:none}#bao-automation-frame-assistant .bao-ocr-row{display:grid;grid-template-columns:1fr 88px;gap:6px}
-#bao-automation-frame-assistant .bao-preview{display:grid;min-height:105px;place-items:center;overflow:auto;border:3px solid #6e5138;border-radius:6px;background:#07101d;box-shadow:inset 0 0 0 1px #be946b}#bao-automation-frame-assistant .bao-image{position:relative;max-width:100%}#bao-automation-frame-assistant .bao-image img{display:block;width:100%;max-height:210px;object-fit:contain}#bao-automation-frame-assistant .bao-hit{position:absolute;border:2px solid #ffca28;background:#ffca2826;box-shadow:0 0 8px #ffca28;pointer-events:none}#bao-automation-frame-assistant .bao-hit.bao-ok{border-color:#31d17c;background:#31d17c26;box-shadow:0 0 8px #31d17c}#bao-automation-frame-assistant .bao-hit b{position:absolute;left:-2px;bottom:100%;padding:1px 3px;background:#ffca28;color:#172033;font-size:9px;white-space:nowrap}#bao-automation-frame-assistant .bao-hit.bao-ok b{background:#31d17c}
+#bao-automation-frame-assistant .bao-preview{display:grid;min-height:105px;place-items:center;overflow:auto;border:3px solid #6e5138;border-radius:6px;background:#07101d;box-shadow:inset 0 0 0 1px #be946b}#bao-automation-frame-assistant .bao-image{position:relative;max-width:100%}#bao-automation-frame-assistant .bao-image img{display:block;width:100%;max-height:210px;object-fit:contain}#bao-automation-frame-assistant .bao-hit{position:absolute;border:2px solid #ffca28;background:#ffca2826;box-shadow:0 0 8px #ffca28;pointer-events:none}#bao-automation-frame-assistant .bao-hit.bao-ok{border-color:#31d17c;background:#31d17c26;box-shadow:0 0 8px #31d17c}#bao-automation-frame-assistant .bao-hit b{position:absolute;left:-2px;bottom:calc(100% + 2px);padding:1px 3px;background:#ffca28;color:#172033;font-size:9px;white-space:nowrap}#bao-automation-frame-assistant .bao-hit.bao-ok b{background:#31d17c}
 #bao-automation-frame-assistant .bao-result{margin:8px 0 0;color:#9fb1c7;font-size:10px}#bao-automation-frame-assistant .bao-score{color:#72dba5;font-size:25px;font-weight:700}#bao-automation-frame-assistant .bao-tip{padding:10px;border-radius:9px;background:#4b79d414;color:#b6c9e1;font-size:10px;line-height:1.6}
 #bao-automation-assistant-toasts{all:initial;position:fixed;z-index:2147483647;top:18px;left:50%;display:grid;gap:8px;transform:translateX(-50%);pointer-events:none;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-assistant-toasts .bao-toast{min-width:280px;padding:11px 15px;border:1px solid #9ec5ed38;border-radius:10px;background:#102039ee;box-shadow:0 12px 40px #0008;color:#dbeaff;animation:bao-toast-in .25s both}@keyframes bao-toast-in{from{transform:translateY(-12px);opacity:0}}
 #bao-automation-capture-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;overflow:hidden;background:#020914ed;color:#eef5ff;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif;cursor:crosshair}#bao-automation-capture-layer.bao-active{display:block}#bao-automation-capture-layer *{box-sizing:border-box}#bao-automation-capture-layer .bao-capture-image{position:absolute;max-width:100vw;max-height:100vh;object-fit:contain;left:50%;top:50%;transform:translate(-50%,-50%)}#bao-automation-capture-layer .bao-capture-help{position:absolute;z-index:4;top:64px;left:50%;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 16px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap}#bao-automation-capture-layer .bao-capture-cancel{height:28px;padding:0 11px;border-color:#ff9b9b55;background:#5f2637;color:#ffdce2;cursor:pointer}#bao-automation-capture-layer .bao-selection{position:absolute;z-index:2;display:none;border:2px solid #78b5ff;background:#64a4ff16;box-shadow:0 0 0 9999px #02091399}#bao-automation-capture-layer .bao-selection-info{position:absolute;left:-2px;bottom:calc(100% + 7px);padding:4px 7px;border-radius:5px;background:#3779cf;color:white;font-size:10px;white-space:nowrap}
@@ -147,6 +148,7 @@
   function currentPackage() { return state.packages.find(function (item) { return item.packageId === packageRun.value; }); }
   function messageText(message) {
     if (!message) return '';
+    if (typeof message === 'string') return message;
     var p = message.params || {};
     var map = {
       'status.scriptCompleted': '脚本执行完成', 'status.scriptStopped': '脚本已停止', 'status.stepNext': '可以执行下一步',
@@ -166,10 +168,10 @@
     return map[message.key] || (message.key === 'raw' ? String(p.text || '') : message.key);
   }
   function renderStatus(status) {
-    var active = ['checking', 'countdown', 'running'].indexOf(status.state) >= 0;
+    var active = ['preparing', 'checking', 'countdown', 'running', 'cancelling'].indexOf(status.state) >= 0;
     root.classList.toggle('bao-running', active); root.classList.toggle('bao-success', status.state === 'completed'); root.classList.toggle('bao-failed', status.state === 'failed');
     root.querySelector('.bao-run-state').classList.toggle('bao-live', active);
-    var titles = { idle: '可以开始', checking: '检查入口条件', ready: '已经就绪', countdown: '倒计时启动', running: '正在执行', completed: '执行完成', failed: '执行失败', cancelled: '已停止' };
+    var titles = { idle: '可以开始', preparing: '正在准备', checking: '检查入口条件', ready: '已经就绪', countdown: '倒计时启动', running: '正在执行', cancelling: '正在停止', completed: '执行完成', failed: '执行失败', cancelled: '已停止' };
     root.querySelector('.bao-state-title').textContent = titles[status.state] || status.state;
     root.querySelector('.bao-state-detail').textContent = messageText(status.currentStep) || messageText(status.message) || (status.workflowName || '等待启动脚本');
     root.querySelector('.bao-step').textContent = String(status.executedSteps || 0) + ' 步';
@@ -190,29 +192,52 @@
     try { state.packages = await api.listPackages(); } catch (error) { resultText.textContent = error.message || String(error); return; }
     packageRun.innerHTML = '';
     state.packages.forEach(function (pkg) { var option = document.createElement('option'); option.value = pkg.packageId; option.textContent = pkg.name; packageRun.appendChild(option); });
+    if (!state.packages.length) { var empty = document.createElement('option'); empty.value = ''; empty.textContent = '没有 Automation 2.0 包，请先在工作台新建'; packageRun.appendChild(empty); }
     if (state.packages.some(function (item) { return item.packageId === previousPackage; })) packageRun.value = previousPackage;
     renderAssets(previousAsset);
   }
   function renderAssets(preferred) {
-    var pkg = currentPackage(); var assets = pkg ? pkg.assets : []; if (assets.indexOf(preferred) >= 0) selectedAsset = preferred; else if (assets.indexOf(selectedAsset) < 0) selectedAsset = assets[0] || '';
+    var pkg = currentPackage(); var assets = pkg ? pkg.assets : []; var byDirectory = {};
+    assets.forEach(function (asset) { var at = asset.lastIndexOf('/'); if (at <= 0) return; var directory = asset.slice(0, at); if (directory === 'assets') return; (byDirectory[directory] || (byDirectory[directory] = [])).push(asset); });
+    var groups = Object.keys(byDirectory).filter(function (directory) { return byDirectory[directory].length >= 2; }).sort().map(function (directory) {
+      var members = byDirectory[directory].slice().sort(); return { label: '图片组：' + directory.replace(/^assets\//, '') + '（' + members.length + ' 张）', preview: members[0], value: '@bao-image-group:' + members.map(encodeURIComponent).join('|') };
+    });
+    var choices = groups.concat(assets.map(function (asset) { return { label: asset, preview: asset, value: asset }; })); var values = choices.map(function (choice) { return choice.value; });
+    if (values.indexOf(preferred) >= 0) selectedAsset = preferred; else if (values.indexOf(selectedAsset) < 0) selectedAsset = choices.length ? choices[0].value : '';
     assetsHost.innerHTML = '';
-    assets.forEach(function (asset) {
-      var button = document.createElement('button'); button.className = 'bao-asset' + (asset === selectedAsset ? ' bao-selected' : ''); button.title = asset; var image = document.createElement('img'); var label = document.createElement('span'); label.textContent = asset; button.append(image, label);
-      button.addEventListener('click', function () { selectedAsset = asset; renderAssets(asset); void warmSelected(); }); assetsHost.appendChild(button);
-      void api.assetPreview(pkg.packageId, asset).then(function (value) { image.src = value.dataUrl; }).catch(function () {});
+    choices.forEach(function (choice) {
+      var button = document.createElement('button'); button.className = 'bao-asset' + (choice.value === selectedAsset ? ' bao-selected' : ''); button.title = choice.label; var image = document.createElement('img'); var label = document.createElement('span'); label.textContent = choice.label; button.append(image, label);
+      button.addEventListener('click', function () { selectedAsset = choice.value; renderAssets(choice.value); void warmSelected(); }); assetsHost.appendChild(button);
+      void api.assetPreview(pkg.packageId, choice.preview).then(function (value) { image.src = value.dataUrl; }).catch(function () {});
     });
     if (!assets.length) assetsHost.innerHTML = '<span style="color:#8fa3ba;font-size:10px">当前脚本没有图片素材</span>';
     if (selectedAsset) void warmSelected();
   }
-  async function warmSelected() { var pkg = currentPackage(); if (!pkg || !selectedAsset) return; try { await api.warmup(pkg.packageId, selectedAsset); } catch { /* Best-effort idle warmup. */ } }
+  async function warmSelected() { var pkg = currentPackage(); if (!pkg || !selectedAsset || selectedAsset.indexOf('@bao-image-group:') === 0) return; try { await api.warmup(pkg.packageId, selectedAsset); } catch { /* Best-effort idle warmup. */ } }
+  async function withRecognitionPanelCollapsed(task) {
+    var shouldRestore = root.getAttribute('data-view') === 'match' && root.classList.contains('bao-open');
+    if (shouldRestore) {
+      closePanel();
+      // Wait until the drawer has fully become the orb so the transition cannot
+      // be captured as part of the recognition frame.
+      await new Promise(function (resolve) { setTimeout(resolve, 260); });
+    }
+    try { return await task(); }
+    finally {
+      if (shouldRestore) {
+        root.classList.add('bao-open');
+        fitOpenPanel();
+      }
+    }
+  }
   function renderMatch(value) {
     preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
-    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); resultText.textContent = (value.matched ? '匹配成功' : '最佳候选低于阈值') + ' · 坐标 ' + Math.round(value.candidate.x) + ', ' + Math.round(value.candidate.y) + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · ' + (value.candidate.matchMs || 0) + 'ms'; }
+    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); resultText.textContent = (value.matched ? '匹配成功' : '最佳候选低于阈值') + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + totalMs + 'ms（截图 ' + captureMs + 'ms · 匹配 ' + matchMs + 'ms）'; }
     else resultText.textContent = '没有找到匹配候选'; preview.appendChild(wrap);
   }
   function renderOcr(value) {
     preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
-    (value.candidates || []).filter(function (candidate) { return candidate.matched; }).forEach(function (candidate) {
+    (value.candidates || []).forEach(function (candidate) {
       var hit = document.createElement('span'); hit.className = 'bao-hit bao-ok';
       hit.style.left = candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = candidate.y / value.sourceHeight * 100 + '%';
       hit.style.width = candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = candidate.height / value.sourceHeight * 100 + '%';
@@ -220,7 +245,9 @@
     });
     preview.appendChild(wrap);
     var matchedCount = (value.candidates || []).filter(function (candidate) { return candidate.matched; }).length;
-    resultText.textContent = (value.matched ? '找到 ' + matchedCount + ' 处匹配文字' : '未找到目标文字') + ' · 总耗时 ' + ((value.captureMs || 0) + (value.ocrMs || 0)) + 'ms（截图 ' + (value.captureMs || 0) + 'ms · OCR ' + (value.ocrMs || 0) + 'ms）';
+    var captureMs = Math.max(0, Number(value.captureMs) || 0); var ocrMs = Math.max(0, Number(value.ocrMs) || 0); var totalMs = Math.max(captureMs + ocrMs, Number(value.totalMs) || 0);
+    var best = (value.candidates || [])[0]; var summary = value.matched ? '找到 ' + matchedCount + ' 处匹配文字' : best ? '最佳候选“' + best.text + '”低于条件' : '没有识别到文字';
+    resultText.textContent = summary + ' · 总耗时 ' + totalMs + 'ms（截图 ' + captureMs + 'ms · OCR ' + ocrMs + 'ms）';
   }
   function selectMatchMode(mode) {
     stopMonitor(); state.matchMode = mode === 'text' ? 'text' : 'image';
@@ -232,28 +259,28 @@
     resultText.textContent = state.matchMode === 'text' ? 'OCR 在本机离线运行，仅 OCR 版可用' : '选择素材开始测试';
   }
   function ocrRegion() {
-    // Bound game surface rect, in live-viewport CSS px — the exact coordinate
-    // space capturePage(rect) expects. Returning it lets the main process
-    // capture ONLY that area at native resolution, keeping the scene at the same
-    // pixel scale as the asset/text templates (no full-page downscale).
+    // The detector rectangle belongs to the page's current live CSS viewport.
+    // Include that viewport so Automation Core can map it into its fixed logical
+    // viewport before capture; the two spaces are intentionally not assumed equal.
     var rect = visibleGameSurfaceRect(); if (!rect) return undefined;
     var x = Math.round(rect.x); var y = Math.round(rect.y);
     var width = Math.round(rect.width); var height = Math.round(rect.height);
     if (width <= 0 || height <= 0) return undefined;
-    return { x: Math.max(0, x), y: Math.max(0, y), width, height };
+    return { x: Math.max(0, x), y: Math.max(0, y), width, height, viewportWidth: innerWidth, viewportHeight: innerHeight };
   }
   async function compareText() {
     var text = String(ocrText.value || '').trim(); if (!text) { resultText.textContent = '请先输入要识别的文字'; ocrText.focus(); return; }
     var score = Math.max(0, Math.min(1, Number(ocrScore.value) || 0)); ocrScore.value = String(score);
-    var value = await api.ocrTest(text, { match: ocrMatch.value, minScore: score, region: ocrRegion() }); renderOcr(value);
+    var region = ocrRegion(); var value = await withRecognitionPanelCollapsed(function () { return api.ocrTest(text, { match: ocrMatch.value, minScore: score, region: region }); }); renderOcr(value);
   }
   async function compare() {
     if (state.busy) return;
-    if (state.matchMode === 'image') { await refreshPackages(); var pkg = currentPackage(); if (!pkg || !selectedAsset) return; }
+    if (state.matchMode === 'image') { var pkg = currentPackage(); if (!pkg) { resultText.textContent = '没有 Automation 2.0 包，请先在工作台新建'; return; } if (!selectedAsset) { resultText.textContent = '当前包没有图片素材，请先到“取材”页捕获素材'; return; } }
     state.busy = true; resultText.textContent = '正在捕获当前页面…';
     try {
+      await refreshBoundSurfaceIfNeeded();
       if (state.matchMode === 'text') await compareText();
-      else { var value = await api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'auto', region: ocrRegion() }); renderMatch(value); }
+      else { var region = ocrRegion(); var value = await withRecognitionPanelCollapsed(function () { return api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'auto', region: region }); }); renderMatch(value); }
     }
     catch (error) { resultText.textContent = error.message || String(error); }
     finally { state.busy = false; }
@@ -267,7 +294,8 @@
     var pkg = currentPackage(); if (!pkg) { toast('请先选择自动化脚本'); return; }
     toast('正在捕获当前页面…');
     try {
-      state.capture = await api.captureFrame(); var image = captureLayer.querySelector('.bao-capture-image'); image.src = state.capture.dataUrl;
+      await refreshBoundSurfaceIfNeeded();
+      state.capture = await api.captureFrame(ocrRegion()); var image = captureLayer.querySelector('.bao-capture-image'); image.src = state.capture.dataUrl;
       captureLayer.classList.add('bao-active'); captureLayer.querySelector('.bao-selection').style.display = 'none'; captureLayer.querySelector('.bao-save').style.display = 'none'; captureLayer.querySelector('.bao-conflict').classList.remove('bao-show'); captureLayer.querySelector('.bao-capture-name').value = nextAssetName();
     } catch (error) { openPanel('capture'); toast(error.message || String(error)); }
   }
@@ -279,7 +307,7 @@
       var saved = await api.saveCapture(pkg.packageId, state.capture.token, name, state.selection, Boolean(overwrite));
       if (saved.conflict) { captureLayer.querySelector('.bao-conflict').classList.add('bao-show'); return; }
       var automatic = name.match(/^截取素材_(\d{3})\.png$/i); if (automatic) state.captureIndex = Math.max(state.captureIndex, Number(automatic[1]) + 1); GM.setValue('captureIndex', state.captureIndex);
-      captureLayer.classList.remove('bao-active'); state.capture = null; state.selection = null; await refreshPackages(); openPanel('capture'); toast('素材“' + name + '”已保存并选中'); selectedAsset = name;
+      captureLayer.classList.remove('bao-active'); state.capture = null; state.selection = null; selectedAsset = saved.asset || name; await refreshPackages(); openPanel('capture'); toast('素材“' + name + '”已保存并选中');
     } catch (error) { toast(error.message || String(error)); }
   }
   function visibleGameSurfaceRect() {
@@ -288,6 +316,14 @@
     var right = Math.min(innerWidth, (Number(rect.x) || 0) + (Number(rect.width) || 0));
     var bottom = Math.min(innerHeight, (Number(rect.y) || 0) + (Number(rect.height) || 0));
     return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : null;
+  }
+  function rememberSurfaceViewport() { state.surfaceViewport = { width: innerWidth, height: innerHeight }; }
+  function surfaceViewportChanged() { return state.gameSurface && (!state.surfaceViewport || state.surfaceViewport.width !== innerWidth || state.surfaceViewport.height !== innerHeight); }
+  async function refreshBoundSurfaceIfNeeded(force) {
+    if (!state.gameSurface || (!force && !surfaceViewportChanged())) return;
+    var detected = await api.detectGameSurfaces();
+    if (!detected || !detected.bound) { state.gameSurface = null; state.surfaceViewport = null; updateGameButton(); throw new Error('窗口尺寸变化后未能重新定位游戏画面，请重新选择游戏画面'); }
+    state.gameSurface = detected.bound; rememberSurfaceViewport(); updateGameButton();
   }
   function coordinateAt(clientX, clientY) {
     var rect = visibleGameSurfaceRect();
@@ -338,7 +374,7 @@
       list.style.width = Math.max(180, Math.min(330, sideSpace - 16)) + 'px';
       if (placeLeft) { list.style.left = '8px'; list.style.right = 'auto'; } else { list.style.left = 'auto'; list.style.right = '8px'; }
       async function selectCandidate(candidate) {
-        try { var bound = await api.bindGameSurface(candidate.id); state.gameSurface = bound.bound; updateGameButton(); closeGameSelect(); toast('已将坐标和识图区域绑定到所选游戏画面'); }
+        try { var bound = await api.bindGameSurface(candidate.id); state.gameSurface = bound.bound; rememberSurfaceViewport(); updateGameButton(); closeGameSelect(); toast('已将坐标和识图区域绑定到所选游戏画面'); }
         catch (error) { toast(error.message || String(error)); }
       }
       candidates.forEach(function (candidate, index) {
@@ -361,7 +397,7 @@
   }
   async function beginCoordinatePick() {
     try {
-      if (state.gameSurface) { var detected = await api.detectGameSurfaces(); state.gameSurface = detected && detected.bound ? detected.bound : state.gameSurface; updateGameButton(); }
+      await refreshBoundSurfaceIfNeeded(true);
       var coordinateSession = await api.beginCoordinatePick();
       if (coordinateSession && coordinateSession.viewport) state.coordinateViewport = coordinateSession.viewport;
       if (state.gameSurface && !visibleGameSurfaceRect()) throw new Error('游戏画面当前不在可见页面内');
@@ -381,7 +417,7 @@
   ocrText.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); void compare(); } });
   root.querySelector('.bao-compare').addEventListener('click', function () { void compare(); });
   root.querySelector('.bao-monitor').addEventListener('click', function () { if (state.monitor) stopMonitor(); else { void compare(); state.monitor = setInterval(function () { void compare(); }, 1800); root.querySelector('.bao-monitor').textContent = '停止监测'; } });
-  startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) return; startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error)); } });
+  startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) { toast('没有 Automation 2.0 包，请先在工作台新建'); return; } startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error)); } });
   stopButton.addEventListener('click', async function () { try { await api.cancel(); toast('正在停止自动化脚本'); } catch (error) { toast(error.message || String(error)); } });
   root.querySelector('.bao-capture').addEventListener('click', function () { void beginCapture(); });
   root.querySelector('.bao-coordinate').addEventListener('click', function () { void beginCoordinatePick(); });
@@ -392,7 +428,7 @@
     void copyText(feature).then(function () { root.querySelector('.bao-game-copy').setAttribute('data-last-copied', feature); toast('已复制游戏画面特征串，请到入口积木中导入'); });
   });
   root.querySelector('.bao-game-clear').addEventListener('click', async function () {
-    try { await api.clearGameSurface(); state.gameSurface = null; updateGameButton(); toast('已恢复为整个页面坐标和识图范围'); }
+    try { await api.clearGameSurface(); state.gameSurface = null; state.surfaceViewport = null; updateGameButton(); toast('已恢复为整个页面坐标和识图范围'); }
     catch (error) { toast('取消失败：' + (error && error.message ? error.message : String(error))); }
   });
   gameLayer.querySelector('.bao-game-cancel').addEventListener('click', closeGameSelect);
@@ -424,7 +460,7 @@
   window.addEventListener('keydown', function (event) { if (gameLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); closeGameSelect(); return; } if (coordinateLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); void endCoordinatePick(true); return; } if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') { event.preventDefault(); openPanel(); } }, true);
 
   var savedPosition = GM.getValue('position', null); if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) placeCollapsedRoot(savedPosition.x, savedPosition.y);
-  window.addEventListener('resize', function () { var rect = orb.getBoundingClientRect(); var wasOpen = root.classList.contains('bao-open'); placeCollapsedRoot(rect.left, rect.top); if (wasOpen) root.classList.add('bao-open'); if (gameLayer.classList.contains('bao-active')) closeGameSelect(); });
+  window.addEventListener('resize', function () { var rect = orb.getBoundingClientRect(); var wasOpen = root.classList.contains('bao-open'); placeCollapsedRoot(rect.left, rect.top); if (wasOpen) root.classList.add('bao-open'); if (gameLayer.classList.contains('bao-active')) closeGameSelect(); if (state.surfaceRefreshTimer) clearTimeout(state.surfaceRefreshTimer); state.surfaceRefreshTimer = setTimeout(function () { state.surfaceRefreshTimer = 0; void refreshBoundSurfaceIfNeeded().catch(function (error) { toast(error.message || String(error)); }); }, 180); });
   window.addEventListener('pagehide', function () { gameLayer.classList.remove('bao-active'); if (coordinateLayer.classList.contains('bao-active')) void api.endCoordinatePick(); });
   if (GM.registerMenuCommand) GM.registerMenuCommand('显示自动化助手', function () { openPanel(); });
   void refreshPackages(); void pollStatus(); state.statusTimer = setInterval(function () { void pollStatus(); }, 600);

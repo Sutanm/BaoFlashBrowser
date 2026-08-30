@@ -6,7 +6,9 @@ import { setupCapture, teardownCapture } from './password-capture';
 import { fillPasswordsInWebContents, PasswordFillResult } from './password-fill';
 import { getFillCredentialForUrl, isAutoFillEnabled } from './password-store';
 import { getUserscriptManager } from './userscripts';
-import type { AutomationViewport } from '../../shared/automation/types';
+import { inspectWithPasswordCapturePaused } from './automation/transient-cdp-inspection';
+
+export type AutomationViewport = { readonly mode: 'fixed'; readonly width: number; readonly height: number };
 
 interface TabEntry {
   id: string;
@@ -31,6 +33,8 @@ export interface AutomationTabHandle {
   getViewportTransform(): AutomationViewportTransform;
   getViewportRevision?(): number;
   waitForViewport?(): Promise<void>;
+  navigate(url: string): Promise<void>;
+  reload(): Promise<void>;
   assertCurrent(): void;
   release(): void;
 }
@@ -74,6 +78,7 @@ class TabManager {
   private passwordFormSignalTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private passwordFillInFlight = new Set<number>();
   private automationTargets = new Map<string, AutomationViewportLease>();
+  private hostRestoreTimer?: NodeJS.Timeout;
 
   private _isCurrentWebContents(tabId: string, wc: Electron.WebContents): boolean {
     const tab = this.tabs.get(tabId);
@@ -115,11 +120,7 @@ class TabManager {
     const wc = this.getWebContents(tabId);
     if (!wc) throw new Error('automation target has no live BrowserView');
     if (this.automationTargets.has(tabId)) return inspect(wc);
-    teardownCapture(wc);
-    try { return await inspect(wc); }
-    finally {
-      if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc) && !this.automationTargets.has(tabId)) setupCapture(wc);
-    }
+    return inspectWithPasswordCapturePaused(wc, inspect, () => this._isCurrentWebContents(tabId, wc) && !this.automationTargets.has(tabId));
   }
 
   /** Reserve the active BrowserView for one automation run and pause password CDP capture. */
@@ -144,6 +145,10 @@ class TabManager {
       refreshVersion: 0,
     };
     this.automationTargets.set(tabId, lease);
+    // Delayed autofill retries attach their own short-lived debugger client.
+    // Once Automation reserves this tab they must stay paused, otherwise a
+    // retry can race an input step and make the run stop immediately.
+    this._clearPasswordFillTimers(wc.id);
     teardownCapture(wc);
     try { this._applyAutomationViewport(tabId, wc); }
     catch (error) {
@@ -179,6 +184,24 @@ class TabManager {
       },
       getViewportRevision: () => lease.refreshVersion,
       waitForViewport: () => this._waitForAutomationViewport(tabId, wc, lease),
+      navigate: async (url) => {
+        assertCurrent();
+        tab.lastTargetUrl = url;
+        tab.crashed = false;
+        this._detachDebuggerBeforeNavigate(wc);
+        this.send('tab:updated', { tabId, crashed: false, isLoading: true });
+        await wc.loadURL(url);
+        assertCurrent();
+      },
+      reload: async () => {
+        assertCurrent();
+        const url = wc.getURL() && wc.getURL() !== 'about:blank' ? wc.getURL() : tab.lastTargetUrl;
+        tab.crashed = false;
+        this._detachDebuggerBeforeNavigate(wc);
+        this.send('tab:updated', { tabId, crashed: false, isLoading: true });
+        await wc.loadURL(url);
+        assertCurrent();
+      },
       assertCurrent,
       release: () => {
         if (released) return;
@@ -188,6 +211,7 @@ class TabManager {
         if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc)) {
           tab.browserView?.setBounds(this.activeId === tabId ? this.rect : HIDDEN_BOUNDS);
           setupCapture(wc);
+          this._schedulePasswordFill(wc, tabId);
         }
       },
     };
@@ -261,6 +285,37 @@ class TabManager {
     const wc = this.tabs.get(tabId)?.browserView?.webContents;
     if (wc && this.automationTargets.has(tabId)) this._applyAutomationViewport(tabId, wc);
     else this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
+  }
+
+  /**
+   * Chromium 87 can lose a BrowserView's compositor surface while its host
+   * BrowserWindow is minimized. Re-submitting the same bounds is insufficient;
+   * force one hidden -> visible transition, just like a successful tab switch.
+   */
+  refreshActiveViewAfterHostRestore(): void {
+    if (this.hostRestoreTimer) clearTimeout(this.hostRestoreTimer);
+    this.hostRestoreTimer = setTimeout(() => {
+      this.hostRestoreTimer = undefined;
+      const win = getMainWindow();
+      const tabId = this.activeId;
+      const tab = tabId ? this.tabs.get(tabId) : undefined;
+      const view = tab?.browserView;
+      const wc = view?.webContents;
+      if (!tabId || !view || !wc || wc.isDestroyed() || win?.isMinimized() || this.rect.width <= 0 || this.rect.height <= 0) return;
+      const expectedWcId = wc.id;
+      const lease = this.automationTargets.get(tabId);
+      if (lease?.webContentsId === expectedWcId) lease.refreshVersion += 1;
+      view.setBounds(HIDDEN_BOUNDS);
+      setTimeout(() => {
+        const current = this.tabs.get(tabId);
+        if (this.activeId !== tabId || current?.browserView !== view || wc.isDestroyed() || wc.id !== expectedWcId) return;
+        const currentLease = this.automationTargets.get(tabId);
+        if (currentLease?.webContentsId === expectedWcId) this._applyAutomationViewport(tabId, wc);
+        else view.setBounds(this.rect);
+        try { (wc as unknown as { invalidate?: () => void }).invalidate?.(); } catch { /* Electron 11 best effort. */ }
+      }, 0);
+    }, 50);
+    this.hostRestoreTimer.unref();
   }
 
   create(tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }): void {
@@ -530,9 +585,9 @@ class TabManager {
   }
 
   refreshPasswordCapture(enabled: boolean): void {
-    for (const tab of this.tabs.values()) {
+    for (const [tabId, tab] of this.tabs) {
       const wc = tab.browserView?.webContents; if (!wc) continue;
-      if (enabled) setupCapture(wc);
+      if (enabled && !this.automationTargets.has(tabId)) setupCapture(wc);
       else teardownCapture(wc);
     }
   }
@@ -547,7 +602,8 @@ class TabManager {
   }
 
   private async _attemptPasswordFill(wc: Electron.WebContents, tabId: string): Promise<void> {
-    if (!isAutoFillEnabled() || wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc) || this.passwordFillInFlight.has(wc.id)) return;
+    if (!isAutoFillEnabled() || wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc)
+      || this.automationTargets.has(tabId) || this.passwordFillInFlight.has(wc.id)) return;
     this.passwordFillInFlight.add(wc.id);
     try {
       const result = await fillPasswordsInWebContents(wc, (url) => getFillCredentialForUrl(url, undefined, true));
@@ -560,7 +616,8 @@ class TabManager {
   }
 
   private _schedulePasswordFill(wc: Electron.WebContents, tabId: string): void {
-    this._clearPasswordFillTimers(wc.id); if (!isAutoFillEnabled()) return;
+    this._clearPasswordFillTimers(wc.id);
+    if (!isAutoFillEnabled() || this.automationTargets.has(tabId)) return;
     const timers = new Set<ReturnType<typeof setTimeout>>(); this.passwordFillTimers.set(wc.id, timers);
     for (const delay of [120, 1000, 3000, 10000, 30000]) {
       const timer = setTimeout(async () => { timers.delete(timer); await this._attemptPasswordFill(wc, tabId); if (!timers.size) this.passwordFillTimers.delete(wc.id); }, delay);
@@ -570,7 +627,7 @@ class TabManager {
 
   notifyPasswordFormDetected(wcId: number): void {
     const tabId = this.wcToId.get(wcId); const tab = tabId ? this.tabs.get(tabId) : null; const wc = tab?.browserView?.webContents;
-    if (!tabId || !wc || wc.id !== wcId || !isAutoFillEnabled()) return;
+    if (!tabId || !wc || wc.id !== wcId || !isAutoFillEnabled() || this.automationTargets.has(tabId)) return;
     const existing = this.passwordFormSignalTimers.get(wcId); if (existing) clearTimeout(existing);
     const timer = setTimeout(() => { this.passwordFormSignalTimers.delete(wcId); void this._attemptPasswordFill(wc, tabId); }, 100);
     this.passwordFormSignalTimers.set(wcId, timer);
@@ -583,6 +640,7 @@ class TabManager {
   async fillPassword(tabId: string, entryId: string): Promise<PasswordFillResult> {
     const wc = this.tabs.get(tabId)?.browserView?.webContents;
     if (!wc) return { success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'destroyed' };
+    if (this.automationTargets.has(tabId)) return { success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'debugger-unavailable' };
     const result = await fillPasswordsInWebContents(wc, (url) => getFillCredentialForUrl(url, entryId, false));
     if (result.success) this.send('password:filled', { tabId, username: result.usernames[0] || '', count: result.filledCredentials, automatic: false });
     return result;

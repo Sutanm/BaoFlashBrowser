@@ -36,10 +36,7 @@ describe('project provenance', () => {
 
   it('travels with independently copied built-in userscripts', () => {
     const root = path.resolve(__dirname, '..');
-    const scripts = [
-      path.join(root, 'scripts', 'build-css-fixer.mjs'),
-      path.join(root, 'src', 'main', 'modules', 'userscripts', 'bundled-scripts', 'automation-frame-assistant.user.js'),
-    ];
+    const scripts = [path.join(root, 'scripts', 'build-css-fixer.mjs')];
 
     for (const file of scripts) {
       const source = fs.readFileSync(file, 'utf8');

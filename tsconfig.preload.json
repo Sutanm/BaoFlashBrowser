@@ -11,6 +11,7 @@
   "include": [
     "src/preload/**/*",
     "src/webview-preload/**/*",
+    "src/javascript-sandbox-preload/**/*",
     "src/shared/**/*"
   ]
 }

@@ -8,7 +8,6 @@ import type { PasswordStoreStatus } from '@shared/types/passwords';
 import type { DownloadEngine, DownloadItem } from '@shared/types/downloads';
 import type { FlashPluginChannel } from '@shared/types/flash';
 import type { SessionRecoveryStatus } from '@shared/types/session';
-import type { AutomationMessage } from '@shared/automation/types';
 
 interface MainConfig {
   flashVersion: string;
@@ -82,34 +81,6 @@ interface PasswordFillOperationResult {
   reason?: 'no-credential' | 'no-form' | 'debugger-unavailable' | 'destroyed';
 }
 
-interface AutomationStatus {
-  enabled: boolean;
-  state: 'idle' | 'checking' | 'ready' | 'countdown' | 'running' | 'completed' | 'failed' | 'cancelled';
-  packageId?: string;
-  workflowName?: string;
-  tabId?: string;
-  message?: AutomationMessage;
-  currentStep?: AutomationMessage;
-  executedSteps?: number;
-  debugMode?: boolean;
-  debugPaused?: boolean;
-  logs?: Array<{
-    id: number; timestamp: number; level: 'info' | 'success' | 'warning' | 'error'; message: AutomationMessage; step?: number;
-  }>;
-}
-
-interface AutomationRunRecord {
-  id: string; packageId: string; workflowName: string; tabId: string; mode: 'run' | 'debug';
-  startedAt: number; finishedAt: number; state: 'completed' | 'failed' | 'cancelled'; executedSteps: number;
-  logs: NonNullable<AutomationStatus['logs']>;
-}
-
-interface AutomationPackageDiagnostic {
-  packageId: string; valid: boolean; assetCount: number; assetBytes: number; referencedAssets: number;
-  unreferencedAssets: string[]; missingAssets: string[]; stepCount: number; maxDepth: number; capabilities: string[];
-  issues: Array<{ level: 'info' | 'warning' | 'error'; code: string; detail: string }>;
-}
-
 declare global {
   interface Window {
     electronAPI: {
@@ -117,7 +88,6 @@ declare global {
       on(channel: 'tab:updated', cb: (payload: TabUpdatedPayload) => void): () => void;
       on(channel: 'tab:found', cb: (payload: TabFoundPayload) => void): () => void;
       on(channel: 'tab:load-error', cb: (payload: TabLoadErrorPayload) => void): () => void;
-      on(channel: 'automation:status-changed', cb: (payload: AutomationStatus) => void): () => void;
       on(channel: 'tab:crashed', cb: (payload: TabCrashedPayload) => void): () => void;
       on(channel: 'tab:newwindow', cb: (payload: NewWindowPayload) => void): () => void;
       on(channel: 'download:progress', cb: (payload: DownloadProgressPayload) => void): () => void;
@@ -302,78 +272,48 @@ declare global {
         setDir(title?: string): Promise<ScreenshotSetDirResult>;
       };
 
-      automation: {
-        readClipboard(): Promise<string>;
-        capabilities(): Promise<AutomationStatus>;
-        validateWorkflow(workflow: unknown): Promise<
-          { valid: true; workflow: import('@shared/automation/types').AutomationWorkflow }
-          | { valid: false; issues: Array<{ path: string; message: string }> }
-        >;
-        openPackage(i18n?: { title?: string; filterName?: string }): Promise<
-          { canceled: true }
-          | {
-            canceled: false; token: string; fileName: string; compressedBytes: number;
-            packageId: string; name: string; description?: string; assetCount: number;
-            assetBytes: number; assets: string[]; exists: boolean;
-          }
-        >;
-        installPackage(token: string, replace?: boolean): Promise<{ packageId: string; id: string; name: string; assets: string[] }>;
-        status(): Promise<AutomationStatus>;
-        listPackages(): Promise<Array<{ packageId: string; id: string; name: string; assets: string[] }>>;
+      automationV3: {
+        listPackages(): Promise<Array<{
+          packageId: string; name: string; mainEntryId: string; assets: string[]; profiles: string[];
+          frontends: Array<{ id: string; kind: 'blockly' | 'javascript'; name: string }>;
+        }>>;
         getPackage(packageId: string): Promise<{
-          packageId: string;
-          workflow: import('@shared/automation/types').AutomationWorkflow;
-          assets: string[];
+          packageId: string; name: string; mainEntryId: string; workflow?: import('@shared/automation/core').WorkflowDocumentV3;
+          scripts: Array<{ id: string; name: string; path: string; language: 'javascript' | 'typescript'; permissions: import('@shared/automation/javascript-api').JavaScriptAutomationCapability[]; source: string }>;
+          assets: string[]; profiles: Array<{ path: string; profile: import('@shared/automation/package-v3').AutomationProfileV3 }>;
         }>;
-        getAssetPreview(packageId: string, asset: string): Promise<{
-          asset: string; width: number; height: number; bytes: number; dataUrl: string;
-        }>;
-        diagnosePackage(packageId: string): Promise<AutomationPackageDiagnostic>;
-        listRunHistory(packageId?: string): Promise<AutomationRunRecord[]>;
-        clearRunHistory(packageId?: string): Promise<{ success: boolean }>;
-        openTestScene(i18n?: { title?: string; filterName?: string }): Promise<{
-          canceled: boolean; token?: string; name?: string; dataUrl?: string; previewWidth?: number; previewHeight?: number; sourceWidth?: number; sourceHeight?: number;
-        }>;
-        captureTestSceneTab(tabId: string): Promise<{
-          token: string; name: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number;
-        }>;
-        testAssetOnScene(packageId: string, token: string, asset: string, threshold: number, scales?: number[], mask?: 'auto' | 'none' | 'alpha'): Promise<{
-          candidate: { x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number; masked?: boolean; lowVariance?: boolean; templateStdDev?: number } | null;
-          matched: boolean; threshold: number;
-        }>;
-        testTextOnScene(token: string, text: string, match: 'contains' | 'exact', minScore: number): Promise<{
-          sourceWidth: number; sourceHeight: number;
-          candidates: Array<{ text: string; score: number; x: number; y: number; width: number; height: number; matched: boolean }>;
-          matched: boolean; ocrMs: number;
-        }>;
-        warmupVision(packageId: string): Promise<{ ready: boolean }>;
-        importAssetFiles(packageId: string, i18n?: { title?: string; filterName?: string }): Promise<{ canceled: boolean; assets?: string[] }>;
-        getAssetReferences(packageId: string, asset: string): Promise<{ referenced: boolean }>;
-        deleteAsset(packageId: string, asset: string): Promise<{ assets: string[] }>;
-        replaceAsset(packageId: string, asset: string, i18n?: { title?: string; filterName?: string }): Promise<{ canceled: boolean; assets?: string[] }>;
-        captureAssetFrame(tabId: string): Promise<{
-          token: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number;
-        }>;
-        saveCapturedAsset(packageId: string, token: string, asset: string, rect: { x: number; y: number; width: number; height: number }): Promise<{
-          asset: string; width: number; height: number; assets: string[];
-        }>;
-        updateWorkflow(packageId: string, workflow: unknown): Promise<import('@shared/automation/types').AutomationWorkflow>;
-        createPackage(id: string, name: string): Promise<{ packageId: string; id: string; name: string; assets: string[] }>;
-        duplicatePackage(packageId: string, id: string, name: string): Promise<{ packageId: string; id: string; name: string; assets: string[] }>;
+        createPackage(id: string, name: string): Promise<unknown>;
+        validateWorkflow(workflow: unknown): Promise<{ valid: true; workflow: import('@shared/automation/core').WorkflowDocumentV3 } | { valid: false; issues: Array<{ path: string; message: string }> }>;
+        updateWorkflow(packageId: string, workflow: unknown): Promise<import('@shared/automation/core').WorkflowDocumentV3>;
+        upsertScript(packageId: string, id: string, name: string, source: string, permissions: string[], language?: 'javascript' | 'typescript'): Promise<unknown>;
+        setMainEntry(packageId: string, entryId: string): Promise<unknown>;
         deletePackage(packageId: string): Promise<{ success: boolean }>;
-        importAssets(packageId: string, i18n?: { title?: string }): Promise<{ canceled: boolean; assets?: string[] }>;
-        linkAssetFolder(packageId: string, i18n?: { title?: string }): Promise<{ canceled: boolean; token?: string; name?: string; files?: Array<{ asset: string; bytes: number }> }>;
-        syncAssetFolder(packageId: string, token: string): Promise<{ assets: string[]; addedOrUpdated: string[]; missingFromFolder: string[] }>;
+        openPackage(i18n?: { title?: string; filterName?: string }): Promise<{ canceled: true } | { canceled: false; token: string; packageId: string; name: string; scripts: Array<{ id: string; name: string; permissions: string[] }>; exists: boolean }>;
+        installPackage(token: string, replace?: boolean, approvals?: Record<string, string[]>): Promise<unknown>;
         exportPackage(packageId: string, i18n?: { title?: string; filterName?: string }): Promise<{ canceled: boolean; filePath?: string }>;
-        checkReady(packageId: string, tabId: string): Promise<boolean>;
-        testAsset(packageId: string, tabId: string, asset: string, threshold: number, scales?: number[], mask?: 'auto' | 'none' | 'alpha'): Promise<{
-          x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number; masked?: boolean;
-        } | null>;
-        start(packageId: string, tabId: string, countdownMs?: number): Promise<boolean>;
-        debugStart(packageId: string, tabId: string): Promise<boolean>;
-        debugContinue(): Promise<boolean>;
-        cancel(): Promise<void>;
-      };
+        status(): Promise<{
+          state: 'idle' | 'preparing' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
+          runId?: string; packageId?: string; frontendId?: string; workflowName?: string;
+          currentStep?: string; executedSteps: number; message?: string; startedAt?: number; finishedAt?: number;
+          logs: Array<{ timestamp: number; level: 'info' | 'success' | 'error'; message: string }>;
+        }>;
+        start(packageId: string, frontendId: string, tabId: string, profilePath?: string): Promise<{ runId: string }>;
+          cancel(): Promise<{ success: boolean }>;
+          readClipboard(): Promise<string>;
+          assetPreview(packageId: string, asset: string): Promise<{ dataUrl: string; width: number; height: number }>;
+          openTestScene(): Promise<{ canceled: true } | { canceled: false; token: string; name: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number }>;
+          testAssetOnScene(packageId: string, token: string, asset: string, threshold: number, scales: number[], mask: 'auto' | 'none' | 'alpha'): Promise<{ candidate: null | { asset?: string; x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number }; matched: boolean; threshold: number }>;
+          testTextOnScene(token: string, text: string, match: 'contains' | 'exact', minConfidence: number): Promise<{ candidate: null | { text: string; x: number; y: number; width: number; height: number; score: number }; matched: boolean }>;
+          importAssets(packageId: string): Promise<{ canceled: true } | { canceled: false; detail: Awaited<ReturnType<Window['electronAPI']['automationV3']['getPackage']>> }>;
+          importAssetFolder(packageId: string): Promise<{ canceled: true } | { canceled: false; detail: Awaited<ReturnType<Window['electronAPI']['automationV3']['getPackage']>> }>;
+          deleteAsset(packageId: string, asset: string): Promise<Awaited<ReturnType<Window['electronAPI']['automationV3']['getPackage']>>>;
+          captureAssetFrame(packageId: string, tabId: string): Promise<{ token: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; captureMs: number }>;
+          saveCapturedAsset(packageId: string, token: string, assetName: string, rect: { x: number; y: number; width: number; height: number }, overwrite?: boolean): Promise<{ asset: string }>;
+          testAsset(packageId: string, tabId: string, asset: string, threshold: number, scales: number[], mask: 'auto' | 'none' | 'alpha'): Promise<{ bounds: { x: number; y: number; width: number; height: number }; score: number } | null>;
+          testText(packageId: string, tabId: string, text: string, match: 'contains' | 'exact', minConfidence: number): Promise<{ bounds: { x: number; y: number; width: number; height: number }; score: number } | null>;
+          testAssetPreview(packageId: string, tabId: string, asset: string, threshold: number, scales: number[], mask: 'auto' | 'none' | 'alpha'): Promise<{ dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; candidate: null | { x: number; y: number; width: number; height: number; score: number }; matched: boolean; captureMs: number }>;
+          testTextPreview(packageId: string, tabId: string, text: string, match: 'contains' | 'exact', minConfidence: number): Promise<{ dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; candidates: Array<{ text: string; score: number; x: number; y: number; width: number; height: number }>; matched: boolean; captureMs: number; ocrMs: number }>;
+        };
     };
   }
 }
