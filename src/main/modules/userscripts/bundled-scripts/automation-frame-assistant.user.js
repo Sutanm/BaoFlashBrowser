@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.4
-// @updateHash  e404b40e534d
+// @updateHash  f43211a985d9
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -230,9 +230,14 @@
       }
     }
   }
+  function formatMs(value) {
+    var duration = Math.max(0, Number(value) || 0);
+    if (duration > 0 && duration < 0.1) return '<0.1';
+    return duration < 10 ? duration.toFixed(1) : String(Math.round(duration));
+  }
   function renderMatch(value) {
     preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
-    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); resultText.textContent = (value.matched ? '匹配成功' : '最佳候选低于阈值') + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + totalMs + 'ms（截图 ' + captureMs + 'ms · 匹配 ' + matchMs + 'ms）'; }
+    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); resultText.textContent = (value.matched ? '匹配成功' : '最佳候选低于阈值') + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + formatMs(totalMs) + 'ms（截图 ' + formatMs(captureMs) + 'ms · 匹配 ' + formatMs(matchMs) + 'ms）'; }
     else resultText.textContent = '没有找到匹配候选'; preview.appendChild(wrap);
   }
   function renderOcr(value) {
@@ -248,7 +253,7 @@
     var captureMs = Math.max(0, Number(value.captureMs) || 0); var bitmapMs = Math.max(0, Number(value.bitmapMs) || 0); var ocrMs = Math.max(0, Number(value.ocrMs) || 0); var totalMs = Math.max(captureMs + bitmapMs + ocrMs, Number(value.totalMs) || 0); var otherMs = Math.max(0, totalMs - captureMs - bitmapMs - ocrMs);
     var best = (value.candidates || [])[0]; var recognizedCount = Math.max(0, Number(value.recognizedCount) || 0); var query = String(value.query || '');
     var summary = value.matched ? '找到 ' + matchedCount + ' 处匹配文字' : best ? '最接近候选“' + best.text + '”未满足条件' : recognizedCount ? '未找到与“' + query + '”相关的文字 · OCR 识别到 ' + recognizedCount + ' 处' : '没有识别到文字';
-    resultText.textContent = summary + ' · 总耗时 ' + totalMs + 'ms（截图 ' + captureMs + 'ms · 位图 ' + bitmapMs + 'ms · OCR ' + ocrMs + 'ms' + (otherMs ? ' · 其他 ' + otherMs + 'ms' : '') + '）';
+    resultText.textContent = summary + ' · 总耗时 ' + formatMs(totalMs) + 'ms（截图 ' + formatMs(captureMs) + 'ms · 位图 ' + formatMs(bitmapMs) + 'ms · OCR ' + formatMs(ocrMs) + 'ms' + (otherMs ? ' · 其他 ' + formatMs(otherMs) + 'ms' : '') + '）';
   }
   function selectMatchMode(mode) {
     stopMonitor(); state.matchMode = mode === 'text' ? 'text' : 'image';
@@ -281,7 +286,7 @@
     try {
       await refreshBoundSurfaceIfNeeded();
       if (state.matchMode === 'text') await compareText();
-      else { var region = ocrRegion(); var value = await withRecognitionPanelCollapsed(function () { return api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, scales: [.75, 1, 1.25], mask: 'auto', region: region }); }); renderMatch(value); }
+      else { var region = ocrRegion(); var value = await withRecognitionPanelCollapsed(function () { return api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, region: region }); }); renderMatch(value); }
     }
     catch (error) { resultText.textContent = error.message || String(error); }
     finally { state.busy = false; }
@@ -296,7 +301,7 @@
     toast('正在捕获当前页面…');
     try {
       await refreshBoundSurfaceIfNeeded();
-      state.capture = await api.captureFrame(ocrRegion()); var image = captureLayer.querySelector('.bao-capture-image'); image.src = state.capture.dataUrl;
+      state.capture = await api.captureFrame(ocrRegion(), state.gameSurface ? 'surface' : 'viewport'); var image = captureLayer.querySelector('.bao-capture-image'); image.src = state.capture.dataUrl;
       captureLayer.classList.add('bao-active'); captureLayer.querySelector('.bao-selection').style.display = 'none'; captureLayer.querySelector('.bao-save').style.display = 'none'; captureLayer.querySelector('.bao-conflict').classList.remove('bao-show'); captureLayer.querySelector('.bao-capture-name').value = nextAssetName();
     } catch (error) { openPanel('capture'); toast(error.message || String(error)); }
   }

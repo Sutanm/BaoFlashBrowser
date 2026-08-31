@@ -18,6 +18,69 @@ describe('Automation capability services', () => {
     expect(result).toMatchObject({ asset: 'b', score: 0.95 });
   });
 
+  it('keeps the strongest candidate budget and exposes it in visual order', async () => {
+    const findManyCandidates = vi.fn(async () => [
+      { asset: 'a', x: 70, y: 40, width: 2, height: 2, score: 0.91 },
+      { asset: 'b', x: 60, y: 10, width: 2, height: 2, score: 0.99 },
+      { asset: 'a', x: 20, y: 10, width: 2, height: 2, score: 0.95 },
+    ]);
+    const service = new AutomationVisionService({ find: vi.fn(), findManyCandidates });
+    const results = await service.locateCandidates(frame, {
+      assets: ['a', 'b'], threshold: .9, scales: [1],
+    }, new AbortController().signal, 2);
+
+    expect(findManyCandidates).toHaveBeenCalledWith(['a', 'b'], frame, expect.objectContaining({ maxCandidates: 2 }), expect.any(AbortSignal));
+    expect(results.map(({ asset, x, y }) => ({ asset, x, y }))).toEqual([
+      { asset: 'a', x: 20, y: 10 },
+      { asset: 'b', x: 60, y: 10 },
+    ]);
+  });
+
+  it('serializes concurrent services that share one matcher', async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const find = vi.fn(async (asset: string) => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      active -= 1;
+      return { asset, x: 1, y: 1, width: 2, height: 2, score: .99 };
+    });
+    const matcher = { find };
+    const firstService = new AutomationVisionService(matcher);
+    const secondService = new AutomationVisionService(matcher);
+    const [first, second] = await Promise.all([
+      firstService.locate(frame, { assets: ['first'], threshold: .9 }, new AbortController().signal),
+      secondService.locate(frame, { assets: ['second'], threshold: .9 }, new AbortController().signal),
+    ]);
+
+    expect(maximumActive).toBe(1);
+    expect(find.mock.calls.map((call) => call[0])).toEqual(['first', 'second']);
+    expect(first).toMatchObject({ queueDepthAtSubmit: 0 });
+    expect(second).toMatchObject({ queueDepthAtSubmit: 1 });
+    expect(second!.queueWaitMs).toBeGreaterThan(0);
+  });
+
+  it('removes an aborted request while it is waiting in the vision queue', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const find = vi.fn(async (asset: string) => {
+      if (asset === 'first') await blocked;
+      return { asset, x: 1, y: 1, width: 2, height: 2, score: .99 };
+    });
+    const service = new AutomationVisionService({ find });
+    const first = service.locate(frame, { assets: ['first'], threshold: .9 }, new AbortController().signal);
+    const queuedController = new AbortController();
+    const queued = service.locate(frame, { assets: ['cancelled'], threshold: .9 }, queuedController.signal);
+    queuedController.abort();
+
+    await expect(queued).rejects.toThrow('automation cancelled');
+    expect(find).toHaveBeenCalledTimes(1);
+    release();
+    await expect(first).resolves.toMatchObject({ asset: 'first' });
+    expect(find).toHaveBeenCalledTimes(1);
+  });
+
   it('restores capture-density scaling before matching templates', () => {
     expect(captureDensityAdjustedScales({
       image: {} as never,

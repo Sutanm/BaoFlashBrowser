@@ -115,7 +115,13 @@ export type LocatorContext = {
   readonly defaultRegion?: PersistedRegion;
   readonly signal: AbortSignal;
   readonly now: () => number;
+  /** Opaque token used by platform adapters to reuse one observation frame. */
+  readonly observationScope?: object;
 };
+
+export function withObservationScope<T extends LocatorContext>(context: T): T {
+  return context.observationScope ? context : { ...context, observationScope: {} };
+}
 
 /** Resolve an explicit or inherited recognition region into viewport logical coordinates. */
 export function resolveLocatorCaptureRegion(value: PersistedRegion | undefined, context: LocatorContext): Region<'logical'> | undefined {
@@ -214,11 +220,13 @@ export class AutomationLocatorRegistry {
   }
 
   async resolveTarget(ref: TargetRef, context: LocatorContext): Promise<LocatedTarget> {
-    const outcome = await this.locate({ locator: ref.locator }, context);
+    const activeContext = withObservationScope(context);
+    const maxCandidates = !ref.selection || ref.selection.kind === 'best' ? 1 : 100;
+    const outcome = await this.locate({ locator: ref.locator, maxCandidates }, activeContext);
     if (outcome.status === 'not-found' || outcome.targets.length === 0) {
       throw new AutomationLocatorError('TARGET_NOT_FOUND', outcome.status === 'not-found' ? outcome.reason : 'locator returned no candidates');
     }
-    return shapeTarget(this.select(outcome.targets, ref.selection, context), ref, context);
+    return shapeTarget(this.select(outcome.targets, ref.selection, activeContext), ref, activeContext);
   }
 
   private select(targets: readonly LocatedTarget[], policy: SelectionPolicy = { kind: 'best' }, context: LocatorContext): LocatedTarget {
@@ -281,7 +289,7 @@ export type RecognitionCandidate = {
 };
 
 export interface LocatorRecognitionPort {
-  locateImage(locator: ImageLocator, context: LocatorContext): Promise<readonly RecognitionCandidate[]>;
+  locateImage(locator: ImageLocator, context: LocatorContext, maxCandidates: number): Promise<readonly RecognitionCandidate[]>;
   locateText(locator: TextLocator, context: LocatorContext): Promise<readonly RecognitionCandidate[]>;
 }
 
@@ -306,8 +314,8 @@ function candidateTarget(candidate: RecognitionCandidate, now: number): LocatedT
 export class ImageLocatorResolver implements LocatorResolver<ImageLocator> {
   readonly kind = 'image' as const;
   constructor(private readonly port: LocatorRecognitionPort) {}
-  async locate(locator: ImageLocator, _request: LocateRequest, context: LocatorContext): Promise<LocateOutcome> {
-    const candidates = await this.port.locateImage(locator, context);
+  async locate(locator: ImageLocator, request: LocateRequest, context: LocatorContext): Promise<LocateOutcome> {
+    const candidates = await this.port.locateImage(locator, context, request.maxCandidates ?? 100);
     return candidates.length ? { status: 'matched', targets: candidates.map((item) => candidateTarget(item, context.now())) }
       : { status: 'not-found', reason: `image not found: ${locator.asset}` };
   }

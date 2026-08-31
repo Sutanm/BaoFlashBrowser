@@ -27,6 +27,8 @@
     "prepare:ocr": "npm run prepare:ocr:paddle",
     "benchmark:ocr:corpus": "node tools/ocr-benchmark/generate-corpus.cjs",
     "benchmark:ocr": "npm run benchmark:ocr:corpus && node tools/ocr-benchmark/run.cjs",
+    "benchmark:vision:corpus": "node tools/vision-benchmark/generate-corpus.cjs",
+    "benchmark:vision": "npm run benchmark:vision:corpus && node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/runner.cjs",
     "prepare:electron:win64": "cross-env BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=x64 node build/prepare-electron-runtime.cjs",
     "start": "npm run i18n && npm run build && electron .",
     "icon": "node build/make-icon.js",

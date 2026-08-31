@@ -4,6 +4,7 @@ import {
   type LocatorContext,
   type LocatorSpec,
   type TargetRef,
+  withObservationScope,
 } from './locator';
 
 export type WaitLocatorPolicy = {
@@ -24,7 +25,7 @@ export class AutomationLocatorQueries {
   }
 
   async exists(locator: LocatorSpec, context: LocatorContext): Promise<boolean> {
-    const outcome = await this.registry.locate({ locator }, context);
+    const outcome = await this.registry.locate({ locator, maxCandidates: 1 }, withObservationScope({ ...context, observationScope: undefined }));
     return outcome.status === 'matched' && outcome.targets.length > 0;
   }
 
@@ -35,7 +36,7 @@ export class AutomationLocatorQueries {
     const deadline = context.now() + policy.timeoutMs;
     for (;;) {
       if (context.signal.aborted) throw new Error('automation cancelled');
-      const outcome = await this.registry.locate({ locator }, context);
+      const outcome = await this.registry.locate({ locator, maxCandidates: 1 }, withObservationScope({ ...context, observationScope: undefined }));
       const target = outcome.status === 'matched' ? outcome.targets[0] : undefined;
       if (policy.state === 'visible' && target) return target;
       if (policy.state === 'hidden' && !target) return null;

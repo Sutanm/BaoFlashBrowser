@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { performance } from 'perf_hooks';
 import { Notification } from 'electron';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import {
@@ -49,6 +50,7 @@ import {
 import type { AutomationPackageV3 } from '../../../shared/automation/package-v3';
 import type { AutomationProfileV3 } from '../../../shared/automation/package-v3';
 import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
+import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
 import { createJavaScriptInstallGrant, createJavaScriptRunGrant } from '../../../shared/automation/javascript-grants';
 import type { AutomationTabHandle } from '../tabs';
 import { BrowserViewCaptureService } from './browserview-capture-service';
@@ -116,7 +118,7 @@ export class BrowserViewAutomationCoreSession {
     this.ownsOcrEngine = !injected.ocrEngine;
     this.vision = new AutomationVisionService(this.matcher);
     this.text = new AutomationTextRecognitionService(this.ocrEngine);
-    const recognition: LocatorRecognitionPort = { locateImage: (locator, context) => this.locateImage(locator, context), locateText: (locator, context) => this.locateText(locator, context) };
+    const recognition: LocatorRecognitionPort = { locateImage: (locator, context, maxCandidates) => this.locateImage(locator, context, maxCandidates), locateText: (locator, context) => this.locateText(locator, context) };
     this.locators.register(new CoordinateLocatorResolver()); this.locators.register(new ImageLocatorResolver(recognition)); this.locators.register(new TextLocatorResolver(recognition)); this.locators.register(new FirstOfLocatorResolver(this.locators)); this.locators.freeze();
     this.locatorQueries = new AutomationLocatorQueries(this.locators);
     const inputPort: LocatedTargetInputPort = {
@@ -192,10 +194,10 @@ export class BrowserViewAutomationCoreSession {
     return { x: logical.x, y: logical.y, width: logical.width, height: logical.height };
   }
 
-  async testImage(asset: string, threshold = .9, scales: readonly number[] = [1], mask: 'auto' | 'none' | 'alpha' = 'auto', logicalRegion?: { x: number; y: number; width: number; height: number }) {
+  async testImage(asset: string, threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK, logicalRegion?: { x: number; y: number; width: number; height: number }) {
     const controller = createAutomationAbortController();
     const group = decodeAutomationImageGroup(asset);
-    const candidates = await this.locateImage({ kind: 'image', asset: group?.[0] ?? asset, alternatives: group?.slice(1), threshold, scales: [...scales], mask, region: logicalRegion ? { unit: 'logical', ...logicalRegion } : undefined }, this.context(controller.signal));
+    const candidates = await this.locateImage({ kind: 'image', asset: group?.[0] ?? asset, alternatives: group?.slice(1), threshold, scales: [...scales], mask, region: logicalRegion ? { unit: 'logical', ...logicalRegion } : undefined }, this.context(controller.signal), 1);
     const candidate = candidates[0];
     return candidate ? { bounds: candidate.bounds, score: candidate.confidence } : null;
   }
@@ -207,16 +209,15 @@ export class BrowserViewAutomationCoreSession {
     return candidate ? { bounds: candidate.bounds, score: candidate.confidence } : null;
   }
 
-  async testImagePreview(asset: string, _threshold = .9, scales: readonly number[] = [1], mask: 'auto' | 'none' | 'alpha' = 'auto', logicalRegion?: { x: number; y: number; width: number; height: number }, displayRegion?: { x: number; y: number; width: number; height: number }) {
+  async testImagePreview(asset: string, _threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK, logicalRegion?: { x: number; y: number; width: number; height: number }, _displayRegion?: { x: number; y: number; width: number; height: number }) {
     return this.capture.withFreshFrame(async () => {
       // Assistant regions are cropped from the same normalized full frame used
       // by whole-page recognition. This guarantees identical template scale in
       // both modes; the logical region only limits the OpenCV search ROI.
-      const authoringCrop = Boolean(logicalRegion && displayRegion);
-      const preview = await this.capturePreview(authoringCrop ? undefined : logicalRegion, authoringCrop ? undefined : displayRegion);
-      const frame = await this.captureFrame(authoringCrop ? undefined : logicalRegion ? { unit: 'logical', ...logicalRegion } : undefined, this.context(createAutomationAbortController().signal), authoringCrop ? undefined : displayRegion);
+      const preview = await this.captureViewportPreview();
+      const frame = await this.captureViewportFrame();
       const group = decodeAutomationImageGroup(asset);
-      const bitmapMatch = await this.vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask, region: authoringCrop ? logicalRegion : undefined }, createAutomationAbortController().signal);
+      const bitmapMatch = await this.vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask, region: logicalRegion }, createAutomationAbortController().signal);
       const bounds = bitmapMatch && frame.geometry ? new AutomationFrameTransform(frame.geometry).bitmapRegionToSpace(bitmapMatch) : null;
       return { preview, bitmapMatch, match: bitmapMatch && bounds ? { bounds, score: bitmapMatch.score } : null };
     });
@@ -230,9 +231,9 @@ export class BrowserViewAutomationCoreSession {
       const preview = await this.capturePreview(logicalRegion, displayRegion);
       const controller = createAutomationAbortController();
       const frame = await this.captureFrame(logicalRegion ? { unit: 'logical', ...logicalRegion } : undefined, this.context(controller.signal), displayRegion);
-      const ocrStartedAt = Date.now();
+      const ocrStartedAt = performance.now();
       const items = await this.text.recognize(frame, controller.signal);
-      const ocrMs = Date.now() - ocrStartedAt;
+      const ocrMs = performance.now() - ocrStartedAt;
       const bitmapMatch = this.text.locateBestRecognized(frame, items, { text: query, match, minScore: minConfidence });
       const bounds = bitmapMatch && frame.geometry ? new AutomationFrameTransform(frame.geometry).bitmapRegionToSpace(bitmapMatch) : null;
       return {
@@ -324,14 +325,53 @@ export class BrowserViewAutomationCoreSession {
   private async captureFrame(value: PersistedRegion | undefined, context: LocatorContext, displayRegionOverride?: { x: number; y: number; width: number; height: number }) {
     await this.waitForCurrentViewport();
     const captureRegion = resolveLocatorCaptureRegion(value, context); const transform = this.handle.getViewportTransform();
-    return this.capture.capture({ logicalViewportSize: transform.logicalSize, displayViewportSize: transform.displaySize, logicalRegion: captureRegion, displayRegion: displayRegionOverride ?? (captureRegion ? this.coordinateAdapter.logicalRegionToDisplayCapture(captureRegion) : undefined) });
+    return this.capture.capture({ logicalViewportSize: transform.logicalSize, displayViewportSize: transform.displaySize, logicalRegion: captureRegion, displayRegion: displayRegionOverride ?? (captureRegion ? this.coordinateAdapter.logicalRegionToDisplayCapture(captureRegion) : undefined), scope: context.observationScope });
   }
 
-  private async locateImage(locator: ImageLocator, context: LocatorContext): Promise<readonly RecognitionCandidate[]> {
+  private async captureViewportFrame(context?: LocatorContext) {
+    await this.waitForCurrentViewport();
+    const transform = this.handle.getViewportTransform();
+    return this.capture.capture({ logicalViewportSize: transform.logicalSize, displayViewportSize: transform.displaySize, scope: context?.observationScope });
+  }
+
+  private async captureViewportPreview(): Promise<{ bitmap: Uint8Array; width: number; height: number; captureMs: number; bitmapMs: number }> {
+    const frame = await this.captureViewportFrame();
+    const dimensions = frame.image.getSize();
+    if (!frame.bitmap) throw new Error('captured frame has no bitmap');
+    return { bitmap: frame.bitmap, width: dimensions.width, height: dimensions.height, captureMs: frame.captureMs ?? 0, bitmapMs: frame.bitmapMs ?? 0 };
+  }
+
+  private async locateImage(locator: ImageLocator, context: LocatorContext, maxCandidates: number): Promise<readonly RecognitionCandidate[]> {
     const assets = [...new Set([locator.asset, ...(locator.alternatives ?? [])])];
-    const frame = await this.captureFrame(locator.region, context); const match = await this.vision.locate(frame, { assets, threshold: locator.threshold, scales: locator.scales ?? [1], mask: locator.mask }, context.signal);
-    if (!match || !frame.geometry) return []; const bounds = new AutomationFrameTransform(frame.geometry).bitmapRegionToSpace(match);
-    return [{ space: frame.geometry.space, bounds, confidence: match.score, frameId: frame.geometry.frameId, fingerprint: `image:${match.asset ?? locator.asset}:${match.x}:${match.y}` }];
+    const searchRegion = resolveLocatorCaptureRegion(locator.region, context);
+    const surfaceReferences = locator.scales === undefined && locator.region === undefined && searchRegion
+      ? assets.map((asset) => {
+        const normalized = asset.startsWith('assets/') ? asset : `assets/${asset}`;
+        const metadata = this.source.manifest.assetMetadata?.[normalized];
+        return metadata?.source === 'capture' && metadata.reference.kind === 'surface' ? metadata.reference : undefined;
+      })
+      : [];
+    const predictedScales = surfaceReferences.length === assets.length && surfaceReferences.every(Boolean)
+      ? surfaceReferenceImageScales(surfaceReferences as Array<{ width: number; height: number }>, searchRegion!)
+      : undefined;
+    const frame = await this.captureViewportFrame(context);
+    const matches = await this.vision.locateCandidates(frame, {
+      assets,
+      threshold: locator.threshold,
+      scales: locator.scales ?? predictedScales,
+      mask: locator.mask ?? DEFAULT_IMAGE_MATCH_MASK,
+      region: searchRegion && { x: searchRegion.x, y: searchRegion.y, width: searchRegion.width, height: searchRegion.height },
+    }, context.signal, maxCandidates);
+    if (predictedScales) this.log(`[findImage] surface reference scale=${predictedScales[0].toFixed(4)} assets=${assets.length}`, 'debug');
+    if (!frame.geometry) return [];
+    const transform = new AutomationFrameTransform(frame.geometry);
+    return matches.map((match) => ({
+      space: frame.geometry!.space,
+      bounds: transform.bitmapRegionToSpace(match),
+      confidence: match.score,
+      frameId: frame.geometry!.frameId,
+      fingerprint: `image:${match.asset ?? locator.asset}:${match.x}:${match.y}`,
+    }));
   }
 
   private async locateText(locator: TextLocator, context: LocatorContext): Promise<readonly RecognitionCandidate[]> {

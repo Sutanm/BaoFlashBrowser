@@ -1,4 +1,4 @@
-import type { LocatorContext } from './locator';
+import { withObservationScope, type LocatorContext } from './locator';
 import { AutomationLocatorQueries } from './locator-query';
 import type { ExistsQuery, FindQuery, ReadNumberQuery, ReadTextQuery, RuntimeQuerySpec, RuntimeValue } from './workflow-ir';
 
@@ -31,7 +31,7 @@ export class AutomationRuntimeQueryRegistry {
     if (context.signal.aborted) throw new Error('automation cancelled');
     const executor = this.entries.get(query.kind);
     if (!executor) throw new RuntimeQueryRegistryError(`query executor is not registered: ${query.kind}`);
-    return executor(query, context);
+    return executor(query, withObservationScope({ ...context, observationScope: undefined }));
   }
 }
 

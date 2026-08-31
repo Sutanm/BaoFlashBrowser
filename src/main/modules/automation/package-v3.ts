@@ -7,6 +7,7 @@ import type {
   AutomationPackageManifestV3,
   AutomationPackageV3,
   AutomationProfileV3,
+  AutomationAssetMetadataV3,
   AutomationV3ScriptEntry,
 } from '../../../shared/automation/package-v3';
 
@@ -60,6 +61,25 @@ function parseScript(value: unknown): AutomationV3ScriptEntry {
   return { id: String(entry.id), name: entry.name, path: entry.path as AutomationV3ScriptEntry['path'], language, permissions: [...new Set(entry.permissions)] as AutomationV3ScriptEntry['permissions'] };
 }
 
+function parseAssetMetadata(value: unknown): Readonly<Record<string, AutomationAssetMetadataV3>> | undefined {
+  if (value === undefined) return undefined;
+  const entries = object(value, 'manifest assetMetadata');
+  const parsed: Record<string, AutomationAssetMetadataV3> = {};
+  for (const [assetPath, raw] of Object.entries(entries)) {
+    if (!assetPath.startsWith('assets/') || !safePath(assetPath)) throw new AutomationPackageV3Error('PACKAGE_INVALID', `asset metadata path is invalid: ${assetPath}`);
+    const metadata = object(raw, `asset metadata ${assetPath}`);
+    const reference = object(metadata.reference, `asset metadata reference ${assetPath}`);
+    if (metadata.source !== 'capture' || !['viewport', 'region', 'surface'].includes(String(reference.kind))
+      || typeof reference.width !== 'number' || typeof reference.height !== 'number'
+      || !Number.isFinite(reference.width) || !Number.isFinite(reference.height)
+      || reference.width <= 0 || reference.height <= 0 || reference.width > 100_000 || reference.height > 100_000) {
+      throw new AutomationPackageV3Error('PACKAGE_INVALID', `asset metadata is invalid: ${assetPath}`);
+    }
+    parsed[assetPath] = { source: 'capture', reference: { kind: reference.kind as 'viewport' | 'region' | 'surface', width: reference.width, height: reference.height } };
+  }
+  return parsed;
+}
+
 export function parseAutomationPackageManifestV3(value: unknown): AutomationPackageManifestV3 {
   const manifest = object(value, 'manifest');
   if (manifest.format !== 'baoauto' || manifest.formatVersion !== 3) throw new AutomationPackageV3Error('UNSUPPORTED_FORMAT', 'only .baoauto formatVersion 3 is supported');
@@ -79,7 +99,9 @@ export function parseAutomationPackageManifestV3(value: unknown): AutomationPack
     format: 'baoauto', formatVersion: 3, id: String(manifest.id), name: manifest.name,
     description: typeof manifest.description === 'string' ? manifest.description : undefined,
     frontends: { workflow: frontends.workflow as 'workflow.json' | undefined, scripts, mainEntryId },
-    features: [...new Set(manifest.features)] as AutomationPackageManifestV3['features'], integrity: integrity as Record<string, string>,
+    features: [...new Set(manifest.features)] as AutomationPackageManifestV3['features'],
+    assetMetadata: parseAssetMetadata(manifest.assetMetadata),
+    integrity: integrity as Record<string, string>,
   };
 }
 
@@ -174,6 +196,9 @@ export function loadAutomationPackageV3(bytes: Uint8Array, customLimits: Partial
   }
   const contentPaths = entries.map(([entryPath]) => entryPath).filter((entryPath) => entryPath !== 'manifest.json');
   if (contentPaths.some((entryPath) => !(entryPath in manifest.integrity)) || Object.keys(manifest.integrity).some((entryPath) => !archive[entryPath])) throw new AutomationPackageV3Error('INTEGRITY_MISMATCH', 'manifest integrity must cover every package content entry');
+  for (const assetPath of Object.keys(manifest.assetMetadata ?? {})) {
+    if (!archive[assetPath]) throw new AutomationPackageV3Error('PACKAGE_INVALID', `asset metadata references a missing asset: ${assetPath}`);
+  }
 
   let workflow;
   if (manifest.frontends.workflow) {

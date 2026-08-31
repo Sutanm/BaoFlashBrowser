@@ -19,6 +19,9 @@ const source = (): AutomationPackageV3 => ({
       scripts: [{ id: 'trade', name: 'Trade', path: 'scripts/trade.ts', language: 'typescript', permissions: ['vision', 'ocr', 'input'] }],
     },
     features: [],
+    assetMetadata: {
+      'assets/buy.png': { source: 'capture', reference: { kind: 'region', width: 760, height: 150 } },
+    },
     integrity: {},
   },
   workflow: {
@@ -54,6 +57,9 @@ describe('.baoauto v3 package', () => {
     expect(loaded.manifest.frontends.scripts[0].language).toBe('typescript');
     expect(loaded.scripts.get('scripts/trade.ts')).toContain('bao.log.info');
     expect([...loaded.assets.get('assets/buy.png') ?? []]).toEqual([1, 2, 3]);
+    expect(loaded.manifest.assetMetadata?.['assets/buy.png']).toEqual({
+      source: 'capture', reference: { kind: 'region', width: 760, height: 150 },
+    });
     expect(loaded.profiles.get('profiles/default.json')?.entryId).toBe('trade');
     expect(listAutomationFrontendEntries(loaded).map(({ id, kind }) => ({ id, kind }))).toEqual([
       { id: 'workflow', kind: 'blockly' },
@@ -100,5 +106,19 @@ describe('.baoauto v3 package', () => {
     const invalid = source();
     invalid.profiles.set('profiles/bad.json', { id: 'bad', name: 'Bad', entryId: 'workflow', surfaces: { game: { kind: 'region', parent: { kind: 'viewport' }, region: { unit: 'ratio', x: 0, y: 0, width: 2, height: 1 } } } });
     expectCode(() => loadAutomationPackageV3(serializeAutomationPackageV3(invalid)), 'PACKAGE_INVALID');
+  });
+
+  it('rejects invalid or dangling asset capture metadata', () => {
+    const base = source();
+    const invalid: AutomationPackageV3 = { ...base, manifest: { ...base.manifest, assetMetadata: {
+      'assets/missing.png': { source: 'capture', reference: { kind: 'region', width: 760, height: 150 } },
+    } } };
+    expectCode(() => loadAutomationPackageV3(serializeAutomationPackageV3(invalid)), 'PACKAGE_INVALID');
+
+    const sizeBase = source();
+    const invalidSize: AutomationPackageV3 = { ...sizeBase, manifest: { ...sizeBase.manifest, assetMetadata: {
+      'assets/buy.png': { source: 'capture', reference: { kind: 'region', width: 0, height: 150 } },
+    } } };
+    expectCode(() => serializeAutomationPackageV3(invalidSize), 'PACKAGE_INVALID');
   });
 });

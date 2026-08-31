@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Check, Download, Play, RefreshCw, ScanSearch, Square, Workflow, X } from 'lucide-react';
+import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales } from '@shared/automation/vision-policy';
 import '../automation/automation.css';
 
 interface AutomationPanelProps {
@@ -20,7 +21,7 @@ export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: Automa
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('Automation 2.0');
   const [selectedAsset, setSelectedAsset] = useState('');
-  const [threshold, setThreshold] = useState(.9);
+  const [threshold, setThreshold] = useState(DEFAULT_IMAGE_MATCH_THRESHOLD);
   const [capture, setCapture] = useState<Awaited<ReturnType<typeof api.captureAssetFrame>>>();
   const [selection, setSelection] = useState<SelectionRect>();
   const [assetName, setAssetName] = useState('');
@@ -84,7 +85,7 @@ export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: Automa
 
   const testAsset = async (): Promise<void> => {
     if (!tabId || !selectedAsset) return; setBusy(true);
-    try { const result = await api.testAsset(packageId, tabId, selectedAsset, threshold, [.75, 1, 1.25], 'auto'); setMessage(result ? `识图成功 ${(result.score * 100).toFixed(1)}% · ${Math.round(result.bounds.x)},${Math.round(result.bounds.y)}` : '没有找到匹配图片'); }
+    try { const result = await api.testAsset(packageId, tabId, selectedAsset, threshold, imageMatchScales(), DEFAULT_IMAGE_MATCH_MASK); setMessage(result ? `识图成功 ${(result.score * 100).toFixed(1)}% · ${Math.round(result.bounds.x)},${Math.round(result.bounds.y)}` : '没有找到匹配图片'); }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };

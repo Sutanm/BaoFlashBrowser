@@ -8,7 +8,11 @@ export type ImageMatch = {
   sceneMatMs?: number; grayMs?: number; resizeMs?: number; matchTemplateMs?: number; scaledTemplateCacheHits?: number;
   scaledTemplateCacheMisses?: number; totalMs?: number; sceneBytes?: number; sceneTransferBytes?: number; wasmHeapBytes?: number;
   templateCacheBytes?: number; templateCacheEntries?: number; testedScales?: number[]; masked?: boolean; lowVariance?: boolean;
-  templateStdDev?: number; frameGeometry?: CaptureFrameGeometry;
+  templateStdDev?: number; rawCandidateCount?: number; nmsCandidateCount?: number; frameGeometry?: CaptureFrameGeometry;
+  algorithm?: 'ccoeff' | 'ccorr-mask' | 'sqdiff'; queueWaitMs?: number; queueDepthAtSubmit?: number;
+  upscaleInterpolation?: 'linear' | 'nearest';
+  scaleMatchTimings?: readonly { readonly scale: number; readonly operations: number; readonly matchTemplateMs: number }[];
+  assetMatchTimings?: readonly { readonly asset: string; readonly operations: number; readonly matchTemplateMs: number }[];
 };
 export type TextMatch = ImageMatch & { readonly text: string };
 
@@ -53,6 +57,18 @@ export interface AutomationVisionMatcher {
     options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null>;
+  findCandidates?(
+    asset: string,
+    frame: AutomationCapturedFrame,
+    options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask; maxCandidates?: number },
+    signal: AbortSignal,
+  ): Promise<readonly ImageMatch[]>;
+  findManyCandidates?(
+    assets: string[],
+    frame: AutomationCapturedFrame,
+    options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask; maxCandidates?: number },
+    signal: AbortSignal,
+  ): Promise<readonly ImageMatch[]>;
   getStats?(): Partial<ImageMatch>;
 }
 

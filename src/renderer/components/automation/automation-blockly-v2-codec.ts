@@ -10,6 +10,7 @@ import type {
   WorkflowNode,
 } from '../../../shared/automation/core';
 import { decodeAutomationImageGroup, encodeAutomationImageGroup } from '../../../shared/automation/image-groups';
+import { DEFAULT_IMAGE_MATCH_MASK } from '../../../shared/automation/vision-policy';
 
 export class AutomationBlocklyV2CodecError extends Error {
   constructor(message: string, readonly blockId?: string) {
@@ -62,7 +63,7 @@ function compileLocator(block: Blockly.Block): LocatorSpec {
   if (block.type === 'bao2_locator_image') {
     const selected = textField(block, 'ASSET');
     const group = decodeAutomationImageGroup(selected);
-    return { kind: 'image', asset: group?.[0] ?? selected, alternatives: group?.slice(1), threshold: numberField(block, 'THRESHOLD'), mask: 'auto' };
+    return { kind: 'image', asset: group?.[0] ?? selected, alternatives: group?.slice(1), threshold: numberField(block, 'THRESHOLD'), mask: DEFAULT_IMAGE_MATCH_MASK };
   }
   if (block.type === 'bao2_locator_text') return { kind: 'text', text: String(block.getFieldValue('TEXT') ?? ''), match: block.getFieldValue('MATCH') as 'exact' | 'contains' | 'normalized', minConfidence: numberField(block, 'CONFIDENCE') };
   throw new AutomationBlocklyV2CodecError(`block does not produce a Locator: ${block.type}`, block.id);

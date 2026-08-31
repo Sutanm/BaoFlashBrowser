@@ -1,3 +1,4 @@
+import { performance } from 'perf_hooks';
 import type { CaptureFrameGeometry } from '../../../shared/automation/core/frame-geometry';
 import type { AutomationCapabilityRegion, AutomationCapturedFrame, AutomationCapturedImage } from './capability-contracts';
 
@@ -13,6 +14,7 @@ export type BrowserViewCaptureRequest = {
   readonly logicalRegion?: AutomationCapabilityRegion;
   readonly displayRegion?: AutomationCapabilityRegion;
   readonly emptyMessage?: string;
+  readonly scope?: object;
 };
 
 export type BrowserViewCaptureServiceOptions = {
@@ -33,19 +35,45 @@ function captureKey(region?: AutomationCapabilityRegion): string {
 /** Owns capture normalization and operation-scoped frame reuse. */
 export class BrowserViewCaptureService {
   private scopedFrames: Map<string, AutomationCapturedFrame> | null = null;
+  private readonly operationFrames = new WeakMap<object, Map<string, Promise<AutomationCapturedFrame>>>();
   private readonly now: () => number;
 
   constructor(
     private readonly source: BrowserViewCaptureSource,
     private readonly options: BrowserViewCaptureServiceOptions,
   ) {
-    this.now = options.now ?? Date.now;
+    this.now = options.now ?? (() => performance.now());
   }
 
   async capture(request: BrowserViewCaptureRequest): Promise<AutomationCapturedFrame> {
     const key = captureKey(request.logicalRegion);
     const cached = this.scopedFrames?.get(key);
     if (cached) return cached;
+
+    let operationFrames: Map<string, Promise<AutomationCapturedFrame>> | undefined;
+    if (request.scope) {
+      operationFrames = this.operationFrames.get(request.scope);
+      if (!operationFrames) {
+        operationFrames = new Map();
+        this.operationFrames.set(request.scope, operationFrames);
+      }
+      const operationCached = operationFrames.get(key);
+      if (operationCached) return operationCached;
+    }
+
+    const pending = this.captureUncached(request);
+    operationFrames?.set(key, pending);
+    try {
+      const frame = await pending;
+      this.scopedFrames?.set(key, frame);
+      return frame;
+    } catch (error) {
+      operationFrames?.delete(key);
+      throw error;
+    }
+  }
+
+  private async captureUncached(request: BrowserViewCaptureRequest): Promise<AutomationCapturedFrame> {
 
     const logicalCaptureSize = request.logicalRegion
       ? { width: request.logicalRegion.width, height: request.logicalRegion.height }
@@ -99,7 +127,6 @@ export class BrowserViewCaptureService {
         captureMs,
         bitmapMs,
       };
-      this.scopedFrames?.set(key, frame);
       return frame;
     } finally {
       this.source.decrementCapturerCount();

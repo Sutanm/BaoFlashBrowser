@@ -1,6 +1,7 @@
 import * as Blockly from 'blockly';
 import { GAME_SURFACE_FIELD } from './automation-game-surface-field';
 import { collectAutomationImageGroups } from '../../../shared/automation/image-groups';
+import { DEFAULT_IMAGE_MATCH_THRESHOLD } from '../../../shared/automation/vision-policy';
 
 export const AUTOMATION_V2_BLOCK_TYPES = Object.freeze([
   'bao2_entry_unconditional', 'bao2_entry_region', 'bao2_entry_game',
@@ -67,7 +68,7 @@ export function registerAutomationV2Blocks(locale: Locale, assets: readonly stri
     { type: 'bao2_entry_region', message0: l.entryRegion, args0: [{ type: 'field_input', name: 'TOP_LEFT', text: '0,0' }, { type: 'field_input', name: 'BOTTOM_RIGHT', text: '10000,10000' }], message1: l.execute, args1: [{ type: 'input_statement', name: 'BODY' }], colour: 265 },
     { type: 'bao2_entry_game', message0: l.entryGame, args0: [{ type: GAME_SURFACE_FIELD, name: 'GAME_SURFACE', value: '', importLabel: l.importFeature }], message1: l.gameCoordinateHint, message2: l.execute, args2: [{ type: 'input_statement', name: 'BODY' }], colour: 265 },
     { type: 'bao2_locator_coordinate', message0: l.locatorCoordinate, args0: [{ type: 'field_input', name: 'COORDINATE', text: '5000,5000' }], output: BAO_LOCATOR_CHECK, colour: 205 },
-    { type: 'bao2_locator_image', message0: l.locatorImage, args0: [{ type: 'field_dropdown', name: 'ASSET', options: assetOptions }, { type: 'field_number', name: 'THRESHOLD', value: .9, min: .1, max: 1, precision: .01 }], output: BAO_LOCATOR_CHECK, colour: 205 },
+    { type: 'bao2_locator_image', message0: l.locatorImage, args0: [{ type: 'field_dropdown', name: 'ASSET', options: assetOptions }, { type: 'field_number', name: 'THRESHOLD', value: DEFAULT_IMAGE_MATCH_THRESHOLD, min: .1, max: 1, precision: .01 }], output: BAO_LOCATOR_CHECK, colour: 205 },
     { type: 'bao2_locator_text', message0: l.locatorText, args0: [{ type: 'field_input', name: 'TEXT', text: '' }, { type: 'field_dropdown', name: 'MATCH', options: [[l.contains, 'contains'], [l.exact, 'exact'], [l.normalized, 'normalized']] }, { type: 'field_number', name: 'CONFIDENCE', value: .5, min: 0, max: 1, precision: .01 }], output: BAO_LOCATOR_CHECK, colour: 205 },
     { type: 'bao2_action_click', message0: l.click, args0: [{ type: 'input_value', name: 'TARGET', check: BAO_LOCATOR_CHECK }, { type: 'field_dropdown', name: 'BUTTON', options: [[l.primary, 'primary'], [l.secondary, 'secondary'], [l.middle, 'middle']] }, { type: 'field_number', name: 'COUNT', value: 1, min: 1, max: 10, precision: 1 }], previousStatement: null, nextStatement: null, colour: 120 },
     { type: 'bao2_action_move', message0: l.move, args0: [{ type: 'input_value', name: 'TARGET', check: BAO_LOCATOR_CHECK }], previousStatement: null, nextStatement: null, colour: 120 },

@@ -81,6 +81,26 @@ describe('BrowserViewCaptureService', () => {
     expect(source.capturePage).toHaveBeenCalledTimes(2);
   });
 
+  it('deduplicates concurrent captures inside one explicit operation scope', async () => {
+    const { capture, source } = service(image(100, 50));
+    const scope = {};
+    const [first, second] = await Promise.all([
+      capture.capture({ logicalViewportSize: { width: 100, height: 50 }, scope }),
+      capture.capture({ logicalViewportSize: { width: 100, height: 50 }, scope }),
+    ]);
+    expect(second).toBe(first);
+    expect(source.capturePage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps simultaneous explicit operation scopes isolated', async () => {
+    const { capture, source } = service(image(100, 50));
+    await Promise.all([
+      capture.capture({ logicalViewportSize: { width: 100, height: 50 }, scope: {} }),
+      capture.capture({ logicalViewportSize: { width: 100, height: 50 }, scope: {} }),
+    ]);
+    expect(source.capturePage).toHaveBeenCalledTimes(2);
+  });
+
   it('always balances the capturer count when capture fails', async () => {
     const { capture, source } = service({ ...image(1, 1), isEmpty: () => true });
     await expect(capture.capture({ logicalViewportSize: { width: 1, height: 1 } })).rejects.toThrow('empty');

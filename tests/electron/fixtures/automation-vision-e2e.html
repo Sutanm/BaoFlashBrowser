@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BaoFlash Automation Vision E2E</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 12px 20px 24px; color: #182235; background: #eef3f8; font: 14px/1.5 system-ui, sans-serif; }
+    header { display: flex; align-items: center; justify-content: space-between; min-height: 36px; }
+    h1 { margin: 0; font-size: 18px; }
+    #metrics { color: #52627a; font-variant-numeric: tabular-nums; }
+    #game { display: block; width: calc(100vw - 40px); height: calc((100vw - 40px) / 3); max-height: calc(100vh - 105px); margin-top: 10px; border: 0; outline: 2px solid #26745c; background: #f7faf8; image-rendering: pixelated; }
+    footer { margin-top: 9px; color: #52627a; }
+    code { color: #136a50; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Automation Vision E2E</h1>
+    <span id="metrics">等待绘制</span>
+  </header>
+  <canvas id="game" data-automation-surface="game"></canvas>
+  <footer>用于验证：绑定 Canvas → 截取彩色像素靶 → 调整窗口 → 图片定位。手动测试时请把彩色靶截成素材。</footer>
+  <script>
+    (() => {
+      const canvas = document.getElementById('game');
+      const metrics = document.getElementById('metrics');
+      const sprite = document.createElement('canvas');
+      sprite.width = 56; sprite.height = 40;
+      const spriteContext = sprite.getContext('2d');
+      spriteContext.fillStyle = '#111827'; spriteContext.fillRect(0, 0, 56, 40);
+      for (let y = 4; y < 36; y += 8) for (let x = 4; x < 52; x += 8) {
+        spriteContext.fillStyle = ((x + y) / 8) % 2 ? '#ef4444' : '#22d3ee';
+        spriteContext.fillRect(x, y, 8, 8);
+      }
+      spriteContext.fillStyle = '#f8fafc'; spriteContext.fillRect(24, 5, 8, 30); spriteContext.fillRect(9, 16, 38, 8);
+      spriteContext.fillStyle = '#7c3aed'; spriteContext.fillRect(26, 17, 4, 6);
+
+      function draw() {
+        const bounds = canvas.getBoundingClientRect();
+        const width = Math.max(300, Math.round(bounds.width));
+        const height = Math.max(100, Math.round(bounds.height));
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
+        const context = canvas.getContext('2d');
+        context.imageSmoothingEnabled = false;
+        context.fillStyle = '#f7faf8'; context.fillRect(0, 0, width, height);
+        context.fillStyle = '#d7e5df';
+        for (let x = 0; x < width; x += Math.max(16, Math.round(width / 30))) context.fillRect(x, 0, 1, height);
+        for (let y = 0; y < height; y += Math.max(16, Math.round(height / 10))) context.fillRect(0, y, width, 1);
+        const scale = width / 600;
+        const target = {
+          x: Math.round(width * .18), y: Math.round(height * .28),
+          width: Math.round(sprite.width * scale), height: Math.round(sprite.height * scale),
+        };
+        context.drawImage(sprite, target.x, target.y, target.width, target.height);
+        context.fillStyle = '#334155'; context.font = `${Math.max(12, Math.round(14 * scale))}px sans-serif`;
+        context.fillText('游戏画面', Math.round(width * .68), Math.round(height * .55));
+        window.automationVisionTarget = target;
+        window.automationVisionSurface = { width, height };
+        metrics.textContent = `Surface ${width}×${height} · target ${target.width}×${target.height}`;
+      }
+      window.clicks = 0;
+      canvas.addEventListener('click', () => { window.clicks += 1; });
+      new ResizeObserver(draw).observe(canvas);
+      addEventListener('resize', draw);
+      draw();
+    })();
+  </script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import path from 'path';
+import { performance } from 'perf_hooks';
 import { Worker } from 'worker_threads';
 import type {
   AutomationCapabilityRegion,
@@ -7,6 +8,7 @@ import type {
   AutomationVisionMatcher,
   ImageMatch,
 } from './capability-contracts';
+import { DEFAULT_IMAGE_MATCH_MASK, imageMatchScales } from '../../../shared/automation/vision-policy';
 
 export type AutomationTemplatePixels = {
   cacheKey: string;
@@ -59,6 +61,8 @@ export type OpenCvWorkerMatcherOptions = {
   maxCacheEntries?: number;
   maxCacheBytes?: number;
   maxSharedBytes?: number;
+  /** Internal backend policy; nearest is the product default for pixel-stable game assets. */
+  templateUpscaleInterpolation?: 'linear' | 'nearest';
 };
 
 /**
@@ -74,7 +78,7 @@ function resolveVisionWorkerPath(): string {
 }
 
 type PendingRequest = {
-  resolve(value: ImageMatch | null): void;
+  resolve(value: readonly ImageMatch[]): void;
   reject(error: Error): void;
   timer: NodeJS.Timeout;
   signal: AbortSignal;
@@ -133,6 +137,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
       maxCacheEntries: options.maxCacheEntries ?? 32,
       maxCacheBytes: options.maxCacheBytes ?? 64 * 1024 * 1024,
       maxSharedBytes: options.maxSharedBytes ?? 64 * 1024 * 1024,
+      templateUpscaleInterpolation: options.templateUpscaleInterpolation ?? 'nearest',
     };
   }
 
@@ -148,7 +153,16 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null> {
-    return this.findMany([asset], frame, options, signal);
+    return (await this.findCandidates(asset, frame, options, signal))[0] ?? null;
+  }
+
+  async findCandidates(
+    asset: string,
+    frame: AutomationCapturedFrame,
+    options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask; maxCandidates?: number },
+    signal: AbortSignal,
+  ): Promise<readonly ImageMatch[]> {
+    return this.findManyCandidates([asset], frame, options, signal);
   }
 
   getStats(): Partial<ImageMatch> {
@@ -161,12 +175,21 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask },
     signal: AbortSignal,
   ): Promise<ImageMatch | null> {
+    return (await this.findManyCandidates(assets, frame, options, signal))[0] ?? null;
+  }
+
+  async findManyCandidates(
+    assets: string[],
+    frame: AutomationCapturedFrame,
+    options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask; maxCandidates?: number },
+    signal: AbortSignal,
+  ): Promise<readonly ImageMatch[]> {
     if (signal.aborted) throw new Error('automation cancelled');
     const uniqueAssets = [...new Set(assets)];
     if (uniqueAssets.length === 0) throw new Error('at least one automation image asset is required');
-    const templateLoadStartedAt = Date.now();
+    const templateLoadStartedAt = performance.now();
     const templates = await Promise.all(uniqueAssets.map(async (asset) => ({ asset, pixels: await this.templates.load(asset, signal) })));
-    const templateLoadMs = Date.now() - templateLoadStartedAt;
+    const templateLoadMs = performance.now() - templateLoadStartedAt;
     for (const template of templates) {
       if (template.pixels.width <= 0 || template.pixels.height <= 0
         || template.pixels.bgra.byteLength !== template.pixels.width * template.pixels.height * 4) {
@@ -211,13 +234,13 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
       return { asset, pixels, include };
     });
     const id = this.nextId++;
-    const workerReadyStartedAt = Date.now();
+    const workerReadyStartedAt = performance.now();
     this.ensureWorker();
     await this.waitUntilWorkerReady(signal);
-    const workerReadyMs = Date.now() - workerReadyStartedAt;
+    const workerReadyMs = performance.now() - workerReadyStartedAt;
     let sharedCopyMs = 0;
 
-    const result = await new Promise<ImageMatch | null>((resolve, reject) => {
+    const result = await new Promise<readonly ImageMatch[]>((resolve, reject) => {
       const onAbort = (): void => this.restartWorker(new Error('automation cancelled'));
       const timer = setTimeout(() => {
         this.restartWorker(new Error(`OpenCV match timed out after ${this.options.requestTimeoutMs}ms`));
@@ -247,8 +270,9 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
         templates: templateMetadata,
         options: {
           threshold: options.threshold,
-          scales: options.scales ?? [1],
-          mask: options.mask ?? 'auto',
+          scales: imageMatchScales(options.scales),
+          mask: options.mask ?? DEFAULT_IMAGE_MATCH_MASK,
+          maxCandidates: options.maxCandidates ?? 1,
         },
       }), 'utf8');
       const control = this.sharedControl;
@@ -262,7 +286,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
         this.restartWorker(new Error(`OpenCV request exceeds shared buffer budget: ${totalBytes} > ${data.byteLength}`));
         return;
       }
-      const sharedCopyStartedAt = Date.now();
+      const sharedCopyStartedAt = performance.now();
       data.set(metadata, 0);
       data.set(sceneTransferBytes, metadata.byteLength);
       const templateStart = metadata.byteLength + sceneTransferBytes.byteLength;
@@ -273,7 +297,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
         data.set(payload.pixels.bgra, templateStart + descriptor.byteOffset);
         this.sentTemplates.add(payload.pixels.cacheKey);
       }
-      sharedCopyMs = Date.now() - sharedCopyStartedAt;
+      sharedCopyMs = performance.now() - sharedCopyStartedAt;
       this.sentFrameId = reusableFrameId;
       Atomics.store(control, 1, id);
       Atomics.store(control, 2, metadata.byteLength);
@@ -287,7 +311,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
       sceneBytes: sceneBytes.byteLength, sceneTransferBytes: sceneTransferBytes.byteLength,
     };
     this.lastStats = { ...this.lastStats, ...requestStats };
-    return result ? { ...result, ...requestStats } : null;
+    return result.map((match) => ({ ...match, ...requestStats }));
   }
 
   async close(): Promise<void> {
@@ -315,6 +339,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
       workerData: {
         maxCacheEntries: this.options.maxCacheEntries,
         maxCacheBytes: this.options.maxCacheBytes,
+        templateUpscaleInterpolation: this.options.templateUpscaleInterpolation,
         controlBuffer,
         dataBuffer,
       },
@@ -356,7 +381,7 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
 
   private handleMessage(value: unknown): void {
     if (!value || typeof value !== 'object') return;
-    const message = value as { type?: string; id?: unknown; error?: unknown; match?: unknown; stats?: unknown };
+    const message = value as { type?: string; id?: unknown; match?: unknown; matches?: unknown; error?: unknown; stats?: unknown };
     if (message.type === 'ready') {
       this.resolveWorkerReady?.();
       this.resolveWorkerReady = null;
@@ -375,10 +400,12 @@ export class OpenCvWorkerMatcher implements AutomationVisionMatcher {
     pending.signal.removeEventListener('abort', pending.onAbort);
     if (message.type === 'error') pending.reject(new Error(typeof message.error === 'string' ? message.error : 'OpenCV worker error'));
     else {
-      const match = (message.match as ImageMatch | null | undefined) ?? null;
+      const matches = Array.isArray(message.matches)
+        ? message.matches as ImageMatch[]
+        : message.match ? [message.match as ImageMatch] : [];
       const stats = (message.stats as Partial<ImageMatch> | undefined) ?? {};
       this.lastStats = { ...this.lastStats, ...stats };
-      pending.resolve(match ? { ...match, ...stats } : null);
+      pending.resolve(matches.map((match) => ({ ...match, ...stats })));
     }
   }
 

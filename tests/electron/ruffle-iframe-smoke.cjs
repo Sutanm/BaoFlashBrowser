@@ -42,6 +42,7 @@ app.whenReady().then(async () => {
     frontends: [{ id: 'workflow', kind: 'blockly', name: 'Smoke Workflow' }],
   }]);
   ipcMain.handle('userscript:automation-v3-status', async () => ({ state: 'idle' }));
+  ipcMain.handle('userscript:automation-v3-warm', async () => ({ warm: true }));
   const pixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL9WQAAAABJRU5ErkJggg==';
   ipcMain.handle('userscript:automation-v3-asset-preview', async () => ({ dataUrl: pixel, width: 1, height: 1 }));
   ipcMain.handle('userscript:automation-v3-match', async () => ({ dataUrl: pixel, previewWidth: 1280, previewHeight: 720, sourceWidth: 1280, sourceHeight: 720, candidate: { x: 10, y: 20, width: 30, height: 40, score: .97, scale: 1, matchMs: 2 }, matched: true, threshold: .9, captureMs: 3 }));
@@ -106,15 +107,22 @@ app.whenReady().then(async () => {
   check('Automation 2.0 assistant opens and reads Core packages', probe.automationAssistantOpen === true && probe.automationPackage === 'Smoke Automation', probe);
   const interactions = await view.webContents.executeJavaScript(`(async () => {
     const root = document.getElementById('bao-automation-frame-assistant');
+    const waitForResult = async (pattern, timeoutMs = 1500) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const value = root.querySelector('.bao-result').textContent;
+        if (pattern.test(value)) return value;
+        await new Promise(r => setTimeout(r, 20));
+      }
+      return root.querySelector('.bao-result').textContent;
+    };
     root.querySelector('[data-view="match"]').click();
     root.querySelector('.bao-compare').click();
-    await new Promise(r => setTimeout(r, 80));
-    const imageResult = root.querySelector('.bao-result').textContent;
+    const imageResult = await waitForResult(/匹配成功|最佳候选低于阈值|没有找到匹配候选/);
     root.querySelector('[data-match-mode="text"]').click();
     root.querySelector('.bao-ocr-text').value = '购买';
     root.querySelector('.bao-compare').click();
-    await new Promise(r => setTimeout(r, 80));
-    const textResult = root.querySelector('.bao-result').textContent;
+    const textResult = await waitForResult(/找到 .*处匹配文字|最佳候选|OCR 未返回/);
     root.querySelector('[data-view="capture"]').click();
     root.querySelector('.bao-capture').click();
     await new Promise(r => setTimeout(r, 80));
@@ -160,5 +168,6 @@ app.whenReady().then(async () => {
   host.destroy();
   srv.close();
   console.log(`[ruffle-iframe] ${failures.length === 0 ? 'ALL PASS' : 'FAILURES: ' + failures.join(', ')}`);
-  app.exit(failures.length === 0 ? 0 : 1);
+  process.exitCode = failures.length === 0 ? 0 : 1;
+  app.exit(process.exitCode);
 });

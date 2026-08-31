@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { performance } from 'perf_hooks';
 import { nativeImage, type NativeImage } from 'electron';
 import type { TargetRef, ValueExpression, WorkflowDocumentV3, WorkflowNode } from '../../../shared/automation/core';
 import { validateWorkflowDocument } from '../../../shared/automation/core';
@@ -13,6 +14,7 @@ import type { JavaScriptSandboxRunHandle } from './javascript-sandbox-host';
 import { JavaScriptAutomationGrantStore } from './javascript-grant-store';
 import { automationMainEntryId } from '../../../shared/automation/package-v3';
 import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
+import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import { NativeImageTemplateProvider } from './native-image-template-provider';
 import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
@@ -178,7 +180,7 @@ export class AutomationV3Service {
   readonly ready: Promise<void>;
   private active: { session: BrowserViewAutomationCoreSession; handle: WorkflowRunHandle | JavaScriptSandboxRunHandle; packageId: string; frontendId: string } | null = null;
   private runStatus: AutomationRunStatus = { state: 'idle', executedSteps: 0, logs: [] };
-  private readonly captures = new Map<string, { image: NativeImage; createdAt: number; timer: NodeJS.Timeout }>();
+  private readonly captures = new Map<string, { image: NativeImage; referenceKind: 'viewport' | 'region' | 'surface'; createdAt: number; timer: NodeJS.Timeout }>();
   private readonly authoringVision = new Map<string, AuthoringVisionSession>();
   private readonly authoringOcr = createAutomationOcrEngine();
   constructor(private readonly repository: AutomationPackageV3Repository, private readonly grants: JavaScriptAutomationGrantStore) {
@@ -370,14 +372,17 @@ export class AutomationV3Service {
   async importAssets(packageId: string, files: readonly { name: string; bytes: Uint8Array }[]): Promise<AutomationPackageV3Detail> {
     await this.ready;
     const current = this.repository.get(packageId); const assets = new Map(current.assets);
+    const assetMetadata = { ...(current.manifest.assetMetadata ?? {}) };
     for (const file of files) {
       const clean = file.name.replace(/\\/gu, '/').split('/').filter((part) => part && part !== '.' && part !== '..')
         .map((part) => part.trim().replace(/[^A-Za-z0-9._\-\u4e00-\u9fff]/gu, '-').slice(0, 100)).filter(Boolean).join('/').slice(0, 300);
       if (!clean || file.bytes.byteLength > 16 * 1024 * 1024) throw new Error(`素材文件无效或过大：${file.name}`);
       const image = nativeImage.createFromBuffer(Buffer.from(file.bytes)); if (image.isEmpty()) throw new Error(`无法读取图片素材：${file.name}`);
-      assets.set(`assets/${clean}`, file.bytes);
+      const assetPath = `assets/${clean}`;
+      assets.set(assetPath, file.bytes);
+      delete assetMetadata[assetPath];
     }
-    await this.repository.save(clonePackage(current, { assets }));
+    await this.repository.save(clonePackage(current, { assets, manifest: { ...current.manifest, assetMetadata } }));
     await this.closeAuthoringVision(packageId);
     return this.getPackage(packageId);
   }
@@ -385,12 +390,14 @@ export class AutomationV3Service {
   async deleteAsset(packageId: string, asset: string): Promise<AutomationPackageV3Detail> {
     await this.ready; const current = this.repository.get(packageId); const normalized = asset.startsWith('assets/') ? asset : `assets/${asset}`;
     if (current.workflow && JSON.stringify(current.workflow).includes(normalized.replace(/^assets\//u, ''))) throw new Error('该素材仍被积木引用，请先移除引用');
-    const assets = new Map(current.assets); assets.delete(normalized); await this.repository.save(clonePackage(current, { assets }));
+    const assets = new Map(current.assets); assets.delete(normalized);
+    const assetMetadata = { ...(current.manifest.assetMetadata ?? {}) }; delete assetMetadata[normalized];
+    await this.repository.save(clonePackage(current, { assets, manifest: { ...current.manifest, assetMetadata } }));
     await this.closeAuthoringVision(packageId);
     return this.getPackage(packageId);
   }
 
-  async captureAssetFrame(packageId: string, tabId: string, authoringRegion?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }): Promise<{ token: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; captureMs: number }> {
+  async captureAssetFrame(packageId: string, tabId: string, authoringRegion?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }, referenceKind?: 'viewport' | 'region' | 'surface'): Promise<{ token: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; captureMs: number }> {
     let logicalRegion: { x: number; y: number; width: number; height: number } | undefined;
     const captured = await this.withAuthoring(packageId, tabId, (session) => {
       logicalRegion = authoringRegion && authoringRegion.viewportWidth && authoringRegion.viewportHeight
@@ -403,7 +410,10 @@ export class AutomationV3Service {
     const image = cropPreview(fullImage, logicalRegion).image; const imageSize = image.getSize();
     const token = crypto.randomBytes(16).toString('hex');
     const timer = setTimeout(() => this.captures.delete(token), 2 * 60_000); timer.unref();
-    this.captures.set(token, { image, createdAt: Date.now(), timer });
+    const resolvedReferenceKind = referenceKind === 'surface' && logicalRegion
+      ? 'surface'
+      : logicalRegion ? 'region' : 'viewport';
+    this.captures.set(token, { image, referenceKind: resolvedReferenceKind, createdAt: Date.now(), timer });
     while (this.captures.size > 3) {
       const oldest = this.captures.keys().next().value as string;
       const entry = this.captures.get(oldest); if (entry) clearTimeout(entry.timer);
@@ -424,17 +434,21 @@ export class AutomationV3Service {
     const asset = `assets/${clean}.png`;
     const source = this.repository.get(packageId); if (source.assets.has(asset) && !overwrite) throw new Error('asset already exists');
     const assets = new Map(source.assets); assets.set(asset, new Uint8Array(capture.image.crop(crop).toPNG()));
-    await this.repository.save(clonePackage(source, { assets }));
+    const assetMetadata = {
+      ...(source.manifest.assetMetadata ?? {}),
+      [asset]: { source: 'capture' as const, reference: { kind: capture.referenceKind, width: size.width, height: size.height } },
+    };
+    await this.repository.save(clonePackage(source, { assets, manifest: { ...source.manifest, assetMetadata } }));
     await this.closeAuthoringVision(packageId);
     clearTimeout(capture.timer); this.captures.delete(token);
     return { asset };
   }
 
-  async testAsset(packageId: string, tabId: string, asset: string, threshold = .9, scales: readonly number[] = [1], mask: 'auto' | 'none' | 'alpha' = 'auto') {
+  async testAsset(packageId: string, tabId: string, asset: string, threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK) {
     return this.withAuthoring(packageId, tabId, (session) => session.testImage(asset, threshold, scales, mask));
   }
 
-  async testAssetOnImage(packageId: string, asset: string, image: NativeImage, _threshold = .9, scales: readonly number[] = [1], mask: 'auto' | 'none' | 'alpha' = 'auto') {
+  async testAssetOnImage(packageId: string, asset: string, image: NativeImage, _threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK) {
     await this.ready;
     const source = this.repository.get(packageId);
     const cached = this.getAuthoringVision(packageId, source);
@@ -466,15 +480,28 @@ export class AutomationV3Service {
     return this.withAuthoring(packageId, tabId, (session) => session.testText(text, match, minConfidence));
   }
 
-  async testAssetPreview(packageId: string, tabId: string, asset: string, threshold = .9, scales: readonly number[] = [1], mask: 'auto' | 'none' | 'alpha' = 'auto', authoringRegion?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }) {
-    const totalStartedAt = Date.now();
+  async testAssetPreview(packageId: string, tabId: string, asset: string, threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales?: readonly number[], mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK, authoringRegion?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }) {
+    const totalStartedAt = performance.now();
+    await this.ready;
+    const source = this.repository.get(packageId);
     let logicalRegion: { x: number; y: number; width: number; height: number } | undefined;
     const result = await this.withAuthoring(packageId, tabId, (session) => {
       logicalRegion = authoringRegion && authoringRegion.viewportWidth && authoringRegion.viewportHeight
         ? session.authoringDisplayRegionToLogical({ ...authoringRegion, viewportWidth: authoringRegion.viewportWidth, viewportHeight: authoringRegion.viewportHeight })
         : authoringRegion && { x: authoringRegion.x, y: authoringRegion.y, width: authoringRegion.width, height: authoringRegion.height };
       const displayRegion = authoringRegion && { x: authoringRegion.x, y: authoringRegion.y, width: authoringRegion.width, height: authoringRegion.height };
-      return session.testImagePreview(asset, threshold, scales, mask, logicalRegion, displayRegion);
+      const group = decodeAutomationImageGroup(asset); const assets = group ?? [asset];
+      const references = scales === undefined && logicalRegion
+        ? assets.map((item) => {
+          const normalized = item.startsWith('assets/') ? item : `assets/${item}`;
+          const metadata = source.manifest.assetMetadata?.[normalized];
+          return metadata?.source === 'capture' && metadata.reference.kind === 'surface' ? metadata.reference : undefined;
+        })
+        : [];
+      const predicted = references.length === assets.length && references.every(Boolean)
+        ? surfaceReferenceImageScales(references as Array<{ width: number; height: number }>, logicalRegion!)
+        : undefined;
+      return session.testImagePreview(asset, threshold, scales ?? predicted ?? imageMatchScales(), mask, logicalRegion, displayRegion);
     });
     const fullImage = nativeImage.createFromBitmap(Buffer.from(result.preview.bitmap), { width: result.preview.width, height: result.preview.height });
     const cropped = cropPreview(fullImage, logicalRegion); const image = cropped.image; const imageSize = image.getSize();
@@ -485,12 +512,15 @@ export class AutomationV3Service {
       pageX: result.match.bounds.x, pageY: result.match.bounds.y,
       width: result.bitmapMatch.width, height: result.bitmapMatch.height, score: result.match.score,
       scale: result.bitmapMatch.scale ?? 1, matchMs: result.bitmapMatch.matchMs ?? 0,
+      queueWaitMs: result.bitmapMatch.queueWaitMs ?? 0,
+      queueDepthAtSubmit: result.bitmapMatch.queueDepthAtSubmit ?? 0,
+      algorithm: result.bitmapMatch.algorithm,
     } : null;
-    return { dataUrl: image.toDataURL(), previewWidth: imageSize.width, previewHeight: imageSize.height, sourceWidth: imageSize.width, sourceHeight: imageSize.height, candidate, matched: Boolean(candidate && candidate.score >= threshold), threshold, captureMs: result.preview.captureMs, totalMs: Date.now() - totalStartedAt };
+    return { dataUrl: image.toDataURL(), previewWidth: imageSize.width, previewHeight: imageSize.height, sourceWidth: imageSize.width, sourceHeight: imageSize.height, candidate, matched: Boolean(candidate && candidate.score >= threshold), threshold, captureMs: result.preview.captureMs, totalMs: performance.now() - totalStartedAt };
   }
 
   async testTextPreview(packageId: string, tabId: string, text: string, match: 'contains' | 'exact' = 'contains', minConfidence = .5, authoringRegion?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }) {
-    const totalStartedAt = Date.now();
+    const totalStartedAt = performance.now();
     let logicalRegion: { x: number; y: number; width: number; height: number } | undefined;
     const result = await this.withAuthoring(packageId, tabId, (session) => {
       logicalRegion = authoringRegion && authoringRegion.viewportWidth && authoringRegion.viewportHeight
@@ -515,7 +545,7 @@ export class AutomationV3Service {
       candidates: candidate ? [candidate] : [], matched: Boolean(candidate?.matched),
       recognizedCount: result.recognizedCount, recognizedTexts: result.recognizedTexts,
       captureMs: result.preview.captureMs, bitmapMs: result.preview.bitmapMs,
-      ocrMs: result.ocrMs, totalMs: Date.now() - totalStartedAt,
+      ocrMs: result.ocrMs, totalMs: performance.now() - totalStartedAt,
     };
   }
 

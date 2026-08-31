@@ -9,6 +9,15 @@ export type AutomationV3ScriptEntry = {
   readonly permissions: readonly JavaScriptAutomationCapability[];
 };
 
+export type AutomationAssetMetadataV3 = {
+  readonly source: 'capture';
+  readonly reference: {
+    readonly kind: 'viewport' | 'region' | 'surface';
+    readonly width: number;
+    readonly height: number;
+  };
+};
+
 export type AutomationPackageManifestV3 = {
   readonly format: 'baoauto';
   readonly formatVersion: 3;
@@ -21,6 +30,8 @@ export type AutomationPackageManifestV3 = {
     readonly mainEntryId?: 'workflow' | string;
   };
   readonly features: readonly ('workflow' | 'javascript' | 'assets' | 'profiles')[];
+  /** Optional because externally imported and early v3 assets have no reliable capture reference. */
+  readonly assetMetadata?: Readonly<Record<string, AutomationAssetMetadataV3>>;
   readonly integrity: Readonly<Record<string, string>>;
 };
 

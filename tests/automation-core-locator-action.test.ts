@@ -125,6 +125,36 @@ describe('Automation 2.0 Locator × Action Core', () => {
     expect(vi.mocked(input.click).mock.calls[0][0].activationPoint).toMatchObject({ x: 100, y: 120 });
   });
 
+  it('shares one observation scope inside Drag but not across separate Actions', async () => {
+    const scopes: Array<object | undefined> = [];
+    const port: LocatorRecognitionPort = {
+      locateImage: vi.fn(async (_locator, locatorContext) => {
+        scopes.push(locatorContext.observationScope);
+        return [{
+          space: viewport,
+          bounds: region('logical', viewport, 10 + scopes.length * 10, 20, 20, 20),
+          confidence: .99,
+          fingerprint: `scope-${scopes.length}`,
+        }];
+      }),
+      locateText: vi.fn(async () => []),
+    };
+    const locators = new AutomationLocatorRegistry();
+    locators.register(new ImageLocatorResolver(port));
+    const input: LocatedTargetInputPort = { click: vi.fn(), move: vi.fn(), drag: vi.fn() };
+    const actions = new AutomationActionRegistry();
+    registerPointerActions(actions, locators, input);
+    const target = (asset: string) => ({ locator: { kind: 'image', asset, threshold: .9 } as ImageLocator });
+
+    await actions.execute({ kind: 'drag', from: target('from.png'), to: target('to.png') }, context());
+    await actions.execute({ kind: 'click', target: target('click.png') }, context());
+
+    expect(scopes).toHaveLength(3);
+    expect(scopes[0]).toBeDefined();
+    expect(scopes[1]).toBe(scopes[0]);
+    expect(scopes[2]).not.toBe(scopes[0]);
+  });
+
   it('adapts Image and Text recognition candidates to the same LocatedTarget shape', async () => {
     const candidate = (confidence: number): RecognitionCandidate => ({
       space: viewport,
@@ -133,7 +163,7 @@ describe('Automation 2.0 Locator × Action Core', () => {
       fingerprint: `candidate:${confidence}`,
     });
     const port: LocatorRecognitionPort = {
-      locateImage: vi.fn(async () => [candidate(.8), candidate(.95)]),
+      locateImage: vi.fn(async (_locator, _context, maxCandidates) => [candidate(.95), candidate(.8)].slice(0, maxCandidates)),
       locateText: vi.fn(async () => [candidate(.9)]),
     };
     const locators = new AutomationLocatorRegistry();
@@ -143,6 +173,32 @@ describe('Automation 2.0 Locator × Action Core', () => {
     const text = await locators.resolveTarget({ locator: { kind: 'text', text: '购买', match: 'exact', minConfidence: .7 } }, context());
     expect(image).toMatchObject({ confidence: .95, activationPoint: { x: 140, y: 220 } });
     expect(text).toMatchObject({ confidence: .9, activationPoint: { x: 140, y: 220 } });
+  });
+
+  it('requests multiple image candidates only for spatial selection policies', async () => {
+    const candidates: RecognitionCandidate[] = [
+      { space: viewport, bounds: region('logical', viewport, 10, 20, 20, 20), confidence: .82, fingerprint: 'first' },
+      { space: viewport, bounds: region('logical', viewport, 300, 120, 20, 20), confidence: .99, fingerprint: 'best' },
+      { space: viewport, bounds: region('logical', viewport, 700, 400, 20, 20), confidence: .9, fingerprint: 'last' },
+    ];
+    const locateImage = vi.fn(async (_locator: ImageLocator, _context: LocatorContext, maxCandidates: number) => (
+      maxCandidates === 1 ? [candidates[1]] : candidates.slice(0, maxCandidates)
+    ));
+    const port: LocatorRecognitionPort = { locateImage, locateText: vi.fn(async () => []) };
+    const locators = new AutomationLocatorRegistry();
+    locators.register(new ImageLocatorResolver(port));
+    const locator: ImageLocator = { kind: 'image', asset: 'repeated.png', threshold: .8 };
+
+    await expect(locators.resolveTarget({ locator }, context())).resolves.toMatchObject({ confidence: .99 });
+    await expect(locators.resolveTarget({ locator, selection: { kind: 'first' } }, context()))
+      .resolves.toMatchObject({ activationPoint: { x: 20, y: 30 } });
+    await expect(locators.resolveTarget({ locator, selection: { kind: 'last' } }, context()))
+      .resolves.toMatchObject({ activationPoint: { x: 710, y: 410 } });
+    await expect(locators.resolveTarget({ locator, selection: { kind: 'index', index: 1 } }, context()))
+      .resolves.toMatchObject({ confidence: .99 });
+    await expect(locators.resolveTarget({ locator, selection: { kind: 'nearest', to: { unit: 'logical', x: 680, y: 390 } } }, context()))
+      .resolves.toMatchObject({ activationPoint: { x: 710, y: 410 } });
+    expect(locateImage.mock.calls.map((call) => call[2])).toEqual([1, 100, 100, 100, 100]);
   });
 
   it('supports generic firstOf fallback and typed miss', async () => {

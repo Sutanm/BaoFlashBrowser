@@ -14,6 +14,7 @@ import { tabManager } from '../modules/tabs';
 import { detectGameSurfaces } from '../modules/automation/game-surface-detector';
 import { createLogRateLimiter } from './userscript-log-rate';
 import type { UserscriptReport } from '../../shared/userscript-types';
+import { DEFAULT_IMAGE_MATCH_MASK } from '../../shared/automation/vision-policy';
 
 const commandIdSchema = z.object({ commandId: z.string() });
 
@@ -79,10 +80,10 @@ export function registerUserscriptsIPC(): void {
   });
 
   ipcMain.handle('userscript:automation-v3-capture', async (event, raw: unknown) => {
-    const parsed = z.object({ scriptId: z.string(), packageId: z.string().min(1).max(128), region: z.object({ x: z.number().min(0), y: z.number().min(0), width: z.number().min(1), height: z.number().min(1), viewportWidth: z.number().positive().optional(), viewportHeight: z.number().positive().optional() }).strict().optional() }).strict().safeParse(raw);
+    const parsed = z.object({ scriptId: z.string(), packageId: z.string().min(1).max(128), region: z.object({ x: z.number().min(0), y: z.number().min(0), width: z.number().min(1), height: z.number().min(1), viewportWidth: z.number().positive().optional(), viewportHeight: z.number().positive().optional() }).strict().optional(), referenceKind: z.enum(['viewport', 'region', 'surface']).optional() }).strict().safeParse(raw);
     const service = getAutomationV3Service(); const targetTabId = tabManager.getTabIdForWebContents(event.sender.id);
     if (!parsed.success || !service || !targetTabId || !automationAssistantAllowed(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
-    return service.captureAssetFrame(parsed.data.packageId, targetTabId, parsed.data.region);
+    return service.captureAssetFrame(parsed.data.packageId, targetTabId, parsed.data.region, parsed.data.referenceKind);
   });
 
   ipcMain.handle('userscript:automation-v3-save-capture', async (event, raw: unknown) => {
@@ -96,7 +97,7 @@ export function registerUserscriptsIPC(): void {
     const parsed = z.object({ scriptId: z.string(), packageId: z.string().min(1).max(128), asset: z.string().min(1).max(32_768), threshold: z.number().min(.1).max(1), scales: z.array(z.number().min(.25).max(4)).min(1).max(16).optional(), mask: z.enum(['auto', 'none', 'alpha']).optional(), region: z.object({ x: z.number().min(0), y: z.number().min(0), width: z.number().min(1), height: z.number().min(1), viewportWidth: z.number().positive().optional(), viewportHeight: z.number().positive().optional() }).strict().optional() }).strict().safeParse(raw);
     const service = getAutomationV3Service(); const targetTabId = tabManager.getTabIdForWebContents(event.sender.id);
     if (!parsed.success || !service || !targetTabId || !automationAssistantAllowed(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
-    return service.testAssetPreview(parsed.data.packageId, targetTabId, parsed.data.asset, parsed.data.threshold, parsed.data.scales ?? [.75, 1, 1.25], parsed.data.mask ?? 'auto', parsed.data.region);
+    return service.testAssetPreview(parsed.data.packageId, targetTabId, parsed.data.asset, parsed.data.threshold, parsed.data.scales, parsed.data.mask ?? DEFAULT_IMAGE_MATCH_MASK, parsed.data.region);
   });
 
   ipcMain.handle('userscript:automation-v3-ocr', async (event, raw: unknown) => {

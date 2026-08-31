@@ -3,6 +3,7 @@
 // Mirrors the planned src/webview-preload/userscripts/gm-api.ts.
 
 import type { GMSerializable, GmCookie, GmWebRequestEvent, SnapshotScript } from '../../shared/userscript-types';
+import { DEFAULT_IMAGE_MATCH_THRESHOLD } from '../../shared/automation/vision-policy';
 import { isSerializableValue } from '../../main/modules/userscripts/userscript-values';
 import type { GmRequestDetails, GmRequestResult } from '../../main/modules/userscripts/userscript-request-service';
 
@@ -539,14 +540,14 @@ export function createGmApi(context: GmApiContext): GmApi {
     },
     cancel: (): Promise<unknown> => bridge.invoke('userscript:automation-v3-cancel', { scriptId: script.id }),
     assetPreview: (packageId: string, asset: string): Promise<unknown> => bridge.invoke('userscript:automation-v3-asset-preview', { scriptId: script.id, packageId, asset }),
-    captureFrame: (region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }): Promise<unknown> => {
+    captureFrame: (region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }, referenceKind?: 'viewport' | 'region' | 'surface'): Promise<unknown> => {
       if (!automationPackageId) throw new Error('请先选择自动化包');
-      return bridge.invoke('userscript:automation-v3-capture', { scriptId: script.id, packageId: automationPackageId, region });
+      return bridge.invoke('userscript:automation-v3-capture', { scriptId: script.id, packageId: automationPackageId, region, referenceKind });
     },
     saveCapture: (packageId: string, token: string, assetName: string, rect: { x: number; y: number; width: number; height: number }, overwrite = false): Promise<unknown> => bridge.invoke('userscript:automation-v3-save-capture', { scriptId: script.id, packageId, token, assetName, rect, overwrite }),
     match: (packageId: string, asset: string, options: { threshold?: number; scales?: number[]; mask?: 'auto' | 'none' | 'alpha'; region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number } } = {}): Promise<unknown> => {
       automationPackageId = packageId;
-      return bridge.invoke('userscript:automation-v3-match', { scriptId: script.id, packageId, asset, threshold: options.threshold ?? .9, scales: options.scales, mask: options.mask, region: options.region });
+      return bridge.invoke('userscript:automation-v3-match', { scriptId: script.id, packageId, asset, threshold: options.threshold ?? DEFAULT_IMAGE_MATCH_THRESHOLD, scales: options.scales, mask: options.mask, region: options.region });
     },
     ocrTest: (text: string, options: { match?: 'contains' | 'exact'; minScore?: number; region?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number } } = {}): Promise<unknown> => {
       if (!automationPackageId) throw new Error('请先选择自动化包');

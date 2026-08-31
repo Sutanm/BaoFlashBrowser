@@ -1,6 +1,7 @@
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AutomationCapturedFrame } from '../src/main/modules/automation/capability-contracts';
+import { AutomationVisionService } from '../src/main/modules/automation/vision-service';
 import {
   OpenCvWorkerMatcher,
   CachingAutomationTemplateProvider,
@@ -108,6 +109,23 @@ describe('OpenCV automation vision worker', () => {
     expect(Date.now() - startedAt).toBeLessThan(1000);
   }, 30_000);
 
+  it('queues concurrent requests before they reach the single-channel worker', async () => {
+    const width = 70, height = 52, x = 27, y = 19, templateWidth = 10, templateHeight = 8;
+    const scene = patterned(width, height, 811);
+    const template = crop(scene, width, x, y, templateWidth, templateHeight);
+    const { matcher } = matcherFor({ cacheKey: 'queued@1', width: templateWidth, height: templateHeight, bgra: template });
+    const service = new AutomationVisionService(matcher);
+    const captured = frame(scene, width, height);
+    const [first, second] = await Promise.all([
+      service.locate(captured, { assets: ['queued.png'], threshold: .99, scales: [1], mask: 'none' }, new AbortController().signal),
+      service.locate(captured, { assets: ['queued.png'], threshold: .99, scales: [1], mask: 'none' }, new AbortController().signal),
+    ]);
+
+    expect(first).toMatchObject({ x, y, queueDepthAtSubmit: 0 });
+    expect(second).toMatchObject({ x, y, queueDepthAtSubmit: 1 });
+    expect(second!.queueWaitMs).toBeGreaterThan(0);
+  }, 30_000);
+
   it('returns no match when a search region cannot contain the template', async () => {
     const scene = patterned(40, 30, 14);
     const template = patterned(16, 12, 99);
@@ -135,7 +153,7 @@ describe('OpenCV automation vision worker', () => {
     };
     const first = await matcher.find('button.png', captured, options, signal);
     const second = await matcher.find('button.png', captured, options, signal);
-    expect(first).toMatchObject({ x, y, width: templateWidth, height: templateHeight, scale: 1, masked: false });
+    expect(first).toMatchObject({ x, y, width: templateWidth, height: templateHeight, scale: 1, masked: false, algorithm: 'ccoeff' });
     expect(first!.score).toBeGreaterThan(0.99);
     expect(first!.testedScales).toEqual([1]);
     expect(first!.sceneBytes).toBeLessThan(scene.byteLength);
@@ -163,6 +181,14 @@ describe('OpenCV automation vision worker', () => {
     expect(second!.sceneTransferBytes).toBe(0);
     expect(second!.sceneMatMs).toBe(0);
     expect(second!.grayMs).toBe(0);
+    expect(second!.scaleMatchTimings).toEqual([
+      expect.objectContaining({ scale: 0.75, operations: 1 }),
+      expect.objectContaining({ scale: 1.25, operations: 1 }),
+    ]);
+    expect(second!.scaleMatchTimings!.every((timing) => timing.matchTemplateMs > 0)).toBe(true);
+    expect(second!.assetMatchTimings).toEqual([
+      expect.objectContaining({ asset: 'scaled.png', operations: 2 }),
+    ]);
     expect(source.load).toHaveBeenCalledTimes(1);
   }, 30_000);
 
@@ -211,6 +237,74 @@ describe('OpenCV automation vision worker', () => {
     expect(source.load).toHaveBeenCalledTimes(2);
   }, 30_000);
 
+  it('returns repeated template instances in stable visual order', async () => {
+    const width = 120, height = 90, templateWidth = 13, templateHeight = 10;
+    const scene = patterned(width, height, 51);
+    const template = patterned(templateWidth, templateHeight, 1201);
+    const positions = [{ x: 71, y: 52 }, { x: 9, y: 14 }, { x: 68, y: 14 }];
+    for (const position of positions) {
+      pasteNearest(scene, width, template, templateWidth, templateHeight, position.x, position.y, 1);
+    }
+    const { matcher } = matcherFor({ cacheKey: 'repeated@1', width: templateWidth, height: templateHeight, bgra: template });
+    const results = await matcher.findCandidates!('repeated.png', frame(scene, width, height), {
+      threshold: 0.99, scales: [1], mask: 'none', maxCandidates: 10,
+    }, new AbortController().signal);
+
+    expect(results).toHaveLength(3);
+    expect(results.map(({ x, y }) => ({ x, y }))).toEqual([
+      { x: 9, y: 14 }, { x: 68, y: 14 }, { x: 71, y: 52 },
+    ]);
+    expect(results.every((result) => result.score > 0.99)).toBe(true);
+    expect(results[0].rawCandidateCount).toBeGreaterThanOrEqual(3);
+    expect(results[0].nmsCandidateCount).toBe(3);
+  }, 30_000);
+
+  it('suppresses duplicate boxes produced by equivalent template scales', async () => {
+    const width = 90, height = 65, x = 31, y = 22, templateWidth = 12, templateHeight = 9;
+    const scene = patterned(width, height, 72);
+    const template = patterned(templateWidth, templateHeight, 914);
+    pasteNearest(scene, width, template, templateWidth, templateHeight, x, y, 1);
+    const { matcher } = matcherFor({ cacheKey: 'nms@1', width: templateWidth, height: templateHeight, bgra: template });
+    const results = await matcher.findCandidates!('nms.png', frame(scene, width, height), {
+      threshold: 0.99, scales: [1, 1.01], mask: 'none', maxCandidates: 10,
+    }, new AbortController().signal);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ x, y });
+    expect(results[0].rawCandidateCount).toBeGreaterThanOrEqual(2);
+    expect(results[0].nmsCandidateCount).toBe(1);
+  }, 30_000);
+
+  it('returns candidates from every matching asset in an image group', async () => {
+    const width = 110, height = 75, templateWidth = 11, templateHeight = 8;
+    const scene = patterned(width, height, 85);
+    const first = patterned(templateWidth, templateHeight, 1501);
+    const second = patterned(templateWidth, templateHeight, 1703);
+    pasteNearest(scene, width, first, templateWidth, templateHeight, 12, 16, 1);
+    pasteNearest(scene, width, second, templateWidth, templateHeight, 73, 43, 1);
+    const source: AutomationTemplateProvider = {
+      load: vi.fn(async (asset: string) => ({
+        cacheKey: `${asset}@1`, width: templateWidth, height: templateHeight,
+        bgra: asset === 'first.png' ? first : second,
+      })),
+    };
+    const matcher = new OpenCvWorkerMatcher(new CachingAutomationTemplateProvider(source, 4), {
+      workerPath: path.resolve('src/main/modules/automation/vision-worker.cjs'),
+      requestTimeoutMs: 20_000,
+      maxCacheEntries: 4,
+      maxCacheBytes: 4 * 1024 * 1024,
+    });
+    workers.push(matcher);
+    const results = await matcher.findManyCandidates!(['second.png', 'first.png'], frame(scene, width, height), {
+      threshold: 0.99, scales: [1], mask: 'none', maxCandidates: 10,
+    }, new AbortController().signal);
+
+    expect(results.map(({ asset, x, y }) => ({ asset, x, y }))).toEqual([
+      { asset: 'first.png', x: 12, y: 16 },
+      { asset: 'second.png', x: 73, y: 43 },
+    ]);
+  }, 30_000);
+
   it('automatically uses PNG alpha as a template mask', async () => {
     const sceneWidth = 70, sceneHeight = 55, targetX = 28, targetY = 19;
     const scene = patterned(sceneWidth, sceneHeight);
@@ -233,7 +327,7 @@ describe('OpenCV automation vision worker', () => {
     const result = await matcher.find('masked.png', frame(scene, sceneWidth, sceneHeight), {
       threshold: 0.98, scales: [1], mask: 'auto',
     }, new AbortController().signal);
-    expect(result).toMatchObject({ x: targetX, y: targetY, width: templateWidth, height: templateHeight, masked: true });
+    expect(result).toMatchObject({ x: targetX, y: targetY, width: templateWidth, height: templateHeight, masked: true, algorithm: 'ccorr-mask' });
     expect(result!.score).toBeGreaterThan(0.98);
   }, 30_000);
 
@@ -245,13 +339,15 @@ describe('OpenCV automation vision worker', () => {
     pasteNearest(scene, sceneWidth, template, templateWidth, templateHeight, targetX, targetY, 1.5);
     const { matcher } = matcherFor({ cacheKey: 'scaled@1', width: templateWidth, height: templateHeight, bgra: template });
     const result = await matcher.find('scaled.png', frame(scene, sceneWidth, sceneHeight), {
-      threshold: 0.6,
+      threshold: 0.99,
       region: { x: 25, y: 15, width: 35, height: 30 },
       scales: [0.75, 1, 1.5],
       mask: 'none',
     }, new AbortController().signal);
-    expect(result).toMatchObject({ x: targetX, y: targetY, width: 15, height: 12, scale: 1.5 });
-    expect(result!.score).toBeGreaterThan(0.6);
+    expect(result).toMatchObject({
+      x: targetX, y: targetY, width: 15, height: 12, scale: 1.5, upscaleInterpolation: 'nearest',
+    });
+    expect(result!.score).toBeGreaterThan(0.99);
   }, 30_000);
 
   it('uses normalized difference matching for a low-variance template', async () => {
@@ -266,7 +362,7 @@ describe('OpenCV automation vision worker', () => {
     const result = await matcher.find('solid.png', frame(scene, width, height), {
       threshold: 0.99, scales: [1], mask: 'none',
     }, new AbortController().signal);
-    expect(result).toMatchObject({ x: targetX, y: targetY, lowVariance: true });
+    expect(result).toMatchObject({ x: targetX, y: targetY, lowVariance: true, algorithm: 'sqdiff' });
     expect(result!.templateStdDev).toBeLessThan(4);
     expect(result!.score).toBeGreaterThan(0.99);
   }, 30_000);

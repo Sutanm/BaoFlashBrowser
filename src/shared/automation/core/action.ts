@@ -1,5 +1,5 @@
 import type { LocatedTarget, LocatorContext, TargetRef } from './locator';
-import { AutomationLocatorRegistry } from './locator';
+import { AutomationLocatorRegistry, withObservationScope } from './locator';
 
 export type ClickAction = {
   readonly kind: 'click';
@@ -151,7 +151,7 @@ export class AutomationActionRegistry {
     if (context.signal.aborted) throw new Error('automation cancelled');
     const executor = this.entries.get(action.kind);
     if (!executor) throw new AutomationActionError('ACTION_NOT_REGISTERED', `action executor is not registered: ${action.kind}`);
-    await executor(action, context);
+    await executor(action, withObservationScope({ ...context, observationScope: undefined }));
   }
 }
 

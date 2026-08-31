@@ -23,6 +23,7 @@ import {
   collectAutomationImageGroups,
   decodeAutomationImageGroup,
 } from '@shared/automation/image-groups';
+import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales } from '@shared/automation/vision-policy';
 import { useTabsStore } from '../../store/useTabsStore';
 import AutomationBlocklyV2Editor, {
   type AutomationBlocklyV2EditorHandle,
@@ -102,7 +103,7 @@ export default function AutomationPage(): React.JSX.Element {
   const [contextOpen, setContextOpen] = useState(true);
   const [testKind, setTestKind] = useState<'image' | 'ocr'>('image');
   const [testText, setTestText] = useState('购买');
-  const [threshold, setThreshold] = useState(0.9);
+  const [threshold, setThreshold] = useState(DEFAULT_IMAGE_MATCH_THRESHOLD);
   const [testScene, setTestScene] = useState<{
     token: string;
     name: string;
@@ -374,8 +375,8 @@ export default function AutomationPage(): React.JSX.Element {
           testScene.token,
           selectedAsset,
           threshold,
-          [0.75, 1, 1.25],
-          'auto',
+          imageMatchScales(),
+          DEFAULT_IMAGE_MATCH_MASK,
         );
         setTestResult({
           dataUrl: testScene.dataUrl,

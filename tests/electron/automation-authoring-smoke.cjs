@@ -1,4 +1,4 @@
-const { app, BrowserView, BrowserWindow } = require('electron');
+const { app, BrowserView, BrowserWindow, nativeImage } = require('electron');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -15,9 +15,10 @@ function check(name, ok, detail) {
 
 app.whenReady().then(async () => {
   const { BrowserViewAutomationCoreSession, detectGameSurfaces, gameSurfaceFeatureFromCandidate, encodeGameSurfaceFeature, inspectWithPasswordCapturePaused, setupCapture, teardownCapture, getCdpLeaseOwner } = require('../../release/tests/automation-authoring-core.cjs');
+  const fixtureHtml = fs.readFileSync(path.join(__dirname, 'fixtures', 'automation-vision-e2e.html'));
   const server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end('<!doctype html><canvas width="760" height="150" style="width:760px;height:150px"></canvas><script>window.clicks=0;document.querySelector("canvas").addEventListener("click",()=>window.clicks++);</script>');
+    response.end(fixtureHtml);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const win = new BrowserWindow({ show: true, width: 640, height: 480 });
@@ -25,6 +26,13 @@ app.whenReady().then(async () => {
   win.addBrowserView(view); view.setBounds({ x: 0, y: 0, width: 640, height: 480 });
   await view.webContents.loadURL(`http://127.0.0.1:${server.address().port}/`);
   await new Promise((resolve) => setTimeout(resolve, 150));
+  const targetAtCapture = await view.webContents.executeJavaScript(`(() => {
+    const canvas = document.querySelector('canvas'); const bounds = canvas.getBoundingClientRect();
+    const target = window.automationVisionTarget; const surface = window.automationVisionSurface;
+    return { x: Math.round(bounds.x + target.x), y: Math.round(bounds.y + target.y), width: target.width, height: target.height, surface };
+  })()`);
+  const directTargetImage = await view.webContents.capturePage({ x: targetAtCapture.x, y: targetAtCapture.y, width: targetAtCapture.width, height: targetAtCapture.height });
+  check('fixture exposes a capturable pixel target', !directTargetImage.isEmpty() && targetAtCapture.surface.width === 600, { ...targetAtCapture, directBitmap: directTargetImage.getSize() });
   const source = { manifest: { format: 'baoauto', formatVersion: 3, id: 'smoke', name: 'Smoke', frontends: { workflow: 'workflow.json', scripts: [] }, features: [], integrity: {} }, workflow: { formatVersion: 3, id: 'smoke-workflow', name: 'Smoke', root: { id: 'root', kind: 'sequence', nodes: [] } }, scripts: new Map(), assets: new Map(), profiles: new Map() };
   let released = false;
   const handle = {
@@ -39,6 +47,9 @@ app.whenReady().then(async () => {
   const session = new BrowserViewAutomationCoreSession(handle, source);
   const frame = await session.capturePreview();
   check('real BrowserView capture works without native AbortController', frame.width === 640 && frame.height === 480, { width: frame.width, height: frame.height, captureMs: frame.captureMs });
+  const normalizedFrame = nativeImage.createFromBitmap(Buffer.from(frame.bitmap), { width: frame.width, height: frame.height });
+  const targetImage = normalizedFrame.crop({ x: targetAtCapture.x, y: targetAtCapture.y, width: targetAtCapture.width, height: targetAtCapture.height });
+  check('authoring target uses the normalized logical frame on HiDPI displays', targetImage.getSize().width === 56 && targetImage.getSize().height === 40, { directBitmap: directTargetImage.getSize(), normalizedBitmap: targetImage.getSize() });
   let ocrError = '';
   try { await session.testTextPreview('购买'); } catch (error) { ocrError = String(error && error.message || error); }
   check('OCR authoring reaches provider instead of crashing at AbortController', !ocrError.includes('AbortController is not defined'), { ocrError });
@@ -53,6 +64,54 @@ app.whenReady().then(async () => {
   check('authoring session releases BrowserView lease', released);
   const canvas = surfaces.find((item) => item.kind === 'canvas');
   const feature = encodeGameSurfaceFeature(gameSurfaceFeatureFromCandidate(canvas));
+  const visionSource = {
+    ...source,
+    manifest: {
+      ...source.manifest,
+      assetMetadata: {
+        'assets/target.png': { source: 'capture', reference: { kind: 'surface', width: targetAtCapture.surface.width, height: targetAtCapture.surface.height } },
+        'assets/target-alternative.png': { source: 'capture', reference: { kind: 'surface', width: targetAtCapture.surface.width, height: targetAtCapture.surface.height } },
+      },
+    },
+    assets: new Map([
+      ['assets/target.png', new Uint8Array(targetImage.toPNG())],
+      ['assets/target-alternative.png', new Uint8Array(targetImage.toPNG())],
+      ['assets/legacy-target.png', new Uint8Array(targetImage.toPNG())],
+    ]),
+    workflow: { formatVersion: 3, id: 'vision-workflow', name: 'Vision Surface', root: {
+      id: 'vision-surface', kind: 'with', surface: { kind: 'visual', visualHint: 'canvas', fingerprint: feature }, body: {
+        id: 'vision-body', kind: 'sequence', nodes: [
+          { id: 'trusted-query', kind: 'query', assignTo: 'trustedFound', valueType: 'boolean', query: { kind: 'exists', resultType: 'boolean', locator: { kind: 'image', asset: 'target.png', alternatives: ['target-alternative.png'], threshold: .9 } } },
+          { id: 'trusted-result', kind: 'if', condition: { kind: 'variable', valueType: 'boolean', name: 'trustedFound' }, then: { id: 'trusted-ok', kind: 'action', action: { kind: 'log', message: 'vision-trusted-found' } }, else: { id: 'trusted-missing', kind: 'action', action: { kind: 'log', message: 'vision-trusted-missing' } } },
+          { id: 'legacy-query', kind: 'query', assignTo: 'legacyFound', valueType: 'boolean', query: { kind: 'exists', resultType: 'boolean', locator: { kind: 'image', asset: 'legacy-target.png', threshold: .9 } } },
+          { id: 'legacy-result', kind: 'if', condition: { kind: 'variable', valueType: 'boolean', name: 'legacyFound' }, then: { id: 'legacy-ok', kind: 'action', action: { kind: 'log', message: 'vision-legacy-found' } }, else: { id: 'legacy-missing', kind: 'action', action: { kind: 'log', message: 'vision-legacy-missing' } } },
+        ],
+      },
+    } },
+  };
+  let visionReleased = false; const visionLogs = [];
+  let visionViewport = { width: 790, height: 480 };
+  view.setBounds({ x: 0, y: 0, width: visionViewport.width, height: visionViewport.height });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const visionHandle = {
+    ...handle,
+    getCssViewport: () => ({ ...visionViewport }),
+    getViewportTransform: () => ({ logicalSize: { ...visionViewport }, displaySize: { ...visionViewport }, scaleX: 1, scaleY: 1 }),
+    waitForViewport: async () => undefined,
+    release: () => { visionReleased = true; },
+  };
+  const visionSession = new BrowserViewAutomationCoreSession(visionHandle, visionSource, undefined, (message) => visionLogs.push(message));
+  const targetAtRuntime = await view.webContents.executeJavaScript(`(() => {
+    const canvas = document.querySelector('canvas'); const bounds = canvas.getBoundingClientRect();
+    return { bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }, target: window.automationVisionTarget, surface: window.automationVisionSurface };
+  })()`);
+  const visionDiagnostic = await visionSession.testImagePreview('target.png', .9, [1.25], 'none', targetAtRuntime.bounds);
+  check('predicted scale produces the expected resized target candidate', visionDiagnostic.bitmapMatch.score >= .9 && visionDiagnostic.bitmapMatch.width === 70 && visionDiagnostic.bitmapMatch.height === 50, { targetAtCapture, targetAtRuntime, match: visionDiagnostic.bitmapMatch });
+  const visionResult = await visionSession.startWorkflow().completion;
+  check('real OpenCV finds Surface-captured target after 1.25x resize', visionResult.status === 'completed' && visionLogs.includes('vision-trusted-found'), { visionResult, visionLogs });
+  check('Surface image group shares the predicted 1.25 scale', visionLogs.some((message) => message.includes('surface reference scale=1.2500 assets=2')), visionLogs);
+  check('legacy image without metadata still matches through fallback scales', visionLogs.includes('vision-legacy-found'), visionLogs);
+  check('vision workflow releases BrowserView lease', visionReleased);
   const runtimeSource = {
     ...source,
     workflow: { formatVersion: 3, id: 'runtime-workflow', name: 'Runtime Surface', root: {
