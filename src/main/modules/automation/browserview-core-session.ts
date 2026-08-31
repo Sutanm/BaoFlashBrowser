@@ -58,7 +58,8 @@ import { JavaScriptAutomationCapabilityBroker } from './javascript-capability-br
 import { createJavaScriptAutomationHostPorts } from './javascript-host-ports';
 import { JavaScriptAutomationSandboxHost, type JavaScriptSandboxRunHandle } from './javascript-sandbox-host';
 import { NativeImageTemplateProvider } from './native-image-template-provider';
-import { PaddleOcrEngine } from './paddle-ocr-engine';
+import type { AutomationOcrEngine } from './capability-contracts';
+import { createAutomationOcrEngine } from './ocr-provider';
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
 import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
@@ -91,7 +92,7 @@ export class BrowserViewAutomationCoreSession {
   private nextSurfaceGeneration = 1;
   private closePromise?: Promise<void>;
 
-  constructor(private readonly handle: AutomationTabHandle, private readonly source: AutomationPackageV3, private readonly profile?: AutomationProfileV3, private readonly log: (message: string, level?: 'debug' | 'info' | 'warn' | 'error') => void = () => undefined, private readonly scriptGrants?: (entryId: string) => readonly import('../../../shared/automation/javascript-api').JavaScriptAutomationCapability[], injected: { matcher?: OpenCvWorkerMatcher; ocrEngine?: PaddleOcrEngine } = {}) {
+  constructor(private readonly handle: AutomationTabHandle, private readonly source: AutomationPackageV3, private readonly profile?: AutomationProfileV3, private readonly log: (message: string, level?: 'debug' | 'info' | 'warn' | 'error') => void = () => undefined, private readonly scriptGrants?: (entryId: string) => readonly import('../../../shared/automation/javascript-api').JavaScriptAutomationCapability[], injected: { matcher?: OpenCvWorkerMatcher; ocrEngine?: AutomationOcrEngine } = {}) {
     const logical = handle.getCssViewport();
     this.viewport = viewportSpace({ targetId: targetId(`tab-${handle.tabId}`), targetGeneration: generation(1), viewportGeneration: generation(handle.getViewportRevision?.() ?? 1) });
     this.coordinateResolver = new AutomationCoordinateResolver({ viewport: this.viewport, viewportSize: size(logical.width, logical.height) });
@@ -111,7 +112,7 @@ export class BrowserViewAutomationCoreSession {
     } }));
     this.matcher = injected.matcher ?? new OpenCvWorkerMatcher(provider);
     this.ownsMatcher = !injected.matcher;
-    this.ocrEngine = injected.ocrEngine ?? new PaddleOcrEngine();
+    this.ocrEngine = injected.ocrEngine ?? createAutomationOcrEngine();
     this.ownsOcrEngine = !injected.ocrEngine;
     this.vision = new AutomationVisionService(this.matcher);
     this.text = new AutomationTextRecognitionService(this.ocrEngine);
@@ -171,19 +172,19 @@ export class BrowserViewAutomationCoreSession {
     if (!this.closePromise) this.closePromise = (async () => {
       try {
         if (this.ownsMatcher) await this.matcher.close();
-        if (this.ownsOcrEngine) await this.ocrEngine.close();
+        if (this.ownsOcrEngine) await this.ocrEngine.close?.();
       } finally { this.handle.release(); }
     })();
     await this.closePromise;
   }
 
-  async capturePreview(logicalRegion?: { x: number; y: number; width: number; height: number }, displayRegion?: { x: number; y: number; width: number; height: number }): Promise<{ bitmap: Uint8Array; width: number; height: number; captureMs: number }> {
+  async capturePreview(logicalRegion?: { x: number; y: number; width: number; height: number }, displayRegion?: { x: number; y: number; width: number; height: number }): Promise<{ bitmap: Uint8Array; width: number; height: number; captureMs: number; bitmapMs: number }> {
     const controller = createAutomationAbortController();
     const persisted = logicalRegion ? { unit: 'logical' as const, ...logicalRegion } : undefined;
     const frame = await this.captureFrame(persisted, this.context(controller.signal), displayRegion);
     const dimensions = frame.image.getSize();
     if (!frame.bitmap) throw new Error('captured frame has no bitmap');
-    return { bitmap: frame.bitmap, width: dimensions.width, height: dimensions.height, captureMs: frame.captureMs ?? 0 };
+    return { bitmap: frame.bitmap, width: dimensions.width, height: dimensions.height, captureMs: frame.captureMs ?? 0, bitmapMs: frame.bitmapMs ?? 0 };
   }
 
   authoringDisplayRegionToLogical(value: { x: number; y: number; width: number; height: number; viewportWidth: number; viewportHeight: number }): { x: number; y: number; width: number; height: number } {
@@ -223,28 +224,23 @@ export class BrowserViewAutomationCoreSession {
 
   async testTextPreview(query: string, match: 'contains' | 'exact' = 'contains', minConfidence = .5, logicalRegion?: { x: number; y: number; width: number; height: number }, displayRegion?: { x: number; y: number; width: number; height: number }) {
     return this.capture.withFreshFrame(async () => {
-      const authoringCrop = Boolean(logicalRegion && displayRegion);
-      const preview = await this.capturePreview(authoringCrop ? undefined : logicalRegion, authoringCrop ? undefined : displayRegion);
+      // OCR can operate directly on the selected game ROI. Unlike template
+      // matching it does not need a full-frame scene to preserve asset scale.
+      // The same scoped frame is reused for preview and recognition.
+      const preview = await this.capturePreview(logicalRegion, displayRegion);
       const controller = createAutomationAbortController();
-      const frame = await this.captureFrame(authoringCrop ? undefined : logicalRegion ? { unit: 'logical', ...logicalRegion } : undefined, this.context(controller.signal), authoringCrop ? undefined : displayRegion);
+      const frame = await this.captureFrame(logicalRegion ? { unit: 'logical', ...logicalRegion } : undefined, this.context(controller.signal), displayRegion);
       const ocrStartedAt = Date.now();
       const items = await this.text.recognize(frame, controller.signal);
       const ocrMs = Date.now() - ocrStartedAt;
-      // Filter OCR observations before selecting the best text match. Filtering
-      // only the final match could discard an outside hit while overlooking a
-      // valid occurrence of the same text inside the selected game surface.
-      const scopedItems = logicalRegion && authoringCrop ? items.filter((item) => {
-        const xs = item.box.map((point) => point[0]);
-        const ys = item.box.map((point) => point[1]);
-        const left = Math.min(...xs); const top = Math.min(...ys);
-        const right = Math.max(...xs); const bottom = Math.max(...ys);
-        return left >= logicalRegion.x && top >= logicalRegion.y
-          && right <= logicalRegion.x + logicalRegion.width
-          && bottom <= logicalRegion.y + logicalRegion.height;
-      }) : items;
-      const bitmapMatch = this.text.locateBestRecognized(frame, scopedItems, { text: query, match, minScore: minConfidence });
+      const bitmapMatch = this.text.locateBestRecognized(frame, items, { text: query, match, minScore: minConfidence });
       const bounds = bitmapMatch && frame.geometry ? new AutomationFrameTransform(frame.geometry).bitmapRegionToSpace(bitmapMatch) : null;
-      return { preview, bitmapMatch, match: bitmapMatch && bounds ? { bounds, score: bitmapMatch.score, matched: bitmapMatch.matched } : null, ocrMs };
+      return {
+        preview, previewIsRegion: Boolean(logicalRegion), bitmapMatch,
+        match: bitmapMatch && bounds ? { bounds, score: bitmapMatch.score, matched: bitmapMatch.matched } : null,
+        ocrMs, recognizedCount: items.length,
+        recognizedTexts: items.map((item) => item.text).filter(Boolean).slice(0, 20),
+      };
     });
   }
 

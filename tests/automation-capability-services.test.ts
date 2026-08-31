@@ -67,6 +67,12 @@ describe('Automation capability services', () => {
     expect(service.locateBestRecognized(frame, [item], { text: '开始游戏', match: 'exact', minScore: 0.9 })).toMatchObject({ matched: true, textSimilarity: 1 });
   });
 
+  it('does not present an unrelated high-confidence OCR observation as the best query candidate', () => {
+    const item = { text: '开始游戏', score: 0.99, box: [[1, 2], [5, 2], [5, 4], [1, 4]] as Array<[number, number]> };
+    const service = new AutomationTextRecognitionService({ recognize: async () => [item] });
+    expect(service.locateBestRecognized(frame, [item], { text: '购买', match: 'contains', minScore: 0.5 })).toBeNull();
+  });
+
   it('rejects ReadNumber when OCR has no numeric value', async () => {
     const service = new AutomationTextRecognitionService({ recognize: async () => [{ text: '无价格', score: 1, box: [[0, 0], [1, 0], [1, 1], [0, 1]] }] });
     await expect(service.readNumber(frame, new AbortController().signal)).rejects.toThrow('does not contain a number');

@@ -17,7 +17,7 @@ import { createAutomationAbortController } from '../../../shared/automation/abor
 import { NativeImageTemplateProvider } from './native-image-template-provider';
 import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
-import { PaddleOcrEngine } from './paddle-ocr-engine';
+import { createAutomationOcrEngine } from './ocr-provider';
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import type { AutomationCapturedFrame } from './capability-contracts';
 import ts from 'typescript';
@@ -180,7 +180,7 @@ export class AutomationV3Service {
   private runStatus: AutomationRunStatus = { state: 'idle', executedSteps: 0, logs: [] };
   private readonly captures = new Map<string, { image: NativeImage; createdAt: number; timer: NodeJS.Timeout }>();
   private readonly authoringVision = new Map<string, AuthoringVisionSession>();
-  private readonly authoringOcr = new PaddleOcrEngine();
+  private readonly authoringOcr = createAutomationOcrEngine();
   constructor(private readonly repository: AutomationPackageV3Repository, private readonly grants: JavaScriptAutomationGrantStore) {
     this.ready = Promise.all([repository.initialize(), grants.initialize()]).then(() => undefined);
   }
@@ -454,12 +454,12 @@ export class AutomationV3Service {
   }
 
   async testTextOnImage(image: NativeImage, query: string, match: 'contains' | 'exact' = 'contains', minConfidence = .5) {
-    const size = image.getSize(); const engine = new PaddleOcrEngine();
+    const size = image.getSize(); const engine = createAutomationOcrEngine();
     try {
       const frame: AutomationCapturedFrame = { image, bitmap: image.toBitmap(), bitmapSize: size, deviceSize: size, cssSize: size };
       const textService = new AutomationTextRecognitionService(engine); const signal = createAutomationAbortController().signal;
       return textService.locateBestRecognized(frame, await textService.recognize(frame, signal), { text: query, match, minScore: minConfidence });
-    } finally { await engine.close(); }
+    } finally { await engine.close?.(); }
   }
 
   async testText(packageId: string, tabId: string, text: string, match: 'contains' | 'exact' = 'contains', minConfidence = .5) {
@@ -500,14 +500,23 @@ export class AutomationV3Service {
       return session.testTextPreview(text, match, minConfidence, logicalRegion, displayRegion);
     });
     const fullImage = nativeImage.createFromBitmap(Buffer.from(result.preview.bitmap), { width: result.preview.width, height: result.preview.height });
-    const cropped = cropPreview(fullImage, logicalRegion); const image = cropped.image; const imageSize = image.getSize();
+    const cropped = result.previewIsRegion ? { image: fullImage, origin: { x: 0, y: 0 } } : cropPreview(fullImage, logicalRegion);
+    const image = cropped.image; const imageSize = image.getSize();
     const candidate = result.match && result.bitmapMatch ? {
       text: result.bitmapMatch.text, score: result.match.score,
       x: result.bitmapMatch.x - cropped.origin.x, y: result.bitmapMatch.y - cropped.origin.y,
       pageX: result.match.bounds.x, pageY: result.match.bounds.y,
       width: result.bitmapMatch.width, height: result.bitmapMatch.height, matched: result.bitmapMatch.matched,
+      textSimilarity: result.bitmapMatch.textSimilarity,
     } : null;
-    return { dataUrl: image.toDataURL(), previewWidth: imageSize.width, previewHeight: imageSize.height, sourceWidth: imageSize.width, sourceHeight: imageSize.height, candidates: candidate ? [candidate] : [], matched: Boolean(candidate?.matched), captureMs: result.preview.captureMs, ocrMs: result.ocrMs, totalMs: Date.now() - totalStartedAt };
+    return {
+      dataUrl: image.toDataURL(), previewWidth: imageSize.width, previewHeight: imageSize.height,
+      sourceWidth: imageSize.width, sourceHeight: imageSize.height, query: text,
+      candidates: candidate ? [candidate] : [], matched: Boolean(candidate?.matched),
+      recognizedCount: result.recognizedCount, recognizedTexts: result.recognizedTexts,
+      captureMs: result.preview.captureMs, bitmapMs: result.preview.bitmapMs,
+      ocrMs: result.ocrMs, totalMs: Date.now() - totalStartedAt,
+    };
   }
 
   async warmAuthoring(packageId: string): Promise<void> {
@@ -585,7 +594,7 @@ export class AutomationV3Service {
   async shutdown(): Promise<void> {
     await this.cancel();
     await Promise.all([...this.authoringVision.keys()].map((packageId) => this.closeAuthoringVision(packageId)));
-    await this.authoringOcr.close();
+    await this.authoringOcr.close?.();
   }
 }
 

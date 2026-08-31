@@ -47,16 +47,19 @@ export class BrowserViewCaptureService {
     const cached = this.scopedFrames?.get(key);
     if (cached) return cached;
 
-    this.source.incrementCapturerCount();
+    const logicalCaptureSize = request.logicalRegion
+      ? { width: request.logicalRegion.width, height: request.logicalRegion.height }
+      : request.logicalViewportSize;
+    // Ask Chromium's compositor for the stable logical pixel size up front.
+    // NativeImage.resize remains a fallback for Electron/PPAPI paths that do
+    // not honour the preferred capturer size.
+    this.source.incrementCapturerCount(logicalCaptureSize);
     try {
       const captureStartedAt = this.now();
       const sourceImage = await this.source.capturePage(request.displayRegion);
       const captureMs = this.now() - captureStartedAt;
       if (sourceImage.isEmpty()) throw new Error(request.emptyMessage ?? 'BrowserView capture is empty');
 
-      const logicalCaptureSize = request.logicalRegion
-        ? { width: request.logicalRegion.width, height: request.logicalRegion.height }
-        : request.logicalViewportSize;
       const sourceSize = sourceImage.getSize();
       const normalized = Boolean(sourceImage.resize)
         && (sourceSize.width !== logicalCaptureSize.width || sourceSize.height !== logicalCaptureSize.height);

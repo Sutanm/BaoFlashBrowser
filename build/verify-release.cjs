@@ -208,14 +208,70 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
   }
 }
 
+function compareVersions(left, right) {
+  const leftParts = left.split('.').map(Number);
+  const rightParts = right.split('.').map(Number);
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const difference = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function highestGlibcRequirement(root) {
+  let highest = null;
+  for (const file of walk(root)) {
+    let buffer;
+    try {
+      // Linux symlinks created on DrvFS appear as unreadable reparse points to
+      // Windows Node. Their real targets are also present in the onedir tree.
+      buffer = fs.readFileSync(file);
+    } catch (error) {
+      if (error && ['EACCES', 'EINVAL'].includes(error.code) && fs.lstatSync(file).isSymbolicLink()) continue;
+      throw error;
+    }
+    if (buffer.length < 4 || !buffer.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) continue;
+    const matches = buffer.toString('latin1').matchAll(/GLIBC_(\d+\.\d+)/g);
+    for (const match of matches) {
+      if (!highest || compareVersions(match[1], highest.version) > 0) highest = { version: match[1], file };
+    }
+  }
+  return highest;
+}
+
 function verifyOcr(resourcesRoot, packaged) {
-  const ocrRoot = packaged ? path.join(resourcesRoot, 'native', 'ocr') : path.join(resourcesRoot, 'native', 'ocr', 'win64');
+  const ocrRoot = path.join(resourcesRoot, 'native', 'ocr');
   if (ocrMode === 'bundled') {
-    if (platform !== 'win32' || arch !== 'x64') fail('bundled OCR is currently supported only for win32-x64');
-    expectArch(path.join(ocrRoot, 'PaddleOCR-json.exe'), 'x64', 'pe', 'PaddleOCR-json runtime');
-    record(path.join(ocrRoot, 'LICENSE'), 'PaddleOCR-json license');
-    const modelFiles = walk(ocrRoot).filter((file) => /\.(onnx|pdmodel|pdiparams)$/i.test(file));
-    if (modelFiles.length === 0) fail(`OCR bundle has no model files: ${relative(ocrRoot)}`);
+    if (!['win32', 'linux'].includes(platform) || arch !== 'x64') fail(`bundled OCR is not supported for ${platform}-${arch}`);
+    if (platform === 'win32') {
+      const paddleRoot = packaged ? ocrRoot : path.join(ocrRoot, 'win64');
+      expectArch(path.join(paddleRoot, 'bao-paddle-ocr-sidecar.exe'), 'x64', 'pe', 'Paddle Inference BAO1 Sidecar');
+      expectJsonFields(path.join(paddleRoot, 'OCR-RUNTIME.json'), {
+        protocol: 1, provider: 'Paddle Inference', engine: 'Paddle Inference C++ 2.3.2 CPU MKL', model: 'PP-OCRv3', platform, arch,
+      }, 'Paddle runtime manifest');
+      record(path.join(paddleRoot, 'LICENSE'), 'PaddleOCR/PaddleOCR-json license');
+      if (fs.existsSync(path.join(paddleRoot, 'PaddleOCR-json.exe'))) fail('Windows OCR package unexpectedly contains legacy PaddleOCR-json executable');
+      if (packaged && fs.existsSync(path.join(ocrRoot, 'rapidocr'))) fail('Windows OCR package unexpectedly contains RapidOCR runtime');
+      return;
+    }
+    const paddleRoot = packaged
+      ? path.join(ocrRoot, 'paddle')
+      : path.join(ocrRoot, 'paddle', `${platform}-${arch}`);
+    const paddleExecutable = path.join(paddleRoot, 'bao-paddle-ocr-sidecar');
+    expectArch(paddleExecutable, 'x64', 'elf', 'Paddle Inference Sidecar');
+    const highestGlibc = highestGlibcRequirement(paddleRoot);
+    if (!highestGlibc) fail(`Paddle Linux bundle has no readable glibc requirements: ${relative(paddleRoot)}`);
+    else if (compareVersions(highestGlibc.version, '2.28') > 0) {
+      fail(`Paddle Linux bundle requires GLIBC_${highestGlibc.version}, maximum supported is GLIBC_2.28: ${relative(highestGlibc.file)}`);
+    }
+    expectJsonFields(path.join(paddleRoot, 'OCR-RUNTIME.json'), {
+      protocol: 1, provider: 'Paddle Inference', engine: 'Paddle Inference C++ 2.6.2 CPU MKL', model: 'PP-OCRv3', platform, arch,
+    }, 'Paddle runtime manifest');
+    for (const model of ['ch_PP-OCRv3_det_infer', 'ch_PP-OCRv3_rec_infer']) {
+      record(path.join(paddleRoot, 'models', model, 'inference.pdmodel'), `Paddle ${model} graph`);
+      record(path.join(paddleRoot, 'models', model, 'inference.pdiparams'), `Paddle ${model} parameters`);
+    }
+    record(path.join(paddleRoot, 'LICENSE-PaddleOCR'), 'PaddleOCR license');
   } else if (ocrMode === 'none' && packaged && fs.existsSync(ocrRoot)) {
     fail('standard package unexpectedly contains OCR runtime');
   }

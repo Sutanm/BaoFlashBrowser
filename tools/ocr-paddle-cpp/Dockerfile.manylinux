@@ -1,0 +1,9 @@
+FROM quay.io/pypa/manylinux_2_28_x86_64:latest
+
+RUN dnf config-manager --set-enabled powertools \
+    && dnf install -y cmake ninja-build opencv-devel patchelf \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+WORKDIR /workspace
+ENTRYPOINT ["bash", "tools/ocr-paddle-cpp/build_manylinux.sh"]

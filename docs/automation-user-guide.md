@@ -9,7 +9,7 @@
 
 Windows x64 有标准版和 OCR 版。标准版不携带 OCR 引擎，适合坐标和图片识别脚本；OCR 版离线识别简体中文、英文字母和数字。含 OCR 积木的脚本在标准版可以查看和编辑，执行时会提示改装 OCR 版。
 
-已经安装标准版的用户不需要卸载，也不需要导出脚本：直接运行同版本 OCR 版安装包覆盖安装即可，用户数据、脚本和素材继续保留。开发环境默认不下载 OCR；先执行 `npm run prepare:ocr`，只要 `native/ocr/win64/PaddleOCR-json.exe` 存在，`npm start` 就会自动启用本地 OCR。
+已经安装标准版的用户不需要卸载，也不需要导出脚本：直接运行同版本 OCR 版安装包覆盖安装即可，用户数据、脚本和素材继续保留。开发环境默认不下载 OCR；Windows 执行 `npm run prepare:ocr`，Linux 执行 `npm run prepare:ocr:paddle-linux`。当对应平台的 `bao-paddle-ocr-sidecar` 与 PP-OCRv3 运行时准备完成后，`npm start` 会自动启用本地 OCR。
 
 图片识别并不等于理解页面元素。目标外观、缩放比例、透明效果或动画变化太大时，仍可能匹配失败。涉及账号、交易、删除等不可逆操作时，不要只依赖图像自动化。
 

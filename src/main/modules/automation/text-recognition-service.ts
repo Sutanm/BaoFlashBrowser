@@ -11,6 +11,8 @@ export type TextDiagnosticMatch = TextMatch & {
   readonly textSimilarity: number;
 };
 
+export const AUTHORING_MIN_TEXT_SIMILARITY = .25;
+
 function normalized(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 }
@@ -78,7 +80,7 @@ export class AutomationTextRecognitionService {
       const matched = item.score >= request.minScore && (request.match === 'exact' ? text === query : text.includes(query));
       return { item, similarity, matched };
     }).sort((left, right) => right.similarity - left.similarity || right.item.score - left.item.score);
-    const best = ranked[0];
+    const best = ranked.find((candidate) => candidate.matched || candidate.similarity >= AUTHORING_MIN_TEXT_SIMILARITY);
     return best ? { ...toTextMatch(frame, best.item), matched: best.matched, textSimilarity: best.similarity } : null;
   }
 

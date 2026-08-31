@@ -43,8 +43,9 @@ function service(sourceImage = image(200, 100)) {
 
 describe('BrowserViewCaptureService', () => {
   it('normalizes a capture and binds immutable frame geometry', async () => {
-    const { capture } = service();
+    const { capture, source } = service();
     const frame = await capture.capture({ logicalViewportSize: { width: 100, height: 50 } });
+    expect(source.incrementCapturerCount).toHaveBeenCalledWith({ width: 100, height: 50 });
     expect(frame.bitmapSize).toEqual({ width: 100, height: 50 });
     expect(frame.geometry?.capturedRegion).toMatchObject({ x: 0, y: 0, width: 100, height: 50 });
   });
@@ -58,6 +59,7 @@ describe('BrowserViewCaptureService', () => {
       displayRegion: { x: 150, y: 75, width: 1140, height: 225 },
     });
     expect(source.capturePage).toHaveBeenCalledWith({ x: 150, y: 75, width: 1140, height: 225 });
+    expect(source.incrementCapturerCount).toHaveBeenCalledWith({ width: 760, height: 150 });
     expect(frame.bitmapSize).toEqual({ width: 760, height: 150 });
     expect(frame.geometry?.capturedRegion).toMatchObject({ x: 100, y: 50, width: 760, height: 150 });
   });

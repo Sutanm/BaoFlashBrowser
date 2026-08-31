@@ -17,6 +17,10 @@ Phase 1冻结TextRecognizer provider接口，不切换默认实现。Phase 4使�
 - provider lifecycle必须支持deadline/cancel/restart/close。
 - 跑商价格识别可成为ReadNumber真实benchmark之一。
 
+## 2026-08-31 实施补充
+
+RapidOCR和Paddle Inference均曾按独立Sidecar接入，同一`AutomationOcrEngine`合同直接接收BGRA内存帧。Windows small/tiny benchmark后保留PP-OCRv3模型；随后Windows C++ BAO1候选在准确率不变的前提下将warm mean/p95从24.8/35.1ms降至17.6/27.8ms，1000次稳定性与恢复门禁通过，因此替换PaddleOCR-json路径协议。Linux也使用Paddle Inference C++ + PP-OCRv3。Rapid候选未通过门禁，已删除运行时、Provider回退与构建入口。详见`../ocr-cross-platform-plan.md`和`../windows-cpp-bao1-sidecar-design.md`。
+
 ## Rejected
 
 - 直接以PP-OCRv6 small替换现有baseline。

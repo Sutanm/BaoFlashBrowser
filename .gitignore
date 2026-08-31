@@ -21,4 +21,6 @@ blog-technical.md
 docs/images/
 .idea/workspace.xml
 native/ocr/win64/
+native/ocr/paddle/
 .cache/
+__pycache__/

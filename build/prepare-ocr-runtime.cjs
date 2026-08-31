@@ -11,7 +11,9 @@ const version = '1.4.1';
 const archiveName = `PaddleOCR-json_v${version}_windows_x64.7z`;
 const archiveUrl = `https://github.com/hiroi-sora/PaddleOCR-json/releases/download/v${version}/${archiveName}`;
 const archiveSha256 = 'c0912a70acb1f8f18fafe1f438a2935292a6ec7e2859156fa48a33e91358d71d';
-const licenseUrl = 'https://raw.githubusercontent.com/hiroi-sora/PaddleOCR-json/v1.4.1/LICENSE';
+const sidecarSource = path.join(projectRoot, 'tools', 'ocr-paddle-cpp', 'prebuilt', 'win32-x64', 'bao-paddle-ocr-sidecar.exe');
+const licenseSource = path.join(projectRoot, 'tools', 'ocr-paddle-cpp', 'prebuilt', 'win32-x64', 'LICENSE-PaddleOCR-json');
+const sidecarSha256 = 'b79b17e29515397ee37b52549d87d0d98ae8862777696b4d583e0d4b2ad9b8a7';
 const selectedModels = [
   'ch_PP-OCRv3_det_infer',
   'ch_PP-OCRv3_rec_infer',
@@ -58,14 +60,17 @@ function copyDirectory(source, destination) {
 }
 
 async function main() {
-  if (process.platform !== 'win32') throw new Error('PaddleOCR-json runtime preparation currently requires Windows');
+  if (process.platform !== 'win32') throw new Error('Paddle OCR runtime preparation currently requires Windows');
   const readyMetadata = path.join(targetRoot, 'OCR-RUNTIME.json');
-  if (fs.existsSync(path.join(targetRoot, 'PaddleOCR-json.exe')) && fs.existsSync(readyMetadata)) {
+  if (fs.existsSync(path.join(targetRoot, 'bao-paddle-ocr-sidecar.exe')) && fs.existsSync(readyMetadata)) {
     const metadata = JSON.parse(fs.readFileSync(readyMetadata, 'utf8'));
-    if (metadata.version === version && metadata.archiveSha256 === archiveSha256) {
+    if (metadata.protocol === 1 && metadata.sidecarSha256 === sidecarSha256 && metadata.archiveSha256 === archiveSha256) {
       console.log(`OCR runtime already prepared: ${path.relative(projectRoot, targetRoot)}`);
       return;
     }
+  }
+  if (!fs.existsSync(sidecarSource) || sha256(sidecarSource) !== sidecarSha256 || !fs.existsSync(licenseSource)) {
+    throw new Error('Windows BAO1 OCR Sidecar is missing or its SHA-256 is invalid');
   }
 
   fs.mkdirSync(cacheRoot, { recursive: true });
@@ -97,23 +102,27 @@ async function main() {
   fs.mkdirSync(targetRoot, { recursive: true });
   for (const name of fs.readdirSync(sourceRoot)) {
     const file = path.join(sourceRoot, name);
-    if (fs.statSync(file).isFile() && /\.(?:dll|exe)$/i.test(name)) fs.copyFileSync(file, path.join(targetRoot, name));
+    if (fs.statSync(file).isFile() && /\.dll$/i.test(name)) fs.copyFileSync(file, path.join(targetRoot, name));
   }
+  fs.copyFileSync(sidecarSource, path.join(targetRoot, 'bao-paddle-ocr-sidecar.exe'));
   const targetModels = path.join(targetRoot, 'models');
   fs.mkdirSync(targetModels, { recursive: true });
   for (const model of selectedModels) copyDirectory(path.join(sourceRoot, 'models', model), path.join(targetModels, model));
   for (const file of ['config_chinese.txt', 'dict_chinese.txt']) {
     fs.copyFileSync(path.join(sourceRoot, 'models', file), path.join(targetModels, file));
   }
-  await download(licenseUrl, path.join(targetRoot, 'LICENSE'));
+  fs.copyFileSync(licenseSource, path.join(targetRoot, 'LICENSE'));
   fs.writeFileSync(path.join(targetRoot, 'THIRD-PARTY-NOTICE.txt'), [
-    `PaddleOCR-json ${version}`, 'https://github.com/hiroi-sora/PaddleOCR-json',
+    `BaoFlashBrowser BAO1 Sidecar based on PaddleOCR-json ${version} C++ inference sources.`,
+    'https://github.com/hiroi-sora/PaddleOCR-json',
     'Licensed under the Apache License 2.0. See LICENSE.',
+    'Paddle Inference and PP-OCRv3 model files are reused from the validated upstream runtime.',
     'This bundle keeps only the Simplified Chinese model, which also recognizes Latin letters and digits.',
     '',
   ].join('\r\n'));
   fs.writeFileSync(readyMetadata, JSON.stringify({
-    name: 'PaddleOCR-json', version, archiveSha256, archiveUrl,
+    protocol: 1, provider: 'Paddle Inference', engine: 'Paddle Inference C++ 2.3.2 CPU MKL', model: 'PP-OCRv3',
+    platform: 'win32', arch: 'x64', version, archiveSha256, archiveUrl, sidecarSha256,
     language: 'Simplified Chinese + Latin', models: selectedModels,
   }, null, 2));
   console.log(`Prepared OCR runtime: ${path.relative(projectRoot, targetRoot)}`);

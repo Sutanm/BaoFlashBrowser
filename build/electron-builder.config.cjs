@@ -26,11 +26,13 @@ function selectedResources() {
   }
 
   if (targetPlatform === 'linux' && targetArch === 'x64') {
-    return [
+    const resources = [
       { from: 'plugins/linux64', to: 'plugins/linux64' },
       { from: 'native/aria2/aria2c', to: 'native/aria2/aria2c' },
       { from: 'native/mouse-hook-linux', to: 'native/mouse-hook-linux' },
     ];
+    if (bundleOcr) resources.push({ from: `native/ocr/paddle/${targetPlatform}-${targetArch}`, to: 'native/ocr/paddle' });
+    return resources;
   }
 
   if (targetPlatform === 'darwin' && targetArch === 'x64') {
@@ -103,7 +105,9 @@ module.exports = {
   },
   afterPack: async (context) => {
     if (context.electronPlatformName !== 'linux') return;
-    for (const file of ['native/aria2/aria2c', 'native/mouse-hook-linux']) {
+    const executableFiles = ['native/aria2/aria2c', 'native/mouse-hook-linux'];
+    if (bundleOcr) executableFiles.push('native/ocr/paddle/bao-paddle-ocr-sidecar');
+    for (const file of executableFiles) {
       fs.chmodSync(path.join(context.appOutDir, 'resources', file), 0o755);
     }
   },

@@ -4,8 +4,8 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      3.3.2
-// @updateHash  294fb5856faf
+// @version      3.3.4
+// @updateHash  e404b40e534d
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -238,16 +238,17 @@
   function renderOcr(value) {
     preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
     (value.candidates || []).forEach(function (candidate) {
-      var hit = document.createElement('span'); hit.className = 'bao-hit bao-ok';
+      var hit = document.createElement('span'); hit.className = 'bao-hit' + (candidate.matched ? ' bao-ok' : '');
       hit.style.left = candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = candidate.y / value.sourceHeight * 100 + '%';
       hit.style.width = candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = candidate.height / value.sourceHeight * 100 + '%';
-      var badge = document.createElement('b'); badge.textContent = candidate.text + ' · ' + (candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit);
+      var badge = document.createElement('b'); badge.textContent = candidate.text + ' ' + (candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit);
     });
     preview.appendChild(wrap);
     var matchedCount = (value.candidates || []).filter(function (candidate) { return candidate.matched; }).length;
-    var captureMs = Math.max(0, Number(value.captureMs) || 0); var ocrMs = Math.max(0, Number(value.ocrMs) || 0); var totalMs = Math.max(captureMs + ocrMs, Number(value.totalMs) || 0);
-    var best = (value.candidates || [])[0]; var summary = value.matched ? '找到 ' + matchedCount + ' 处匹配文字' : best ? '最佳候选“' + best.text + '”低于条件' : '没有识别到文字';
-    resultText.textContent = summary + ' · 总耗时 ' + totalMs + 'ms（截图 ' + captureMs + 'ms · OCR ' + ocrMs + 'ms）';
+    var captureMs = Math.max(0, Number(value.captureMs) || 0); var bitmapMs = Math.max(0, Number(value.bitmapMs) || 0); var ocrMs = Math.max(0, Number(value.ocrMs) || 0); var totalMs = Math.max(captureMs + bitmapMs + ocrMs, Number(value.totalMs) || 0); var otherMs = Math.max(0, totalMs - captureMs - bitmapMs - ocrMs);
+    var best = (value.candidates || [])[0]; var recognizedCount = Math.max(0, Number(value.recognizedCount) || 0); var query = String(value.query || '');
+    var summary = value.matched ? '找到 ' + matchedCount + ' 处匹配文字' : best ? '最接近候选“' + best.text + '”未满足条件' : recognizedCount ? '未找到与“' + query + '”相关的文字 · OCR 识别到 ' + recognizedCount + ' 处' : '没有识别到文字';
+    resultText.textContent = summary + ' · 总耗时 ' + totalMs + 'ms（截图 ' + captureMs + 'ms · 位图 ' + bitmapMs + 'ms · OCR ' + ocrMs + 'ms' + (otherMs ? ' · 其他 ' + otherMs + 'ms' : '') + '）';
   }
   function selectMatchMode(mode) {
     stopMonitor(); state.matchMode = mode === 'text' ? 'text' : 'image';
@@ -460,7 +461,7 @@
   window.addEventListener('keydown', function (event) { if (gameLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); closeGameSelect(); return; } if (coordinateLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); void endCoordinatePick(true); return; } if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') { event.preventDefault(); openPanel(); } }, true);
 
   var savedPosition = GM.getValue('position', null); if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) placeCollapsedRoot(savedPosition.x, savedPosition.y);
-  window.addEventListener('resize', function () { var rect = orb.getBoundingClientRect(); var wasOpen = root.classList.contains('bao-open'); placeCollapsedRoot(rect.left, rect.top); if (wasOpen) root.classList.add('bao-open'); if (gameLayer.classList.contains('bao-active')) closeGameSelect(); if (state.surfaceRefreshTimer) clearTimeout(state.surfaceRefreshTimer); state.surfaceRefreshTimer = setTimeout(function () { state.surfaceRefreshTimer = 0; void refreshBoundSurfaceIfNeeded().catch(function (error) { toast(error.message || String(error)); }); }, 180); });
+  window.addEventListener('resize', function () { var rect = orb.getBoundingClientRect(); var wasOpen = root.classList.contains('bao-open'); placeCollapsedRoot(rect.left, rect.top); if (wasOpen) root.classList.add('bao-open'); if (gameLayer.classList.contains('bao-active')) closeGameSelect(); if (state.surfaceRefreshTimer) window.clearTimeout(state.surfaceRefreshTimer); state.surfaceRefreshTimer = window.setTimeout(function () { state.surfaceRefreshTimer = 0; void refreshBoundSurfaceIfNeeded().catch(function (error) { toast(error.message || String(error)); }); }, 180); });
   window.addEventListener('pagehide', function () { gameLayer.classList.remove('bao-active'); if (coordinateLayer.classList.contains('bao-active')) void api.endCoordinatePick(); });
   if (GM.registerMenuCommand) GM.registerMenuCommand('显示自动化助手', function () { openPanel(); });
   void refreshPackages(); void pollStatus(); state.statusTimer = setInterval(function () { void pollStatus(); }, 600);

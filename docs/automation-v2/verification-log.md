@@ -257,3 +257,178 @@ authoring smoke使用真实BrowserView/Core session验证截图、OCR provider�
 `userscript:automation-v3-surfaces`曾绕过TabManager，直接调用`detectGameSurfaces(event.sender)`，因此在密码捕获持有CDP时稳定报`CDP is already leased by password-capture`。现已强制路由到`tabManager.inspectAutomationTarget`，由统一的短时检查屏障按`teardown password capture → Automation inspection → restore password capture`顺序执行。真实Electron探针验证检查前后租约owner均为`password-capture`，检查期间Canvas Surface识别成功；静态回归测试禁止该IPC恢复为直接调用。
 
 `PASS / COMPLETE`：Automation 2.0核心重构与断代完成；Pixel OCR保持Out of Scope。
+
+## OCR 跨平台 Sidecar（2026-08-31）
+
+- Automation Core 的 OCR 依赖改为通用 `AutomationOcrEngine`，工作流、JavaScript API 和测试中心统一从 Provider 工厂取得实例；
+- 接入 RapidOCR 3.9.2 + ONNX Runtime 1.29.0 + PP-OCRv6 small，自包含 Sidecar 通过 stdin 直接接收 BGRA 帧，不再写临时 BMP；
+- Windows OCR包只携带Paddle baseline，Provider工厂不再选择Rapid；发布校验会拒绝任何混入Rapid目录的Windows成品；
+- Sidecar 构建依赖位于 `.cache/ocr/rapidocr-venv-*`，不会写入系统 Python；Windows/Linux 必须各自在目标平台构建；
+- Windows x64 冻结二进制 `ready` 自检通过，内存渲染 `TEST 123` 的真实 PP-OCRv6 推理通过；
+- 标准包继续不携带OCR；Windows OCR包只携带PaddleOCR-json + PP-OCRv3。该记录后的Linux Paddle正式评估已替换Rapid打包策略，见本页末节。
+
+```text
+npm run typecheck                                      PASS
+npm test -- --run                                      PASS，101 files / 572 tests
+npm run build                                          PASS
+RapidOCR protocol/provider/runtime integration         PASS，7 tests
+verify source win32-x64 --ocr bundled                  PASS，22 files
+verify source win32-x64/linux-x64 --ocr none           PASS，18 / 17 files
+targeted ESLint（新增 TypeScript 文件）                 PASS
+```
+
+Linux 的 WSL 功能验证见下节。Windows 第一轮 56 张可控语料、3 轮 benchmark 显示 small 与 v3 准确率相同，但 warm p95 约为 728ms 对 31ms，因此 Windows 自动选择已改回 Paddle v3 优先；真实游戏 corpus、tiny 和恢复压力测试仍待执行。
+
+### Windows 中文协议修复（2026-08-31）
+
+首版 Sidecar 使用 `ensure_ascii=False` 将中文直接写入 Python stdout；Windows 冻结进程按活动代码页编码，而 Node 固定按 UTF-8 解码，导致正确 OCR 文本在 IPC 前变成 `���`。协议现改为 ASCII-only JSON Unicode 转义，由 `JSON.parse` 还原中文，与 Windows 代码页完全解耦。使用仓库内 Source Han Sans 渲染“开始游戏 123”的真实模型测试同时断言中文和数字均原样返回。
+
+```text
+Windows Sidecar rebuild/self-check                    PASS
+真实 PP-OCRv6 中文 + 数字内存帧识别                   PASS
+RapidOCR runtime/protocol tests                       PASS，5 tests
+verify source win32-x64 --ocr bundled                 PASS，22 files
+```
+
+### Linux WSL 功能验证与发布基线（2026-08-31）
+
+验证环境为 WSL2 Ubuntu 26.04 x64、Linux 6.18、Python 3.14.4。Linux onedir Sidecar 原生冻结、自检和真实 BGRA 协议均通过；使用 Source Han Sans 渲染“开始游戏 123”，PP-OCRv6 small 返回“开始游戏”（99.98%）与“123”（99.999%），首次模型推理约 946ms。冻结进程只通过 stdin/stdout 接收帧，不依赖目标机 Python。
+
+该 WSL 发行版的 glibc 为 2.43，PyInstaller 将系统 Python/动态库带入产物；完整 ELF 扫描发现最高要求为 `GLIBC_2.43`，冻结目录约 355MB。因此结论严格拆分为：
+
+- `PASS`：Linux x64 Sidecar 构建、启动、中文识别和二进制协议功能；
+- `FAIL（拒绝发布）`：本机 WSL 产物不满足项目 `GLIBC_2.28` 上限，不能代表通用 Linux 包。
+
+`verify-release` 已增加全目录 ELF glibc 扫描，当前诊断产物会明确失败并指出最高版本及文件，防止再次把“本机能运行”误判为跨发行版通过。正式产物需在 manylinux_2_28/等价旧基线容器中冻结，然后重复真实中文测试、源资源校验与 AppImage 验证。
+
+```text
+Linux Sidecar native build/self-check                 PASS
+真实 PP-OCRv6 中文 + 数字 BGRA 识别                   PASS
+verify source linux-x64 --ocr bundled                 FAIL（GLIBC_2.43 > 2.28，预期门禁）
+Docker CLI                                            PRESENT
+Docker Desktop Linux engine                           NOT RUNNING
+```
+
+Docker Desktop 启动后，使用 `Dockerfile.manylinux` 在官方 manylinux_2_28 x86_64 基线上安装共享库 Python 3.11.13并重新冻结。构建过程输出可复用归档，再由受目标路径校验保护的脚本安装到本地 runtime 目录。最终产物在 glibc 2.28 容器和较新的 WSL Ubuntu 中都完成了真实中文推理：
+
+```text
+manylinux_2_28 freeze + ready self-check              PASS
+容器内真实“开始游戏 123”推理                           PASS，OCR 约 864ms
+WSL Ubuntu 26.04真实“开始游戏 123”推理                 PASS，OCR 约 1024ms
+全目录 ELF 最高要求                                   GLIBC_2.28
+verify source linux-x64 --ocr bundled                 PASS，19 files
+冻结目录                                               354MB
+```
+
+因此 Linux x64 的功能链路和 glibc 发行基线均已通过；仍未完成的是正式 corpus 的 small/tiny/v3 准确率、warm p95、RSS 与连续1000次稳定性 benchmark，不能把单图冷启动时间当作最终性能指标。
+
+### OCR Headless依赖收口（2026-08-31）
+
+RapidOCR声明依赖完整`opencv-python`，会在Linux OCR包中隐式带入Qt/X11等GUI动态库；Windows headless wheel还包含OCR不用的29.4MB FFmpeg视频解码DLL。构建现统一在依赖解析后替换为锁定的`opencv-python-headless==5.0.0.93`，并删除Windows视频DLL；发布校验拒绝Qt或`opencv_videoio_ffmpeg`重新进入OCR包。
+
+```text
+Linux runtime                         353.1MB → 309.1MB（-44.0MB）
+Linux gzip archive                    146.8MB → 131.0MB（-15.8MB）
+Windows runtime                       247.0MB → 217.1MB（-29.9MB）
+Windows真实中文/数字推理              PASS
+WSL真实中文/数字推理                  PASS
+glibc 2.28容器真实中文/数字推理       PASS
+Windows/Linux OCR发布校验             PASS，22 / 19 files
+```
+
+该修改不触碰页面图片识别的OpenCV.js worker；只收口OCR Sidecar的构建依赖。
+
+### Linux Paddle PP-OCRv3 PoC（2026-08-31）
+
+使用只读、断网、无 capabilities 的 Python 3.11 Docker 容器直接加载现有 PP-OCRv3 模型。模型路径、中文字典和语料均来自项目现有资源，没有在线下载模型。
+
+```text
+Linux Paddle 初始化                                  PASS，约486ms
+3张中文冒烟                                          PASS
+56张可控语料                                         PASS，56/56
+热态 mean / p50 / p95                                约38 / 38 / 55ms
+真实像素字“赶走”                                     PASS
+真实像素字“收线、拉杆”                               未检出（与Windows模型边界一致）
+```
+
+诊断发现 Paddle 2.6.2 wheel 先加载时会与 pyclipper 发生 zlib 符号冲突；PoC 通过预加载 pyclipper绕开。该绕过不会进入最终运行时。正式 Linux Paddle 实现继续走 Paddle Inference C++ Sidecar，并在 glibc 2.28 基线上接受体积、RSS、协议、取消/恢复和1000次稳定性验收。
+
+### Linux Paddle Inference C++正式接入（2026-08-31）
+
+使用官方PaddleOCR release/2.7固定提交与SHA256锁定的Paddle Inference 2.6.2 CPU/MKL库，在manylinux_2_28容器中编译BAO1 Sidecar。Paddle初始化日志永久路由stderr，stdout只保留协议JSON；Electron侧持续消费stderr，避免管道写满造成假死。Linux Provider与正式OCR包均只使用Paddle。
+
+```text
+C++ BAO1 ready / UTF-8中文协议                        PASS
+56张可控语料                                         PASS，56/56
+真实钓鱼像素字                                       “赶走”正确，模型边界与Windows一致
+1008次连续请求                                       PASS，mean 67.7ms / p95 158.8ms
+峰值RSS                                              约321.9MiB
+原生文件系统初始化                                  约350–390ms
+解压目录 / gzip归档                                 约404MiB / 120MiB
+全目录ELF最高要求                                   GLIBC_2.28
+verify source linux-x64 --ocr bundled                PASS，24 files
+electron-builder linux-unpacked                      PASS
+verify unpacked linux-x64 --ocr bundled              PASS，15 files
+成品目录内Sidecar真实中文推理                         PASS
+TypeScript三端类型检查                               PASS
+Vitest全量                                           PASS，100 files / 571 tests
+生产构建                                             PASS
+ESLint                                               PASS（0 error，既有34 warning）
+```
+
+从Windows DrvFS挂载目录直接启动约2.4秒，复制到容器原生文件系统后约0.35秒；这验证了WSL挂载开销，不应把前者当成AppImage正常启动性能。Paddle自包含目录比headless Rapid目录更大，但AppImage输入归档更小（约120MiB），且推理延迟显著更低。
+
+本轮在Windows宿主直接生成`linux-unpacked`成功，随后创建AppImage时因Windows未获创建Linux图标软链接权限而报`EPERM`。这是宿主文件系统打包限制；unpacked成品及其中OCR资源已通过发布校验和真实推理。最终AppImage应在Linux文件系统/CI中执行electron-builder，不能把该软链接错误归因于OCR。
+
+### Windows Paddle C++ BAO1正式接入（2026-08-31）
+
+使用PaddleOCR-json 1.4.1对应的C++推理源码、Paddle Inference 2.3.2、OpenCV 4.10与现有PP-OCRv3模型构建x64 Sidecar。Windows现在与Linux一样直接接收BAO1 BGRA内存帧；旧`PaddleOCR-json.exe`、临时BMP与`image_path`行协议已退出正式运行时。
+
+```text
+56张可控语料文字/数字准确率                         100% / 100%，与旧引擎一致
+真实钓鱼素材输出                                   14/14与旧引擎完全一致
+旧引擎 warm mean / p50 / p95                       24.8 / 25.0 / 35.1ms
+C++ BAO1 warm mean / p50 / p95                     17.6 / 15.5 / 27.8ms
+旧引擎 / C++正常cold start                         583 / 565ms
+旧引擎 / C++峰值RSS                                233.9 / 234.0MiB
+1000次连续BAO1请求                                 PASS，0失败
+正常close / 请求中强杀 / 重启恢复                   PASS
+PE x64、subsystem 6.0、依赖边界                    PASS
+TypeScript三端类型检查                             PASS
+Provider、路径、协议与真实runtime定向测试           PASS，9 tests
+生产构建 / OCR源资源发布校验                        PASS，21 files
+electron-builder win-unpacked                       PASS
+verify unpacked win32-x64 --ocr bundled              PASS，13 files
+成品目录Sidecar 100次真实请求                        PASS，0失败
+```
+
+预编译Sidecar固定SHA-256为`b79b17e29515397ee37b52549d87d0d98ae8862777696b4d583e0d4b2ad9b8a7`。发布准备脚本仍从官方PaddleOCR-json归档取得经过验证的DLL和模型，但只复制DLL，不再复制旧EXE；许可证改为仓库内固定副本，避免构建因额外的raw.githubusercontent.com请求失败。
+
+### 助手OCR区域、候选与耗时修复（2026-08-31）
+
+助手绑定游戏画面后改为直接捕获并识别该ROI，预览与OCR复用同一帧，不再先对完整1280×720逻辑画面识别再过滤。捕获器优先请求固定逻辑像素尺寸，降低窗口化与最大化时由不同原始栅格重采样造成的置信度波动。文本候选先按查询相关度筛选：完全无关的高置信度文字不再冒充最佳候选；相关但未达条件的候选使用黄色框，命中才使用绿色框。助手同时分别展示OCR置信度、文字相关度、截图/位图/OCR/其他耗时。
+
+```text
+Automation能力与捕获定向测试                       PASS，13 tests
+无关高置信度文字候选回归                           PASS
+TypeScript三端类型检查                             PASS
+定向ESLint                                         PASS
+真实Electron BrowserView取帧与窗口缩放烟测          PASS
+Windows C++ BAO1 Sidecar真实集成                    PASS
+生产构建及助手3.3.4 hash校验                       PASS
+```
+
+### OCR遗留清理与统一（2026-08-31）
+
+生产Provider统一为Windows/Linux Paddle Inference + PP-OCRv3。通用BAO1进程客户端从带有候选实现含义的`RapidOcrSidecarEngine`更名为`Bao1OcrSidecarEngine`；删除Rapid Provider回退、构建入口、专属运行时工具与本地缓存，旧PaddleOCR-json路径/BMP引擎也不再存在于正式源码。Benchmark工具只运行当前Paddle BAO1实现，历史Rapid数据保留在评估文档中。
+
+```text
+当前Paddle BAO1 56张基准                            PASS，文字/数字100%，p95 24ms
+TypeScript三端类型检查                             PASS
+Vitest全量                                         PASS，102 files / 576 tests
+ESLint                                             PASS，0 error（既有34 warning）
+生产构建                                           PASS
+Windows OCR源资源发布校验                          PASS，21 files
+Linux OCR源资源发布校验                            PASS，24 files
+真实Electron BrowserView/Automation烟测             PASS
+```

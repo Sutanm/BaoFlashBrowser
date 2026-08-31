@@ -57,5 +57,7 @@ export interface AutomationVisionMatcher {
 }
 
 export interface AutomationOcrEngine {
+  readonly providerId?: string;
   recognize(frame: AutomationCapturedFrame, signal: AbortSignal): Promise<OcrTextItem[]>;
+  close?(): Promise<void>;
 }
