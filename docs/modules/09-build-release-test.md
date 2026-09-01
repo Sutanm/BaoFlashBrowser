@@ -55,13 +55,15 @@ macOS 构建先运行 `prepare:mac-flash`，从仓库 vendor DMG 提取并验证
 ## 5 CI 行为
 
 - `push` 仅限 `main`，`pull_request` 也运行检查；版本标签不会重复触发整套矩阵。
-- `check` 在 Windows 和 Ubuntu 分别运行 `npm ci`、`npm run check`、用户脚本/CSS smoke、构建新鲜度探针和 BrowserView 兼容 smoke。
+- `check` 在 Windows 和 Ubuntu 分别运行 `npm ci`、`npm run check`、`npm run test:integration`（重型 OpenCV/OCR）、用户脚本/CSS smoke、构建新鲜度探针和 BrowserView 兼容 smoke；Linux 追加 Playwright shell e2e（xvfb）。
 - `package` 依赖两个 check 全部成功，再并行构建 Win64、Win32 和 Linux x64 并上传候选制品。
 - macOS 实验包走独立的手动工作流，不进入稳定 CI 矩阵。
 
 ## 6 验证矩阵
 
-- 纯逻辑：`npm test -- --run`。
+- Vitest 分层：`npm test -- --run` 只跑 `unit` project（快，排除重型）；`npm run test:integration` 跑重型三件套（vision-worker、OCR sidecar）；`npm run test:all` 全量。
+- 覆盖率：`npm run test:coverage`（unit 层 + v8 报告，报告目录在 OS 临时目录）。
+- 外壳 e2e：`npm run test:e2e`（Playwright 驱动项目自带 Electron 11，仅断言 React 外壳 UI；BrowserView 内容不可达）。
 - 类型、Lint、构建：`npm run check`。
 - BrowserView/兼容性：`npm run test:electron`、`test:ruffle`、`test:compat`。
 - 用户脚本：`npm run test:userscripts`、`test:userscripts-admin`、`test:css-fixer`。

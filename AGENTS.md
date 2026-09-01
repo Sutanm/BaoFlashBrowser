@@ -9,7 +9,11 @@ npm run dev        # concurrently watch esbuild main + Vite renderer (no auto-re
 npm run i18n       # typesafe-i18n one-shot codegen (run before build if strings changed)
 npm run lint       # eslint src/ --ext .ts,.tsx
 npm run typecheck  # main + renderer + preload TypeScript checks
-npm test -- --run  # Vitest suite
+npm test -- --run  # Vitest unit layer only (fast; heavy OpenCV/OCR excluded)
+npm run test:integration  # heavy layer: OpenCV vision-worker + PaddleOCR sidecars
+npm run test:all   # full Vitest (unit + integration)
+npm run test:coverage  # unit layer with v8 coverage report
+npm run test:e2e   # Playwright shell e2e (drives project Electron 11; needs dist build)
 npm run test:compat   # session policy/SWFObject/CORS Electron smoke (builds its own release/ bundle)
 npm run test:electron # BrowserView lifecycle smoke
 npm run test:ruffle   # bundled Ruffle protocol smoke
@@ -18,8 +22,14 @@ npm run test:userscripts-admin# admin E2E smoke (builds release/tests module fir
 npm run test:css-fixer        # built-in CSS fixer smoke (fixture page, both injection paths)
 npm run probe       # tools/probe quick health probes (pure Node, seconds)
 npm run probe:deep  # tools/probe Electron probes (manager + BrowserView runtime health)
-npm run check      # i18n + typecheck + lint + tests + production build
+npm run check      # i18n + typecheck + lint + unit tests + production build (CI runs test:integration separately)
 ```
+
+**NOTE — `npm test` only runs the `unit` Vitest project.** Heavy suites
+(`automation-vision-worker`, OCR sidecars) live in the `integration` project:
+`npm run test:integration` or `npm run test:all`. Coverage: `npm run test:coverage`.
+Playwright e2e asserts the React shell UI only (Electron 11 BrowserView contents
+are not reachable through Playwright DOM APIs).
 
 **IMPORTANT — `npm run build` does NOT rebuild `release/tests/` products.** Smoke bundles
 (`release/tests/userscripts-admin-module.cjs`, `userscript-runtime-preload.cjs`,

@@ -1,12 +1,14 @@
 # BaoFlashBrowser 1.1.1 回归基线
 
-最近更新：2026-08-29
+最近更新：2026-09-01
 
 ## 自动化覆盖
 
 | 项目 | 验证内容 | 当前结果 |
 | --- | --- | --- |
-| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest、生产构建 | CI Windows/Ubuntu 通过；本地 Vitest 84 个测试文件、552 项测试通过 |
+| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest(unit)、生产构建 | CI Windows/Ubuntu 通过；本地 Vitest unit 101 个测试文件、592 项测试通过 |
+| `npm run test:integration` | 重型 Vitest：OpenCV vision-worker、PaddleOCR sidecar | 通过，3 文件、19 项测试 |
+| `npm run test:e2e` | Playwright 外壳 e2e（Electron 11：渲染/标签/收藏/工作台） | 通过，4 条（Windows 本地实测，连跑稳定） |
 | `npm run test:compat` | session 策略、SWFObject、SWF CORS | 通过 |
 | `npm run test:electron` | BrowserView 生命周期 | 通过 |
 | `npm run test:userscripts` | PPAPI/Ruffle 用户脚本运行时和 GM API | 147/147 必需项通过；可选样本受 Chromium 87/体积限制 |
