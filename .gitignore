@@ -24,3 +24,4 @@ native/ocr/win64/
 native/ocr/paddle/
 .cache/
 __pycache__/
+test-results/
