@@ -1,6 +1,7 @@
 import { performance } from 'perf_hooks';
 import type { CaptureFrameGeometry } from '../../../shared/automation/core/frame-geometry';
 import type { AutomationCapabilityRegion, AutomationCapturedFrame, AutomationCapturedImage } from './capability-contracts';
+import { withTimeout } from '../../utils/with-timeout';
 
 export interface BrowserViewCaptureSource {
   incrementCapturerCount(size?: { width: number; height: number }, stayHidden?: boolean): void;
@@ -50,25 +51,7 @@ export class BrowserViewCaptureService {
   }
 
   private capturePage(region?: AutomationCapabilityRegion): Promise<AutomationCapturedImage> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        reject(new Error('捕获页面超时，请重试'));
-      }, this.captureTimeoutMs);
-      void this.source.capturePage(region).then((image) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(image);
-      }, (error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(error);
-      });
-    });
+    return withTimeout(this.source.capturePage(region), this.captureTimeoutMs, '捕获页面超时，请重试');
   }
 
   async capture(request: BrowserViewCaptureRequest): Promise<AutomationCapturedFrame> {

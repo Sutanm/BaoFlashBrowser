@@ -109,6 +109,32 @@ describe('AutomationWorkflowRuntime', () => {
     expect(result).toMatchObject({ status: 'cancelled', reason: 'test cancel' });
   });
 
+  it('restores budget checks after a forever loop is broken out of', async () => {
+    const { runtime, createContext } = harness({ limits: { maxWallTimeMs: 50 }, query: () => false });
+    const root: WorkflowDocumentV3['root'] = { id: 'root', kind: 'sequence', nodes: [
+      { id: 'forever', kind: 'loop', mode: 'forever', body: { id: 'break-now', kind: 'break' } },
+      { id: 'after', kind: 'wait', query: { kind: 'fixture', resultType: 'boolean' }, until: 'truthy', timeoutMs: 1_000, pollIntervalMs: 60, onTimeout: 'fail' },
+    ] };
+    const result = await runtime.start(doc(root), createContext).completion;
+    // The forever loop breaks on its first iteration, so the sequence's second
+    // node must be budget-checked again instead of inheriting the unbounded
+    // allowance: its 60ms poll advances the clock past maxWallTimeMs=50.
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') expect(result.error.message).toContain('wall-clock budget exceeded');
+  });
+
+  it('throttles forever iterations with the minimum gap', async () => {
+    const sleeps: number[] = [];
+    const { runtime, createContext } = harness({
+      limits: { maxLoopIterations: 1 },
+      sleep: async (duration, signal) => { if (signal.aborted) throw new Error('automation cancelled'); sleeps.push(duration); },
+    });
+    const handle = runtime.start(doc({ id: 'forever', kind: 'loop', mode: 'forever', body: { id: 'record', kind: 'action', action: { kind: 'record', value: 'tick' } } }), createContext);
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    await handle.cancel('test cancel');
+    expect(sleeps.some((duration) => duration > 0)).toBe(true);
+  });
+
   it('cancel waits for the resource barrier', async () => {
     const closed = vi.fn(async () => undefined);
     const sleep = (_duration: number, signal: AbortSignal): Promise<void> => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('automation cancelled')), { once: true }));

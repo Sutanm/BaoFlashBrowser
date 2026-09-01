@@ -111,6 +111,9 @@ const CONTINUE = Symbol('continue');
 type Control = typeof BREAK | typeof CONTINUE | undefined;
 let nextRunId = 1;
 
+/** Minimum pause between forever-loop iterations so an empty body cannot spin the CPU. */
+const FOREVER_LOOP_MIN_GAP_MS = 16;
+
 export class AutomationWorkflowRuntime {
   private readonly limits: WorkflowRuntimeLimits;
   private readonly expressions: AutomationExpressionEvaluator;
@@ -201,14 +204,29 @@ export class AutomationWorkflowRuntime {
         const repeat = node.mode === 'repeat' ? evaluate(node.count, environment) : undefined;
         if (repeat !== undefined && (!Number.isSafeInteger(repeat) || typeof repeat !== 'number' || repeat < 0)) throw new WorkflowRuntimeError('RUNTIME_TYPE', 'repeat count must be a non-negative safe integer', node.id);
         let iterations = 0;
+        // A forever loop is the only construct allowed to outlive the
+        // wall-clock/node/iteration budgets (the user's cancel is the sole
+        // terminator). Scope the flag so that breaking out of the loop —
+        // or an error propagating from its body — restores budget checks for
+        // whatever runs afterwards; it must not leak past the loop.
+        const previousUnbounded = unboundedRuntime;
         if (node.mode === 'forever') unboundedRuntime = true;
-        while (node.mode === 'repeat' ? iterations < (repeat as number) : node.mode === 'forever' || evaluate(node.condition, environment) === true) {
-          iterations += 1;
-          if (node.mode !== 'forever' && iterations > this.limits.maxLoopIterations) throw new WorkflowRuntimeError('BUDGET_EXCEEDED', 'loop iteration budget exceeded', node.id);
-          await check(node.id);
-          const result = await execute(node.body, new RuntimeEnvironment(environment), activeContext);
-          if (result === BREAK) break;
-          if (result === CONTINUE) continue;
+        try {
+          while (node.mode === 'repeat' ? iterations < (repeat as number) : node.mode === 'forever' || evaluate(node.condition, environment) === true) {
+            iterations += 1;
+            if (node.mode !== 'forever' && iterations > this.limits.maxLoopIterations) throw new WorkflowRuntimeError('BUDGET_EXCEEDED', 'loop iteration budget exceeded', node.id);
+            await check(node.id);
+            const result = await execute(node.body, new RuntimeEnvironment(environment), activeContext);
+            if (result === BREAK) break;
+            // A forever body that is purely CPU-bound would otherwise spin at
+            // full speed; the fixed gap keeps it responsive to cancellation
+            // and to the rest of the system without needing a wait block.
+            // It applies to continue and normal iteration ends alike.
+            if (node.mode === 'forever') await activeContext.sleep(FOREVER_LOOP_MIN_GAP_MS, controller.signal);
+            if (result === CONTINUE) continue;
+          }
+        } finally {
+          unboundedRuntime = previousUnbounded;
         }
       } else if (node.kind === 'break') control = BREAK;
       else if (node.kind === 'continue') control = CONTINUE;

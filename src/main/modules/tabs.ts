@@ -7,6 +7,7 @@ import { fillPasswordsInWebContents, PasswordFillResult } from './password-fill'
 import { getFillCredentialForUrl, isAutoFillEnabled } from './password-store';
 import { getUserscriptManager } from './userscripts';
 import { inspectWithPasswordCapturePaused } from './automation/transient-cdp-inspection';
+import { withTimeout } from '../utils/with-timeout';
 
 export type AutomationViewport = { readonly mode: 'fixed'; readonly width: number; readonly height: number };
 
@@ -25,28 +26,6 @@ interface ContainerRect { x: number; y: number; width: number; height: number }
 const HIDDEN_BOUNDS: ContainerRect = Object.freeze({ x: -9999, y: -9999, width: 1, height: 1 });
 const AUTOMATION_VIEWPORT_PROBE_TIMEOUT_MS = 500;
 const AUTOMATION_VIEWPORT_PROBE_TIMEOUT = 'automation viewport probe timed out';
-
-function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error(message));
-    }, timeoutMs);
-    void operation.then((value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-    }, (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(error);
-    });
-  });
-}
 
 export interface AutomationTabHandle {
   readonly tabId: string;
