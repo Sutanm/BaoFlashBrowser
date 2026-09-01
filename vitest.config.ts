@@ -25,6 +25,37 @@ export default defineConfig({
     },
   ],
   test: {
-    include: ['tests/**/*.{test,spec}.{ts,tsx}'],
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        minThreads: 4,
+        maxThreads: 16,
+      },
+    },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'unit',
+          include: ['tests/**/*.{test,spec}.{ts,tsx}'],
+          exclude: [
+            'tests/automation-vision-worker.test.ts',
+            'tests/automation-bao1-ocr-sidecar.test.ts',
+            'tests/automation-paddle-sidecar-runtime.integration.test.ts',
+          ],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'integration',
+          include: [
+            'tests/automation-vision-worker.test.ts',
+            'tests/automation-bao1-ocr-sidecar.test.ts',
+            'tests/automation-paddle-sidecar-runtime.integration.test.ts',
+          ],
+        },
+      },
+    ],
   },
 });
