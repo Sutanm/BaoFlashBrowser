@@ -21,7 +21,7 @@ function connectEntry(workspace: Blockly.Workspace, first: Blockly.Block, type: 
 
 describe('Blockly 2.0 frontend contract', () => {
   it('keeps Action and Locator orthogonal while exposing ordinary-user capabilities', () => {
-    expect(AUTOMATION_V2_BLOCK_COUNT).toBe(37);
+    expect(AUTOMATION_V2_BLOCK_COUNT).toBe(38);
     expect(AUTOMATION_V2_BLOCK_COUNT).toBeLessThanOrEqual(40);
     expect(AUTOMATION_V2_BLOCK_TYPES.filter((type) => ['bao2_action_click', 'bao2_action_move', 'bao2_action_drag'].includes(type))).toEqual([
       'bao2_action_click', 'bao2_action_move', 'bao2_action_drag',
@@ -34,7 +34,7 @@ describe('Blockly 2.0 frontend contract', () => {
       'bao2_action_key_press', 'bao2_action_type_text', 'bao2_action_scroll',
       'bao2_action_navigate', 'bao2_action_reload', 'bao2_action_log', 'bao2_action_notify',
       'bao2_entry_unconditional', 'bao2_entry_region', 'bao2_entry_game',
-      'bao2_call_script',
+      'bao2_call_script', 'bao2_forever',
     ]));
   });
 
@@ -114,6 +114,21 @@ describe('Blockly 2.0 frontend contract', () => {
     expect(JSON.stringify(second)).toContain('"kind":"coordinate"');
     expect(JSON.stringify(second)).toContain('"kind":"with"');
     expect(() => validateWorkflowDocument(second)).not.toThrow();
+  });
+
+  it('round-trips an ordinary-user forever loop without exposing a condition input', () => {
+    const workspace = new Blockly.Workspace();
+    const forever = workspace.newBlock('bao2_forever');
+    const wait = workspace.newBlock('bao2_wait');
+    const duration = workspace.newBlock('bao2_literal_number'); duration.setFieldValue('100', 'VALUE'); connectValue(wait, 'DURATION', duration);
+    forever.getInput('BODY')!.connection!.connect(wait.previousConnection!);
+    connectEntry(workspace, forever);
+
+    const first = workspaceToWorkflowV3(workspace, { id: 'forever', name: 'Forever' });
+    expect(first.root).toMatchObject({ kind: 'sequence', nodes: [{ kind: 'loop', mode: 'forever' }] });
+    expect(() => validateWorkflowDocument(first)).not.toThrow();
+    const restored = new Blockly.Workspace(); workflowV3ToWorkspace(restored, first);
+    expect(restored.getBlocksByType('bao2_forever', false)).toHaveLength(1);
   });
 
   it('compiles the three ordinary-user entry modes without exposing a viewport dropdown', () => {

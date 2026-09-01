@@ -4,8 +4,8 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      3.3.4
-// @updateHash  f43211a985d9
+// @version      3.3.8
+// @updateHash  7c55c4d0c5c5
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -62,7 +62,7 @@
 #bao-automation-frame-assistant .bao-title{min-width:0;flex:1}#bao-automation-frame-assistant .bao-title strong{display:block;font-size:12px}
 #bao-automation-frame-assistant .bao-icon{display:grid;width:26px;height:26px;place-items:center;border:1px solid transparent;border-radius:7px;background:transparent;color:#afc1d8;cursor:pointer}#bao-automation-frame-assistant .bao-icon:hover{border-color:#9cbbee2b;background:#ffffff0d;color:white}
 #bao-automation-frame-assistant .bao-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:6px 8px 0}#bao-automation-frame-assistant .bao-tab{padding:6px 4px;border:0;border-radius:7px;background:transparent;color:#8fa3ba;cursor:pointer}#bao-automation-frame-assistant .bao-tab.bao-active{background:#6c9eff1c;color:#c6dcff;box-shadow:inset 0 0 0 1px #77aaff30}
-#bao-automation-frame-assistant .bao-views{height:calc(100% - 82px);overflow:hidden;padding:8px}#bao-automation-frame-assistant .bao-view{display:none}#bao-automation-frame-assistant .bao-view.bao-active{display:block}@media (max-height:440px){#bao-automation-frame-assistant .bao-views{overflow-y:auto}}
+#bao-automation-frame-assistant .bao-views{height:calc(100% - 82px);overflow:hidden;padding:8px}#bao-automation-frame-assistant .bao-view{display:none}#bao-automation-frame-assistant .bao-view.bao-active{display:block}#bao-automation-frame-assistant .bao-view[data-panel="match"].bao-active{height:100%;min-height:0}#bao-automation-frame-assistant .bao-view[data-panel="match"]>.bao-card{display:flex;height:100%;min-height:0;flex-direction:column;margin:0;overflow:hidden}@media (max-height:440px){#bao-automation-frame-assistant .bao-views{overflow-y:auto}}
 #bao-automation-frame-assistant .bao-card{margin-bottom:7px;padding:9px;border:1px solid #9cbbee2b;border-radius:9px;background:#07132252}#bao-automation-frame-assistant .bao-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}#bao-automation-frame-assistant .bao-card-head strong{font-size:11px}#bao-automation-frame-assistant .bao-card-head small{color:#9cafc7;font-size:9px}
 #bao-automation-frame-assistant .bao-field{display:grid;gap:4px;margin-bottom:7px}#bao-automation-frame-assistant .bao-field label{color:#9eb0c5;font-size:9px}#bao-automation-frame-assistant select,#bao-automation-frame-assistant input[type=text],#bao-automation-frame-assistant input[type=number]{width:100%;height:29px;padding:0 8px;border:1px solid #95bce526;border-radius:7px;background:#071524d9;color:#e9f2ff}
 #bao-automation-frame-assistant input[type=range]{width:100%;accent-color:#5998ff}
@@ -73,8 +73,9 @@
 #bao-automation-frame-assistant .bao-progress{height:4px;margin-top:8px;overflow:hidden;border-radius:99px;background:#ffffff10}#bao-automation-frame-assistant .bao-progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4489ff,#69d8e8);transition:width .35s}
 #bao-automation-frame-assistant .bao-log{display:grid;max-height:145px;gap:5px;overflow-y:auto;padding-right:3px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar{width:5px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar-thumb{border-radius:5px;background:#7691b052}#bao-automation-frame-assistant .bao-log-row{display:grid;grid-template-columns:43px 1fr;gap:6px;color:#9fb0c3;font-size:9px}#bao-automation-frame-assistant .bao-log-row time{color:#668098}#bao-automation-frame-assistant .bao-log-row span{overflow-wrap:anywhere}#bao-automation-frame-assistant .bao-log-row.bao-good span{color:#76dba8}#bao-automation-frame-assistant .bao-log-row.bao-bad span{color:#ff858c}
 #bao-automation-frame-assistant .bao-assets{display:flex;gap:5px;overflow:auto;padding:1px 1px 5px}#bao-automation-frame-assistant .bao-asset{position:relative;display:grid;flex:0 0 64px;height:56px;place-items:center;overflow:hidden;border:1px solid #91b9df24;border-radius:7px;background:#071320;color:#a9bbcf;cursor:pointer}#bao-automation-frame-assistant .bao-asset.bao-selected{border-color:#73aaff;box-shadow:0 0 0 2px #73aaff22}#bao-automation-frame-assistant .bao-asset img{max-width:44px;max-height:34px;object-fit:contain}#bao-automation-frame-assistant .bao-asset span{position:absolute;right:2px;bottom:1px;left:2px;overflow:hidden;font-size:8px;text-align:center;text-overflow:ellipsis;white-space:nowrap}
+#bao-automation-frame-assistant .bao-selected-asset{overflow:hidden;margin:-2px 0 5px;color:#b7cae1;font-size:9px;text-overflow:ellipsis;white-space:nowrap}
 #bao-automation-frame-assistant .bao-match-modes{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:7px}#bao-automation-frame-assistant .bao-match-mode{height:27px;border:1px solid #8eb8e22b;border-radius:7px;background:#10223a;color:#9fb2c9;cursor:pointer}#bao-automation-frame-assistant .bao-match-mode.bao-active{border-color:#699fff;background:#356dc4;color:#fff}#bao-automation-frame-assistant .bao-test-settings.bao-hidden{display:none}#bao-automation-frame-assistant .bao-ocr-row{display:grid;grid-template-columns:1fr 88px;gap:6px}
-#bao-automation-frame-assistant .bao-preview{display:grid;min-height:105px;place-items:center;overflow:auto;border:3px solid #6e5138;border-radius:6px;background:#07101d;box-shadow:inset 0 0 0 1px #be946b}#bao-automation-frame-assistant .bao-image{position:relative;max-width:100%}#bao-automation-frame-assistant .bao-image img{display:block;width:100%;max-height:210px;object-fit:contain}#bao-automation-frame-assistant .bao-hit{position:absolute;border:2px solid #ffca28;background:#ffca2826;box-shadow:0 0 8px #ffca28;pointer-events:none}#bao-automation-frame-assistant .bao-hit.bao-ok{border-color:#31d17c;background:#31d17c26;box-shadow:0 0 8px #31d17c}#bao-automation-frame-assistant .bao-hit b{position:absolute;left:-2px;bottom:calc(100% + 2px);padding:1px 3px;background:#ffca28;color:#172033;font-size:9px;white-space:nowrap}#bao-automation-frame-assistant .bao-hit.bao-ok b{background:#31d17c}
+#bao-automation-frame-assistant .bao-preview{display:grid;min-height:72px;flex:1 1 150px;place-items:center;overflow:hidden;border:3px solid #6e5138;border-radius:6px;background:#07101d;box-shadow:inset 0 0 0 1px #be946b}#bao-automation-frame-assistant .bao-image{position:relative;min-width:1px;min-height:1px}#bao-automation-frame-assistant .bao-image img{display:block;width:100%;height:100%}#bao-automation-frame-assistant .bao-hit{position:absolute;border:2px solid #ffca28;background:#ffca2826;box-shadow:0 0 8px #ffca28;pointer-events:none}#bao-automation-frame-assistant .bao-hit.bao-ok{border-color:#31d17c;background:#31d17c26;box-shadow:0 0 8px #31d17c}#bao-automation-frame-assistant .bao-hit b{position:absolute;left:-2px;bottom:calc(100% + 2px);padding:1px 3px;background:#ffca28;color:#172033;font-size:9px;white-space:nowrap}#bao-automation-frame-assistant .bao-hit.bao-ok b{background:#31d17c}
 #bao-automation-frame-assistant .bao-result{margin:8px 0 0;color:#9fb1c7;font-size:10px}#bao-automation-frame-assistant .bao-score{color:#72dba5;font-size:25px;font-weight:700}#bao-automation-frame-assistant .bao-tip{padding:10px;border-radius:9px;background:#4b79d414;color:#b6c9e1;font-size:10px;line-height:1.6}
 #bao-automation-assistant-toasts{all:initial;position:fixed;z-index:2147483647;top:18px;left:50%;display:grid;gap:8px;transform:translateX(-50%);pointer-events:none;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-assistant-toasts .bao-toast{min-width:280px;padding:11px 15px;border:1px solid #9ec5ed38;border-radius:10px;background:#102039ee;box-shadow:0 12px 40px #0008;color:#dbeaff;animation:bao-toast-in .25s both}@keyframes bao-toast-in{from{transform:translateY(-12px);opacity:0}}
 #bao-automation-capture-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;overflow:hidden;background:#020914ed;color:#eef5ff;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif;cursor:crosshair}#bao-automation-capture-layer.bao-active{display:block}#bao-automation-capture-layer *{box-sizing:border-box}#bao-automation-capture-layer .bao-capture-image{position:absolute;max-width:100vw;max-height:100vh;object-fit:contain;left:50%;top:50%;transform:translate(-50%,-50%)}#bao-automation-capture-layer .bao-capture-help{position:absolute;z-index:4;top:64px;left:50%;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 16px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap}#bao-automation-capture-layer .bao-capture-cancel{height:28px;padding:0 11px;border-color:#ff9b9b55;background:#5f2637;color:#ffdce2;cursor:pointer}#bao-automation-capture-layer .bao-selection{position:absolute;z-index:2;display:none;border:2px solid #78b5ff;background:#64a4ff16;box-shadow:0 0 0 9999px #02091399}#bao-automation-capture-layer .bao-selection-info{position:absolute;left:-2px;bottom:calc(100% + 7px);padding:4px 7px;border-radius:5px;background:#3779cf;color:white;font-size:10px;white-space:nowrap}
@@ -91,7 +92,7 @@
   root.setAttribute('data-view', 'run');
   root.innerHTML = '<button class="bao-orb" aria-label="展开自动化助手"><i class="bao-ring"></i><span class="bao-orb-icon">⌘</span></button><aside class="bao-drawer"><i class="bao-handle"></i><header class="bao-head"><div class="bao-title"><strong>BaoFlash 自动化</strong></div><button class="bao-icon bao-collapse" title="收起">×</button></header><nav class="bao-tabs"><button class="bao-tab bao-active" data-view="run">执行</button><button class="bao-tab" data-view="match">识别</button><button class="bao-tab" data-view="capture">取材</button></nav><div class="bao-views">'
     + '<section class="bao-view bao-active" data-panel="run"><div class="bao-card"><div class="bao-field"><label>自动化脚本</label><select class="bao-package-run"></select></div><div class="bao-run-state"><i class="bao-run-dot"></i><div class="bao-run-copy"><b class="bao-state-title">可以开始</b><span class="bao-state-detail">正在读取运行状态…</span></div><small class="bao-step">0 步</small></div><div class="bao-progress"><i></i></div></div><div class="bao-two"><button class="bao-button bao-primary bao-start">开始脚本</button><button class="bao-button bao-danger bao-stop" disabled>停止</button></div><div class="bao-card" style="margin-top:7px"><div class="bao-card-head"><strong>运行记录</strong></div><div class="bao-log"><div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div></div></div></section>'
-    + '<section class="bao-view" data-panel="match"><div class="bao-card"><div class="bao-match-modes"><button class="bao-match-mode bao-active" data-match-mode="image">图片识别</button><button class="bao-match-mode" data-match-mode="text">文字识别</button></div><div class="bao-test-settings bao-image-settings"><div class="bao-card-head"><strong>UI 素材</strong><button class="bao-button bao-refresh" style="height:25px">刷新素材</button></div><div class="bao-assets"></div><div class="bao-field"><label>识别阈值 <b class="bao-threshold-text">90%</b></label><input class="bao-threshold" type="range" min="50" max="100" value="90"></div></div><div class="bao-test-settings bao-text-settings bao-hidden"><div class="bao-field"><label>要识别的文字</label><input class="bao-ocr-text" type="text" maxlength="200" placeholder="例如：开始游戏"></div><div class="bao-ocr-row"><div class="bao-field"><label>匹配方式</label><select class="bao-ocr-match"><option value="contains">包含文字</option><option value="exact">完全一致</option></select></div><div class="bao-field"><label>最低可信度</label><input class="bao-ocr-score" type="number" min="0" max="1" step="0.01" value="0.5"></div></div></div><div class="bao-preview"><span>选择测试方式后捕获页面</span></div><p class="bao-result">选择图片或输入文字开始测试</p><div class="bao-two"><button class="bao-button bao-primary bao-compare">捕获并比对</button><button class="bao-button bao-monitor">连续监测</button></div></div></section>'
+    + '<section class="bao-view" data-panel="match"><div class="bao-card"><div class="bao-match-modes"><button class="bao-match-mode bao-active" data-match-mode="image">图片识别</button><button class="bao-match-mode" data-match-mode="text">文字识别</button></div><div class="bao-test-settings bao-image-settings"><div class="bao-card-head"><strong>UI 素材</strong><button class="bao-button bao-refresh" style="height:25px">刷新素材</button></div><div class="bao-assets"></div><div class="bao-selected-asset" title="">当前：未选择素材</div><div class="bao-field"><label>识别阈值 <b class="bao-threshold-text">90%</b></label><input class="bao-threshold" type="range" min="50" max="100" value="90"></div></div><div class="bao-test-settings bao-text-settings bao-hidden"><div class="bao-field"><label>要识别的文字</label><input class="bao-ocr-text" type="text" maxlength="200" placeholder="例如：开始游戏"></div><div class="bao-ocr-row"><div class="bao-field"><label>匹配方式</label><select class="bao-ocr-match"><option value="contains">包含文字</option><option value="exact">完全一致</option></select></div><div class="bao-field"><label>最低可信度</label><input class="bao-ocr-score" type="number" min="0" max="1" step="0.01" value="0.5"></div></div></div><div class="bao-preview"><span>选择测试方式后捕获页面</span></div><p class="bao-result">选择图片或输入文字开始测试</p><div class="bao-two"><button class="bao-button bao-primary bao-compare">捕获并比对</button><button class="bao-button bao-monitor">连续监测</button></div></div></section>'
     + '<section class="bao-view" data-panel="capture"><div class="bao-card"><div class="bao-card-head"><strong>取材工具</strong><small>坐标范围 0–10000</small></div><div class="bao-two"><button class="bao-button bao-primary bao-capture">框选图片素材</button><button class="bao-button bao-primary bao-coordinate">获取相对坐标</button></div><div class="bao-game-actions"><button class="bao-button bao-game-select">选择游戏画面</button><button class="bao-button bao-game-copy">复制特征串</button><button class="bao-button bao-danger bao-game-clear">取消选择</button></div></div></section>'
     + '</div></aside>';
   document.documentElement.appendChild(root);
@@ -210,11 +211,19 @@
       button.addEventListener('click', function () { selectedAsset = choice.value; renderAssets(choice.value); void warmSelected(); }); assetsHost.appendChild(button);
       void api.assetPreview(pkg.packageId, choice.preview).then(function (value) { image.src = value.dataUrl; }).catch(function () {});
     });
+    var selectedChoice = choices.find(function (choice) { return choice.value === selectedAsset; }); var selectedLabel = root.querySelector('.bao-selected-asset');
+    selectedLabel.textContent = selectedChoice ? '当前：' + selectedChoice.label : '当前：未选择素材'; selectedLabel.title = selectedChoice ? selectedChoice.label : '';
     if (!assets.length) assetsHost.innerHTML = '<span style="color:#8fa3ba;font-size:10px">当前脚本没有图片素材</span>';
     if (selectedAsset) void warmSelected();
   }
   async function warmSelected() { var pkg = currentPackage(); if (!pkg || !selectedAsset || selectedAsset.indexOf('@bao-image-group:') === 0) return; try { await api.warmup(pkg.packageId, selectedAsset); } catch { /* Best-effort idle warmup. */ } }
-  async function withRecognitionPanelCollapsed(task) {
+  function withAssistantTimeout(task, timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      var settled = false; var timer = window.setTimeout(function () { if (settled) return; settled = true; reject(new Error('捕获页面超时，请重试')); }, timeoutMs);
+      Promise.resolve().then(task).then(function (value) { if (settled) return; settled = true; window.clearTimeout(timer); resolve(value); }, function (error) { if (settled) return; settled = true; window.clearTimeout(timer); reject(error); });
+    });
+  }
+  async function withRecognitionPanelCollapsed(task, timeoutMs) {
     var shouldRestore = root.getAttribute('data-view') === 'match' && root.classList.contains('bao-open');
     if (shouldRestore) {
       closePanel();
@@ -222,7 +231,7 @@
       // be captured as part of the recognition frame.
       await new Promise(function (resolve) { setTimeout(resolve, 260); });
     }
-    try { return await task(); }
+    try { return await withAssistantTimeout(task, timeoutMs); }
     finally {
       if (shouldRestore) {
         root.classList.add('bao-open');
@@ -235,10 +244,24 @@
     if (duration > 0 && duration < 0.1) return '<0.1';
     return duration < 10 ? duration.toFixed(1) : String(Math.round(duration));
   }
+  function mountRecognitionPreview(wrap, image, value) {
+    preview.appendChild(wrap);
+    function fit() {
+      var sourceWidth = Math.max(1, Number(value.sourceWidth) || image.naturalWidth || 1);
+      var sourceHeight = Math.max(1, Number(value.sourceHeight) || image.naturalHeight || 1);
+      var availableWidth = Math.max(1, preview.clientWidth - 6);
+      var availableHeight = Math.max(1, preview.clientHeight - 6);
+      var scale = Math.min(availableWidth / sourceWidth, availableHeight / sourceHeight);
+      wrap.style.width = Math.max(1, sourceWidth * scale) + 'px';
+      wrap.style.height = Math.max(1, sourceHeight * scale) + 'px';
+    }
+    image.addEventListener('load', fit, { once: true });
+    fit();
+  }
   function renderMatch(value) {
     preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
-    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); resultText.textContent = (value.matched ? '匹配成功' : '最佳候选低于阈值') + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + formatMs(totalMs) + 'ms（截图 ' + formatMs(captureMs) + 'ms · 匹配 ' + formatMs(matchMs) + 'ms）'; }
-    else resultText.textContent = '没有找到匹配候选'; preview.appendChild(wrap);
+    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var score = (value.candidate.score * 100).toFixed(1) + '%'; var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); resultText.textContent = (value.matched ? '匹配成功 ' : '最佳候选低于阈值 ') + score + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + formatMs(totalMs) + 'ms（截图 ' + formatMs(captureMs) + 'ms · 匹配 ' + formatMs(matchMs) + 'ms）'; }
+    else resultText.textContent = '没有找到匹配候选'; mountRecognitionPreview(wrap, image, value);
   }
   function renderOcr(value) {
     preview.innerHTML = ''; var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
@@ -248,7 +271,7 @@
       hit.style.width = candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = candidate.height / value.sourceHeight * 100 + '%';
       var badge = document.createElement('b'); badge.textContent = candidate.text + ' ' + (candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit);
     });
-    preview.appendChild(wrap);
+    mountRecognitionPreview(wrap, image, value);
     var matchedCount = (value.candidates || []).filter(function (candidate) { return candidate.matched; }).length;
     var captureMs = Math.max(0, Number(value.captureMs) || 0); var bitmapMs = Math.max(0, Number(value.bitmapMs) || 0); var ocrMs = Math.max(0, Number(value.ocrMs) || 0); var totalMs = Math.max(captureMs + bitmapMs + ocrMs, Number(value.totalMs) || 0); var otherMs = Math.max(0, totalMs - captureMs - bitmapMs - ocrMs);
     var best = (value.candidates || [])[0]; var recognizedCount = Math.max(0, Number(value.recognizedCount) || 0); var query = String(value.query || '');
@@ -277,7 +300,7 @@
   async function compareText() {
     var text = String(ocrText.value || '').trim(); if (!text) { resultText.textContent = '请先输入要识别的文字'; ocrText.focus(); return; }
     var score = Math.max(0, Math.min(1, Number(ocrScore.value) || 0)); ocrScore.value = String(score);
-    var region = ocrRegion(); var value = await withRecognitionPanelCollapsed(function () { return api.ocrTest(text, { match: ocrMatch.value, minScore: score, region: region }); }); renderOcr(value);
+    var region = ocrRegion(); var value = await withRecognitionPanelCollapsed(function () { return api.ocrTest(text, { match: ocrMatch.value, minScore: score, region: region }); }, 40000); renderOcr(value);
   }
   async function compare() {
     if (state.busy) return;
@@ -286,9 +309,15 @@
     try {
       await refreshBoundSurfaceIfNeeded();
       if (state.matchMode === 'text') await compareText();
-      else { var region = ocrRegion(); var value = await withRecognitionPanelCollapsed(function () { return api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, region: region }); }); renderMatch(value); }
+      else {
+        var region = ocrRegion();
+        // Omit explicit scales so Core can use the same fast pass plus common
+        // Windows-DPI fallback policy as runtime and the Workbench test center.
+        var value = await withRecognitionPanelCollapsed(function () { return api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, region: region }); }, 20000);
+        renderMatch(value);
+      }
     }
-    catch (error) { resultText.textContent = error.message || String(error); }
+    catch (error) { if (state.monitor) stopMonitor(); resultText.textContent = error.message || String(error); }
     finally { state.busy = false; }
   }
   function stopMonitor() { if (state.monitor) clearInterval(state.monitor); state.monitor = 0; root.querySelector('.bao-monitor').textContent = '连续监测'; }

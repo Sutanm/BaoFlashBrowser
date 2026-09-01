@@ -125,6 +125,145 @@ describe('Automation 2.0 Locator × Action Core', () => {
     expect(vi.mocked(input.click).mock.calls[0][0].activationPoint).toMatchObject({ x: 100, y: 120 });
   });
 
+  it('polls a dynamic click target and clicks the exact successful-frame candidate', async () => {
+    let attempts = 0;
+    let clock = 0;
+    const scopes: object[] = [];
+    const matched = {
+      space: viewport,
+      bounds: region('logical', viewport, 220, 140, 40, 30),
+      confidence: .93,
+      fingerprint: 'animation-frame-3',
+    };
+    const port: LocatorRecognitionPort = {
+      locateImage: vi.fn(async (_locator, locatorContext) => {
+        scopes.push(locatorContext.observationScope!);
+        attempts += 1;
+        return attempts === 3 ? [matched] : [];
+      }),
+      locateText: vi.fn(async () => []),
+    };
+    const locators = new AutomationLocatorRegistry();
+    locators.register(new ImageLocatorResolver(port));
+    const input: LocatedTargetInputPort = { click: vi.fn(), move: vi.fn(), drag: vi.fn() };
+    const actions = new AutomationActionRegistry();
+    registerPointerActions(actions, locators, input);
+
+    await actions.execute({
+      kind: 'click',
+      target: { locator: { kind: 'image', asset: 'test1.png', threshold: .9 } },
+      timeoutMs: 1_000,
+      pollIntervalMs: 200,
+    }, {
+      ...context(() => clock),
+      sleep: async (duration) => { clock += duration; },
+    });
+
+    expect(attempts).toBe(3);
+    expect(new Set(scopes).size).toBe(3);
+    expect(input.click).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(input.click).mock.calls[0][0]).toMatchObject({
+      activationPoint: { x: 240, y: 155 },
+      confidence: .93,
+      locatorFingerprint: 'animation-frame-3',
+    });
+  });
+
+  it('keeps coordinate clicks immediate and reports a recognition miss only after its timeout', async () => {
+    let clock = 0;
+    const sleep = vi.fn(async (duration: number) => { clock += duration; });
+    const port: LocatorRecognitionPort = { locateImage: vi.fn(async () => []), locateText: vi.fn(async () => []) };
+    const locators = new AutomationLocatorRegistry();
+    locators.register(new CoordinateLocatorResolver());
+    locators.register(new ImageLocatorResolver(port));
+    const input: LocatedTargetInputPort = { click: vi.fn(), move: vi.fn(), drag: vi.fn() };
+    const actions = new AutomationActionRegistry();
+    registerPointerActions(actions, locators, input);
+    const activeContext = { ...context(() => clock), sleep };
+
+    await actions.execute({ kind: 'click', target: { locator: { kind: 'coordinate', point: { unit: 'logical', x: 12, y: 34 } } } }, activeContext);
+    expect(sleep).not.toHaveBeenCalled();
+
+    await expect(actions.execute({
+      kind: 'click', target: { locator: { kind: 'image', asset: 'missing.png', threshold: .9 } }, timeoutMs: 450, pollIntervalMs: 200,
+    }, activeContext)).rejects.toMatchObject({ code: 'TARGET_NOT_FOUND' });
+    expect(clock).toBe(450);
+    expect(port.locateImage).toHaveBeenCalledTimes(4);
+  });
+
+  it('continuously scans dynamic click targets without a default inter-frame delay', async () => {
+    let attempts = 0;
+    let clock = 0;
+    const sleeps: number[] = [];
+    const port: LocatorRecognitionPort = {
+      locateImage: vi.fn(async () => {
+        clock += 35; // Simulated capture + matching cost naturally paces the loop.
+        attempts += 1;
+        return attempts === 3 ? [{
+          space: viewport, bounds: region('logical', viewport, 50, 60, 20, 20), confidence: .91, fingerprint: 'transient-frame',
+        }] : [];
+      }),
+      locateText: vi.fn(async () => []),
+    };
+    const locators = new AutomationLocatorRegistry();
+    locators.register(new ImageLocatorResolver(port));
+    const input: LocatedTargetInputPort = { click: vi.fn(), move: vi.fn(), drag: vi.fn() };
+    const actions = new AutomationActionRegistry();
+    registerPointerActions(actions, locators, input);
+
+    await actions.execute({
+      kind: 'click', target: { locator: { kind: 'image', asset: 'one-frame.png', threshold: .9 } }, timeoutMs: 500,
+    }, {
+      ...context(() => clock),
+      sleep: async (duration) => { sleeps.push(duration); clock += duration; },
+    });
+
+    expect(sleeps).toEqual([0, 0]);
+    expect(input.click).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives Move and Drag the same bounded acquisition semantics as Click', async () => {
+    let clock = 0;
+    let moveAttempts = 0;
+    let dragRound = 0;
+    const dragScopes: object[] = [];
+    const candidate = (x: number, fingerprint: string): RecognitionCandidate => ({
+      space: viewport, bounds: region('logical', viewport, x, 80, 20, 20), confidence: .95, fingerprint,
+    });
+    const port: LocatorRecognitionPort = {
+      locateImage: vi.fn(async (locator, locatorContext) => {
+        clock += 20;
+        if (locator.asset === 'move.png') return ++moveAttempts === 2 ? [candidate(100, 'move-found')] : [];
+        dragScopes.push(locatorContext.observationScope!);
+        if (locator.asset === 'from.png') { dragRound += 1; return [candidate(200 + dragRound, `from-${dragRound}`)]; }
+        return dragRound === 2 ? [candidate(400, 'to-2')] : [];
+      }),
+      locateText: vi.fn(async () => []),
+    };
+    const locators = new AutomationLocatorRegistry();
+    locators.register(new ImageLocatorResolver(port));
+    const input: LocatedTargetInputPort = { click: vi.fn(), move: vi.fn(), drag: vi.fn() };
+    const actions = new AutomationActionRegistry();
+    registerPointerActions(actions, locators, input);
+    const activeContext = { ...context(() => clock), sleep: async (duration: number) => { clock += duration; } };
+
+    await actions.execute({ kind: 'move', target: { locator: { kind: 'image', asset: 'move.png', threshold: .9 } }, timeoutMs: 500 }, activeContext);
+    await actions.execute({
+      kind: 'drag',
+      from: { locator: { kind: 'image', asset: 'from.png', threshold: .9 } },
+      to: { locator: { kind: 'image', asset: 'to.png', threshold: .9 } },
+      timeoutMs: 500,
+    }, activeContext);
+
+    expect(input.move).toHaveBeenCalledTimes(1);
+    expect(input.drag).toHaveBeenCalledTimes(1);
+    expect(dragScopes[0]).toBe(dragScopes[1]);
+    expect(dragScopes[2]).toBe(dragScopes[3]);
+    expect(dragScopes[2]).not.toBe(dragScopes[0]);
+    expect(vi.mocked(input.drag).mock.calls[0][0].locatorFingerprint).toBe('from-2');
+    expect(vi.mocked(input.drag).mock.calls[0][1].locatorFingerprint).toBe('to-2');
+  });
+
   it('shares one observation scope inside Drag but not across separate Actions', async () => {
     const scopes: Array<object | undefined> = [];
     const port: LocatorRecognitionPort = {

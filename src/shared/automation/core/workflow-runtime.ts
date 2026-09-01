@@ -158,6 +158,7 @@ export class AutomationWorkflowRuntime {
     const startedAt = context.now();
     let lastYieldAt = startedAt;
     let nodesSinceYield = 0;
+    let unboundedRuntime = false;
 
     const emit = (event: WorkflowRunEvent): void => {
       events.push(event);
@@ -167,8 +168,8 @@ export class AutomationWorkflowRuntime {
     const transition = (next: WorkflowRunState): void => { state = next; emit({ kind: 'state', at: context.now(), state: next }); };
     const check = async (nodeId?: string): Promise<void> => {
       if (controller.signal.aborted) throw new Error('automation cancelled');
-      if (context.now() - startedAt > this.limits.maxWallTimeMs) throw new WorkflowRuntimeError('BUDGET_EXCEEDED', 'workflow wall-clock budget exceeded', nodeId);
-      if (executedNodes > this.limits.maxExecutedNodes) throw new WorkflowRuntimeError('BUDGET_EXCEEDED', 'executed node budget exceeded', nodeId);
+      if (!unboundedRuntime && context.now() - startedAt > this.limits.maxWallTimeMs) throw new WorkflowRuntimeError('BUDGET_EXCEEDED', 'workflow wall-clock budget exceeded', nodeId);
+      if (!unboundedRuntime && executedNodes > this.limits.maxExecutedNodes) throw new WorkflowRuntimeError('BUDGET_EXCEEDED', 'executed node budget exceeded', nodeId);
       nodesSinceYield += 1;
       if (nodesSinceYield >= this.limits.yieldEveryNodes || context.now() - lastYieldAt >= this.limits.yieldEveryMs) {
         if (controller.signal.aborted) throw new Error('automation cancelled');
@@ -200,9 +201,10 @@ export class AutomationWorkflowRuntime {
         const repeat = node.mode === 'repeat' ? evaluate(node.count, environment) : undefined;
         if (repeat !== undefined && (!Number.isSafeInteger(repeat) || typeof repeat !== 'number' || repeat < 0)) throw new WorkflowRuntimeError('RUNTIME_TYPE', 'repeat count must be a non-negative safe integer', node.id);
         let iterations = 0;
-        while (node.mode === 'repeat' ? iterations < (repeat as number) : evaluate(node.condition, environment) === true) {
+        if (node.mode === 'forever') unboundedRuntime = true;
+        while (node.mode === 'repeat' ? iterations < (repeat as number) : node.mode === 'forever' || evaluate(node.condition, environment) === true) {
           iterations += 1;
-          if (iterations > this.limits.maxLoopIterations) throw new WorkflowRuntimeError('BUDGET_EXCEEDED', 'loop iteration budget exceeded', node.id);
+          if (node.mode !== 'forever' && iterations > this.limits.maxLoopIterations) throw new WorkflowRuntimeError('BUDGET_EXCEEDED', 'loop iteration budget exceeded', node.id);
           await check(node.id);
           const result = await execute(node.body, new RuntimeEnvironment(environment), activeContext);
           if (result === BREAK) break;
@@ -240,7 +242,7 @@ export class AutomationWorkflowRuntime {
               break;
             }
             if (controller.signal.aborted) throw new Error('automation cancelled');
-            await activeContext.sleep(Math.min(node.pollIntervalMs ?? 100, remaining), controller.signal);
+            await activeContext.sleep(Math.min(node.pollIntervalMs ?? 0, remaining), controller.signal);
             await check(node.id);
           }
         }

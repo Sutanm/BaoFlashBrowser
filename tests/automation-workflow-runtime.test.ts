@@ -79,11 +79,34 @@ describe('AutomationWorkflowRuntime', () => {
     expect(calls).toBe(3);
   });
 
+  it('does not add a default delay between transient-target wait attempts', async () => {
+    let calls = 0;
+    const sleeps: number[] = [];
+    const { runtime, createContext } = harness({
+      query: () => ++calls === 3,
+      sleep: async (duration, signal) => { if (signal.aborted) throw new Error('automation cancelled'); sleeps.push(duration); },
+    });
+    const result = await runtime.start(doc({
+      id: 'wait-fast', kind: 'wait', query: { kind: 'fixture', resultType: 'boolean' }, until: 'truthy', timeoutMs: 100, onTimeout: 'fail',
+    }), createContext).completion;
+    expect(result.status).toBe('completed');
+    expect(sleeps).toEqual([0, 0]);
+  });
+
   it('fails on a hard loop budget', async () => {
     const { runtime, createContext } = harness({ limits: { maxLoopIterations: 2 } });
     const result = await runtime.start(doc({ id: 'loop', kind: 'loop', mode: 'while', condition: bool(true), body: { id: 'body', kind: 'sequence', nodes: [] } }), createContext).completion;
     expect(result.status).toBe('failed');
     if (result.status === 'failed') expect(result.error.message).toContain('loop iteration budget');
+  });
+
+  it('runs a forever loop past the normal loop budget until the user cancels it', async () => {
+    const { runtime, records, createContext } = harness({ limits: { maxLoopIterations: 1 } });
+    const handle = runtime.start(doc({ id: 'forever', kind: 'loop', mode: 'forever', body: { id: 'record', kind: 'action', action: { kind: 'record', value: 'tick' } } }), createContext);
+    for (let index = 0; index < 20; index += 1) await Promise.resolve();
+    expect(records.length).toBeGreaterThan(1);
+    const result = await handle.cancel('test cancel');
+    expect(result).toMatchObject({ status: 'cancelled', reason: 'test cancel' });
   });
 
   it('cancel waits for the resource barrier', async () => {

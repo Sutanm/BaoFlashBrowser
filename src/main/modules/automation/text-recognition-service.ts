@@ -48,8 +48,11 @@ function toTextMatch(frame: AutomationCapturedFrame, item: OcrTextItem): TextMat
 export class AutomationTextRecognitionService {
   constructor(private readonly recognizer: AutomationOcrEngine) {}
 
-  recognize(frame: AutomationCapturedFrame, signal: AbortSignal): Promise<OcrTextItem[]> {
-    return this.recognizer.recognize(frame, signal);
+  async recognize(frame: AutomationCapturedFrame, signal: AbortSignal): Promise<OcrTextItem[]> {
+    const items = await this.recognizer.recognize(frame, signal);
+    return items
+      .map((item) => ({ ...item, text: item.text.trim() }))
+      .filter((item) => item.text.length > 0);
   }
 
   async locate(frame: AutomationCapturedFrame, request: TextLocateRequest, signal: AbortSignal): Promise<TextMatch | null> {

@@ -63,6 +63,7 @@ export type IfNode = NodeBase & {
 export type LoopNode = NodeBase & (
   | { readonly kind: 'loop'; readonly mode: 'repeat'; readonly count: ValueExpression<'number'>; readonly body: WorkflowNode }
   | { readonly kind: 'loop'; readonly mode: 'while'; readonly condition: ValueExpression<'boolean'>; readonly body: WorkflowNode }
+  | { readonly kind: 'loop'; readonly mode: 'forever'; readonly body: WorkflowNode }
 );
 export type BreakNode = NodeBase & { readonly kind: 'break' };
 export type ContinueNode = NodeBase & { readonly kind: 'continue' };

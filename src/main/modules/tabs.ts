@@ -23,6 +23,30 @@ interface TabEntry {
 
 interface ContainerRect { x: number; y: number; width: number; height: number }
 const HIDDEN_BOUNDS: ContainerRect = Object.freeze({ x: -9999, y: -9999, width: 1, height: 1 });
+const AUTOMATION_VIEWPORT_PROBE_TIMEOUT_MS = 500;
+const AUTOMATION_VIEWPORT_PROBE_TIMEOUT = 'automation viewport probe timed out';
+
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(message));
+    }, timeoutMs);
+    void operation.then((value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    }, (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
 
 export interface AutomationTabHandle {
   readonly tabId: string;
@@ -247,7 +271,11 @@ class TabManager {
       await new Promise((resolve) => setTimeout(resolve, 25));
       if (wc.isDestroyed() || this.automationTargets.get(tabId)?.token !== lease.token || lease.refreshVersion !== refreshVersion) return;
       try {
-        const size = await wc.executeJavaScript('({width:innerWidth,height:innerHeight})') as { width?: number; height?: number };
+        const size = await withTimeout(
+          wc.executeJavaScript('({width:innerWidth,height:innerHeight})') as Promise<{ width?: number; height?: number }>,
+          AUTOMATION_VIEWPORT_PROBE_TIMEOUT_MS,
+          AUTOMATION_VIEWPORT_PROBE_TIMEOUT,
+        );
         if (wc.isDestroyed() || this.automationTargets.get(tabId)?.token !== lease.token || lease.refreshVersion !== refreshVersion) return;
         const width = Number(size.width); const height = Number(size.height);
         if (width <= 0 || height <= 0) continue;
@@ -261,7 +289,13 @@ class TabManager {
         const expectedWidth = this.rect.width / zoom;
         const expectedHeight = this.rect.height / zoom;
         if (Math.abs(width - expectedWidth) <= 2 && Math.abs(height - expectedHeight) <= 2) return;
-      } catch { /* renderer may be navigating */ }
+      } catch (error) {
+        // A Chromium 87 renderer can occasionally stop answering JavaScript
+        // probes while its compositor still captures correctly. Keep the last
+        // known transform instead of blocking every subsequent capture.
+        if (error instanceof Error && error.message === AUTOMATION_VIEWPORT_PROBE_TIMEOUT) return;
+        /* renderer may be navigating */
+      }
     }
   }
 

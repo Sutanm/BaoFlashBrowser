@@ -62,6 +62,7 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
   createValidatedHandler('automation-v3:upsert-script', z.object({
     packageId: id, id, name, source: z.string().max(512 * 1024), language: z.enum(['javascript', 'typescript']).optional(), permissions: z.array(z.enum(JAVASCRIPT_AUTOMATION_CAPABILITIES as [string, ...string[]])).max(JAVASCRIPT_AUTOMATION_CAPABILITIES.length),
   }).strict(), (input) => service.upsertScript(input as Parameters<AutomationV3Service['upsertScript']>[0]));
+  createValidatedHandler('automation-v3:delete-script', z.object({ packageId: id, scriptId: id }).strict(), ({ packageId, scriptId }) => service.removeScript(packageId, scriptId));
   createValidatedHandler('automation-v3:set-main-entry', z.object({ packageId: id, entryId: id }).strict(), ({ packageId, entryId }) => service.setMainEntry(packageId, entryId));
   createValidatedHandler('automation-v3:delete', z.object({ packageId: id }).strict(), async ({ packageId }) => { await service.remove(packageId); return { success: true as const }; });
   createValidatedHandler('automation-v3:open', z.object({ title: z.string().optional(), filterName: z.string().optional() }).strict(), async ({ title, filterName }) => {

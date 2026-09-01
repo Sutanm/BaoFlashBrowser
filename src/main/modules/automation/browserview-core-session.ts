@@ -50,7 +50,7 @@ import {
 import type { AutomationPackageV3 } from '../../../shared/automation/package-v3';
 import type { AutomationProfileV3 } from '../../../shared/automation/package-v3';
 import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
-import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
+import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
 import { createJavaScriptInstallGrant, createJavaScriptRunGrant } from '../../../shared/automation/javascript-grants';
 import type { AutomationTabHandle } from '../tabs';
 import { BrowserViewCaptureService } from './browserview-capture-service';
@@ -74,6 +74,10 @@ const sleep = (durationMs: number, signal: AbortSignal): Promise<void> => new Pr
   signal.addEventListener('abort', abort, { once: true });
 });
 
+class SurfaceTargetNotFoundError extends Error {
+  constructor(message: string) { super(message); this.name = 'SurfaceTargetNotFoundError'; }
+}
+
 export class BrowserViewAutomationCoreSession {
   private readonly viewport;
   private readonly coordinateResolver;
@@ -91,6 +95,7 @@ export class BrowserViewAutomationCoreSession {
   private readonly actions = new AutomationActionRegistry();
   private readonly runtimeQueries = new AutomationRuntimeQueryRegistry();
   private readonly runtime: AutomationWorkflowRuntime;
+  private readonly learnedImageScales = new Map<string, number>();
   private nextSurfaceGeneration = 1;
   private closePromise?: Promise<void>;
 
@@ -209,7 +214,7 @@ export class BrowserViewAutomationCoreSession {
     return candidate ? { bounds: candidate.bounds, score: candidate.confidence } : null;
   }
 
-  async testImagePreview(asset: string, _threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK, logicalRegion?: { x: number; y: number; width: number; height: number }, _displayRegion?: { x: number; y: number; width: number; height: number }) {
+  async testImagePreview(asset: string, threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK, logicalRegion?: { x: number; y: number; width: number; height: number }, _displayRegion?: { x: number; y: number; width: number; height: number }, fallbackScales: readonly number[] = []) {
     return this.capture.withFreshFrame(async () => {
       // Assistant regions are cropped from the same normalized full frame used
       // by whole-page recognition. This guarantees identical template scale in
@@ -217,7 +222,12 @@ export class BrowserViewAutomationCoreSession {
       const preview = await this.captureViewportPreview();
       const frame = await this.captureViewportFrame();
       const group = decodeAutomationImageGroup(asset);
-      const bitmapMatch = await this.vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask, region: logicalRegion }, createAutomationAbortController().signal);
+      const signal = createAutomationAbortController().signal;
+      let bitmapMatch = await this.vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask, region: logicalRegion }, signal);
+      if ((!bitmapMatch || bitmapMatch.score < threshold) && fallbackScales.length > 0) {
+        const fallback = await this.vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: fallbackScales, mask, region: logicalRegion }, signal);
+        if (fallback && (!bitmapMatch || fallback.score > bitmapMatch.score)) bitmapMatch = fallback;
+      }
       const bounds = bitmapMatch && frame.geometry ? new AutomationFrameTransform(frame.geometry).bitmapRegionToSpace(bitmapMatch) : null;
       return { preview, bitmapMatch, match: bitmapMatch && bounds ? { bounds, score: bitmapMatch.score } : null };
     });
@@ -253,7 +263,7 @@ export class BrowserViewAutomationCoreSession {
     return { currentSpace, coordinateResolver: resolver, defaultRegion, signal, now: Date.now, sleep, callScript: (scriptId, args, runSignal) => this.callScript(scriptId, args, runSignal), derive: async (change: RuntimeContextChange) => {
       if (!change.surface) return { context: this.contextFor(currentSpace, resolver, signal, change.region ?? defaultRegion), release: async () => undefined };
       if (change.surface.kind === 'viewport') return { context: this.contextFor(this.viewport, this.coordinateResolver, signal, change.region), release: async () => undefined };
-      const bounds = await this.resolveSurfaceBounds(change.surface);
+      const bounds = await this.resolveSurfaceBoundsWithin(change.surface, change.timeoutMs ?? 10_000, signal);
       const resolved = resolvedSurface({ id: surfaceId(`runtime-${this.nextSurfaceGeneration}`), generation: generation(this.nextSurfaceGeneration++),
         target: this.viewport, spec: change.surface, parentSpace: this.viewport, boundsInParent: region('logical', this.viewport, bounds.x, bounds.y, bounds.width, bounds.height),
         localSize: size(bounds.width, bounds.height), toViewport: affine(1, 0, 0, 1, bounds.x, bounds.y) });
@@ -296,7 +306,7 @@ export class BrowserViewAutomationCoreSession {
     if (spec.kind === 'element') {
       if (!spec.selector || spec.framePath?.length) throw new Error('element surface currently requires a main-frame selector');
       const value = await this.handle.webContents.executeJavaScript(`(() => { const e = document.querySelector(${JSON.stringify(spec.selector)}); if (!e) return null; const r=e.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; })()`);
-      if (!value || typeof value !== 'object') throw new Error(`surface element was not found: ${spec.selector}`);
+      if (!value || typeof value !== 'object') throw new SurfaceTargetNotFoundError(`surface element was not found: ${spec.selector}`);
       const bounds = value as { x: number; y: number; width: number; height: number }; if (![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) || bounds.width <= 0 || bounds.height <= 0) throw new Error('surface element has invalid bounds');
       const logical = this.coordinateAdapter.displayRegionToLogical(bounds);
       return { x: logical.x, y: logical.y, width: logical.width, height: logical.height };
@@ -307,9 +317,24 @@ export class BrowserViewAutomationCoreSession {
       ? chooseLocatedGameSurface(candidates, feature)
       : candidates.filter((item) => spec.visualHint === 'container' || item.kind === spec.visualHint || (spec.visualHint === 'iframe' && item.kind === 'frame'))
         .sort((a, b) => b.score - a.score)[0];
-    if (!candidate) throw new Error(feature ? '没有找到特征码指定的游戏区域，请重新选择游戏画面并复制特征码' : `visual surface was not found: ${spec.visualHint}`);
+    if (!candidate) throw new SurfaceTargetNotFoundError(feature ? '没有找到特征码指定的游戏区域，请重新选择游戏画面并复制特征码' : `visual surface was not found: ${spec.visualHint}`);
     const logical = this.coordinateAdapter.displayRegionToLogical(candidate.rect);
     return { x: logical.x, y: logical.y, width: logical.width, height: logical.height };
+  }
+
+  private async resolveSurfaceBoundsWithin(spec: SurfaceSpec, timeoutMs: number, signal: AbortSignal): Promise<{ x: number; y: number; width: number; height: number }> {
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 3_600_000) throw new Error('surface timeout must be between 0 and 3600000ms');
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (signal.aborted) throw new Error('automation cancelled');
+      try { return await this.resolveSurfaceBounds(spec); }
+      catch (error) {
+        if (!(error instanceof SurfaceTargetNotFoundError) || Date.now() >= deadline) throw error;
+        // A game surface is persistent once mounted, so a short backoff avoids
+        // hammering DOM/CDP discovery while the page is still constructing it.
+        await sleep(Math.min(100, Math.max(0, deadline - Date.now())), signal);
+      }
+    }
   }
 
   private async waitForCurrentViewport(): Promise<void> {
@@ -355,14 +380,36 @@ export class BrowserViewAutomationCoreSession {
       ? surfaceReferenceImageScales(surfaceReferences as Array<{ width: number; height: number }>, searchRegion!)
       : undefined;
     const frame = await this.captureViewportFrame(context);
-    const matches = await this.vision.locateCandidates(frame, {
+    const viewportSize = frame.cssSize;
+    const scaleKey = `${assets.join('\u0000')}|${locator.mask ?? DEFAULT_IMAGE_MATCH_MASK}|${searchRegion?.width ?? viewportSize.width}x${searchRegion?.height ?? viewportSize.height}`;
+    const learnedScale = locator.scales === undefined && !predictedScales ? this.learnedImageScales.get(scaleKey) : undefined;
+    const initialScales = locator.scales ?? predictedScales ?? (learnedScale === undefined ? imageMatchScales() : [learnedScale]);
+    const request = {
       assets,
       threshold: locator.threshold,
-      scales: locator.scales ?? predictedScales,
+      scales: initialScales,
       mask: locator.mask ?? DEFAULT_IMAGE_MATCH_MASK,
       region: searchRegion && { x: searchRegion.x, y: searchRegion.y, width: searchRegion.width, height: searchRegion.height },
-    }, context.signal, maxCandidates);
-    if (predictedScales) this.log(`[findImage] surface reference scale=${predictedScales[0].toFixed(4)} assets=${assets.length}`, 'debug');
+    };
+    let matches = await this.vision.locateCandidates(frame, request, context.signal, maxCandidates);
+    if (locator.scales === undefined && matches.length === 0) {
+      const fallbackScales = imageMatchFallbackScales(initialScales);
+      if (fallbackScales.length > 0) {
+        matches = await this.vision.locateCandidates(frame, { ...request, scales: fallbackScales }, context.signal, maxCandidates);
+      }
+    }
+    if (locator.scales === undefined && matches.length > 0) {
+      const strongest = matches.reduce((best, candidate) => candidate.score > best.score ? candidate : best);
+      if (Number.isFinite(strongest.scale) && strongest.scale! > 0) {
+        const widthDensity = frame.cssSize.width > 0 ? frame.deviceSize.width / frame.cssSize.width : 1;
+        const heightDensity = frame.cssSize.height > 0 ? frame.deviceSize.height / frame.cssSize.height : 1;
+        const density = Math.sqrt(widthDensity * heightDensity);
+        const logicalScale = strongest.scale! / (Number.isFinite(density) && density > 0 ? density : 1);
+        this.learnedImageScales.delete(scaleKey);
+        this.learnedImageScales.set(scaleKey, logicalScale);
+        while (this.learnedImageScales.size > 128) this.learnedImageScales.delete(this.learnedImageScales.keys().next().value!);
+      }
+    }
     if (!frame.geometry) return [];
     const transform = new AutomationFrameTransform(frame.geometry);
     return matches.map((match) => ({
@@ -377,9 +424,6 @@ export class BrowserViewAutomationCoreSession {
   private async locateText(locator: TextLocator, context: LocatorContext): Promise<readonly RecognitionCandidate[]> {
     const frame = await this.captureFrame(locator.region, context);
     const items = await this.text.recognize(frame, context.signal);
-    // Preserve the existing OCR diagnostics while moving ownership out of the old Driver facade.
-    this.log(`[findText] query="${locator.text}" match=${locator.match} minScore=${locator.minConfidence} region=${JSON.stringify(locator.region ?? null)} capture=${frame.bitmapSize?.width ?? '?'}x${frame.bitmapSize?.height ?? '?'}`);
-    items.forEach((item) => this.log(`[findText]   ocr:"${item.text}" score=${item.score?.toFixed(3)} box=${JSON.stringify(item.box)}`));
     const match = this.text.locateRecognized(frame, items, { text: locator.text, match: locator.match === 'normalized' ? 'contains' : locator.match, minScore: locator.minConfidence });
     if (!match || !frame.geometry) return [];
     const bounds = new AutomationFrameTransform(frame.geometry).bitmapRegionToSpace(match);

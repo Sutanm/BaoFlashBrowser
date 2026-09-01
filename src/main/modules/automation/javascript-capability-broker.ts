@@ -135,10 +135,16 @@ function validateMethodParams(method: JavaScriptAutomationMethod, untrusted: unk
     assertTarget(params.target);
     if (params.count !== undefined && !Number.isSafeInteger(finite(params.count, 'click count', 1, 10))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'click count must be an integer');
     if (params.button !== undefined && !['primary', 'middle', 'secondary'].includes(String(params.button))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'mouse button is invalid');
+    if (params.timeoutMs !== undefined) finite(params.timeoutMs, 'click timeout', 0, 3_600_000);
+    if (params.pollIntervalMs !== undefined) finite(params.pollIntervalMs, 'click poll interval', 0, 3_600_000);
   } else if (method === 'input.move') {
     assertTarget(params.target); if (params.durationMs !== undefined) finite(params.durationMs, 'move duration', 0, 60_000);
+    if (params.timeoutMs !== undefined) finite(params.timeoutMs, 'move timeout', 0, 3_600_000);
+    if (params.pollIntervalMs !== undefined) finite(params.pollIntervalMs, 'move poll interval', 0, 3_600_000);
   } else if (method === 'input.drag') {
     assertTarget(params.from); assertTarget(params.to); if (params.durationMs !== undefined) finite(params.durationMs, 'drag duration', 0, 60_000);
+    if (params.timeoutMs !== undefined) finite(params.timeoutMs, 'drag timeout', 0, 3_600_000);
+    if (params.pollIntervalMs !== undefined) finite(params.pollIntervalMs, 'drag poll interval', 0, 3_600_000);
   }
   else if (method === 'input.keyPress') {
     stringValue(params.key, 'key');

@@ -1735,6 +1735,14 @@
   background: var(--awb-blue);
   color: #fff;
 }
+.automation-workbench-v3 button.danger {
+  border-color: #efb7b7;
+  color: #c92f2f;
+}
+.automation-workbench-v3 button.danger:hover:not(:disabled) {
+  border-color: #d94a4a;
+  background: #fff1f1;
+}
 .awb-body {
   display: grid;
   min-width: 0;
@@ -2217,28 +2225,31 @@
   color: #93a4bc;
 }
 .awb-scene > .awb-scene-frame {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: auto;
-  max-height: 100%;
-}
-.awb-scene-frame > img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
 }
-.awb-scene-frame > i {
+.awb-scene-frame > rect {
+  fill: #d5a92822;
+  stroke: #d5a928;
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 4px #d5a928);
+}
+.awb-scene-frame > rect.matched {
+  fill: #39d98a22;
+  stroke: #39d98a;
+  filter: drop-shadow(0 0 4px #39d98a);
+}
+.automation-test-scene-size {
   position: absolute;
-  border: 3px solid #d5a928;
-  background: #d5a92822;
-  box-shadow: 0 0 12px #d5a928;
-}
-.awb-scene-frame > i.matched {
-  border-color: #39d98a;
-  background: #39d98a22;
-  box-shadow: 0 0 12px #39d98a;
+  right: 10px;
+  bottom: 8px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #111827c9;
+  color: #d9e4f5;
+  font-size: 9px;
+  pointer-events: none;
 }
 .awb-script {
   height: 100%;

@@ -24,9 +24,11 @@ export type BrowserViewCaptureServiceOptions = {
     logicalRegion?: AutomationCapabilityRegion,
   ) => CaptureFrameGeometry;
   readonly now?: () => number;
+  readonly captureTimeoutMs?: number;
 };
 
 let nextCaptureFrameId = 1;
+const DEFAULT_CAPTURE_TIMEOUT_MS = 10_000;
 
 function captureKey(region?: AutomationCapabilityRegion): string {
   return region ? `${region.x},${region.y},${region.width},${region.height}` : 'full';
@@ -37,12 +39,36 @@ export class BrowserViewCaptureService {
   private scopedFrames: Map<string, AutomationCapturedFrame> | null = null;
   private readonly operationFrames = new WeakMap<object, Map<string, Promise<AutomationCapturedFrame>>>();
   private readonly now: () => number;
+  private readonly captureTimeoutMs: number;
 
   constructor(
     private readonly source: BrowserViewCaptureSource,
     private readonly options: BrowserViewCaptureServiceOptions,
   ) {
     this.now = options.now ?? (() => performance.now());
+    this.captureTimeoutMs = options.captureTimeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS;
+  }
+
+  private capturePage(region?: AutomationCapabilityRegion): Promise<AutomationCapturedImage> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error('捕获页面超时，请重试'));
+      }, this.captureTimeoutMs);
+      void this.source.capturePage(region).then((image) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(image);
+      }, (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
   }
 
   async capture(request: BrowserViewCaptureRequest): Promise<AutomationCapturedFrame> {
@@ -84,7 +110,7 @@ export class BrowserViewCaptureService {
     this.source.incrementCapturerCount(logicalCaptureSize);
     try {
       const captureStartedAt = this.now();
-      const sourceImage = await this.source.capturePage(request.displayRegion);
+      const sourceImage = await this.capturePage(request.displayRegion);
       const captureMs = this.now() - captureStartedAt;
       if (sourceImage.isEmpty()) throw new Error(request.emptyMessage ?? 'BrowserView capture is empty');
 

@@ -1,17 +1,29 @@
 import type { LocatedTarget, LocatorContext, TargetRef } from './locator';
-import { AutomationLocatorRegistry, withObservationScope } from './locator';
+import { AutomationLocatorError, AutomationLocatorRegistry, withObservationScope } from './locator';
+
+export const DEFAULT_CLICK_TARGET_TIMEOUT_MS = 10_000;
+/** No artificial gap: capture the next frame as soon as the previous match finishes. */
+export const DEFAULT_CLICK_POLL_INTERVAL_MS = 0;
+export const DEFAULT_POINTER_TARGET_TIMEOUT_MS = DEFAULT_CLICK_TARGET_TIMEOUT_MS;
+export const DEFAULT_POINTER_POLL_INTERVAL_MS = DEFAULT_CLICK_POLL_INTERVAL_MS;
 
 export type ClickAction = {
   readonly kind: 'click';
   readonly target: TargetRef;
   readonly button?: 'primary' | 'middle' | 'secondary';
   readonly count?: number;
+  /** Maximum time spent acquiring a dynamic target before clicking it. */
+  readonly timeoutMs?: number;
+  /** Delay between fresh recognition attempts. */
+  readonly pollIntervalMs?: number;
 };
 
 export type MoveAction = {
   readonly kind: 'move';
   readonly target: TargetRef;
   readonly durationMs?: number;
+  readonly timeoutMs?: number;
+  readonly pollIntervalMs?: number;
 };
 
 export type DragAction = {
@@ -22,6 +34,8 @@ export type DragAction = {
   readonly durationMs?: number;
   readonly holdBeforeMs?: number;
   readonly holdAfterMs?: number;
+  readonly timeoutMs?: number;
+  readonly pollIntervalMs?: number;
 };
 
 export type KeyPressAction = { readonly kind: 'keyPress'; readonly key: string; readonly modifiers?: readonly ('alt' | 'control' | 'meta' | 'shift')[] };
@@ -46,7 +60,10 @@ export interface ActionSpecMap {
 }
 
 export type ActionSpec = ActionSpecMap[keyof ActionSpecMap];
-export type ActionContext = LocatorContext;
+export type ActionContext = LocatorContext & {
+  /** Runtime-provided cancellable clock used by actions that acquire dynamic targets. */
+  readonly sleep?: (durationMs: number, signal: AbortSignal) => Promise<void>;
+};
 
 export interface LocatedTargetInputPort {
   click(target: LocatedTarget, action: ClickAction, context: ActionContext): Promise<void>;
@@ -92,6 +109,67 @@ abstract class PointerActionExecutor {
   protected assertCurrent(target: LocatedTarget, context: ActionContext): void {
     context.coordinateResolver.assertSpaceCurrent(target.space);
   }
+
+  protected async resolveTargetWithin(
+    ref: TargetRef,
+    timeoutMs: number,
+    pollIntervalMs: number,
+    context: ActionContext,
+  ): Promise<LocatedTarget> {
+    return (await this.resolveTargetsWithin([ref], timeoutMs, pollIntervalMs, context))[0];
+  }
+
+  protected async resolveTargetsWithin(
+    refs: readonly TargetRef[],
+    timeoutMs: number,
+    pollIntervalMs: number,
+    context: ActionContext,
+  ): Promise<readonly LocatedTarget[]> {
+    const deadline = context.now() + timeoutMs;
+    for (;;) {
+      if (context.signal.aborted) throw new Error('automation cancelled');
+      try {
+        // Every retry receives a new observation scope, therefore a new frame.
+        // The LocatedTarget returned by the successful frame is passed directly
+        // to Input; there is no second recognition pass that could race it.
+        const attemptContext = withObservationScope({ ...context, observationScope: undefined });
+        const targets: LocatedTarget[] = [];
+        for (const ref of refs) targets.push(await this.locators.resolveTarget(ref, attemptContext));
+        return targets;
+      } catch (error) {
+        if (!(error instanceof AutomationLocatorError) || error.code !== 'TARGET_NOT_FOUND') throw error;
+        const remaining = deadline - context.now();
+        if (remaining <= 0) throw error;
+        await (context.sleep ?? cancellableSleep)(Math.min(pollIntervalMs, remaining), context.signal);
+      }
+    }
+  }
+}
+
+function acquisitionOptions(
+  refs: readonly TargetRef[],
+  timeoutMs: number | undefined,
+  pollIntervalMs: number | undefined,
+): readonly [number, number] {
+  const requiresRecognition = refs.some((ref) => ref.locator.kind !== 'coordinate');
+  const timeout = requiresRecognition ? timeoutMs ?? DEFAULT_POINTER_TARGET_TIMEOUT_MS : 0;
+  const poll = pollIntervalMs ?? DEFAULT_POINTER_POLL_INTERVAL_MS;
+  for (const [label, value] of [['target timeout', timeout], ['target poll interval', poll]] as const) {
+    if (!Number.isFinite(value) || value < 0 || value > 3_600_000) {
+      throw new AutomationActionError('ACTION_INVALID', `${label} must be between 0 and 3600000ms`);
+    }
+  }
+  return [timeout, poll];
+}
+
+function cancellableSleep(durationMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { cleanup(); resolve(); }, durationMs);
+    const onAbort = (): void => { clearTimeout(timer); cleanup(); reject(new Error('automation cancelled')); };
+    const cleanup = (): void => signal.removeEventListener('abort', onAbort);
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
 }
 
 export class ClickActionExecutor extends PointerActionExecutor implements ActionExecutor<ClickAction> {
@@ -100,7 +178,8 @@ export class ClickActionExecutor extends PointerActionExecutor implements Action
     if (!Number.isSafeInteger(action.count ?? 1) || (action.count ?? 1) < 1 || (action.count ?? 1) > 10) {
       throw new AutomationActionError('ACTION_INVALID', 'click count must be an integer from 1 to 10');
     }
-    const target = await this.locators.resolveTarget(action.target, context);
+    const [timeoutMs, pollIntervalMs] = acquisitionOptions([action.target], action.timeoutMs, action.pollIntervalMs);
+    const target = await this.resolveTargetWithin(action.target, timeoutMs, pollIntervalMs, context);
     this.assertCurrent(target, context);
     await this.input.click(target, action, context);
   }
@@ -112,7 +191,8 @@ export class MoveActionExecutor extends PointerActionExecutor implements ActionE
     if (action.durationMs !== undefined && (!Number.isFinite(action.durationMs) || action.durationMs < 0)) {
       throw new AutomationActionError('ACTION_INVALID', 'move duration must be non-negative and finite');
     }
-    const target = await this.locators.resolveTarget(action.target, context);
+    const [timeoutMs, pollIntervalMs] = acquisitionOptions([action.target], action.timeoutMs, action.pollIntervalMs);
+    const target = await this.resolveTargetWithin(action.target, timeoutMs, pollIntervalMs, context);
     this.assertCurrent(target, context);
     await this.input.move(target, action, context);
   }
@@ -126,8 +206,8 @@ export class DragActionExecutor extends PointerActionExecutor implements ActionE
         throw new AutomationActionError('ACTION_INVALID', `${label} must be non-negative and finite`);
       }
     }
-    const from = await this.locators.resolveTarget(action.from, context);
-    const to = await this.locators.resolveTarget(action.to, context);
+    const [timeoutMs, pollIntervalMs] = acquisitionOptions([action.from, action.to], action.timeoutMs, action.pollIntervalMs);
+    const [from, to] = await this.resolveTargetsWithin([action.from, action.to], timeoutMs, pollIntervalMs, context);
     this.assertCurrent(from, context);
     this.assertCurrent(to, context);
     await this.input.drag(from, to, action, context);

@@ -39,9 +39,9 @@ function freeze<T extends object>(value: T): Readonly<T> {
 
 const bao: BaoAutomationApi = freeze({
   input: freeze({
-    click: (target: TargetRef, options: { button?: 'primary' | 'middle' | 'secondary'; count?: number } = {}) => call('input.click', { target, ...options }),
-    move: (target: TargetRef, options: { durationMs?: number } = {}) => call('input.move', { target, ...options }),
-    drag: (options: { from: TargetRef; to: TargetRef; button?: 'primary' | 'middle' | 'secondary'; durationMs?: number }) => call('input.drag', options),
+    click: (target: TargetRef, options: { button?: 'primary' | 'middle' | 'secondary'; count?: number; timeoutMs?: number; pollIntervalMs?: number } = {}) => call('input.click', { target, ...options }),
+    move: (target: TargetRef, options: { durationMs?: number; timeoutMs?: number; pollIntervalMs?: number } = {}) => call('input.move', { target, ...options }),
+    drag: (options: { from: TargetRef; to: TargetRef; button?: 'primary' | 'middle' | 'secondary'; durationMs?: number; timeoutMs?: number; pollIntervalMs?: number }) => call('input.drag', options),
     keyPress: (key: string, modifiers: readonly ('alt' | 'control' | 'meta' | 'shift')[] = []) => call('input.keyPress', { key, modifiers }),
     typeText: (text: string, intervalMs = 0) => call('input.typeText', { text, intervalMs }),
     scroll: (deltaX: number, deltaY: number) => call('input.scroll', { deltaX, deltaY }),

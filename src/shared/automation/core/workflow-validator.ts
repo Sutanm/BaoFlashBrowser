@@ -131,6 +131,7 @@ export function validateWorkflowDocument(
       return;
     }
     if (node.kind === 'loop') {
+      if (!['repeat', 'while', 'forever'].includes(node.mode)) throw new WorkflowValidationError('NODE_INVALID', 'loop mode is invalid', node.id);
       if (node.mode === 'repeat' && validateExpression(node.count, bindings, limits, node.id) !== 'number') throw new WorkflowValidationError('EXPRESSION_INVALID', 'repeat count must be a number', node.id);
       if (node.mode === 'while' && validateExpression(node.condition, bindings, limits, node.id) !== 'boolean') throw new WorkflowValidationError('EXPRESSION_INVALID', 'while condition must be boolean', node.id);
       visit(node.body, new Map(bindings), depth + 1, loopDepth + 1);

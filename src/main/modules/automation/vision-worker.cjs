@@ -291,9 +291,16 @@ function match(cv, request) {
     let best = null;
     const requestedScales = request.options.scales;
     const oneIndex = requestedScales.indexOf(1);
-    const scalePasses = oneIndex >= 0 && requestedScales.length > 1
-      ? [[1], requestedScales.filter((scale) => scale !== 1)]
-      : [requestedScales];
+    const orderedScales = oneIndex >= 0
+      ? [1, ...requestedScales.filter((scale) => scale !== 1)]
+      : requestedScales;
+    // A best-target lookup only needs one winning scale. Keep each scale in a
+    // separate pass so a confident image-group hit can stop immediately rather
+    // than multiplying every remaining scale by every group member. Multi-
+    // candidate selection still evaluates the complete scale set.
+    const scalePasses = maximumCandidates === 1 && orderedScales.length > 1
+      ? orderedScales.map((scale) => [scale])
+      : [orderedScales];
     const testedScales = [];
     let usableCandidateCount = 0;
     for (let passIndex = 0; passIndex < scalePasses.length; passIndex += 1) {
@@ -387,10 +394,10 @@ function match(cv, request) {
           }
         }
       }
-      // Exact-scale, very-high-confidence hits are safe to accept without
-      // evaluating fallback scales. Borderline hits still run every scale so
-      // matching behavior remains conservative.
-      if (maximumCandidates === 1 && passIndex === 0
+      // A very-high-confidence hit is safe to accept without evaluating later
+      // scales. Borderline hits still run every scale so matching remains
+      // conservative and continues to return the strongest candidate.
+      if (maximumCandidates === 1
         && best && best.score >= Math.max(0.98, request.options.threshold)) break;
     }
     if (usableCandidateCount === 0) {

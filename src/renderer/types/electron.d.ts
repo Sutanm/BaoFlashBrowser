@@ -286,6 +286,7 @@ declare global {
         validateWorkflow(workflow: unknown): Promise<{ valid: true; workflow: import('@shared/automation/core').WorkflowDocumentV3 } | { valid: false; issues: Array<{ path: string; message: string }> }>;
         updateWorkflow(packageId: string, workflow: unknown): Promise<import('@shared/automation/core').WorkflowDocumentV3>;
         upsertScript(packageId: string, id: string, name: string, source: string, permissions: string[], language?: 'javascript' | 'typescript'): Promise<unknown>;
+        deleteScript(packageId: string, scriptId: string): Promise<Awaited<ReturnType<Window['electronAPI']['automationV3']['getPackage']>>>;
         setMainEntry(packageId: string, entryId: string): Promise<unknown>;
         deletePackage(packageId: string): Promise<{ success: boolean }>;
         openPackage(i18n?: { title?: string; filterName?: string }): Promise<{ canceled: true } | { canceled: false; token: string; packageId: string; name: string; scripts: Array<{ id: string; name: string; permissions: string[] }>; exists: boolean }>;

@@ -31,7 +31,7 @@ export class AutomationLocatorQueries {
 
   async wait(locator: LocatorSpec, policy: WaitLocatorPolicy, context: WaitLocatorContext): Promise<LocatedTarget | null> {
     if (!Number.isFinite(policy.timeoutMs) || policy.timeoutMs < 0) throw new Error('wait timeout must be non-negative and finite');
-    const pollIntervalMs = policy.pollIntervalMs ?? 100;
+    const pollIntervalMs = policy.pollIntervalMs ?? 0;
     if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 0) throw new Error('wait poll interval must be non-negative and finite');
     const deadline = context.now() + policy.timeoutMs;
     for (;;) {

@@ -341,13 +341,14 @@ describe('OpenCV automation vision worker', () => {
     const result = await matcher.find('scaled.png', frame(scene, sceneWidth, sceneHeight), {
       threshold: 0.99,
       region: { x: 25, y: 15, width: 35, height: 30 },
-      scales: [0.75, 1, 1.5],
+      scales: [0.75, 1, 1.5, 2],
       mask: 'none',
     }, new AbortController().signal);
     expect(result).toMatchObject({
       x: targetX, y: targetY, width: 15, height: 12, scale: 1.5, upscaleInterpolation: 'nearest',
     });
     expect(result!.score).toBeGreaterThan(0.99);
+    expect(result!.scaleMatchTimings?.map((timing) => timing.scale)).toEqual([1, 0.75, 1.5]);
   }, 30_000);
 
   it('uses normalized difference matching for a low-variance template', async () => {

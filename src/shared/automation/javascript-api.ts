@@ -28,9 +28,9 @@ export type ScriptLocatedTarget = {
 };
 
 export type JavaScriptAutomationParams = {
-  'input.click': { readonly target: TargetRef; readonly button?: 'primary' | 'middle' | 'secondary'; readonly count?: number };
-  'input.move': { readonly target: TargetRef; readonly durationMs?: number };
-  'input.drag': { readonly from: TargetRef; readonly to: TargetRef; readonly button?: 'primary' | 'middle' | 'secondary'; readonly durationMs?: number };
+  'input.click': { readonly target: TargetRef; readonly button?: 'primary' | 'middle' | 'secondary'; readonly count?: number; readonly timeoutMs?: number; readonly pollIntervalMs?: number };
+  'input.move': { readonly target: TargetRef; readonly durationMs?: number; readonly timeoutMs?: number; readonly pollIntervalMs?: number };
+  'input.drag': { readonly from: TargetRef; readonly to: TargetRef; readonly button?: 'primary' | 'middle' | 'secondary'; readonly durationMs?: number; readonly timeoutMs?: number; readonly pollIntervalMs?: number };
   'input.keyPress': { readonly key: string; readonly modifiers?: readonly ('alt' | 'control' | 'meta' | 'shift')[] };
   'input.typeText': { readonly text: string; readonly intervalMs?: number };
   'input.scroll': { readonly deltaX: number; readonly deltaY: number };
@@ -69,8 +69,8 @@ export type JavaScriptAutomationResponse =
 
 export interface BaoAutomationApi {
   readonly input: {
-    click(target: TargetRef, options?: { readonly button?: 'primary' | 'middle' | 'secondary'; readonly count?: number }): Promise<null>;
-    move(target: TargetRef, options?: { readonly durationMs?: number }): Promise<null>;
+    click(target: TargetRef, options?: { readonly button?: 'primary' | 'middle' | 'secondary'; readonly count?: number; readonly timeoutMs?: number; readonly pollIntervalMs?: number }): Promise<null>;
+    move(target: TargetRef, options?: { readonly durationMs?: number; readonly timeoutMs?: number; readonly pollIntervalMs?: number }): Promise<null>;
     drag(options: JavaScriptAutomationParams['input.drag']): Promise<null>;
     keyPress(key: string, modifiers?: readonly ('alt' | 'control' | 'meta' | 'shift')[]): Promise<null>;
     typeText(text: string, intervalMs?: number): Promise<null>;

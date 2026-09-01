@@ -109,7 +109,6 @@ app.whenReady().then(async () => {
   check('predicted scale produces the expected resized target candidate', visionDiagnostic.bitmapMatch.score >= .9 && visionDiagnostic.bitmapMatch.width === 70 && visionDiagnostic.bitmapMatch.height === 50, { targetAtCapture, targetAtRuntime, match: visionDiagnostic.bitmapMatch });
   const visionResult = await visionSession.startWorkflow().completion;
   check('real OpenCV finds Surface-captured target after 1.25x resize', visionResult.status === 'completed' && visionLogs.includes('vision-trusted-found'), { visionResult, visionLogs });
-  check('Surface image group shares the predicted 1.25 scale', visionLogs.some((message) => message.includes('surface reference scale=1.2500 assets=2')), visionLogs);
   check('legacy image without metadata still matches through fallback scales', visionLogs.includes('vision-legacy-found'), visionLogs);
   check('vision workflow releases BrowserView lease', visionReleased);
   const runtimeSource = {

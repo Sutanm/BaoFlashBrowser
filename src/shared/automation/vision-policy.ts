@@ -1,10 +1,28 @@
 export const DEFAULT_IMAGE_MATCH_THRESHOLD = 0.9;
 export const DEFAULT_IMAGE_MATCH_SCALES = Object.freeze([0.75, 1, 1.25] as const);
+// External screenshots are commonly captured in Windows physical pixels while
+// BrowserView frames are normalized to logical pixels. These inverse DPI
+// factors are a miss-only fallback, not part of the normal fast pass.
+export const DEFAULT_IMAGE_MATCH_DPI_FALLBACK_SCALES = Object.freeze([
+  0.5, 1 / 1.75, 1 / 1.5, 0.8,
+] as const);
 export const DEFAULT_IMAGE_MATCH_MASK = 'auto' as const;
 
 /** Returns a mutable request copy while keeping the product defaults immutable. */
 export function imageMatchScales(scales?: readonly number[]): number[] {
   return [...(scales ?? DEFAULT_IMAGE_MATCH_SCALES)];
+}
+
+/**
+ * Returns the ordinary-user scales that were not already covered by a fast
+ * predicted attempt. Near-equal values are treated as the same scale so a
+ * Surface prediction such as 1.249 does not trigger a redundant 1.25 pass.
+ */
+export function imageMatchFallbackScales(attempted: readonly number[]): number[] {
+  const candidates = [...DEFAULT_IMAGE_MATCH_SCALES, ...DEFAULT_IMAGE_MATCH_DPI_FALLBACK_SCALES];
+  return candidates.filter((candidate) => !attempted.some((value) => (
+    Number.isFinite(value) && Math.abs(candidate - value) / Math.max(candidate, Math.abs(value), 1e-6) <= 0.01
+  )));
 }
 
 export type SurfaceImageScaleReference = {

@@ -107,4 +107,21 @@ describe('BrowserViewCaptureService', () => {
     expect(source.incrementCapturerCount).toHaveBeenCalledTimes(1);
     expect(source.decrementCapturerCount).toHaveBeenCalledTimes(1);
   });
+
+  it('times out a stuck Chromium capture and releases the capturer lease', async () => {
+    const source = {
+      incrementCapturerCount: vi.fn(), decrementCapturerCount: vi.fn(),
+      capturePage: vi.fn(() => new Promise<ReturnType<typeof image>>(() => undefined)),
+    };
+    const capture = new BrowserViewCaptureService(source, {
+      captureTimeoutMs: 5,
+      frameGeometry: (value, bitmapSize) => captureFrameGeometry({
+        frameId: frameId(value), space,
+        capturedRegion: region('logical', space, 0, 0, 100, 50), bitmapSize,
+      }),
+    });
+    await expect(capture.capture({ logicalViewportSize: { width: 100, height: 50 } })).rejects.toThrow('捕获页面超时');
+    expect(source.incrementCapturerCount).toHaveBeenCalledTimes(1);
+    expect(source.decrementCapturerCount).toHaveBeenCalledTimes(1);
+  });
 });

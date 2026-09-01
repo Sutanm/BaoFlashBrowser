@@ -111,6 +111,17 @@ describe('Automation capability services', () => {
     await expect(service.readNumber(frame, signal)).resolves.toBe(1280.5);
   });
 
+  it('drops blank OCR detector boxes before lookup, reading, or diagnostics', async () => {
+    const recognize = vi.fn(async () => [
+      { text: '   ', score: 0, box: [[1, 1], [5, 1], [5, 3], [1, 3]] as Array<[number, number]> },
+      { text: '  购买  ', score: 0.97, box: [[6, 1], [10, 1], [10, 3], [6, 3]] as Array<[number, number]> },
+    ]);
+    const service = new AutomationTextRecognitionService({ recognize });
+    const items = await service.recognize(frame, new AbortController().signal);
+    expect(items).toEqual([{ text: '购买', score: 0.97, box: [[6, 1], [10, 1], [10, 3], [6, 3]] }]);
+    await expect(service.readText(frame, new AbortController().signal)).resolves.toBe('购买');
+  });
+
   it('returns the closest below-condition OCR candidate only for authoring diagnostics', async () => {
     const items = [
       { text: '开始游残', score: 0.42, box: [[1, 2], [5, 2], [5, 4], [1, 4]] as Array<[number, number]> },

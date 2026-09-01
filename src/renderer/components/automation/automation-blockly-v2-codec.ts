@@ -139,6 +139,7 @@ function compileStatement(block: Blockly.Block, bindings: Bindings): WorkflowNod
     if (count.valueType !== 'number') throw new AutomationBlocklyV2CodecError('repeat count must be a number', block.id);
     return { id: block.id, kind: 'loop', mode: 'repeat', count: count as ValueExpression<'number'>, body: sequenceNode(block.getInputTargetBlock('BODY'), new Map(bindings), `${block.id}:body`) };
   }
+  if (block.type === 'bao2_forever') return { id: block.id, kind: 'loop', mode: 'forever', body: sequenceNode(block.getInputTargetBlock('BODY'), new Map(bindings), `${block.id}:body`) };
   if (block.type === 'bao2_while') {
     const condition = compileExpression(requiredValue(block, 'CONDITION'), bindings);
     if (condition.valueType !== 'boolean') throw new AutomationBlocklyV2CodecError('while condition must be boolean', block.id);
@@ -151,7 +152,7 @@ function compileStatement(block: Blockly.Block, bindings: Bindings): WorkflowNod
     if (durationMs.valueType !== 'number') throw new AutomationBlocklyV2CodecError('wait duration must be a number', block.id);
     return { id: block.id, kind: 'wait', durationMs: durationMs as ValueExpression<'number'> };
   }
-  if (block.type === 'bao2_wait_target') return { id: block.id, kind: 'wait', query: { kind: 'exists', resultType: 'boolean', locator: compileLocator(requiredValue(block, 'TARGET')) }, until: block.getFieldValue('STATE') === 'hidden' ? 'falsy' : 'truthy', timeoutMs: numberField(block, 'TIMEOUT'), pollIntervalMs: 100, onTimeout: 'fail' };
+  if (block.type === 'bao2_wait_target') return { id: block.id, kind: 'wait', query: { kind: 'exists', resultType: 'boolean', locator: compileLocator(requiredValue(block, 'TARGET')) }, until: block.getFieldValue('STATE') === 'hidden' ? 'falsy' : 'truthy', timeoutMs: numberField(block, 'TIMEOUT'), pollIntervalMs: 0, onTimeout: 'fail' };
   if (block.type === 'bao2_let') {
     const name = textField(block, 'NAME');
     const value = compileExpression(requiredValue(block, 'VALUE'), bindings);
@@ -276,8 +277,8 @@ function createStatement(workspace: Blockly.Workspace, node: WorkflowNode): Bloc
     block = initialize(workspace.newBlock('bao2_if')); connectValue(block, 'CONDITION', createExpression(workspace, node.condition));
     connectStatements(block, 'THEN', workspace, node.then); if (node.else) connectStatements(block, 'ELSE', workspace, node.else);
   } else if (node.kind === 'loop') {
-    block = initialize(workspace.newBlock(node.mode === 'repeat' ? 'bao2_repeat' : 'bao2_while'));
-    connectValue(block, node.mode === 'repeat' ? 'COUNT' : 'CONDITION', createExpression(workspace, node.mode === 'repeat' ? node.count : node.condition));
+    block = initialize(workspace.newBlock(node.mode === 'repeat' ? 'bao2_repeat' : node.mode === 'forever' ? 'bao2_forever' : 'bao2_while'));
+    if (node.mode !== 'forever') connectValue(block, node.mode === 'repeat' ? 'COUNT' : 'CONDITION', createExpression(workspace, node.mode === 'repeat' ? node.count : node.condition));
     connectStatements(block, 'BODY', workspace, node.body);
   } else if (node.kind === 'break' || node.kind === 'continue') block = initialize(workspace.newBlock(node.kind === 'break' ? 'bao2_break' : 'bao2_continue'));
   else if (node.kind === 'wait' && 'durationMs' in node) { block = initialize(workspace.newBlock('bao2_wait')); connectValue(block, 'DURATION', createExpression(workspace, node.durationMs)); }

@@ -46,9 +46,9 @@ function isTargetNotFound(error: unknown): boolean {
 /** Maps the public JavaScript API to the same Core registries/services used by other frontends. */
 export function createJavaScriptAutomationHostPorts(services: JavaScriptAutomationServicePorts): JavaScriptAutomationHostPorts {
   return {
-    'input.click': async (params, signal) => { await services.actions.execute({ kind: 'click', target: params.target, button: params.button, count: params.count }, services.context(signal)); return null; },
-    'input.move': async (params, signal) => { await services.actions.execute({ kind: 'move', target: params.target, durationMs: params.durationMs }, services.context(signal)); return null; },
-    'input.drag': async (params, signal) => { await services.actions.execute({ kind: 'drag', from: params.from, to: params.to, button: params.button, durationMs: params.durationMs }, services.context(signal)); return null; },
+    'input.click': async (params, signal) => { await services.actions.execute({ kind: 'click', target: params.target, button: params.button, count: params.count, timeoutMs: params.timeoutMs, pollIntervalMs: params.pollIntervalMs }, services.context(signal)); return null; },
+    'input.move': async (params, signal) => { await services.actions.execute({ kind: 'move', target: params.target, durationMs: params.durationMs, timeoutMs: params.timeoutMs, pollIntervalMs: params.pollIntervalMs }, services.context(signal)); return null; },
+    'input.drag': async (params, signal) => { await services.actions.execute({ kind: 'drag', from: params.from, to: params.to, button: params.button, durationMs: params.durationMs, timeoutMs: params.timeoutMs, pollIntervalMs: params.pollIntervalMs }, services.context(signal)); return null; },
     'input.keyPress': async (params, signal) => { await services.input.keyPress(params.key, params.modifiers ?? [], signal); return null; },
     'input.typeText': async (params, signal) => { await services.input.typeText(params.text, params.intervalMs ?? 0, signal); return null; },
     'input.scroll': async (params, signal) => { await services.input.scroll(params.deltaX, params.deltaY, signal); return null; },

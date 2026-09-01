@@ -340,6 +340,45 @@ export default function AutomationPage(): React.JSX.Element {
       showError(error);
     }
   };
+  const deletePackage = async (): Promise<void> => {
+    if (!detail || running) return;
+    const warning = `确定删除自动化包“${detail.name}”吗？\n\n包内的主流程、脚本、素材和配置都会永久删除。`;
+    if (!window.confirm(warning)) return;
+    setBusy(true);
+    try {
+      const deletedName = detail.name;
+      await api.deletePackage(detail.packageId);
+      setSelectedScriptId('');
+      setMode('blocks');
+      await refresh();
+      setNotice(`已删除自动化包“${deletedName}”`);
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const deleteCurrentScript = async (): Promise<void> => {
+    if (!detail || !selectedScriptId || running) return;
+    const script = detail.scripts.find((entry) => entry.id === selectedScriptId);
+    if (!script) return;
+    const mainWarning = detail.mainEntryId === script.id
+      ? '\n\n这是当前主入口；删除后会自动切换到 Blockly 主流程或其他脚本。'
+      : '';
+    const dirtyWarning = dirty ? '\n\n尚未保存的修改也会丢失。' : '';
+    if (!window.confirm(`确定删除脚本“${script.name}”吗？${mainWarning}${dirtyWarning}`)) return;
+    setBusy(true);
+    try {
+      const next = await api.deleteScript(detail.packageId, script.id);
+      setSelectedScriptId('');
+      applyDetail(next);
+      setNotice(`已删除脚本“${script.name}”`);
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(false);
+    }
+  };
   const openTestScene = async (): Promise<void> => {
     setBusy(true);
     try {
@@ -518,6 +557,15 @@ export default function AutomationPage(): React.JSX.Element {
           >
             <Upload />
             导出
+          </button>
+          <button
+            className="danger"
+            disabled={!detail || busy || running}
+            onClick={() => void deletePackage()}
+            title="删除当前自动化包"
+          >
+            <Trash2 />
+            删除包
           </button>
           {running ? (
             <button onClick={() => void stop()}>
@@ -861,25 +909,34 @@ export default function AutomationPage(): React.JSX.Element {
                 <div className="awb-scene">
                   {testScene ? (
                     <>
-                      <div
+                      <svg
                         className="awb-scene-frame"
-                        style={{
-                          aspectRatio: `${testScene.sourceWidth} / ${testScene.sourceHeight}`,
-                        }}
+                        viewBox={`0 0 ${testScene.sourceWidth} ${testScene.sourceHeight}`}
+                        preserveAspectRatio="xMidYMid meet"
+                        role="img"
+                        aria-label={testScene.name}
                       >
-                        <img src={testScene.dataUrl} alt={testScene.name} />
+                        <image
+                          href={testScene.dataUrl}
+                          x="0"
+                          y="0"
+                          width={testScene.sourceWidth}
+                          height={testScene.sourceHeight}
+                        />
                         {testResult?.candidate && (
-                          <i
+                          <rect
                             className={testResult.matched ? 'matched' : 'candidate'}
-                            style={{
-                              left: `${(testResult.candidate.x / testScene.sourceWidth) * 100}%`,
-                              top: `${(testResult.candidate.y / testScene.sourceHeight) * 100}%`,
-                              width: `${(testResult.candidate.width / testScene.sourceWidth) * 100}%`,
-                              height: `${(testResult.candidate.height / testScene.sourceHeight) * 100}%`,
-                            }}
+                            x={testResult.candidate.x}
+                            y={testResult.candidate.y}
+                            width={testResult.candidate.width}
+                            height={testResult.candidate.height}
+                            vectorEffect="non-scaling-stroke"
                           />
                         )}
-                      </div>
+                      </svg>
+                      <span className="automation-test-scene-size">
+                        原图 {testScene.sourceWidth} × {testScene.sourceHeight} · 等比适应窗口
+                      </span>
                       <button
                         className="automation-test-scene-replace"
                         onClick={() => void openTestScene()}
@@ -928,6 +985,14 @@ export default function AutomationPage(): React.JSX.Element {
                     设为主入口
                   </button>
                 )}
+                <button
+                  className="danger"
+                  onClick={() => void deleteCurrentScript()}
+                  disabled={busy || running}
+                >
+                  <Trash2 />
+                  删除脚本
+                </button>
                 <button onClick={() => setMode('docs')}>
                   <BookOpen />
                   完整接口文档

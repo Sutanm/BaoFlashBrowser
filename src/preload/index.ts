@@ -218,6 +218,7 @@ const electronAPI = {
     updateWorkflow: (packageId: string, workflow: unknown) => safeInvoke('automation-v3:update-workflow', { packageId, workflow }),
     upsertScript: (packageId: string, id: string, name: string, source: string, permissions: string[], language?: 'javascript' | 'typescript') =>
       safeInvoke('automation-v3:upsert-script', { packageId, id, name, source, permissions, language }),
+    deleteScript: (packageId: string, scriptId: string) => safeInvoke('automation-v3:delete-script', { packageId, scriptId }),
     setMainEntry: (packageId: string, entryId: string) => safeInvoke('automation-v3:set-main-entry', { packageId, entryId }),
     deletePackage: (packageId: string) => safeInvoke('automation-v3:delete', { packageId }),
     openPackage: (i18n?: { title?: string; filterName?: string }) => safeInvoke('automation-v3:open', i18n ?? {}),

@@ -14,7 +14,7 @@ import type { JavaScriptSandboxRunHandle } from './javascript-sandbox-host';
 import { JavaScriptAutomationGrantStore } from './javascript-grant-store';
 import { automationMainEntryId } from '../../../shared/automation/package-v3';
 import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
-import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
+import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import { NativeImageTemplateProvider } from './native-image-template-provider';
 import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
@@ -116,7 +116,7 @@ function describeWorkflowNode(node: WorkflowNode): string {
   }
   if (node.kind === 'loop') {
     const count = node.mode === 'repeat' ? literalExpression(node.count) : undefined;
-    return typeof count === 'number' ? `重复执行 ${count} 次` : node.mode === 'while' ? '按条件重复执行' : '重复执行';
+    return typeof count === 'number' ? `重复执行 ${count} 次` : node.mode === 'while' ? '按条件重复执行' : '一直循环';
   }
   if (node.kind === 'if') return '判断条件';
   if (node.kind === 'query') {
@@ -143,6 +143,14 @@ function indexWorkflowNodes(root: WorkflowNode): ReadonlyMap<string, WorkflowNod
   };
   visit(root);
   return nodes;
+}
+
+function workflowReferencesScript(root: WorkflowNode, scriptId: string): boolean {
+  if (root.kind === 'callScript' && root.scriptId === scriptId) return true;
+  if (root.kind === 'sequence') return root.nodes.some((node) => workflowReferencesScript(node, scriptId));
+  if (root.kind === 'with' || root.kind === 'loop') return workflowReferencesScript(root.body, scriptId);
+  if (root.kind === 'if') return workflowReferencesScript(root.then, scriptId) || Boolean(root.else && workflowReferencesScript(root.else, scriptId));
+  return false;
 }
 
 function shouldReportWorkflowNode(node: WorkflowNode): boolean {
@@ -251,6 +259,32 @@ export class AutomationV3Service {
     return this.getPackage(input.packageId);
   }
 
+  async removeScript(packageId: string, scriptId: string): Promise<AutomationPackageV3Detail> {
+    await this.ready;
+    if (this.active?.packageId === packageId) throw new Error('自动化正在运行，请先停止后再删除脚本');
+    const current = this.repository.get(packageId);
+    const target = current.manifest.frontends.scripts.find((entry) => entry.id === scriptId);
+    if (!target) throw new Error('要删除的脚本不存在');
+    if (current.workflow && workflowReferencesScript(current.workflow.root, scriptId)) {
+      throw new Error('该脚本仍被 Blockly 的“运行脚本”积木引用，请先移除对应积木');
+    }
+    const entries = current.manifest.frontends.scripts.filter((entry) => entry.id !== scriptId);
+    if (!current.workflow && !entries.length) throw new Error('自动化包至少需要保留一个主入口');
+    const scripts = new Map(current.scripts); scripts.delete(target.path);
+    const profiles = new Map([...current.profiles].filter(([, profile]) => profile.entryId !== scriptId));
+    const currentMain = automationMainEntryId(current);
+    const mainEntryId = currentMain === scriptId
+      ? (current.workflow ? 'workflow' : entries[0]!.id)
+      : current.manifest.frontends.mainEntryId;
+    const manifest = {
+      ...current.manifest,
+      frontends: { ...current.manifest.frontends, scripts: entries, mainEntryId },
+    };
+    await this.repository.save(clonePackage(current, { manifest, scripts, profiles }));
+    await this.grants.removeEntry(packageId, scriptId);
+    return this.getPackage(packageId);
+  }
+
   async setMainEntry(packageId: string, entryId: string): Promise<AutomationPackageV3Detail> {
     await this.ready;
     const current = this.repository.get(packageId);
@@ -274,7 +308,13 @@ export class AutomationV3Service {
     for (const entry of source.manifest.frontends.scripts) await this.grants.approve(installed.packageId, entry.id, entry.permissions, approvals[entry.id] ?? []);
     return installed;
   }
-  async remove(packageId: string): Promise<void> { await this.ready; await this.closeAuthoringVision(packageId); await this.repository.remove(packageId); await this.grants.remove(packageId); }
+  async remove(packageId: string): Promise<void> {
+    await this.ready;
+    if (this.active?.packageId === packageId) throw new Error('自动化正在运行，请先停止后再删除自动化包');
+    await this.closeAuthoringVision(packageId);
+    await this.repository.remove(packageId);
+    await this.grants.remove(packageId);
+  }
   async export(packageId: string): Promise<Uint8Array> { await this.ready; return this.repository.export(packageId); }
 
   async start(packageId: string, frontendId: string, tabId: string, profilePath?: string): Promise<{ runId: string }> {
@@ -460,7 +500,16 @@ export class AutomationV3Service {
     try {
       const size = image.getSize(); const group = decodeAutomationImageGroup(asset);
       const frame: AutomationCapturedFrame = { image, bitmap: image.toBitmap(), bitmapSize: size, deviceSize: size, cssSize: size };
-      return await new AutomationVisionService(cached.matcher).locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask }, createAutomationAbortController().signal);
+      const vision = new AutomationVisionService(cached.matcher); const signal = createAutomationAbortController().signal;
+      let match = await vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask }, signal);
+      if (!match || match.score < _threshold) {
+        const fallbackScales = imageMatchFallbackScales(scales);
+        const fallback = fallbackScales.length
+          ? await vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: fallbackScales, mask }, signal)
+          : null;
+        if (fallback && (!match || fallback.score > match.score)) match = fallback;
+      }
+      return match;
     } finally {
       release();
       cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached);
@@ -501,7 +550,9 @@ export class AutomationV3Service {
       const predicted = references.length === assets.length && references.every(Boolean)
         ? surfaceReferenceImageScales(references as Array<{ width: number; height: number }>, logicalRegion!)
         : undefined;
-      return session.testImagePreview(asset, threshold, scales ?? predicted ?? imageMatchScales(), mask, logicalRegion, displayRegion);
+      const initialScales = scales ?? predicted ?? imageMatchScales();
+      const fallbackScales = scales === undefined ? imageMatchFallbackScales(initialScales) : [];
+      return session.testImagePreview(asset, threshold, initialScales, mask, logicalRegion, displayRegion, fallbackScales);
     });
     const fullImage = nativeImage.createFromBitmap(Buffer.from(result.preview.bitmap), { width: result.preview.width, height: result.preview.height });
     const cropped = cropPreview(fullImage, logicalRegion); const image = cropped.image; const imageSize = image.getSize();

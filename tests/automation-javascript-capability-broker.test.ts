@@ -37,6 +37,21 @@ describe('JavaScriptAutomationCapabilityBroker', () => {
     expect(call).not.toHaveBeenCalled();
   });
 
+  it('accepts bounded click target-acquisition options for script authors', async () => {
+    const call = vi.fn(async () => null);
+    const broker = new JavaScriptAutomationCapabilityBroker('run-token', new Set(['input']), ports({ 'input.click': call }));
+    const params = {
+      target: { locator: { kind: 'image', asset: 'dynamic.png', threshold: .9 } },
+      timeoutMs: 2_500,
+      pollIntervalMs: 80,
+    };
+    await expect(broker.handle(request('input.click', params))).resolves.toMatchObject({ ok: true });
+    expect(call).toHaveBeenCalledWith(params, expect.any(AbortSignal));
+
+    await expect(broker.handle(request('input.click', { ...params, timeoutMs: -1 })))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });
+  });
+
   it('rejects navigation protocols outside HTTP(S)', async () => {
     const broker = new JavaScriptAutomationCapabilityBroker('run-token', new Set(['page.navigate']), ports());
     await expect(broker.handle(request('page.navigate', { url: 'file:///C:/secret.txt' }))).resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });

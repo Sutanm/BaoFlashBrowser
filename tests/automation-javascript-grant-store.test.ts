@@ -10,9 +10,10 @@ afterEach(async () => { await Promise.all(roots.splice(0).map((root) => fs.promi
 describe('JavaScript automation install grants', () => {
   it('persists outside the package and never exceeds manifest permissions', async () => {
     const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'bao-js-grants-')); roots.push(root); const file = path.join(root, 'grants.json');
-    const first = new JavaScriptAutomationGrantStore(file); await first.initialize(); await first.approve('demo', 'main', ['input', 'log'], ['log']);
+    const first = new JavaScriptAutomationGrantStore(file); await first.initialize(); await first.approve('demo', 'main', ['input', 'log'], ['log']); await first.approve('demo', 'helper', ['notify'], ['notify']);
     const second = new JavaScriptAutomationGrantStore(file); await second.initialize(); expect(second.get('demo', 'main')).toEqual(['log']);
     await expect(second.approve('demo', 'main', ['log'], ['notify'])).rejects.toThrow('exceeds requested');
+    await second.removeEntry('demo', 'main'); expect(second.get('demo', 'main')).toEqual([]); expect(second.get('demo', 'helper')).toEqual(['notify']);
     await second.remove('demo'); expect(second.get('demo', 'main')).toEqual([]);
   });
 });

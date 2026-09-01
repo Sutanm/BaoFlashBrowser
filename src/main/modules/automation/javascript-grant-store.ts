@@ -38,6 +38,18 @@ export class JavaScriptAutomationGrantStore {
     await this.persist();
   }
 
+  async removeEntry(packageId: string, entryId: string): Promise<void> {
+    const packageGrants = this.grants[packageId];
+    if (!packageGrants || !(entryId in packageGrants)) return;
+    const nextPackageGrants = { ...packageGrants };
+    delete nextPackageGrants[entryId];
+    const next = { ...this.grants };
+    if (Object.keys(nextPackageGrants).length) next[packageId] = nextPackageGrants;
+    else delete next[packageId];
+    this.grants = next;
+    await this.persist();
+  }
+
   private async persist(): Promise<void> {
     await fs.promises.mkdir(path.dirname(this.filePath), { recursive: true });
     await fs.promises.writeFile(this.filePath, JSON.stringify(this.grants, null, 2));
