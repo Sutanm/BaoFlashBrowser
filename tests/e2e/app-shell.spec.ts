@@ -39,13 +39,24 @@ test.describe('browser shell', () => {
     try {
       const window = await app.firstWindow();
       await window.waitForLoadState('domcontentloaded');
+      // The initial tab is created asynchronously after hydration; wait until
+      // it settles to exactly one tab before navigating, otherwise the async
+      // creation can steal the active tab mid-flight (the workbench renders
+      // only when the active tab's URL is about:automation).
+      await expect(window.locator('.tab-item')).toHaveCount(1, { timeout: 15_000 });
       // about:newtab cannot be bookmarked by design; navigate to an
       // internal renderer page first, then bookmark it.
       const address = window.locator('.address-input');
       await address.fill('about:automation');
       await address.press('Enter');
       await expect(window.locator('.automation-workbench-v3')).toBeVisible({ timeout: 15_000 });
+      // Wait for the address bar to reflect the navigation so the bookmark
+      // toggle targets about:automation instead of the still-active newtab.
+      await expect(address).toHaveValue('about:automation', { timeout: 10_000 });
       await window.locator('.address-bookmark-button').click();
+      // The success toast is the reliable signal that the bookmark landed.
+      await expect(window.locator('.toast-overlay')).toBeVisible({ timeout: 10_000 });
+      await expect(window.locator('.toast-message')).toContainText('已收藏', { timeout: 10_000 });
       await window.locator('.sidebar-toggle-button').click();
       await expect(window.locator('.fav-item').first()).toBeVisible({ timeout: 10_000 });
     } finally {
@@ -58,6 +69,8 @@ test.describe('browser shell', () => {
     try {
       const window = await app.firstWindow();
       await window.waitForLoadState('domcontentloaded');
+      // Same race guard as the bookmarking test above.
+      await expect(window.locator('.tab-item')).toHaveCount(1, { timeout: 15_000 });
       const address = window.locator('.address-input');
       await address.fill('about:automation');
       await address.press('Enter');

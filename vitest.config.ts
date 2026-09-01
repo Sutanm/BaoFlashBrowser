@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -26,10 +27,29 @@ export default defineConfig({
   ],
   test: {
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        minThreads: 4,
-        maxThreads: 16,
+    minThreads: 4,
+    maxThreads: 16,
+    coverage: {
+      provider: 'v8',
+      // Keep V8 temp raw coverage and reports out of the workspace:
+      // vitest bulk-deletes its .tmp directory after every run, which
+      // trips the host sandbox's batch-delete guard on project paths.
+      // The OS temp dir is not subject to that protection.
+      reportsDirectory: path.join(os.tmpdir(), 'bao-flash-coverage'),
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/main/modules/automation/vision-worker.cjs',
+        'src/main/modules/userscripts/bundled-scripts/**',
+        'src/renderer/i18n/**',
+        'src/renderer/types/**',
+        'src/shared/types/**',
+        'src/renderer/store/**',
+      ],
+      thresholds: {
+        lines: 30,
+        functions: 28,
+        branches: 28,
+        statements: 30,
       },
     },
     projects: [
@@ -39,6 +59,7 @@ export default defineConfig({
           name: 'unit',
           include: ['tests/**/*.{test,spec}.{ts,tsx}'],
           exclude: [
+            'tests/e2e/**',
             'tests/automation-vision-worker.test.ts',
             'tests/automation-bao1-ocr-sidecar.test.ts',
             'tests/automation-paddle-sidecar-runtime.integration.test.ts',
