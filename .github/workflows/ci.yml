@@ -20,6 +20,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Heavy integration tests (OpenCV / OCR)
+        run: npm run test:integration
       - name: Userscript and CSS fixer smokes (Windows)
         if: runner.os == 'Windows'
         run: npm run test:userscripts && npm run test:userscripts-admin && npm run test:css-fixer && npm run test:smokes
@@ -50,6 +52,15 @@ jobs:
           xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/automation-m5-ruffle-visual-smoke.cjs
           node tests/electron/build-compatibility-smoke.mjs
           xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/session-compatibility-smoke.cjs
+      - name: Playwright shell e2e (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          xvfb-run -a ./node_modules/.bin/electron --version >/dev/null 2>&1 || true
+          npm run test:e2e
+        env:
+          # e2e launches Electron with --no-sandbox on Linux via helpers/launch.ts
+          CI: 'true'
 
   package:
     needs: check
