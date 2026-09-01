@@ -7,6 +7,11 @@ import {
 } from './crypto-helper';
 import { domainMatchesRule, normalizeDomainRule } from '../utils/domain-rules';
 import { selectFillEntry } from '../utils/password-fill-policy';
+import {
+  isSafeStorageAvailable,
+  encryptWithSafeStorage,
+  decryptWithSafeStorage,
+} from '../utils/safe-storage';
 
 interface EntryMeta {
   id: string;
@@ -67,10 +72,56 @@ export function validatePasswordStrength(password: string): string | null {
   return null;
 }
 
-const autoFillKeyStore = new Store<{ key: string | null }>({
+/**
+ * Auto-fill 免解锁密钥存储。
+ *
+ * 安全约束：key 必须经 OS 级凭据保护（safeStorage）后才落盘，绝不明文
+ * 保存。明文版本（旧实现）只用于读取迁移，任何新写入都走加密路径。
+ *
+ * 字段说明：
+ * - keyEnc: safeStorage 加密后的 base64（当前版本写入的唯一形态）
+ * - keyPlain: 旧版本明文遗留，读取到即迁移并删除
+ */
+interface AutoFillKeySchema {
+  keyEnc: string | null;
+  keyPlain: string | null;
+}
+
+const autoFillKeyStore = new Store<AutoFillKeySchema>({
   name: 'password-autofill-key',
-  defaults: { key: null },
+  defaults: { keyEnc: null, keyPlain: null },
 });
+
+/** 读取当前可用的 auto-fill key；无则返回 null。旧明文迁移到加密后即清除。 */
+function _readAutoFillKey(): Buffer | null {
+  const keyEnc = autoFillKeyStore.get('keyEnc');
+  if (keyEnc) {
+    const plain = decryptWithSafeStorage(keyEnc);
+    if (plain !== null) return unb64(plain);
+    return null;
+  }
+  // 迁移路径：旧版本明文 key —— 尝试加密后替换，再返回明文供本次使用。
+  const legacy = autoFillKeyStore.get('keyPlain');
+  if (legacy) {
+    const key = unb64(legacy);
+    const enc = encryptWithSafeStorage(legacy);
+    if (enc !== null) {
+      autoFillKeyStore.set('keyEnc', enc);
+      autoFillKeyStore.set('keyPlain', null);
+    }
+    return key;
+  }
+  return null;
+}
+
+/** 持久化一个新的 auto-fill key。safeStorage 不可用时拒绝写入（不清真落盘）。 */
+function _writeAutoFillKey(key: Buffer): boolean {
+  const encoded = encryptWithSafeStorage(b64(key));
+  if (encoded === null) return false;
+  autoFillKeyStore.set('keyEnc', encoded);
+  autoFillKeyStore.set('keyPlain', null);
+  return true;
+}
 
 function _clearAutoFillDek(): void {
   if (_dekForAutoFill) {
@@ -80,18 +131,26 @@ function _clearAutoFillDek(): void {
 }
 
 function _ensureAutoFillWrap(dek: Buffer): void {
-  const keyText = autoFillKeyStore.get('key');
+  const existing = _readAutoFillKey();
   let key: Buffer;
-  if (keyText) {
-    key = unb64(keyText);
+  if (existing) {
+    key = existing;
     if (key.length !== KEY_LEN) {
       key.fill(0);
       key = crypto.randomBytes(KEY_LEN);
-      autoFillKeyStore.set('key', b64(key));
+      if (!_writeAutoFillKey(key)) {
+        key.fill(0);
+        _clearAutoFillDek();
+        throw new Error('safeStorage unavailable: cannot persist auto-fill key');
+      }
     }
   } else {
     key = crypto.randomBytes(KEY_LEN);
-    autoFillKeyStore.set('key', b64(key));
+    if (!_writeAutoFillKey(key)) {
+      key.fill(0);
+      _clearAutoFillDek();
+      throw new Error('safeStorage unavailable: cannot persist auto-fill key');
+    }
     try {
       if (process.platform !== 'win32') fs.chmodSync(autoFillKeyStore.path, 0o600);
     } catch { /* best-effort permissions hardening */ }
@@ -114,10 +173,9 @@ function _tryEnsureAutoFillWrap(dek: Buffer): void {
 function _loadAutoFillDek(): void {
   _clearAutoFillDek();
   if (!_autoFill || !isInitialized()) return;
-  const keyText = autoFillKeyStore.get('key');
+  const key = _readAutoFillKey();
   const wrapped = store.get('dekAutoFillEnc');
-  if (!keyText || !wrapped) return;
-  const key = unb64(keyText);
+  if (!key || !wrapped) return;
   _dekForAutoFill = decryptBuf(key, wrapped);
   key.fill(0);
 }
