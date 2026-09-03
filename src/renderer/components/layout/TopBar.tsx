@@ -7,6 +7,7 @@ import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { TabState } from '@renderer/store/useTabsStore';
 import type { FlashEngineMode } from '@shared/types/settings';
 import AddressToastHost from '../overlays/AddressToastHost';
+import LoadingProgress from '../overlays/LoadingProgress';
 import ThemeToggle from '../panels/ThemeToggle';
 import { useDataStore } from '@renderer/store/useDataStore';
 
@@ -162,7 +163,7 @@ const TopBar: React.FC<TopBarProps> = ({
   }, [tabs, onSelectTab, onCloseTab, handleDragStart, handleDragOver, handleDrop]);
 
   return (
-    <div className="flex flex-col flex-shrink-0 topbar-toolbar">
+    <div className="flex flex-col flex-shrink-0 relative topbar-toolbar">
       <div
         className="flex items-stretch h-[45px] px-1 gap-0.5 topbar-tabbar drag-region"
       >
@@ -249,6 +250,7 @@ const TopBar: React.FC<TopBarProps> = ({
           </button>
         </div>
       </div>
+      <LoadingProgress visible={isLoading} />
     </div>
   );
 };

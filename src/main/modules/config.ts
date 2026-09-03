@@ -19,6 +19,8 @@ export interface Config {
   userscriptDownloadMaxMB: number;
   userscriptDownloadConcurrent: number;
   userscriptMaxValueKB: number;
+  automationVisionWarmStart: boolean;
+  automationOcrWarmStart: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -35,6 +37,9 @@ export const DEFAULT_CONFIG: Config = {
   userscriptDownloadMaxMB: 8,
   userscriptDownloadConcurrent: 4,
   userscriptMaxValueKB: 16,
+  // 常驻会占用较多内存(OpenCV WASM 约 128MB、OCR 约 234MB),换取首次识别不再等待加载。
+  automationVisionWarmStart: true,
+  automationOcrWarmStart: true,
 };
 
 export const CONFIG_KEYS = Object.keys(DEFAULT_CONFIG) as Array<keyof Config>;
@@ -68,6 +73,8 @@ export const CONFIG_SCHEMA: Store.Schema<Config> = {
   userscriptDownloadMaxMB: { type: 'number', minimum: 1, maximum: 64 },
   userscriptDownloadConcurrent: { type: 'number', minimum: 1, maximum: 16 },
   userscriptMaxValueKB: { type: 'number', minimum: 1, maximum: 1024 },
+  automationVisionWarmStart: { type: 'boolean' },
+  automationOcrWarmStart: { type: 'boolean' },
 };
 
 // electron-store 惰性实例化:config.ts 可能被 userscripts/index.ts 引用,

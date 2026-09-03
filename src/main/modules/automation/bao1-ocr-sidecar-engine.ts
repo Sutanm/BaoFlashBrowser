@@ -41,6 +41,16 @@ export class Bao1OcrSidecarEngine implements AutomationOcrEngine {
 
   get available(): boolean { return fs.existsSync(this.command.executable); }
 
+  /**
+   * 预热:提前 spawn 子进程并完成模型加载,避免首次识别等待冷启动。
+   * OCR runtime 未安装时返回 false,由调用方决定是否提示,不视为启动失败。
+   */
+  async warmup(): Promise<boolean> {
+    if (!this.available) return false;
+    await this.ensureStarted();
+    return true;
+  }
+
   async recognize(frame: AutomationCapturedFrame, signal: AbortSignal): Promise<OcrTextItem[]> {
     if (!this.available) throw new Error('OCR runtime is not installed');
     if (!frame.bitmap || !frame.bitmapSize) throw new Error('OCR capture has no bitmap pixels');

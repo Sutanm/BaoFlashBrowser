@@ -27,6 +27,12 @@ import { initDownloadManager, killAria2 } from './modules/download';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, preventCleanShutdownMark } from './modules/session-recovery';
 import { startMemoryMonitor, stopMemoryMonitor } from './modules/memory-monitor';
+import {
+  shutdownAutomationOcr,
+  shutdownAutomationVision,
+  warmStartAutomationOcr,
+  warmStartAutomationVision,
+} from './modules/automation/automation-warm-start';
 
 let automationService: ReturnType<typeof registerAutomationV3IPC> | null = null;
 
@@ -144,6 +150,7 @@ registerUserscriptsIPC();
     // 重任务延迟到首渲染后执行，不阻塞首屏展示
      setImmediate(() => {
       initDownloadManager();
+      startAutomationWarmStart();
      });
 
     app.on('web-contents-created', (_event, wc) => {
@@ -157,6 +164,8 @@ registerUserscriptsIPC();
   app.on('window-all-closed', () => {
     stopMemoryMonitor();
     void automationService?.shutdown();
+    void shutdownAutomationVision();
+    void shutdownAutomationOcr();
     killAria2();
     app.quit();
   });
@@ -185,6 +194,23 @@ registerUserscriptsIPC();
   });
 
   log.info(`[App] started, version ${app.getVersion()}`);
+}
+
+/** 按设置开关在后台预热自动化常驻资源,不阻塞首屏。 */
+function startAutomationWarmStart(): void {
+  const cfg = loadConfig();
+  if (cfg.automationVisionWarmStart) {
+    void warmStartAutomationVision().then((result) => {
+      if (!result.ok) log.warn(`[Automation] OpenCV 预热失败: ${result.error ?? 'unknown'}`);
+      else log.info(`[Automation] OpenCV Worker 预热完成 ${result.ms}ms`);
+    });
+  }
+  if (cfg.automationOcrWarmStart) {
+    void warmStartAutomationOcr().then((result) => {
+      if (!result.ok && result.error) log.warn(`[Automation] OCR 预热失败: ${result.error}`);
+      else if (result.ok) log.info(`[Automation] OCR Sidecar 预热完成 ${result.ms}ms`);
+    });
+  }
 }
 
 bootstrap();

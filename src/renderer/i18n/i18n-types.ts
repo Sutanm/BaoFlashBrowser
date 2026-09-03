@@ -448,61 +448,33 @@ type RootTranslation = {
 	}
 	password: {
 		/**
-		 * 尚​未​设​置​主​密​码
+		 * 密​码​管​理​器​已​停​用
 		 */
-		notSetup: string
+		disabledTitle: string
 		/**
-		 * 设​置​后​可​保​存​和​查​看​密​码
+		 * 启​用​后​可​保​存​并​自​动​填​充​密​码​，​无​需​设​置​主​密​码​。
 		 */
-		notSetupDesc: string
-		/**
-		 * 设​置​主​密​码​ ​(​8​位​,​ ​含​大​小​写​+​数​字​)
-		 */
-		setupPlaceholder: string
-		/**
-		 * 确​认​主​密​码
-		 */
-		confirmPlaceholder: string
-		/**
-		 * 设​置​主​密​码
-		 */
-		setupBtn: string
-		/**
-		 * 两​次​密​码​不​一​致
-		 */
-		mismatch: string
-		/**
-		 * 密​码​至​少​ ​8​ ​位
-		 */
-		tooShort: string
-		/**
-		 * 密​码​需​包​含​大​写​、​小​写​和​数​字
-		 */
-		complexityFail: string
-		/**
-		 * 设​置​失​败
-		 */
-		setupFailed: string
+		disabledDesc: string
 		/**
 		 * 启​用​密​码​本
 		 */
 		enable: string
 		/**
-		 * 输​入​主​密​码​解​锁
+		 * 启​用​密​码​管​理​器
 		 */
-		unlockPlaceholder: string
+		initTitle: string
 		/**
-		 * 解​锁
+		 * 无​需​主​密​码​。​启​用​后​自​动​填​充​/​保​存​密​码​；​查​看​明​文​密​码​将​验​证​系​统​登​录​身​份​（​即​将​支​持​）​。
 		 */
-		unlockBtn: string
+		initDesc: string
 		/**
-		 * 密​码​错​误
+		 * 启​用​密​码​管​理​器
 		 */
-		wrongPassword: string
+		initBtn: string
 		/**
-		 * 锁​定
+		 * 启​用​失​败
 		 */
-		lock: string
+		initFailed: string
 		/**
 		 * 暂​无​保​存​的​密​码
 		 */
@@ -532,7 +504,7 @@ type RootTranslation = {
 		 */
 		resetDone: string
 		/**
-		 * 重​置​将​清​空​所​有​已​保​存​的​密​码​，​需​重​新​设​置​主​密​码​。
+		 * 重​置​将​清​空​所​有​已​保​存​的​密​码​，​之​后​需​重​新​启​用​密​码​管​理​器​。
 		 */
 		resetDesc: string
 		/**
@@ -549,7 +521,7 @@ type RootTranslation = {
 		 */
 		savePrompt: RequiredParams<'host'>
 		/**
-		 * 密​码​保​存​失​败​，​请​解​锁​密​码​本​后​重​试
+		 * 密​码​保​存​失​败​，​请​重​试
 		 */
 		saveFailed: string
 		/**
@@ -573,13 +545,21 @@ type RootTranslation = {
 		 */
 		autoFill: string
 		/**
-		 * 密​码​本​锁​定​时​也​可​填​充​，​但​不​会​自​动​提​交​表​单​。
+		 * 启​用​后​自​动​填​充​已​保​存​的​密​码​，​不​会​自​动​提​交​表​单​。
 		 */
 		autoFillHint: string
 		/**
-		 * 旧​密​码​本​需​成​功​解​锁​一​次​，​之​后​才​能​在​锁​定​状​态​下​自​动​填​充​。
+		 * 系​统​钥​匙​串​保​护
 		 */
-		autoFillNeedsUnlock: string
+		tierA: string
+		/**
+		 * 本​地​弱​保​护​（​基​础​防​护​）
+		 */
+		tierC: string
+		/**
+		 * 查​看​密​码​需​验​证​身​份​（​即​将​支​持​）
+		 */
+		viewLocked: string
 		/**
 		 * 已​填​充​登​录​信​息​，​请​确​认​后​登​录
 		 */
@@ -897,6 +877,26 @@ type RootTranslation = {
 			 */
 			maxValueKB: string
 		}
+		/**
+		 * 自​动​化
+		 */
+		automation: string
+		/**
+		 * 常​驻​图​片​识​别​引​擎​ ​(​O​p​e​n​C​V​)
+		 */
+		automationVisionWarmStart: string
+		/**
+		 * 启​动​时​后​台​加​载​ ​O​p​e​n​C​V​ ​W​o​r​k​e​r​,​首​次​图​片​识​别​不​再​等​待​约​ ​5​ ​秒​。​常​驻​约​占​用​ ​1​2​8​ ​M​B​ ​内​存​。
+		 */
+		automationVisionWarmStartHint: string
+		/**
+		 * 常​驻​文​字​识​别​引​擎​ ​(​O​C​R​)
+		 */
+		automationOcrWarmStart: string
+		/**
+		 * 启​动​时​后​台​加​载​ ​O​C​R​ ​引​擎​,​首​次​文​字​识​别​不​再​等​待​。​常​驻​约​占​用​ ​2​3​4​ ​M​B​ ​内​存​;​标​准​版​不​含​ ​O​C​R​ ​时​自​动​失​效​。
+		 */
+		automationOcrWarmStartHint: string
 		screenshot: {
 			/**
 			 * 截​图
@@ -1820,61 +1820,33 @@ export type TranslationFunctions = {
 	}
 	password: {
 		/**
-		 * 尚未设置主密码
+		 * 密码管理器已停用
 		 */
-		notSetup: () => LocalizedString
+		disabledTitle: () => LocalizedString
 		/**
-		 * 设置后可保存和查看密码
+		 * 启用后可保存并自动填充密码，无需设置主密码。
 		 */
-		notSetupDesc: () => LocalizedString
-		/**
-		 * 设置主密码 (8位, 含大小写+数字)
-		 */
-		setupPlaceholder: () => LocalizedString
-		/**
-		 * 确认主密码
-		 */
-		confirmPlaceholder: () => LocalizedString
-		/**
-		 * 设置主密码
-		 */
-		setupBtn: () => LocalizedString
-		/**
-		 * 两次密码不一致
-		 */
-		mismatch: () => LocalizedString
-		/**
-		 * 密码至少 8 位
-		 */
-		tooShort: () => LocalizedString
-		/**
-		 * 密码需包含大写、小写和数字
-		 */
-		complexityFail: () => LocalizedString
-		/**
-		 * 设置失败
-		 */
-		setupFailed: () => LocalizedString
+		disabledDesc: () => LocalizedString
 		/**
 		 * 启用密码本
 		 */
 		enable: () => LocalizedString
 		/**
-		 * 输入主密码解锁
+		 * 启用密码管理器
 		 */
-		unlockPlaceholder: () => LocalizedString
+		initTitle: () => LocalizedString
 		/**
-		 * 解锁
+		 * 无需主密码。启用后自动填充/保存密码；查看明文密码将验证系统登录身份（即将支持）。
 		 */
-		unlockBtn: () => LocalizedString
+		initDesc: () => LocalizedString
 		/**
-		 * 密码错误
+		 * 启用密码管理器
 		 */
-		wrongPassword: () => LocalizedString
+		initBtn: () => LocalizedString
 		/**
-		 * 锁定
+		 * 启用失败
 		 */
-		lock: () => LocalizedString
+		initFailed: () => LocalizedString
 		/**
 		 * 暂无保存的密码
 		 */
@@ -1904,7 +1876,7 @@ export type TranslationFunctions = {
 		 */
 		resetDone: () => LocalizedString
 		/**
-		 * 重置将清空所有已保存的密码，需重新设置主密码。
+		 * 重置将清空所有已保存的密码，之后需重新启用密码管理器。
 		 */
 		resetDesc: () => LocalizedString
 		/**
@@ -1920,7 +1892,7 @@ export type TranslationFunctions = {
 		 */
 		savePrompt: (arg: { host: unknown }) => LocalizedString
 		/**
-		 * 密码保存失败，请解锁密码本后重试
+		 * 密码保存失败，请重试
 		 */
 		saveFailed: () => LocalizedString
 		/**
@@ -1944,13 +1916,21 @@ export type TranslationFunctions = {
 		 */
 		autoFill: () => LocalizedString
 		/**
-		 * 密码本锁定时也可填充，但不会自动提交表单。
+		 * 启用后自动填充已保存的密码，不会自动提交表单。
 		 */
 		autoFillHint: () => LocalizedString
 		/**
-		 * 旧密码本需成功解锁一次，之后才能在锁定状态下自动填充。
+		 * 系统钥匙串保护
 		 */
-		autoFillNeedsUnlock: () => LocalizedString
+		tierA: () => LocalizedString
+		/**
+		 * 本地弱保护（基础防护）
+		 */
+		tierC: () => LocalizedString
+		/**
+		 * 查看密码需验证身份（即将支持）
+		 */
+		viewLocked: () => LocalizedString
 		/**
 		 * 已填充登录信息，请确认后登录
 		 */
@@ -2267,6 +2247,26 @@ export type TranslationFunctions = {
 			 */
 			maxValueKB: () => LocalizedString
 		}
+		/**
+		 * 自动化
+		 */
+		automation: () => LocalizedString
+		/**
+		 * 常驻图片识别引擎 (OpenCV)
+		 */
+		automationVisionWarmStart: () => LocalizedString
+		/**
+		 * 启动时后台加载 OpenCV Worker,首次图片识别不再等待约 5 秒。常驻约占用 128 MB 内存。
+		 */
+		automationVisionWarmStartHint: () => LocalizedString
+		/**
+		 * 常驻文字识别引擎 (OCR)
+		 */
+		automationOcrWarmStart: () => LocalizedString
+		/**
+		 * 启动时后台加载 OCR 引擎,首次文字识别不再等待。常驻约占用 234 MB 内存;标准版不含 OCR 时自动失效。
+		 */
+		automationOcrWarmStartHint: () => LocalizedString
 		screenshot: {
 			/**
 			 * 截图

@@ -4,7 +4,7 @@ import type {
   Aria2StatusPayload, PasswordCapturedPayload, PasswordChangedPayload, PasswordFilledPayload,
   RuffleDiagnosticPayload,
 } from '@shared/types/ipc';
-import type { PasswordStoreStatus } from '@shared/types/passwords';
+import type { PasswordStoreStatus, RevealPasswordResult } from '@shared/types/passwords';
 import type { DownloadEngine, DownloadItem } from '@shared/types/downloads';
 import type { FlashPluginChannel } from '@shared/types/flash';
 import type { SessionRecoveryStatus } from '@shared/types/session';
@@ -23,6 +23,8 @@ interface MainConfig {
   userscriptDownloadMaxMB: number;
   userscriptDownloadConcurrent: number;
   userscriptMaxValueKB: number;
+  automationVisionWarmStart: boolean;
+  automationOcrWarmStart: boolean;
 }
 
 interface PasswordEntryMeta {
@@ -117,9 +119,7 @@ declare global {
       invoke(channel: 'tab:setBounds', payload: { x: number; y: number; w: number; h: number }): Promise<void>;
       invoke(channel: 'tab:setRuffleMode', payload: { tabId: string; enabled: boolean; source: 'bundled' | 'cdn' }): Promise<void>;
       invoke(channel: 'password:status'): Promise<PasswordStoreStatus>;
-      invoke(channel: 'password:setup', payload: { password: string }): Promise<PasswordOperationResult>;
-      invoke(channel: 'password:unlock', payload: { password: string }): Promise<PasswordOperationResult>;
-      invoke(channel: 'password:lock'): Promise<PasswordOperationResult>;
+      invoke(channel: 'password:init'): Promise<{ success: boolean; tier: 'A' | 'C' | 'none' }>;
       invoke(channel: 'password:toggle-enabled'): Promise<PasswordEnabledResult>;
       invoke(channel: 'password:set-auto-capture', payload: { enabled: boolean }): Promise<{ enabled: boolean }>;
       invoke(channel: 'password:set-auto-fill', payload: { enabled: boolean }): Promise<{ enabled: boolean; ready: boolean }>;
@@ -127,7 +127,7 @@ declare global {
       invoke(channel: 'password:save-confirm', payload: { captureId: string }): Promise<PasswordSaveResult>;
       invoke(channel: 'password:ignore', payload: { captureId: string }): Promise<PasswordOperationResult>;
       invoke(channel: 'password:delete', payload: { id: string }): Promise<PasswordOperationResult>;
-      invoke(channel: 'password:get-password', payload: { id: string }): Promise<string | null>;
+      invoke(channel: 'password:reveal', payload: { id: string }): Promise<RevealPasswordResult>;
       invoke(channel: 'password:set-default', payload: { id: string }): Promise<PasswordOperationResult>;
       invoke(channel: 'password:fill', payload: { tabId: string; id: string }): Promise<PasswordFillOperationResult>;
       invoke(channel: 'password:reset'): Promise<PasswordOperationResult>;
@@ -191,9 +191,7 @@ declare global {
 
       pwd: {
         status(): Promise<PasswordStoreStatus>;
-        setup(password: string): Promise<PasswordOperationResult>;
-        unlock(password: string): Promise<PasswordOperationResult>;
-        lock(): Promise<PasswordOperationResult>;
+        init(): Promise<{ success: boolean; tier: 'A' | 'C' | 'none' }>;
         toggleEnabled(): Promise<PasswordEnabledResult>;
         setAutoCapture(enabled: boolean): Promise<{ enabled: boolean }>;
         setAutoFill(enabled: boolean): Promise<{ enabled: boolean; ready: boolean }>;
@@ -202,7 +200,7 @@ declare global {
         saveConfirm(captureId: string): Promise<PasswordSaveResult>;
         ignore(captureId: string): Promise<PasswordOperationResult>;
         delete(id: string): Promise<PasswordOperationResult>;
-        getPassword(id: string): Promise<string | null>;
+        reveal(id: string): Promise<RevealPasswordResult>;
         setDefault(id: string): Promise<PasswordOperationResult>;
         fill(tabId: string, id: string): Promise<PasswordFillOperationResult>;
         resetAll(): Promise<PasswordOperationResult>;

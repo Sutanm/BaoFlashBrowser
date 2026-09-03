@@ -1,26 +1,21 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Key } from 'lucide-react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
-import type { PasswordEntry } from '@shared/types/passwords';
+import type { PasswordEntry, PasswordStoreStatus } from '@shared/types/passwords';
 import { useTabsStore } from '@renderer/store/useTabsStore';
 import { useDataStore } from '@renderer/store/useDataStore';
 
-function maskMiddle(str: string, keepStart: number, keepEnd: number): string {
-  if (str.length <= keepStart + keepEnd + 2) return str;
-  return str.slice(0, keepStart) + '******' + str.slice(-keepEnd);
-}
-
-interface StoreStatus { initialized: boolean; unlocked: boolean; enabled: boolean; }
-
+/**
+ * 侧边栏"密码本"面板 — v2（无主密码/无解锁态）。
+ * - 未启用：开启开关。
+ * - 已启用未建库：一键"启用密码管理器"（无任何密码输入）。
+ * - 已启用：列表常显；"查看/复制"走 reveal 门禁（Task5 view-gate 接线前
+ *   后端恒返回 not-authorized，UI 显示占位提示）。
+ */
 const PasswordsPanel: React.FC = () => {
   const { LL } = useI18nContext();
-  const [status, setStatus] = useState<StoreStatus | null>(null);
+  const [status, setStatus] = useState<PasswordStoreStatus | null>(null);
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
-  const [unlockPwd, setUnlockPwd] = useState('');
-  const [setupPwd, setSetupPwd] = useState('');
-  const [setupPwd2, setSetupPwd2] = useState('');
-  const [unlockError, setUnlockError] = useState(false);
-  const [setupError, setSetupError] = useState('');
   const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set());
   const [decryptedPasswords, setDecryptedPasswords] = useState<Map<string, string>>(new Map());
   const activeTabId = useTabsStore((state) => state.activeTabId);
@@ -30,9 +25,9 @@ const PasswordsPanel: React.FC = () => {
 
   const refreshStatus = useCallback(async () => {
     if (!api) return;
-    const s: StoreStatus = await api.status();
+    const s: PasswordStoreStatus = await api.status();
     setStatus(s);
-    if (s.unlocked) {
+    if (s.initialized && s.enabled) {
       const list: PasswordEntry[] = await api.list();
       setEntries(list);
     } else {
@@ -45,45 +40,35 @@ const PasswordsPanel: React.FC = () => {
 
   // 密码本数据变化通知（保存/删除/设置默认/重置后自动刷新列表）
   useEffect(() => {
-    const api = window.electronAPI;
-    if (!api?.on) return;
-    const unsub = api.on('password:changed', () => { refreshStatus(); });
+    const apiOn = window.electronAPI;
+    if (!apiOn?.on) return;
+    const unsub = apiOn.on('password:changed', () => { refreshStatus(); });
     return () => { if (unsub) unsub(); };
   }, [refreshStatus]);
 
-  const handleUnlock = async () => {
-    const result = await api.unlock(unlockPwd);
-    if (result.success) { setUnlockError(false); setUnlockPwd(''); refreshStatus(); }
-    else { setUnlockError(true); }
-  };
-
-  const handleSetup = async () => {
-    if (setupPwd !== setupPwd2) { setSetupError(LL.password.mismatch()); return; }
-    if (setupPwd.length < 8) { setSetupError(LL.password.tooShort()); return; }
-    if (!/[A-Z]/.test(setupPwd) || !/[a-z]/.test(setupPwd) || !/\d/.test(setupPwd)) {
-      setSetupError(LL.password.complexityFail()); return;
-    }
-    const result = await api.setup(setupPwd);
-    if (result.success) { setSetupError(''); refreshStatus(); }
-    else { setSetupError(result.error || LL.password.setupFailed()); }
-  };
-
   const handleToggleEnabled = async () => {
-    await api.toggleEnabled();
+    await api?.toggleEnabled();
     refreshStatus();
   };
 
-  const handleDelete = async (id: string) => {
-    await api.delete(id);
+  const handleInit = async () => {
+    if (!api) return;
+    const result = await api.init();
+    if (!result.success) pushToast({ message: LL.password.initFailed(), type: 'error' });
     refreshStatus();
   };
 
   const handleTogglePassword = async (id: string) => {
     if (decryptedPasswords.has(id)) {
       setDecryptedPasswords((prev) => { const m = new Map(prev); m.delete(id); return m; });
-    } else {
-      const pwd = await api.getPassword(id);
-      if (pwd) setDecryptedPasswords((prev) => new Map(prev).set(id, pwd));
+      return;
+    }
+    if (!api) return;
+    const result = await api.reveal(id);
+    if (result.password) {
+      setDecryptedPasswords((prev) => new Map(prev).set(id, result.password!));
+    } else if (result.error === 'not-authorized') {
+      pushToast({ message: LL.password.viewLocked(), type: 'warning' });
     }
   };
 
@@ -95,8 +80,8 @@ const PasswordsPanel: React.FC = () => {
       return;
     }
     try {
-      const result = await api.fill(activeTabId, id);
-      if (!result.success) pushToast({ message: LL.password.fillFailed(), type: 'warning' });
+      const result = await api?.fill(activeTabId, id);
+      if (!result?.success) pushToast({ message: LL.password.fillFailed(), type: 'warning' });
     } catch {
       pushToast({ message: LL.password.fillFailed(), type: 'error' });
     }
@@ -108,37 +93,30 @@ const PasswordsPanel: React.FC = () => {
 
   if (!status) return <div className="sidebar-empty">{LL.loading()}</div>;
 
+  // --- 未启用 ---
+  if (!status.enabled) {
+    return (
+      <div className="pwd-setup-container">
+        <div className="pwd-setup-hero">
+          <Key className="w-8 h-8" style={{ color: 'var(--text-secondary)', margin: '0 auto' }} />
+          <p className="pwd-setup-hero-title">{LL.password.disabledTitle()}</p>
+          <p className="pwd-setup-hero-sub">{LL.password.disabledDesc()}</p>
+        </div>
+        <button onClick={handleToggleEnabled} className="btn-secondary" style={{ width: '100%' }}>{LL.password.enable()}</button>
+      </div>
+    );
+  }
+
+  // --- 已启用、尚未建库：一键启用（无主密码） ---
   if (!status.initialized) {
     return (
       <div className="pwd-setup-container">
         <div className="pwd-setup-hero">
           <Key className="w-8 h-8" style={{ color: 'var(--text-secondary)', margin: '0 auto' }} />
-          <p className="pwd-setup-hero-title">{LL.password.notSetup()}</p>
-          <p className="pwd-setup-hero-sub">{LL.password.notSetupDesc()}</p>
+          <p className="pwd-setup-hero-title">{LL.password.initTitle()}</p>
+          <p className="pwd-setup-hero-sub">{LL.password.initDesc()}</p>
         </div>
-        <input type="password" className="input-text" placeholder={LL.password.setupPlaceholder()} value={setupPwd} onChange={(e) => setSetupPwd(e.target.value)} style={{ width: '100%' }} />
-        <input type="password" className="input-text" placeholder={LL.password.confirmPlaceholder()} value={setupPwd2} onChange={(e) => setSetupPwd2(e.target.value)} style={{ width: '100%' }} />
-        {setupError && <span className="pwd-error">{setupError}</span>}
-        <button onClick={handleSetup} className="btn-secondary" style={{ width: '100%' }}>{LL.password.setupBtn()}</button>
-      </div>
-    );
-  }
-
-  if (!status.unlocked) {
-    return (
-      <div className="pwd-setup-container">
-        <div className="pwd-settings-bar">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={status.enabled} onChange={handleToggleEnabled} />
-            {LL.password.enable()}
-          </label>
-        </div>
-        <div className="pwd-unlock-row">
-          <input type="password" className="input-text" placeholder={LL.password.unlockPlaceholder()} value={unlockPwd}
-            onChange={(e) => setUnlockPwd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUnlock()} style={{ width: '100%' }} />
-          <button className="btn-secondary" onClick={handleUnlock} style={{ width: '100%' }}>{LL.password.unlockBtn()}</button>
-        </div>
-        {unlockError && <span className="pwd-error">{LL.password.wrongPassword()}</span>}
+        <button onClick={handleInit} className="btn-secondary" style={{ width: '100%' }}>{LL.password.initBtn()}</button>
       </div>
     );
   }
@@ -154,7 +132,11 @@ const PasswordsPanel: React.FC = () => {
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={status.enabled} onChange={handleToggleEnabled} /> {LL.password.enable()}
         </label>
-        <button className="btn-secondary" onClick={async () => { await api.lock(); setUnlockPwd(''); refreshStatus(); }} style={{ marginLeft: 'auto', fontSize: 12, padding: '2px 8px' }}>{LL.password.lock()}</button>
+        {status.tier === 'C' ? (
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#b45309' }}>{LL.password.tierC()}</span>
+        ) : (
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#185fa5' }}>{LL.password.tierA()}</span>
+        )}
       </div>
       {hosts.length === 0 ? (
         <div className="sidebar-empty">{LL.password.empty()}</div>
@@ -170,9 +152,7 @@ const PasswordsPanel: React.FC = () => {
               {expandedHosts.has(host) && items.map((entry) => (
                 <div key={entry.id} className="pwd-entry">
                   <div className="pwd-entry-row">
-                    <span style={{ color: 'var(--text-primary)' }}>
-                      {status.unlocked ? entry.username : maskMiddle(entry.username, 3, 2)}
-                    </span>
+                    <span style={{ color: 'var(--text-primary)' }}>{entry.username}</span>
                     {entry.id === defaultId && <span className="pwd-default-star">★</span>}
                   </div>
                   <div className="pwd-entry-actions">
@@ -185,9 +165,9 @@ const PasswordsPanel: React.FC = () => {
                     {decryptedPasswords.has(entry.id) && (
                       <button className="btn-secondary pwd-btn-action" onClick={() => handleCopy(decryptedPasswords.get(entry.id)!)}>{LL.copy()}</button>
                     )}
-                    <button className="btn-secondary pwd-btn-action" onClick={async () => { await api.setDefault(entry.id); refreshStatus(); }}>{LL.password.setDefault()}</button>
+                    <button className="btn-secondary pwd-btn-action" onClick={async () => { await api?.setDefault(entry.id); refreshStatus(); }}>{LL.password.setDefault()}</button>
                     <button className="btn-secondary pwd-btn-action" onClick={() => handleFill(entry.id)}>{LL.password.fill()}</button>
-                    <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={() => handleDelete(entry.id)}>{LL.delete()}</button>
+                    <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={async () => { await api?.delete(entry.id); refreshStatus(); }}>{LL.delete()}</button>
                   </div>
                 </div>
               ))}

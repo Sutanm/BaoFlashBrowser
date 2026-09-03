@@ -16,10 +16,11 @@ import { automationMainEntryId } from '../../../shared/automation/package-v3';
 import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
 import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
-import { NativeImageTemplateProvider } from './native-image-template-provider';
-import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
+import { OpenCvWorkerMatcher } from './vision-worker-matcher';
+import { registerAutomationAssetSource, sharedAutomationOcrEngine, sharedAutomationVisionMatcher, shutdownAutomationVision } from './automation-warm-start';
+import { keyOutAssetBackground } from './asset-keyout';
+import { loadConfig } from '../config';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
-import { createAutomationOcrEngine } from './ocr-provider';
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import type { AutomationCapturedFrame } from './capability-contracts';
 import ts from 'typescript';
@@ -190,7 +191,8 @@ export class AutomationV3Service {
   private runStatus: AutomationRunStatus = { state: 'idle', executedSteps: 0, logs: [] };
   private readonly captures = new Map<string, { image: NativeImage; referenceKind: 'viewport' | 'region' | 'surface'; createdAt: number; timer: NodeJS.Timeout }>();
   private readonly authoringVision = new Map<string, AuthoringVisionSession>();
-  private readonly authoringOcr = createAutomationOcrEngine();
+  /** 与预热模块共享同一 Sidecar,避免工作台再建一个 OCR 进程。 */
+  private readonly authoringOcr = sharedAutomationOcrEngine();
   constructor(private readonly repository: AutomationPackageV3Repository, private readonly grants: JavaScriptAutomationGrantStore) {
     this.ready = Promise.all([repository.initialize(), grants.initialize()]).then(() => undefined);
   }
@@ -334,7 +336,9 @@ export class AutomationV3Service {
       tab = tabManager.beginAutomation(tabId, { mode: 'fixed', width: 1280, height: 720 });
       await tab.ready;
       this.updateRunStatus({ currentStep: '正在初始化 Automation Core' });
-      session = new BrowserViewAutomationCoreSession(tab, runtimePackage(source), profile, (message, level) => this.appendRunLog(level === 'error' ? 'error' : 'info', message), (entryId) => this.grants.get(packageId, entryId));
+      // 运行会话复用常驻 Worker/Sidecar,避免每次运行重新支付 OpenCV/OCR 冷启动。
+      registerAutomationAssetSource(packageId, runtimePackage(source));
+      session = new BrowserViewAutomationCoreSession(tab, runtimePackage(source), profile, (message, level) => this.appendRunLog(level === 'error' ? 'error' : 'info', message), (entryId) => this.grants.get(packageId, entryId), { matcher: sharedAutomationVisionMatcher(), ocrEngine: sharedAutomationOcrEngine() });
       const handle = frontendId === 'workflow' ? session.startWorkflow() : session.startJavaScript(frontendId, this.grants.get(packageId, frontendId));
       this.active = { session, handle, packageId, frontendId };
       this.updateRunStatus({ state: 'running', runId: handle.runId, currentStep: frontendId === 'workflow' ? '正在执行主流程' : `正在执行脚本 ${frontendId}` });
@@ -473,7 +477,11 @@ export class AutomationV3Service {
     if (crop.x + crop.width > size.width || crop.y + crop.height > size.height) throw new Error('asset selection is outside the captured frame');
     const asset = `assets/${clean}.png`;
     const source = this.repository.get(packageId); if (source.assets.has(asset) && !overwrite) throw new Error('asset already exists');
-    const assets = new Map(source.assets); assets.set(asset, new Uint8Array(capture.image.crop(crop).toPNG()));
+    // 自动剥离纯色背景:转成带 alpha 的 PNG 后,OpenCV Worker 会自动走 alpha mask
+    // 分支,避免模板把背景像素算进归一化相关性导致分数跌穿阈值。
+    const cropped = capture.image.crop(crop);
+    const { image: keyedAsset } = keyOutAssetBackground(cropped);
+    const assets = new Map(source.assets); assets.set(asset, new Uint8Array(keyedAsset.toPNG()));
     const assetMetadata = {
       ...(source.manifest.assetMetadata ?? {}),
       [asset]: { source: 'capture' as const, reference: { kind: capture.referenceKind, width: size.width, height: size.height } },
@@ -517,12 +525,12 @@ export class AutomationV3Service {
   }
 
   async testTextOnImage(image: NativeImage, query: string, match: 'contains' | 'exact' = 'contains', minConfidence = .5) {
-    const size = image.getSize(); const engine = createAutomationOcrEngine();
-    try {
-      const frame: AutomationCapturedFrame = { image, bitmap: image.toBitmap(), bitmapSize: size, deviceSize: size, cssSize: size };
-      const textService = new AutomationTextRecognitionService(engine); const signal = createAutomationAbortController().signal;
-      return textService.locateBestRecognized(frame, await textService.recognize(frame, signal), { text: query, match, minScore: minConfidence });
-    } finally { await engine.close?.(); }
+    const size = image.getSize();
+    // 复用常驻 Sidecar:这里每次新建一个进程都要付一次模型加载的冷启动成本。
+    const engine = sharedAutomationOcrEngine();
+    const frame: AutomationCapturedFrame = { image, bitmap: image.toBitmap(), bitmapSize: size, deviceSize: size, cssSize: size };
+    const textService = new AutomationTextRecognitionService(engine); const signal = createAutomationAbortController().signal;
+    return textService.locateBestRecognized(frame, await textService.recognize(frame, signal), { text: query, match, minScore: minConfidence });
   }
 
   async testText(packageId: string, tabId: string, text: string, match: 'contains' | 'exact' = 'contains', minConfidence = .5) {
@@ -638,15 +646,15 @@ export class AutomationV3Service {
   }
 
   private getAuthoringVision(packageId: string, source: AutomationPackageV3): AuthoringVisionSession {
+    // 素材源交给常驻 Worker 的注册表解析,模板按内容 SHA-256 缓存,跨包共享。
+    registerAutomationAssetSource(packageId, source);
     const existing = this.authoringVision.get(packageId);
     if (existing) return existing;
-    const provider = new CachingAutomationTemplateProvider(new NativeImageTemplateProvider({ load: async (requested) => {
-      const normalized = requested.startsWith('assets/') ? requested : `assets/${requested}`;
-      const bytes = source.assets.get(normalized) ?? source.assets.get(requested);
-      if (!bytes) throw new Error(`automation asset is missing: ${requested}`);
-      return { bytes, cacheKey: crypto.createHash('sha256').update(Buffer.from(bytes)).digest('hex') };
-    } }));
-    const cached: AuthoringVisionSession = { matcher: new OpenCvWorkerMatcher(provider), queue: Promise.resolve(), closeTimer: setTimeout(() => undefined, 0) };
+    const cached: AuthoringVisionSession = {
+      matcher: sharedAutomationVisionMatcher(),
+      queue: Promise.resolve(),
+      closeTimer: setTimeout(() => undefined, 0),
+    };
     clearTimeout(cached.closeTimer);
     cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached);
     this.authoringVision.set(packageId, cached);
@@ -654,10 +662,17 @@ export class AutomationV3Service {
   }
 
   private scheduleAuthoringVisionClose(packageId: string, cached: AuthoringVisionSession): NodeJS.Timeout {
+    // 常驻开启时 Worker 归预热模块所有。这里关闭它等于把下次识别打回冷启动,
+    // 因此只保留记录、不做实际回收。
+    if (loadConfig().automationVisionWarmStart) {
+      const idle = setTimeout(() => undefined, 0);
+      idle.unref();
+      return idle;
+    }
     const timer = setTimeout(() => {
       if (this.authoringVision.get(packageId) !== cached) return;
       this.authoringVision.delete(packageId);
-      void cached.queue.then(() => cached.matcher.close());
+      void cached.queue.then(() => shutdownAutomationVision());
     }, AUTHORING_VISION_IDLE_MS);
     timer.unref();
     return timer;
@@ -669,13 +684,14 @@ export class AutomationV3Service {
     this.authoringVision.delete(packageId);
     clearTimeout(cached.closeTimer);
     await cached.queue;
-    await cached.matcher.close();
+    // 常驻开启时保留 Worker;非常驻时释放,恢复"用完即回收"的旧行为。
+    if (!loadConfig().automationVisionWarmStart) await shutdownAutomationVision();
   }
 
   async shutdown(): Promise<void> {
     await this.cancel();
     await Promise.all([...this.authoringVision.keys()].map((packageId) => this.closeAuthoringVision(packageId)));
-    await this.authoringOcr.close?.();
+    // OCR Sidecar 与 OpenCV Worker 由预热模块统一持有,退出时在那里释放。
   }
 }
 

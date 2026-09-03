@@ -4,7 +4,6 @@ import DrawerSidebar from './components/layout/DrawerSidebar';
 import { isSidebarPanel, SIDEBAR_WIDTH } from './components/layout/DrawerSidebar';
 import NewTabPage from './components/newtab/NewTabPage';
 import UserscriptsPage from './components/userscripts/UserscriptsPage';
-import LoadingProgress from './components/overlays/LoadingProgress';
 import FindBar from './components/overlays/FindBar';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
@@ -271,16 +270,16 @@ const AppInner: React.FC = () => {
           downloadCount={activeDownloadCount}
         />}
 
-        <div style={{ display: isOnNewTab ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column', minWidth: 0 }}>
+        <div className="workspace-view" style={{ display: isOnNewTab ? 'flex' : 'none' }}>
           <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
         </div>
-        <div style={{ display: isOnUserscripts ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column', minWidth: 0 }}>
+        <div className="workspace-view" style={{ display: isOnUserscripts ? 'flex' : 'none' }}>
           <UserscriptsPage />
         </div>
-        {automationMounted && <div style={{ display: isOnAutomation ? 'flex' : 'none', flex: '1 1 0%', flexDirection: 'column', minWidth: 0 }}>
+        {automationMounted && <div className="workspace-view" style={{ display: isOnAutomation ? 'flex' : 'none' }}>
           <Suspense fallback={<div className="internal-page-loading">Loading Automation 2.0…</div>}><AutomationPage /></Suspense>
         </div>}
-        <div style={{ display: isCrashed ? 'flex' : 'none', flex: '1 1 0%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+        <div className="workspace-view workspace-view-center" style={{ display: isCrashed ? 'flex' : 'none' }}>
           <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>
           <button
             type="button"
@@ -300,7 +299,6 @@ const AppInner: React.FC = () => {
         </div>
 
       </div>
-      <LoadingProgress visible={activeTab?.isLoading ?? false} />
     </div>
   );
 };

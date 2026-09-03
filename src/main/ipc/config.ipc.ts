@@ -32,6 +32,8 @@ export function registerConfigIPC(): void {
     userscriptDownloadMaxMB: capacityField(1, 64).optional(),
     userscriptDownloadConcurrent: capacityField(1, 16).optional(),
     userscriptMaxValueKB: capacityField(1, 1024).optional(),
+    automationVisionWarmStart: z.boolean().optional(),
+    automationOcrWarmStart: z.boolean().optional(),
   }).strict(), (cfg: Partial<Config>) => {
     const ok = saveConfig(cfg);
     // 容量配置保存后热应用(无需重启)

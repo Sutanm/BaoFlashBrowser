@@ -2,49 +2,64 @@ import log from 'electron-log';
 import { z } from 'zod';
 import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
 import {
-  init, isInitialized, unlockWithMaster, lock, isUnlocked, setupMaster,
+  init, isInitialized, initVault, getTier, isEnabled, toggleEnabled,
   addEntry, listEntries, deleteEntry,
-  getDecryptedPassword,
-  setDefault, toggleEnabled, isEnabled, resetAll, isAutoCaptureEnabled, setAutoCapture,
+  setDefault, isAutoCaptureEnabled, setAutoCapture,
   getExcludedSites, setExcludedSites, isAutoFillEnabled, isAutoFillReady, setAutoFill,
+  isDekReady, resetAll,
 } from '../modules/password-store';
+import type { PasswordTier, RevealPasswordResult, ViewGuardMode } from '../../shared/types/passwords';
 import { getPendingCredential, removePendingCredential, notifyPasswordChanged } from '../modules/password-capture';
 import { tabManager } from '../modules/tabs';
 
-export function registerPasswordIPC(): void {
-  createHandler('password:status', () => ({
-    initialized: isInitialized(),
-    unlocked: isUnlocked(),
-    enabled: isEnabled(),
-    autoCapture: isAutoCaptureEnabled(),
-    autoFill: isAutoFillEnabled(),
-    autoFillReady: isAutoFillReady(),
-    excludedSites: getExcludedSites(),
-  }));
+/**
+ * 临时档位/门禁判定（Task 5 view-gate.ts 就绪后替换为真实模块）。
+ * 仅服务状态展示，不承载任何安全决策：reveal 在 Task 5 前恒 not-authorized。
+ */
+function resolveTierView(tier: PasswordTier): { mode: ViewGuardMode; fallbackEnabled: boolean; reason?: string } {
+  if (tier === 'none') return { mode: 'none', fallbackEnabled: false };
+  if (tier === 'C') return { mode: 'none', fallbackEnabled: false, reason: 'no-os-keyring' };
+  if (process.platform === 'win32') return { mode: 'os-win', fallbackEnabled: false };
+  if (process.platform === 'darwin') return { mode: 'os-mac', fallbackEnabled: false };
+  return { mode: 'keyring', fallbackEnabled: false };
+}
 
-  const passwordArg = z.object({ password: z.string().min(1).max(1024) }).strict();
+export function registerPasswordIPC(): void {
+  createHandler('password:status', async () => {
+    const tier: PasswordTier = isInitialized() ? (await getTier()) ?? 'none' : 'none';
+    return {
+      enabled: isEnabled(),
+      initialized: isInitialized(),
+      tier,
+      autoCapture: isAutoCaptureEnabled(),
+      autoFill: isAutoFillEnabled(),
+      autoFillReady: isAutoFillReady(),
+      viewGuard: resolveTierView(tier),
+      excludedSites: getExcludedSites(),
+    };
+  });
+
   const idArg = z.object({ id: z.string().min(1).max(128) }).strict();
   const captureArg = z.object({ captureId: z.string().min(1).max(128) }).strict();
 
-  createValidatedHandler('password:setup', passwordArg, async ({ password }) => {
-    const ok = await setupMaster(password);
-    if (ok) tabManager.refreshPasswordFill();
-    return { success: ok };
+  // v2：无主密码。无参通道按仓库惯例使用 createHandler（args=undefined 不校验）。
+  createHandler('password:init', async () => {
+    const result = await initVault();
+    if (result.success) tabManager.refreshPasswordFill();
+    return { success: result.success, tier: result.tier ?? 'none' };
   });
 
-  createValidatedHandler('password:unlock', passwordArg, async ({ password }) => {
-    const ok = await unlockWithMaster(password);
-    if (ok) tabManager.refreshPasswordFill();
-    return { success: ok };
+  // v2：列表常显（无解锁态）。
+  createHandler('password:list', () => {
+    if (!isEnabled()) return [];
+    return listEntries();
   });
-
-  createHandler('password:lock', () => { lock(); return { success: true }; });
 
   createHandler('password:toggle-enabled', async () => {
     const wasEnabled = isEnabled();
     const newState = toggleEnabled();
     if (!wasEnabled && newState) {
-      try { await init(); } catch (e: any) { log.warn('[Password] re-init failed:', e.message); }
+      try { await init(); } catch (error: any) { log.warn('[Password] re-init failed:', error?.message); }
     }
     return { enabled: newState };
   });
@@ -69,14 +84,9 @@ export function registerPasswordIPC(): void {
     return { excludedSites };
   });
 
-  createHandler('password:list', () => {
-    if (!isUnlocked()) return [];
-    return listEntries();
-  });
-
   createValidatedHandler('password:save-confirm', captureArg, ({ captureId }) => {
     if (!isEnabled()) return { success: false, error: 'Password store is disabled' };
-    if (!isUnlocked()) return { success: false, error: 'Password store is locked' };
+    if (!isInitialized() || !isDekReady()) return { success: false, error: 'Password store not ready' };
     const cred = getPendingCredential(captureId);
     if (!cred) return { success: false, error: 'Credentials expired' };
     try {
@@ -84,9 +94,9 @@ export function registerPasswordIPC(): void {
       removePendingCredential(captureId);
       notifyPasswordChanged();
       return { success: true };
-    } catch (e: any) {
-      log.error('[Password] save failed:', e.message);
-      return { success: false, error: e.message };
+    } catch (error: any) {
+      log.error('[Password] save failed:', error.message);
+      return { success: false, error: error.message };
     }
   });
 
@@ -101,9 +111,9 @@ export function registerPasswordIPC(): void {
     return { success: ok };
   });
 
-  createValidatedHandler('password:get-password', idArg, ({ id }) => {
-    if (!isUnlocked()) return null;
-    return getDecryptedPassword(id);
+  // v2 查看门禁：Task 5 view-gate 接线前恒 not-authorized，绝不直接暴露明文。
+  createValidatedHandler('password:reveal', idArg, (): RevealPasswordResult => {
+    return { error: 'not-authorized' };
   });
 
   createValidatedHandler('password:set-default', idArg, ({ id }) => {
@@ -125,11 +135,11 @@ export function registerPasswordIPC(): void {
     };
   });
 
-  createHandler('password:reset', async () => {
+  createHandler('password:reset', () => {
     resetAll();
     notifyPasswordChanged();
     return { success: true };
   });
 
-  log.info('[Password] IPC registered');
+  log.info('[Password] IPC registered (v2)');
 }

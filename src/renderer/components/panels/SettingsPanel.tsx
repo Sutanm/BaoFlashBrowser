@@ -4,7 +4,7 @@ import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { Settings } from '@shared/types/settings';
 import type { DownloadEngine } from '@shared/types/downloads';
 import type { FlashPluginChannel } from '@shared/types/flash';
-import { ArrowLeft, ChevronRight, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Cpu, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
 import { requiresMainConfigRestart } from '@renderer/services/settings-restart';
 import ToggleSwitch from '../controls/ToggleSwitch';
 
@@ -12,7 +12,7 @@ interface SettingsPanelProps {
   onOpenUrl: (url: string, newTab: boolean) => void;
 }
 
-type SettingsSection = 'general' | 'engine' | 'downloads' | 'privacy' | 'advanced';
+type SettingsSection = 'general' | 'engine' | 'downloads' | 'privacy' | 'automation' | 'advanced';
 
 interface MainConfigForm {
   flashVersion: string;
@@ -27,6 +27,8 @@ interface MainConfigForm {
   userscriptDownloadMaxMB: number;
   userscriptDownloadConcurrent: number;
   userscriptMaxValueKB: number;
+  automationVisionWarmStart: boolean;
+  automationOcrWarmStart: boolean;
 }
 
 const DEFAULT_MAIN_CONFIG: MainConfigForm = {
@@ -42,6 +44,8 @@ const DEFAULT_MAIN_CONFIG: MainConfigForm = {
   userscriptDownloadMaxMB: 8,
   userscriptDownloadConcurrent: 4,
   userscriptMaxValueKB: 16,
+  automationVisionWarmStart: true,
+  automationOcrWarmStart: true,
 };
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
@@ -58,6 +62,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   const [autoCapture, setAutoCapture] = useState(true);
   const [autoFill, setAutoFill] = useState(true);
   const [autoFillReady, setAutoFillReady] = useState(false);
+  const [passwordTier, setPasswordTier] = useState<'A' | 'C' | 'none'>('none');
   const [passwordStoreInitialized, setPasswordStoreInitialized] = useState(false);
   const [excludedSitesText, setExcludedSitesText] = useState('');
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
@@ -82,6 +87,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           userscriptDownloadMaxMB: cfg.userscriptDownloadMaxMB,
           userscriptDownloadConcurrent: cfg.userscriptDownloadConcurrent,
           userscriptMaxValueKB: cfg.userscriptMaxValueKB,
+          automationVisionWarmStart: cfg.automationVisionWarmStart ?? true,
+          automationOcrWarmStart: cfg.automationOcrWarmStart ?? true,
         };
         loadedMainFormRef.current = loaded;
         setMainForm(loaded);
@@ -95,6 +102,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       setAutoFill(status.autoFill);
       setAutoFillReady(status.autoFillReady);
       setPasswordStoreInitialized(status.initialized);
+      setPasswordTier(status.tier);
       setExcludedSitesText(status.excludedSites.join('\n'));
     }).catch(() => {});
   }, []);
@@ -161,6 +169,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         userscriptDownloadMaxMB: mainForm.userscriptDownloadMaxMB,
         userscriptDownloadConcurrent: mainForm.userscriptDownloadConcurrent,
         userscriptMaxValueKB: mainForm.userscriptMaxValueKB,
+        automationVisionWarmStart: mainForm.automationVisionWarmStart,
+        automationOcrWarmStart: mainForm.automationOcrWarmStart,
       });
       if (result === false) throw new Error('main config was not saved');
 
@@ -213,6 +223,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     setAutoFill(status.autoFill);
     setAutoFillReady(status.autoFillReady);
     setPasswordStoreInitialized(status.initialized);
+    setPasswordTier(status.tier);
     setExcludedSitesText(status.excludedSites.join('\n'));
     pushToast({ message: LL.password.resetDone(), type: 'info' });
   }, [resetConfirming, setStoreStatus, pushToast, LL]);
@@ -258,6 +269,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     { id: 'engine', title: `${LL.ruffle.flash()} / Ruffle`, description: `${LL.settings.spoofVersion()} · ${LL.settings.defaultEngine()}`, icon: Gauge },
     { id: 'downloads', title: `${LL.settings.download()} / ${LL.settings.screenshot.dir()}`, description: `${LL.settings.downloadEngine()} · ${LL.settings.screenshot.selectDir()}`, icon: Download },
     { id: 'privacy', title: LL.sidebar.passwords(), description: `${LL.password.autoCapture()} · ${LL.password.autoFill()}`, icon: Shield },
+    { id: 'automation', title: LL.settings.automation(), description: `${LL.settings.automationVisionWarmStart()} · ${LL.settings.automationOcrWarmStart()}`, icon: Cpu },
     { id: 'advanced', title: LL.settings.advanced(), description: `${LL.settings.userscriptCapacity.title()} · ${LL.settings.cacheTitle()}`, icon: Wrench },
   ];
 
@@ -504,9 +516,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           <span>
             <span className="field-label" style={{ display: 'block' }}>{LL.password.autoFill()}</span>
             <span className="field-hint">{LL.password.autoFillHint()}</span>
-            {passwordStoreInitialized && autoFill && !autoFillReady && (
-              <span className="field-hint" style={{ display: 'block', color: '#e67e22', marginTop: 3 }}>
-                {LL.password.autoFillNeedsUnlock()}
+            {passwordStoreInitialized && autoFillReady && (
+              <span className="field-hint" style={{ display: 'block', marginTop: 3 }}>
+                {passwordTier === 'C' ? LL.password.tierC() : LL.password.tierA()}
               </span>
             )}
           </span>
@@ -597,6 +609,34 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         >
           {clearingCache ? LL.settings.cacheClearing() : cacheConfirming ? LL.settings.cacheConfirm() : LL.settings.cacheClear()}
         </button>
+      </div>
+      )}
+
+      {activeSection === 'automation' && (
+      <div className="panel-card settings-section-card">
+        <div className="panel-card-title">{LL.settings.automation()}</div>
+        <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>
+            <span className="field-label" style={{ display: 'block' }}>{LL.settings.automationVisionWarmStart()}</span>
+            <span className="field-hint">{LL.settings.automationVisionWarmStartHint()}</span>
+          </span>
+          <ToggleSwitch
+            checked={mainForm.automationVisionWarmStart}
+            label={LL.settings.automationVisionWarmStart()}
+            onChange={(checked) => handleMainChange('automationVisionWarmStart', checked)}
+          />
+        </div>
+        <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>
+            <span className="field-label" style={{ display: 'block' }}>{LL.settings.automationOcrWarmStart()}</span>
+            <span className="field-hint">{LL.settings.automationOcrWarmStartHint()}</span>
+          </span>
+          <ToggleSwitch
+            checked={mainForm.automationOcrWarmStart}
+            label={LL.settings.automationOcrWarmStart()}
+            onChange={(checked) => handleMainChange('automationOcrWarmStart', checked)}
+          />
+        </div>
       </div>
       )}
       </div>

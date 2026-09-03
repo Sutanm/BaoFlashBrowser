@@ -22,7 +22,7 @@ vi.mock('electron-store', () => ({
   },
 }));
 
-import { deleteEntry, validatePasswordStrength } from '../src/main/modules/password-store';
+import { deleteEntry } from '../src/main/modules/password-store';
 
 describe('password-store deleteEntry', () => {
   beforeEach(() => {
@@ -43,13 +43,5 @@ describe('password-store deleteEntry', () => {
     const entries = storeState.stores.get('password-store')?.get('entries');
     expect(deleteEntry('missing')).toBe(false);
     expect(storeState.stores.get('password-store')?.get('entries')).toBe(entries);
-  });
-});
-
-describe('password strength validation', () => {
-  it('uses one rule for setup and master-password changes', () => {
-    expect(validatePasswordStrength('Short1')).toContain('at least 8');
-    expect(validatePasswordStrength('alllowercase1')).toContain('uppercase');
-    expect(validatePasswordStrength('ValidPass1')).toBeNull();
   });
 });

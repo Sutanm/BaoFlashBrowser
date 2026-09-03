@@ -68,7 +68,8 @@ describe('SettingsPanel section rendering', () => {
   it('requires confirmation before clearing both browser caches', async () => {
     const { container } = renderPanel();
     const categories = Array.from(container.querySelectorAll<HTMLButtonElement>('.settings-category-row'));
-    fireEvent.click(categories[4]);
+    const advanced = categories.find((button) => button.textContent?.includes('高级')) ?? categories[categories.length - 1];
+    fireEvent.click(advanced);
 
     const clearButton = screen.getByRole('button', { name: '清理网页缓存' });
     fireEvent.click(clearButton);

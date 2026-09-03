@@ -75,5 +75,7 @@ export interface AutomationVisionMatcher {
 export interface AutomationOcrEngine {
   readonly providerId?: string;
   recognize(frame: AutomationCapturedFrame, signal: AbortSignal): Promise<OcrTextItem[]>;
+  /** 预热:提前 spawn 子进程并完成模型加载;runtime 未安装时返回 false。 */
+  warmup?(): Promise<boolean>;
   close?(): Promise<void>;
 }
