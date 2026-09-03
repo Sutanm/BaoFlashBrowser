@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.8
-// @updateHash  44f95c8827d9
+// @updateHash  07425b8b4385
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -258,12 +258,16 @@
     image.addEventListener('load', fit, { once: true });
     fit();
   }
+  var crossTimer = 0;
   function clearPageCross() {
+    if (crossTimer) { clearTimeout(crossTimer); crossTimer = 0; }
     var old = document.getElementById('bao-diag-cross'); if (old) old.remove();
   }
   // 页面级诊断红框:把命中框按真实页面 CSS 坐标画在页面上,直接肉眼核对
   // 服务端报告的 pageX/pageY 是否真的落在目标上(与预览图内的绿框相互印证)。
   // 归一化模型下命中坐标在 1280x720 逻辑画布内,需按 inner/1280 换算回真实 CSS。
+  // 红框画在页面 DOM 上会被 capturePage 截进识别帧,故每次识别发起前必须清掉,
+  // 并让它在 3 秒后自动消失,避免残留遮挡或污染后续截图。
   function renderPageCross(value) {
     clearPageCross();
     if (!value || !value.candidate) return;
@@ -276,6 +280,10 @@
     var el = document.createElement('div'); el.id = 'bao-diag-cross';
     el.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;z-index:2147483000;border:2px dashed #ff3355;box-shadow:0 0 0 1px rgba(255,255,255,.65);pointer-events:none;background:rgba(255,51,85,.05)';
     document.body.appendChild(el);
+    crossTimer = setTimeout(function () {
+      crossTimer = 0;
+      var current = document.getElementById('bao-diag-cross'); if (current) current.remove();
+    }, 3000);
   }
   function renderMatch(value) {
     preview.innerHTML = ''; clearPageCross(); var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
@@ -326,6 +334,8 @@
     if (state.matchMode === 'image') { var pkg = currentPackage(); if (!pkg) { resultText.textContent = '没有 Automation 2.0 包，请先在工作台新建'; return; } if (!selectedAsset) { resultText.textContent = '当前包没有图片素材，请先到“取材”页捕获素材'; return; } }
     state.busy = true; resultText.textContent = '正在捕获当前页面…';
     try {
+      // 红框在页面 DOM 上,不先清除会被本轮的 capturePage 截进识别帧。
+      clearPageCross();
       await refreshBoundSurfaceIfNeeded();
       if (state.matchMode === 'text') await compareText();
       else {
@@ -348,6 +358,8 @@
     var pkg = currentPackage(); if (!pkg) { toast('请先选择自动化脚本'); return; }
     toast('正在捕获当前页面…');
     try {
+      // 清除残留的诊断红框,避免被截进取材预览图。
+      clearPageCross();
       await refreshBoundSurfaceIfNeeded();
       state.capture = await api.captureFrame(ocrRegion(), state.gameSurface ? 'surface' : 'viewport'); var image = captureLayer.querySelector('.bao-capture-image'); image.src = state.capture.dataUrl;
       captureLayer.classList.add('bao-active'); captureLayer.querySelector('.bao-selection').style.display = 'none'; captureLayer.querySelector('.bao-save').style.display = 'none'; captureLayer.querySelector('.bao-conflict').classList.remove('bao-show'); captureLayer.querySelector('.bao-capture-name').value = nextAssetName();
@@ -471,7 +483,7 @@
   ocrText.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); void compare(); } });
   root.querySelector('.bao-compare').addEventListener('click', function () { void compare(); });
   root.querySelector('.bao-monitor').addEventListener('click', function () { if (state.monitor) stopMonitor(); else { void compare(); state.monitor = setInterval(function () { void compare(); }, 1800); root.querySelector('.bao-monitor').textContent = '停止监测'; } });
-  startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) { toast('没有 Automation 2.0 包，请先在工作台新建'); return; } startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error)); } });
+  startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) { toast('没有 Automation 2.0 包，请先在工作台新建'); return; } clearPageCross(); startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error)); } });
   stopButton.addEventListener('click', async function () { try { await api.cancel(); toast('正在停止自动化脚本'); } catch (error) { toast(error.message || String(error)); } });
   root.querySelector('.bao-capture').addEventListener('click', function () { void beginCapture(); });
   root.querySelector('.bao-coordinate').addEventListener('click', function () { void beginCoordinatePick(); });
