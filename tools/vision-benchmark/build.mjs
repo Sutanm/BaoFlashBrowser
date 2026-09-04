@@ -6,12 +6,18 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const outputDirectory = path.join(root, '.cache', 'vision-benchmark');
 fs.mkdirSync(outputDirectory, { recursive: true });
 await build({
-  entryPoints: [path.join(import.meta.dirname, 'run.ts')],
-  outfile: path.join(outputDirectory, 'runner.cjs'),
+  entryPoints: {
+    runner: path.join(import.meta.dirname, 'run.ts'),
+    'color-poc': path.join(import.meta.dirname, 'run-color-poc.ts'),
+    'color-video-poc': path.join(import.meta.dirname, 'run-color-video-poc.ts'),
+  },
+  outdir: outputDirectory,
+  outExtension: { '.js': '.cjs' },
   bundle: true,
   platform: 'node',
   format: 'cjs',
   target: 'node12',
+  external: ['sharp'],
   sourcemap: false,
   logLevel: 'info',
 });

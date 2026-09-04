@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const asar = require('@electron/asar');
+const { parseModules } = require('./module-flags.cjs');
 
 const projectRoot = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
@@ -17,8 +18,15 @@ const arch = option('arch', process.arch);
 const ocrMode = option('ocr', 'none');
 const explicitRoot = option('root', '');
 const allowMissingArtifact = args.includes('--allow-missing-artifact');
+const modules = parseModules();
+const hasAutomation = modules.has('automation');
+const hasDownload = modules.has('download');
 const failures = [];
 const checkedFiles = [];
+
+if (ocrMode === 'bundled' && !hasAutomation) {
+  failures.push('bundled OCR requires the automation module');
+}
 
 function fail(message) {
   failures.push(message);
@@ -153,18 +161,18 @@ function verifySelectedResources(resourcesRoot, packaged = true) {
       'pe',
       'Windows x64 experimental China PPAPI',
     );
-    expectArch(path.join(native, 'aria2', 'aria2c.exe'), 'x64', 'pe', 'Windows x64 aria2');
+    if (hasDownload) expectArch(path.join(native, 'aria2', 'aria2c.exe'), 'x64', 'pe', 'Windows x64 aria2');
     expectArch(path.join(native, 'mouse-hook.exe'), 'ia32', 'pe', 'Windows mouse hook');
   } else if (platform === 'win32' && arch === 'ia32') {
     expectArch(path.join(plugins, 'win32', 'pepflashplayer.dll'), 'ia32', 'pe', 'Windows ia32 PPAPI');
     const aria2Path = packaged
       ? path.join(native, 'aria2', 'aria2c.exe')
       : path.join(native, 'aria2', 'win32', 'aria2c.exe');
-    expectArch(aria2Path, 'ia32', 'pe', 'Windows ia32 aria2');
+    if (hasDownload) expectArch(aria2Path, 'ia32', 'pe', 'Windows ia32 aria2');
     expectArch(path.join(native, 'mouse-hook.exe'), 'ia32', 'pe', 'Windows mouse hook');
   } else if (platform === 'linux' && arch === 'x64') {
     expectArch(path.join(plugins, 'linux64', 'libpepflashplayer64.so'), 'x64', 'elf', 'Linux x64 PPAPI');
-    expectArch(path.join(native, 'aria2', 'aria2c'), 'x64', 'elf', 'Linux x64 aria2');
+    if (hasDownload) expectArch(path.join(native, 'aria2', 'aria2c'), 'x64', 'elf', 'Linux x64 aria2');
     expectArch(path.join(native, 'mouse-hook-linux'), 'x64', 'elf', 'Linux mouse hook');
   } else if (platform === 'darwin' && arch === 'x64') {
     record(path.join(plugins, 'experimental', 'mac', 'README.txt'), 'macOS experimental support notice');
@@ -279,8 +287,20 @@ function verifyOcr(resourcesRoot, packaged) {
 
 function verifySource() {
   const dist = path.join(projectRoot, 'dist');
-  for (const name of ['main.js', 'preload.js', 'webview-preload.js', 'vision-worker.cjs', 'renderer/index.html', 'renderer/bundle.js', 'renderer/bundle.css']) {
+  const requiredDistFiles = [
+    'main.js',
+    'preload.js',
+    'webview-preload.js',
+    ...(hasAutomation ? ['vision-worker.cjs'] : []),
+    'renderer/index.html',
+    'renderer/bundle.js',
+    'renderer/bundle.css',
+  ];
+  for (const name of requiredDistFiles) {
     record(path.join(dist, name), `dist/${name}`);
+  }
+  if (!hasAutomation && fs.existsSync(path.join(dist, 'vision-worker.cjs'))) {
+    fail('dist unexpectedly contains vision-worker.cjs without the automation module');
   }
   if (fs.existsSync(path.join(dist, 'dist'))) fail('stale nested build output exists at dist/dist');
   verifyRuffle(dist);
@@ -323,9 +343,15 @@ function verifyAsar(asarPath) {
     'dist/lib/ruffle/SourceHanSans-LICENSE.txt',
     'node_modules/electron-log/package.json',
     'node_modules/electron-store/package.json',
-    'node_modules/@techstark/opencv-js/package.json',
+    ...(hasAutomation ? ['node_modules/@techstark/opencv-js/package.json'] : []),
   ];
   for (const name of required) if (!entries.includes(name)) fail(`app.asar is missing ${name}`);
+  if (!hasAutomation) {
+    if (entries.includes('dist/vision-worker.cjs')) fail('app.asar unexpectedly contains the vision worker');
+    if (entries.some((name) => name.startsWith('node_modules/@techstark/opencv-js/'))) {
+      fail('app.asar unexpectedly contains OpenCV.js without the automation module');
+    }
+  }
   if (!entries.some((name) => /^dist\/lib\/ruffle\/core\.ruffle\..+\.js$/.test(name))) fail('app.asar is missing a Ruffle core chunk');
   if (!entries.some((name) => /^dist\/lib\/ruffle\/.+\.wasm$/.test(name))) fail('app.asar is missing Ruffle WebAssembly');
   if (entries.some((name) => name.startsWith('dist/dist/'))) fail('app.asar contains stale dist/dist output');
@@ -359,7 +385,7 @@ function verifyUnpacked() {
   verifyAsar(path.join(resources, 'app.asar'));
   verifySelectedResources(resources);
   verifyOcr(resources, true);
-  verifyVisionWorkerUnpacked(resources);
+  if (hasAutomation) verifyVisionWorkerUnpacked(resources);
 
   if (platform === 'win32') {
     const exes = fs.readdirSync(root).filter((name) => name.endsWith('.exe'));

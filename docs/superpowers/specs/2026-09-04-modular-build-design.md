@@ -286,3 +286,95 @@ Since `MODULE_*` are compile-time constants, TypeScript will narrow the union co
 - `npm run build:no-automation` → no automation UI, userscripts work normally
 - `npm run build:no-userscripts` → no userscript UI, automation works normally
 - `npm test -- --run` → unit tests pass regardless of BAO_MODULES
+
+## 实施记录（2026-09-04）
+
+第一批已完成模块注册表、严格参数解析、esbuild/Vite编译期常量、条件Vision Worker、主进程启动守卫、BrowserView preload守卫及renderer入口/侧栏守卫。新增命令：
+
+- `npm run build:full`
+- `npm run build:minimal`
+- `npm run build:no-automation`
+- `npm run build:no-userscripts`
+
+最小构建的实际测量值为：
+
+| 产物 | 全功能基线 | `core` 第一批 | 变化 |
+|---|---:|---:|---:|
+| `dist/main.js` | 约11.2MiB | 约9.8MiB | 下降约1.0MiB，仍有主进程静态耦合待拆 |
+| `dist/webview-preload.js` | 约162KiB | 约116KiB | userscript/password启动代码已被编译期消除 |
+| renderer | 约623KiB主包 + 792KiB自动化块 | 约367KiB单主包 | 自动化/用户脚本工作台不再进入最小产物 |
+| `vision-worker.cjs` | 生成 | 不生成，旧文件也会清除 | 达标 |
+
+原“Estimated Build Size Impact”是设计前估值，不能作为验收数据。尤其主进程当前包含Ruffle资源读取及仍未解开的`session-manager`/`tabs`/userscript/automation依赖，第一批不会虚报为300KB。后续批次必须用产物字符串/元文件证明依赖图已消除。
+
+### 第二批：主进程物理裁剪
+
+第二批已完成阻止主进程瘦身的反向依赖拆除：
+
+- `session-manager` 不再静态导入 Download、JS Patch、Userscript，改由启动入口注入 Session 能力。
+- `tabs` 不再静态导入 Password、Userscript、Automation 实现，改由启动入口注入密码与脚本管理能力。
+- `config.ipc` 不再为热更新容量设置而导入整个 Userscript 模块。
+- 悬浮助手的 11 个 Automation IPC 从通用 `userscripts.ipc` 移入独立桥接层，仅在 Automation 与 Userscript 同时启用时注册。
+- 主入口的可选实现改为编译期守卫内加载。仅在调用点加 `if (MODULE_*)` 不足以裁剪带副作用的静态 ES import，本批已消除该误区。
+- 独立 Userscript smoke 构建显式注入全功能模块常量，避免绕过主构建配置时出现 `MODULE_PASSWORDS is not defined`。
+
+2026-09-04 实测（未压缩字节）：
+
+| 构建 | `main.js` | `webview-preload.js` | Automation Worker | 关键验证 |
+|---|---:|---:|---|---|
+| full | 10,816,632 B | 162,167 B | 生成 | 完整产物已恢复 |
+| core | 约205 KiB | 118,770 B | 不生成 | 助手、OCR、Vision、密码、下载、Userscript实现均不在主包 |
+| no-automation | 1,309,085 B | 162,167 B | 不生成 | 无`AutomationV3Service`、PaddleOCR、Vision Worker和助手桥通道 |
+| no-userscripts | 10,194,210 B | 120,287 B | 生成 | 无内置助手源码、`GmRequestService`、`GM_webRequest`和助手桥通道 |
+
+最小主进程由第一批约9.8MiB降至约200KiB，说明关闭可选模块现在是物理依赖裁剪，而非仅隐藏UI。Automation 本身仍占主包绝大多数；如果后续还要缩小全功能主包，应继续把 Automation Core 拆成按需加载边界，而不是再优化几十KiB的核心壳。
+
+第二批验证：TypeScript 全量检查通过；ESLint 0 error（保留35条既有 warning）；108个单元测试文件、644个测试通过；BrowserView Electron smoke通过；Userscript smoke必选项147/147通过。
+
+### 第三批：资源生成与安装包边界
+
+第三批让源码构建与electron-builder读取同一份严格模块清单：
+
+- 模块清单的实现下沉到`module-flags.cjs`，ESM构建配置通过薄包装复用，避免主构建和CJS打包配置各自解释`BAO_MODULES`。
+- `build:optional-assets`仅在启用Userscript时生成CSS Fixer，仅在Userscript与Automation同时启用时生成悬浮助手；`core`构建不再执行这两项无关生成任务。
+- 无Automation的Userscript构建不再内置或安装悬浮助手，避免向用户提供注定不可工作的入口。产物检查确认不存在助手源码、`GM_baoAutomation`与`userscript:automation-v3-*`通道。
+- electron-builder在关闭Download时不再携带aria2；关闭Automation时不再配置Vision Worker/OpenCV解包，并显式排除OpenCV npm依赖。
+- OCR安装包现在强制要求Automation模块，错误组合在打包前直接失败。
+- 发布校验按模块判断aria2、OpenCV和Vision Worker是否为必需项。
+
+本批已验证`core`和`no-automation`源码构建，且恢复了full产物；electron-builder配置的Windows x64 core解析结果只包含Flash插件与鼠标钩子，`asarUnpack`为空。尚未实际生成精简NSIS/AppImage，因此安装包尺寸和解包目录检查留给发布矩阵验收，不能写成已经通过。
+
+### 第四批：设置页与配置契约收口
+
+第四批处理“模块已关闭，但设置页仍显示或调用该模块”的半裁剪状态：
+
+- 设置分类、详情卡片与保存载荷都由编译期模块常量控制。关闭模块后，不再显示密码管理、Automation预热、Userscript容量、下载引擎或诊断导出入口。
+- 密码状态查询也受`MODULE_PASSWORDS`保护，精简版挂载设置页时不会访问未注册的密码IPC。
+- 截图目录属于浏览器核心截图能力，不等同于可选的Download模块；关闭Download后仍保留截图目录设置，分类标题改为仅描述截图。
+- 主进程`Config`把模块字段改为可选，并按当前构建生成`DEFAULT_CONFIG`、`CONFIG_KEYS`与electron-store Schema。旧配置文件中属于已关闭模块的键不会进入加载结果，也不会被保存。
+- `save-config`使用同一组编译期能力生成严格Zod Schema，精简版会拒绝而不是静默接受不存在模块的字段。
+- 可选模块内部读取配置时提供自身默认值，保证完整版以及由旧配置升级的运行环境行为不变。
+- Vitest固定按全功能能力运行；精简组合仍由实际`BAO_MODULES=core`构建验证，避免测试环境的未定义编译常量掩盖问题。
+
+`core`实测中，`dist/main.js`由本批修改前205,614 B降至203,143 B；主进程产物已不存在下载、Userscript容量和Automation预热配置键，也不存在密码、诊断IPC。renderer运行路径不再发出这些模块请求。安装包矩阵仍未执行。
+
+### 第五批：Windows Core 安装包实测
+
+首次执行Windows x64 Core打包时发现两处仅靠配置审查无法发现的发布问题：
+
+1. `verify-release`的源码必需文件列表仍无条件要求`vision-worker.cjs`，与模块清单矛盾。现已按Automation能力要求或禁止该文件。
+2. electron-builder的`files`数组由FileSet对象和一个OpenCV否定字符串组成。由于字符串模式中没有正向根路径，builder自动补入`**/*`，把`.cache`和`release`递归装入`app.asar`，一度生成11.4GB归档并触发安装器完整性保护。现以`dist/**/*`作为首个正向根路径，再应用OpenCV排除规则，并增加边界测试防止顺序回归。
+
+修复后Windows x64 Core实测结果：
+
+| 产物/检查 | 结果 |
+|---|---:|
+| `app.asar` | 70,208,858 B |
+| NSIS安装器 | 86,920,257 B |
+| unpacked发布校验 | 6项通过 |
+| aria2目录 | 不存在 |
+| OCR目录 | 不存在 |
+| Vision Worker解包文件 | 不存在 |
+| OpenCV.js解包依赖 | 不存在 |
+
+这次已真正生成NSIS，而不再只是解析electron-builder配置。Linux AppImage及其他模块组合的实际安装包仍未执行。

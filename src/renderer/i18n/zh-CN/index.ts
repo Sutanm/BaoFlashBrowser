@@ -123,6 +123,10 @@ const zhCN: BaseTranslation = {
     removeRecord: '移除记录',
     pause: '暂停下载',
     resume: '恢复下载',
+    pauseFailed: '暂停失败，请重试',
+    resumeFailed: '恢复失败，请重试',
+    removeRecordFailed: '移除记录失败，请重试',
+    clearFailed: '清除下载记录失败，请重试',
     cancel: '取消下载',
     // 状态
     paused: '已暂停',

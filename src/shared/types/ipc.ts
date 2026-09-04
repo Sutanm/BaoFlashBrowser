@@ -57,6 +57,7 @@ export interface DownloadProgressPayload {
   totalBytes?: number;
   savePath?: string;
   engine?: DownloadItem['engine'];
+  updatedAt?: number;
 }
 
 export interface ContextMenuPayload {

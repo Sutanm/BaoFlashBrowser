@@ -20,7 +20,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'load-config', 'save-config',
   'cache:clear',
   'download:aria2-status', 'download:get-dir', 'download:set-dir', 'download:delete-file',
-  'download:list', 'download:remove-record', 'download:clear-finished',
+  'download:list', 'download:remove-record', 'download:clear-finished', 'download:pause', 'download:resume',
   'password:status', 'password:init',
   'password:toggle-enabled', 'password:set-auto-capture', 'password:set-auto-fill', 'password:set-excluded-sites', 'password:list', 'password:save-confirm',
   'password:ignore', 'password:delete', 'password:reveal', 'password:set-default',
@@ -50,7 +50,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
 ]);
 
 const ALLOWED_SEND_CHANNELS = new Set([
-  'download:start', 'download:cancel', 'download:pause', 'download:resume',
+  'download:start', 'download:cancel',
   'download:open', 'download:openDir',
 ]);
 
@@ -119,8 +119,8 @@ const electronAPI = {
   dl: {
     start: (url: string, filename?: string) => safeSend('download:start', { url, filename }),
     cancel: (id: string) => safeSend('download:cancel', { id }),
-    pause: (id: string) => safeSend('download:pause', { id }),
-    resume: (id: string) => safeSend('download:resume', { id }),
+    pause: (id: string) => safeInvoke('download:pause', { id }),
+    resume: (id: string) => safeInvoke('download:resume', { id }),
     open: (savePath: string) => safeSend('download:open', { savePath }),
     openDir: (savePath: string) => safeSend('download:openDir', { savePath }),
     getDir: () => safeInvoke('download:get-dir'),

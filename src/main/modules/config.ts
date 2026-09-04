@@ -9,37 +9,43 @@ export interface Config {
   flashVersion: string;
   flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
-  downloadEngine: DownloadEngine;
-  downloadDir: string;
   screenshotDir: string;
-  userscriptMaxResponseMB: number;
-  userscriptTimeoutSeconds: number;
-  userscriptMaxConcurrentPerScript: number;
-  userscriptMaxConcurrentGlobal: number;
-  userscriptDownloadMaxMB: number;
-  userscriptDownloadConcurrent: number;
-  userscriptMaxValueKB: number;
-  automationVisionWarmStart: boolean;
-  automationOcrWarmStart: boolean;
+  downloadEngine?: DownloadEngine;
+  downloadDir?: string;
+  userscriptMaxResponseMB?: number;
+  userscriptTimeoutSeconds?: number;
+  userscriptMaxConcurrentPerScript?: number;
+  userscriptMaxConcurrentGlobal?: number;
+  userscriptDownloadMaxMB?: number;
+  userscriptDownloadConcurrent?: number;
+  userscriptMaxValueKB?: number;
+  automationVisionWarmStart?: boolean;
+  automationOcrWarmStart?: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
   flashVersion: DEFAULT_FLASH_VERSION,
   flashPluginChannel: 'stable',
   lowEndMode: false,
-  downloadEngine: 'aria2',
-  downloadDir: '',
   screenshotDir: '',
-  userscriptMaxResponseMB: 2,
-  userscriptTimeoutSeconds: 15,
-  userscriptMaxConcurrentPerScript: 4,
-  userscriptMaxConcurrentGlobal: 16,
-  userscriptDownloadMaxMB: 8,
-  userscriptDownloadConcurrent: 4,
-  userscriptMaxValueKB: 16,
+  ...(MODULE_DOWNLOAD ? {
+    downloadEngine: 'aria2' as DownloadEngine,
+    downloadDir: '',
+  } : {}),
+  ...(MODULE_USERSCRIPTS ? {
+    userscriptMaxResponseMB: 2,
+    userscriptTimeoutSeconds: 15,
+    userscriptMaxConcurrentPerScript: 4,
+    userscriptMaxConcurrentGlobal: 16,
+    userscriptDownloadMaxMB: 8,
+    userscriptDownloadConcurrent: 4,
+    userscriptMaxValueKB: 16,
+  } : {}),
   // 常驻会占用较多内存(OpenCV WASM 约 128MB、OCR 约 234MB),换取首次识别不再等待加载。
-  automationVisionWarmStart: true,
-  automationOcrWarmStart: true,
+  ...(MODULE_AUTOMATION ? {
+    automationVisionWarmStart: true,
+    automationOcrWarmStart: true,
+  } : {}),
 };
 
 export const CONFIG_KEYS = Object.keys(DEFAULT_CONFIG) as Array<keyof Config>;
@@ -56,25 +62,26 @@ export const CONFIG_SCHEMA: Store.Schema<Config> = {
   lowEndMode: {
     type: 'boolean',
   },
-  downloadEngine: {
-    type: 'string',
-    enum: ['chromium', 'aria2'],
-  },
-  downloadDir: {
-    type: 'string',
-  },
   screenshotDir: {
     type: 'string',
   },
-  userscriptMaxResponseMB: { type: 'number', minimum: 1, maximum: 64 },
-  userscriptTimeoutSeconds: { type: 'number', minimum: 1, maximum: 120 },
-  userscriptMaxConcurrentPerScript: { type: 'number', minimum: 1, maximum: 16 },
-  userscriptMaxConcurrentGlobal: { type: 'number', minimum: 1, maximum: 64 },
-  userscriptDownloadMaxMB: { type: 'number', minimum: 1, maximum: 64 },
-  userscriptDownloadConcurrent: { type: 'number', minimum: 1, maximum: 16 },
-  userscriptMaxValueKB: { type: 'number', minimum: 1, maximum: 1024 },
-  automationVisionWarmStart: { type: 'boolean' },
-  automationOcrWarmStart: { type: 'boolean' },
+  ...(MODULE_DOWNLOAD ? {
+    downloadEngine: { type: 'string', enum: ['chromium', 'aria2'] },
+    downloadDir: { type: 'string' },
+  } : {}),
+  ...(MODULE_USERSCRIPTS ? {
+    userscriptMaxResponseMB: { type: 'number', minimum: 1, maximum: 64 },
+    userscriptTimeoutSeconds: { type: 'number', minimum: 1, maximum: 120 },
+    userscriptMaxConcurrentPerScript: { type: 'number', minimum: 1, maximum: 16 },
+    userscriptMaxConcurrentGlobal: { type: 'number', minimum: 1, maximum: 64 },
+    userscriptDownloadMaxMB: { type: 'number', minimum: 1, maximum: 64 },
+    userscriptDownloadConcurrent: { type: 'number', minimum: 1, maximum: 16 },
+    userscriptMaxValueKB: { type: 'number', minimum: 1, maximum: 1024 },
+  } : {}),
+  ...(MODULE_AUTOMATION ? {
+    automationVisionWarmStart: { type: 'boolean' },
+    automationOcrWarmStart: { type: 'boolean' },
+  } : {}),
 };
 
 // electron-store 惰性实例化:config.ts 可能被 userscripts/index.ts 引用,

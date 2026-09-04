@@ -39,10 +39,10 @@ const BUNDLED_SCRIPTS: Array<{ id: string; source: string }> = [
     id: scriptIdFor('BaoFlash Modern CSS Fixer', 'bao-flash-browser'),
     source: cssFixerSource,
   },
-  {
+  ...(MODULE_AUTOMATION ? [{
     id: AUTOMATION_ASSISTANT_SCRIPT_ID,
     source: automationFrameAssistantSource,
-  },
+  }] : []),
 ];
 
 function ensureBundledScripts(): void {
@@ -121,10 +121,10 @@ export function initUserscriptManager(): UserscriptManager {
     session: persist,
     allowedLoopbackHosts: ['127.0.0.1', 'localhost'],
     maxRedirects: 5,
-    maxResponseBytes: cfg.userscriptMaxResponseMB * 1024 * 1024,
-    defaultTimeoutMs: cfg.userscriptTimeoutSeconds * 1000,
-    maxConcurrentPerScript: cfg.userscriptMaxConcurrentPerScript,
-    maxConcurrentGlobal: cfg.userscriptMaxConcurrentGlobal,
+    maxResponseBytes: (cfg.userscriptMaxResponseMB ?? 2) * 1024 * 1024,
+    defaultTimeoutMs: (cfg.userscriptTimeoutSeconds ?? 15) * 1000,
+    maxConcurrentPerScript: cfg.userscriptMaxConcurrentPerScript ?? 4,
+    maxConcurrentGlobal: cfg.userscriptMaxConcurrentGlobal ?? 16,
   });
   // @require/@resource use the same redirect/address validation as GM XHR,
   // but a separate, deliberately small capacity pool and no loopback grant.
@@ -152,13 +152,13 @@ export function initUserscriptManager(): UserscriptManager {
     downloadDir,
     session: persist,
     allowedLoopbackHosts: ['127.0.0.1'],
-    maxBytes: cfg.userscriptDownloadMaxMB * 1024 * 1024,
-    maxConcurrentPerScript: cfg.userscriptDownloadConcurrent,
+    maxBytes: (cfg.userscriptDownloadMaxMB ?? 8) * 1024 * 1024,
+    maxConcurrentPerScript: cfg.userscriptDownloadConcurrent ?? 4,
   });
   scriptStore = new ScriptStore();
   cookies = new GmCookieService();
   // GM 值上限可配置(设置页,重启生效);maxValueBytes 在构造时固定
-  const valueStore = new ValueStore({ maxValueBytes: cfg.userscriptMaxValueKB * 1024 });
+  const valueStore = new ValueStore({ maxValueBytes: (cfg.userscriptMaxValueKB ?? 16) * 1024 });
   // GM_webRequest observer: events are filtered by each script's @match rules
   // and sent to the registering view. setSend is wired to the same webContents
   // scan as the manager's value broadcasts.

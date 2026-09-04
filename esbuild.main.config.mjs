@@ -1,8 +1,10 @@
 import esbuild from 'esbuild';
 import { copy } from 'esbuild-plugin-copy';
 import fs from 'fs';
+import { moduleDefines, moduleSummary, parseModules } from './build/module-flags.mjs';
 
 const isWatch = process.argv.includes('--watch');
+const modules = parseModules();
 const provenance = JSON.parse(fs.readFileSync(new URL('./provenance.json', import.meta.url), 'utf8'));
 const provenanceShortId = `bfb:${provenance.fingerprint.slice(7, 23)}`;
 const provenanceBanner = `/*! ${provenance.project} | Copyright (c) ${provenance.year} ${provenance.author} | ${provenanceShortId} | ${provenance.origin} */`;
@@ -23,6 +25,11 @@ const shared = {
     '.user.js': 'text',
   },
   logLevel: 'info',
+  define: moduleDefines(modules),
+  // Compile-time module guards only become removable branches when syntax
+  // folding is enabled. Identifier/tree shaking alone keeps guarded IIFEs and
+  // their dependency graphs in the bundle.
+  minifySyntax: true,
   banner: { js: provenanceBanner },
 };
 
@@ -65,15 +72,18 @@ const builds = [
     entryPoints: ['src/javascript-sandbox-preload/index.ts'],
     outfile: 'dist/javascript-sandbox-preload.js',
   },
-  {
+  ...(modules.has('automation') ? [{
     ...shared,
     entryPoints: ['src/main/modules/automation/vision-worker.cjs'],
     outfile: 'dist/vision-worker.cjs',
-  },
+  }] : []),
 ];
 
 async function run() {
   try {
+    if (!isWatch && !modules.has('automation')) {
+      fs.rmSync('dist/vision-worker.cjs', { force: true });
+    }
     if (isWatch) {
       const ctxs = await Promise.all(builds.map((opts) => esbuild.context(opts)));
       await Promise.all(ctxs.map((ctx) => ctx.watch()));
@@ -82,7 +92,7 @@ async function run() {
       for (const opts of builds) {
         await esbuild.build(opts);
       }
-      console.log('[esbuild] build complete');
+      console.log(`[esbuild] build complete (modules: ${moduleSummary(modules)})`);
     }
   } catch (e) {
     console.error('[esbuild] build failed:', e);

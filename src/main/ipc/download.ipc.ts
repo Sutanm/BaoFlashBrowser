@@ -93,14 +93,14 @@ export function registerDownloadIPC(): void {
     cancelDownload(id);
   });
 
-  registerValidatedListener('download:pause', idArg, (_event, { id }) => {
+  createValidatedHandler('download:pause', idArg, async ({ id }) => {
     log.info('[Download] pause requested:', id);
-    pauseDownload(id);
+    return { success: await pauseDownload(id) };
   });
 
-  registerValidatedListener('download:resume', idArg, (_event, { id }) => {
+  createValidatedHandler('download:resume', idArg, async ({ id }) => {
     log.info('[Download] resume requested:', id);
-    resumeDownload(id);
+    return { success: await resumeDownload(id) };
   });
 
   registerValidatedListener('download:open', pathArg, (_event, { savePath }) => {

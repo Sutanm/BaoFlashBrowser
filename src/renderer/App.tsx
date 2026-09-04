@@ -3,7 +3,6 @@ import TopBar from './components/layout/TopBar';
 import DrawerSidebar from './components/layout/DrawerSidebar';
 import { isSidebarPanel, SIDEBAR_WIDTH } from './components/layout/DrawerSidebar';
 import NewTabPage from './components/newtab/NewTabPage';
-import UserscriptsPage from './components/userscripts/UserscriptsPage';
 import FindBar from './components/overlays/FindBar';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
@@ -20,7 +19,8 @@ import { loadAllLocales } from './i18n/i18n-util.sync';
 import { isLocale } from './i18n/i18n-util';
 import { computeBrowserViewBounds } from './services/browserview-bounds';
 
-const AutomationPage = lazy(() => import('./components/automation/AutomationPage'));
+const AutomationPage = MODULE_AUTOMATION ? lazy(() => import('./components/automation/AutomationPage')) : null;
+const UserscriptsPage = MODULE_USERSCRIPTS ? lazy(() => import('./components/userscripts/UserscriptsPage')) : null;
 
 const AppInner: React.FC = () => {
   const { LL, setLocale } = useI18nContext();
@@ -176,8 +176,8 @@ const AppInner: React.FC = () => {
   }, [ruffleMode, activeTabId, activeTab, updateTab, settings.ruffleSource]);
 
   const isOnNewTab = !activeTab || activeTab.url === 'about:newtab';
-  const isOnUserscripts = activeTab?.url === 'about:userscripts';
-  const isOnAutomation = activeTab?.url === 'about:automation';
+  const isOnUserscripts = MODULE_USERSCRIPTS && activeTab?.url === 'about:userscripts';
+  const isOnAutomation = MODULE_AUTOMATION && activeTab?.url === 'about:automation';
   const [automationMounted, setAutomationMounted] = useState(isOnAutomation);
   useEffect(() => { if (isOnAutomation) setAutomationMounted(true); }, [isOnAutomation]);
   const isCrashed = activeTab?.crashed === true;
@@ -273,11 +273,11 @@ const AppInner: React.FC = () => {
         <div className="workspace-view" style={{ display: isOnNewTab ? 'flex' : 'none' }}>
           <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
         </div>
-        <div className="workspace-view" style={{ display: isOnUserscripts ? 'flex' : 'none' }}>
-          <UserscriptsPage />
-        </div>
+        {UserscriptsPage && <div className="workspace-view" style={{ display: isOnUserscripts ? 'flex' : 'none' }}>
+          <Suspense fallback={<div className="internal-page-loading">Loading Userscripts…</div>}><UserscriptsPage /></Suspense>
+        </div>}
         {automationMounted && <div className="workspace-view" style={{ display: isOnAutomation ? 'flex' : 'none' }}>
-          <Suspense fallback={<div className="internal-page-loading">Loading Automation 2.0…</div>}><AutomationPage /></Suspense>
+          {AutomationPage && <Suspense fallback={<div className="internal-page-loading">Loading Automation 2.0…</div>}><AutomationPage /></Suspense>}
         </div>}
         <div className="workspace-view workspace-view-center" style={{ display: isCrashed ? 'flex' : 'none' }}>
           <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>

@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
+import { moduleDefines, moduleSummary, parseModules } from './build/module-flags.mjs';
 
 const provenance = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'provenance.json'), 'utf8')) as {
   project: string;
@@ -12,8 +13,10 @@ const provenance = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'provenanc
 };
 const provenanceShortId = `bfb:${provenance.fingerprint.slice(7, 23)}`;
 const provenanceBanner = `/*! ${provenance.project} | Copyright (c) ${provenance.year} ${provenance.author} | ${provenanceShortId} | ${provenance.origin} */`;
+const modules = parseModules();
 
 export default defineConfig({
+  define: moduleDefines(modules),
   root: 'src/renderer',
   plugins: [
     react(),
@@ -63,4 +66,7 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  logLevel: 'info',
 });
+
+console.log(`[vite] modules: ${moduleSummary(modules)}`);

@@ -13,18 +13,18 @@ interface MainConfig {
   flashVersion: string;
   flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
-  downloadEngine: DownloadEngine;
-  downloadDir: string;
+  downloadEngine?: DownloadEngine;
+  downloadDir?: string;
   screenshotDir: string;
-  userscriptMaxResponseMB: number;
-  userscriptTimeoutSeconds: number;
-  userscriptMaxConcurrentPerScript: number;
-  userscriptMaxConcurrentGlobal: number;
-  userscriptDownloadMaxMB: number;
-  userscriptDownloadConcurrent: number;
-  userscriptMaxValueKB: number;
-  automationVisionWarmStart: boolean;
-  automationOcrWarmStart: boolean;
+  userscriptMaxResponseMB?: number;
+  userscriptTimeoutSeconds?: number;
+  userscriptMaxConcurrentPerScript?: number;
+  userscriptMaxConcurrentGlobal?: number;
+  userscriptDownloadMaxMB?: number;
+  userscriptDownloadConcurrent?: number;
+  userscriptMaxValueKB?: number;
+  automationVisionWarmStart?: boolean;
+  automationOcrWarmStart?: boolean;
 }
 
 interface PasswordEntryMeta {
@@ -176,8 +176,8 @@ declare global {
       dl: {
         start(url: string, filename?: string): void;
         cancel(id: string): void;
-        pause(id: string): void;
-        resume(id: string): void;
+        pause(id: string): Promise<{ success: boolean }>;
+        resume(id: string): Promise<{ success: boolean }>;
         open(savePath: string): void;
         openDir(savePath: string): void;
         getDir(): Promise<string>;

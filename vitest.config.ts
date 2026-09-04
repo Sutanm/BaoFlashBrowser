@@ -2,8 +2,12 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { defineConfig } from 'vitest/config';
+import { moduleDefines, parseModules } from './build/module-flags.mjs';
 
 export default defineConfig({
+  // Unit tests exercise the historical full product unless a test invokes a
+  // build explicitly with a different BAO_MODULES selection.
+  define: moduleDefines(parseModules('all')),
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),

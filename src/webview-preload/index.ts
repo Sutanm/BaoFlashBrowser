@@ -32,6 +32,7 @@ declare global {
 }
 
 (function() {
+  if (!MODULE_PASSWORDS) return;
   try {
     // Only a presence signal crosses IPC; credentials stay in the main-process CDP path.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -239,6 +240,7 @@ console.log('[PRELOAD] webview-preload running');
 // --- Userscript runtime bootstrap (main frames and subframes) ---
 // Registered after the Ruffle/PPAPI shims; a failure must never break the page.
 (function () {
+  if (!MODULE_USERSCRIPTS) return;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { initUserscriptRuntime } = require('./userscripts/bootstrap');

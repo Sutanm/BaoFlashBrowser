@@ -386,6 +386,22 @@ type RootTranslation = {
 		 */
 		resume: string
 		/**
+		 * 暂​停​失​败​，​请​重​试
+		 */
+		pauseFailed: string
+		/**
+		 * 恢​复​失​败​，​请​重​试
+		 */
+		resumeFailed: string
+		/**
+		 * 移​除​记​录​失​败​，​请​重​试
+		 */
+		removeRecordFailed: string
+		/**
+		 * 清​除​下​载​记​录​失​败​，​请​重​试
+		 */
+		clearFailed: string
+		/**
 		 * 取​消​下​载
 		 */
 		cancel: string
@@ -1761,6 +1777,22 @@ export type TranslationFunctions = {
 		 * 恢复下载
 		 */
 		resume: () => LocalizedString
+		/**
+		 * 暂停失败，请重试
+		 */
+		pauseFailed: () => LocalizedString
+		/**
+		 * 恢复失败，请重试
+		 */
+		resumeFailed: () => LocalizedString
+		/**
+		 * 移除记录失败，请重试
+		 */
+		removeRecordFailed: () => LocalizedString
+		/**
+		 * 清除下载记录失败，请重试
+		 */
+		clearFailed: () => LocalizedString
 		/**
 		 * 取消下载
 		 */

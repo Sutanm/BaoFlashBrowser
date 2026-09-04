@@ -12,4 +12,6 @@ export interface DownloadItem {
   totalBytes: number;
   savePath: string;
   engine?: DownloadEngine;
+  /** Main-process wall-clock stamp used to reconcile snapshots and events. */
+  updatedAt?: number;
 }

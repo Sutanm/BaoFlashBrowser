@@ -110,7 +110,7 @@ export async function createDiagnosticReport(): Promise<Record<string, unknown>>
       flashVersion: config.flashVersion,
       flashPluginChannel: config.flashPluginChannel,
       lowEndMode: config.lowEndMode,
-      downloadEngine: config.downloadEngine,
+      downloadEngine: config.downloadEngine ?? 'unavailable',
       customDownloadDirectory: Boolean(config.downloadDir),
     },
     flash: {

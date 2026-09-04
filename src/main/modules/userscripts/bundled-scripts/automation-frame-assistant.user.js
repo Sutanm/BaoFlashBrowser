@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.8
-// @updateHash  07425b8b4385
+// @updateHash  e650d54731e9
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -18,7 +18,7 @@
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 
-/* global GM, window, document, innerWidth, innerHeight, setInterval, clearInterval, setTimeout */
+/* global GM, window, document, innerWidth, innerHeight, setInterval, clearInterval, setTimeout, clearTimeout */
 
 (function () {
   'use strict';

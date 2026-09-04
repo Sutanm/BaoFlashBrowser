@@ -10,7 +10,7 @@ describe('Automation password-CDP isolation', () => {
       tabsSource.indexOf('private _applyAutomationViewport'),
     );
     expect(begin.indexOf('this._clearPasswordFillTimers(wc.id)')).toBeGreaterThan(-1);
-    expect(begin.indexOf('this._clearPasswordFillTimers(wc.id)')).toBeLessThan(begin.indexOf('teardownCapture(wc)'));
+    expect(begin.indexOf('this._clearPasswordFillTimers(wc.id)')).toBeLessThan(begin.indexOf('passwordCapture.teardown(wc)'));
     expect(begin).toContain('this._schedulePasswordFill(wc, tabId)');
   });
 

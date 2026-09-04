@@ -31,22 +31,26 @@ interface MainConfigForm {
   automationOcrWarmStart: boolean;
 }
 
-const DEFAULT_MAIN_CONFIG: MainConfigForm = {
+const DEFAULT_MAIN_CONFIG = {
   flashVersion: '34.0.0.330',
   flashPluginChannel: 'stable',
   lowEndMode: false,
-  downloadEngine: 'aria2',
   screenshotDir: '',
-  userscriptMaxResponseMB: 2,
-  userscriptTimeoutSeconds: 15,
-  userscriptMaxConcurrentPerScript: 4,
-  userscriptMaxConcurrentGlobal: 16,
-  userscriptDownloadMaxMB: 8,
-  userscriptDownloadConcurrent: 4,
-  userscriptMaxValueKB: 16,
-  automationVisionWarmStart: true,
-  automationOcrWarmStart: true,
-};
+  ...(MODULE_DOWNLOAD ? { downloadEngine: 'aria2' as DownloadEngine } : {}),
+  ...(MODULE_USERSCRIPTS ? {
+    userscriptMaxResponseMB: 2,
+    userscriptTimeoutSeconds: 15,
+    userscriptMaxConcurrentPerScript: 4,
+    userscriptMaxConcurrentGlobal: 16,
+    userscriptDownloadMaxMB: 8,
+    userscriptDownloadConcurrent: 4,
+    userscriptMaxValueKB: 16,
+  } : {}),
+  ...(MODULE_AUTOMATION ? {
+    automationVisionWarmStart: true,
+    automationOcrWarmStart: true,
+  } : {}),
+} as MainConfigForm;
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   const settings = useDataStore((s) => s.settings);
@@ -78,18 +82,24 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           flashVersion: cfg.flashVersion,
           flashPluginChannel: cfg.flashPluginChannel,
           lowEndMode: cfg.lowEndMode,
-          downloadEngine: cfg.downloadEngine,
           screenshotDir: cfg.screenshotDir ?? '',
-          userscriptMaxResponseMB: cfg.userscriptMaxResponseMB,
-          userscriptTimeoutSeconds: cfg.userscriptTimeoutSeconds,
-          userscriptMaxConcurrentPerScript: cfg.userscriptMaxConcurrentPerScript,
-          userscriptMaxConcurrentGlobal: cfg.userscriptMaxConcurrentGlobal,
-          userscriptDownloadMaxMB: cfg.userscriptDownloadMaxMB,
-          userscriptDownloadConcurrent: cfg.userscriptDownloadConcurrent,
-          userscriptMaxValueKB: cfg.userscriptMaxValueKB,
-          automationVisionWarmStart: cfg.automationVisionWarmStart ?? true,
-          automationOcrWarmStart: cfg.automationOcrWarmStart ?? true,
-        };
+          ...(MODULE_DOWNLOAD ? {
+            downloadEngine: cfg.downloadEngine ?? DEFAULT_MAIN_CONFIG.downloadEngine,
+          } : {}),
+          ...(MODULE_USERSCRIPTS ? {
+            userscriptMaxResponseMB: cfg.userscriptMaxResponseMB ?? DEFAULT_MAIN_CONFIG.userscriptMaxResponseMB,
+            userscriptTimeoutSeconds: cfg.userscriptTimeoutSeconds ?? DEFAULT_MAIN_CONFIG.userscriptTimeoutSeconds,
+            userscriptMaxConcurrentPerScript: cfg.userscriptMaxConcurrentPerScript ?? DEFAULT_MAIN_CONFIG.userscriptMaxConcurrentPerScript,
+            userscriptMaxConcurrentGlobal: cfg.userscriptMaxConcurrentGlobal ?? DEFAULT_MAIN_CONFIG.userscriptMaxConcurrentGlobal,
+            userscriptDownloadMaxMB: cfg.userscriptDownloadMaxMB ?? DEFAULT_MAIN_CONFIG.userscriptDownloadMaxMB,
+            userscriptDownloadConcurrent: cfg.userscriptDownloadConcurrent ?? DEFAULT_MAIN_CONFIG.userscriptDownloadConcurrent,
+            userscriptMaxValueKB: cfg.userscriptMaxValueKB ?? DEFAULT_MAIN_CONFIG.userscriptMaxValueKB,
+          } : {}),
+          ...(MODULE_AUTOMATION ? {
+            automationVisionWarmStart: cfg.automationVisionWarmStart ?? true,
+            automationOcrWarmStart: cfg.automationOcrWarmStart ?? true,
+          } : {}),
+        } as MainConfigForm;
         loadedMainFormRef.current = loaded;
         setMainForm(loaded);
       }
@@ -97,6 +107,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   }, []);
 
   useEffect(() => {
+    if (!MODULE_PASSWORDS) return;
     window.electronAPI?.pwd?.status().then((status) => {
       setAutoCapture(status.autoCapture);
       setAutoFill(status.autoFill);
@@ -160,17 +171,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         flashVersion: mainForm.flashVersion,
         flashPluginChannel: mainForm.flashPluginChannel,
         lowEndMode: mainForm.lowEndMode,
-        downloadEngine: mainForm.downloadEngine,
         screenshotDir: mainForm.screenshotDir,
-        userscriptMaxResponseMB: mainForm.userscriptMaxResponseMB,
-        userscriptTimeoutSeconds: mainForm.userscriptTimeoutSeconds,
-        userscriptMaxConcurrentPerScript: mainForm.userscriptMaxConcurrentPerScript,
-        userscriptMaxConcurrentGlobal: mainForm.userscriptMaxConcurrentGlobal,
-        userscriptDownloadMaxMB: mainForm.userscriptDownloadMaxMB,
-        userscriptDownloadConcurrent: mainForm.userscriptDownloadConcurrent,
-        userscriptMaxValueKB: mainForm.userscriptMaxValueKB,
-        automationVisionWarmStart: mainForm.automationVisionWarmStart,
-        automationOcrWarmStart: mainForm.automationOcrWarmStart,
+        ...(MODULE_DOWNLOAD ? { downloadEngine: mainForm.downloadEngine } : {}),
+        ...(MODULE_USERSCRIPTS ? {
+          userscriptMaxResponseMB: mainForm.userscriptMaxResponseMB,
+          userscriptTimeoutSeconds: mainForm.userscriptTimeoutSeconds,
+          userscriptMaxConcurrentPerScript: mainForm.userscriptMaxConcurrentPerScript,
+          userscriptMaxConcurrentGlobal: mainForm.userscriptMaxConcurrentGlobal,
+          userscriptDownloadMaxMB: mainForm.userscriptDownloadMaxMB,
+          userscriptDownloadConcurrent: mainForm.userscriptDownloadConcurrent,
+          userscriptMaxValueKB: mainForm.userscriptMaxValueKB,
+        } : {}),
+        ...(MODULE_AUTOMATION ? {
+          automationVisionWarmStart: mainForm.automationVisionWarmStart,
+          automationOcrWarmStart: mainForm.automationOcrWarmStart,
+        } : {}),
       });
       if (result === false) throw new Error('main config was not saved');
 
@@ -267,10 +282,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   }> = [
     { id: 'general', title: LL.settings.general(), description: `${LL.settings.homepage()} · ${LL.settings.searchEngine()}`, icon: Globe2 },
     { id: 'engine', title: `${LL.ruffle.flash()} / Ruffle`, description: `${LL.settings.spoofVersion()} · ${LL.settings.defaultEngine()}`, icon: Gauge },
-    { id: 'downloads', title: `${LL.settings.download()} / ${LL.settings.screenshot.dir()}`, description: `${LL.settings.downloadEngine()} · ${LL.settings.screenshot.selectDir()}`, icon: Download },
-    { id: 'privacy', title: LL.sidebar.passwords(), description: `${LL.password.autoCapture()} · ${LL.password.autoFill()}`, icon: Shield },
-    { id: 'automation', title: LL.settings.automation(), description: `${LL.settings.automationVisionWarmStart()} · ${LL.settings.automationOcrWarmStart()}`, icon: Cpu },
-    { id: 'advanced', title: LL.settings.advanced(), description: `${LL.settings.userscriptCapacity.title()} · ${LL.settings.cacheTitle()}`, icon: Wrench },
+    {
+      id: 'downloads',
+      title: MODULE_DOWNLOAD ? `${LL.settings.download()} / ${LL.settings.screenshot.dir()}` : LL.settings.screenshot.dir(),
+      description: MODULE_DOWNLOAD ? `${LL.settings.downloadEngine()} · ${LL.settings.screenshot.selectDir()}` : LL.settings.screenshot.selectDir(),
+      icon: Download,
+    },
+    ...(MODULE_PASSWORDS ? [{ id: 'privacy' as const, title: LL.sidebar.passwords(), description: `${LL.password.autoCapture()} · ${LL.password.autoFill()}`, icon: Shield }] : []),
+    ...(MODULE_AUTOMATION ? [{ id: 'automation' as const, title: LL.settings.automation(), description: `${LL.settings.automationVisionWarmStart()} · ${LL.settings.automationOcrWarmStart()}`, icon: Cpu }] : []),
+    {
+      id: 'advanced',
+      title: LL.settings.advanced(),
+      description: MODULE_USERSCRIPTS ? `${LL.settings.userscriptCapacity.title()} · ${LL.settings.cacheTitle()}` : LL.settings.cacheTitle(),
+      icon: Wrench,
+    },
   ];
 
   if (!activeSection) {
@@ -400,7 +425,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       </div>
       )}
 
-      {activeSection === 'advanced' && (
+      {activeSection === 'advanced' && MODULE_USERSCRIPTS && (
       <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.userscriptCapacity.title()}</div>
         <div className="field-hint" style={{ marginBottom: 8 }}>{LL.settings.userscriptCapacity.hint()}</div>
@@ -461,7 +486,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       </div>
       )}
 
-      {activeSection === 'downloads' && (
+      {activeSection === 'downloads' && MODULE_DOWNLOAD && (
       <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.download()}</div>
         <div className="field">
@@ -498,7 +523,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       </div>
       )}
 
-      {activeSection === 'privacy' && (
+      {activeSection === 'privacy' && MODULE_PASSWORDS && (
       <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.sidebar.passwords()}</div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -576,18 +601,22 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         >
           {LL.settings.openLocalSwf()}
         </button>
-        <div className="field-hint" style={{ marginBottom: 8 }}>{LL.settings.diagnosticsHint()}</div>
-        <button
-          disabled={exportingDiagnostics}
-          onClick={handleExportDiagnostics}
-          style={{
-            width: '100%', padding: 8, borderRadius: 6, border: 'none',
-            background: 'var(--bg-hover)', color: 'var(--text-primary)', fontSize: 13,
-            cursor: exportingDiagnostics ? 'wait' : 'pointer', opacity: exportingDiagnostics ? 0.7 : 1,
-          }}
-        >
-          {exportingDiagnostics ? LL.settings.diagnosticsExporting() : LL.settings.diagnosticsExport()}
-        </button>
+        {MODULE_DIAGNOSTICS && (
+          <>
+            <div className="field-hint" style={{ marginBottom: 8 }}>{LL.settings.diagnosticsHint()}</div>
+            <button
+              disabled={exportingDiagnostics}
+              onClick={handleExportDiagnostics}
+              style={{
+                width: '100%', padding: 8, borderRadius: 6, border: 'none',
+                background: 'var(--bg-hover)', color: 'var(--text-primary)', fontSize: 13,
+                cursor: exportingDiagnostics ? 'wait' : 'pointer', opacity: exportingDiagnostics ? 0.7 : 1,
+              }}
+            >
+              {exportingDiagnostics ? LL.settings.diagnosticsExporting() : LL.settings.diagnosticsExport()}
+            </button>
+          </>
+        )}
       </div>
       )}
 
@@ -612,7 +641,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       </div>
       )}
 
-      {activeSection === 'automation' && (
+      {activeSection === 'automation' && MODULE_AUTOMATION && (
       <div className="panel-card settings-section-card">
         <div className="panel-card-title">{LL.settings.automation()}</div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

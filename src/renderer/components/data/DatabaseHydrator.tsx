@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../services/db';
 import { hydrateFromDb, useDataStore } from '../../store/useDataStore';
+import { reconcileDownloadSnapshot } from '@shared/utils/download-state';
 
 const DatabaseHydrator: React.FC = () => {
   const setDownloads = useDataStore((state) => state.setDownloads);
@@ -23,7 +24,11 @@ const DatabaseHydrator: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     window.electronAPI.dl.list()
-      .then((records) => { if (!cancelled && Array.isArray(records)) setDownloads(records); })
+      .then((records) => {
+        if (!cancelled && Array.isArray(records)) {
+          setDownloads((current) => reconcileDownloadSnapshot(current, records));
+        }
+      })
       .catch((error) => console.warn('[Download] main-process list failed:', error));
     return () => { cancelled = true; };
   }, [setDownloads]);

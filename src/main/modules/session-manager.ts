@@ -1,9 +1,24 @@
 import { session } from 'electron';
 import log from 'electron-log';
 import type { Session } from 'electron';
-import { chunkRedirectUrl } from './js-patch-service';
-import { setupDownloadHandlers } from './download';
-import { getWebRequestObserver } from './userscripts';
+
+export interface SessionWebRequestObserver {
+  notifyBeforeRequest(event: { url: string; method: string; webContentsId: number }): void;
+  attach(sess: Session): void;
+}
+
+export interface OptionalSessionServices {
+  downloadSetup?: (sess: Session) => void;
+  jsPatchRedirect?: (url: string) => string | null;
+  webRequestObserver?: SessionWebRequestObserver | null;
+}
+
+let optionalServices: OptionalSessionServices = {};
+
+/** Configure optional feature hooks before initSession() configures partitions. */
+export function configureOptionalSessionServices(services: OptionalSessionServices): void {
+  optionalServices = { ...services };
+}
 
 // Session does not expose its partition name in Electron 11. Dedupe by object
 // identity so defaultSession and persist: can never collapse into one key.
@@ -149,7 +164,7 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
     { urls: ['*://*/*'] },
     (details: any, callback: any) => {
       try {
-        const jsRedirect = chunkRedirectUrl(details.url);
+        const jsRedirect = optionalServices.jsPatchRedirect?.(details.url);
         if (jsRedirect) {
           callback({ redirectURL: jsRedirect });
           return;
@@ -161,7 +176,7 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
       } catch { /* let malformed/unexpected requests continue unchanged */ }
       // GM_webRequest observation: dispatch to interested scripts, never intercept.
       try {
-        getWebRequestObserver()?.notifyBeforeRequest({
+        optionalServices.webRequestObserver?.notifyBeforeRequest({
           url: details.url,
           method: details.method ?? 'GET',
           webContentsId: Number(details.webContentsId),
@@ -187,14 +202,14 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
   // GM_webRequest observation: onCompleted/onErrorOccurred are unoccupied in
   // Electron 11 (only onBeforeRequest/onHeadersReceived are taken above), so
   // the observer registers them directly.
-  getWebRequestObserver()?.attach(sess);
+  optionalServices.webRequestObserver?.attach(sess);
 
 }
 
 function applySessionConfig(sess: Session): void {
   applyCompatibilitySessionConfig(sess);
   // Unified download handler (Chromium tracking or aria2)
-  setupDownloadHandlers(sess);
+  optionalServices.downloadSetup?.(sess);
 }
 
 /**

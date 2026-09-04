@@ -157,16 +157,21 @@ describe('AutomationWorkflowRuntime', () => {
     const { runtime, records, createContext } = harness();
     const released = vi.fn(async () => undefined);
     const base = createContext(new AbortController().signal);
+    const derive = vi.fn();
     const createDerived = (signal: AbortSignal): RuntimeExecutionContext => ({
       ...base,
       signal,
-      derive: async () => ({ context: { ...base, signal }, release: released }),
+      derive: async (change) => {
+        derive(change);
+        return { context: { ...base, signal }, release: released };
+      },
     });
-    const result = await runtime.start(doc({ id: 'with', kind: 'with', surface: { kind: 'viewport' }, body: {
+    const result = await runtime.start(doc({ id: 'with', kind: 'with', surface: { kind: 'viewport' }, timeoutMs: 12_345, body: {
       id: 'record', kind: 'action', action: { kind: 'record', value: 'inside' },
     } }), createDerived).completion;
     expect(result.status).toBe('completed');
     expect(records).toEqual(['inside']);
+    expect(derive).toHaveBeenCalledWith(expect.objectContaining({ surface: { kind: 'viewport' }, timeoutMs: 12_345 }));
     expect(released).toHaveBeenCalledTimes(1);
   });
 

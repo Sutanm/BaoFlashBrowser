@@ -41,8 +41,18 @@ interface DrawerSidebarProps {
   downloadCount: number;
 }
 
-const PRIMARY_PANELS: PrimarySidebarPanel[] = ['favorites', 'history', 'downloads'];
-const SIDEBAR_PANELS: SidebarPanel[] = ['favorites', 'history', 'downloads', 'automation', 'userscripts', 'passwords', 'settings'];
+const PRIMARY_PANELS: PrimarySidebarPanel[] = [
+  'favorites',
+  'history',
+  ...(MODULE_DOWNLOAD ? ['downloads' as const] : []),
+];
+const SIDEBAR_PANELS: SidebarPanel[] = [
+  ...PRIMARY_PANELS,
+  ...(MODULE_AUTOMATION ? ['automation' as const] : []),
+  ...(MODULE_USERSCRIPTS ? ['userscripts' as const] : []),
+  ...(MODULE_PASSWORDS ? ['passwords' as const] : []),
+  'settings',
+];
 
 export function isSidebarPanel(panel: ActivePanel): panel is SidebarPanel {
   return panel !== null && SIDEBAR_PANELS.includes(panel as SidebarPanel);
@@ -95,7 +105,7 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const panelTabs: Array<{ id: PrimarySidebarPanel; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { id: 'favorites', label: LL.sidebar.favorites(), icon: Star },
     { id: 'history', label: LL.sidebar.history(), icon: Clock },
-    { id: 'downloads', label: LL.sidebar.downloads(), icon: Download },
+    ...(MODULE_DOWNLOAD ? [{ id: 'downloads' as const, label: LL.sidebar.downloads(), icon: Download }] : []),
   ];
 
   return (
@@ -135,10 +145,10 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
           />
         )}
         {displayedPanel === 'history' && <HistoryPanel currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
-        {displayedPanel === 'downloads' && <DownloadsPanel />}
-        {displayedPanel === 'userscripts' && <UserscriptsPanel tabId={activeTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
-        {displayedPanel === 'automation' && <AutomationPanel tabId={activeTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
-        {displayedPanel === 'passwords' && <PasswordsPanel />}
+        {MODULE_DOWNLOAD && displayedPanel === 'downloads' && <DownloadsPanel />}
+        {MODULE_USERSCRIPTS && displayedPanel === 'userscripts' && <UserscriptsPanel tabId={activeTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
+        {MODULE_AUTOMATION && displayedPanel === 'automation' && <AutomationPanel tabId={activeTabId} currentUrl={currentUrl} onOpenUrl={onOpenUrl} />}
+        {MODULE_PASSWORDS && displayedPanel === 'passwords' && <PasswordsPanel />}
         {displayedPanel === 'settings' && (
           <SettingsPanel
             onOpenUrl={onOpenUrl}
@@ -155,15 +165,15 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       </div>
 
       <div className="library-sidebar-footer">
-        <button type="button" aria-pressed={displayedPanel === 'automation'} onClick={() => setActivePanel(displayedPanel === 'automation' ? lastPrimaryPanel.current : 'automation')}>
+        {MODULE_AUTOMATION && <button type="button" aria-pressed={displayedPanel === 'automation'} onClick={() => setActivePanel(displayedPanel === 'automation' ? lastPrimaryPanel.current : 'automation')}>
           <Bot className="w-4 h-4" /><span>{LL.sidebar.automation()}</span>
-        </button>
-        <button type="button" aria-pressed={displayedPanel === 'userscripts'} onClick={() => setActivePanel(displayedPanel === 'userscripts' ? lastPrimaryPanel.current : 'userscripts')}>
+        </button>}
+        {MODULE_USERSCRIPTS && <button type="button" aria-pressed={displayedPanel === 'userscripts'} onClick={() => setActivePanel(displayedPanel === 'userscripts' ? lastPrimaryPanel.current : 'userscripts')}>
           <Puzzle className="w-4 h-4" /><span>{LL.sidebar.userscripts()}</span>
-        </button>
-        <button type="button" aria-pressed={displayedPanel === 'passwords'} onClick={() => setActivePanel(displayedPanel === 'passwords' ? lastPrimaryPanel.current : 'passwords')}>
+        </button>}
+        {MODULE_PASSWORDS && <button type="button" aria-pressed={displayedPanel === 'passwords'} onClick={() => setActivePanel(displayedPanel === 'passwords' ? lastPrimaryPanel.current : 'passwords')}>
           <Key className="w-4 h-4" /><span>{LL.sidebar.passwords()}</span>
-        </button>
+        </button>}
         <button type="button" aria-pressed={displayedPanel === 'settings'} onClick={() => setActivePanel(displayedPanel === 'settings' ? lastPrimaryPanel.current : 'settings')}>
           <SettingsIcon className="w-4 h-4" /><span>{LL.sidebar.settings()}</span>
         </button>

@@ -1,6 +1,6 @@
 # Automation 2.0 状态
 
-> 最后更新：2026-08-30
+> 最后更新：2026-09-04
 
 ## 当前状态
 
@@ -38,6 +38,12 @@
 - `npm run probe` 的构建新鲜度、config 和日志探针失败；原因分别为陈旧 smoke bundle、本机无 config、本机无 main.log，不视为产品逻辑失败。
 - 当前 `.baoauto` 已使用 `formatVersion: 2`；Automation 2.0 新格式不得复用该版本号。
 - 当前工作树包含用户对 `.idea/workspace.xml` 和 `browserview-driver.ts` 的未提交修改。
+
+## 进行中研究（未立项）
+
+| 研究 | 文档 | 结论 |
+|---|---|---|
+| 颜色定位（多点找色）可行性 | `color-locating-research.md` | 可行有边界：≥20px + 独特色彩目标唯一命中零假阳性；鱼钩类（大众色+极小）单帧不可解，靠玩法事件化重构绕开 |
 
 ## 最近完成批次
 

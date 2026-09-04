@@ -664,7 +664,7 @@ export class AutomationV3Service {
   private scheduleAuthoringVisionClose(packageId: string, cached: AuthoringVisionSession): NodeJS.Timeout {
     // 常驻开启时 Worker 归预热模块所有。这里关闭它等于把下次识别打回冷启动,
     // 因此只保留记录、不做实际回收。
-    if (loadConfig().automationVisionWarmStart) {
+    if (loadConfig().automationVisionWarmStart ?? true) {
       const idle = setTimeout(() => undefined, 0);
       idle.unref();
       return idle;
@@ -685,7 +685,7 @@ export class AutomationV3Service {
     clearTimeout(cached.closeTimer);
     await cached.queue;
     // 常驻开启时保留 Worker;非常驻时释放,恢复"用完即回收"的旧行为。
-    if (!loadConfig().automationVisionWarmStart) await shutdownAutomationVision();
+    if (!(loadConfig().automationVisionWarmStart ?? true)) await shutdownAutomationVision();
   }
 
   async shutdown(): Promise<void> {

@@ -1,4 +1,5 @@
 import esbuild from 'esbuild';
+import { moduleDefines, parseModules } from '../../build/module-flags.mjs';
 
 const shared = {
   bundle: true,
@@ -9,6 +10,10 @@ const shared = {
   loader: {
     '.user.js': 'text',
   },
+  // Standalone smoke bundles do not pass through esbuild.main.config.mjs.
+  // Exercise the historical/full preload unless a smoke explicitly tests a
+  // reduced module set.
+  define: moduleDefines(parseModules('all')),
 };
 
 await Promise.all([

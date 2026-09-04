@@ -70,26 +70,41 @@ const DownloadsPanel: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  const removeEntry = useCallback((e: React.MouseEvent, id: string) => {
+  const removeEntry = useCallback(async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    window.electronAPI.dl.removeRecord(id).catch(() => {});
-    setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== id));
-  }, [setDownloads]);
+    try {
+      const result = await window.electronAPI.dl.removeRecord(id);
+      if (!result.success) throw new Error('main process rejected record removal');
+      setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== id));
+    } catch {
+      pushToast({ message: LL.download.removeRecordFailed(), type: 'error' });
+    }
+  }, [setDownloads, pushToast, LL]);
 
   const cancelDl = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     window.electronAPI?.dl?.cancel(id);
   }, []);
 
-  const pauseDl = useCallback((e: React.MouseEvent, id: string) => {
+  const pauseDl = useCallback(async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    window.electronAPI?.dl?.pause(id);
-  }, []);
+    try {
+      const result = await window.electronAPI.dl.pause(id);
+      if (!result.success) pushToast({ message: LL.download.pauseFailed(), type: 'error' });
+    } catch {
+      pushToast({ message: LL.download.pauseFailed(), type: 'error' });
+    }
+  }, [pushToast, LL]);
 
-  const resumeDl = useCallback((e: React.MouseEvent, id: string) => {
+  const resumeDl = useCallback(async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    window.electronAPI?.dl?.resume(id);
-  }, []);
+    try {
+      const result = await window.electronAPI.dl.resume(id);
+      if (!result.success) pushToast({ message: LL.download.resumeFailed(), type: 'error' });
+    } catch {
+      pushToast({ message: LL.download.resumeFailed(), type: 'error' });
+    }
+  }, [pushToast, LL]);
 
   const openFile = useCallback((savePath: string) => {
     if (savePath) window.electronAPI?.dl?.open(savePath);
@@ -105,9 +120,13 @@ const DownloadsPanel: React.FC = () => {
     // L42: 校验 deleteFile 返回值，失败时不移除条目
     const success = await window.electronAPI?.dl?.deleteFile(entry.savePath);
     if (success) {
-      await window.electronAPI.dl.removeRecord(entry.id).catch(() => ({ success: false }));
-      setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== entry.id));
-      pushToast({ message: LL.download.deleted({ filename: entry.filename || LL.download.file() }), type: 'error' });
+      const removed = await window.electronAPI.dl.removeRecord(entry.id).catch(() => ({ success: false }));
+      if (removed.success) {
+        setDownloads((prev) => prev.filter((d: DownloadItem) => d.id !== entry.id));
+        pushToast({ message: LL.download.deleted({ filename: entry.filename || LL.download.file() }), type: 'success' });
+      } else {
+        pushToast({ message: LL.download.removeRecordFailed(), type: 'error' });
+      }
     } else {
       pushToast({ message: LL.download.deleteFailed({ filename: entry.filename || LL.download.file() }), type: 'error' });
     }
@@ -121,10 +140,15 @@ const DownloadsPanel: React.FC = () => {
     }
   }, [pushToast, LL]);
 
-  const clearCompleted = useCallback(() => {
-    window.electronAPI.dl.clearFinished().catch(() => {});
-    setDownloads((prev) => prev.filter((d: DownloadItem) => d.state === 'progressing' || d.state === 'paused'));
-    pushToast({ message: LL.download.cleared(), type: 'info' });
+  const clearCompleted = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.dl.clearFinished();
+      if (!result.success) throw new Error('main process rejected record cleanup');
+      setDownloads((prev) => prev.filter((d: DownloadItem) => d.state === 'progressing' || d.state === 'paused'));
+      pushToast({ message: LL.download.cleared(), type: 'info' });
+    } catch {
+      pushToast({ message: LL.download.clearFailed(), type: 'error' });
+    }
   }, [setDownloads, pushToast, LL]);
 
   const handleItemClick = useCallback((entry: DownloadItem) => {

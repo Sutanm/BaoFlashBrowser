@@ -26,7 +26,7 @@ describe('transient Automation CDP inspection', () => {
   });
 
   it('routes the assistant Surface IPC through TabManager inspection', () => {
-    const source = fs.readFileSync(path.resolve('src/main/ipc/userscripts.ipc.ts'), 'utf8');
+    const source = fs.readFileSync(path.resolve('src/main/ipc/automation-userscript-bridge.ipc.ts'), 'utf8');
     const route = source.slice(source.indexOf("ipcMain.handle('userscript:automation-v3-surfaces'"), source.indexOf('// Script logging'));
     expect(route).toContain('tabManager.inspectAutomationTarget(targetTabId, detectGameSurfaces)');
     expect(route).not.toContain('detectGameSurfaces(event.sender)');

@@ -17,7 +17,7 @@ import { getAria2Candidates, getAria2LibraryDirectory, type Aria2Candidate } fro
 const DEFAULT_DIR = path.join(app.getPath('downloads'), 'BaoFlashBrowser');
 
 export function getDownloadDir(): string {
-  const cfg = loadConfig().downloadDir;
+  const cfg = loadConfig().downloadDir ?? '';
   return cfg || DEFAULT_DIR;
 }
 
@@ -271,7 +271,7 @@ function trackChromiumDownload(item: DownloadItem, retry?: DownloadRecord): void
 }
 
 // ─── aria2 download ─────────────────────────────────────────────────
-async function aria2Download(url: string, filename: string, retry?: DownloadRecord): Promise<void> {
+async function aria2Download(url: string, filename: string, retry?: DownloadRecord): Promise<boolean> {
   filename = sanitizeDownloadFilename(filename);
   const dlId = retry?.id || 'a2_' + nanoid(8);
   const configuredDir = getDownloadDir();
@@ -298,6 +298,7 @@ async function aria2Download(url: string, filename: string, retry?: DownloadReco
     aria2Gids.set(dlId, gid);
     log.info('[Download] aria2 addUri OK:', gid, filename);
     pollAria2Status(dlId, gid, filename, url);
+    return true;
   } catch (err: any) {
     log.error('[Download] aria2 addUri FAILED:', err.message);
     emitDownload({
@@ -308,6 +309,7 @@ async function aria2Download(url: string, filename: string, retry?: DownloadReco
       speed: 0,
       engine: 'aria2',
     });
+    return false;
   }
 }
 
@@ -407,7 +409,7 @@ export function initDownloadManager(): void {
 
 export function setupDownloadHandlers(sess: Electron.Session): void {
   sess.on('will-download', (event, item) => {
-    const engine = loadConfig().downloadEngine;
+    const engine = loadConfig().downloadEngine ?? 'aria2';
     log.info('[Download] will-download: engine=' + engine + ', aria2Ready=' + aria2Ready + ', url=' + redactUrlForLog(item.getURL()));
 
     if (engine === 'aria2' && aria2Ready) {
@@ -454,44 +456,53 @@ export function cancelDownload(id: string): void {
   }
 }
 
-export function pauseDownload(id: string): void {
+export async function pauseDownload(id: string): Promise<boolean> {
   if (id.startsWith('a2_')) {
     const gid = aria2Gids.get(id);
     if (gid && aria2Ready) {
-      aria2Rpc('aria2.pause', gid).catch((err) => {
+      try {
+        await aria2Rpc('aria2.pause', gid);
+        emitDownload({ id, state: 'paused', speed: 0 });
+        return true;
+      } catch (err: any) {
         log.error('[Download] aria2 pause failed:', err.message);
-      });
+        return false;
+      }
     }
-    emitDownload({ id, state: 'paused', speed: 0 });
+    log.warn('[Download] aria2 pause unavailable:', id, 'ready=' + aria2Ready);
+    return false;
   } else if (id.startsWith('cr_')) {
     const item = chromiumItems.get(id);
     if (item) {
       item.pause();
       emitDownload({ id, state: 'paused', speed: 0 });
       log.info('[Download] chromium paused:', id);
+      return true;
     }
   }
+  return false;
 }
 
-export function resumeDownload(id: string): void {
+export async function resumeDownload(id: string): Promise<boolean> {
   if (id.startsWith('a2_')) {
     const gid = aria2Gids.get(id);
     if (gid && aria2Ready) {
-      aria2Rpc('aria2.unpause', gid).catch((err) => {
+      try {
+        await aria2Rpc('aria2.unpause', gid);
+        emitDownload({ id, state: 'progressing', speed: 0 });
+        return true;
+      } catch (err: any) {
         log.error('[Download] aria2 unpause failed:', err.message);
-      });
-      emitDownload({ id, state: 'progressing', speed: 0 });
-      return;
+        return false;
+      }
     }
     const record = getDownloadRecord(id);
     if (record?.url && aria2Ready) {
-      aria2Download(record.url, record.filename, record).catch((err) => {
-        log.error('[Download] aria2 restart retry failed:', err.message);
-        emitDownload({ id, state: 'interrupted', speed: 0 });
-      });
+      return aria2Download(record.url, record.filename, record);
     } else {
       log.warn('[Download] aria2 resume unavailable:', id, 'ready=' + aria2Ready);
       emitDownload({ id, state: 'interrupted', speed: 0 });
+      return false;
     }
   } else if (id.startsWith('cr_')) {
     const item = chromiumItems.get(id);
@@ -499,7 +510,7 @@ export function resumeDownload(id: string): void {
       item.resume();
       emitDownload({ id, state: 'progressing', speed: 0 });
       log.info('[Download] chromium resumed:', id);
-      return;
+      return true;
     }
     const record = getDownloadRecord(id);
     if (record?.url) {
@@ -508,8 +519,10 @@ export function resumeDownload(id: string): void {
       pendingChromiumRetries.set(record.url, queue);
       session.defaultSession.downloadURL(record.url);
       log.info('[Download] chromium restart retry:', id);
+      return true;
     }
   }
+  return false;
 }
 
 export function isAria2Ready(): boolean {

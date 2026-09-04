@@ -2,12 +2,40 @@ import { BrowserView, Menu } from 'electron';
 import log from 'electron-log';
 import { getMainWindow } from './window';
 import { setupSessionOnce } from './session-manager';
-import { setupCapture, teardownCapture } from './password-capture';
-import { fillPasswordsInWebContents, PasswordFillResult } from './password-fill';
-import { getFillCredentialForUrl, isAutoFillEnabled } from './password-store';
-import { getUserscriptManager } from './userscripts';
-import { inspectWithPasswordCapturePaused } from './automation/transient-cdp-inspection';
 import { withTimeout } from '../utils/with-timeout';
+import type { PasswordFillResult } from './password-fill';
+import type { FillCredential } from './password-store';
+import type { UserscriptManager } from './userscripts/userscript-manager';
+
+export interface OptionalTabServices {
+  passwords?: {
+    setupCapture(wc: Electron.WebContents): void;
+    teardownCapture(wc: Electron.WebContents): void;
+    fillPasswords(
+      wc: Electron.WebContents,
+      resolveCredential: (frameUrl: string) => FillCredential | null,
+    ): Promise<PasswordFillResult>;
+    getFillCredentialForUrl(pageUrl: string, requestedId?: string, automatic?: boolean): FillCredential | null;
+    isAutoFillEnabled(): boolean;
+  };
+  getUserscriptManager?: () => UserscriptManager | null;
+}
+
+let optionalServices: OptionalTabServices = {};
+
+/** Configure optional integrations before the first BrowserView is created. */
+export function configureOptionalTabServices(services: OptionalTabServices): void {
+  optionalServices = { ...services };
+}
+
+const passwordCapture = {
+  setup(wc: Electron.WebContents): void { optionalServices.passwords?.setupCapture(wc); },
+  teardown(wc: Electron.WebContents): void { optionalServices.passwords?.teardownCapture(wc); },
+};
+
+function userscriptManager(): UserscriptManager | null {
+  return optionalServices.getUserscriptManager?.() ?? null;
+}
 
 export type AutomationViewport = { readonly mode: 'fixed'; readonly width: number; readonly height: number };
 
@@ -123,7 +151,13 @@ class TabManager {
     const wc = this.getWebContents(tabId);
     if (!wc) throw new Error('automation target has no live BrowserView');
     if (this.automationTargets.has(tabId)) return inspect(wc);
-    return inspectWithPasswordCapturePaused(wc, inspect, () => this._isCurrentWebContents(tabId, wc) && !this.automationTargets.has(tabId));
+    passwordCapture.teardown(wc);
+    try { return await inspect(wc); }
+    finally {
+      if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc) && !this.automationTargets.has(tabId)) {
+        passwordCapture.setup(wc);
+      }
+    }
   }
 
   /** Reserve the active BrowserView for one automation run and pause password CDP capture. */
@@ -152,11 +186,11 @@ class TabManager {
     // Once Automation reserves this tab they must stay paused, otherwise a
     // retry can race an input step and make the run stop immediately.
     this._clearPasswordFillTimers(wc.id);
-    teardownCapture(wc);
+    passwordCapture.teardown(wc);
     try { this._applyAutomationViewport(tabId, wc); }
     catch (error) {
       this.automationTargets.delete(tabId);
-      setupCapture(wc);
+      passwordCapture.setup(wc);
       throw error;
     }
     const ready = this._waitForAutomationViewport(tabId, wc, lease);
@@ -213,7 +247,7 @@ class TabManager {
         this.automationTargets.delete(tabId);
         if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc)) {
           tab.browserView?.setBounds(this.activeId === tabId ? this.rect : HIDDEN_BOUNDS);
-          setupCapture(wc);
+          passwordCapture.setup(wc);
           this._schedulePasswordFill(wc, tabId);
         }
       },
@@ -391,7 +425,7 @@ class TabManager {
     view.setAutoResize({ width: false, height: false });
     const wc = view.webContents;
     this.wcToId.set(wc.id, tab.id);
-    getUserscriptManager()?.registerView(wc.id, {
+    userscriptManager()?.registerView(wc.id, {
       mode: tab.isRuffle ? 'ruffle' : 'ppapi',
       generation: ++this.userscriptGeneration,
       token: tab.id,
@@ -427,9 +461,9 @@ class TabManager {
         }).catch(() => log.debug('[Tabs] favicon metadata refresh failed', { tabId }));
       }, delay);
     };
-    wc.on('destroyed', () => getUserscriptManager()?.unregisterView(wc.id));
+    wc.on('destroyed', () => userscriptManager()?.unregisterView(wc.id));
     wc.on('did-navigate-in-page', (_event, url, isMainFrame) => {
-      if (isMainFrame) getUserscriptManager()?.spaNavigate(wc.id, url, 'in-page');
+      if (isMainFrame) userscriptManager()?.spaNavigate(wc.id, url, 'in-page');
     });
     wc.on('page-title-updated', (_e, title) => this._isCurrentWebContents(tabId, wc) && this.send('tab:updated', { tabId, title }));
     wc.on('page-favicon-updated', (_e, favicons) => {
@@ -476,7 +510,7 @@ class TabManager {
         this.send('tab:updated', { tabId, isLoading: false });
       }
       refreshPageMetadata(500);
-      if (!this.automationTargets.has(tabId)) setupCapture(wc);
+      if (!this.automationTargets.has(tabId)) passwordCapture.setup(wc);
       this._schedulePasswordFill(wc, tabId);
     });
     const updateUrl = (navUrl: string) => {
@@ -585,7 +619,7 @@ class TabManager {
     const wc = view.webContents;
     this._clearPasswordFillTimers(wc.id);
     this.passwordFillInFlight.delete(wc.id);
-    teardownCapture(wc);
+    passwordCapture.teardown(wc);
     this.wcToId.delete(wc.id);
     try { getMainWindow()?.removeBrowserView(view); } catch { /* gone */ }
     try { if (!wc.isDestroyed()) (wc as unknown as { destroy(): void }).destroy(); } catch { /* gone */ }
@@ -600,8 +634,8 @@ class TabManager {
   refreshPasswordCapture(enabled: boolean): void {
     for (const [tabId, tab] of this.tabs) {
       const wc = tab.browserView?.webContents; if (!wc) continue;
-      if (enabled && !this.automationTargets.has(tabId)) setupCapture(wc);
-      else teardownCapture(wc);
+      if (enabled && !this.automationTargets.has(tabId)) passwordCapture.setup(wc);
+      else passwordCapture.teardown(wc);
     }
   }
 
@@ -615,11 +649,12 @@ class TabManager {
   }
 
   private async _attemptPasswordFill(wc: Electron.WebContents, tabId: string): Promise<void> {
-    if (!isAutoFillEnabled() || wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc)
+    const passwords = optionalServices.passwords;
+    if (!passwords?.isAutoFillEnabled() || wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc)
       || this.automationTargets.has(tabId) || this.passwordFillInFlight.has(wc.id)) return;
     this.passwordFillInFlight.add(wc.id);
     try {
-      const result = await fillPasswordsInWebContents(wc, (url) => getFillCredentialForUrl(url, undefined, true));
+      const result = await passwords.fillPasswords(wc, (url) => passwords.getFillCredentialForUrl(url, undefined, true));
       if (result.success && this._isCurrentWebContents(tabId, wc)) {
         this._clearPasswordFillTimers(wc.id);
         this.send('password:filled', { tabId, username: result.usernames[0] || '', count: result.filledCredentials, automatic: true });
@@ -630,7 +665,7 @@ class TabManager {
 
   private _schedulePasswordFill(wc: Electron.WebContents, tabId: string): void {
     this._clearPasswordFillTimers(wc.id);
-    if (!isAutoFillEnabled() || this.automationTargets.has(tabId)) return;
+    if (!optionalServices.passwords?.isAutoFillEnabled() || this.automationTargets.has(tabId)) return;
     const timers = new Set<ReturnType<typeof setTimeout>>(); this.passwordFillTimers.set(wc.id, timers);
     for (const delay of [120, 1000, 3000, 10000, 30000]) {
       const timer = setTimeout(async () => { timers.delete(timer); await this._attemptPasswordFill(wc, tabId); if (!timers.size) this.passwordFillTimers.delete(wc.id); }, delay);
@@ -640,7 +675,7 @@ class TabManager {
 
   notifyPasswordFormDetected(wcId: number): void {
     const tabId = this.wcToId.get(wcId); const tab = tabId ? this.tabs.get(tabId) : null; const wc = tab?.browserView?.webContents;
-    if (!tabId || !wc || wc.id !== wcId || !isAutoFillEnabled() || this.automationTargets.has(tabId)) return;
+    if (!tabId || !wc || wc.id !== wcId || !optionalServices.passwords?.isAutoFillEnabled() || this.automationTargets.has(tabId)) return;
     const existing = this.passwordFormSignalTimers.get(wcId); if (existing) clearTimeout(existing);
     const timer = setTimeout(() => { this.passwordFormSignalTimers.delete(wcId); void this._attemptPasswordFill(wc, tabId); }, 100);
     this.passwordFormSignalTimers.set(wcId, timer);
@@ -654,13 +689,15 @@ class TabManager {
     const wc = this.tabs.get(tabId)?.browserView?.webContents;
     if (!wc) return { success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'destroyed' };
     if (this.automationTargets.has(tabId)) return { success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'debugger-unavailable' };
-    const result = await fillPasswordsInWebContents(wc, (url) => getFillCredentialForUrl(url, entryId, false));
+    const passwords = optionalServices.passwords;
+    if (!passwords) return { success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'no-credential' };
+    const result = await passwords.fillPasswords(wc, (url) => passwords.getFillCredentialForUrl(url, entryId, false));
     if (result.success) this.send('password:filled', { tabId, username: result.usernames[0] || '', count: result.filledCredentials, automatic: false });
     return result;
   }
 
   private _detachDebuggerBeforeNavigate(wc: Electron.WebContents): void {
-    try { teardownCapture(wc); } catch (error: any) { log.warn('[TabManager] teardownCapture failed:', error?.message); }
+    try { passwordCapture.teardown(wc); } catch (error: any) { log.warn('[TabManager] teardownCapture failed:', error?.message); }
   }
 
   navigate(tabId: string, url: string): void {
@@ -698,7 +735,7 @@ class TabManager {
     const tab = this.tabs.get(tabId);
     const wc = tab?.browserView?.webContents;
     if (!wc || wc.isDestroyed()) return [];
-    return (getUserscriptManager()?.commandsFor(wc.id) ?? []).map((command) => ({
+    return (userscriptManager()?.commandsFor(wc.id) ?? []).map((command) => ({
       commandId: command.commandId,
       title: command.title,
       scriptId: command.scriptId,
@@ -709,8 +746,8 @@ class TabManager {
     const tab = this.tabs.get(tabId);
     const wc = tab?.browserView?.webContents;
     if (!wc || wc.isDestroyed()) return false;
-    const registration = getUserscriptManager()?.getRegistration(wc.id);
-    const command = getUserscriptManager()?.commandsFor(wc.id).find((item) => item.commandId === commandId);
+    const registration = userscriptManager()?.getRegistration(wc.id);
+    const command = userscriptManager()?.commandsFor(wc.id).find((item) => item.commandId === commandId);
     if (!command || !registration) return false;
     try {
       wc.send('userscript:menu-invoke', { commandId, documentId: command.documentId });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeDownloadPatch, normalizeRestartedDownload, selectRetainedDownloadRecords, type StoredDownload } from '../src/main/utils/download-record';
+import { reconcileDownloadSnapshot } from '../src/shared/utils/download-state';
 
 const active: StoredDownload = {
   id: 'a2_demo', url: 'https://example.com/game.swf', filename: 'game.swf',
@@ -28,5 +29,25 @@ describe('download state recovery', () => {
     expect(retained.map((item) => item.id)).toContain('a2_demo');
     expect(retained.map((item) => item.id)).toContain('paused');
     expect(retained.map((item) => item.id)).not.toContain('done_0');
+  });
+
+  it('does not let an older initial snapshot overwrite a newer progress event', () => {
+    const snapshot = [{ ...active, progress: 10, updatedAt: 10 }];
+    const current = [
+      { ...active, progress: 60, updatedAt: 20 },
+      { ...active, id: 'cr_started_during_list', updatedAt: 30 },
+    ];
+
+    expect(reconcileDownloadSnapshot(current, snapshot)).toEqual([
+      { ...active, progress: 60, updatedAt: 20 },
+      { ...active, id: 'cr_started_during_list', updatedAt: 30 },
+    ]);
+  });
+
+  it('accepts a newer authoritative snapshot for the same download', () => {
+    const current = [{ ...active, state: 'progressing' as const, updatedAt: 10 }];
+    const snapshot = [{ ...active, state: 'completed' as const, progress: 100, updatedAt: 20 }];
+
+    expect(reconcileDownloadSnapshot(current, snapshot)).toEqual(snapshot);
   });
 });
