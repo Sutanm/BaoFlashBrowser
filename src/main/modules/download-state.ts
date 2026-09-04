@@ -76,23 +76,6 @@ export function getDownloadRecords(): StoredDownload[] {
   return [...records.values()].sort((a, b) => a.updatedAt - b.updatedAt);
 }
 
-export function adoptDownloadRecords(items: DownloadItem[]): StoredDownload[] {
-  ensureLoaded();
-  let timestamp = Date.now();
-  for (const item of items) {
-    if (!item.id || records.has(item.id)) continue;
-    const adopted = mergeDownloadPatch(undefined, {
-      ...item,
-      state: item.state === 'progressing' || item.state === 'paused' ? 'interrupted' : item.state,
-      speed: 0,
-    }, timestamp++);
-    if (adopted) records.set(adopted.id, adopted);
-  }
-  trimTerminalRecords();
-  persistNow();
-  return getDownloadRecords();
-}
-
 export function removeDownloadRecord(id: string): void {
   ensureLoaded();
   records.delete(id);

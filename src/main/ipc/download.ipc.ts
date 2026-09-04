@@ -10,7 +10,7 @@ import { getMainWindow } from '../modules/window';
 import { createValidatedHandler, registerValidatedListener } from '../utils/ipc-wrapper';
 import { isPathWithinDirectory } from '../utils/download-path';
 import {
-  adoptDownloadRecords, clearFinishedDownloadRecords, getDownloadRecords, removeDownloadRecord,
+  clearFinishedDownloadRecords, getDownloadRecords, removeDownloadRecord,
 } from '../modules/download-state';
 
 // --- L02: 路径穿越校验 ---
@@ -34,22 +34,6 @@ export function registerDownloadIPC(): void {
   });
 
   createValidatedHandler('download:list', z.undefined(), () => getDownloadRecords());
-
-  const downloadRecord = z.object({
-    id: z.string().min(1).max(128),
-    url: z.string().max(8192),
-    filename: z.string().min(1).max(255),
-    state: z.enum(['progressing', 'completed', 'cancelled', 'interrupted', 'paused']),
-    progress: z.number().finite().min(0).max(100),
-    speed: z.number().finite().min(0),
-    receivedBytes: z.number().finite().min(0),
-    totalBytes: z.number().finite().min(0),
-    savePath: z.string().max(32767),
-    engine: z.enum(['chromium', 'aria2']).optional(),
-  });
-  createValidatedHandler('download:sync-records', z.object({
-    records: z.array(downloadRecord).max(1000),
-  }).strict(), ({ records }) => adoptDownloadRecords(records));
 
   ipcMain.handle('download:set-dir', async (_event, payload?: { title?: string }) => {
     const win = BrowserWindow.getFocusedWindow() || getMainWindow();

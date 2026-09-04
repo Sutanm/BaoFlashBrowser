@@ -49,7 +49,6 @@ export interface DataState {
   dismissToast: (id: number, reason: ToastDismissReason) => void;
 }
 
-const downloadPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let persistenceQueue: Promise<void> = Promise.resolve();
 
 function enqueuePersistence(label: string, operation: () => Promise<void>): void {
@@ -66,19 +65,6 @@ async function replaceFavorites(next: BookmarkEntry[]): Promise<void> {
     await db.favorites.clear();
     if (next.length > 0) await db.favorites.bulkPut(next.map((item, index) => ({ ...item, _idx: index })));
   });
-}
-
-type PersistedDownload = DownloadItem & { _idx?: number };
-
-function persistDownload(item: PersistedDownload, immediate: boolean): void {
-  const existing = downloadPersistTimers.get(item.id);
-  if (existing) clearTimeout(existing);
-  const write = () => {
-    downloadPersistTimers.delete(item.id);
-    enqueuePersistence('download', () => db.downloads.put(item).then(() => undefined));
-  };
-  if (immediate) write();
-  else downloadPersistTimers.set(item.id, setTimeout(write, 1000));
 }
 
 /** 内部使用：useLiveQuery 把 db 数据注入 store 时调用，不触发持久化 */
@@ -149,31 +135,9 @@ export const useDataStore = create<DataState>((set, get) => ({
   },
 
   setDownloads: (d) =>
-    set((state) => {
-      const rawNext = typeof d === 'function' ? d(state.downloads) : d;
-      let nextIndex = Math.min(0, ...state.downloads.map((item) => (item as PersistedDownload)._idx ?? 0)) - 1;
-      const next = rawNext.map((item) => {
-        const previous = state.downloads.find((entry) => entry.id === item.id) as PersistedDownload | undefined;
-        return { ...item, _idx: (item as PersistedDownload)._idx ?? previous?._idx ?? nextIndex-- } as PersistedDownload;
-      });
-      if (!skipPersist) {
-        for (const previous of state.downloads) {
-          if (!next.some((item) => item.id === previous.id)) {
-            const timer = downloadPersistTimers.get(previous.id); if (timer) clearTimeout(timer);
-            downloadPersistTimers.delete(previous.id);
-            enqueuePersistence('download delete', () => db.downloads.delete(previous.id));
-          }
-        }
-        for (const item of next) {
-          const previous = state.downloads.find((entry) => entry.id === item.id);
-          if (previous && JSON.stringify(previous) === JSON.stringify(item)) continue;
-          const stateChanged = !previous || previous.state !== item.state;
-          const terminal = ['completed', 'cancelled', 'interrupted'].includes(item.state);
-          persistDownload(item, stateChanged || terminal);
-        }
-      }
-      return { downloads: next };
-    }),
+    set((state) => ({
+      downloads: typeof d === 'function' ? d(state.downloads) : d,
+    })),
 
   setThemeMode: (t) => {
     set((state) => {

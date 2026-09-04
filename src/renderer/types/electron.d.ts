@@ -184,7 +184,6 @@ declare global {
         setDir(title?: string): Promise<string>;
         deleteFile(savePath: string): Promise<boolean>;
         list(): Promise<DownloadItem[]>;
-        syncRecords(records: DownloadItem[]): Promise<DownloadItem[]>;
         removeRecord(id: string): Promise<{ success: boolean }>;
         clearFinished(): Promise<{ success: boolean }>;
       };
