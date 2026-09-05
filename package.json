@@ -36,6 +36,7 @@
     "benchmark:vision": "npm run benchmark:vision:corpus && node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/runner.cjs",
     "benchmark:vision:color-poc": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/color-poc.cjs",
     "benchmark:vision:color-video-poc": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/color-video-poc.cjs",
+    "benchmark:vision:fishing-hook": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/fishing-hook-gate.cjs",
     "prepare:electron:win64": "cross-env BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=x64 node build/prepare-electron-runtime.cjs",
     "start": "npm run i18n && npm run build && electron .",
     "icon": "node build/make-icon.js",

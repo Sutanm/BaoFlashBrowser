@@ -10,6 +10,7 @@ await build({
     runner: path.join(import.meta.dirname, 'run.ts'),
     'color-poc': path.join(import.meta.dirname, 'run-color-poc.ts'),
     'color-video-poc': path.join(import.meta.dirname, 'run-color-video-poc.ts'),
+    'fishing-hook-gate': path.join(import.meta.dirname, 'run-fishing-hook-gate.ts'),
   },
   outdir: outputDirectory,
   outExtension: { '.js': '.cjs' },
