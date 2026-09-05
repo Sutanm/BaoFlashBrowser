@@ -30,6 +30,12 @@ export type ColorPointTrackingResult = {
   readonly consecutiveMisses: number;
 };
 
+export type ColorPointConfidence = {
+  readonly rawScore: number;
+  readonly margin: number;
+  readonly confidence: number;
+};
+
 function clampUnit(value: number, fallback: number): number {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : fallback;
 }
@@ -38,12 +44,30 @@ function positiveInteger(value: number, fallback: number): number {
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : fallback;
 }
 
+/**
+ * Converts matcher-internal color quality into a locator confidence. A target
+ * that is clearly separated from every independent spatial candidate remains
+ * trustworthy after browser interpolation lowers exact RGB quality; a common
+ * color patch with a near-equal runner-up does not receive that boost.
+ */
+export function calibrateColorPointConfidence(
+  matches: readonly ColorPointMatch[],
+  candidateFloor = .2,
+): ColorPointConfidence {
+  const rawScore = matches[0]?.score ?? 0;
+  // A missing runner-up only proves it was below the candidate collection
+  // floor; treating it as zero would overstate uniqueness for weak matches.
+  const runnerUp = matches[1]?.score ?? Math.min(rawScore, Math.max(0, candidateFloor));
+  const margin = matches[0] ? Math.max(0, rawScore - runnerUp) : 0;
+  return { rawScore, margin, confidence: Math.min(1, Math.max(0, rawScore + margin * 2)) };
+}
+
 export function evaluateColorPointMatches(
   matches: readonly ColorPointMatch[],
   acceptance: ColorPointAcceptance = {},
 ): { readonly accepted: boolean; readonly best?: ColorPointMatch; readonly margin: number } {
   const best = matches[0];
-  const margin = best ? best.score - (matches[1]?.score ?? 0) : 0;
+  const { margin } = calibrateColorPointConfidence(matches);
   const minimumScore = clampUnit(acceptance.minimumScore ?? .55, .55);
   const minimumMargin = clampUnit(acceptance.minimumMargin ?? .08, .08);
   return { accepted: Boolean(best && best.score >= minimumScore && margin >= minimumMargin), best, margin };

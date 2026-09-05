@@ -305,7 +305,13 @@ export function matchColorPointSignature(
         coverageScore += groupQuality / group.points.length;
       }
       coverageScore /= scaledColorGroups.length;
-      const score = geometryScore * .4 + coverageScore * .6;
+      // Interpolated browser scaling changes exact RGB distances even when the
+      // target geometry remains intact. Keep continuous color quality as the
+      // majority signal, but add binary feature recall so confidence does not
+      // collapse solely because pixels were resampled between authored and
+      // captured sizes.
+      const featureRecall = matchedFeatures / scaledFeatureGroups.size;
+      const score = geometryScore * .25 + coverageScore * .35 + featureRecall * .4;
       if (score >= threshold) raw.push({
         x, y, width, height, scale, mirrored, score,
         featureCount: scaledFeatureGroups.size, matchedFeatures, matchMs: 0,

@@ -5,7 +5,7 @@ import {
   type BgraImage,
   type ColorPointSignature,
 } from './color-point-matcher';
-import { evaluateColorPointMatches } from './color-point-tracker';
+import { calibrateColorPointConfidence } from './color-point-tracker';
 
 type TemplatePayload = {
   readonly asset: string;
@@ -51,16 +51,18 @@ parentPort.on('message', (request: Request) => {
       // target. Always retain a second independent candidate for the margin
       // check, even when the caller only asks for the strongest match.
       const candidates = matchColorPointSignature(request.scene, signatureFor(template), {
-        threshold: request.options.threshold,
+        // The matcher score is an internal color-quality measure. Keep weak
+        // candidates so confidence can be calibrated using spatial separation.
+        threshold: .2,
         scales: request.options.scales,
         maxCandidates: Math.max(2, request.options.maxCandidates ?? 1),
       });
-      const evaluated = evaluateColorPointMatches(candidates, {
-        minimumScore: request.options.threshold,
-        minimumMargin: .08,
-      });
-      if (!evaluated.accepted) return [];
-      return candidates.map((match) => ({ ...match, asset: template.asset, algorithm: 'color-points' as const }));
+      const calibrated = calibrateColorPointConfidence(candidates);
+      if (!candidates[0] || calibrated.margin < .08 || calibrated.confidence < request.options.threshold) return [];
+      return [{
+        ...candidates[0], score: calibrated.confidence,
+        asset: template.asset, algorithm: 'color-points' as const,
+      }];
     });
     matches.sort((left, right) => right.score - left.score);
     parentPort!.postMessage({ type: 'result', id: request.id, matches: matches.slice(0, request.options.maxCandidates ?? 1) });

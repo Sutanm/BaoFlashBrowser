@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractColorPointSignature, type BgraImage } from '../src/main/modules/automation/color-point-matcher';
-import { ColorPointTracker, evaluateColorPointMatches } from '../src/main/modules/automation/color-point-tracker';
+import { calibrateColorPointConfidence, ColorPointTracker, evaluateColorPointMatches } from '../src/main/modules/automation/color-point-tracker';
 
 function image(width: number, height: number, color: [number, number, number, number]): BgraImage {
   const pixels = new Uint8Array(width * height * 4);
@@ -29,6 +29,11 @@ function frameAt(x?: number, y?: number): BgraImage {
   }
   return result;
 }
+
+const match = (score: number, x = 0) => ({
+  x, y: 0, width: 10, height: 10, scale: 1, mirrored: false,
+  score, featureCount: 10, matchedFeatures: 10, matchMs: 1,
+});
 
 describe('ColorPointTracker', () => {
   it('tracks movement in a small ROI after the initial match', () => {
@@ -83,13 +88,16 @@ describe('ColorPointTracker', () => {
 });
 
 describe('evaluateColorPointMatches', () => {
-  const match = (score: number, x = 0) => ({
-    x, y: 0, width: 10, height: 10, scale: 1, mirrored: false,
-    score, featureCount: 10, matchedFeatures: 10, matchMs: 1,
-  });
-
   it('requires both score and independent-candidate margin', () => {
     expect(evaluateColorPointMatches([match(.8), match(.78, 30)], { minimumScore: .7, minimumMargin: .05 }).accepted).toBe(false);
     expect(evaluateColorPointMatches([match(.8), match(.6, 30)], { minimumScore: .7, minimumMargin: .05 }).accepted).toBe(true);
+  });
+});
+
+describe('calibrateColorPointConfidence', () => {
+  it('boosts a unique interpolated candidate but not a near-tied color patch', () => {
+    expect(calibrateColorPointConfidence([match(.48), match(.21, 30)]).confidence).toBe(1);
+    expect(calibrateColorPointConfidence([match(.50), match(.494, 30)]).confidence).toBeCloseTo(.512);
+    expect(calibrateColorPointConfidence([match(.30)]).confidence).toBeCloseTo(.50);
   });
 });

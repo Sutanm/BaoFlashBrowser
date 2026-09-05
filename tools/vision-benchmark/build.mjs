@@ -12,6 +12,7 @@ await build({
     'color-video-poc': path.join(import.meta.dirname, 'run-color-video-poc.ts'),
     'fishing-hook-gate': path.join(import.meta.dirname, 'run-fishing-hook-gate.ts'),
     'color-worker-gate': path.join(import.meta.dirname, 'run-color-worker-gate.ts'),
+    'color-scale-gate': path.join(import.meta.dirname, 'run-color-scale-gate.ts'),
     'color-vision-worker': path.join(root, 'src', 'main', 'modules', 'automation', 'color-vision-worker.ts'),
   },
   outdir: outputDirectory,
