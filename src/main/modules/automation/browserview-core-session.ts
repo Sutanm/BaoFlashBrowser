@@ -65,6 +65,7 @@ import { createAutomationOcrEngine } from './ocr-provider';
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
 import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
+import { ColorPointWorkerMatcher } from './color-vision-worker-matcher';
 import { chooseLocatedGameSurface, detectGameSurfaces } from './game-surface-detector';
 
 const sleep = (durationMs: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
@@ -85,6 +86,7 @@ export class BrowserViewAutomationCoreSession {
   private readonly input;
   private readonly capture;
   private readonly matcher;
+  private readonly colorMatcher;
   private readonly vision;
   private readonly ocrEngine;
   private readonly text;
@@ -118,10 +120,11 @@ export class BrowserViewAutomationCoreSession {
       return { bytes, cacheKey: crypto.createHash('sha256').update(Buffer.from(bytes)).digest('hex') };
     } }));
     this.matcher = injected.matcher ?? new OpenCvWorkerMatcher(provider);
+    this.colorMatcher = new ColorPointWorkerMatcher(provider);
     this.ownsMatcher = !injected.matcher;
     this.ocrEngine = injected.ocrEngine ?? createAutomationOcrEngine();
     this.ownsOcrEngine = !injected.ocrEngine;
-    this.vision = new AutomationVisionService(this.matcher);
+    this.vision = new AutomationVisionService(this.matcher, this.colorMatcher);
     this.text = new AutomationTextRecognitionService(this.ocrEngine);
     const recognition: LocatorRecognitionPort = { locateImage: (locator, context, maxCandidates) => this.locateImage(locator, context, maxCandidates), locateText: (locator, context) => this.locateText(locator, context) };
     this.locators.register(new CoordinateLocatorResolver()); this.locators.register(new ImageLocatorResolver(recognition)); this.locators.register(new TextLocatorResolver(recognition)); this.locators.register(new FirstOfLocatorResolver(this.locators)); this.locators.freeze();
@@ -178,8 +181,11 @@ export class BrowserViewAutomationCoreSession {
   async close(): Promise<void> {
     if (!this.closePromise) this.closePromise = (async () => {
       try {
-        if (this.ownsMatcher) await this.matcher.close();
-        if (this.ownsOcrEngine) await this.ocrEngine.close?.();
+        await Promise.all([
+          this.ownsMatcher ? this.matcher.close() : Promise.resolve(),
+          this.colorMatcher.close(),
+          this.ownsOcrEngine ? this.ocrEngine.close?.() : Promise.resolve(),
+        ]);
       } finally { this.handle.release(); }
     })();
     await this.closePromise;
@@ -386,6 +392,7 @@ export class BrowserViewAutomationCoreSession {
     const initialScales = locator.scales ?? predictedScales ?? (learnedScale === undefined ? imageMatchScales() : [learnedScale]);
     const request = {
       assets,
+      method: locator.method,
       threshold: locator.threshold,
       scales: initialScales,
       mask: locator.mask ?? DEFAULT_IMAGE_MATCH_MASK,

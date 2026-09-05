@@ -77,6 +77,7 @@ module.exports = {
   // 与 worker 同目录树一起解包，保证 worker 解析 node_modules 时路径对得上。
   asarUnpack: hasAutomation ? [
     'dist/vision-worker.cjs',
+    'dist/color-vision-worker.cjs',
     'node_modules/@techstark/opencv-js/**/*',
   ] : [],
   extraResources: selectedResources(),

@@ -291,7 +291,7 @@ function verifySource() {
     'main.js',
     'preload.js',
     'webview-preload.js',
-    ...(hasAutomation ? ['vision-worker.cjs'] : []),
+    ...(hasAutomation ? ['vision-worker.cjs', 'color-vision-worker.cjs'] : []),
     'renderer/index.html',
     'renderer/bundle.js',
     'renderer/bundle.css',
@@ -301,6 +301,9 @@ function verifySource() {
   }
   if (!hasAutomation && fs.existsSync(path.join(dist, 'vision-worker.cjs'))) {
     fail('dist unexpectedly contains vision-worker.cjs without the automation module');
+  }
+  if (!hasAutomation && fs.existsSync(path.join(dist, 'color-vision-worker.cjs'))) {
+    fail('dist unexpectedly contains color-vision-worker.cjs without the automation module');
   }
   if (fs.existsSync(path.join(dist, 'dist'))) fail('stale nested build output exists at dist/dist');
   verifyRuffle(dist);
@@ -348,6 +351,7 @@ function verifyAsar(asarPath) {
   for (const name of required) if (!entries.includes(name)) fail(`app.asar is missing ${name}`);
   if (!hasAutomation) {
     if (entries.includes('dist/vision-worker.cjs')) fail('app.asar unexpectedly contains the vision worker');
+    if (entries.includes('dist/color-vision-worker.cjs')) fail('app.asar unexpectedly contains the color vision worker');
     if (entries.some((name) => name.startsWith('node_modules/@techstark/opencv-js/'))) {
       fail('app.asar unexpectedly contains OpenCV.js without the automation module');
     }
@@ -363,6 +367,7 @@ function verifyVisionWorkerUnpacked(resourcesRoot) {
   // 这里校验解包产物存在，防止有人误删 asarUnpack 配置后回归到打包报错。
   const unpacked = path.join(resourcesRoot, 'app.asar.unpacked');
   record(path.join(unpacked, 'dist', 'vision-worker.cjs'), 'unpacked vision worker');
+  record(path.join(unpacked, 'dist', 'color-vision-worker.cjs'), 'unpacked color vision worker');
   record(path.join(unpacked, 'node_modules', '@techstark', 'opencv-js', 'package.json'), 'unpacked OpenCV.js manifest');
   record(path.join(unpacked, 'node_modules', '@techstark', 'opencv-js', 'dist', 'opencv.js'), 'unpacked OpenCV.js bundle');
   if (fs.existsSync(path.join(resourcesRoot, 'app.asar')) && !fs.existsSync(unpacked)) {

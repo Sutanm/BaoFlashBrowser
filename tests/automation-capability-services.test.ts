@@ -36,6 +36,35 @@ describe('Automation capability services', () => {
     ]);
   });
 
+  it('routes an explicit color ImageLocator request to the color worker without changing the default matcher', async () => {
+    const templateFind = vi.fn(async () => ({ asset: 'target.png', x: 1, y: 1, width: 2, height: 2, score: .9 }));
+    const colorFind = vi.fn(async () => ({ asset: 'target.png', x: 7, y: 8, width: 2, height: 2, score: .8, algorithm: 'color-points' as const }));
+    const service = new AutomationVisionService({ find: templateFind }, { find: colorFind });
+    const signal = new AbortController().signal;
+
+    await expect(service.locate(frame, { assets: ['target.png'], threshold: .5, method: 'color' }, signal))
+      .resolves.toMatchObject({ x: 7, y: 8, algorithm: 'color-points' });
+    await expect(service.locate(frame, { assets: ['target.png'], threshold: .5 }, signal))
+      .resolves.toMatchObject({ x: 1, y: 1 });
+    expect(colorFind).toHaveBeenCalledTimes(1);
+    expect(templateFind).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an unavailable explicit color backend instead of silently changing algorithms', async () => {
+    const service = new AutomationVisionService({ find: vi.fn() });
+    await expect(service.locate(frame, { assets: ['target.png'], threshold: .5, method: 'color' }, new AbortController().signal))
+      .rejects.toThrow('color image recognition is unavailable');
+  });
+
+  it('rejects an unknown image method instead of silently using template matching', async () => {
+    const find = vi.fn();
+    const service = new AutomationVisionService({ find });
+    await expect(service.locate(frame, {
+      assets: ['target.png'], threshold: .5, method: 'unknown' as 'template',
+    }, new AbortController().signal)).rejects.toThrow('unsupported image recognition method');
+    expect(find).not.toHaveBeenCalled();
+  });
+
   it('serializes concurrent services that share one matcher', async () => {
     let active = 0;
     let maximumActive = 0;

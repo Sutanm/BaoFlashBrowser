@@ -199,3 +199,12 @@
 4. BrowserView Core session统一Coordinate/Surface/Locator/Action/Capture/Vision/OCR/Input。
 5. 旧Workflow/Step/Runtime/Driver/service/package/Blockly与assistant compatibility adapter已删除；页面悬浮助手保留为v3原生frontend，并直接复用Core Capture/Vision/OCR/Input能力。
 6. Pixel OCR仍为后续独立Phase，默认OCR provider未在无benchmark证据时切换。
+
+## 颜色定位接入进度（2026-09-05）
+
+1. 通用多点颜色定位、对象聚类、动态ROI追踪及鱼钩列事件追踪已通过各自门禁。
+2. `ImageLocator` 已增加显式 `method: 'color'`，省略时仍走稳定的 OpenCV 模板匹配。
+3. 颜色定位已迁移到独立 Worker，并具备素材签名缓存、ROI裁剪、超时、取消及异常重建边界。
+4. JavaScript接口可显式选择颜色策略；普通Blockly界面暂不暴露算法细节。
+5. 全功能包包含颜色Worker；去除自动化平台的win32包不携带任何识别Worker。
+6. 下一门槛是跨缩放评分归一化与四入口等价性，不在证据不足时替换默认识图器。

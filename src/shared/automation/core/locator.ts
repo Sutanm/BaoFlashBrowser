@@ -18,6 +18,8 @@ export type CoordinateLocator = { readonly kind: 'coordinate'; readonly point: P
 export type ImageLocator = {
   readonly kind: 'image';
   readonly asset: string;
+  /** Internal recognition strategy. Omitted means the stable template matcher. */
+  readonly method?: 'template' | 'color';
   /** Additional templates compared against the same captured frame. */
   readonly alternatives?: readonly string[];
   readonly threshold: number;

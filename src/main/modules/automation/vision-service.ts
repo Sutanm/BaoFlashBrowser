@@ -4,6 +4,7 @@ import { visionSchedulerFor } from './vision-scheduler';
 
 export type VisionLocateRequest = {
   readonly assets: readonly string[];
+  readonly method?: 'template' | 'color';
   readonly threshold: number;
   readonly scales?: readonly number[];
   readonly mask?: AutomationImageMask;
@@ -27,12 +28,12 @@ export function captureDensityAdjustedScales(
 
 /** Browser-independent image recognition orchestration. */
 export class AutomationVisionService {
-  private readonly scheduler;
   private lastStats: Partial<ImageMatch> = {};
 
-  constructor(private readonly matcher: AutomationVisionMatcher) {
-    this.scheduler = visionSchedulerFor(matcher);
-  }
+  constructor(
+    private readonly matcher: AutomationVisionMatcher,
+    private readonly colorMatcher?: AutomationVisionMatcher,
+  ) {}
 
   async locate(
     frame: AutomationCapturedFrame,
@@ -48,6 +49,9 @@ export class AutomationVisionService {
     signal: AbortSignal,
     maxCandidates = 100,
   ): Promise<readonly ImageMatch[]> {
+    if (request.method !== undefined && request.method !== 'template' && request.method !== 'color') {
+      throw new Error(`unsupported image recognition method: ${String(request.method)}`);
+    }
     if (!Number.isSafeInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 100) {
       throw new Error(`vision candidate budget is invalid: ${maxCandidates}`);
     }
@@ -61,20 +65,23 @@ export class AutomationVisionService {
       mask: request.mask ?? DEFAULT_IMAGE_MATCH_MASK,
       maxCandidates,
     };
-    const scheduled = await this.scheduler.schedule(signal, async () => {
+    const selectedMatcher = request.method === 'color' ? this.colorMatcher : this.matcher;
+    if (!selectedMatcher) throw new Error('color image recognition is unavailable');
+    const scheduler = visionSchedulerFor(selectedMatcher);
+    const scheduled = await scheduler.schedule(signal, async () => {
       const matches: ImageMatch[] = [];
-      if (this.matcher.findManyCandidates) {
-        matches.push(...await this.matcher.findManyCandidates([...request.assets], frame, options, signal));
-      } else if (this.matcher.findMany) {
-        const match = await this.matcher.findMany([...request.assets], frame, options, signal);
+      if (selectedMatcher.findManyCandidates) {
+        matches.push(...await selectedMatcher.findManyCandidates([...request.assets], frame, options, signal));
+      } else if (selectedMatcher.findMany) {
+        const match = await selectedMatcher.findMany([...request.assets], frame, options, signal);
         if (match) matches.push(match);
       } else {
         for (const asset of request.assets) {
           if (signal.aborted) throw new Error('automation cancelled');
-          if (this.matcher.findCandidates) {
-            matches.push(...(await this.matcher.findCandidates(asset, frame, options, signal)).map((match) => ({ ...match, asset: match.asset ?? asset })));
+          if (selectedMatcher.findCandidates) {
+            matches.push(...(await selectedMatcher.findCandidates(asset, frame, options, signal)).map((match) => ({ ...match, asset: match.asset ?? asset })));
           } else {
-            const match = await this.matcher.find(asset, frame, options, signal);
+            const match = await selectedMatcher.find(asset, frame, options, signal);
             if (match) matches.push({ ...match, asset: match.asset ?? asset });
           }
         }
@@ -82,7 +89,7 @@ export class AutomationVisionService {
       return matches;
     });
     this.lastStats = {
-      ...this.matcher.getStats?.(),
+      ...selectedMatcher.getStats?.(),
       queueWaitMs: scheduled.queueWaitMs,
       queueDepthAtSubmit: scheduled.queueDepthAtSubmit,
     };

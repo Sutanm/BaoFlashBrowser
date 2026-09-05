@@ -52,6 +52,16 @@ describe('JavaScriptAutomationCapabilityBroker', () => {
       .resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });
   });
 
+  it('allows the bounded color image strategy but rejects unknown recognition methods', async () => {
+    const call = vi.fn(async () => null);
+    const broker = new JavaScriptAutomationCapabilityBroker('run-token', new Set(['vision']), ports({ 'vision.find': call }));
+    const locator = { kind: 'image', asset: 'small-target.png', threshold: .5, method: 'color' };
+    await expect(broker.handle(request('vision.find', { locator }))).resolves.toMatchObject({ ok: true });
+    expect(call).toHaveBeenCalledWith({ locator }, expect.any(AbortSignal));
+    await expect(broker.handle(request('vision.find', { locator: { ...locator, method: 'unknown' } })))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });
+  });
+
   it('rejects navigation protocols outside HTTP(S)', async () => {
     const broker = new JavaScriptAutomationCapabilityBroker('run-token', new Set(['page.navigate']), ports());
     await expect(broker.handle(request('page.navigate', { url: 'file:///C:/secret.txt' }))).resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });

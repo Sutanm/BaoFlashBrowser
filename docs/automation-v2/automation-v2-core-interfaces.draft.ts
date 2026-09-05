@@ -176,6 +176,8 @@ export interface CoordinateLocator {
 export interface ImageLocator {
   readonly kind: 'image';
   readonly asset: AssetId;
+  /** Omitted means the stable OpenCV template matcher. */
+  readonly method?: 'template' | 'color';
   readonly threshold: number;
   readonly scales?: readonly number[];
   readonly mask?: 'auto' | 'none' | 'alpha';

@@ -9,7 +9,7 @@ export type ImageMatch = {
   scaledTemplateCacheMisses?: number; totalMs?: number; sceneBytes?: number; sceneTransferBytes?: number; wasmHeapBytes?: number;
   templateCacheBytes?: number; templateCacheEntries?: number; testedScales?: number[]; masked?: boolean; lowVariance?: boolean;
   templateStdDev?: number; rawCandidateCount?: number; nmsCandidateCount?: number; frameGeometry?: CaptureFrameGeometry;
-  algorithm?: 'ccoeff' | 'ccorr-mask' | 'sqdiff'; queueWaitMs?: number; queueDepthAtSubmit?: number;
+  algorithm?: 'ccoeff' | 'ccorr-mask' | 'sqdiff' | 'color-points'; queueWaitMs?: number; queueDepthAtSubmit?: number;
   upscaleInterpolation?: 'linear' | 'nearest';
   scaleMatchTimings?: readonly { readonly scale: number; readonly operations: number; readonly matchTemplateMs: number }[];
   assetMatchTimings?: readonly { readonly asset: string; readonly operations: number; readonly matchTemplateMs: number }[];

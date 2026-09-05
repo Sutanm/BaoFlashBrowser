@@ -76,6 +76,10 @@ const builds = [
     ...shared,
     entryPoints: ['src/main/modules/automation/vision-worker.cjs'],
     outfile: 'dist/vision-worker.cjs',
+  }, {
+    ...shared,
+    entryPoints: ['src/main/modules/automation/color-vision-worker.ts'],
+    outfile: 'dist/color-vision-worker.cjs',
   }] : []),
 ];
 
@@ -83,6 +87,7 @@ async function run() {
   try {
     if (!isWatch && !modules.has('automation')) {
       fs.rmSync('dist/vision-worker.cjs', { force: true });
+      fs.rmSync('dist/color-vision-worker.cjs', { force: true });
     }
     if (isWatch) {
       const ctxs = await Promise.all(builds.map((opts) => esbuild.context(opts)));

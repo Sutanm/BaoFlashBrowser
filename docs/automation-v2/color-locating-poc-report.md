@@ -125,3 +125,18 @@
 鱼钩门槛可用 `npm run benchmark:vision:fishing-hook` 重跑。它会在召回率低于 98%、消失区间出现误报或 p95 超过 5ms 时失败，并将逐帧结果写入 `.cache/vision-benchmark/`。
 
 结论更新：鱼钩不适合作为全画面通用图片做暴力搜索，但“玩家/面板锚定 → 固定钩列 → 小 ROI 颜色事件追踪”已经通过当前真实录像门槛。下一阶段应把它作为 Core 内部的连续追踪能力接入；在跨缩放分数归一化和更多负样本完成前，不把颜色匹配直接设为所有图片定位的默认替代算法。
+
+## 10. 第四批：Core 显式策略与独立 Worker（2026-09-05）
+
+本批把通用颜色定位接入 Automation Core，但保持默认行为稳定：
+
+- `ImageLocator.method` 支持 `template | color`；字段省略时仍使用原 OpenCV 模板匹配。
+- JavaScript Capability Broker 对该字段做白名单校验，未知策略在进入 Host 前拒绝。
+- 颜色匹配运行在独立 `worker_threads` Worker，不占用 Electron 主线程；素材签名在 Worker 内按 `cacheKey` 复用。
+- ROI 在发送 Worker 前裁剪，返回坐标再映射回捕获帧坐标。
+- Worker 启动、单次请求和取消均有失败边界；异常后清理请求与素材缓存，可在下次调用重建。
+- 完整自动化包携带 `color-vision-worker.cjs`，无自动化 win32 包明确不携带 OpenCV/颜色 Worker。
+
+合成 Worker 门禁验证了完整画面与 ROI 路径均能返回同一目标坐标；ROI 场景传输量从 38,400 bytes 降至 4,800 bytes。该数字仅证明协议、裁剪和坐标回填正确，不代表真实素材性能。
+
+当前产品策略仍是“显式试用、默认不变”：普通 Blockly 图片积木不会出现算法参数，也不会自动切换颜色匹配。待跨缩放分数归一化、更多素材负样本及 Core/助手/测试中心等价性验证完成后，再评估内部自动组合策略。

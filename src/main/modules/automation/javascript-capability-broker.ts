@@ -95,6 +95,9 @@ function assertLocator(value: unknown, depth = 0): void {
   }
   if (locator.kind === 'image') {
     stringValue(locator.asset, 'image asset'); finite(locator.threshold, 'image threshold', 0, 1);
+    if (locator.method !== undefined && !['template', 'color'].includes(String(locator.method))) {
+      throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'image recognition method is invalid');
+    }
     if (locator.alternatives !== undefined) {
       if (!Array.isArray(locator.alternatives) || locator.alternatives.length > 100) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'image alternatives are invalid');
       locator.alternatives.forEach((asset) => stringValue(asset, 'image alternative'));
