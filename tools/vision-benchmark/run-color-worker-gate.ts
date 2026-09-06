@@ -41,10 +41,16 @@ async function main() {
   };
   try {
     const signal = new AbortController().signal;
+    const preloaded = await matcher.preload(['target.png', 'flat.png'], signal);
+    if (preloaded.matches.length !== 0 || preloaded.unsupportedAssets.join(',') !== 'flat.png') {
+      throw new Error(`color template preload failed: ${JSON.stringify(preloaded)}`);
+    }
     const first = await matcher.findCandidates('target.png', frame, { threshold: .9, scales: [1], maxCandidates: 2 }, signal);
+    const reused = await matcher.findCandidates('target.png', frame, { threshold: .9, scales: [1], maxCandidates: 2 }, signal);
     const second = await matcher.findCandidates('target.png', frame, { threshold: .9, scales: [1], maxCandidates: 2, region: { x: 30, y: 20, width: 40, height: 30 } }, signal);
-    if (first[0]?.x !== 40 || first[0]?.y !== 30 || second[0]?.x !== 40 || second[0]?.y !== 30) {
-      throw new Error(`unexpected color worker result: ${JSON.stringify({ first, second })}`);
+    if (first[0]?.x !== 40 || first[0]?.y !== 30 || reused[0]?.x !== 40 || reused[0]?.y !== 30
+      || reused[0]?.sceneTransferBytes !== 0 || second[0]?.x !== 40 || second[0]?.y !== 30) {
+      throw new Error(`unexpected color worker result: ${JSON.stringify({ first, reused, second })}`);
     }
     const ambiguousScene = Uint8Array.from(scene);
     paint(ambiguousScene, 120, 82, 52, 8, 6, [40, 70, 210, 255]);
@@ -75,8 +81,9 @@ async function main() {
       throw new Error(`cached mixed color support routing failed: ${JSON.stringify(mixedCached)}`);
     }
     console.log(JSON.stringify({
-      passed: true, full: first[0], region: second[0], ambiguousRejected: true,
+      passed: true, full: first[0], reusedFrame: reused[0], region: second[0], ambiguousRejected: true,
       ambiguousDiagnostic: ambiguousDiagnostic[0],
+      preloadedUnsupported: preloaded.unsupportedAssets,
       mixedSupport: { matched: mixed.matches.map((item) => item.asset), unsupported: mixed.unsupportedAssets },
     }, null, 2));
   } finally {

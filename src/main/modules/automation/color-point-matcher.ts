@@ -16,6 +16,8 @@ export type ColorPointMatchOptions = {
   /** Keep overlapping scale hypotheses for a downstream structure verifier. */
   readonly preserveScaleHypotheses?: boolean;
   readonly region?: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+  /** Precomputed once per captured frame and shared by every template in the request. */
+  readonly sceneIndex?: ColorPointSceneIndex;
 };
 
 export type ColorPointMatch = {
@@ -49,6 +51,18 @@ export type ColorPointSignature = {
   readonly colorGroups: readonly ColorGroup[];
   /** Transparent/background samples immediately outside the foreground shape. */
   readonly negativePoints: readonly ColorPoint[];
+};
+
+export type ColorPointSceneIndex = {
+  readonly pixels: Uint8Array;
+  readonly width: number;
+  readonly height: number;
+  readonly bounds: { readonly x: number; readonly y: number; readonly right: number; readonly bottom: number };
+  /** CSR offsets for all 4096 quantized BGR buckets. */
+  readonly bucketOffsets: Uint32Array;
+  /** Row-major encoded pixel positions grouped by quantized bucket. */
+  readonly bucketPositions: Uint32Array;
+  readonly searchedPixels: number;
 };
 
 export class UnsupportedColorPointSignatureError extends Error {
@@ -203,6 +217,51 @@ function regionBounds(scene: BgraImage, region: ColorPointMatchOptions['region']
   return { x, y, right, bottom };
 }
 
+export function createColorPointSceneIndex(
+  scene: BgraImage,
+  region?: ColorPointMatchOptions['region'],
+): ColorPointSceneIndex {
+  validateImage(scene, 'scene');
+  const bounds = regionBounds(scene, region);
+  const counts = new Uint32Array(4096);
+  for (let y = bounds.y; y < bounds.bottom; y += 1) for (let x = bounds.x; x < bounds.right; x += 1) {
+    counts[quantizedKey(scene.pixels, (y * scene.width + x) * 4)] += 1;
+  }
+  const bucketOffsets = new Uint32Array(4097);
+  for (let key = 0; key < counts.length; key += 1) bucketOffsets[key + 1] = bucketOffsets[key] + counts[key];
+  const bucketPositions = new Uint32Array(bucketOffsets[4096]);
+  const cursors = bucketOffsets.slice(0, 4096);
+  for (let y = bounds.y; y < bounds.bottom; y += 1) for (let x = bounds.x; x < bounds.right; x += 1) {
+    const encoded = y * scene.width + x;
+    const key = quantizedKey(scene.pixels, encoded * 4);
+    bucketPositions[cursors[key]++] = encoded;
+  }
+  return {
+    pixels: scene.pixels,
+    width: scene.width,
+    height: scene.height,
+    bounds,
+    bucketOffsets,
+    bucketPositions,
+    searchedPixels: (bounds.right - bounds.x) * (bounds.bottom - bounds.y),
+  };
+}
+
+function isCompatibleSceneIndex(
+  index: ColorPointSceneIndex | undefined,
+  scene: BgraImage,
+  bounds: ReturnType<typeof regionBounds>,
+): index is ColorPointSceneIndex {
+  return index !== undefined
+    && index.pixels === scene.pixels
+    && index.width === scene.width
+    && index.height === scene.height
+    && index.bounds.x === bounds.x
+    && index.bounds.y === bounds.y
+    && index.bounds.right === bounds.right
+    && index.bounds.bottom === bounds.bottom;
+}
+
 function matchQualityNear(
   scene: BgraImage,
   x: number,
@@ -297,6 +356,9 @@ export function matchColorPointSignature(
   const tolerance = Math.max(0, options.tolerance ?? 70);
   const threshold = Math.min(1, Math.max(0, options.threshold ?? .8));
   const bounds = regionBounds(scene, options.region);
+  const sceneIndex = isCompatibleSceneIndex(options.sceneIndex, scene, bounds)
+    ? options.sceneIndex
+    : createColorPointSceneIndex(scene, options.region);
   const scales = [...new Set(options.scales ?? [1])].filter((scale) => Number.isFinite(scale) && scale > 0);
   // Image locators describe the authored pixels. Mirroring them implicitly
   // changes their meaning (and can confuse left/right character directions or
@@ -309,20 +371,16 @@ export function matchColorPointSignature(
     const entries = featuresByBucket.get(feature.bucket) ?? [];
     entries.push(feature); featuresByBucket.set(feature.bucket, entries);
   }
-  const sceneBuckets = new Map<number, number>();
-  for (let y = bounds.y; y < bounds.bottom; y += 1) for (let x = bounds.x; x < bounds.right; x += 1) {
-    const offset = (y * scene.width + x) * 4;
-    const key = quantizedKey(scene.pixels, offset);
-    sceneBuckets.set(key, (sceneBuckets.get(key) ?? 0) + 1);
-  }
   const anchorCandidates = [...featuresByBucket.values()]
     .map((entries) => {
       const feature = entries[0]; let approximateHits = 0;
-      for (const [key, count] of sceneBuckets) {
+      for (let key = 0; key < 4096; key += 1) {
         // Quantization can add at most 24 Manhattan-distance units. Including
         // that error keeps the estimate conservative while avoiding a full
         // scene scan for every template color.
-        if (quantizedColorDistance(key, feature.color) <= tolerance + 24) approximateHits += count;
+        if (quantizedColorDistance(key, feature.color) <= tolerance + 24) {
+          approximateHits += sceneIndex.bucketOffsets[key + 1] - sceneIndex.bucketOffsets[key];
+        }
       }
       return { feature, approximateHits };
     })
@@ -330,14 +388,23 @@ export function matchColorPointSignature(
     .sort((left, right) => left.approximateHits - right.approximateHits);
   let anchorChoice: { feature: Feature; positions: Array<readonly [number, number]> } | undefined;
   for (const candidate of anchorCandidates) {
+    const encodedCandidates: number[] = [];
+    for (let key = 0; key < 4096; key += 1) {
+      if (quantizedColorDistance(key, candidate.feature.color) <= tolerance + 24) {
+        for (let index = sceneIndex.bucketOffsets[key]; index < sceneIndex.bucketOffsets[key + 1]; index += 1) {
+          encodedCandidates.push(sceneIndex.bucketPositions[index]);
+        }
+      }
+    }
+    encodedCandidates.sort((left, right) => left - right);
     const positions: Array<readonly [number, number]> = [];
-    for (let y = bounds.y; y < bounds.bottom; y += 1) for (let x = bounds.x; x < bounds.right; x += 1) {
-      if (colorDistance(scene.pixels, (y * scene.width + x) * 4, candidate.feature.color) <= tolerance) positions.push([x, y]);
+    for (const encoded of encodedCandidates) {
+      if (colorDistance(scene.pixels, encoded * 4, candidate.feature.color) > tolerance) continue;
+      positions.push([encoded % scene.width, Math.floor(encoded / scene.width)]);
     }
     if (positions.length > 0) { anchorChoice = { feature: candidate.feature, positions }; break; }
   }
-  const searchedPixels = (bounds.right - bounds.x) * (bounds.bottom - bounds.y);
-  if (!anchorChoice || anchorChoice.positions.length > searchedPixels * .15) return [];
+  if (!anchorChoice || anchorChoice.positions.length > sceneIndex.searchedPixels * .15) return [];
   const anchor = anchorChoice.feature;
 
   const raw: ColorPointMatch[] = [];

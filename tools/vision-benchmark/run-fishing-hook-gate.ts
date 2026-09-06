@@ -13,6 +13,7 @@ const framesDirectory = process.env.BAO_FISHING_HOOK_FRAMES || path.join(root, '
 const expectedLastPresent = Math.max(1, Number(process.env.BAO_FISHING_HOOK_PRESENT_END || 86));
 const expectedFirstAbsent = Math.max(expectedLastPresent + 1, Number(process.env.BAO_FISHING_HOOK_ABSENT_START || 89));
 const scales = [.5, .6, 1 / 1.5, .75, 1];
+const threshold = Number(process.env.BAO_FISHING_HOOK_THRESHOLD ?? .9);
 
 async function load(file: string): Promise<BgraImage> {
   const decoded = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -37,6 +38,7 @@ async function main() {
   } };
   const matcher = new ColorPointWorkerMatcher(provider, {
     workerPath: path.join(__dirname, 'color-vision-worker.cjs'), requestTimeoutMs: 60_000,
+    parallelGroupSearch: process.env.BAO_COLOR_PARALLEL !== '0',
   });
   const files = fs.readdirSync(framesDirectory).filter((file) => file.endsWith('.png'))
     .sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
@@ -52,7 +54,7 @@ async function main() {
         deviceSize: { width: image.width, height: image.height }, cssSize: { width: image.width, height: image.height },
       };
       const startedAt = performance.now();
-      const match = await matcher.find('hook.png', frame, { threshold: .9, scales }, new AbortController().signal);
+      const match = await matcher.find('hook.png', frame, { threshold, scales }, new AbortController().signal);
       results.push({ frame: frameNumber, file, elapsedMs: performance.now() - startedAt, match });
     }
   } finally { await matcher.close(); }

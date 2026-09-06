@@ -8,6 +8,7 @@ import { createAutomationOcrEngine } from './ocr-provider';
 import type { AutomationOcrEngine } from './capability-contracts';
 import { ColorPointWorkerMatcher } from './color-vision-worker-matcher';
 import { AutomaticVisionMatcher } from './automatic-vision-matcher';
+import { visionSchedulerFor } from './vision-scheduler';
 
 /**
  * 自动化常驻资源:OpenCV Worker 单例 + OCR Sidecar 预热。
@@ -21,6 +22,7 @@ import { AutomaticVisionMatcher } from './automatic-vision-matcher';
 type RegisteredSource = {
   readonly id: string;
   readonly source: AutomationPackageV3;
+  readonly assetFingerprint: string;
 };
 
 /** 最近使用的包排在前面;同名素材按此顺序解析,工作台一次只操作一个包。 */
@@ -66,6 +68,33 @@ let matcher: OpenCvWorkerMatcher | null = null;
 let colorMatcher: ColorPointWorkerMatcher | null = null;
 let automaticMatcher: AutomaticVisionMatcher | null = null;
 let warmupPromise: Promise<void> | null = null;
+const prewarmedAssetSets = new Map<string, string>();
+
+function imageAssetNames(source: AutomationPackageV3): string[] {
+  return [...source.assets.keys()]
+    .filter((asset) => /\.(?:png|jpe?g|bmp|webp)$/iu.test(asset))
+    .slice(0, 64);
+}
+
+function assetSetFingerprint(source: AutomationPackageV3, assets: readonly string[]): string {
+  return assets.map((asset) => `${asset}:${source.manifest.integrity[asset] ?? source.assets.get(asset)?.byteLength ?? 0}`).join('|');
+}
+
+function prewarmAutomationAssetSource(id: string, source: AutomationPackageV3): void {
+  const assets = imageAssetNames(source);
+  if (assets.length === 0) return;
+  const fingerprint = assetSetFingerprint(source, assets);
+  if (prewarmedAssetSets.get(id) === fingerprint) return;
+  prewarmedAssetSets.set(id, fingerprint);
+  const color = ensureColorMatcher();
+  const signal = createAutomationAbortController().signal;
+  // Registration happens while the package is selected or before its run
+  // starts. Queue the decode/signature work on the same matcher scheduler so a
+  // foreground recognition can never race a preload request inside the worker.
+  void visionSchedulerFor(color).schedule(signal, () => color.preload(assets, signal)).catch(() => {
+    if (prewarmedAssetSets.get(id) === fingerprint) prewarmedAssetSets.delete(id);
+  });
+}
 
 function ensureTemplateProvider(): CachingAutomationTemplateProvider {
   if (!templateProvider) templateProvider = new CachingAutomationTemplateProvider(new RegistryTemplateProvider());
@@ -85,17 +114,26 @@ function ensureColorMatcher(): ColorPointWorkerMatcher {
 
 /** 注册一个包的素材源,最近注册的优先解析。 */
 export function registerAutomationAssetSource(id: string, source: AutomationPackageV3): void {
+  const assets = imageAssetNames(source);
+  const assetFingerprint = assetSetFingerprint(source, assets);
+  const current = registeredSources[0];
+  if (current?.id === id && current.assetFingerprint === assetFingerprint) {
+    prewarmAutomationAssetSource(id, source);
+    return;
+  }
   const retained = registeredSources.filter((entry) => entry.id !== id);
-  registeredSources = [{ id, source }, ...retained].slice(0, MAX_REGISTERED_SOURCES);
+  registeredSources = [{ id, source, assetFingerprint }, ...retained].slice(0, MAX_REGISTERED_SOURCES);
   // Asset names are package-local, while the shared provider caches by the
   // locator's asset path. Re-registering/reordering sources can therefore make
   // the old bytes stale even when the visible name is unchanged.
   templateProvider?.invalidate();
+  prewarmAutomationAssetSource(id, source);
 }
 
 /** 包被删除或重载后移除,避免陈旧素材被解析到。 */
 export function unregisterAutomationAssetSource(id: string): void {
   registeredSources = registeredSources.filter((entry) => entry.id !== id);
+  prewarmedAssetSets.delete(id);
   templateProvider?.invalidate();
 }
 
@@ -138,6 +176,7 @@ export async function warmStartAutomationVision(): Promise<{ ok: boolean; ms: nu
 export async function shutdownAutomationVision(): Promise<void> {
   warmupPromise = null;
   registeredSources = [];
+  prewarmedAssetSets.clear();
   const currentMatcher = matcher;
   const currentColorMatcher = colorMatcher;
   matcher = null;

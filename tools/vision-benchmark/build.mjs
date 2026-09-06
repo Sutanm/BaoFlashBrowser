@@ -12,6 +12,7 @@ await build({
     'color-video-poc': path.join(import.meta.dirname, 'run-color-video-poc.ts'),
     'fishing-hook-gate': path.join(import.meta.dirname, 'run-fishing-hook-gate.ts'),
     'color-worker-gate': path.join(import.meta.dirname, 'run-color-worker-gate.ts'),
+    'color-group-poc': path.join(import.meta.dirname, 'run-color-group-poc.ts'),
     'color-scale-gate': path.join(import.meta.dirname, 'run-color-scale-gate.ts'),
     'routing-poc': path.join(import.meta.dirname, 'run-routing-poc.ts'),
     'scale-estimation-poc': path.join(import.meta.dirname, 'run-scale-estimation-poc.ts'),

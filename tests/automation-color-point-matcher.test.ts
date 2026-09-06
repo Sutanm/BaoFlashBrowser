@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   areColorPointMatchesSameObject,
+  createColorPointSceneIndex,
   extractColorPointSignature,
   matchColorPoints,
   matchColorPointSignature,
@@ -126,6 +127,27 @@ describe('multi-point color matcher POC', () => {
     const second = matchColorPointSignature(scene, signature, { threshold: .85, mirror: false, maxCandidates: 1 });
     expect(second.map(({ matchMs: _matchMs, ...match }) => match))
       .toEqual(first.map(({ matchMs: _matchMs, ...match }) => match));
+  });
+
+  it('shares one scene index across templates without changing match coordinates', () => {
+    const firstTemplate = image(9, 7, [0, 0, 0, 0]);
+    paint(firstTemplate, 1, 1, 3, 5, [30, 80, 220, 255]);
+    paint(firstTemplate, 4, 2, 4, 2, [190, 40, 70, 255]);
+    const secondTemplate = image(10, 8, [0, 0, 0, 0]);
+    paint(secondTemplate, 2, 1, 6, 3, [20, 170, 235, 255]);
+    paint(secondTemplate, 5, 4, 3, 3, [165, 45, 95, 255]);
+    const scene = image(90, 55, [12, 18, 25, 255]);
+    paint(scene, 16, 10, 3, 5, [30, 80, 220, 255]);
+    paint(scene, 19, 11, 4, 2, [190, 40, 70, 255]);
+    paint(scene, 54, 29, 6, 3, [20, 170, 235, 255]);
+    paint(scene, 57, 32, 3, 3, [165, 45, 95, 255]);
+    const sceneIndex = createColorPointSceneIndex(scene);
+    const options = { threshold: .85, mirror: false, maxCandidates: 1, sceneIndex } as const;
+
+    expect(matchColorPointSignature(scene, extractColorPointSignature(firstTemplate), options)[0])
+      .toMatchObject({ x: 15, y: 9 });
+    expect(matchColorPointSignature(scene, extractColorPointSignature(secondTemplate), options)[0])
+      .toMatchObject({ x: 52, y: 28 });
   });
 
   it('scores a complete color geometry above a partial same-color patch', () => {

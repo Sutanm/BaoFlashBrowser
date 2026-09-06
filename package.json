@@ -38,6 +38,7 @@
     "benchmark:vision:color-video-poc": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/color-video-poc.cjs",
     "benchmark:vision:fishing-hook": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/fishing-hook-gate.cjs",
     "benchmark:vision:color-worker": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/color-worker-gate.cjs",
+    "benchmark:vision:color-group": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/color-group-poc.cjs",
     "benchmark:vision:color-scale": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/color-scale-gate.cjs",
     "benchmark:vision:routing-poc": "npm run benchmark:vision:corpus && node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/routing-poc.cjs",
     "benchmark:vision:scale-estimation": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/scale-estimation-poc.cjs",

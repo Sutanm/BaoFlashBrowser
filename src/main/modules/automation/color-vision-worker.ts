@@ -1,6 +1,7 @@
 import { parentPort } from 'worker_threads';
 import {
   areColorPointMatchesSameObject,
+  createColorPointSceneIndex,
   extractColorPointSignature,
   matchColorPointSignature,
   UnsupportedColorPointSignatureError,
@@ -17,9 +18,10 @@ type TemplatePayload = {
   readonly bgra?: Uint8Array;
 };
 
-type Request = {
+type MatchRequest = {
   readonly id: number;
-  readonly scene: BgraImage;
+  readonly type?: 'match';
+  readonly scene: BgraImage & { readonly frameKey?: string; readonly reuse?: boolean };
   readonly templates: readonly TemplatePayload[];
   readonly options: {
     readonly threshold: number;
@@ -28,10 +30,19 @@ type Request = {
   };
 };
 
+type PreloadRequest = {
+  readonly id: number;
+  readonly type: 'preload';
+  readonly templates: readonly TemplatePayload[];
+};
+
+type Request = MatchRequest | PreloadRequest;
+
 const signatures = new Map<string, ColorPointSignature>();
 const templateImages = new Map<string, BgraImage>();
 const unsupportedSignatures = new Set<string>();
 const MAX_SIGNATURES = 64;
+let cachedScene: { readonly key: string; readonly scene: BgraImage; readonly index: ReturnType<typeof createColorPointSceneIndex> } | undefined;
 
 function signatureFor(template: TemplatePayload): ColorPointSignature | undefined {
   const cached = signatures.get(template.cacheKey);
@@ -66,6 +77,27 @@ if (!parentPort) throw new Error('color vision worker requires a parent port');
 parentPort.on('message', (request: Request) => {
   try {
     const unsupportedAssets: string[] = [];
+    if (request.type === 'preload') {
+      for (const template of request.templates) {
+        if (!signatureFor(template)) unsupportedAssets.push(template.asset);
+      }
+      parentPort!.postMessage({ type: 'result', id: request.id, matches: [], unsupportedAssets });
+      return;
+    }
+    let scene: BgraImage;
+    let sceneIndex: ReturnType<typeof createColorPointSceneIndex>;
+    if (request.scene.reuse) {
+      if (!request.scene.frameKey || cachedScene?.key !== request.scene.frameKey
+        || cachedScene.scene.width !== request.scene.width || cachedScene.scene.height !== request.scene.height) {
+        throw new Error('color scene cache miss');
+      }
+      scene = cachedScene.scene;
+      sceneIndex = cachedScene.index;
+    } else {
+      scene = request.scene;
+      sceneIndex = createColorPointSceneIndex(scene);
+      cachedScene = request.scene.frameKey ? { key: request.scene.frameKey, scene, index: sceneIndex } : undefined;
+    }
     const matches = request.templates.flatMap((template) => {
       const signature = signatureFor(template);
       if (!signature) { unsupportedAssets.push(template.asset); return []; }
@@ -74,16 +106,17 @@ parentPort.on('message', (request: Request) => {
       // Preserve different scale hypotheses until the local structure pass.
       // Collapsing them here used to retain the colour-strongest scale even
       // when it had the wrong shape.
-      const candidates = matchColorPointSignature(request.scene, signature, {
+      const candidates = matchColorPointSignature(scene, signature, {
         threshold: .15,
         scales: request.options.scales,
         maxCandidates: 40,
         maxVerificationCandidates: 96,
         preserveScaleHypotheses: true,
+        sceneIndex,
       });
       const ranked = selectStructureProposals(candidates).map((candidate) => ({
         candidate,
-        verification: verifyColorPointStructure(request.scene, templateImage, candidate),
+        verification: verifyColorPointStructure(scene, templateImage, candidate),
       })).sort((left, right) => right.verification.structureScore - left.verification.structureScore);
       const distinct = ranked.filter((entry, index) => !ranked.slice(0, index)
         .some((stronger) => areColorPointMatchesSameObject(stronger.candidate, entry.candidate)));
