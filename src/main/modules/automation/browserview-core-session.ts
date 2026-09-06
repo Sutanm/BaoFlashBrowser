@@ -476,11 +476,11 @@ export class BrowserViewAutomationCoreSession {
       })?.[0];
       if (learnedRatio !== undefined) learnedScale = learned.logicalScale * learnedRatio;
     }
-    const learnedScales = learnedScale === undefined ? undefined : [
-      learnedScale * .97,
-      learnedScale,
-      learnedScale * 1.03,
-    ];
+    // A learned scale already survived the complete acceptance policy. Try its
+    // migrated exact value alone so repeated image/group checks pay for one
+    // hypothesis instead of three; nearby and ordinary scales remain miss-only
+    // recovery below.
+    const learnedScales = learnedScale === undefined ? undefined : [learnedScale];
     const initialScales = locator.scales ?? predictedScales ?? learnedScales ?? imageMatchScales();
     const request = {
       assets,
@@ -492,7 +492,13 @@ export class BrowserViewAutomationCoreSession {
     };
     let matches = await this.vision.locateCandidates(frame, request, context.signal, maxCandidates);
     if (locator.scales === undefined && matches.length === 0) {
-      const fallbackScales = imageMatchFallbackScales(initialScales);
+      const fallbackScales = learnedScale === undefined
+        ? imageMatchFallbackScales(initialScales)
+        : [...new Set([
+          learnedScale * .97,
+          learnedScale * 1.03,
+          ...imageMatchFallbackScales(initialScales),
+        ])];
       if (fallbackScales.length > 0) {
         matches = await this.vision.locateCandidates(frame, { ...request, scales: fallbackScales }, context.signal, maxCandidates);
       }

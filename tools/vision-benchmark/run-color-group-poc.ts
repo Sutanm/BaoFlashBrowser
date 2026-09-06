@@ -15,7 +15,10 @@ const assetNames = [
   '鱼钩.png', '鱼.png', '鱼-二次扣图.png', '拉杆.png',
   '收线-完整-日.png', '收线-完整-夜.png', '收线-仅线圈.png', '收线-仅字体.png',
 ] as const;
-const scales = [.5, .6, 2 / 3, .75, .8, 1, 1.25, 1.5, 1.75, 2];
+const scales = process.env.BAO_COLOR_GROUP_SCALES
+  ? process.env.BAO_COLOR_GROUP_SCALES.split(',').map(Number).filter((value) => Number.isFinite(value) && value > 0)
+  : [.5, .6, 2 / 3, .75, .8, 1, 1.25, 1.5, 1.75, 2];
+if (scales.length === 0) throw new Error('BAO_COLOR_GROUP_SCALES must contain at least one positive number');
 
 async function load(file: string): Promise<Pixels> {
   const decoded = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -107,6 +110,7 @@ async function main() {
       passed: group.matches.length > 0 && groupIsEquivalent,
       groupIsEquivalent,
       assets: assetNames.length,
+      scales,
       supported: assetNames.length - group.unsupportedAssets.length,
       groupMs,
       sceneIndexMs,

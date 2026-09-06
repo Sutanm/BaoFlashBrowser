@@ -395,8 +395,48 @@ describe('Automation image recognition policy', () => {
     expect(attemptedScales).toEqual([
       [0.75, 1, 1.25],
       [0.5, 1 / 1.75, 1 / 1.5, 0.8],
-      [0.5 * .97, 0.5, 0.5 * 1.03],
-      [1 * .97, 1, 1 * 1.03],
+      [0.5],
+      [1],
+    ]);
+    await session.close();
+  });
+
+  it('falls back to nearby and ordinary scales when the learned exact scale misses', async () => {
+    const capturePage = vi.fn(async () => capturedImage(1280, 720));
+    const attemptedScales: number[][] = [];
+    const findMany = vi.fn<AutomationVisionMatcher['findMany']>(async (_assets, _frame, options) => {
+      attemptedScales.push(options.scales ?? []);
+      if (attemptedScales.length === 1 || attemptedScales.length === 3) return null;
+      return { x: 20, y: 30, width: 40, height: 50, score: .99, asset: 'button.png', scale: .5 };
+    });
+    const matcher = { find: vi.fn(), findMany, close: vi.fn() } as unknown as OpenCvWorkerMatcher;
+    const base = source();
+    const pkg: AutomationPackageV3 = {
+      ...base,
+      workflow: {
+        formatVersion: 3, id: 'learn-image-scale-fallback', name: 'Learn image scale fallback', root: {
+          id: 'root', kind: 'sequence', nodes: [
+            { id: 'first', kind: 'query', assignTo: 'firstFound', valueType: 'boolean', query: { kind: 'exists', resultType: 'boolean', locator: { kind: 'image', asset: 'button.png', threshold: .9 } } },
+            { id: 'second', kind: 'query', assignTo: 'secondFound', valueType: 'boolean', query: { kind: 'exists', resultType: 'boolean', locator: { kind: 'image', asset: 'button.png', threshold: .9 } } },
+          ],
+        },
+      },
+    };
+    const session = new BrowserViewAutomationCoreSession({
+      tabId: 'tab-learn-image-scale-fallback',
+      webContents: { incrementCapturerCount: vi.fn(), decrementCapturerCount: vi.fn(), capturePage },
+      getCssViewport: () => ({ width: 1280, height: 720 }),
+      getViewportTransform: () => ({ logicalSize: { width: 1280, height: 720 }, displaySize: { width: 1280, height: 720 }, scaleX: 1, scaleY: 1 }),
+      getViewportRevision: () => 1,
+      assertCurrent: vi.fn(), waitForViewport: vi.fn(async () => undefined), release: vi.fn(),
+    } as never, pkg, undefined, undefined, undefined, { matcher, ocrEngine: { recognize: vi.fn(async () => []) } });
+
+    await expect(session.startWorkflow().completion).resolves.toMatchObject({ status: 'completed' });
+    expect(attemptedScales).toEqual([
+      [0.75, 1, 1.25],
+      [0.5, 1 / 1.75, 1 / 1.5, 0.8],
+      [0.5],
+      [0.5 * .97, 0.5 * 1.03, 0.75, 1, 1.25, 1 / 1.75, 1 / 1.5, 0.8],
     ]);
     await session.close();
   });
