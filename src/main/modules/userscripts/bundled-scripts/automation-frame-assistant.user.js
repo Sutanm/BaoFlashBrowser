@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.8
-// @updateHash  e650d54731e9
+// @updateHash  ac8cbe2b3226
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -18,7 +18,7 @@
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 
-/* global GM, window, document, innerWidth, innerHeight, setInterval, clearInterval, setTimeout, clearTimeout */
+/* global GM, window, document, innerWidth, innerHeight, setInterval, setTimeout, clearTimeout */
 
 (function () {
   'use strict';
@@ -50,7 +50,13 @@
 #bao-automation-frame-assistant.bao-running .bao-ring{border-top-color:#7bb8ff;border-right-color:#7bb8ff;opacity:1;animation:bao-spin 1s linear infinite}
 #bao-automation-frame-assistant.bao-success .bao-ring{border-color:#45d18a;opacity:1}
 #bao-automation-frame-assistant.bao-failed .bao-ring{border-color:#ff6b72;opacity:1}
+#bao-automation-frame-assistant.bao-monitoring .bao-ring{border-color:#4db9ff;opacity:1;animation:bao-monitor-pulse .8s ease-in-out infinite}
+#bao-automation-frame-assistant.bao-monitoring.bao-monitor-scanning .bao-ring{border-color:transparent;border-top-color:#62c7ff;border-right-color:#62c7ff;animation:bao-spin .7s linear infinite}
+#bao-automation-frame-assistant.bao-monitoring.bao-monitor-hit .bao-ring{border-color:#45d18a;box-shadow:0 0 10px #45d18a99}
+#bao-automation-frame-assistant.bao-monitoring.bao-monitor-miss .bao-ring{border-color:#ffbf5b;box-shadow:0 0 8px #ffbf5b66}
+#bao-automation-frame-assistant.bao-monitoring.bao-monitor-error .bao-ring{border-color:#ff6b72;box-shadow:0 0 8px #ff6b7266}
 @keyframes bao-spin{to{transform:rotate(360deg)}}
+@keyframes bao-monitor-pulse{50%{transform:scale(1.12);opacity:.65}}
 #bao-automation-frame-assistant .bao-drawer{position:absolute;left:0;top:0;width:320px;height:100%;overflow:hidden;border:1px solid #9bc1ef42;border-radius:0 16px 16px 0;background:linear-gradient(145deg,#192841ed,#0d182be6);box-shadow:0 18px 50px #0009,inset 0 1px #ffffff16;backdrop-filter:blur(10px) saturate(1.1);transform:translateX(calc(-100% - 20px));opacity:0;pointer-events:none;transition:transform .24s cubic-bezier(.2,.8,.2,1),opacity .18s}
 #bao-automation-frame-assistant.bao-open .bao-drawer{transform:none;opacity:1;pointer-events:auto}
 #bao-automation-frame-assistant.bao-right .bao-drawer{left:auto;right:0;border-radius:16px 0 0 16px;transform:translateX(calc(100% + 20px))}
@@ -239,6 +245,9 @@
       }
     }
   }
+  function runRecognitionTask(task, timeoutMs, continuous) {
+    return continuous ? withAssistantTimeout(task, timeoutMs) : withRecognitionPanelCollapsed(task, timeoutMs);
+  }
   function formatMs(value) {
     var duration = Math.max(0, Number(value) || 0);
     if (duration > 0 && duration < 0.1) return '<0.1';
@@ -270,7 +279,10 @@
   // 并让它在 3 秒后自动消失,避免残留遮挡或污染后续截图。
   function renderPageCross(value) {
     clearPageCross();
-    if (!value || !value.candidate) return;
+    // A below-policy candidate is useful inside the assistant preview, but it
+    // is not a real detection. Drawing it over the page made rejected trees or
+    // UI panels look like accepted targets.
+    if (!value || !value.candidate || !value.matched) return;
     var c = value.candidate;
     var scaleX = (window.innerWidth || 1280) / 1280;
     var scaleY = (window.innerHeight || 720) / 720;
@@ -287,7 +299,7 @@
   }
   function renderMatch(value) {
     preview.innerHTML = ''; clearPageCross(); var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
-    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); renderPageCross(value); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var score = (value.candidate.score * 100).toFixed(1) + '%'; var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); resultText.textContent = (value.matched ? '匹配成功 ' : '最佳候选低于阈值 ') + score + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + formatMs(totalMs) + 'ms（截图 ' + formatMs(captureMs) + 'ms · 匹配 ' + formatMs(matchMs) + 'ms）'; }
+    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); renderPageCross(value); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var score = (value.candidate.score * 100).toFixed(1) + '%'; var required = (Math.max(0, Math.min(1, Number(value.threshold) || 0)) * 100).toFixed(0) + '%'; var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); var verdict = value.matched ? '匹配成功 ' + score : value.rejectionReason === 'automatic-policy' ? '未识别：黄色框只是最相似候选 ' + score + '，颜色特征不唯一' : '未识别：黄色框只是最佳候选 ' + score + '，低于设定阈值 ' + required; resultText.textContent = verdict + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + formatMs(totalMs) + 'ms（截图 ' + formatMs(captureMs) + 'ms · 匹配 ' + formatMs(matchMs) + 'ms）'; }
     else resultText.textContent = '没有找到匹配候选'; mountRecognitionPreview(wrap, image, value);
   }
   function renderOcr(value) {
@@ -324,32 +336,66 @@
     if (width <= 0 || height <= 0) return undefined;
     return { x: Math.max(0, x), y: Math.max(0, y), width, height, viewportWidth: innerWidth, viewportHeight: innerHeight };
   }
-  async function compareText() {
+  async function compareText(continuous) {
     var text = String(ocrText.value || '').trim(); if (!text) { resultText.textContent = '请先输入要识别的文字'; ocrText.focus(); return; }
     var score = Math.max(0, Math.min(1, Number(ocrScore.value) || 0)); ocrScore.value = String(score);
-    var region = ocrRegion(); var value = await withRecognitionPanelCollapsed(function () { return api.ocrTest(text, { match: ocrMatch.value, minScore: score, region: region }); }, 40000); renderOcr(value);
+    var region = ocrRegion(); var value = await runRecognitionTask(function () { return api.ocrTest(text, { match: ocrMatch.value, minScore: score, region: region }); }, 40000, continuous); renderOcr(value); return Boolean(value.matched);
   }
-  async function compare() {
+  function setMonitorVisual(status) {
+    root.classList.remove('bao-monitoring', 'bao-monitor-scanning', 'bao-monitor-hit', 'bao-monitor-miss', 'bao-monitor-error');
+    var orbButton = root.querySelector('.bao-orb');
+    if (!state.monitor) {
+      orbButton.title = '展开自动化助手'; orbButton.setAttribute('aria-label', '展开自动化助手'); return;
+    }
+    root.classList.add('bao-monitoring', 'bao-monitor-' + status);
+    var labels = { scanning: '连续监测中：正在识别…', hit: '连续监测中：刚刚匹配成功', miss: '连续监测中：暂未达到阈值', error: '连续监测中：本轮识别失败，将自动重试' };
+    var label = labels[status] || '连续监测中';
+    orbButton.title = label + '；点击查看结果并停止'; orbButton.setAttribute('aria-label', orbButton.title);
+  }
+  async function compare(continuous) {
     if (state.busy) return;
     if (state.matchMode === 'image') { var pkg = currentPackage(); if (!pkg) { resultText.textContent = '没有 Automation 2.0 包，请先在工作台新建'; return; } if (!selectedAsset) { resultText.textContent = '当前包没有图片素材，请先到“取材”页捕获素材'; return; } }
-    state.busy = true; resultText.textContent = '正在捕获当前页面…';
+    state.busy = true; resultText.textContent = '正在捕获当前页面…'; if (continuous && state.monitor) setMonitorVisual('scanning');
+    var matched = false;
     try {
       // 红框在页面 DOM 上,不先清除会被本轮的 capturePage 截进识别帧。
       clearPageCross();
       await refreshBoundSurfaceIfNeeded();
-      if (state.matchMode === 'text') await compareText();
+      if (state.matchMode === 'text') matched = await compareText(continuous);
       else {
         var region = ocrRegion();
         // Omit explicit scales so Core can use the same fast pass plus common
         // Windows-DPI fallback policy as runtime and the Workbench test center.
-        var value = await withRecognitionPanelCollapsed(function () { return api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, region: region }); }, 20000);
-        renderMatch(value);
+        var value = await runRecognitionTask(function () { return api.match(pkg.packageId, selectedAsset, { threshold: Number(threshold.value) / 100, region: region }); }, 20000, continuous);
+        renderMatch(value); matched = Boolean(value.matched);
       }
     }
-    catch (error) { if (state.monitor) stopMonitor(); resultText.textContent = error.message || String(error); }
+    catch (error) { resultText.textContent = error.message || String(error); if (continuous && state.monitor) setMonitorVisual('error'); else if (state.monitor) stopMonitor(); return; }
     finally { state.busy = false; }
+    if (continuous && state.monitor) setMonitorVisual(matched ? 'hit' : 'miss');
+    return matched;
   }
-  function stopMonitor() { if (state.monitor) clearInterval(state.monitor); state.monitor = 0; clearPageCross(); root.querySelector('.bao-monitor').textContent = '连续监测'; }
+  function stopMonitor() {
+    if (state.monitor > 0) clearTimeout(state.monitor);
+    state.monitor = 0; clearPageCross(); root.querySelector('.bao-monitor').textContent = '连续监测';
+    setMonitorVisual('idle');
+  }
+  async function monitorTick() {
+    if (!state.monitor) return;
+    state.monitor = -1;
+    await compare(true);
+    if (!state.monitor) return;
+    // Schedule after the previous recognition completes: requests never overlap,
+    // and short-lived frames are sampled far more often than the old 1.8s timer.
+    state.monitor = window.setTimeout(function () { void monitorTick(); }, 120);
+  }
+  async function startMonitor() {
+    if (state.monitor || state.busy) return;
+    state.monitor = -1;
+    root.querySelector('.bao-monitor').textContent = '停止监测';
+    setMonitorVisual('scanning');
+    await monitorTick();
+  }
 
   function nextAssetName() { var pkg = currentPackage(); var names = pkg ? pkg.assets : []; var index = state.captureIndex; var name; do { name = '截取素材_' + String(index++).padStart(3, '0') + '.png'; } while (names.indexOf(name) >= 0); return name; }
   function cleanName(value) { var text = String(value || '').trim().split('').map(function (character) { return character.charCodeAt(0) < 32 ? '_' : character; }).join('').replace(/[<>:"/\\|?*]/g, '_'); if (!text) text = nextAssetName(); if (!/\.png$/i.test(text)) text += '.png'; return text; }
@@ -482,7 +528,7 @@
   threshold.addEventListener('input', function () { root.querySelector('.bao-threshold-text').textContent = threshold.value + '%'; });
   ocrText.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); void compare(); } });
   root.querySelector('.bao-compare').addEventListener('click', function () { void compare(); });
-  root.querySelector('.bao-monitor').addEventListener('click', function () { if (state.monitor) stopMonitor(); else { void compare(); state.monitor = setInterval(function () { void compare(); }, 1800); root.querySelector('.bao-monitor').textContent = '停止监测'; } });
+  root.querySelector('.bao-monitor').addEventListener('click', function () { if (state.monitor) stopMonitor(); else void startMonitor(); });
   startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) { toast('没有 Automation 2.0 包，请先在工作台新建'); return; } clearPageCross(); startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error)); } });
   stopButton.addEventListener('click', async function () { try { await api.cancel(); toast('正在停止自动化脚本'); } catch (error) { toast(error.message || String(error)); } });
   root.querySelector('.bao-capture').addEventListener('click', function () { void beginCapture(); });
@@ -508,7 +554,7 @@
   orb.addEventListener('pointerdown', function (event) { moved = false; var rect = orb.getBoundingClientRect(); dragging = { x: event.clientX - rect.left, y: event.clientY - rect.top }; orb.setPointerCapture(event.pointerId); });
   orb.addEventListener('pointermove', function (event) { if (!dragging) return; if (Math.abs(event.movementX) + Math.abs(event.movementY) > 2) moved = true; closePanel(); placeCollapsedRoot(event.clientX - dragging.x, event.clientY - dragging.y); });
   orb.addEventListener('pointerup', function (event) { dragging = null; orb.releasePointerCapture(event.pointerId); var rect = orb.getBoundingClientRect(); GM.setValue('position', { x: rect.left, y: rect.top }); });
-  orb.addEventListener('click', function () { if (moved) return; if (root.classList.contains('bao-open')) closePanel(); else openPanel(); });
+  orb.addEventListener('click', function () { if (moved) return; if (state.monitor) { stopMonitor(false); openPanel('match'); return; } if (root.classList.contains('bao-open')) closePanel(); else openPanel(); });
 
   var selecting = false; var selectionStart = null; var selection = captureLayer.querySelector('.bao-selection'); var saveBox = captureLayer.querySelector('.bao-save');
   captureLayer.addEventListener('pointerdown', function (event) { if (event.target.closest('.bao-save') || event.target.closest('.bao-capture-help')) return; var imageRect = captureLayer.querySelector('.bao-capture-image').getBoundingClientRect(); if (event.clientX < imageRect.left || event.clientX > imageRect.right || event.clientY < imageRect.top || event.clientY > imageRect.bottom) return; selecting = true; selectionStart = { x: event.clientX, y: event.clientY }; selection.style.cssText = 'display:block;left:' + event.clientX + 'px;top:' + event.clientY + 'px;width:0;height:0'; saveBox.style.display = 'none'; });
@@ -523,11 +569,11 @@
   coordinateLayer.addEventListener('pointermove', updateCoordinate);
   coordinateLayer.addEventListener('click', function (event) { event.preventDefault(); event.stopImmediatePropagation(); var point = updateCoordinate(event); var text = point.x + ',' + point.y; void copyText(text).then(async function () { coordinateLayer.setAttribute('data-last-copied', text); await endCoordinatePick(true); toast('已复制坐标 ' + text); }); });
   coordinateLayer.addEventListener('contextmenu', function (event) { event.preventDefault(); });
-  window.addEventListener('keydown', function (event) { if (gameLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); closeGameSelect(); return; } if (coordinateLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); void endCoordinatePick(true); return; } if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') { event.preventDefault(); openPanel(); } }, true);
+  window.addEventListener('keydown', function (event) { if (gameLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); closeGameSelect(); return; } if (coordinateLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); void endCoordinatePick(true); return; } if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') { event.preventDefault(); if (state.monitor) stopMonitor(false); openPanel(); } }, true);
 
   var savedPosition = GM.getValue('position', null); if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) placeCollapsedRoot(savedPosition.x, savedPosition.y);
   window.addEventListener('resize', function () { var rect = orb.getBoundingClientRect(); var wasOpen = root.classList.contains('bao-open'); placeCollapsedRoot(rect.left, rect.top); if (wasOpen) root.classList.add('bao-open'); if (gameLayer.classList.contains('bao-active')) closeGameSelect(); if (state.surfaceRefreshTimer) window.clearTimeout(state.surfaceRefreshTimer); state.surfaceRefreshTimer = window.setTimeout(function () { state.surfaceRefreshTimer = 0; void refreshBoundSurfaceIfNeeded().catch(function (error) { toast(error.message || String(error)); }); }, 180); });
-  window.addEventListener('pagehide', function () { gameLayer.classList.remove('bao-active'); if (coordinateLayer.classList.contains('bao-active')) void api.endCoordinatePick(); });
+  window.addEventListener('pagehide', function () { stopMonitor(false); gameLayer.classList.remove('bao-active'); if (coordinateLayer.classList.contains('bao-active')) void api.endCoordinatePick(); });
   if (GM.registerMenuCommand) GM.registerMenuCommand('显示自动化助手', function () { openPanel(); });
   void refreshPackages(); void pollStatus(); state.statusTimer = setInterval(function () { void pollStatus(); }, 600);
 })();

@@ -13,6 +13,8 @@ export type ColorPointMatchOptions = {
   readonly maxCandidates?: number;
   readonly mirror?: boolean;
   readonly maxVerificationCandidates?: number;
+  /** Keep overlapping scale hypotheses for a downstream structure verifier. */
+  readonly preserveScaleHypotheses?: boolean;
   readonly region?: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 };
 
@@ -35,11 +37,28 @@ type ColorPoint = { readonly x: number; readonly y: number };
 type ColorGroup = { readonly color: Color; readonly points: readonly ColorPoint[] };
 
 export type ColorPointSignature = {
+  /** Full authored asset size, including transparent/dominant-background border. */
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
+  /** Foreground bounds inside the authored asset. */
+  readonly offsetX: number;
+  readonly offsetY: number;
   readonly width: number;
   readonly height: number;
   readonly features: readonly Feature[];
   readonly colorGroups: readonly ColorGroup[];
+  /** Transparent/background samples immediately outside the foreground shape. */
+  readonly negativePoints: readonly ColorPoint[];
 };
+
+export class UnsupportedColorPointSignatureError extends Error {
+  readonly code = 'COLOR_SIGNATURE_UNSUPPORTED';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnsupportedColorPointSignatureError';
+  }
+}
 
 const colorDistance = (pixels: Uint8Array, offset: number, color: Color): number => (
   Math.abs(pixels[offset] - color[0])
@@ -121,23 +140,49 @@ export function extractColorPointSignature(template: BgraImage, maximumFeatures 
     }
   }
   const foregroundCount = [...buckets.values()].reduce((sum, entries) => sum + entries.length, 0);
-  if (foregroundCount < 8) throw new Error('template has too few foreground color pixels');
+  if (foregroundCount < 8) throw new UnsupportedColorPointSignatureError('template has too few foreground color pixels');
   const minimumX = Math.min(...body.map((point) => point.x)); const minimumY = Math.min(...body.map((point) => point.y));
   const maximumX = Math.max(...body.map((point) => point.x)); const maximumY = Math.max(...body.map((point) => point.y));
   const useful = [...buckets.values()]
     .filter((entries) => entries.length >= Math.max(2, Math.floor(foregroundCount * .004)))
     .sort((left, right) => right.length - left.length)
     .slice(0, 8);
-  if (useful.length < 2) throw new Error('template does not contain enough distinct foreground colors');
+  if (useful.length < 2) throw new UnsupportedColorPointSignatureError('template does not contain enough distinct foreground colors');
   const perBucket = Math.max(2, Math.floor(maximumFeatures / useful.length));
   const majors = useful.map((entries) => {
     const totals = entries.reduce((sum, entry) => [sum[0] + entry.color[0], sum[1] + entry.color[1], sum[2] + entry.color[2]], [0, 0, 0]);
     return totals.map((value) => Math.round(value / entries.length)) as unknown as Color;
   });
+  if (!majors.some((color) => Math.max(...color) - Math.min(...color) >= 24)) {
+    throw new UnsupportedColorPointSignatureError('template does not contain discriminating chromatic colors');
+  }
   const features = useful.flatMap((entries, bucket) => selectSpread(entries, perBucket).map((entry) => ({
     ...entry, x: entry.x - minimumX, y: entry.y - minimumY, color: majors[bucket],
   }))).slice(0, maximumFeatures);
+  // Positive colour points alone are ambiguous for tiny sprites: unrelated UI
+  // text or foliage can contain the same handful of colours. Preserve a thin
+  // ring of authored background around the foreground so verification can
+  // reject candidates whose matching colours continue outside the silhouette.
+  const foreground = new Set(body.map((point) => `${point.x}:${point.y}`));
+  const negative: ColorPoint[] = [];
+  for (let y = Math.max(0, minimumY - 2); y <= Math.min(height - 1, maximumY + 2); y += 1) {
+    for (let x = Math.max(0, minimumX - 2); x <= Math.min(width - 1, maximumX + 2); x += 1) {
+      if (foreground.has(`${x}:${y}`)) continue;
+      const offset = (y * width + x) * 4;
+      const isBackground = pixels[offset + 3] < 128 || quantizedKey(pixels, offset) === backgroundKey;
+      if (!isBackground) continue;
+      let nextToForeground = false;
+      for (let dy = -2; dy <= 2 && !nextToForeground; dy += 1) for (let dx = -2; dx <= 2; dx += 1) {
+        if (foreground.has(`${x + dx}:${y + dy}`)) { nextToForeground = true; break; }
+      }
+      if (nextToForeground) negative.push({ x: x - minimumX, y: y - minimumY });
+    }
+  }
   return {
+    sourceWidth: width,
+    sourceHeight: height,
+    offsetX: minimumX,
+    offsetY: minimumY,
     width: maximumX - minimumX + 1,
     height: maximumY - minimumY + 1,
     features,
@@ -145,6 +190,7 @@ export function extractColorPointSignature(template: BgraImage, maximumFeatures 
       color: majors[index],
       points: sampleSpread(entries.map((point) => ({ x: point.x - minimumX, y: point.y - minimumY })), 96),
     })),
+    negativePoints: sampleSpread(negative, 96),
   };
 }
 
@@ -178,6 +224,20 @@ function matchQualityNear(
   return best;
 }
 
+function matchQualityAt(
+  scene: BgraImage,
+  x: number,
+  y: number,
+  color: Color,
+  tolerance: number,
+  bounds: ReturnType<typeof regionBounds>,
+): number {
+  if (x < bounds.x || y < bounds.y || x >= bounds.right || y >= bounds.bottom) return 0;
+  const distance = colorDistance(scene.pixels, (y * scene.width + x) * 4, color);
+  if (distance > tolerance) return 0;
+  return tolerance === 0 ? 1 : 1 - distance / (tolerance + 1);
+}
+
 function overlaps(left: ColorPointMatch, right: ColorPointMatch): boolean {
   const intersectionWidth = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
   const intersectionHeight = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
@@ -185,12 +245,18 @@ function overlaps(left: ColorPointMatch, right: ColorPointMatch): boolean {
   return intersection / Math.max(1, Math.min(left.width * left.height, right.width * right.height)) >= .5;
 }
 
-function belongsToSameObject(left: ColorPointMatch, right: ColorPointMatch): boolean {
+export function areColorPointMatchesSameObject(left: ColorPointMatch, right: ColorPointMatch): boolean {
   if (overlaps(left, right)) return true;
   const leftCenterX = left.x + left.width / 2; const leftCenterY = left.y + left.height / 2;
   const rightCenterX = right.x + right.width / 2; const rightCenterY = right.y + right.height / 2;
-  return Math.abs(leftCenterX - rightCenterX) <= Math.max(left.width, right.width) * .75
-    && Math.abs(leftCenterY - rightCenterY) <= Math.max(left.height, right.height) * .75;
+  // Small animated sprites often yield two hypotheses for adjacent scale
+  // factors and mirrored fits. Their boxes can be displaced by roughly one
+  // and a half target dimensions even
+  // though both describe the same object (the fishing hook is a representative
+  // case). Do not count that scale jitter as an independent runner-up: the
+  // uniqueness gate must compare against a genuinely separate screen region.
+  return Math.abs(leftCenterX - rightCenterX) <= Math.max(left.width, right.width) * 1.6
+    && Math.abs(leftCenterY - rightCenterY) <= Math.max(left.height, right.height) * 1.6;
 }
 
 type ScaledColorGroup = { readonly color: Color; readonly points: readonly ColorPoint[] };
@@ -207,6 +273,16 @@ function scaleColorGroups(signature: ColorPointSignature, scale: number, mirrore
   }).filter((group) => group.points.length > 0);
 }
 
+function scalePoints(points: readonly ColorPoint[], width: number, scale: number, mirrored: boolean): ColorPoint[] {
+  const unique = new Map<string, ColorPoint>();
+  for (const point of points) {
+    const sourceX = mirrored ? width - 1 - point.x : point.x;
+    const scaled = { x: Math.round(sourceX * scale), y: Math.round(point.y * scale) };
+    unique.set(`${scaled.x}:${scaled.y}`, scaled);
+  }
+  return [...unique.values()];
+}
+
 export function matchColorPointSignature(
   scene: BgraImage,
   signature: ColorPointSignature,
@@ -214,11 +290,19 @@ export function matchColorPointSignature(
 ): ColorPointMatch[] {
   validateImage(scene, 'scene');
   const startedAt = performance.now();
-  const tolerance = Math.max(0, options.tolerance ?? 52);
+  // BrowserView captures may contain bilinear/cubic resampling even for pixel
+  // art. A 70-point RGB Manhattan tolerance preserves the authored colour
+  // families after that interpolation; the spatial uniqueness gate remains the
+  // protection against common scene colours.
+  const tolerance = Math.max(0, options.tolerance ?? 70);
   const threshold = Math.min(1, Math.max(0, options.threshold ?? .8));
   const bounds = regionBounds(scene, options.region);
   const scales = [...new Set(options.scales ?? [1])].filter((scale) => Number.isFinite(scale) && scale > 0);
-  const mirrorModes = options.mirror === false ? [false] : [false, true];
+  // Image locators describe the authored pixels. Mirroring them implicitly
+  // changes their meaning (and can confuse left/right character directions or
+  // turn nearby scene colours into a competing hook candidate). Only search a
+  // mirrored variant when the caller explicitly opts in.
+  const mirrorModes = options.mirror === true ? [false, true] : [false];
 
   const featuresByBucket = new Map<number, Feature[]>();
   for (const feature of signature.features) {
@@ -258,8 +342,12 @@ export function matchColorPointSignature(
 
   const raw: ColorPointMatch[] = [];
   for (const scale of scales) for (const mirrored of mirrorModes) {
-    const width = Math.max(1, Math.round(signature.width * scale));
-    const height = Math.max(1, Math.round(signature.height * scale));
+    const sourceWidth = Math.max(1, Math.round(signature.sourceWidth * scale));
+    const sourceHeight = Math.max(1, Math.round(signature.sourceHeight * scale));
+    const sourceOffsetX = Math.round((mirrored
+      ? signature.sourceWidth - signature.offsetX - signature.width
+      : signature.offsetX) * scale);
+    const sourceOffsetY = Math.round(signature.offsetY * scale);
     const anchorX = Math.round((mirrored ? signature.width - 1 - anchor.x : anchor.x) * scale);
     const anchorY = Math.round(anchor.y * scale);
     const scaledFeatureGroups = new Map<string, { x: number; y: number; colors: Color[] }>();
@@ -270,10 +358,13 @@ export function matchColorPointSignature(
       group.colors.push(feature.color); scaledFeatureGroups.set(key, group);
     }
     const scaledColorGroups = scaleColorGroups(signature, scale, mirrored);
+    const scaledNegativePoints = scalePoints(signature.negativePoints, signature.width, scale, mirrored);
     const origins = new Set<string>();
     for (const [sx, sy] of anchorChoice.positions) {
       const x = sx - anchorX; const y = sy - anchorY;
-      if (x < bounds.x || y < bounds.y || x + width > bounds.right || y + height > bounds.bottom) continue;
+      const sourceX = x - sourceOffsetX; const sourceY = y - sourceOffsetY;
+      if (sourceX < bounds.x || sourceY < bounds.y
+        || sourceX + sourceWidth > bounds.right || sourceY + sourceHeight > bounds.bottom) continue;
       origins.add(`${x}:${y}`);
     }
     const verifiedOrigins: Array<{
@@ -311,9 +402,29 @@ export function matchColorPointSignature(
       // collapse solely because pixels were resampled between authored and
       // captured sizes.
       const featureRecall = matchedFeatures / scaledFeatureGroups.size;
-      const score = geometryScore * .25 + coverageScore * .35 + featureRecall * .4;
+      const positiveScore = geometryScore * .25 + coverageScore * .35 + featureRecall * .4;
+      let negativeIntrusion = 0;
+      if (scaledNegativePoints.length > 0) {
+        const foregroundColors = scaledColorGroups.map((group) => group.color);
+        for (const point of scaledNegativePoints) {
+          let intrusion = 0;
+          for (const color of foregroundColors) {
+            intrusion = Math.max(intrusion, matchQualityAt(scene, x + point.x, y + point.y, color, tolerance, bounds));
+          }
+          negativeIntrusion += intrusion;
+        }
+        negativeIntrusion /= scaledNegativePoints.length;
+      }
+      // Negative evidence only lowers confidence. A clean silhouette keeps its
+      // original score, while a same-colour patch extending through the
+      // authored transparent ring is demoted before the uniqueness gate.
+      const score = positiveScore * (1 - negativeIntrusion * .35);
       if (score >= threshold) raw.push({
-        x, y, width, height, scale, mirrored, score,
+        x: x - sourceOffsetX,
+        y: y - sourceOffsetY,
+        width: sourceWidth,
+        height: sourceHeight,
+        scale, mirrored, score,
         featureCount: scaledFeatureGroups.size, matchedFeatures, matchMs: 0,
       });
     }
@@ -321,7 +432,8 @@ export function matchColorPointSignature(
   raw.sort((left, right) => right.score - left.score || left.y - right.y || left.x - right.x);
   const selected: ColorPointMatch[] = [];
   for (const match of raw) {
-    if (selected.some((existing) => belongsToSameObject(existing, match))) continue;
+    if (!options.preserveScaleHypotheses
+      && selected.some((existing) => areColorPointMatchesSameObject(existing, match))) continue;
     selected.push({ ...match, matchMs: performance.now() - startedAt });
     if (selected.length >= (options.maxCandidates ?? 5)) break;
   }

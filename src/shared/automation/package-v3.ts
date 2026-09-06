@@ -15,6 +15,11 @@ export type AutomationAssetMetadataV3 = {
     readonly kind: 'viewport' | 'region' | 'surface';
     readonly width: number;
     readonly height: number;
+    /** BrowserView display/logical transform at capture time. Absent on legacy assets. */
+    readonly viewportTransform?: {
+      readonly scaleX: number;
+      readonly scaleY: number;
+    };
   };
 };
 

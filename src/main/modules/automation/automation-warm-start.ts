@@ -6,6 +6,8 @@ import type { AutomationPackageV3 } from '../../../shared/automation/package-v3'
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import { createAutomationOcrEngine } from './ocr-provider';
 import type { AutomationOcrEngine } from './capability-contracts';
+import { ColorPointWorkerMatcher } from './color-vision-worker-matcher';
+import { AutomaticVisionMatcher } from './automatic-vision-matcher';
 
 /**
  * 自动化常驻资源:OpenCV Worker 单例 + OCR Sidecar 预热。
@@ -40,10 +42,9 @@ class RegistryTemplateProvider implements AutomationTemplateProvider {
     if (signal.aborted) throw new Error('automation cancelled');
     const sources = registeredSources;
     let bytes: Uint8Array | undefined;
-    let origin = '';
     for (const entry of sources) {
       const found = lookupAsset(entry.source, asset);
-      if (found) { bytes = found; origin = entry.id; break; }
+      if (found) { bytes = found; break; }
     }
     if (!bytes) throw new Error(`automation asset is missing: ${asset}`);
     if (signal.aborted) throw new Error('automation cancelled');
@@ -60,28 +61,55 @@ class RegistryTemplateProvider implements AutomationTemplateProvider {
 }
 
 let registeredSources: readonly RegisteredSource[] = [];
+let templateProvider: CachingAutomationTemplateProvider | null = null;
 let matcher: OpenCvWorkerMatcher | null = null;
+let colorMatcher: ColorPointWorkerMatcher | null = null;
+let automaticMatcher: AutomaticVisionMatcher | null = null;
 let warmupPromise: Promise<void> | null = null;
+
+function ensureTemplateProvider(): CachingAutomationTemplateProvider {
+  if (!templateProvider) templateProvider = new CachingAutomationTemplateProvider(new RegistryTemplateProvider());
+  return templateProvider;
+}
 
 function ensureMatcher(): OpenCvWorkerMatcher {
   if (matcher) return matcher;
-  matcher = new OpenCvWorkerMatcher(new CachingAutomationTemplateProvider(new RegistryTemplateProvider()));
+  matcher = new OpenCvWorkerMatcher(ensureTemplateProvider());
   return matcher;
+}
+
+function ensureColorMatcher(): ColorPointWorkerMatcher {
+  if (!colorMatcher) colorMatcher = new ColorPointWorkerMatcher(ensureTemplateProvider());
+  return colorMatcher;
 }
 
 /** 注册一个包的素材源,最近注册的优先解析。 */
 export function registerAutomationAssetSource(id: string, source: AutomationPackageV3): void {
   const retained = registeredSources.filter((entry) => entry.id !== id);
   registeredSources = [{ id, source }, ...retained].slice(0, MAX_REGISTERED_SOURCES);
+  // Asset names are package-local, while the shared provider caches by the
+  // locator's asset path. Re-registering/reordering sources can therefore make
+  // the old bytes stale even when the visible name is unchanged.
+  templateProvider?.invalidate();
 }
 
 /** 包被删除或重载后移除,避免陈旧素材被解析到。 */
 export function unregisterAutomationAssetSource(id: string): void {
   registeredSources = registeredSources.filter((entry) => entry.id !== id);
+  templateProvider?.invalidate();
 }
 
 export function sharedAutomationVisionMatcher(): OpenCvWorkerMatcher {
   return ensureMatcher();
+}
+
+export function sharedAutomationColorMatcher(): ColorPointWorkerMatcher {
+  return ensureColorMatcher();
+}
+
+export function sharedAutomaticVisionMatcher(): AutomaticVisionMatcher {
+  if (!automaticMatcher) automaticMatcher = new AutomaticVisionMatcher(ensureMatcher(), ensureColorMatcher());
+  return automaticMatcher;
 }
 
 /**
@@ -92,8 +120,11 @@ export async function warmStartAutomationVision(): Promise<{ ok: boolean; ms: nu
   const startedAt = Date.now();
   try {
     if (!warmupPromise) {
-      const target = ensureMatcher();
-      warmupPromise = target.warmup(createAutomationAbortController().signal);
+      const signal = createAutomationAbortController().signal;
+      warmupPromise = Promise.all([
+        ensureMatcher().warmup(signal),
+        ensureColorMatcher().warmup(signal),
+      ]).then(() => undefined);
     }
     await warmupPromise;
     return { ok: true, ms: Date.now() - startedAt };
@@ -107,9 +138,16 @@ export async function warmStartAutomationVision(): Promise<{ ok: boolean; ms: nu
 export async function shutdownAutomationVision(): Promise<void> {
   warmupPromise = null;
   registeredSources = [];
-  const current = matcher;
+  const currentMatcher = matcher;
+  const currentColorMatcher = colorMatcher;
   matcher = null;
-  if (current) await current.close();
+  colorMatcher = null;
+  automaticMatcher = null;
+  templateProvider = null;
+  await Promise.all([
+    currentMatcher?.close(),
+    currentColorMatcher?.close(),
+  ]);
 }
 
 // ---- OCR Sidecar 常驻 ----

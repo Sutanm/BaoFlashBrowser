@@ -20,10 +20,13 @@ async function main() {
   paint(template, 12, 2, 2, 8, 6, [40, 70, 210, 255]);
   paint(template, 12, 6, 3, 4, 3, [180, 30, 240, 255]);
   const scene = image(120, 80, [10, 15, 20, 255]);
-  paint(scene, 120, 40, 30, 8, 6, [40, 70, 210, 255]);
-  paint(scene, 120, 44, 31, 4, 3, [180, 30, 240, 255]);
+  const flatTemplate = image(12, 10, [80, 80, 80, 255]);
+  // Place the full 12x10 template at 40,30; its visible body starts at +2,+2.
+  paint(scene, 120, 42, 32, 8, 6, [40, 70, 210, 255]);
+  paint(scene, 120, 46, 33, 4, 3, [180, 30, 240, 255]);
   const provider = {
-    async load(): Promise<AutomationTemplatePixels> {
+    async load(asset: string): Promise<AutomationTemplatePixels> {
+      if (asset === 'flat.png') return { cacheKey: 'flat-v1', width: 12, height: 10, bgra: flatTemplate };
       return { cacheKey: 'synthetic-v1', width: 12, height: 10, bgra: template };
     },
   };
@@ -44,14 +47,38 @@ async function main() {
       throw new Error(`unexpected color worker result: ${JSON.stringify({ first, second })}`);
     }
     const ambiguousScene = Uint8Array.from(scene);
-    paint(ambiguousScene, 120, 80, 50, 8, 6, [40, 70, 210, 255]);
-    paint(ambiguousScene, 120, 84, 51, 4, 3, [180, 30, 240, 255]);
+    paint(ambiguousScene, 120, 82, 52, 8, 6, [40, 70, 210, 255]);
+    paint(ambiguousScene, 120, 86, 53, 4, 3, [180, 30, 240, 255]);
     const ambiguous = await matcher.findCandidates('target.png', {
       ...frame, frameId: 2, bitmap: Buffer.from(ambiguousScene),
       image: { ...frame.image, toBitmap: () => Buffer.from(ambiguousScene) },
     }, { threshold: .9, scales: [1], maxCandidates: 1 }, signal);
     if (ambiguous.length !== 0) throw new Error(`ambiguous color target was accepted: ${JSON.stringify(ambiguous)}`);
-    console.log(JSON.stringify({ passed: true, full: first[0], region: second[0], ambiguousRejected: true }, null, 2));
+    const ambiguousDiagnostic = await matcher.findCandidates('target.png', {
+      ...frame, frameId: 3, bitmap: Buffer.from(ambiguousScene),
+      image: { ...frame.image, toBitmap: () => Buffer.from(ambiguousScene) },
+    }, { threshold: -1, scales: [1], maxCandidates: 1 }, signal);
+    if (ambiguousDiagnostic[0]?.algorithm !== 'color-points'
+      || !(Number(ambiguousDiagnostic[0].colorMargin) < .08)) {
+      throw new Error(`ambiguous diagnostic did not preserve color policy: ${JSON.stringify(ambiguousDiagnostic)}`);
+    }
+    const mixed = await matcher.findManyCandidatesWithSupport(
+      ['target.png', 'flat.png'], frame, { threshold: .9, scales: [1], maxCandidates: 2 }, signal,
+    );
+    if (mixed.matches[0]?.asset !== 'target.png' || mixed.unsupportedAssets.join(',') !== 'flat.png') {
+      throw new Error(`mixed color support routing failed: ${JSON.stringify(mixed)}`);
+    }
+    const mixedCached = await matcher.findManyCandidatesWithSupport(
+      ['target.png', 'flat.png'], frame, { threshold: .9, scales: [1], maxCandidates: 2 }, signal,
+    );
+    if (mixedCached.matches[0]?.asset !== 'target.png' || mixedCached.unsupportedAssets.join(',') !== 'flat.png') {
+      throw new Error(`cached mixed color support routing failed: ${JSON.stringify(mixedCached)}`);
+    }
+    console.log(JSON.stringify({
+      passed: true, full: first[0], region: second[0], ambiguousRejected: true,
+      ambiguousDiagnostic: ambiguousDiagnostic[0],
+      mixedSupport: { matched: mixed.matches.map((item) => item.asset), unsupported: mixed.unsupportedAssets },
+    }, null, 2));
   } finally {
     await matcher.close();
   }

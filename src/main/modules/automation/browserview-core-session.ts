@@ -50,7 +50,7 @@ import {
 import type { AutomationPackageV3 } from '../../../shared/automation/package-v3';
 import type { AutomationProfileV3 } from '../../../shared/automation/package-v3';
 import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
-import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
+import { capturedReferenceImageScales, DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
 import { createJavaScriptInstallGrant, createJavaScriptRunGrant } from '../../../shared/automation/javascript-grants';
 import type { AutomationTabHandle } from '../tabs';
 import { BrowserViewCaptureService } from './browserview-capture-service';
@@ -66,6 +66,7 @@ import { AutomationTextRecognitionService } from './text-recognition-service';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
 import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
 import { ColorPointWorkerMatcher } from './color-vision-worker-matcher';
+import { AutomaticVisionMatcher } from './automatic-vision-matcher';
 import { chooseLocatedGameSurface, detectGameSurfaces } from './game-surface-detector';
 
 const sleep = (durationMs: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
@@ -91,17 +92,23 @@ export class BrowserViewAutomationCoreSession {
   private readonly ocrEngine;
   private readonly text;
   private readonly ownsMatcher;
+  private readonly ownsColorMatcher;
   private readonly ownsOcrEngine;
+  private readonly defaultImageMethod: 'template' | 'auto';
   private readonly locators = new AutomationLocatorRegistry();
   private readonly locatorQueries: AutomationLocatorQueries;
   private readonly actions = new AutomationActionRegistry();
   private readonly runtimeQueries = new AutomationRuntimeQueryRegistry();
   private readonly runtime: AutomationWorkflowRuntime;
-  private readonly learnedImageScales = new Map<string, number>();
+  private readonly learnedImageScales = new Map<string, {
+    readonly logicalScale: number;
+    readonly searchSize: { readonly width: number; readonly height: number };
+    readonly viewportTransform: { readonly scaleX: number; readonly scaleY: number };
+  }>();
   private nextSurfaceGeneration = 1;
   private closePromise?: Promise<void>;
 
-  constructor(private readonly handle: AutomationTabHandle, private readonly source: AutomationPackageV3, private readonly profile?: AutomationProfileV3, private readonly log: (message: string, level?: 'debug' | 'info' | 'warn' | 'error') => void = () => undefined, private readonly scriptGrants?: (entryId: string) => readonly import('../../../shared/automation/javascript-api').JavaScriptAutomationCapability[], injected: { matcher?: OpenCvWorkerMatcher; ocrEngine?: AutomationOcrEngine } = {}) {
+  constructor(private readonly handle: AutomationTabHandle, private readonly source: AutomationPackageV3, private readonly profile?: AutomationProfileV3, private readonly log: (message: string, level?: 'debug' | 'info' | 'warn' | 'error') => void = () => undefined, private readonly scriptGrants?: (entryId: string) => readonly import('../../../shared/automation/javascript-api').JavaScriptAutomationCapability[], injected: { matcher?: OpenCvWorkerMatcher; colorMatcher?: ColorPointWorkerMatcher; automaticMatcher?: AutomaticVisionMatcher; ocrEngine?: AutomationOcrEngine } = {}) {
     const logical = handle.getCssViewport();
     this.viewport = viewportSpace({ targetId: targetId(`tab-${handle.tabId}`), targetGeneration: generation(1), viewportGeneration: generation(handle.getViewportRevision?.() ?? 1) });
     this.coordinateResolver = new AutomationCoordinateResolver({ viewport: this.viewport, viewportSize: size(logical.width, logical.height) });
@@ -120,11 +127,20 @@ export class BrowserViewAutomationCoreSession {
       return { bytes, cacheKey: crypto.createHash('sha256').update(Buffer.from(bytes)).digest('hex') };
     } }));
     this.matcher = injected.matcher ?? new OpenCvWorkerMatcher(provider);
-    this.colorMatcher = new ColorPointWorkerMatcher(provider);
+    this.colorMatcher = injected.colorMatcher ?? new ColorPointWorkerMatcher(provider);
     this.ownsMatcher = !injected.matcher;
+    this.ownsColorMatcher = !injected.colorMatcher;
+    // Service-v3 injects the shared automatic router. Keeping standalone
+    // dependency-injected sessions on template matching preserves focused
+    // tests and embedders that deliberately supply only one matcher.
+    this.defaultImageMethod = injected.automaticMatcher ? 'auto' : 'template';
     this.ocrEngine = injected.ocrEngine ?? createAutomationOcrEngine();
     this.ownsOcrEngine = !injected.ocrEngine;
-    this.vision = new AutomationVisionService(this.matcher, this.colorMatcher);
+    this.vision = new AutomationVisionService(
+      this.matcher,
+      this.colorMatcher,
+      injected.automaticMatcher ?? new AutomaticVisionMatcher(this.matcher, this.colorMatcher),
+    );
     this.text = new AutomationTextRecognitionService(this.ocrEngine);
     const recognition: LocatorRecognitionPort = { locateImage: (locator, context, maxCandidates) => this.locateImage(locator, context, maxCandidates), locateText: (locator, context) => this.locateText(locator, context) };
     this.locators.register(new CoordinateLocatorResolver()); this.locators.register(new ImageLocatorResolver(recognition)); this.locators.register(new TextLocatorResolver(recognition)); this.locators.register(new FirstOfLocatorResolver(this.locators)); this.locators.freeze();
@@ -183,7 +199,7 @@ export class BrowserViewAutomationCoreSession {
       try {
         await Promise.all([
           this.ownsMatcher ? this.matcher.close() : Promise.resolve(),
-          this.colorMatcher.close(),
+          this.ownsColorMatcher ? this.colorMatcher.close() : Promise.resolve(),
           this.ownsOcrEngine ? this.ocrEngine.close?.() : Promise.resolve(),
         ]);
       } finally { this.handle.release(); }
@@ -200,6 +216,18 @@ export class BrowserViewAutomationCoreSession {
     return { bitmap: frame.bitmap, width: dimensions.width, height: dimensions.height, captureMs: frame.captureMs ?? 0, bitmapMs: frame.bitmapMs ?? 0 };
   }
 
+  async capturePreviewWithViewportTransform(): Promise<{ bitmap: Uint8Array; width: number; height: number; captureMs: number; bitmapMs: number; viewportTransform: { scaleX: number; scaleY: number } }> {
+    const { frame, viewportTransform } = await this.captureViewportFrameSnapshot(undefined, 1);
+    const dimensions = frame.image.getSize();
+    if (!frame.bitmap) throw new Error('captured frame has no bitmap');
+    return { bitmap: frame.bitmap, width: dimensions.width, height: dimensions.height, captureMs: frame.captureMs ?? 0, bitmapMs: frame.bitmapMs ?? 0, viewportTransform };
+  }
+
+  currentViewportTransform(): { scaleX: number; scaleY: number } {
+    const { scaleX, scaleY } = this.handle.getViewportTransform();
+    return { scaleX, scaleY };
+  }
+
   authoringDisplayRegionToLogical(value: { x: number; y: number; width: number; height: number; viewportWidth: number; viewportHeight: number }): { x: number; y: number; width: number; height: number } {
     const logical = this.coordinateAdapter.sourceViewportRegionToLogical(value, { width: value.viewportWidth, height: value.viewportHeight });
     return { x: logical.x, y: logical.y, width: logical.width, height: logical.height };
@@ -208,7 +236,7 @@ export class BrowserViewAutomationCoreSession {
   async testImage(asset: string, threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK, logicalRegion?: { x: number; y: number; width: number; height: number }) {
     const controller = createAutomationAbortController();
     const group = decodeAutomationImageGroup(asset);
-    const candidates = await this.locateImage({ kind: 'image', asset: group?.[0] ?? asset, alternatives: group?.slice(1), threshold, scales: [...scales], mask, region: logicalRegion ? { unit: 'logical', ...logicalRegion } : undefined }, this.context(controller.signal), 1);
+    const candidates = await this.locateImage({ kind: 'image', method: this.defaultImageMethod, asset: group?.[0] ?? asset, alternatives: group?.slice(1), threshold, scales: [...scales], mask, region: logicalRegion ? { unit: 'logical', ...logicalRegion } : undefined }, this.context(controller.signal), 1);
     const candidate = candidates[0];
     return candidate ? { bounds: candidate.bounds, score: candidate.confidence } : null;
   }
@@ -220,22 +248,54 @@ export class BrowserViewAutomationCoreSession {
     return candidate ? { bounds: candidate.bounds, score: candidate.confidence } : null;
   }
 
-  async testImagePreview(asset: string, threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK, logicalRegion?: { x: number; y: number; width: number; height: number }, _displayRegion?: { x: number; y: number; width: number; height: number }, fallbackScales: readonly number[] = []) {
+  async testImagePreview(asset: string, threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK, logicalRegion?: { x: number; y: number; width: number; height: number }, _displayRegion?: { x: number; y: number; width: number; height: number }, fallbackScales: readonly number[] = [], captureReferences?: readonly import('../../../shared/automation/vision-policy').CapturedImageScaleReference[]) {
     return this.capture.withFreshFrame(async () => {
       // Assistant regions are cropped from the same normalized full frame used
       // by whole-page recognition. This guarantees identical template scale in
       // both modes; the logical region only limits the OpenCV search ROI.
-      const preview = await this.captureViewportPreview();
-      const frame = await this.captureViewportFrame();
+      const snapshot = await this.captureViewportFrameSnapshot();
+      const frame = snapshot.frame; const dimensions = frame.image.getSize();
+      if (!frame.bitmap) throw new Error('captured frame has no bitmap');
+      const preview = { bitmap: frame.bitmap, width: dimensions.width, height: dimensions.height, captureMs: frame.captureMs ?? 0, bitmapMs: frame.bitmapMs ?? 0 };
+      const predictedScales = captureReferences
+        ? capturedReferenceImageScales(captureReferences, {
+          viewport: { ...frame.cssSize, viewportTransform: snapshot.viewportTransform },
+          surface: logicalRegion ? { ...logicalRegion, viewportTransform: snapshot.viewportTransform } : undefined,
+        })
+        : undefined;
+      const effectiveScales = predictedScales ?? scales;
+      const effectiveFallbackScales = predictedScales ? imageMatchFallbackScales(predictedScales) : fallbackScales;
       const group = decodeAutomationImageGroup(asset);
       const signal = createAutomationAbortController().signal;
-      let bitmapMatch = await this.vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask, region: logicalRegion }, signal);
-      if ((!bitmapMatch || bitmapMatch.score < threshold) && fallbackScales.length > 0) {
-        const fallback = await this.vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: fallbackScales, mask, region: logicalRegion }, signal);
-        if (fallback && (!bitmapMatch || fallback.score > bitmapMatch.score)) bitmapMatch = fallback;
+      const assets = group ?? [asset];
+      let bitmapMatch = this.defaultImageMethod === 'auto'
+        ? await this.vision.locate(frame, { assets, method: 'auto', threshold, scales: effectiveScales, mask, region: logicalRegion }, signal)
+        : null;
+      if (this.defaultImageMethod === 'auto' && !bitmapMatch && effectiveFallbackScales.length > 0) {
+        bitmapMatch = await this.vision.locate(frame, { assets, method: 'auto', threshold, scales: effectiveFallbackScales, mask, region: logicalRegion }, signal);
+      }
+      const accepted = Boolean(bitmapMatch);
+      if (!bitmapMatch) {
+        // Keep authoring diagnostics on the same automatic routing path used
+        // at runtime. Colour-capable tiny sprites must not be replaced by an
+        // unrelated high-scoring OpenCV candidate after a safe rejection.
+        bitmapMatch = await this.vision.locate(frame, { assets, method: this.defaultImageMethod, threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: effectiveScales, mask, region: logicalRegion }, signal);
+        if (effectiveFallbackScales.length > 0) {
+          const fallback = await this.vision.locate(frame, { assets, method: this.defaultImageMethod, threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: effectiveFallbackScales, mask, region: logicalRegion }, signal);
+          if (fallback && (!bitmapMatch || fallback.score > bitmapMatch.score)) bitmapMatch = fallback;
+        }
       }
       const bounds = bitmapMatch && frame.geometry ? new AutomationFrameTransform(frame.geometry).bitmapRegionToSpace(bitmapMatch) : null;
-      return { preview, bitmapMatch, match: bitmapMatch && bounds ? { bounds, score: bitmapMatch.score } : null };
+      const rejectionReason = !accepted && bitmapMatch
+        ? (this.defaultImageMethod === 'auto' && (
+          (bitmapMatch.structureScore !== undefined && bitmapMatch.structureScore < .30)
+          || (bitmapMatch.structureMargin !== undefined && bitmapMatch.structureMargin < .05)
+          || (bitmapMatch.structureScore === undefined && bitmapMatch.colorMargin !== undefined && bitmapMatch.colorMargin < .08)
+        )
+          ? 'automatic-policy'
+          : 'threshold')
+        : undefined;
+      return { preview, bitmapMatch, match: bitmapMatch && bounds ? { bounds, score: bitmapMatch.score } : null, accepted, rejectionReason };
     });
   }
 
@@ -359,40 +419,72 @@ export class BrowserViewAutomationCoreSession {
     return this.capture.capture({ logicalViewportSize: transform.logicalSize, displayViewportSize: transform.displaySize, logicalRegion: captureRegion, displayRegion: displayRegionOverride ?? (captureRegion ? this.coordinateAdapter.logicalRegionToDisplayCapture(captureRegion) : undefined), scope: context.observationScope });
   }
 
-  private async captureViewportFrame(context?: LocatorContext) {
-    await this.waitForCurrentViewport();
-    const transform = this.handle.getViewportTransform();
-    return this.capture.capture({ logicalViewportSize: transform.logicalSize, displayViewportSize: transform.displaySize, scope: context?.observationScope });
+  private async captureViewportFrameSnapshot(context?: LocatorContext, retries = 0) {
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      await this.waitForCurrentViewport();
+      const revision = this.handle.getViewportRevision?.() ?? 0;
+      const transform = this.handle.getViewportTransform();
+      const frame = await this.capture.capture({ logicalViewportSize: transform.logicalSize, displayViewportSize: transform.displaySize, scope: context?.observationScope });
+      if (revision === (this.handle.getViewportRevision?.() ?? 0)) {
+        return { frame, viewportTransform: { scaleX: transform.scaleX, scaleY: transform.scaleY }, viewportRevision: revision };
+      }
+    }
+    throw new Error('viewport changed while capturing automation frame');
   }
 
-  private async captureViewportPreview(): Promise<{ bitmap: Uint8Array; width: number; height: number; captureMs: number; bitmapMs: number }> {
-    const frame = await this.captureViewportFrame();
-    const dimensions = frame.image.getSize();
-    if (!frame.bitmap) throw new Error('captured frame has no bitmap');
-    return { bitmap: frame.bitmap, width: dimensions.width, height: dimensions.height, captureMs: frame.captureMs ?? 0, bitmapMs: frame.bitmapMs ?? 0 };
+  private async captureViewportFrame(context?: LocatorContext) {
+    return (await this.captureViewportFrameSnapshot(context)).frame;
   }
 
   private async locateImage(locator: ImageLocator, context: LocatorContext, maxCandidates: number): Promise<readonly RecognitionCandidate[]> {
     const assets = [...new Set([locator.asset, ...(locator.alternatives ?? [])])];
     const searchRegion = resolveLocatorCaptureRegion(locator.region, context);
-    const surfaceReferences = locator.scales === undefined && locator.region === undefined && searchRegion
+    const captureReferences = locator.scales === undefined
       ? assets.map((asset) => {
         const normalized = asset.startsWith('assets/') ? asset : `assets/${asset}`;
         const metadata = this.source.manifest.assetMetadata?.[normalized];
-        return metadata?.source === 'capture' && metadata.reference.kind === 'surface' ? metadata.reference : undefined;
+        return metadata?.source === 'capture' ? metadata.reference : undefined;
       })
       : [];
-    const predictedScales = surfaceReferences.length === assets.length && surfaceReferences.every(Boolean)
-      ? surfaceReferenceImageScales(surfaceReferences as Array<{ width: number; height: number }>, searchRegion!)
+    const snapshot = await this.captureViewportFrameSnapshot(context);
+    const frame = snapshot.frame;
+    const currentViewportTransform = snapshot.viewportTransform;
+    const predictedScales = captureReferences.length === assets.length && captureReferences.every(Boolean)
+      ? capturedReferenceImageScales(captureReferences as Array<NonNullable<typeof captureReferences[number]>>, {
+        viewport: { ...frame.cssSize, viewportTransform: currentViewportTransform },
+        surface: locator.region === undefined && searchRegion ? { ...searchRegion, viewportTransform: currentViewportTransform } : undefined,
+      })
       : undefined;
-    const frame = await this.captureViewportFrame(context);
     const viewportSize = frame.cssSize;
-    const scaleKey = `${assets.join('\u0000')}|${locator.mask ?? DEFAULT_IMAGE_MATCH_MASK}|${searchRegion?.width ?? viewportSize.width}x${searchRegion?.height ?? viewportSize.height}`;
-    const learnedScale = locator.scales === undefined && !predictedScales ? this.learnedImageScales.get(scaleKey) : undefined;
-    const initialScales = locator.scales ?? predictedScales ?? (learnedScale === undefined ? imageMatchScales() : [learnedScale]);
+    const currentSearchSize = {
+      width: searchRegion?.width ?? viewportSize.width,
+      height: searchRegion?.height ?? viewportSize.height,
+    };
+    // Keep the identity stable across viewport revisions: a learned content
+    // scale is valuable precisely when the user changes zoom. The stored
+    // geometry below is used to migrate it into the new frame safely.
+    const scaleKey = `${assets.join('\u0000')}|${locator.mask ?? DEFAULT_IMAGE_MATCH_MASK}|${searchRegion ? 'scoped' : 'viewport'}`;
+    const learned = locator.scales === undefined && !predictedScales ? this.learnedImageScales.get(scaleKey) : undefined;
+    let learnedScale: number | undefined;
+    if (learned) {
+      const learnedRatio = surfaceReferenceImageScales([{
+        ...learned.searchSize,
+        viewportTransform: learned.viewportTransform,
+      }], {
+        ...currentSearchSize,
+        viewportTransform: currentViewportTransform,
+      })?.[0];
+      if (learnedRatio !== undefined) learnedScale = learned.logicalScale * learnedRatio;
+    }
+    const learnedScales = learnedScale === undefined ? undefined : [
+      learnedScale * .97,
+      learnedScale,
+      learnedScale * 1.03,
+    ];
+    const initialScales = locator.scales ?? predictedScales ?? learnedScales ?? imageMatchScales();
     const request = {
       assets,
-      method: locator.method,
+      method: locator.method ?? this.defaultImageMethod,
       threshold: locator.threshold,
       scales: initialScales,
       mask: locator.mask ?? DEFAULT_IMAGE_MATCH_MASK,
@@ -413,7 +505,11 @@ export class BrowserViewAutomationCoreSession {
         const density = Math.sqrt(widthDensity * heightDensity);
         const logicalScale = strongest.scale! / (Number.isFinite(density) && density > 0 ? density : 1);
         this.learnedImageScales.delete(scaleKey);
-        this.learnedImageScales.set(scaleKey, logicalScale);
+        this.learnedImageScales.set(scaleKey, {
+          logicalScale,
+          searchSize: currentSearchSize,
+          viewportTransform: currentViewportTransform,
+        });
         while (this.learnedImageScales.size > 128) this.learnedImageScales.delete(this.learnedImageScales.keys().next().value!);
       }
     }

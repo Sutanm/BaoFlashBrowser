@@ -75,7 +75,17 @@ function parseAssetMetadata(value: unknown): Readonly<Record<string, AutomationA
       || reference.width <= 0 || reference.height <= 0 || reference.width > 100_000 || reference.height > 100_000) {
       throw new AutomationPackageV3Error('PACKAGE_INVALID', `asset metadata is invalid: ${assetPath}`);
     }
-    parsed[assetPath] = { source: 'capture', reference: { kind: reference.kind as 'viewport' | 'region' | 'surface', width: reference.width, height: reference.height } };
+    let viewportTransform: { scaleX: number; scaleY: number } | undefined;
+    if (reference.viewportTransform !== undefined) {
+      const transform = object(reference.viewportTransform, `asset metadata viewportTransform ${assetPath}`);
+      if (typeof transform.scaleX !== 'number' || typeof transform.scaleY !== 'number'
+        || !Number.isFinite(transform.scaleX) || !Number.isFinite(transform.scaleY)
+        || transform.scaleX <= 0 || transform.scaleY <= 0 || transform.scaleX > 16 || transform.scaleY > 16) {
+        throw new AutomationPackageV3Error('PACKAGE_INVALID', `asset metadata viewportTransform is invalid: ${assetPath}`);
+      }
+      viewportTransform = { scaleX: transform.scaleX, scaleY: transform.scaleY };
+    }
+    parsed[assetPath] = { source: 'capture', reference: { kind: reference.kind as 'viewport' | 'region' | 'surface', width: reference.width, height: reference.height, ...(viewportTransform && { viewportTransform }) } };
   }
   return parsed;
 }

@@ -96,8 +96,8 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
   });
   createValidatedHandler('automation-v3:test-asset-on-scene', z.object({ packageId: id, token: z.string().regex(/^[a-f0-9]{32}$/u), asset: z.string().min(1).max(32_768), threshold: z.number().min(.1).max(1), scales: z.array(z.number().min(.25).max(4)).min(1).max(16), mask: z.enum(['auto', 'none', 'alpha']) }).strict(), async ({ packageId, token, asset, threshold, scales, mask }) => {
     const scene = testScenes.get(token); if (!scene) throw new Error('测试画面已过期，请重新导入');
-    const candidate = await service.testAssetOnImage(packageId, asset, scene.image, threshold, scales, mask);
-    return { candidate, matched: Boolean(candidate && candidate.score >= threshold), threshold };
+    const result = await service.testAssetOnImage(packageId, asset, scene.image, threshold, scales, mask);
+    return { candidate: result.candidate, matched: result.matched, threshold };
   });
   createValidatedHandler('automation-v3:test-text-on-scene', z.object({ token: z.string().regex(/^[a-f0-9]{32}$/u), text: z.string().trim().min(1).max(200), match: z.enum(['contains', 'exact']), minConfidence: z.number().min(0).max(1) }).strict(), async ({ token, text, match, minConfidence }) => {
     const scene = testScenes.get(token); if (!scene) throw new Error('测试画面已过期，请重新导入');

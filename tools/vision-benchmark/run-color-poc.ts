@@ -96,12 +96,12 @@ async function main() {
       const signature = extractColorPointSignature(template);
       loadedTemplates.set(item.template, template);
       const colorTimes: number[] = []; let colorMatches = matchColorPointSignature(scene, signature, {
-        scales: item.scales, tolerance: 52, threshold: colorThreshold, maxCandidates: 5, region: item.region,
+        scales: item.scales, tolerance: 70, threshold: colorThreshold, maxCandidates: 5, region: item.region,
       });
       for (let round = 0; round < rounds; round += 1) {
         const startedAt = performance.now();
         colorMatches = matchColorPointSignature(scene, signature, {
-          scales: item.scales, tolerance: 52, threshold: colorThreshold, maxCandidates: 5, region: item.region,
+          scales: item.scales, tolerance: 70, threshold: colorThreshold, maxCandidates: 5, region: item.region,
         });
         colorTimes.push(performance.now() - startedAt);
       }

@@ -14,7 +14,7 @@ const corpus = process.env.BAO_VISION_REAL_CORPUS_DIR
 const sceneName = process.env.BAO_COLOR_SCALE_SCENE || 'PixPin_2026-09-03_20-28-46.png';
 const templateName = process.env.BAO_COLOR_SCALE_TEMPLATE || '鱼.png';
 const negativeName = process.env.BAO_COLOR_SCALE_NEGATIVE || 'PixPin_2026-08-29_14-22-25.png';
-const tolerance = Math.max(0, Number(process.env.BAO_COLOR_SCALE_TOLERANCE || 52));
+const tolerance = Math.max(0, Number(process.env.BAO_COLOR_SCALE_TOLERANCE || 70));
 const sourceExpected = { x: 761, y: 438 };
 const factors = [.75, 1, 1.25] as const;
 

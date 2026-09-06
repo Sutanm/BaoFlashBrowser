@@ -14,10 +14,10 @@ import type { JavaScriptSandboxRunHandle } from './javascript-sandbox-host';
 import { JavaScriptAutomationGrantStore } from './javascript-grant-store';
 import { automationMainEntryId } from '../../../shared/automation/package-v3';
 import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
-import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
+import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales } from '../../../shared/automation/vision-policy';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import { OpenCvWorkerMatcher } from './vision-worker-matcher';
-import { registerAutomationAssetSource, sharedAutomationOcrEngine, sharedAutomationVisionMatcher, shutdownAutomationVision } from './automation-warm-start';
+import { registerAutomationAssetSource, sharedAutomaticVisionMatcher, sharedAutomationColorMatcher, sharedAutomationOcrEngine, sharedAutomationVisionMatcher, shutdownAutomationVision } from './automation-warm-start';
 import { keyOutAssetBackground } from './asset-keyout';
 import { loadConfig } from '../config';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
@@ -37,6 +37,8 @@ export type AutomationPackageV3Detail = {
 
 type AuthoringVisionSession = {
   readonly matcher: OpenCvWorkerMatcher;
+  readonly colorMatcher: ReturnType<typeof sharedAutomationColorMatcher>;
+  readonly automaticMatcher: ReturnType<typeof sharedAutomaticVisionMatcher>;
   queue: Promise<void>;
   closeTimer: NodeJS.Timeout;
 };
@@ -189,7 +191,7 @@ export class AutomationV3Service {
   readonly ready: Promise<void>;
   private active: { session: BrowserViewAutomationCoreSession; handle: WorkflowRunHandle | JavaScriptSandboxRunHandle; packageId: string; frontendId: string } | null = null;
   private runStatus: AutomationRunStatus = { state: 'idle', executedSteps: 0, logs: [] };
-  private readonly captures = new Map<string, { image: NativeImage; referenceKind: 'viewport' | 'region' | 'surface'; createdAt: number; timer: NodeJS.Timeout }>();
+  private readonly captures = new Map<string, { image: NativeImage; referenceKind: 'viewport' | 'region' | 'surface'; viewportTransform: { scaleX: number; scaleY: number }; createdAt: number; timer: NodeJS.Timeout }>();
   private readonly authoringVision = new Map<string, AuthoringVisionSession>();
   /** 与预热模块共享同一 Sidecar,避免工作台再建一个 OCR 进程。 */
   private readonly authoringOcr = sharedAutomationOcrEngine();
@@ -338,7 +340,7 @@ export class AutomationV3Service {
       this.updateRunStatus({ currentStep: '正在初始化 Automation Core' });
       // 运行会话复用常驻 Worker/Sidecar,避免每次运行重新支付 OpenCV/OCR 冷启动。
       registerAutomationAssetSource(packageId, runtimePackage(source));
-      session = new BrowserViewAutomationCoreSession(tab, runtimePackage(source), profile, (message, level) => this.appendRunLog(level === 'error' ? 'error' : 'info', message), (entryId) => this.grants.get(packageId, entryId), { matcher: sharedAutomationVisionMatcher(), ocrEngine: sharedAutomationOcrEngine() });
+      session = new BrowserViewAutomationCoreSession(tab, runtimePackage(source), profile, (message, level) => this.appendRunLog(level === 'error' ? 'error' : 'info', message), (entryId) => this.grants.get(packageId, entryId), { matcher: sharedAutomationVisionMatcher(), colorMatcher: sharedAutomationColorMatcher(), automaticMatcher: sharedAutomaticVisionMatcher(), ocrEngine: sharedAutomationOcrEngine() });
       const handle = frontendId === 'workflow' ? session.startWorkflow() : session.startJavaScript(frontendId, this.grants.get(packageId, frontendId));
       this.active = { session, handle, packageId, frontendId };
       this.updateRunStatus({ state: 'running', runId: handle.runId, currentStep: frontendId === 'workflow' ? '正在执行主流程' : `正在执行脚本 ${frontendId}` });
@@ -447,7 +449,7 @@ export class AutomationV3Service {
       logicalRegion = authoringRegion && authoringRegion.viewportWidth && authoringRegion.viewportHeight
         ? session.authoringDisplayRegionToLogical({ ...authoringRegion, viewportWidth: authoringRegion.viewportWidth, viewportHeight: authoringRegion.viewportHeight })
         : authoringRegion && { x: authoringRegion.x, y: authoringRegion.y, width: authoringRegion.width, height: authoringRegion.height };
-      return session.capturePreview();
+      return session.capturePreviewWithViewportTransform();
     });
     const fullImage = nativeImage.createFromBitmap(Buffer.from(captured.bitmap), { width: captured.width, height: captured.height });
     if (fullImage.isEmpty()) throw new Error('captured frame cannot be decoded');
@@ -457,7 +459,7 @@ export class AutomationV3Service {
     const resolvedReferenceKind = referenceKind === 'surface' && logicalRegion
       ? 'surface'
       : logicalRegion ? 'region' : 'viewport';
-    this.captures.set(token, { image, referenceKind: resolvedReferenceKind, createdAt: Date.now(), timer });
+    this.captures.set(token, { image, referenceKind: resolvedReferenceKind, viewportTransform: captured.viewportTransform, createdAt: Date.now(), timer });
     while (this.captures.size > 3) {
       const oldest = this.captures.keys().next().value as string;
       const entry = this.captures.get(oldest); if (entry) clearTimeout(entry.timer);
@@ -484,7 +486,7 @@ export class AutomationV3Service {
     const assets = new Map(source.assets); assets.set(asset, new Uint8Array(keyedAsset.toPNG()));
     const assetMetadata = {
       ...(source.manifest.assetMetadata ?? {}),
-      [asset]: { source: 'capture' as const, reference: { kind: capture.referenceKind, width: size.width, height: size.height } },
+      [asset]: { source: 'capture' as const, reference: { kind: capture.referenceKind, width: size.width, height: size.height, viewportTransform: capture.viewportTransform } },
     };
     await this.repository.save(clonePackage(source, { assets, manifest: { ...source.manifest, assetMetadata } }));
     await this.closeAuthoringVision(packageId);
@@ -508,16 +510,22 @@ export class AutomationV3Service {
     try {
       const size = image.getSize(); const group = decodeAutomationImageGroup(asset);
       const frame: AutomationCapturedFrame = { image, bitmap: image.toBitmap(), bitmapSize: size, deviceSize: size, cssSize: size };
-      const vision = new AutomationVisionService(cached.matcher); const signal = createAutomationAbortController().signal;
-      let match = await vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask }, signal);
-      if (!match || match.score < _threshold) {
-        const fallbackScales = imageMatchFallbackScales(scales);
-        const fallback = fallbackScales.length
-          ? await vision.locate(frame, { assets: group ?? [asset], threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: fallbackScales, mask }, signal)
-          : null;
-        if (fallback && (!match || fallback.score > match.score)) match = fallback;
+      const vision = new AutomationVisionService(cached.matcher, cached.colorMatcher, cached.automaticMatcher); const signal = createAutomationAbortController().signal;
+      const assets = group ?? [asset];
+      let match = await vision.locate(frame, { assets, method: 'auto', threshold: _threshold, scales, mask }, signal);
+      const fallbackScales = imageMatchFallbackScales(scales);
+      if (!match && fallbackScales.length > 0) {
+        match = await vision.locate(frame, { assets, method: 'auto', threshold: _threshold, scales: fallbackScales, mask }, signal);
       }
-      return match;
+      const matched = Boolean(match);
+      if (!match) {
+        match = await vision.locate(frame, { assets, method: 'template', threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask }, signal);
+        if (fallbackScales.length > 0) {
+          const fallback = await vision.locate(frame, { assets, method: 'template', threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: fallbackScales, mask }, signal);
+          if (fallback && (!match || fallback.score > match.score)) match = fallback;
+        }
+      }
+      return { candidate: match, matched };
     } finally {
       release();
       cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached);
@@ -548,19 +556,19 @@ export class AutomationV3Service {
         : authoringRegion && { x: authoringRegion.x, y: authoringRegion.y, width: authoringRegion.width, height: authoringRegion.height };
       const displayRegion = authoringRegion && { x: authoringRegion.x, y: authoringRegion.y, width: authoringRegion.width, height: authoringRegion.height };
       const group = decodeAutomationImageGroup(asset); const assets = group ?? [asset];
-      const references = scales === undefined && logicalRegion
+      const references = scales === undefined
         ? assets.map((item) => {
           const normalized = item.startsWith('assets/') ? item : `assets/${item}`;
           const metadata = source.manifest.assetMetadata?.[normalized];
-          return metadata?.source === 'capture' && metadata.reference.kind === 'surface' ? metadata.reference : undefined;
+          return metadata?.source === 'capture' ? metadata.reference : undefined;
         })
         : [];
-      const predicted = references.length === assets.length && references.every(Boolean)
-        ? surfaceReferenceImageScales(references as Array<{ width: number; height: number }>, logicalRegion!)
+      const captureReferences = references.length === assets.length && references.every(Boolean)
+        ? references as Array<NonNullable<typeof references[number]>>
         : undefined;
-      const initialScales = scales ?? predicted ?? imageMatchScales();
+      const initialScales = scales ?? imageMatchScales();
       const fallbackScales = scales === undefined ? imageMatchFallbackScales(initialScales) : [];
-      return session.testImagePreview(asset, threshold, initialScales, mask, logicalRegion, displayRegion, fallbackScales);
+      return session.testImagePreview(asset, threshold, initialScales, mask, logicalRegion, displayRegion, fallbackScales, captureReferences);
     });
     const fullImage = nativeImage.createFromBitmap(Buffer.from(result.preview.bitmap), { width: result.preview.width, height: result.preview.height });
     const cropped = cropPreview(fullImage, logicalRegion); const image = cropped.image; const imageSize = image.getSize();
@@ -575,7 +583,7 @@ export class AutomationV3Service {
       queueDepthAtSubmit: result.bitmapMatch.queueDepthAtSubmit ?? 0,
       algorithm: result.bitmapMatch.algorithm,
     } : null;
-    return { dataUrl: image.toDataURL(), previewWidth: imageSize.width, previewHeight: imageSize.height, sourceWidth: imageSize.width, sourceHeight: imageSize.height, candidate, matched: Boolean(candidate && candidate.score >= threshold), threshold, captureMs: result.preview.captureMs, totalMs: performance.now() - totalStartedAt };
+    return { dataUrl: image.toDataURL(), previewWidth: imageSize.width, previewHeight: imageSize.height, sourceWidth: imageSize.width, sourceHeight: imageSize.height, candidate, matched: result.accepted, rejectionReason: result.rejectionReason, threshold, captureMs: result.preview.captureMs, totalMs: performance.now() - totalStartedAt };
   }
 
   async testTextPreview(packageId: string, tabId: string, text: string, match: 'contains' | 'exact' = 'contains', minConfidence = .5, authoringRegion?: { x: number; y: number; width: number; height: number; viewportWidth?: number; viewportHeight?: number }) {
@@ -636,7 +644,7 @@ export class AutomationV3Service {
     catch (error) {
       handle.release(); release(); cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached); throw error;
     }
-    const session = new BrowserViewAutomationCoreSession(handle, source, undefined, undefined, undefined, { matcher: cached.matcher, ocrEngine: this.authoringOcr });
+    const session = new BrowserViewAutomationCoreSession(handle, source, undefined, undefined, undefined, { matcher: cached.matcher, colorMatcher: cached.colorMatcher, automaticMatcher: cached.automaticMatcher, ocrEngine: this.authoringOcr });
     try { return await task(session); }
     finally {
       await session.close();
@@ -652,6 +660,8 @@ export class AutomationV3Service {
     if (existing) return existing;
     const cached: AuthoringVisionSession = {
       matcher: sharedAutomationVisionMatcher(),
+      colorMatcher: sharedAutomationColorMatcher(),
+      automaticMatcher: sharedAutomaticVisionMatcher(),
       queue: Promise.resolve(),
       closeTimer: setTimeout(() => undefined, 0),
     };

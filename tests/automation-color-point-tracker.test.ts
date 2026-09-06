@@ -24,8 +24,8 @@ function sprite(): BgraImage {
 function frameAt(x?: number, y?: number): BgraImage {
   const result = image(100, 70, [10, 15, 20, 255]);
   if (x !== undefined && y !== undefined) {
-    paint(result, x, y, 8, 6, [40, 70, 210, 255]);
-    paint(result, x + 4, y + 1, 4, 3, [180, 30, 240, 255]);
+    paint(result, x + 2, y + 2, 8, 6, [40, 70, 210, 255]);
+    paint(result, x + 6, y + 3, 4, 3, [180, 30, 240, 255]);
   }
   return result;
 }
@@ -97,7 +97,13 @@ describe('evaluateColorPointMatches', () => {
 describe('calibrateColorPointConfidence', () => {
   it('boosts a unique interpolated candidate but not a near-tied color patch', () => {
     expect(calibrateColorPointConfidence([match(.48), match(.21, 30)]).confidence).toBe(1);
-    expect(calibrateColorPointConfidence([match(.50), match(.494, 30)]).confidence).toBeCloseTo(.512);
-    expect(calibrateColorPointConfidence([match(.30)]).confidence).toBeCloseTo(.50);
+    expect(calibrateColorPointConfidence([match(.50), match(.494, 30)]).confidence).toBeCloseTo(.5375);
+    expect(calibrateColorPointConfidence([match(.30)]).confidence).toBe(1);
+  });
+
+  it('does not turn a near-tied tiny-sprite candidate into a unique match', () => {
+    const calibrated = calibrateColorPointConfidence([match(.525), match(.512, 30)]);
+    expect(calibrated.margin).toBeCloseTo(.013);
+    expect(calibrated.confidence).toBeLessThan(.61);
   });
 });

@@ -89,6 +89,20 @@ export function createWindow(): BrowserWindow {
     showAfterLoadFailure(`${errorCode} ${errorDescription} ${validatedURL}`);
   });
 
+  mainWindow.webContents.once('dom-ready', () => {
+    log.info('[Window] renderer DOM ready:', mainWindow?.webContents.getURL());
+  });
+  mainWindow.webContents.once('did-finish-load', () => {
+    log.info('[Window] renderer finished loading:', mainWindow?.webContents.getURL());
+  });
+  mainWindow.webContents.on('preload-error', (_event, preloadPathValue, error) => {
+    log.error('[Window] preload failed:', preloadPathValue, error instanceof Error ? error.message : String(error));
+  });
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level < 2) return;
+    log.error(`[Window] renderer console level=${level}: ${message} (${sourceId}:${line})`);
+  });
+
   mainWindow.on('page-title-updated', (e) => {
     e.preventDefault();
   });

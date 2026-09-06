@@ -176,8 +176,8 @@ export interface CoordinateLocator {
 export interface ImageLocator {
   readonly kind: 'image';
   readonly asset: AssetId;
-  /** Omitted means the stable OpenCV template matcher. */
-  readonly method?: 'template' | 'color';
+  /** Omitted currently enters the experimental auto router; callers may use template to pin OpenCV. */
+  readonly method?: 'template' | 'color' | 'auto';
   readonly threshold: number;
   readonly scales?: readonly number[];
   readonly mask?: 'auto' | 'none' | 'alpha';
@@ -421,6 +421,15 @@ export interface WorkflowDocumentV3 {
   readonly id: string;
   readonly name: string;
   readonly root: WorkflowNode;
+}
+
+export interface AutomationAssetReferenceV3 {
+  readonly kind: 'viewport' | 'region' | 'surface';
+  /** Logical size of the capture reference before the target crop. */
+  readonly width: number;
+  readonly height: number;
+  /** display/logical transform recorded atomically with captured assets; absent for legacy/imported assets. */
+  readonly viewportTransform?: { readonly scaleX: number; readonly scaleY: number };
 }
 
 export interface FrameReusePolicy { readonly mode: 'fresh' | 'reuse-compatible'; readonly maxAgeMs?: number }

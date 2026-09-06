@@ -11,11 +11,16 @@ import type {
 import type { AutomationTemplateProvider } from './vision-worker-matcher';
 
 type Pending = {
-  resolve(value: readonly ImageMatch[]): void;
+  resolve(value: ColorPointSupportResult): void;
   reject(error: Error): void;
   timer: NodeJS.Timeout;
   signal: AbortSignal;
   onAbort(): void;
+};
+
+export type ColorPointSupportResult = {
+  readonly matches: readonly ImageMatch[];
+  readonly unsupportedAssets: readonly string[];
 };
 
 function resolveWorkerPath(): string {
@@ -70,6 +75,14 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
   }
 
   async findManyCandidates(assets: string[], frame: AutomationCapturedFrame, options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask; maxCandidates?: number }, signal: AbortSignal): Promise<readonly ImageMatch[]> {
+    const result = await this.findManyCandidatesWithSupport(assets, frame, options, signal);
+    if (result.unsupportedAssets.length === new Set(assets).size) {
+      throw new Error('color image recognition does not support these assets');
+    }
+    return result.matches;
+  }
+
+  async findManyCandidatesWithSupport(assets: string[], frame: AutomationCapturedFrame, options: { threshold: number; region?: AutomationCapabilityRegion; scales?: number[]; mask?: AutomationImageMask; maxCandidates?: number }, signal: AbortSignal): Promise<ColorPointSupportResult> {
     if (signal.aborted) throw new Error('automation cancelled');
     const uniqueAssets = [...new Set(assets)];
     if (uniqueAssets.length === 0) throw new Error('at least one automation image asset is required');
@@ -85,7 +98,7 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
     const worker = this.ensureWorker(); await this.waitReady(signal);
     const id = this.nextId++;
     const started = performance.now();
-    const result = await new Promise<readonly ImageMatch[]>((resolve, reject) => {
+    const result = await new Promise<ColorPointSupportResult>((resolve, reject) => {
       const onAbort = () => this.restart(new Error('automation cancelled'));
       const timer = setTimeout(() => this.restart(new Error('color matching timed out')), this.options.requestTimeoutMs ?? 15_000);
       this.pending.set(id, { resolve, reject, timer, signal, onAbort });
@@ -104,10 +117,23 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
     });
     const matchMs = performance.now() - started;
     this.lastStats = { templateLoadMs, matchMs, sceneBytes: sceneBytes.byteLength };
-    return result.map((match) => ({ ...match, x: match.x + originX, y: match.y + originY, templateLoadMs, matchMs, sceneBytes: sceneBytes.byteLength }));
+    const addOriginAndStats = (match: ImageMatch): ImageMatch => ({
+      ...match, x: match.x + originX, y: match.y + originY,
+      templateLoadMs, matchMs, sceneBytes: sceneBytes.byteLength,
+    });
+    return {
+      unsupportedAssets: result.unsupportedAssets,
+      matches: result.matches.map(addOriginAndStats),
+    };
   }
 
   getStats(): Partial<ImageMatch> { return { ...this.lastStats }; }
+
+  async warmup(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) throw new Error('automation cancelled');
+    this.ensureWorker();
+    await this.waitReady(signal);
+  }
 
   async close(): Promise<void> {
     const worker = this.worker; this.worker = undefined; this.ready = undefined;
@@ -121,13 +147,13 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
     const worker = new Worker(this.options.workerPath ?? resolveWorkerPath());
     this.worker = worker;
     this.ready = new Promise<void>((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject; });
-    worker.on('message', (message: { type?: string; id?: number; matches?: ImageMatch[]; error?: string }) => {
+    worker.on('message', (message: { type?: string; id?: number; matches?: ImageMatch[]; unsupportedAssets?: string[]; error?: string }) => {
       if (message.type === 'ready') { this.readyResolve?.(); this.readyResolve = undefined; this.readyReject = undefined; return; }
       if (typeof message.id !== 'number') return;
       const pending = this.pending.get(message.id); if (!pending) return;
       this.pending.delete(message.id); clearTimeout(pending.timer); pending.signal.removeEventListener('abort', pending.onAbort);
       if (message.type === 'error') pending.reject(new Error(message.error ?? 'color matching failed'));
-      else pending.resolve(message.matches ?? []);
+      else pending.resolve({ matches: message.matches ?? [], unsupportedAssets: message.unsupportedAssets ?? [] });
     });
     worker.on('error', (error) => this.restart(error instanceof Error ? error : new Error(String(error))));
     worker.on('exit', (code) => { if (this.worker === worker && code !== 0) this.restart(new Error(`color worker exited with code ${code}`)); });

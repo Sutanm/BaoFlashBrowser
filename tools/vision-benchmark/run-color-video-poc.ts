@@ -68,7 +68,7 @@ async function main() {
   const signature = extractColorPointSignature(await load(templatePath));
   const tracker = new ColorPointTracker(signature, {
     scales,
-    tolerance: 52,
+    tolerance: 70,
     threshold,
     maxCandidates: 3,
     initialRegion,

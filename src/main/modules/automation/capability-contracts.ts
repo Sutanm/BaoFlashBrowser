@@ -10,6 +10,7 @@ export type ImageMatch = {
   templateCacheBytes?: number; templateCacheEntries?: number; testedScales?: number[]; masked?: boolean; lowVariance?: boolean;
   templateStdDev?: number; rawCandidateCount?: number; nmsCandidateCount?: number; frameGeometry?: CaptureFrameGeometry;
   algorithm?: 'ccoeff' | 'ccorr-mask' | 'sqdiff' | 'color-points'; queueWaitMs?: number; queueDepthAtSubmit?: number;
+  colorRawScore?: number; colorMargin?: number; structureScore?: number; structureMargin?: number; structureVerifyMs?: number;
   upscaleInterpolation?: 'linear' | 'nearest';
   scaleMatchTimings?: readonly { readonly scale: number; readonly operations: number; readonly matchTemplateMs: number }[];
   assetMatchTimings?: readonly { readonly asset: string; readonly operations: number; readonly matchTemplateMs: number }[];

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scale Calibration Target</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { position: relative; background: #14532d; }
+    /* A simulated "game screen" — fixed layout content, like a Flash/Canvas game. */
+    #game {
+      position: absolute;
+      left: 40px;
+      top: 30px;
+      width: 560px;
+      height: 400px;
+      background: #1e3a8a;
+      image-rendering: pixelated;
+      overflow: hidden;
+    }
+    /* a fixed-size UI element inside the game (e.g. a game HUD button) — the "reference asset" */
+    #hud {
+      position: absolute;
+      left: 90px;
+      top: 70px;
+      width: 96px;
+      height: 48px;
+      image-rendering: pixelated;
+      background: #fbbf24;
+      box-shadow: 0 0 0 6px #7c2d12, inset 0 0 0 10px #ffffff;
+    }
+    #hud::before {
+      content: ""; position: absolute; left: 18px; top: 12px; width: 8px; height: 8px; background: #dc2626;
+    }
+    #hud::after {
+      content: ""; position: absolute; left: 70px; top: 12px; width: 8px; height: 8px; background: #2563eb;
+    }
+    #status { position: absolute; left: 10px; top: 10px; color: #f0fdf4; font: 12px monospace; background: #052e16; padding: 6px; z-index: 9; }
+  </style>
+</head>
+<body>
+  <div id="status">cal</div>
+  <div id="game"><div id="hud"></div></div>
+  <script>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const z = Number(params.get('zoom') || 1);
+      const hud = document.querySelector('#hud');
+      const game = document.querySelector('#game');
+      const status = document.querySelector('#status');
+      const rect = (el) => el.getBoundingClientRect().toJSON();
+      window.__calProbe = {
+        zoom: z,
+        hud: rect(hud),
+        game: rect(game),
+        inner: { innerWidth, innerHeight },
+        dpr: window.devicePixelRatio,
+      };
+      status.textContent = JSON.stringify({ z, dpr: window.devicePixelRatio, hud: window.__calProbe.hud });
+    })();
+  </script>
+</body>
+</html>

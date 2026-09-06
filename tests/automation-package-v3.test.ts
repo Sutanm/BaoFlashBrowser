@@ -20,7 +20,7 @@ const source = (): AutomationPackageV3 => ({
     },
     features: [],
     assetMetadata: {
-      'assets/buy.png': { source: 'capture', reference: { kind: 'region', width: 760, height: 150 } },
+      'assets/buy.png': { source: 'capture', reference: { kind: 'region', width: 760, height: 150, viewportTransform: { scaleX: 0.8, scaleY: 0.8 } } },
     },
     integrity: {},
   },
@@ -58,7 +58,7 @@ describe('.baoauto v3 package', () => {
     expect(loaded.scripts.get('scripts/trade.ts')).toContain('bao.log.info');
     expect([...loaded.assets.get('assets/buy.png') ?? []]).toEqual([1, 2, 3]);
     expect(loaded.manifest.assetMetadata?.['assets/buy.png']).toEqual({
-      source: 'capture', reference: { kind: 'region', width: 760, height: 150 },
+      source: 'capture', reference: { kind: 'region', width: 760, height: 150, viewportTransform: { scaleX: 0.8, scaleY: 0.8 } },
     });
     expect(loaded.profiles.get('profiles/default.json')?.entryId).toBe('trade');
     expect(listAutomationFrontendEntries(loaded).map(({ id, kind }) => ({ id, kind }))).toEqual([
@@ -120,5 +120,10 @@ describe('.baoauto v3 package', () => {
       'assets/buy.png': { source: 'capture', reference: { kind: 'region', width: 0, height: 150 } },
     } } };
     expectCode(() => serializeAutomationPackageV3(invalidSize), 'PACKAGE_INVALID');
+
+    const transformBase = source();
+    const invalidTransform = transformBase.manifest.assetMetadata?.['assets/buy.png']?.reference.viewportTransform as { scaleX: number; scaleY: number };
+    invalidTransform.scaleX = 0;
+    expectCode(() => serializeAutomationPackageV3(transformBase), 'PACKAGE_INVALID');
   });
 });

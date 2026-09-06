@@ -4,7 +4,7 @@ import { visionSchedulerFor } from './vision-scheduler';
 
 export type VisionLocateRequest = {
   readonly assets: readonly string[];
-  readonly method?: 'template' | 'color';
+  readonly method?: 'template' | 'color' | 'auto';
   readonly threshold: number;
   readonly scales?: readonly number[];
   readonly mask?: AutomationImageMask;
@@ -33,6 +33,7 @@ export class AutomationVisionService {
   constructor(
     private readonly matcher: AutomationVisionMatcher,
     private readonly colorMatcher?: AutomationVisionMatcher,
+    private readonly automaticMatcher?: AutomationVisionMatcher,
   ) {}
 
   async locate(
@@ -49,7 +50,7 @@ export class AutomationVisionService {
     signal: AbortSignal,
     maxCandidates = 100,
   ): Promise<readonly ImageMatch[]> {
-    if (request.method !== undefined && request.method !== 'template' && request.method !== 'color') {
+    if (request.method !== undefined && request.method !== 'template' && request.method !== 'color' && request.method !== 'auto') {
       throw new Error(`unsupported image recognition method: ${String(request.method)}`);
     }
     if (!Number.isSafeInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 100) {
@@ -65,8 +66,10 @@ export class AutomationVisionService {
       mask: request.mask ?? DEFAULT_IMAGE_MATCH_MASK,
       maxCandidates,
     };
-    const selectedMatcher = request.method === 'color' ? this.colorMatcher : this.matcher;
-    if (!selectedMatcher) throw new Error('color image recognition is unavailable');
+    const selectedMatcher = request.method === 'color'
+      ? this.colorMatcher
+      : request.method === 'auto' ? this.automaticMatcher : this.matcher;
+    if (!selectedMatcher) throw new Error(`${request.method === 'auto' ? 'automatic' : 'color'} image recognition is unavailable`);
     const scheduler = visionSchedulerFor(selectedMatcher);
     const scheduled = await scheduler.schedule(signal, async () => {
       const matches: ImageMatch[] = [];
@@ -109,4 +112,5 @@ export class AutomationVisionService {
   stats(): Partial<ImageMatch> {
     return { ...this.lastStats };
   }
+
 }

@@ -59,7 +59,59 @@ export function calibrateColorPointConfidence(
   // floor; treating it as zero would overstate uniqueness for weak matches.
   const runnerUp = matches[1]?.score ?? Math.min(rawScore, Math.max(0, candidateFloor));
   const margin = matches[0] ? Math.max(0, rawScore - runnerUp) : 0;
-  return { rawScore, margin, confidence: Math.min(1, Math.max(0, rawScore + margin * 2)) };
+  // Absolute colour quality falls after browser interpolation. The worker has
+  // a separate .08 minimum-margin gate, so a candidate that clears that gate
+  // is already spatially unique and should receive full calibration. Keeping
+  // a stricter hidden .12 requirement made the visible 90% threshold reject a
+  // genuinely unique tiny sprite even after its impostors had been excluded.
+  const uniqueness = Math.min(1, margin / .08);
+  const confidence = rawScore + (1 - rawScore) * uniqueness;
+  return { rawScore, margin, confidence: Math.min(1, Math.max(0, confidence)) };
+}
+
+export type ColorGateDecision = {
+  readonly accepted: boolean;
+  readonly rawScore: number;
+  readonly margin: number;
+  readonly confidence: number;
+  readonly candidateCount: number;
+};
+
+/**
+ * Production color gate. Confidence is saturated to 1.0 by the uniqueness boost
+ * whenever the runner-up margin clears a small bound, independent of absolute
+ * raw colour quality — so a weak UI button (rawScore ~0.2) can be promoted to a
+ * full-confidence target purely by a favourable margin. Meanwhile a genuine
+ * target matched on a downsampled pass (fish hook ~0.57) often has a modest
+ * margin (0.06) precisely because a colour-similar distraction is nearby, and
+ * its interpolated confidence lands just under 0.9.
+ *
+ * We therefore gate on the *absolute raw colour quality* rather than on the
+ * saturated margin alone. A strong rawScore candidate is trusted once it has a
+ * non-trivial margin (so it is spatially separated from any near-tie) but is
+ * NOT rejected for a modest margin, because downsampling routinely compresses
+ * it. A weak rawScore composition can never be promoted to a match even if its
+ * margin saturates confidence.
+ */
+export function evaluateColorGate(
+  matches: readonly ColorPointMatch[],
+  threshold: number,
+): ColorGateDecision {
+  const calibrated = calibrateColorPointConfidence(matches);
+  if (!matches[0]) {
+    return { accepted: false, rawScore: calibrated.rawScore, margin: calibrated.margin, confidence: calibrated.confidence, candidateCount: matches.length };
+  }
+  // Absolute raw colour quality floor. A saturated confidence (from a clear
+  // runner-up margin) must not substitute for a plausible absolute match.
+  const rawScoreFloor = threshold * 0.45;
+  // Min margin: only requires that the top candidate is not one of several
+  // perfectly-tied identical patches; downsampling legitimately compresses it.
+  const minimumMargin = 0.02;
+  const strongRaw = calibrated.rawScore >= threshold * 0.6;
+  const accepted = calibrated.rawScore >= rawScoreFloor
+    && calibrated.margin >= minimumMargin
+    && (calibrated.confidence >= threshold || strongRaw);
+  return { accepted, rawScore: calibrated.rawScore, margin: calibrated.margin, confidence: calibrated.confidence, candidateCount: matches.length };
 }
 
 export function evaluateColorPointMatches(

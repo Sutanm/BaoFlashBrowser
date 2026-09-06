@@ -16,6 +16,9 @@ const provenanceBanner = `/*! ${provenance.project} | Copyright (c) ${provenance
 const modules = parseModules();
 
 export default defineConfig({
+  // Electron 通过 loadFile() 加载渲染页。Vite 默认的 `/` 基址不仅会影响
+  // index.html，还会让懒加载 chunk 的 CSS 预加载指向磁盘根目录。
+  base: './',
   define: moduleDefines(modules),
   root: 'src/renderer',
   plugins: [
@@ -29,8 +32,7 @@ export default defineConfig({
         }
       },
     },
-    // Electron loadFile() 使用 file:// 协议，绝对路径 /bundle.js 会解析到磁盘根目录
-    // 强制所有路径为相对路径，确保 file:// 下正确加载
+    // 保留入口文件兜底，避免未来构建配置变化重新生成绝对路径。
     {
       name: 'fix-file-protocol-paths',
       enforce: 'post',

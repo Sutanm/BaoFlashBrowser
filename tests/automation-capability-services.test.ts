@@ -50,6 +50,19 @@ describe('Automation capability services', () => {
     expect(templateFind).toHaveBeenCalledTimes(1);
   });
 
+  it('routes an explicit auto ImageLocator request to the internal router', async () => {
+    const autoFind = vi.fn(async () => ({ asset: 'target.png', x: 9, y: 6, width: 2, height: 2, score: .97 }));
+    const service = new AutomationVisionService(
+      { find: vi.fn() },
+      { find: vi.fn() },
+      { find: autoFind },
+    );
+    await expect(service.locate(
+      frame, { assets: ['target.png'], threshold: .9, method: 'auto' }, new AbortController().signal,
+    )).resolves.toMatchObject({ x: 9, y: 6, score: .97 });
+    expect(autoFind).toHaveBeenCalledTimes(1);
+  });
+
   it('reports an unavailable explicit color backend instead of silently changing algorithms', async () => {
     const service = new AutomationVisionService({ find: vi.fn() });
     await expect(service.locate(frame, { assets: ['target.png'], threshold: .5, method: 'color' }, new AbortController().signal))
