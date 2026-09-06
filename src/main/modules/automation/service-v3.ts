@@ -16,6 +16,7 @@ import { automationMainEntryId } from '../../../shared/automation/package-v3';
 import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
 import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales } from '../../../shared/automation/vision-policy';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
+import { automationError, automationErrorMessage } from '../../../shared/automation/error-format';
 import { OpenCvWorkerMatcher } from './vision-worker-matcher';
 import { registerAutomationAssetSource, sharedAutomaticVisionMatcher, sharedAutomationColorMatcher, sharedAutomationOcrEngine, sharedAutomationVisionMatcher, shutdownAutomationVision } from './automation-warm-start';
 import { keyOutAssetBackground } from './asset-keyout';
@@ -23,6 +24,7 @@ import { loadConfig } from '../config';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import type { AutomationCapturedFrame } from './capability-contracts';
+import { evaluateStructuredColorMatch } from './color-structure-policy';
 import ts from 'typescript';
 
 export type AutomationPackageV3Detail = {
@@ -371,23 +373,23 @@ export class AutomationV3Service {
             this.appendRunLog('info', reason);
             this.updateRunStatus({ state: 'cancelled', currentStep: '已停止', message: reason, finishedAt: Date.now() });
           } else {
-            const error = result.error instanceof Error ? result.error : new Error(String(result.error));
+            const error = automationError(result.error);
             this.appendRunLog('error', error.message);
             this.updateRunStatus({ state: 'failed', currentStep: '执行失败', message: error.message, finishedAt: Date.now() });
           }
         } finally {
-          if (frontendId !== 'workflow') await session!.close().catch((error) => this.appendRunLog('error', `资源释放失败：${error instanceof Error ? error.message : String(error)}`));
+          if (frontendId !== 'workflow') await session!.close().catch((error) => this.appendRunLog('error', `资源释放失败：${automationErrorMessage(error)}`));
           if (this.active?.handle === handle) this.active = null;
         }
       }).catch((error) => {
-        this.appendRunLog('error', `运行状态处理失败：${error instanceof Error ? error.message : String(error)}`);
-        this.updateRunStatus({ state: 'failed', message: error instanceof Error ? error.message : String(error), finishedAt: Date.now() });
+        this.appendRunLog('error', `运行状态处理失败：${automationErrorMessage(error)}`);
+        this.updateRunStatus({ state: 'failed', message: automationErrorMessage(error), finishedAt: Date.now() });
         if (this.active?.handle === handle) this.active = null;
       });
       return { runId: handle.runId };
     } catch (error) {
       if (session) await session.close().catch(() => undefined); else tab?.release();
-      const message = error instanceof Error ? error.message : String(error);
+      const message = automationErrorMessage(error);
       this.appendRunLog('error', message);
       this.updateRunStatus({ state: 'failed', currentStep: '启动失败', message, finishedAt: Date.now() });
       throw error;
@@ -518,14 +520,25 @@ export class AutomationV3Service {
         match = await vision.locate(frame, { assets, method: 'auto', threshold: _threshold, scales: fallbackScales, mask }, signal);
       }
       const matched = Boolean(match);
+      let rejectionReason: 'automatic-policy' | 'threshold' | undefined;
       if (!match) {
-        match = await vision.locate(frame, { assets, method: 'template', threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask }, signal);
+        // Diagnostics must use the same automatic router as runtime. Falling
+        // back to pure OpenCV here made the Workbench advertise 100% matches
+        // that the assistant and scripts correctly rejected.
+        match = await vision.locate(frame, { assets, method: 'auto', threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales, mask }, signal);
         if (fallbackScales.length > 0) {
-          const fallback = await vision.locate(frame, { assets, method: 'template', threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: fallbackScales, mask }, signal);
+          const fallback = await vision.locate(frame, { assets, method: 'auto', threshold: AUTHORING_BEST_CANDIDATE_THRESHOLD, scales: fallbackScales, mask }, signal);
           if (fallback && (!match || fallback.score > match.score)) match = fallback;
         }
+        if (match?.algorithm === 'color-points' && match.structureScore !== undefined) {
+          const decision = evaluateStructuredColorMatch(match, _threshold);
+          match = { ...match, score: decision.decisionScore };
+          rejectionReason = decision.reason === 'threshold' ? 'threshold' : 'automatic-policy';
+        } else if (match) {
+          rejectionReason = 'threshold';
+        }
       }
-      return { candidate: match, matched };
+      return { candidate: match, matched, rejectionReason };
     } finally {
       release();
       cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached);
@@ -582,6 +595,9 @@ export class AutomationV3Service {
       queueWaitMs: result.bitmapMatch.queueWaitMs ?? 0,
       queueDepthAtSubmit: result.bitmapMatch.queueDepthAtSubmit ?? 0,
       algorithm: result.bitmapMatch.algorithm,
+      colorRawScore: result.bitmapMatch.colorRawScore,
+      structureScore: result.bitmapMatch.structureScore,
+      structureMargin: result.bitmapMatch.structureMargin,
     } : null;
     return { dataUrl: image.toDataURL(), previewWidth: imageSize.width, previewHeight: imageSize.height, sourceWidth: imageSize.width, sourceHeight: imageSize.height, candidate, matched: result.accepted, rejectionReason: result.rejectionReason, threshold, captureMs: result.preview.captureMs, totalMs: performance.now() - totalStartedAt };
   }

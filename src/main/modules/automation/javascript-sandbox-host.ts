@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { BrowserWindow, ipcMain, session, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { JavaScriptAutomationCapabilityBroker } from './javascript-capability-broker';
+import { automationError } from '../../../shared/automation/error-format';
 
 const REQUEST_CHANNEL = 'automation-js:request';
 const CONFIG_CHANNEL = 'automation-js:config';
@@ -125,7 +126,7 @@ export class JavaScriptAutomationSandboxHost {
       } catch (error) {
         await finish(cancelledReason
           ? { status: 'cancelled', reason: cancelledReason }
-          : { status: 'failed', error: error instanceof Error ? error : new Error(String(error)) });
+          : { status: 'failed', error: automationError(error) });
       }
     };
     const timeout = setTimeout(() => {

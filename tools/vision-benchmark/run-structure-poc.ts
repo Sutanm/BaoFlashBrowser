@@ -7,7 +7,9 @@ import { selectStructureProposals, verifyColorPointStructure } from '../../src/m
 const root = path.resolve(__dirname, '..', '..');
 const corpus = process.env.BAO_VISION_REAL_CORPUS_DIR
   || path.join(process.env.USERPROFILE || '', 'Desktop', '钓鱼素材包');
-const scales = [.5, .6, 2 / 3, .75, .8, 1, 1.25, 1.5, 1.75, 2] as const;
+const scales: readonly number[] = process.env.BAO_STRUCTURE_SCALES
+  ? process.env.BAO_STRUCTURE_SCALES.split(',').map(Number).filter((value) => Number.isFinite(value) && value > 0)
+  : [.5, .6, 2 / 3, .75, .8, 1, 1.25, 1.5, 1.75, 2];
 
 type Case = {
   readonly id: string;
@@ -17,12 +19,20 @@ type Case = {
   readonly expected?: { readonly x: number; readonly y: number; readonly radius: number };
 };
 
-const cases: readonly Case[] = [
+const defaultCases: readonly Case[] = [
   { id: 'hook-day', scene: '钓鱼场景-日.png', template: '鱼钩.png', present: true, expected: { x: 1410, y: 365, radius: 45 } },
   { id: 'hook-night', scene: '钓鱼场景-夜.png', template: '鱼钩.png', present: true, expected: { x: 1119, y: 527, radius: 55 } },
   { id: 'hook-night-negative', scene: '钓鱼场景-夜2.png', template: '鱼钩.png', present: false },
   { id: 'hook-day-hard-negative', scene: '钓鱼场景-日3.png', template: '鱼钩.png', present: false },
 ];
+const cases: readonly Case[] = process.env.BAO_STRUCTURE_SCENE && process.env.BAO_STRUCTURE_TEMPLATE
+  ? [{
+    id: 'external-case',
+    scene: process.env.BAO_STRUCTURE_SCENE,
+    template: process.env.BAO_STRUCTURE_TEMPLATE,
+    present: process.env.BAO_STRUCTURE_PRESENT !== '0',
+  }]
+  : defaultCases;
 
 async function load(file: string): Promise<BgraImage> {
   const decoded = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -40,7 +50,7 @@ function isExpected(candidate: { x: number; y: number }, item: Case): boolean {
 async function main() {
   const results = [];
   for (const item of cases) {
-    const scenePath = path.join(corpus, item.scene); const templatePath = path.join(corpus, item.template);
+    const scenePath = path.resolve(corpus, item.scene); const templatePath = path.resolve(corpus, item.template);
     if (!fs.existsSync(scenePath)) { console.warn(`skip missing ${scenePath}`); continue; }
     const scene = await load(scenePath); const template = await load(templatePath);
     const proposalStarted = performance.now();

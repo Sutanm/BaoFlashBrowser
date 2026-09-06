@@ -10,6 +10,11 @@ export function decodeAutomationImageGroup(value: string): readonly string[] | n
   return assets.length >= 2 ? assets : null;
 }
 
+/** Expand a UI/JavaScript image-group selection plus any explicit fallbacks. */
+export function expandAutomationImageSelection(asset: string, alternatives: readonly string[] = []): readonly string[] {
+  return [...new Set([...(decodeAutomationImageGroup(asset) ?? [asset]), ...alternatives])];
+}
+
 export type AutomationImageGroup = {
   readonly directory: string;
   readonly assets: readonly string[];

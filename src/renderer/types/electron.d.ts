@@ -300,7 +300,7 @@ declare global {
           readClipboard(): Promise<string>;
           assetPreview(packageId: string, asset: string): Promise<{ dataUrl: string; width: number; height: number }>;
           openTestScene(): Promise<{ canceled: true } | { canceled: false; token: string; name: string; dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number }>;
-          testAssetOnScene(packageId: string, token: string, asset: string, threshold: number, scales: number[], mask: 'auto' | 'none' | 'alpha'): Promise<{ candidate: null | { asset?: string; x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number }; matched: boolean; threshold: number }>;
+          testAssetOnScene(packageId: string, token: string, asset: string, threshold: number, scales: number[], mask: 'auto' | 'none' | 'alpha'): Promise<{ candidate: null | { asset?: string; x: number; y: number; width: number; height: number; score: number; scale?: number; matchMs?: number }; matched: boolean; rejectionReason?: 'automatic-policy' | 'threshold'; threshold: number }>;
           testTextOnScene(token: string, text: string, match: 'contains' | 'exact', minConfidence: number): Promise<{ candidate: null | { text: string; x: number; y: number; width: number; height: number; score: number }; matched: boolean }>;
           importAssets(packageId: string): Promise<{ canceled: true } | { canceled: false; detail: Awaited<ReturnType<Window['electronAPI']['automationV3']['getPackage']>> }>;
           importAssetFolder(packageId: string): Promise<{ canceled: true } | { canceled: false; detail: Awaited<ReturnType<Window['electronAPI']['automationV3']['getPackage']>> }>;

@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.8
-// @updateHash  ac8cbe2b3226
+// @updateHash  103e359675a4
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -26,7 +26,7 @@
 
   var api = GM.baoAutomation;
   var state = {
-    packages: [], busy: false, monitor: 0, statusTimer: 0, lastState: '', statusInitialized: false, matchMode: 'image',
+    packages: [], packageFingerprint: '', packageTimer: 0, busy: false, monitor: 0, statusTimer: 0, lastState: '', statusInitialized: false, matchMode: 'image',
     capture: null, selection: null, gameSurface: null, surfaceViewport: null, surfaceRefreshTimer: 0, coordinateViewport: { width: 1280, height: 720 }, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1,
   };
   var style = document.createElement('style');
@@ -194,9 +194,14 @@
   }
   async function pollStatus() { try { renderStatus(await api.status()); } catch { /* Page teardown or disabled service. */ } }
 
-  async function refreshPackages() {
+  async function refreshPackages(force) {
     var previousPackage = packageRun.value; var previousAsset = selectedAsset;
-    try { state.packages = await api.listPackages(); } catch (error) { resultText.textContent = error.message || String(error); return; }
+    var nextPackages;
+    try { nextPackages = await api.listPackages(); } catch (error) { resultText.textContent = error.message || String(error); return; }
+    var fingerprint = JSON.stringify(nextPackages.map(function (pkg) { return [pkg.packageId, pkg.name, pkg.mainEntryId, pkg.assets, pkg.frontends]; }));
+    state.packages = nextPackages;
+    if (!force && fingerprint === state.packageFingerprint) return;
+    state.packageFingerprint = fingerprint;
     packageRun.innerHTML = '';
     state.packages.forEach(function (pkg) { var option = document.createElement('option'); option.value = pkg.packageId; option.textContent = pkg.name; packageRun.appendChild(option); });
     if (!state.packages.length) { var empty = document.createElement('option'); empty.value = ''; empty.textContent = '没有 Automation 2.0 包，请先在工作台新建'; packageRun.appendChild(empty); }
@@ -299,7 +304,7 @@
   }
   function renderMatch(value) {
     preview.innerHTML = ''; clearPageCross(); var wrap = document.createElement('div'); wrap.className = 'bao-image'; var image = document.createElement('img'); image.src = value.dataUrl; wrap.appendChild(image);
-    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); renderPageCross(value); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var score = (value.candidate.score * 100).toFixed(1) + '%'; var required = (Math.max(0, Math.min(1, Number(value.threshold) || 0)) * 100).toFixed(0) + '%'; var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); var verdict = value.matched ? '匹配成功 ' + score : value.rejectionReason === 'automatic-policy' ? '未识别：黄色框只是最相似候选 ' + score + '，颜色特征不唯一' : '未识别：黄色框只是最佳候选 ' + score + '，低于设定阈值 ' + required; resultText.textContent = verdict + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + formatMs(totalMs) + 'ms（截图 ' + formatMs(captureMs) + 'ms · 匹配 ' + formatMs(matchMs) + 'ms）'; }
+    if (value.candidate) { var hit = document.createElement('span'); hit.className = 'bao-hit' + (value.matched ? ' bao-ok' : ''); hit.style.left = value.candidate.x / value.sourceWidth * 100 + '%'; hit.style.top = value.candidate.y / value.sourceHeight * 100 + '%'; hit.style.width = value.candidate.width / value.sourceWidth * 100 + '%'; hit.style.height = value.candidate.height / value.sourceHeight * 100 + '%'; var badge = document.createElement('b'); badge.textContent = (value.candidate.score * 100).toFixed(1) + '%'; hit.appendChild(badge); wrap.appendChild(hit); renderPageCross(value); var relative = Math.round(value.candidate.x) + ',' + Math.round(value.candidate.y); var page = Math.round(value.candidate.pageX == null ? value.candidate.x : value.candidate.pageX) + ',' + Math.round(value.candidate.pageY == null ? value.candidate.y : value.candidate.pageY); var score = (value.candidate.score * 100).toFixed(1) + '%'; var required = (Math.max(0, Math.min(1, Number(value.threshold) || 0)) * 100).toFixed(0) + '%'; var matchMs = Math.max(0, Number(value.candidate.matchMs) || 0); var captureMs = Math.max(0, Number(value.captureMs) || 0); var totalMs = Math.max(matchMs + captureMs, Number(value.totalMs) || 0); var verdict = value.matched ? '匹配成功 ' + score : value.rejectionReason === 'automatic-policy' ? '未识别：黄色框只是候选 ' + score + '，自动校验未通过' : '未识别：黄色框只是最佳候选 ' + score + '，低于设定阈值 ' + required; resultText.textContent = verdict + ' · 游戏区域 ' + relative + ' · 页面 ' + page + ' · 缩放 ' + (value.candidate.scale || 1).toFixed(2) + ' · 总计 ' + formatMs(totalMs) + 'ms（截图 ' + formatMs(captureMs) + 'ms · 匹配 ' + formatMs(matchMs) + 'ms）'; }
     else resultText.textContent = '没有找到匹配候选'; mountRecognitionPreview(wrap, image, value);
   }
   function renderOcr(value) {
@@ -522,7 +527,7 @@
   root.querySelectorAll('.bao-tab').forEach(function (tab) { tab.addEventListener('click', function () { selectView(tab.getAttribute('data-view')); }); });
   root.addEventListener('pointerup', function (event) { var button = event.target.closest && event.target.closest('button'); if (button) button.blur(); });
   root.querySelector('.bao-collapse').addEventListener('click', closePanel);
-  root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages().then(function () { toast('素材列表已刷新'); }); });
+  root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages(true).then(function () { toast('素材列表已刷新'); }); });
   root.querySelectorAll('.bao-match-mode').forEach(function (button) { button.addEventListener('click', function () { selectMatchMode(button.getAttribute('data-match-mode')); }); });
   packageRun.addEventListener('change', function () { selectedAsset = ''; renderAssets(''); void warmSelected(); });
   threshold.addEventListener('input', function () { root.querySelector('.bao-threshold-text').textContent = threshold.value + '%'; });
@@ -573,7 +578,7 @@
 
   var savedPosition = GM.getValue('position', null); if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) placeCollapsedRoot(savedPosition.x, savedPosition.y);
   window.addEventListener('resize', function () { var rect = orb.getBoundingClientRect(); var wasOpen = root.classList.contains('bao-open'); placeCollapsedRoot(rect.left, rect.top); if (wasOpen) root.classList.add('bao-open'); if (gameLayer.classList.contains('bao-active')) closeGameSelect(); if (state.surfaceRefreshTimer) window.clearTimeout(state.surfaceRefreshTimer); state.surfaceRefreshTimer = window.setTimeout(function () { state.surfaceRefreshTimer = 0; void refreshBoundSurfaceIfNeeded().catch(function (error) { toast(error.message || String(error)); }); }, 180); });
-  window.addEventListener('pagehide', function () { stopMonitor(false); gameLayer.classList.remove('bao-active'); if (coordinateLayer.classList.contains('bao-active')) void api.endCoordinatePick(); });
+  window.addEventListener('pagehide', function () { stopMonitor(false); if (state.packageTimer) window.clearInterval(state.packageTimer); gameLayer.classList.remove('bao-active'); if (coordinateLayer.classList.contains('bao-active')) void api.endCoordinatePick(); });
   if (GM.registerMenuCommand) GM.registerMenuCommand('显示自动化助手', function () { openPanel(); });
-  void refreshPackages(); void pollStatus(); state.statusTimer = setInterval(function () { void pollStatus(); }, 600);
+  void refreshPackages(true); void pollStatus(); state.statusTimer = setInterval(function () { void pollStatus(); }, 600); state.packageTimer = setInterval(function () { void refreshPackages(false); }, 1500);
 })();

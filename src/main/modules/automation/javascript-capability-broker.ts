@@ -157,6 +157,25 @@ function validateMethodParams(method: JavaScriptAutomationMethod, untrusted: unk
   else if (method === 'input.scroll') { finite(params.deltaX, 'scroll deltaX'); finite(params.deltaY, 'scroll deltaY'); }
   else if (method === 'vision.find') { assertLocator(params.locator); if ((params.locator as { kind?: unknown }).kind !== 'image') throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'vision.find requires ImageLocator'); }
   else if (method === 'vision.exists') assertLocator(params.locator);
+  else if (method === 'vision.waitForRegionChange') {
+    assertRegion(params.region);
+    if (params.timeoutMs !== undefined) finite(params.timeoutMs, 'region change timeout', 1, 3_600_000);
+    if (params.pollIntervalMs !== undefined) finite(params.pollIntervalMs, 'region change poll interval', 1, 1_000);
+    if (params.colorDelta !== undefined) finite(params.colorDelta, 'region change color delta', 1, 255);
+    if (params.minimumChangedPixels !== undefined && !Number.isSafeInteger(finite(params.minimumChangedPixels, 'minimum changed pixels', 1, 1_000_000))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'minimum changed pixels must be an integer');
+    if (params.changedPixelRatio !== undefined) finite(params.changedPixelRatio, 'changed pixel ratio', 0, 1);
+    if (params.consecutiveFrames !== undefined && !Number.isSafeInteger(finite(params.consecutiveFrames, 'consecutive frames', 1, 20))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'consecutive frames must be an integer');
+    if (params.reference !== undefined && !['baseline', 'previous'].includes(String(params.reference))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'region change reference is invalid');
+  }
+  else if (method === 'vision.waitForColor') {
+    assertRegion(params.region);
+    if (!Array.isArray(params.colors) || params.colors.length < 1 || params.colors.length > 16 || params.colors.some((value) => typeof value !== 'string' || !/^#?[0-9a-f]{6}$/iu.test(value))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'region colors must contain 1 to 16 RGB hex values');
+    if (params.timeoutMs !== undefined) finite(params.timeoutMs, 'region color timeout', 1, 3_600_000);
+    if (params.pollIntervalMs !== undefined) finite(params.pollIntervalMs, 'region color poll interval', 1, 1_000);
+    if (params.tolerance !== undefined) finite(params.tolerance, 'region color tolerance', 0, 255);
+    if (params.minimumMatchingPixels !== undefined && !Number.isSafeInteger(finite(params.minimumMatchingPixels, 'minimum matching pixels', 1, 1_000_000))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'minimum matching pixels must be an integer');
+    if (params.consecutiveFrames !== undefined && !Number.isSafeInteger(finite(params.consecutiveFrames, 'consecutive frames', 1, 20))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'consecutive frames must be an integer');
+  }
   else if (method === 'ocr.findText') { assertLocator(params.locator); if ((params.locator as { kind?: unknown }).kind !== 'text') throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'ocr.findText requires TextLocator'); }
   else if (method === 'ocr.readText' || method === 'ocr.readNumber') {
     if (params.region !== undefined) assertRegion(params.region);
@@ -212,9 +231,13 @@ export class JavaScriptAutomationCapabilityBroker {
       const port = this.ports[request.method] as (params: unknown, signal: AbortSignal) => Promise<unknown>;
       if (typeof port !== 'function') throw new JavaScriptCapabilityBrokerError('METHOD_INVALID', `automation API port is unavailable: ${request.method}`);
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const requestedTimeoutMs = request.method === 'vision.waitForRegionChange' || request.method === 'vision.waitForColor'
+        ? Number((request.params as { readonly timeoutMs?: number }).timeoutMs ?? 10_000)
+        : 0;
+      const callDeadlineMs = Math.max(this.limits.deadlineMs, requestedTimeoutMs + 15_000);
       const operation = Promise.race([
         port(request.params, this.controller.signal),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new JavaScriptCapabilityBrokerError('CALL_FAILED', `automation API call timed out: ${request.method}`)), this.limits.deadlineMs); }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new JavaScriptCapabilityBrokerError('CALL_FAILED', `automation API call timed out: ${request.method}`)), callDeadlineMs); }),
       ]).finally(() => { if (timer) clearTimeout(timer); });
       this.pending.add(operation);
       let value: unknown;

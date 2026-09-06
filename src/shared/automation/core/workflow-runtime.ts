@@ -6,6 +6,7 @@ import type { PersistedRegion, SurfaceSpec, SurfaceSpecRegistry } from './surfac
 import type { RuntimeValue, RuntimeValueType, WorkflowDocumentV3, WorkflowNode } from './workflow-ir';
 import { DEFAULT_WORKFLOW_VALIDATION_LIMITS, validateWorkflowDocument } from './workflow-validator';
 import { createAutomationAbortController } from '../abort-controller';
+import { automationError, automationErrorMessage } from '../error-format';
 
 export type RuntimeContextChange = {
   readonly surface?: SurfaceSpec;
@@ -288,13 +289,13 @@ export class AutomationWorkflowRuntime {
           result = { status: 'cancelled', runId, executedNodes, durationMs: context.now() - startedAt, reason: cancelReason };
         } else {
           terminalState = 'failed';
-          result = { status: 'failed', runId, executedNodes, durationMs: context.now() - startedAt, error: error instanceof Error ? error : new Error(String(error)) };
+          result = { status: 'failed', runId, executedNodes, durationMs: context.now() - startedAt, error: automationError(error) };
         }
       } finally {
         executionSettled = true;
         for (const resource of [...resources].reverse()) {
           try { await resource.close(); }
-          catch (error) { emit({ kind: 'diagnostic', at: context.now(), message: `resource close failed: ${error instanceof Error ? error.message : String(error)}` }); }
+          catch (error) { emit({ kind: 'diagnostic', at: context.now(), message: `resource close failed: ${automationErrorMessage(error)}` }); }
         }
       }
       completionResult = result!;

@@ -7,6 +7,7 @@ import {
 import type { PersistedRegion } from '../../../shared/automation/core/surface';
 import type { ScriptLocatedTarget } from '../../../shared/automation/javascript-api';
 import type { JavaScriptAutomationHostPorts } from './javascript-capability-broker';
+import type { RegionChangeOptions, RegionChangeResult, RegionColorOptions, RegionColorResult } from './region-change-detector';
 
 export type JavaScriptAutomationServicePorts = {
   readonly actions: AutomationActionRegistry;
@@ -21,6 +22,10 @@ export type JavaScriptAutomationServicePorts = {
     readText(region: PersistedRegion | undefined, minConfidence: number | undefined, context: ActionContext): Promise<string>;
     readNumber(region: PersistedRegion | undefined, locale: string | undefined, context: ActionContext): Promise<number>;
   };
+  readonly vision: {
+    waitForRegionChange(region: PersistedRegion, options: RegionChangeOptions, context: ActionContext): Promise<RegionChangeResult>;
+    waitForColor(region: PersistedRegion, options: RegionColorOptions, context: ActionContext): Promise<RegionColorResult>;
+  };
   readonly page: {
     url(): string;
     navigate(url: string, signal: AbortSignal): Promise<void>;
@@ -31,10 +36,24 @@ export type JavaScriptAutomationServicePorts = {
   readonly notify: (title: string, body?: string) => void;
 };
 
-function scriptTarget(target: LocatedTarget): ScriptLocatedTarget {
+export function scriptTarget(target: LocatedTarget, context: ActionContext): ScriptLocatedTarget {
+  // Recognition backends report viewport geometry. The public JavaScript API,
+  // however, accepts persisted points/regions in the active Context space.
+  // Return values in that same space so a script can safely feed a found point
+  // back into another locator without applying the surface offset twice.
+  const activationPoint = context.coordinateResolver.convert(target.activationPoint, context.currentSpace);
+  const bounds = target.bounds
+    ? context.coordinateResolver.convert(target.bounds, context.currentSpace)
+    : undefined;
+  const ratioPoint = context.coordinateResolver.convert(target.activationPoint, context.currentSpace, 'ratio');
+  const ratioBounds = target.bounds
+    ? context.coordinateResolver.convert(target.bounds, context.currentSpace, 'ratio')
+    : undefined;
   return {
-    point: { x: target.activationPoint.x, y: target.activationPoint.y },
-    bounds: target.bounds ? { x: target.bounds.x, y: target.bounds.y, width: target.bounds.width, height: target.bounds.height } : undefined,
+    point: { x: activationPoint.x, y: activationPoint.y },
+    bounds: bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : undefined,
+    ratioPoint: { x: ratioPoint.x, y: ratioPoint.y },
+    ratioBounds: ratioBounds ? { x: ratioBounds.x, y: ratioBounds.y, width: ratioBounds.width, height: ratioBounds.height } : undefined,
     confidence: target.confidence,
   };
 }
@@ -53,12 +72,34 @@ export function createJavaScriptAutomationHostPorts(services: JavaScriptAutomati
     'input.typeText': async (params, signal) => { await services.input.typeText(params.text, params.intervalMs ?? 0, signal); return null; },
     'input.scroll': async (params, signal) => { await services.input.scroll(params.deltaX, params.deltaY, signal); return null; },
     'vision.find': async (params, signal) => {
-      try { return scriptTarget(await services.locators.find({ locator: params.locator }, services.context(signal))); }
+      const context = services.context(signal);
+      try { return scriptTarget(await services.locators.find({ locator: params.locator }, context), context); }
       catch (error) { if (isTargetNotFound(error)) return null; throw error; }
     },
     'vision.exists': (params, signal) => services.locators.exists(params.locator, services.context(signal)),
+    'vision.waitForRegionChange': (params, signal) => services.vision.waitForRegionChange(params.region, {
+      timeoutMs: params.timeoutMs ?? 10_000,
+      pollIntervalMs: params.pollIntervalMs ?? 10,
+      colorDelta: params.colorDelta ?? 32,
+      minimumChangedPixels: params.minimumChangedPixels ?? 2,
+      changedPixelRatio: params.changedPixelRatio ?? .02,
+      consecutiveFrames: params.consecutiveFrames ?? 1,
+      reference: params.reference ?? 'baseline',
+    }, services.context(signal)),
+    'vision.waitForColor': (params, signal) => services.vision.waitForColor(params.region, {
+      colors: params.colors.map((value) => {
+        const hex = value.startsWith('#') ? value.slice(1) : value;
+        return { red: Number.parseInt(hex.slice(0, 2), 16), green: Number.parseInt(hex.slice(2, 4), 16), blue: Number.parseInt(hex.slice(4, 6), 16) };
+      }),
+      timeoutMs: params.timeoutMs ?? 10_000,
+      pollIntervalMs: params.pollIntervalMs ?? 10,
+      tolerance: params.tolerance ?? 16,
+      minimumMatchingPixels: params.minimumMatchingPixels ?? 1,
+      consecutiveFrames: params.consecutiveFrames ?? 1,
+    }, services.context(signal)),
     'ocr.findText': async (params, signal) => {
-      try { return scriptTarget(await services.locators.find({ locator: params.locator }, services.context(signal))); }
+      const context = services.context(signal);
+      try { return scriptTarget(await services.locators.find({ locator: params.locator }, context), context); }
       catch (error) { if (isTargetNotFound(error)) return null; throw error; }
     },
     'ocr.readText': (params, signal) => services.ocr.readText(params.region, params.minConfidence, services.context(signal)),

@@ -49,6 +49,8 @@ const bao: BaoAutomationApi = freeze({
   vision: freeze({
     find: (locator: Extract<LocatorSpec, { kind: 'image' }>) => call('vision.find', { locator }),
     exists: (locator: LocatorSpec) => call('vision.exists', { locator }),
+    waitForRegionChange: (region: PersistedRegion, options: Omit<JavaScriptAutomationParams['vision.waitForRegionChange'], 'region'> = {}) => call('vision.waitForRegionChange', { region, ...options }),
+    waitForColor: (region: PersistedRegion, colors: readonly string[], options: Omit<JavaScriptAutomationParams['vision.waitForColor'], 'region' | 'colors'> = {}) => call('vision.waitForColor', { region, colors, ...options }),
   }),
   ocr: freeze({
     findText: (locator: Extract<LocatorSpec, { kind: 'text' }>) => call('ocr.findText', { locator }),

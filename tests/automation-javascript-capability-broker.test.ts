@@ -64,6 +64,36 @@ describe('JavaScriptAutomationCapabilityBroker', () => {
       .resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });
   });
 
+  it('validates and grants host-side region change observation as vision', async () => {
+    const value = { changed: true, changedPixels: 4, totalPixels: 16, changedRatio: .25, maxChangedPixels: 4, maxChangedRatio: .25, samples: 3, elapsedMs: 42, captureMs: 30 };
+    const call = vi.fn(async () => value);
+    const broker = new JavaScriptAutomationCapabilityBroker('run-token', new Set(['vision']), ports({ 'vision.waitForRegionChange': call }));
+    const params = {
+      region: { unit: 'logical', x: 100, y: 200, width: 4, height: 4 },
+      timeoutMs: 60_000,
+      pollIntervalMs: 10,
+      colorDelta: 32,
+      minimumChangedPixels: 2,
+      changedPixelRatio: .05,
+      consecutiveFrames: 2,
+      reference: 'baseline',
+    };
+    await expect(broker.handle(request('vision.waitForRegionChange', params))).resolves.toMatchObject({ ok: true, value });
+    expect(call).toHaveBeenCalledWith(params, expect.any(AbortSignal));
+    await expect(broker.handle(request('vision.waitForRegionChange', { ...params, changedPixelRatio: 2 })))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });
+  });
+
+  it('validates RGB color observation parameters', async () => {
+    const call = vi.fn(async () => ({ found: true }));
+    const broker = new JavaScriptAutomationCapabilityBroker('run-token', new Set(['vision']), ports({ 'vision.waitForColor': call }));
+    const params = { region: { unit: 'ratio', x: .4, y: .4, width: .01, height: .01 }, colors: ['#FBEC00', 'fba400'], tolerance: 12 };
+    await expect(broker.handle(request('vision.waitForColor', params))).resolves.toMatchObject({ ok: true });
+    expect(call).toHaveBeenCalledWith(params, expect.any(AbortSignal));
+    await expect(broker.handle(request('vision.waitForColor', { ...params, colors: ['yellow'] })))
+      .resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });
+  });
+
   it('rejects navigation protocols outside HTTP(S)', async () => {
     const broker = new JavaScriptAutomationCapabilityBroker('run-token', new Set(['page.navigate']), ports());
     await expect(broker.handle(request('page.navigate', { url: 'file:///C:/secret.txt' }))).resolves.toMatchObject({ ok: false, error: { code: 'PAYLOAD_INVALID' } });

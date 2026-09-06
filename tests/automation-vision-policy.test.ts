@@ -219,6 +219,37 @@ describe('Automation image recognition policy', () => {
     expect(colorMatcher.close).not.toHaveBeenCalled();
   });
 
+  it('does not describe a raw-evidence rejection as a calibrated 100% threshold miss', async () => {
+    const capturePage = vi.fn(async () => capturedImage(1280, 720));
+    const diagnostic = {
+      x: 10, y: 20, width: 30, height: 40, score: 1, asset: 'button.png',
+      algorithm: 'color-points' as const, colorRawScore: .36,
+      structureScore: .95, structureMargin: .2,
+    };
+    const automaticFindMany = vi.fn<AutomationVisionMatcher['findMany']>(async (_assets, _frame, options) => (
+      options.threshold < 0 ? diagnostic : null
+    ));
+    const session = new BrowserViewAutomationCoreSession({
+      tabId: 'tab-honest-diagnostic',
+      webContents: { incrementCapturerCount: vi.fn(), decrementCapturerCount: vi.fn(), capturePage },
+      getCssViewport: () => ({ width: 1280, height: 720 }),
+      getViewportTransform: () => ({ logicalSize: { width: 1280, height: 720 }, displaySize: { width: 1280, height: 720 }, scaleX: 1, scaleY: 1 }),
+      getViewportRevision: () => 1,
+      assertCurrent: vi.fn(), waitForViewport: vi.fn(async () => undefined), release: vi.fn(),
+    } as never, source(), undefined, undefined, undefined, {
+      matcher: { find: vi.fn(), close: vi.fn() } as unknown as OpenCvWorkerMatcher,
+      colorMatcher: { close: vi.fn() } as never,
+      automaticMatcher: { find: vi.fn(), findMany: automaticFindMany } as never,
+      ocrEngine: { recognize: vi.fn(async () => []) },
+    });
+
+    const result = await session.testImagePreview('button.png', .9, [1], DEFAULT_IMAGE_MATCH_MASK);
+    expect(result.accepted).toBe(false);
+    expect(result.rejectionReason).toBe('automatic-policy');
+    expect(result.bitmapMatch?.score).toBeCloseTo(.8);
+    await session.close();
+  });
+
   it('falls back to the remaining ordinary-user scales when a trusted Surface prediction misses', async () => {
     const capturePage = vi.fn(async () => capturedImage(1280, 720));
     const attemptedScales: number[][] = [];

@@ -49,7 +49,7 @@ import {
 } from '../../../shared/automation/core';
 import type { AutomationPackageV3 } from '../../../shared/automation/package-v3';
 import type { AutomationProfileV3 } from '../../../shared/automation/package-v3';
-import { decodeAutomationImageGroup } from '../../../shared/automation/image-groups';
+import { decodeAutomationImageGroup, expandAutomationImageSelection } from '../../../shared/automation/image-groups';
 import { capturedReferenceImageScales, DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales, surfaceReferenceImageScales } from '../../../shared/automation/vision-policy';
 import { createJavaScriptInstallGrant, createJavaScriptRunGrant } from '../../../shared/automation/javascript-grants';
 import type { AutomationTabHandle } from '../tabs';
@@ -64,10 +64,12 @@ import type { AutomationOcrEngine } from './capability-contracts';
 import { createAutomationOcrEngine } from './ocr-provider';
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
+import { evaluateStructuredColorMatch } from './color-structure-policy';
 import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
 import { ColorPointWorkerMatcher } from './color-vision-worker-matcher';
 import { AutomaticVisionMatcher } from './automatic-vision-matcher';
 import { chooseLocatedGameSurface, detectGameSurfaces } from './game-surface-detector';
+import { waitForRegionChange, waitForRegionColor } from './region-change-detector';
 
 const sleep = (durationMs: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
   if (signal.aborted) { reject(new Error('automation cancelled')); return; }
@@ -175,11 +177,43 @@ export class BrowserViewAutomationCoreSession {
     return this.runtime.start(this.source.workflow, (signal) => this.context(signal), [{ close: () => this.close() }], this.profile?.variables);
   }
 
-  startJavaScript(entryId: string, approvedPermissions: readonly import('../../../shared/automation/javascript-api').JavaScriptAutomationCapability[], input: readonly (null | boolean | number | string)[] = []): JavaScriptSandboxRunHandle {
+  startJavaScript(
+    entryId: string,
+    approvedPermissions: readonly import('../../../shared/automation/javascript-api').JavaScriptAutomationCapability[],
+    input: readonly (null | boolean | number | string)[] = [],
+    inheritedContext?: {
+      readonly currentSpace: RuntimeExecutionContext['currentSpace'];
+      readonly coordinateResolver: RuntimeExecutionContext['coordinateResolver'];
+      readonly defaultRegion?: RuntimeExecutionContext['defaultRegion'];
+    },
+  ): JavaScriptSandboxRunHandle {
     const entry = this.source.manifest.frontends.scripts.find((item) => item.id === entryId); if (!entry) throw new Error(`JavaScript entry is missing: ${entryId}`);
     const source = this.source.scripts.get(entry.path); if (source === undefined) throw new Error(`JavaScript source is missing: ${entry.path}`);
-    const ports = createJavaScriptAutomationHostPorts({ actions: this.actions, locators: this.locatorQueries, context: (signal) => this.context(signal),
+    const ports = createJavaScriptAutomationHostPorts({
+      actions: this.actions,
+      locators: this.locatorQueries,
+      context: (signal) => inheritedContext
+        ? this.contextFor(inheritedContext.currentSpace, inheritedContext.coordinateResolver, signal, inheritedContext.defaultRegion)
+        : this.context(signal),
       input: { keyPress: async (key, modifiers, signal) => { await this.input.keyDown(key, [...modifiers], signal); await this.input.keyUp(key, [...modifiers], signal); }, typeText: (text, interval, signal) => this.input.typeText(text, interval, signal), scroll: (x, y, signal) => this.input.scroll(x, y, signal) },
+      vision: {
+        waitForRegionChange: (regionValue, options, context) => waitForRegionChange(options, {
+          capture: async () => {
+            const frame = await this.captureFrame(regionValue, { ...context, observationScope: undefined });
+            if (!frame.bitmap || !frame.bitmapSize) throw new Error('captured region has no bitmap');
+            return { bitmap: frame.bitmap, width: frame.bitmapSize.width, height: frame.bitmapSize.height, captureMs: (frame.captureMs ?? 0) + (frame.bitmapMs ?? 0) };
+          },
+          sleep,
+        }, context.signal),
+        waitForColor: (regionValue, options, context) => waitForRegionColor(options, {
+          capture: async () => {
+          const frame = await this.captureFrame(regionValue, { ...context, observationScope: undefined });
+          if (!frame.bitmap || !frame.bitmapSize) throw new Error('captured region has no bitmap');
+          return { bitmap: frame.bitmap, width: frame.bitmapSize.width, height: frame.bitmapSize.height, captureMs: (frame.captureMs ?? 0) + (frame.bitmapMs ?? 0) };
+          },
+          sleep,
+        }, context.signal),
+      },
       ocr: { readText: async (value, _confidence, context) => this.text.readText(await this.captureFrame(value, context), context.signal), readNumber: async (value, _locale, context) => this.text.readNumber(await this.captureFrame(value, context), context.signal) },
       page: { url: () => this.handle.webContents.getURL(), navigate: (url) => this.handle.navigate(url), reload: () => this.handle.reload() },
       time: { sleep, now: Date.now }, log: (level, message) => this.log(message, level), notify: (title, body) => new Notification({ title, body: body ?? '' }).show(),
@@ -285,16 +319,17 @@ export class BrowserViewAutomationCoreSession {
           if (fallback && (!bitmapMatch || fallback.score > bitmapMatch.score)) bitmapMatch = fallback;
         }
       }
+      let rejectionReason: 'automatic-policy' | 'threshold' | undefined;
+      if (!accepted && bitmapMatch) {
+        if (bitmapMatch.algorithm === 'color-points' && bitmapMatch.structureScore !== undefined) {
+          const decision = evaluateStructuredColorMatch(bitmapMatch, threshold);
+          bitmapMatch = { ...bitmapMatch, score: decision.decisionScore };
+          rejectionReason = decision.reason === 'threshold' ? 'threshold' : 'automatic-policy';
+        } else {
+          rejectionReason = 'threshold';
+        }
+      }
       const bounds = bitmapMatch && frame.geometry ? new AutomationFrameTransform(frame.geometry).bitmapRegionToSpace(bitmapMatch) : null;
-      const rejectionReason = !accepted && bitmapMatch
-        ? (this.defaultImageMethod === 'auto' && (
-          (bitmapMatch.structureScore !== undefined && bitmapMatch.structureScore < .30)
-          || (bitmapMatch.structureMargin !== undefined && bitmapMatch.structureMargin < .05)
-          || (bitmapMatch.structureScore === undefined && bitmapMatch.colorMargin !== undefined && bitmapMatch.colorMargin < .08)
-        )
-          ? 'automatic-policy'
-          : 'threshold')
-        : undefined;
       return { preview, bitmapMatch, match: bitmapMatch && bounds ? { bounds, score: bitmapMatch.score } : null, accepted, rejectionReason };
     });
   }
@@ -326,7 +361,7 @@ export class BrowserViewAutomationCoreSession {
   }
 
   private contextFor(currentSpace: typeof this.viewport | ReturnType<typeof resolvedSurface>['space'], resolver: AutomationCoordinateResolver, signal: AbortSignal, defaultRegion?: PersistedRegion): RuntimeExecutionContext {
-    return { currentSpace, coordinateResolver: resolver, defaultRegion, signal, now: Date.now, sleep, callScript: (scriptId, args, runSignal) => this.callScript(scriptId, args, runSignal), derive: async (change: RuntimeContextChange) => {
+    return { currentSpace, coordinateResolver: resolver, defaultRegion, signal, now: Date.now, sleep, callScript: (scriptId, args, runSignal) => this.callScript(scriptId, args, runSignal, { currentSpace, coordinateResolver: resolver, defaultRegion }), derive: async (change: RuntimeContextChange) => {
       if (!change.surface) return { context: this.contextFor(currentSpace, resolver, signal, change.region ?? defaultRegion), release: async () => undefined };
       if (change.surface.kind === 'viewport') return { context: this.contextFor(this.viewport, this.coordinateResolver, signal, change.region), release: async () => undefined };
       const bounds = await this.resolveSurfaceBoundsWithin(change.surface, change.timeoutMs ?? 10_000, signal);
@@ -338,10 +373,24 @@ export class BrowserViewAutomationCoreSession {
     } };
   }
 
-  private async callScript(scriptId: string, args: readonly RuntimeValue[], signal: AbortSignal): Promise<RuntimeValue> {
+  private async callScript(
+    scriptId: string,
+    args: readonly RuntimeValue[],
+    signal: AbortSignal,
+    inheritedContext: {
+      readonly currentSpace: RuntimeExecutionContext['currentSpace'];
+      readonly coordinateResolver: RuntimeExecutionContext['coordinateResolver'];
+      readonly defaultRegion?: RuntimeExecutionContext['defaultRegion'];
+    },
+  ): Promise<RuntimeValue> {
     if (args.some((value) => value !== null && !['boolean', 'number', 'string'].includes(typeof value))) throw new Error('Blockly 调用脚本目前只支持空值、布尔、数字和文字参数');
     if (signal.aborted) throw new Error('automation cancelled');
-    const handle = this.startJavaScript(scriptId, this.scriptGrants?.(scriptId) ?? [], args as readonly (null | boolean | number | string)[]);
+    const handle = this.startJavaScript(
+      scriptId,
+      this.scriptGrants?.(scriptId) ?? [],
+      args as readonly (null | boolean | number | string)[],
+      inheritedContext,
+    );
     const abort = (): void => { void handle.cancel('parent workflow cancelled'); };
     signal.addEventListener('abort', abort, { once: true });
     let result: Awaited<typeof handle.completion>;
@@ -437,7 +486,7 @@ export class BrowserViewAutomationCoreSession {
   }
 
   private async locateImage(locator: ImageLocator, context: LocatorContext, maxCandidates: number): Promise<readonly RecognitionCandidate[]> {
-    const assets = [...new Set([locator.asset, ...(locator.alternatives ?? [])])];
+    const assets = expandAutomationImageSelection(locator.asset, locator.alternatives);
     const searchRegion = resolveLocatorCaptureRegion(locator.region, context);
     const captureReferences = locator.scales === undefined
       ? assets.map((asset) => {

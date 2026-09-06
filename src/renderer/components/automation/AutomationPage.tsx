@@ -116,6 +116,7 @@ export default function AutomationPage(): React.JSX.Element {
     sourceWidth: number;
     sourceHeight: number;
     matched: boolean;
+    rejectionReason?: 'automatic-policy' | 'threshold';
     candidate?: {
       text?: string;
       x: number;
@@ -422,6 +423,7 @@ export default function AutomationPage(): React.JSX.Element {
           sourceWidth: testScene.sourceWidth,
           sourceHeight: testScene.sourceHeight,
           matched: result.matched,
+          rejectionReason: result.rejectionReason,
           candidate: result.candidate ?? undefined,
         });
       } else {
@@ -890,7 +892,9 @@ export default function AutomationPage(): React.JSX.Element {
                         {testResult.matched
                           ? '匹配成功'
                           : testResult.candidate
-                            ? '最佳候选低于条件'
+                            ? testResult.rejectionReason === 'automatic-policy'
+                              ? '最佳候选未通过自动校验'
+                              : '最佳候选低于条件'
                             : '没有识别到候选'}
                       </b>
                       {testResult.candidate && (
@@ -1054,6 +1058,8 @@ export default function AutomationPage(): React.JSX.Element {
                   {[
                     'bao.input.click(target)',
                     'bao.vision.find(locator)',
+                    'bao.vision.waitForRegionChange(region, options)',
+                    'bao.vision.waitForColor(region, colors, options)',
                     'bao.ocr.readNumber(region)',
                     'bao.time.sleep(ms)',
                     'bao.log.info(message)',
@@ -1091,6 +1097,22 @@ export default function AutomationPage(): React.JSX.Element {
                 <h3>bao.ocr.readNumber</h3>
                 <pre>bao.ocr.readNumber(region?: PersistedRegion): Promise&lt;number&gt;</pre>
                 <p>读取区域中的数字，结果可以直接参与 JavaScript/TypeScript 计算。</p>
+                <h3>bao.vision.waitForRegionChange</h3>
+                <pre>bao.vision.waitForRegionChange(region, options?): Promise&lt;RegionChangeResult&gt;</pre>
+                <p>
+                  在主进程中高速采样一个小区域，等待目标经过引起的像素变化。它不启动 OpenCV；
+                  <code>reference</code> 可选 <code>baseline</code>（相对首帧）或 <code>previous</code>（相对上一帧）。
+                </p>
+                <pre>{`const result = await bao.vision.waitForRegionChange(
+  { unit: 'logical', x: 420, y: 280, width: 6, height: 12 },
+  { timeoutMs: 20000, pollIntervalMs: 10, colorDelta: 32,
+    minimumChangedPixels: 3, changedPixelRatio: 0.04,
+    consecutiveFrames: 1, reference: 'baseline' }
+);
+if (!result.changed) throw new Error('等待目标经过超时');`}</pre>
+                <h3>bao.vision.waitForColor</h3>
+                <pre>bao.vision.waitForColor(region, colors, options?): Promise&lt;RegionColorResult&gt;</pre>
+                <p>持续采样小区域，直到指定 RGB 色出现；颜色使用 <code>#RRGGBB</code>，可设置容差和最少像素数。</p>
                 <h3>积木调用脚本</h3>
                 <pre>{`// 脚本通过 input 接收“运行脚本”积木传入的参数\nconst [region] = input;\nreturn await bao.ocr.readNumber(region);`}</pre>
               </article>

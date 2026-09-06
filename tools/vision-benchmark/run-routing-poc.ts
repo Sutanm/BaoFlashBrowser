@@ -32,7 +32,7 @@ type RoutingCase = {
   readonly mask?: 'none' | 'auto';
 };
 
-const cases: readonly RoutingCase[] = [
+const defaultCases: readonly RoutingCase[] = [
   // --- Fish / hook (real game, day scenes are web screenshots; night scenes are raw game frames) ---
   { id: 'hook-day-positive', scene: '钓鱼场景-日.png', template: '鱼钩.png', present: true, expected: { x: 1410, y: 365, radius: 45 }, scales: [.5, .6, .67, .75, 1, 1.25, 1.5, 2] },
   { id: 'hook-night-positive', scene: '钓鱼场景-夜.png', template: '鱼钩.png', present: true, expected: { x: 1119, y: 527, radius: 55 }, scales: [.5, .6, .67, .75, 1, 1.25, 1.5, 2, 2.5, 3] },
@@ -61,6 +61,17 @@ const cases: readonly RoutingCase[] = [
   { id: 'scale-nearest-125', source: 'generated', scene: 'scale-scene.png', template: 'scale-template.png', present: true, expected: { x: 174, y: 103, radius: 3 }, scales: [.75, 1, 1.25], threshold: .75, mask: 'none' },
   { id: 'web-ui-linear-125', source: 'generated', scene: 'web-ui-scale-linear-scene.png', template: 'web-ui-template.png', present: true, expected: { x: 117, y: 84, radius: 3 }, scales: [.75, 1, 1.25], threshold: .75, mask: 'none' },
 ];
+const cases: readonly RoutingCase[] = process.env.BAO_ROUTING_SCENE && process.env.BAO_ROUTING_TEMPLATE
+  ? [{
+    id: 'external-case',
+    scene: process.env.BAO_ROUTING_SCENE,
+    template: process.env.BAO_ROUTING_TEMPLATE,
+    present: process.env.BAO_ROUTING_PRESENT !== '0',
+    scales: process.env.BAO_ROUTING_SCALES
+      ? process.env.BAO_ROUTING_SCALES.split(',').map(Number).filter((value) => Number.isFinite(value) && value > 0)
+      : [.5, .6, .67, .75, .8, 1, 1.25, 1.5, 1.75, 2],
+  }]
+  : defaultCases;
 
 async function load(file: string): Promise<BgraImage> {
   const decoded = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -106,7 +117,8 @@ async function main() {
     for (let index = 0; index < cases.length; index += 1) {
       const item = cases[index];
       const sourceRoot = item.source === 'generated' ? generatedCorpus : corpus;
-      const scenePath = path.join(sourceRoot, item.scene); const templatePath = path.join(sourceRoot, item.template);
+      const scenePath = path.isAbsolute(item.scene) ? item.scene : path.join(sourceRoot, item.scene);
+      const templatePath = path.isAbsolute(item.template) ? item.template : path.join(sourceRoot, item.template);
       const scene = await get(scenePath); const template = await get(templatePath);
       const frame = {
         frameId: index + 1,

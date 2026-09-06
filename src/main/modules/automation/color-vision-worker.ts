@@ -9,6 +9,7 @@ import {
   type ColorPointSignature,
 } from './color-point-matcher';
 import { selectStructureProposals, verifyColorPointStructure } from './color-structure-verifier';
+import { evaluateStructuredColorMatch, MINIMUM_COLOR_STRUCTURE_MARGIN } from './color-structure-policy';
 
 type TemplatePayload = {
   readonly asset: string;
@@ -123,13 +124,12 @@ parentPort.on('message', (request: Request) => {
       const strongest = distinct[0];
       if (!strongest) return [];
       const structureMargin = strongest.verification.structureScore - (distinct[1]?.verification.structureScore ?? 0);
-      const structurallyAccepted = strongest.verification.structureScore >= .30 && structureMargin >= .05;
       const runnerUpColorScore = Math.max(.15, ...distinct.slice(1).map((entry) => entry.candidate.score));
       const colorMargin = Math.max(0, strongest.candidate.score - runnerUpColorScore);
       // A candidate that only just clears both structure gates starts at the
-      // normal 90% product threshold. More separation raises confidence, but
-      // rejected diagnostics never receive this acceptance calibration.
-      const structureConfidence = Math.min(1, .9 + Math.max(0, structureMargin - .05) * 2);
+      // normal 90% product threshold. Raw evidence remains alongside this
+      // calibrated value so production and authoring can apply the same gate.
+      const structureConfidence = Math.min(1, .9 + Math.max(0, structureMargin - MINIMUM_COLOR_STRUCTURE_MARGIN) * 2);
       const confidence = Math.max(strongest.candidate.score, structureConfidence);
       const common = {
         ...strongest.candidate,
@@ -142,15 +142,15 @@ parentPort.on('message', (request: Request) => {
         structureVerifyMs: strongest.verification.verifyMs,
         asset: template.asset, algorithm: 'color-points' as const,
       };
-      // Diagnostic previews show the fused evidence. A rejected same-colour
-      // impostor can no longer be displayed as a misleading 100% match.
+      // Diagnostics return every evidence component. The authoring session
+      // derives its threshold-compatible display score from those components.
       if (request.options.threshold < 0) return [{
         ...common,
-        score: structurallyAccepted ? confidence : strongest.verification.structureScore,
+        score: confidence,
       }];
-      const rawScoreFloor = request.options.threshold * .45;
-      if (!structurallyAccepted || strongest.candidate.score < rawScoreFloor || confidence < request.options.threshold) return [];
-      return [{ ...common, score: confidence }];
+      const decision = evaluateStructuredColorMatch({ ...common, score: confidence }, request.options.threshold);
+      if (!decision.accepted) return [];
+      return [{ ...common, score: decision.decisionScore }];
     });
     matches.sort((left, right) => right.score - left.score);
     parentPort!.postMessage({

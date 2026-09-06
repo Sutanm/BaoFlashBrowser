@@ -4,7 +4,7 @@ const { JavaScriptAutomationSandboxHost, JavaScriptAutomationCapabilityBroker } 
 
 const METHODS = [
   'input.click', 'input.move', 'input.drag', 'input.keyPress', 'input.typeText', 'input.scroll',
-  'vision.find', 'vision.exists', 'ocr.findText', 'ocr.readText', 'ocr.readNumber',
+  'vision.find', 'vision.exists', 'vision.waitForRegionChange', 'vision.waitForColor', 'ocr.findText', 'ocr.readText', 'ocr.readNumber',
   'page.url', 'page.navigate', 'page.reload', 'time.sleep', 'time.now', 'log.write', 'notify.show',
 ];
 
@@ -26,6 +26,8 @@ async function main() {
       ipcType:typeof ipcRenderer,
       baoFrozen:Object.isFrozen(bao)&&Object.isFrozen(bao.input),
       transportImmutable:bao.input.click===original,
+      regionChangeType:typeof bao.vision.waitForRegionChange,
+      colorWaitType:typeof bao.vision.waitForColor,
       now:await bao.time.now(),
       networkAllowed,
       nativeControl,
@@ -39,7 +41,7 @@ async function main() {
   });
   const result = await handle.completion;
   if (result.status === 'failed') throw result.error;
-  const expected = { requireType: 'undefined', processType: 'undefined', electronType: 'undefined', ipcType: 'undefined', baoFrozen: true, transportImmutable: true, now: 12345, networkAllowed: false, nativeControl: 8, deniedCode: 'PERMISSION_DENIED' };
+  const expected = { requireType: 'undefined', processType: 'undefined', electronType: 'undefined', ipcType: 'undefined', baoFrozen: true, transportImmutable: true, regionChangeType: 'function', colorWaitType: 'function', now: 12345, networkAllowed: false, nativeControl: 8, deniedCode: 'PERMISSION_DENIED' };
   if (result.status !== 'completed' || JSON.stringify(result.value) !== JSON.stringify(expected)) throw new Error(`sandbox result mismatch: ${JSON.stringify(result)}`);
   const timeoutBroker = new JavaScriptAutomationCapabilityBroker('timeout-token', new Set(), ports);
   const timed = host.start('while(true){}', timeoutBroker, {
