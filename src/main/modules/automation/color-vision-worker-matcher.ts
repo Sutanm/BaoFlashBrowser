@@ -57,6 +57,18 @@ function shareFrameBitmap(frame: AutomationCapturedFrame): AutomationCapturedFra
   return { ...frame, bitmap: shared };
 }
 
+/**
+ * Do not let the first rejected worker release the public request while sibling
+ * workers are still unwinding. A following continuous-monitor request must see
+ * a fully settled pool instead of racing the previous cancellation.
+ */
+async function settleGroupRequests<T>(requests: readonly Promise<T>[]): Promise<T[]> {
+  const settled = await Promise.allSettled(requests);
+  const failure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (failure) throw failure.reason;
+  return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
+}
+
 export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
   private worker?: Worker;
   private ready?: Promise<void>;
@@ -92,7 +104,9 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
     // later dynamic schedule moves that asset to another worker.
     const shards = workers.map((_worker, workerIndex) => uniqueAssets
       .filter((_asset, assetIndex) => assetIndex % workers.length === workerIndex));
-    const results = await Promise.all(workers.map((worker, index) => worker.preloadSingle(shards[index], signal)));
+    const results = await settleGroupRequests(
+      workers.map((worker, index) => worker.preloadSingle(shards[index], signal)),
+    );
     return { matches: [], unsupportedAssets: results.flatMap((result) => result.unsupportedAssets) };
   }
 
@@ -101,6 +115,7 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
     const uniqueAssets = [...new Set(assets)];
     if (uniqueAssets.length === 0) return { matches: [], unsupportedAssets: [] };
     const loaded = await Promise.all(uniqueAssets.map(async (asset) => ({ asset, pixels: await this.templates.load(asset, signal) })));
+    if (signal.aborted) throw new Error('automation cancelled');
     const worker = this.ensureWorker();
     await this.waitReady(signal);
     const id = this.nextId++;
@@ -154,7 +169,7 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
     let nextAsset = 0;
     const partial: ColorPointSupportResult[] = [];
     const requestStats: Partial<ImageMatch>[] = [];
-    await Promise.all(workers.map(async (worker) => {
+    await settleGroupRequests(workers.map(async (worker) => {
       while (nextAsset < uniqueAssets.length) {
         const asset = uniqueAssets[nextAsset++];
         partial.push(await worker.findManyCandidatesWithSupportSingle(
@@ -187,6 +202,7 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
     if (uniqueAssets.length === 0) throw new Error('at least one automation image asset is required');
     const loadStarted = performance.now();
     const loaded = await Promise.all(uniqueAssets.map(async (asset) => ({ asset, pixels: await this.templates.load(asset, signal) })));
+    if (signal.aborted) throw new Error('automation cancelled');
     const templateLoadMs = performance.now() - loadStarted;
     const bitmapSize = frame.bitmapSize ?? frame.deviceSize;
     const bytes = frame.bitmap ?? frame.image.toBitmap();
@@ -283,6 +299,9 @@ export class ColorPointWorkerMatcher implements AutomationVisionMatcher {
     const worker = new Worker(this.options.workerPath ?? resolveWorkerPath());
     this.worker = worker;
     this.ready = new Promise<void>((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject; });
+    // close()/restart() must be able to reject startup even when cancellation
+    // happened just before waitReady attached its own awaiter.
+    void this.ready.catch(() => undefined);
     worker.on('message', (message: { type?: string; id?: number; matches?: ImageMatch[]; unsupportedAssets?: string[]; error?: string }) => {
       if (message.type === 'ready') { this.readyResolve?.(); this.readyResolve = undefined; this.readyReject = undefined; return; }
       if (typeof message.id !== 'number') return;

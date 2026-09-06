@@ -80,11 +80,32 @@ async function main() {
     if (mixedCached.matches[0]?.asset !== 'target.png' || mixedCached.unsupportedAssets.join(',') !== 'flat.png') {
       throw new Error(`cached mixed color support routing failed: ${JSON.stringify(mixedCached)}`);
     }
+    const cancelledController = new AbortController();
+    const cancelledRequest = matcher.findManyCandidatesWithSupport(
+      ['cancel-1.png', 'cancel-2.png', 'cancel-3.png', 'cancel-4.png'],
+      { ...frame, frameId: 4 },
+      { threshold: .9, scales: [.5, .75, 1, 1.25, 1.5], maxCandidates: 2 },
+      cancelledController.signal,
+    );
+    cancelledController.abort();
+    await cancelledRequest.then(
+      () => { throw new Error('active color group request ignored cancellation'); },
+      (error: unknown) => {
+        if (!(error instanceof Error) || !/automation cancelled/.test(error.message)) throw error;
+      },
+    );
+    const recovered = await matcher.findCandidates(
+      'target.png', { ...frame, frameId: 5 }, { threshold: .9, scales: [1], maxCandidates: 2 }, signal,
+    );
+    if (recovered[0]?.x !== 40 || recovered[0]?.y !== 30) {
+      throw new Error(`color worker did not recover after group cancellation: ${JSON.stringify(recovered)}`);
+    }
     console.log(JSON.stringify({
       passed: true, full: first[0], reusedFrame: reused[0], region: second[0], ambiguousRejected: true,
       ambiguousDiagnostic: ambiguousDiagnostic[0],
       preloadedUnsupported: preloaded.unsupportedAssets,
       mixedSupport: { matched: mixed.matches.map((item) => item.asset), unsupported: mixed.unsupportedAssets },
+      cancellationRecovered: true,
     }, null, 2));
   } finally {
     await matcher.close();
