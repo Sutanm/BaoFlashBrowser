@@ -1,6 +1,6 @@
 # BaoFlashBrowser 模块设计文档 · 总览
 
-> 状态：按 v1.1.1 源码于 2026-08-23 重新核对。
+> 状态：按 v1.1.2 源码于 2026-09-08 重新核对。
 > 本目录描述当前模块边界；历史设计与实施计划的时效说明见 [`docs/README.md`](../README.md)。
 > 所有源码路径相对仓库根目录；行号随代码演进可能漂移，以语义为准。
 
@@ -50,10 +50,10 @@
 | PPAPI 标签 | `contextIsolation: true, plugins: true`，原生 Flash 插件渲染 |
 | Ruffle 标签 | `contextIsolation: false, plugins: false`，Ruffle WASM 在页面上下文运行 |
 | HIDDEN_BOUNDS | `(-9999,-9999,1,1)`，非活动标签的占位视图边界 |
-| `.baoauto` | 视觉自动化脚本包（manifest + workflow.json + assets/ 的 ZIP） |
+| `.baoauto` | 自动化 v3 脚本包（manifest + 可选 workflow、scripts、assets、profiles 的 ZIP） |
 | `BUNDLED_SCRIPTS` | 构建期以文本嵌入的两个内置用户脚本（CSS Fixer、自动化悬浮助手） |
 
-## 历经主线（截至 v1.1.1）
+## 历经主线（截至 v1.1.2）
 
 1. `browserview 迁移` — 从 BrowserWindow/iframe 切换为每标签 BrowserView
 2. 密码 CDP 捕获与自动填充
@@ -62,6 +62,8 @@
 5. 自动化平台 m0-m5（识别 → Blockly → 驱动 → 工作台 → 悬浮助手）
 6. i18n 中英双语完成；自动化平台进入 1.1.0 发布基线
 7. 1.1.1 增加实验 Flash/macOS 打包、`.baoauto` ZIP 导入导出，并修复积木/JSON 切换同步和完成提示状态转换
+8. 1.1.2 完成 Automation 2.0 原子切换：统一 Core、`.baoauto` v3、Blockly v2、JavaScript 沙箱、Recorder、颜色/模板自动路由与跨缩放识别
+9. 构建支持 `BAO_MODULES` 能力裁剪；默认/`full` 保留全部模块，另有 core、去自动化和去用户脚本组合
 
 ## 参考
 

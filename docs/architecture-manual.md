@@ -66,7 +66,7 @@ BaoFlashBrowser 是一个跨平台 Flash 浏览器，基于 **Electron 11.5.0 (C
 | esbuild / Vite | 0.28.x / 7.x | 主进程与 preload / renderer 构建 |
 | Ruffle | 0.5.x | WASM Flash 模拟器 |
 | Blockly | 10.4.3 | 自动化积木工作台 |
-| OpenCV.js | 4.5.5 | 自动化模板匹配工作线程 |
+| OpenCV.js | 4.12.x | 自动化模板匹配工作线程 |
 | Flash PPAPI | 29.0.0.171 Win / 32.0.0.371 Linux | Adobe 官方 EOL 前稳定版 |
 
 **构建边界：** esbuild 生成主进程与 preload 的 CJS bundle，Vite 生成 renderer；Electron 及主进程原生运行时依赖保持 Node/Electron 侧加载。Electron 版本必须继续锁定为 11.5.0。
@@ -885,27 +885,27 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 ---
 
-## 12. 视觉自动化平台
+## 12. Automation 2.0 平台
 
-> 集成版本：1.1.1，自动化坐标与游戏画面定位最近核对于 2026-08-29。用户手册见 `docs/automation-user-guide.md`，M0–M5 的设计和探针记录位于 `docs/superpowers/specs/2026-08-09-automation-*.md`。
+> 当前基线：1.1.2，按 2026-09-08 的 Core / `.baoauto` v3 实现核对。M0–M5 与 Automation 1.x 内容是历史设计记录；现行细节见 `docs/modules/03-automation.md` 和 `docs/automation-v2/status.md`。
 
 ### 12.1 模块布局
 
 | 模块 | 职责 |
 | --- | --- |
-| `src/shared/automation/types.ts` / `schema.ts` | 工作流、步骤、组合条件、脚本包清单及 zod 校验 |
-| `src/main/modules/automation/runtime.ts` | 顺序、分支、循环、等待、取消和运行状态 |
-| `browserview-driver.ts` | BrowserView 截图、可信鼠标/键盘输入、导航和最小化执行 |
+| `src/shared/automation/core/` | Geometry、Space、Surface、Locator、Action、Workflow IR、校验与运行时 |
+| `src/shared/automation/package-v3.ts` | v3 manifest、Blockly/JavaScript frontend、profile 和素材元数据合同 |
+| `browserview-core-session.ts` | 把 Core registry 绑定到 BrowserView Capture、Vision、OCR、Input 与页面操作 |
+| `browserview-capture-service.ts` / `browserview-coordinate-adapter.ts` | 不可变帧、区域捕获、帧复用及 logical/display 坐标换算 |
 | `game-surface-detector.ts` | 跨 frame/DOM 世界探测游戏候选、特征评分与运行时重定位 |
-| `vision-worker.cjs` / `vision-worker-matcher.ts` | OpenCV 模板匹配、预热、缓存、超时与工作线程隔离 |
-| `service.ts` | 脚本包存储、运行编排、素材测试、状态与历史 |
-| `package.ts` / `assets.ts` | `.baoauto` 导入导出、路径安全、素材扫描与诊断 |
-| `src/main/ipc/automation.ipc.ts` | 工作台、测试台、取材、运行和调试 IPC |
-| `src/shared/automation/game-surface-feature.ts` | `BFG1:` 游戏画面特征串编码、解码与显示标签 |
+| `vision-worker.cjs` / `vision-worker-matcher.ts` | OpenCV 模板匹配、缓存、超时与工作线程隔离 |
+| `color-vision-worker.ts` / `automatic-vision-matcher.ts` | 颜色候选、结构复核与模板/颜色自动路由 |
+| `service-v3.ts` / `package-v3*.ts` | v3 包存储、运行编排、素材测试、完整性与路径边界 |
+| `javascript-*.ts` | JavaScript grant、Capability Broker、host ports 与隔离沙箱 |
+| `src/main/ipc/automation-v3.ipc.ts` | 工作台、测试场景、取材、frontend 和运行 IPC |
+| `src/main/ipc/automation-userscript-bridge.ipc.ts` | 页面助手的专用窄能力桥 |
 | `AutomationPage.tsx` | `about:automation` 脚本库与编辑器壳 |
-| `AutomationBlocklyEditor.tsx` | Blockly 定义、工作流双向转换和积木工具箱 |
-| `AutomationAssetTestBench.tsx` | 指定场景图、素材列表、匹配分数和高亮结果 |
-| `AutomationPanel.tsx` | 侧边栏状态与运行控制 |
+| `AutomationBlocklyV2Editor.tsx` / `automation-blockly-v2-codec.ts` | Blockly v2 定义与 Workflow IR v3 双向转换 |
 | `automation-frame-assistant.user.js` | 页面内悬浮球、比对、运行控制和框选取材 |
 
 ### 12.2 数据流
@@ -913,45 +913,49 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 ```text
 工作台/悬浮助手
   → preload 受限 API
-  → automation IPC（zod 校验）
-  → AutomationService
-  → AutomationRunner
-  → BrowserViewDriver.capture / trusted input
-  → VisionWorkerMatcher（OpenCV worker）
+  → automation-v3 IPC / 页面助手窄桥（zod 校验）
+  → AutomationV3Service
+  → BrowserViewAutomationCoreSession
+  → Workflow Runtime 或 JavaScript Sandbox
+  → Core Capture / Locator / Action / Query
+  → OpenCV、颜色/结构、OCR 与 trusted input
   → 结构化状态事件
   → 工作台、侧栏、悬浮助手与 Toast
 ```
 
 测试台和正式执行必须从同一 BrowserView 内容截图链路取图。悬浮助手和其他页面浮窗在截图及正式识别期间始终显示，不得为了取图反复切换可见性；用户应将浮窗移出目标区域，或按需禁用助手。不能通过改变 BrowserView 尺寸的侧边栏来承担执行期的唯一反馈。
 
-纯坐标工作流不创建 OpenCV 匹配器。视觉工作流设置搜索区域后直接调用 `capturePage(rect)` 捕获该区域，并记录区域在完整 BrowserView 中的设备像素原点，匹配结果返回前加回原点。`vision-region` 是可嵌套的识图作用域：运行时将它与入口、当前坐标空间及外层作用域逐层取交集，退出时恢复外层范围；仅图片识别继承该范围，坐标与键盘操作不受影响。游戏坐标空间中的显式区域始终再与当前游戏画面相交，不能逃逸到网页外壳。切换 `coordinate-space` 时不继承外层相对区域，因为相同的 `0–10000` 在页面和游戏空间代表不同矩形。候选素材在同一 Worker 请求中共享场景灰度图；包含 1 倍缩放时先执行 1 倍匹配，只有高置信命中才跳过其余缩放。主进程到 Worker 使用 BGRA 共享内存，不经过 PNG 或 Base64。视觉性能日志按频率限制记录截图、位图转换、匹配、总耗时、场景字节数、WASM 堆及模板缓存。
+`BrowserViewCaptureService` 产生带 `FrameGeometry` 的不可变帧，并在同一 Context 内复用兼容截图。显式区域先通过当前 Space/Surface 解析，再用 `capturePage(rect)` 捕获；识别结果绑定产生它的帧，输入时由 Core coordinate resolver 映射回当前 viewport。图片组共享场景帧，颜色 Worker 池共享只读像素。自动路由以颜色召回候选并进行结构复核，失败后的 OpenCV 诊断分不会反向变成成功。取材素材记录 viewport transform，运行时可先尝试推导倍率，miss 后再走邻档与普通回退。
 
 ### 12.3 坐标语义
 
-工作流不持久化桌面绝对坐标。`page` 和 `game` 两套坐标都以 `0–10000` 表示，并通过固定 `1280×720` 逻辑视口换算到 CSS/设备像素；前者覆盖完整 BrowserView，后者覆盖当前可见游戏画面。正反换算使用同一端点公式，量化往返误差不超过一个相对坐标单位。
+工作流不持久化桌面绝对坐标。持久点和区域使用 `ratio` 或 `logical` 单位，并归属于明确的 viewport/visual/region Surface；UI 可继续把 ratio 显示为 `0–10000`。运行期对象带 generation，窗口大小、缩放、导航或 WebContents 变化后，旧 Space、Surface、Frame 与 located target 必须拒绝而不是沿用。
 
-游戏画面 locator 保存类型、标签、资源来源、frame URL 和参考尺寸，不保存一次性的屏幕矩形。窗口 `setBounds` 会递增 viewport revision；下一次识图或输入先等待尺寸稳定，再重新探测并刷新绑定。跨渲染类型回退必须存在强来源或 frame 证据，多个候选得分接近则中止。模板匹配返回 BrowserView 内容坐标，可信输入在执行瞬间换算并发送给目标 `webContents`；窗口移动和最小化不会改变语义，但网站自身响应式重排仍会影响页面坐标。
+视觉 Surface 保存可重新解析的规则，不保存一次性的桌面矩形。下一次识图或输入先等待 viewport 稳定并解析当前 Surface；多个候选得分接近时中止。可信输入在执行瞬间换算并发送给目标 `webContents`；窗口移动本身不改变内容坐标，但响应式重排、缩放和导航都会使旧 generation 失效。
 
 ### 12.4 `.baoauto` 边界
 
-- `manifest.json` 的 `format` 固定为 `baoauto`，当前 `formatVersion` 为 1。
-- 工作流固定为 `workflow.json`，素材位于 `assets/`。
+- `manifest.json` 的 `format` 固定为 `baoauto`，当前 `formatVersion` 为 3；v1/v2 直接拒绝，不迁移。
+- 包可包含 `workflow.json`、多个 `scripts/*.js|ts`、`assets/` 和 `profiles/*.json`；workflow 不是必选入口。
+- manifest 声明 frontends、features、permissions 和内容 SHA-256；安装 grant 独立存储，包不能自行授权。
 - 脚本 ID 仅允许安全的字母、数字、点、下划线和连字符组合。
 - 素材必须是安全相对 POSIX 路径，禁止绝对路径、反斜杠、空段、`.` 和 `..`。
-- 导入包和素材都有大小、尺寸和数量边界；任何解压路径必须先通过越界检查。
-- 运行前由 schema 再次校验工作流，不信任编辑器或外部脚本包传入的数据。
+- 默认边界为 64 MiB 压缩包、2,000 项、单项 16 MiB、解压总量 128 MiB；任何解压路径必须先通过越界检查。
+- 运行前再次校验 Workflow IR；JavaScript 仅能通过批准后的冻结 `bao.*` 能力调用 Core。
 
 ### 12.5 页面内助手的权限边界
 
-自动化相框助手通过内置用户脚本运行，但只获得 `GM.baoAutomation` 暴露的专用能力：列出脚本和素材、读取状态、启动/停止、截图比对、保存框选素材、坐标取点及游戏候选选择。它不能直接访问 Node.js、任意 Electron IPC 或本地文件系统。复制特征串使用受控剪贴板写入；工作台读取则经过独立白名单 IPC，不向普通网页开放。
+自动化相框助手通过内置用户脚本运行，但只获得 `GM.baoAutomation` 暴露的专用能力：列出包和 frontend、读取状态、启动/停止、截图比对、保存框选素材、坐标取点及画面选择。它不能直接访问 Node.js、任意 Electron IPC 或本地文件系统。主工作台与页面助手使用不同 IPC 面，普通网页无法调用主窗口的完整自动化能力。
 
 修改助手源码后必须执行完整构建或用户脚本管理 smoke。它与 CSS 修复器一样以文本嵌入主 bundle，直接启动旧 `dist/main.js` 会测试到陈旧版本。
 
 ### 12.6 关键回归
 
-- `npm run probe:automation-m4`：工作台与 Blockly。
-- `npm run probe:automation-m5-engines`：Web、PPAPI 注册和 Ruffle 的最小化视觉/输入链路。
+- `npm run probe:automation-authoring`：工作台、Blockly v2 与取材。
+- `npm run probe:automation-input`、`probe:automation-viewport`、`probe:automation-viewport-engines`：可信输入与 viewport/引擎换算。
+- `npm run probe:automation-visual`、`probe:automation-scale-reference`：视觉链路与取材倍率迁移。
+- `npm run probe:automation-js-sandbox`：JavaScript 沙箱与 Capability Broker。
 - `npm run test:userscripts-admin`：内置助手、可见取消按钮、游戏候选、特征串复制/清除及页面/游戏坐标端点。
-- `tests/automation-browserview-driver.test.ts`、`automation-game-surface-detector.test.ts`、`automation-game-surface-feature.test.ts`：区域交集、坐标往返、窗口 revision 重定位、候选回退与特征串校验。
+- `tests/automation-core-*`、`automation-browserview-*`、`automation-workflow-*`、`automation-package-v3*`：Core 几何、坐标往返、帧所有权、运行时和包格式。
 - `npm run test:smokes`：用户脚本、菜单命令和兼容性组合回归。
 - 最终安装包仍需在真实 PPAPI 游戏人工验证，不得用“插件注册成功”代替“插件内容已渲染并接受输入”。

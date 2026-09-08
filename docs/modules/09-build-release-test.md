@@ -11,7 +11,10 @@
 | `package.json` | 所有开发、测试和平台构建命令 |
 | `esbuild.main.config.mjs` | 主进程、主窗口 preload、BrowserView preload 构建 |
 | `vite.renderer.config.ts` | renderer 构建与固定输出名 |
-| `scripts/build-css-fixer.mjs` | 把内置 CSS 修复器生成到随包源码 |
+| `build/module-flags.cjs` | 解析 `BAO_MODULES` 并生成 main/renderer 共用编译常量 |
+| `build/build-optional-assets.mjs` | 按模块组合生成 CSS Fixer 与自动化悬浮助手 |
+| `scripts/build-css-fixer.mjs` | 生成内置 CSS 修复器文本资产 |
+| `scripts/build-automation-assistant.mjs` | 生成自动化悬浮助手文本资产 |
 | `scripts/build-web-polyfills.mjs` | 生成 Chromium 87 Web API polyfill |
 | `build/prepare-release.cjs` | 准备隔离的发布元数据 |
 | `build/verify-release.cjs` | source/unpacked 资源、asar、原生架构、大小和 SHA-256 清单 |
@@ -25,7 +28,11 @@
 
 ```bash
 npm start          # i18n → 完整 build → Electron
-npm run build      # clean → CSS Fixer → main/preloads → renderer
+npm run build      # clean → 可选资产 → Web polyfill/main/preloads → renderer
+npm run build:full # 显式启用全部模块（与默认 build 的能力集合相同）
+npm run build:minimal        # 仅 core
+npm run build:no-automation  # 除 automation 外的产品模块
+npm run build:no-userscripts # 除 userscripts 外的产品模块
 npm run dev        # main 与 renderer watch；不自动重启 Electron
 npm run i18n       # typesafe-i18n 代码生成
 npm run check      # i18n、typecheck、lint、Vitest、生产 build
@@ -38,6 +45,8 @@ npm run check      # i18n、typecheck、lint、Vitest、生产 build
 - `release/tests/session-compatibility-smoke.cjs`
 
 修改相关源码后必须运行对应 `test:*` 命令，让 `build-*.mjs` 先生成新 bundle。
+
+`BAO_MODULES` 接受 `core`、`userscripts`、`automation`、`passwords`、`screenshot`、`download`、`diagnostics`、`memory-monitor` 和 `js-patch`。未设置、`default` 与 `all` 都启用全部模块；自定义列表总会隐式包含 `core`，未知名称会令构建失败。只有启用 userscripts 时才生成 CSS Fixer，且 userscripts 与 automation 同时启用时才生成悬浮助手。
 
 ## 4 平台发布
 
@@ -69,7 +78,8 @@ macOS 构建先运行 `prepare:mac-flash`，从仓库 vendor DMG 提取并验证
 - 用户脚本：`npm run test:userscripts`、`test:userscripts-admin`、`test:css-fixer`。
 - 汇总 smoke：`npm run test:smokes`。
 - 快检与运行时健康：`npm run probe`、`npm run probe:deep`。
-- 自动化专项：`probe:automation-m4`、`probe:automation-m5-engines`。
+- 自动化专项：`probe:automation-input`、`probe:automation-viewport`、`probe:automation-viewport-engines`、`probe:automation-visual`、`probe:automation-authoring`、`probe:automation-scale-reference`、`probe:automation-js-sandbox`、`probe:automation-flash`。
+- 模块裁剪：`tests/module-flags.test.ts`、`tests/module-boundaries.test.ts` 加上 `build:full/minimal/no-automation/no-userscripts` 的实际构建。
 
 ## 7 不变量与雷区
 

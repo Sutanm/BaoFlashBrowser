@@ -1,93 +1,100 @@
-# 03 · 视觉自动化平台
+# 03 · Automation 2.0 平台
+
+> 状态：按 2026-09-08 的 Automation 2.0 / `.baoauto` v3 源码核对。早期 M0–M5、旧 Step/Runtime/Driver 与包格式 v1/v2 只保留在历史设计文档中。
 
 ## 1 范围与目标
 
-自动化平台用 BrowserView 截图，通过 OpenCV 模板匹配或可选的 PaddleOCR-json 定位网页、Ruffle、PPAPI 内容中的可见目标，再通过 CDP 发送可信鼠标和键盘输入。用户通过 Blockly 或 JSON 编辑同一份工作流，并可把工作流和素材打包为 `.baoauto`。
+自动化平台控制应用内指定的 BrowserView 标签，不控制桌面或其他应用。它以统一的 Coordinate / Surface / Locator / Action / Capture Core 连接 Blockly 工作流、受限 JavaScript 和 Recorder，使用 OpenCV 模板匹配、颜色候选与结构复核、可选 OCR 定位可见目标，再向目标 `webContents` 发送可信输入。
 
-自动化只控制应用内指定标签，不控制桌面或其他应用；密码捕获由 05 模块负责，两者通过 CDP 租约互斥。
+密码捕获和自动化都需要 CDP；二者通过 `cdp-lease.ts` 和标签自动化句柄隔离。导航、引擎切换、取消与标签销毁都必须使旧上下文失效并完成资源回收。
 
 ## 2 当前结构
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/main/modules/automation/service.ts` | 包管理、运行会话、状态、日志、历史、素材测试与取材 |
-| `src/main/modules/automation/runtime.ts` | xstate 生命周期与工作流节点执行 |
-| `src/main/modules/automation/browserview-driver.ts` | 区域截图、页面/游戏坐标换算、CDP 输入与窗口变化重定位 |
-| `src/main/modules/automation/game-surface-detector.ts` | 跨多层 iframe 探测 Flash、Ruffle、Canvas 和框架候选，并按特征重新定位 |
-| `src/main/modules/automation/vision-worker.cjs` | 独立 worker 中的 OpenCV 匹配与缓存 |
-| `src/main/modules/automation/vision-worker-matcher.ts` | worker 协议、请求队列、超时和资源释放 |
-| `src/main/modules/automation/paddle-ocr-engine.ts` | 可选 OCR 子进程、管道协议、临时 BMP 和取消/关闭处理 |
-| `src/main/modules/automation/native-image-template-provider.ts` | 从已安装包加载模板像素 |
-| `src/main/modules/automation/package.ts` | `.baoauto` ZIP 序列化、导入、体积/路径/数量校验 |
-| `src/main/modules/automation/assets.ts` | 素材扫描和目录监视 |
-| `src/shared/automation/schema.ts`、`types.ts`、`game-surface-feature.ts` | 工作流、条件、步骤、游戏画面特征串、manifest 和能力类型 |
-| `src/main/ipc/automation.ipc.ts` | 工作台 IPC；所有输入由 zod 验证 |
-| `src/renderer/components/automation/` | 工作台、Blockly/JSON 编辑、素材测试台和样式 |
-| `src/main/modules/userscripts/bundled-scripts/automation-frame-assistant.user.js` | 页面内悬浮助手 |
+| `src/shared/automation/core/` | 几何、坐标空间、Surface、Locator、Action、Workflow IR、校验器和运行时 |
+| `src/shared/automation/package-v3.ts` | `.baoauto` v3 manifest、frontend、profile 与素材元数据类型 |
+| `src/shared/automation/javascript-api.ts` | 沙箱可调用的固定 `bao.*` API 合同 |
+| `src/main/modules/automation/service-v3.ts` | 包管理、运行编排、状态日志、取材与识别测试 |
+| `src/main/modules/automation/browserview-core-session.ts` | 将 Core registry 绑定到当前 BrowserView 的截图、识别、OCR、输入和页面操作 |
+| `src/main/modules/automation/browserview-capture-service.ts` | 截图归一化、区域裁剪、FrameGeometry 与兼容帧复用 |
+| `src/main/modules/automation/package-v3.ts` | v3 ZIP 解析/序列化、完整性、路径和预算校验 |
+| `src/main/modules/automation/package-v3-repository.ts` | 已安装包的原子持久化；只接受 v3，不迁移旧包 |
+| `src/main/modules/automation/automation-warm-start.ts` | OpenCV、颜色 Worker、OCR 和素材签名的共享预热/关闭 |
+| `src/main/modules/automation/automatic-vision-matcher.ts` | 模板、颜色与结构复核的自动路由 |
+| `src/main/modules/automation/javascript-*.ts` | JavaScript grant、能力 broker、host ports 与隔离沙箱 |
+| `src/main/ipc/automation-v3.ipc.ts` | 主工作台 `automation-v3:*` IPC 与 zod 校验 |
+| `src/main/ipc/automation-userscript-bridge.ipc.ts` | 页面悬浮助手的窄能力桥 |
+| `src/renderer/components/automation/` | Automation 页面、Blockly v2 编辑器/codec 与样式 |
+| `src/main/modules/userscripts/bundled-scripts/automation-frame-assistant.user.js` | 构建期嵌入的页面悬浮助手 |
+
+旧的 `service.ts`、`runtime.ts`、`browserview-driver.ts`、`package.ts`、`assets.ts`、`automation.ipc.ts` 和旧 Blockly schema 已在 Phase 8 切换时删除，不应再作为扩展入口。
 
 ## 3 核心流程
 
-### 3.1 编辑与保存
+### 3.1 编辑、安装与运行
 
-`AutomationPage` 持有当前脚本与工作流，`AutomationBlocklyEditor` 负责 Blockly 与 schema 工作流的转换。切换脚本前必须提交当前编辑器状态；新脚本通过 React `key` 建立独立编辑器实例。JSON 只有经过“校验并应用”后才更新工作流，避免未应用文本覆盖积木。
-
-### 3.2 执行
-
-```
-automation:start / debug-start
-  → AutomationService 选择已安装包和目标 tab
-  → TabManager.beginAutomation(tabId) 获取独占句柄
-  → AutomationRunner 按 schema 执行 sequence/condition/loop/input 节点
-  → BrowserViewAutomationDriver 截图、匹配、复核并发送 CDP Input
-  → 状态、日志和历史写回工作台/侧栏/悬浮助手
-  → 完成、取消或异常时释放 worker 请求、按键和 CDP 租约
+```text
+AutomationPage / 页面助手
+  → preload 白名单 API
+  → automation-v3 IPC / userscript 专用桥
+  → AutomationV3Service
+  → BrowserViewAutomationCoreSession
+  → Workflow Runtime 或 JavaScript Sandbox
+  → Core Action / Locator / Query registry
+  → Capture / Vision / OCR / trusted Input
 ```
 
-模板匹配默认尝试 `0.75 / 1 / 1.25` 三种缩放。图片组在同一帧中比较多个成员并采用最高分结果；透明素材可使用 alpha 遮罩。纯坐标工作流不创建 OpenCV worker。OCR 只在工作流声明 `ocr` 能力且第一次执行文字识别时启动常驻子进程；标准版没有 OCR 资源并在创建会话前给出明确错误。截图原始 BGRA 像素写为临时 BMP 交给 OCR，避免 PNG/Base64 编码，结果框再映射回同一逻辑坐标。
+Blockly 编辑器直接编解码 `WorkflowDocumentV3`，不再维护旧 JSON/Step 运行时。包可同时包含 Blockly workflow、多个 JavaScript/TypeScript frontend、素材和 profiles；运行时显式选择 `frontendId`，可再选择 profile。TypeScript frontend 在进入沙箱前转译为 ES2019 JavaScript。
 
-流程支持固定次数、条件上限和真正无上限的 `forever` 循环。`break` 以内部控制信号传播，由最近一层循环捕获；循环外的 `break` 在 schema 校验阶段被拒绝。`forever` 每轮主动让出事件循环以保证取消请求可响应，其内部步骤不计入有限工作流的执行步数预算。
+JavaScript frontend 只能调用冻结的 `bao.*` API。声明权限、安装时批准的 grant、宿主能力与单次运行预算逐层取交集；脚本不能直接访问 Node、Electron IPC、网络、文件系统或导航能力之外的宿主接口。
 
-工作流可使用 `page`（整个 BrowserView）或 `game`（已定位游戏画面）坐标空间。两者都向用户显示为 `0–10000`，driver 以固定 `1280×720` 逻辑视口完成相对坐标、CSS 坐标和设备像素换算。`coordinate-space` 节点临时切换空间，退出后恢复；跨空间时不继承外层相对识图区域。
+### 3.2 坐标、画面与截图
 
-游戏入口保存的是 `BFG1:` 特征串解码后的 locator，不保存一次性的页面矩形。开始运行和窗口尺寸变化后，service 重新探测当前候选；同类型优先，只有来源/框架证据足够强时才允许 Flash 与 iframe、Ruffle 或 Canvas 之间回退。候选含糊时拒绝猜测。游戏空间中的 OpenCV 与 OCR 请求都会和当前游戏画面取交集，包括显式 `region` 与嵌套高速识图区域。
+持久化坐标使用 `ratio` 或 `logical` 单位，并绑定明确的 Space/Surface generation；运行时解析为当前 BrowserView viewport 或视觉画面。窗口尺寸、缩放、导航或 WebContents 更换会刷新 generation，旧结果不能继续用于输入。
 
-### 3.3 包与素材
+`BrowserViewCaptureService` 产生带 `FrameGeometry` 的不可变捕获帧。区域识别只捕获解析后的显示区域，并保留其在完整 viewport 中的几何映射；同一 Context 可复用兼容帧。图片、文字和颜色结果始终绑定产生它们的帧，输入前再映射到当前 viewport。
 
-`.baoauto` 是 ZIP，包含 manifest、`workflow.json` 和 `assets/`。导入限制为 32 MiB IPC 包、1200 个文件和 64 MiB 解压总量，并拒绝绝对路径、`..`、非图片素材和非法脚本 ID。安装后的包保存在应用数据目录，不从任意包路径执行代码。
+### 3.3 视觉与 OCR
 
-### 3.4 悬浮助手
+图片定位支持显式 `template`、`color` 和 `auto`。`auto` 由颜色候选召回与结构复核共同判定，失败诊断候选不会反向变成成功结果。图片组共享场景帧，颜色 Worker 池共享只读像素；取材素材记录 viewport transform，运行时优先尝试由参考倍率推导的快速档，未命中再进入邻档和常规回退。
 
-内置用户脚本通过受控 `userscript:automation-*` IPC 读取脚本、状态、素材预览，启动/停止执行、保存框选素材、获取页面/游戏坐标并选择游戏画面。特征串通过用户显式复制进入系统剪贴板，再由工作台的受限 `automation:read-clipboard` IPC 导入。新页面首次读取历史 `completed` 只初始化 UI；仅实际观察到 `running → completed` 时显示一次完成提示。
+OpenCV 与颜色 Worker 默认预热。OCR 通过 provider 合同接入 Paddle sidecar；标准发布不捆绑 OCR，`build:*:ocr` 才准备并校验运行时和模型。OCR、Worker、取材 token、测试场景和沙箱调用都有超时、数量或资源上限。
+
+### 3.4 `.baoauto` v3
+
+包根目录包含 `manifest.json`，并可包含 `workflow.json`、`scripts/`、`assets/` 和 `profiles/`。`manifest` 固定 `format: "baoauto"`、`formatVersion: 3`，列出 frontends、features、permissions 与每个内容项的 SHA-256；grant 独立保存在包外，manifest 不能自行授权。
+
+默认预算为：压缩包 64 MiB、最多 2,000 项、单项 16 MiB、解压总量 128 MiB。所有路径必须是安全的相对 POSIX 路径；绝对路径、反斜杠、盘符、空段、`.` 和 `..` 都会被拒绝。旧 v1/v2 包明确返回 `UNSUPPORTED_FORMAT`，不会静默迁移或重写。
 
 ## 4 主要接口
 
-- 包与工作流：`automation:list-packages`、`get-package`、`create-package`、`duplicate-package`、`delete-package`、`validate-workflow`、`update-workflow`、`open/install/export-package`。
-- 素材：`import-assets`、`link/sync-asset-folder`、`get/delete/replace-asset`、`capture/save-captured-asset`。
-- 识别与执行：`warmup-vision`、`test-asset`、`read-clipboard`、`check-ready`、`start`、`debug-start/continue`、`cancel`、`status`。
-- 主进程通过 `automation:status-changed` 向渲染层广播结构化状态。
+- 包与 frontend：`automation-v3:list/get/create/open/install/export/delete`、`update-workflow`、`upsert-script`、`delete-script`、`set-main-entry`。
+- 执行：`automation-v3:status/start/cancel`；状态覆盖 `idle/preparing/running/cancelling/completed/failed/cancelled`。
+- 素材与测试：`asset-preview`、`import-assets`、`import-asset-folder`、`delete-asset`、`capture-asset-frame`、`save-captured-asset`、图片/文字现场及离线场景测试。
+- 页面助手只通过 `automation-userscript-bridge.ipc.ts` 暴露的专用操作访问自动化，不复用主窗口的完整 IPC 面。
 
 ## 5 安全边界与不变量
 
-- 只允许当前有效 BrowserView 和匹配的 WebContents 使用自动化句柄；引擎切换或导航会使旧句柄失效。
-- CDP 与密码捕获通过 `cdp-lease.ts` 互斥；导航前必须释放调试器。
-- 输入前可重新匹配并检查最大位移，降低动画帧或误识别导致的误点击。
-- 游戏特征重定位必须有足够的类型、来源、框架或尺寸证据；多个近似候选时失败优先于误选。
-- 窗口变化必须先等待 BrowserView 稳定并刷新游戏画面绑定，不能沿用旧矩形发送输入。
-- 所有包、素材和导出路径都必须经过 schema、大小和目录边界检查。
-- 自动化不理解业务语义；账号、交易、删除等不可逆操作保留人工确认。
+1. 只有当前有效 BrowserView/WebContents 可以持有自动化句柄；导航前先释放 CDP，旧 generation 的目标必须拒绝。
+2. Workflow registry 在运行前冻结，并受节点数、循环、时长、变量和历史事件预算约束；取消完成意味着资源 barrier 已完成。
+3. JavaScript 权限由声明、持久 grant 和宿主能力共同限制；包内 profile/manifest 不能提升权限。
+4. 包内容必须经过 schema、完整性散列、路径和大小校验；仓库写入使用临时文件加原子 rename。
+5. 自动识图仍是实验能力。账号、交易、删除等不可逆业务动作不能因为定位成功而省略人工确认。
 
-## 6 测试与发布门
+## 6 构建与验证
 
-- Vitest：`tests/automation-*.test.ts`、`tests/automation-assets-package.test.ts`、`tests/automation-service.test.ts` 等。
-- 工作台冒烟：`npm run probe:automation-m4`。
-- Web/Ruffle/PPAPI 注册与输入：`npm run probe:automation-m5-engines`。
-- 用户脚本助手：`npm run test:userscripts-admin`。
-- PPAPI 插件注册可自动验证，但真实游戏渲染、识图和可信输入仍需人工发布回归。
-- Windows x64 标准版用 `npm run build:win64:standard`，OCR 版用 `npm run build:win64:ocr`；后者固定校验官方 OCR 归档 SHA-256 并只保留简中模型。发布校验必须证明标准版不含 OCR、OCR 版含运行时/模型/许可证。
+- 单元层：`npm test -- --run`，重点覆盖 `tests/automation-core-*`、`automation-workflow-*`、`automation-package-v3*`、能力服务、视觉策略、取消和 grant。
+- 重型层：`npm run test:integration`，覆盖 OpenCV worker 与 OCR sidecar。
+- Electron 专项：`npm run probe:automation-input`、`probe:automation-viewport`、`probe:automation-viewport-engines`、`probe:automation-visual`、`probe:automation-authoring`、`probe:automation-scale-reference`、`probe:automation-js-sandbox`、`probe:automation-flash`。
+- 页面助手：`npm run test:userscripts-admin`；修改其源码后必须先重新生成对应 smoke bundle。
+- 发布边界：`npm run build:full` 含完整自动化；`build:minimal` 和 `build:no-automation` 不得携带自动化代码、Worker 或 UI；OCR 只进入显式的 OCR 发布命令。
+- PPAPI 插件注册可自动验证，但真实游戏渲染、识图与可信输入仍需人工发布回归。
 
 ## 7 雷区
 
-1. 不要在脚本切换时仅替换 JSON 文本而保留旧 Blockly workspace。
-2. 助手和其他页面浮窗在截图与识图期间保持显示；不得通过反复隐藏造成页面闪烁，用户负责把浮窗移出目标范围。
-3. 取消或失败必须释放已按下按键、worker 请求、调试器和自动化句柄。
-4. 修改内置助手后必须运行构建它的用户脚本管理冒烟，避免测试旧 bundle。
+1. 不要重新引入旧 Step union、旧 Driver 或 v2 包兼容层；Automation 2.0 的唯一生产入口是 Core + v3。
+2. 页面助手是构建期文本资产；只改源文件而复用旧 `dist/main.js` 或 `release/tests/` 会测试到陈旧代码。
+3. 页面浮窗在截图和识别时保持显示，不能靠反复隐藏规避干扰；取材时应移出目标区域或禁用助手。
+4. 图片组取消是资源屏障；只有并行 Worker 全部退出后才可报告取消完成或开始下一次识别。
+5. 不把离线 benchmark、插件注册或测试夹具结果冒充真实 PPAPI 游戏端到端验收。

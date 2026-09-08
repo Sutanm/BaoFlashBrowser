@@ -6,6 +6,8 @@
 
 ## 构建命令
 
+默认 `npm run build` 与 `npm run build:full` 都包含全部产品模块。开发者还可用 `build:minimal`（仅 core）、`build:no-automation` 或 `build:no-userscripts` 验证裁剪边界；自定义 `BAO_MODULES` 时，`build/verify-release.cjs` 和 electron-builder 使用同一份模块解析规则，并拒绝在未启用 automation 时捆绑 OCR。
+
 | 目标 | 命令 | 随包资源 |
 | --- | --- | --- |
 | Windows x64 | `npm run build:win64` | win64 PPAPI、x64 aria2、Windows mouse hook |
@@ -26,12 +28,13 @@ Linux 只发布 x64，不提供 x86 构建；Electron、PPAPI Flash 及项目内
 5. 检查解包目录中的 `app.asar`、运行时依赖、原生资源与主程序架构。
 6. 将文件大小和 SHA-256 写入 `release/manifests/`。
 
-1.1.1 还应确认以下自动化与实验平台资源存在于构建输入和解包成品中：
+1.1.2 还应确认以下自动化与实验平台资源存在于构建输入和解包成品中：
 
 - `src/main/modules/automation/` 对应的主进程 bundle 代码与 OpenCV 视觉工作线程。
 - `about:automation` 工作台所需 renderer chunk、Blockly 和自动化样式。
 - 内置用户脚本“自动化相框助手”；它和 CSS 修复器一样在构建时以文本嵌入，修改后必须重新执行完整构建。
 - 自动化脚本使用的 preload IPC 桥、可信输入和 BrowserView 截图通道。
+- `.baoauto` v3、Workflow Core、Blockly v2、JavaScript 沙箱、颜色 Worker 与自动路由必须同时存在；旧 v1/v2 兼容代码不应回流。
 - macOS 实验包必须通过 `prepare:mac-flash` 校验 DMG 散列、插件版本和 x64 架构；原始 DMG 不进入最终安装包。
 
 任何一步失败都会令命令返回非零状态，不会把不完整产物当作成功发布。
@@ -68,7 +71,7 @@ npm run verify:release -- --stage unpacked --platform win32 --arch x64
 
 CI 会在 Windows 上构建并校验 x64/ia32，在 Ubuntu 上构建并校验 Linux x64。主 CI 只在 `main` 分支 push 和 pull request 时运行；推送版本标签不会重复执行整套检查与三平台打包。macOS 实验包使用独立的手动工作流，构建成功只代表资源与包结构通过，不代表真实硬件可用。
 
-## 1.1.1 发布门
+## 1.1.2 发布门
 
 生成候选安装包前至少运行：
 
@@ -80,8 +83,14 @@ npm run test:userscripts
 npm run test:userscripts-admin
 npm run test:css-fixer
 npm run test:smokes
-npm run probe:automation-m4
-npm run probe:automation-m5-engines
+npm run probe:automation-input
+npm run probe:automation-viewport
+npm run probe:automation-viewport-engines
+npm run probe:automation-visual
+npm run probe:automation-authoring
+npm run probe:automation-scale-reference
+npm run probe:automation-js-sandbox
+npm run probe:automation-flash
 ```
 
 `npm run build` 不会重建 `release/tests/` 下的用户脚本/兼容性 smoke bundle。修改对应源码后，必须通过各自的 `test:*` 命令重新生成，不能直接运行旧 `.cjs` 产物。

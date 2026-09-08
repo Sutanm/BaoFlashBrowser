@@ -1,6 +1,8 @@
-# BaoFlashBrowser 自动化积木零基础说明书
+# BaoFlashBrowser 自动化积木零基础说明书（Automation 1.x 历史版）
 
-> 适用版本：BaoFlashBrowser 1.1.2。本文专门写给完全没有编程经验、不认识专业名词的用户。你不需要学习代码，也不需要打开“JSON 代码”。只要会使用鼠标拖动、点击和输入文字，就可以跟着完成。
+> 本文保留 1.x 工作台的完整教学示例，其中“JSON 代码”、旧入口、旧调试积木和 `BFG1:` 流程已不对应当前 Automation 2.0 UI。请勿按本文制作新的 1.1.2 脚本；当前入口、积木分类、`.baoauto` v3 和 JS/TS frontend 说明见[自动化使用手册](automation-user-guide.md)。
+
+> 原适用版本：BaoFlashBrowser 1.1.1。本文专门写给完全没有编程经验、不认识专业名词的用户。
 
 ## 1. 先用一句话理解自动化脚本
 
