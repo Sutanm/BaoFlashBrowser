@@ -39,7 +39,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'userscripts:list-values', 'userscripts:set-value-admin', 'userscripts:delete-value-admin',
   'screenshot:capture', 'screenshot:capture-active', 'screenshot:reveal', 'screenshot:set-dir',
     'automation-v3:list', 'automation-v3:get', 'automation-v3:create', 'automation-v3:validate-workflow',
-    'automation-v3:update-workflow', 'automation-v3:upsert-script', 'automation-v3:set-main-entry', 'automation-v3:delete',
+    'automation-v3:update-workflow', 'automation-v3:upsert-script', 'automation-v3:delete-script', 'automation-v3:set-main-entry', 'automation-v3:delete',
     'automation-v3:open', 'automation-v3:install', 'automation-v3:export',
     'automation-v3:status', 'automation-v3:start', 'automation-v3:cancel',
     'automation-v3:read-clipboard', 'automation-v3:asset-preview',

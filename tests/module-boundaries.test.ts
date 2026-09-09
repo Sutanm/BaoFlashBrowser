@@ -29,6 +29,15 @@ describe('optional module boundaries', () => {
     expect(bridgeIpc).toContain('userscript:automation-v3-surfaces');
   });
 
+  it('allows the automation script deletion channel through the main-window preload', () => {
+    const preload = source('src/preload/index.ts');
+    const allowlist = preload.slice(
+      preload.indexOf('const ALLOWED_INVOKE_CHANNELS'),
+      preload.indexOf('const ALLOWED_SEND_CHANNELS'),
+    );
+    expect(allowlist).toContain("'automation-v3:delete-script'");
+  });
+
   it('guards optional settings UI and save fields with build capabilities', () => {
     const panel = source('src/renderer/components/panels/SettingsPanel.tsx');
     expect(panel).toContain('if (!MODULE_PASSWORDS) return;');
