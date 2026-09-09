@@ -1,21 +1,25 @@
 # 测试基础设施优化实施计划
 
+> 状态：已完成的历史实施计划（2026-09-09 复核）。当前实际入口为 `npm test`、
+> `npm run test:integration`、`npm run test:coverage` 与 `npm run test:e2e`；四个外壳场景
+> 集中在 `tests/e2e/app-shell.spec.ts`。正文 checkbox 和拆分文件名保留当时计划，不是待办。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 完成三层测试基础设施优化：Vitest projects 分层（unit/integration）、Playwright e2e 激活（首批 4 条）、覆盖率报告脚本。全部通过配置与新增测试文件实现，**不修改任何 `src/` 业务代码**（含 OpenCV/视觉模块）。
 
 **Architecture:** 单 `vitest.config.ts` 内 `test.projects` 双 project（unit/integration）；`playwright.config.ts` 用 `_electron.launch` 驱动项目自带 Electron 11；`@vitest/coverage-v8` 提供 coverage。npm 脚本新增 `test:integration`、`test:coverage`、`test:e2e`（已有）。
 
-**Tech Stack:** vitest 4.1.10、playwright 1.62.1（自带 test runner + `_electron`）、@vitest/coverage-v8（新增）、Electron 11.5.0（锁定，e2e 目标）。
+**Tech Stack（计划时）:** vitest 4.1.10、playwright 1.62.1、@vitest/coverage-v8、Electron 11.5.0。当前 `package.json` 锁定 Playwright `^1.42.0`，以当前依赖为准。
 
 ## Global Constraints
 
 - **绝不修改 `src/` 下任何业务代码**；OpenCV/视觉相关模块（`vision-worker*`、`vision-service*`、`game-surface-detector*` 等）完全绕开。
 - Electron 11.5.0 / Chromium 87 锁定，永不升级；e2e 必须用项目自带 Electron（`.cache/electron/win32-x64-11.5.0/electron.exe`），不得下载独立浏览器驱动 Electron。
-- 现有 611 项测试的**断言内容与语义不变**，只调整运行分组。
+- 计划基线的 611 项测试保持**断言内容与语义不变**，只调整运行分组。
 - `npm run build` 不重建 `release/tests/` 产物；本计划不触碰 userscript/session smoke 相关源码，无 smoke 重建要求。
 - vitest 4 的 projects 配置语法：`defineConfig({ test: { projects: [...] } })` 或顶层 `test.projects`；每 project 需 `name`、`test.include`/`test.exclude`、`test.environment`（默认 node，tsx 用 jsdom）。
-- Playwright 1.62 单包结构，`require('playwright/test')` 即 runner；`require('playwright')._electron` 启动 Electron。
+- Playwright 使用 `require('playwright/test')` runner 与 `require('playwright')._electron` 启动 Electron；版本以 `package.json` 为准。
 - e2e 断言面**仅限浏览器外壳 React UI**；Electron 11 BrowserView 内容对 Playwright DOM 不可见，不得编写依赖 BrowserView 内部 DOM 的断言。
 - 每个任务完成后独立 commit，commit message 遵循仓库现有风格（`feat(test): ...` / `chore(test): ...`）。
 - 本地验证命令：`npm test -- --run`（分层后只跑 unit）、`npm run test:integration`、`npx vitest run --project unit`、`npx playwright test`（在 dist 构建后）。
@@ -147,7 +151,8 @@ const window = await app.firstWindow();
 - [ ] **Step 4: 构建 + 运行 e2e 验证**
 
 Run: `npm run build`（确保 dist 新鲜）→ `npm run test:e2e`
-Expected: 4 条 e2e 通过。若 Electron 11 与 Playwright 1.62 驱动不兼容（启动即失败），记录失败信息并在 spec 中回退方案（仅断言窗口出现），同时更新 spec 文档的风险段。
+Expected（计划时）: 4 条 e2e 通过。若 Electron 11 与所选 Playwright 驱动不兼容
+（启动即失败），记录失败信息并在 spec 中回退方案（仅断言窗口出现），同时更新 spec 文档的风险段。
 
 - [ ] **Step 5: Commit**
 

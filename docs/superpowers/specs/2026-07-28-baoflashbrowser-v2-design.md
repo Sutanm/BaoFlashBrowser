@@ -1,7 +1,10 @@
 # BaoFlashBrowser 2.0 — 完整设计文档
 
 > 日期：2026-07-28
-> 状态：设计阶段，待审批
+> 状态：历史初版设计，已被后续 BrowserView、React 18 + Zustand 与模块化实现取代
+>
+> 2026-09-09 注：正文中的 `<webview>`、React 17、Jotai、Node 12 和早期路径不是
+> 当前实现。现行架构见 [`docs/modules/00-overview.md`](../../modules/00-overview.md)。
 > 基于：BaoFlashBrowser v1.0.0（Electron 11 / Chromium 87）
 
 ---

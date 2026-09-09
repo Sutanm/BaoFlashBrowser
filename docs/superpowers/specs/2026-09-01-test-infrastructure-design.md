@@ -1,16 +1,20 @@
 # 测试基础设施优化设计
 
 - 日期：2026-09-01
-- 状态：已批准（设计评审通过，待写实现计划）
+- 状态：已实现；本文保留实施前测量与设计依据
 - 目标作者：测试工程 / 构建管线
-- 相关测量：611 项 Vitest 全量墙钟 6.5s；import 累计 37.7s、transform 19.0s；三大重型文件占大头（vision-worker 5.1s、OCR sidecar 2.3s/2.1s）；typecheck 12.3s、lint 9.3s
+- 相关测量：611 项 Vitest 全量墙钟 6.5s；import 累计 37.7s、transform 19.0s；三大重型文件占大头（vision-worker 5.1s、OCR sidecar 2.3s/2.1s）；typecheck 12.3s、lint 9.3s。这些都是 2026-09-01 的历史样本。
+
+> 实施结果：当前 `npm test` 只跑 unit，重型层使用 `npm run test:integration`，覆盖率使用
+> `npm run test:coverage`；Electron 外壳 e2e 集中在 `tests/e2e/app-shell.spec.ts`。
+> 仓库当前锁定 `playwright ^1.42.0`，不是本文探索时测量的 1.62.x。
 
 ## 背景与问题
 
 现有测试规模已突破 600 项，且仍在增长。全量运行的成本结构不健康：
 
 1. **所有测试一把梭**：104 个 Vitest 文件混在同一个 `vitest run` 里，OpenCV WASM 初始化（vision-worker 5.1s）、PaddleOCR sidecar 进程（2.3s/2.1s）与纯逻辑测试（绝大多数 <300ms）共用同一命令，日常开发被重型测试拖累。
-2. **Playwright 装而不用**：`playwright ^1.62.1` 在 devDependencies 中、`test:e2e` 脚本已存在，但**没有任何 config、没有一条 spec**。项目最缺的端到端 UI 流程验证（标签操作、收藏、引擎切换、自动化工作台）全靠人工回归（见 `FINAL_REGRESSION.md` 的人工验证记录）。
+2. **Playwright 装而不用（实施前状态）**：当时已有依赖和 `test:e2e` 脚本，但没有 config/spec；现已补齐。
 3. **无覆盖率门槛**：`vitest run` 不产出 coverage，无法量化"新代码有没有被测试覆盖"，规范只能靠自觉。
 
 ## 范围界定
@@ -18,13 +22,13 @@
 本次只做**测试基础设施**改造，明确不动：
 
 - 不修改任何 `src/` 业务代码（含 OpenCV/视觉模块，当前处于修改阶段，一律绕开）。
-- 不改变现有 611 项测试的**断言内容**与**测试语义**；只调整它们被哪个 project/命令运行。
+- 不改变计划基线 611 项测试的**断言内容**与**测试语义**；只调整它们被哪个 project/命令运行。
 - 不引入新测试框架；只激活已安装的 Playwright 与 Vitest 原生能力。
 - Electron smoke（`tests/electron/*.cjs`）保持现状，不在本次范围（其运行机制是独立 Electron 进程，与 Playwright e2e 互补而非替代）。
 
 ## 现状（探索确认）
 
-- `node_modules/playwright` 为 1.62.1 单包结构，自带 `test.js`/`test.mjs`/`test.d.ts` 入口，`playwright/test` 即 test runner，**无需**额外安装 `@playwright/test`。
+- 当前 `playwright ^1.42.0` 使用 `playwright/test` runner，无需额外安装 `@playwright/test`。
 - `require('playwright')._electron` 可用（typeof object），可驱动项目锁定的 Electron 11.5.0（`.cache/electron/win32-x64-11.5.0/electron.exe` 已存在，`electron` npm 版本 11.5.0）。
 - `dist/main.js`、`dist/preload.js`、`dist/renderer/index.html` 均存在，e2e 可直接加载现有构建产物。
 - Playwright 浏览器已下载（`%LOCALAPPDATA%\ms-playwright` 含 chromium-1228/1234 等）。
@@ -91,8 +95,8 @@ project: integration   → *.integration.test.ts + vision-worker + OCR sidecar
 ## 风险
 
 - **BrowserView 不可断言**：Electron 11 的 BrowserView 内容对 Playwright DOM API 不可见。缓解：e2e 明确限定断言面为外壳 UI；BrowserView 内部行为继续由现有 Electron smoke（CDP/Ruffle）覆盖。若未来发现外壳 UI 也无法稳定驱动（如无边框窗口、隐藏 preload），对应场景降级为人工回归并记录。
-- **覆盖率起步噪声**：现有 611 项测试主要覆盖逻辑层，renderer 组件覆盖率天然偏低，起步阈值可能触发红。缓解：阈值宽松 + coverage 排除清单 + 不加 CI 门禁。
-- **Playwright 与 Electron 11 兼容**：Playwright 1.62 驱动 Electron 11 的 CDP 协议版本可能偏新。缓解：首批 e2e 用 `_electron.launch` 实测验证；失败则回退到"仅启动冒烟"（断言窗口创建）并记录。
+- **覆盖率起步噪声**：计划基线 611 项测试主要覆盖逻辑层，renderer 组件覆盖率天然偏低，起步阈值可能触发红。缓解：阈值宽松 + coverage 排除清单 + 不加 CI 门禁。
+- **Playwright 与 Electron 11 兼容**：当前锁定的 Playwright 1.42 已用于外壳 e2e；升级后仍需用 `_electron.launch` 复验 Electron 11。
 
 ## 测试
 

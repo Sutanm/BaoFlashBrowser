@@ -1,8 +1,8 @@
 # D5:页面主世界桥(unsafeWindow 双向)设计
 
 日期:2026-08-05
-状态:已批准,实现中
-范围:`tests/electron/userscripts/` demo 层,不触碰 `src/`
+状态:已实现；本文为 D5 设计记录
+范围:最初在 `tests/electron/userscripts/` demo 验证，现已移植到 `src/webview-preload/userscripts/`
 
 ## 问题
 
@@ -72,7 +72,9 @@ window.__bfBridge ←─postMessage─→  unsafeWindow Proxy
 
 ## 移植提示(写入 demo-results)
 
-- 桥源码字符串随 `src/webview-preload/userscripts/` 走;真实站点注入用 CDP
-  addScriptToEvaluateOnNewDocument(导航前 attach 后立即 detach)。
+- 桥源码字符串随 `src/webview-preload/userscripts/` 走；真实站点通过 preload 的
+  `webFrame.executeJavaScript` 注入页面主世界。CDP 的新文档脚本注册会在 debugger detach
+  后失效，且长期 attach 会冻结导航，因此不作为用户脚本桥，也不再使用
+  `Page.addScriptToEvaluateOnNewDocument`。
 - 同步读限制是隔离世界与主世界的硬边界,移植后如需提升,档 2 可引入
   页面调用侧的回调与批量读通道。

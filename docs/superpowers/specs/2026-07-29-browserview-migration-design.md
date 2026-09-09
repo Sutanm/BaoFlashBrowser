@@ -1,8 +1,11 @@
 # BrowserView 迁移设计
 
 > 日期: 2026-07-29  
-> 状态: 待实施  
+> 状态: 已实施；本文为迁移前设计记录
 > 概述: 将 Flash 页面内容从 `<webview>` 迁移到 `BrowserView`，根治渲染进程崩溃导致的全局白屏问题。
+
+> 2026-09-09 注：BrowserView 已是唯一页面承载方式；正文中的“当前问题”描述迁移前状态。
+> 现行生命周期见 [`docs/modules/01-browser-shell-tabs.md`](../../modules/01-browser-shell-tabs.md)。
 
 ## 1. 动机
 

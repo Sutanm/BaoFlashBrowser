@@ -2,6 +2,10 @@
 
 日期：2026-08-09
 
+> 状态：历史 M1 交付记录；旧 `.baoauto`、Step/Runtime 和 Blockly 工作流已由
+> Automation 2.0 / `.baoauto` v3 取代。现行说明见
+> [`docs/modules/03-automation.md`](../../modules/03-automation.md)。
+
 ## 本阶段交付
 
 M1 在不修改正式 BrowserView 生命周期的前提下，交付了四个可独立移植的核心：
@@ -20,7 +24,7 @@ npm run demo:automation
 自动验证：
 
 ```bash
-npm run probe:automation-workbench
+npm run probe:automation-authoring
 npm test -- --run tests/automation-schema.test.ts tests/automation-assets-package.test.ts tests/automation-runtime.test.ts
 ```
 

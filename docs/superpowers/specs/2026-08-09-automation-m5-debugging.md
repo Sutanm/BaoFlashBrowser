@@ -1,5 +1,7 @@
 # 自动化 M5：素材预览与识别调试
 
+> 状态：历史 M5 交付记录；命令和截图可见性说明于 2026-09-09 按现行实现校正。
+
 ## 本批结果
 
 M5 第一批让用户在运行完整脚本前验证图片素材：
@@ -19,7 +21,9 @@ M5 第一批让用户在运行完整脚本前验证图片素材：
 
 ## 验证
 
-扩展后的 `npm run probe:automation-m4` 同时验证素材缩略图、识别测试控件和匹配结果显示。底层最小化识别继续由 `npm run probe:automation-m2` 验证。
+`npm run probe:automation-authoring` 验证素材缩略图、识别测试控件和匹配结果显示。
+底层最小化识别由 `npm run probe:automation-visual` 与 `npm run probe:automation-viewport`
+验证。
 
 ## 第二批：单步与运行日志
 
@@ -56,7 +60,7 @@ M5 第一批让用户在运行完整脚本前验证图片素材：
 
 ## 最终兼容性矩阵
 
-`npm run probe:automation-m5-engines` 使用与产品一致的 Electron 11 BrowserView，串行验证三条链路：
+`npm run probe:automation-viewport-engines` 使用与产品一致的 Electron 11 BrowserView，串行验证引擎与 viewport 链路：
 
 | 场景 | 最小化截图 | OpenCV 定位 | 可信输入 | 结果 |
 | --- | --- | --- | --- | --- |
@@ -111,7 +115,8 @@ JSON 分别使用 `if-condition`、`wait-condition`、`repeat-until-condition`�
 
 - 助手随每个网页主框架加载，可在“用户脚本”页面启用、停用或查看源码。
 - 悬浮窗支持拖动、CSS 原生缩放、收起和关闭；关闭只影响当前页面，停用脚本则全局关闭。
-- “捕获比对”只读捕获当前 BrowserView，并在悬浮相框中显示最佳匹配框；捕获前助手会隐藏两帧，避免把自身截入画面。
+- “捕获比对”只读捕获当前 BrowserView，并在悬浮相框中显示最佳匹配框。页面助手和其他
+  页面浮窗在截图及正式识别期间保持可见；测试前应将助手移出目标区域，不能依赖隐藏两帧规避干扰。
 - “连续监测”每 1.8 秒重新截图并识别当前页面。
 - 达到阈值显示绿色框，低于阈值显示黄色最佳候选，并展示匹配度和原图坐标。
 

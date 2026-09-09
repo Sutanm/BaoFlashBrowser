@@ -1,5 +1,8 @@
 # 自动化积木识别目标统一化
 
+> 状态：历史 Automation 1.x 设计；现已由 Automation 2.0 的 Locator 值块、Action 值槽与
+> Query/Condition 组合取代。
+
 ## 背景与目标
 
 当前自动化积木在图片识别与文字识别（OCR）上存在结构性割裂：

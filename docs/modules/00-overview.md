@@ -1,6 +1,7 @@
 # BaoFlashBrowser 模块设计文档 · 总览
 
-> 状态：按 v1.1.2 源码于 2026-09-08 重新核对。
+> 状态：按 v1.1.2 源码于 2026-09-09 重新核对。文档现行/历史边界见
+> [`docs/documentation-status.md`](../documentation-status.md)。
 > 本目录描述当前模块边界；历史设计与实施计划的时效说明见 [`docs/README.md`](../README.md)。
 > 所有源码路径相对仓库根目录；行号随代码演进可能漂移，以语义为准。
 

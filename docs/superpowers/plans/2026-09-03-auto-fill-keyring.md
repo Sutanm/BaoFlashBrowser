@@ -1,5 +1,10 @@
 # Auto-fill 免解锁跨平台密钥后端实现计划 v2（修订版，采纳审计 16 条）
 
+> 当前状态（2026-09-09）：实施中。Task 1 与 v2 无主密码存储/IPC/UI 主切片已进入源码；
+> Linux Secret Service、macOS Keychain、`view-gate.ts` 和查看保护 UI 尚未完成。
+> 下方 checkbox 是原计划跟踪，若与源码冲突，以源码和
+> [`docs/modules/05-password-vault.md`](../../modules/05-password-vault.md) 为准。
+
 > **For agentic workers:** 按 Task 顺序逐任务实现，每任务完成后独立验证并 commit。步骤 checkbox 跟踪。关联规格：`docs/superpowers/specs/2026-09-03-auto-fill-keyring-design.md`（决策 1–8）与本文件 v2 修订。
 > **修订记录：** 2026-09-03 收到计划审计一轮（16 条）与二轮（N1–N3）。P0（#1/#2/#3）通过"任务合并为垂直切片 + 全程保持可编译"解决；N1（Task5 缺 preload/types 联动）补 Files 清单；P1/P2 全部采纳，见各 Task 与采纳对照表。
 

@@ -1,8 +1,12 @@
 # 自动化遇错继续（仅超时未识别）设计
 
 - 日期：2026-08-29
-- 状态：已批准（设计评审通过，待写实现计划）
+- 状态：历史设计，已被 Automation 2.0 节点级超时语义取代
 - 目标作者：自动化运行时 / 工作台
+
+> 2026-09-09 注：旧 `AutomationWorkflow.errorPolicy` 和 `runtime.ts` 未进入现行架构。
+> v3 在每个 `wait` 节点显式保存 `onTimeout: 'fail' | 'continue'`；Blockly 当前生成
+> `fail`。现行类型位于 `src/shared/automation/core/workflow-ir.ts`。
 
 ## 背景与问题
 

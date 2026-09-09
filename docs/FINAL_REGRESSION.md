@@ -1,13 +1,15 @@
-# BaoFlashBrowser 1.1.1 回归基线
+# BaoFlashBrowser 1.1.1 回归基线（历史快照）
 
-最近更新：2026-09-01
+> 发布快照日期：2026-09-01；命令名于 2026-09-09 按 1.1.2 的 `package.json`
+> 校正。结果、制品大小和测试数量仍属于 1.1.1，不代表当前工作树。现行验证入口见
+> [`docs/modules/09-build-release-test.md`](modules/09-build-release-test.md)。
 
 ## 自动化覆盖
 
 | 项目 | 验证内容 | 当前结果 |
 | --- | --- | --- |
-| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest(unit)、生产构建 | CI Windows/Ubuntu 通过；本地 Vitest unit 101 个测试文件、592 项测试通过 |
-| `npm run test:integration` | 重型 Vitest：OpenCV vision-worker、PaddleOCR sidecar | 通过，3 文件、19 项测试 |
+| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest(unit)、生产构建 | 当时 CI Windows/Ubuntu 通过；具体数量以该次日志为准 |
+| `npm run test:integration` | 重型 Vitest：OpenCV vision-worker、PaddleOCR sidecar | 当时通过；具体数量以该次日志为准 |
 | `npm run test:e2e` | Playwright 外壳 e2e（Electron 11：渲染/标签/收藏/工作台） | 通过，4 条（Windows 本地实测，连跑稳定） |
 | `npm run test:compat` | session 策略、SWFObject、SWF CORS | 通过 |
 | `npm run test:electron` | BrowserView 生命周期 | 通过 |
@@ -15,8 +17,8 @@
 | `npm run test:userscripts-admin` | 安装、管理、内置脚本及自动化助手取材 UI | 通过 |
 | `npm run test:css-fixer` | CSS 修复器两条注入路径 | 通过 |
 | `npm run test:smokes` | 仓库 smoke 汇总 | 通过 |
-| `npm run probe:automation-m4` | 自动化工作台、积木、脚本包管理 | 通过 |
-| `npm run probe:automation-m5-engines` | Web、PPAPI 注册、Ruffle 的最小化视觉和可信输入 | Web 98.8%、Ruffle 100%；PPAPI 夹具未渲染 |
+| `npm run probe:automation-authoring` | 自动化工作台、积木、脚本包管理 | 当时对应链路通过 |
+| `npm run probe:automation-viewport-engines` | Web、PPAPI 注册、Ruffle 的最小化视觉和可信输入 | 历史结果：Web 98.8%、Ruffle 100%；PPAPI 夹具未渲染 |
 | 源资源发布校验 | `verify:release`，Windows x64 source stage | 通过，16 项资源 |
 | Windows x64 候选安装包 | NSIS、unpacked 校验、SHA-256 | CI 通过；95,408,809 字节，SHA-256 已写入发行说明 |
 | Windows ia32 候选安装包 | NSIS、unpacked 校验、SHA-256 | CI 通过；82,107,998 字节，SHA-256 已写入发行说明 |

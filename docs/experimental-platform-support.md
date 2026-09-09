@@ -1,4 +1,6 @@
-# Experimental Flash and macOS support (1.1.1)
+# Experimental Flash and macOS support (1.1.2)
+
+> Rechecked against the 1.1.2 package configuration on 2026-09-09.
 
 ## Support boundary
 
@@ -49,7 +51,7 @@ npm ci
 npm run build:mac
 ```
 
-Artifacts are named `BaoFlashBrowser-Experimental-1.1.1-x64.dmg` and `.zip`.
+Artifacts are named `BaoFlashBrowser-Experimental-1.1.2-x64.dmg` and `.zip`.
 The GitHub Actions workflow `Package experimental macOS build` can be started manually and
 uses an Intel macOS runner. Its uploaded artifact contains both integrated packages and the
 resource-verification manifests.

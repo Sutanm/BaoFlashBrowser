@@ -1,5 +1,8 @@
 # 文字（OCR）目标统一进现有指针积木
 
+> 状态：历史 Automation 1.x 设计；现行 Blockly v2 通过统一 Locator 值块组合图片、文字、
+> 坐标与 Action，不再扩展旧指针 Step union。
+
 ## 背景与目标
 
 自动化积木目前分两类识别能力：

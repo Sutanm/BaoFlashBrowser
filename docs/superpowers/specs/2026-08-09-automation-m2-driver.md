@@ -2,6 +2,9 @@
 
 日期：2026-08-09
 
+> 状态：历史 M2 交付记录；旧 `BrowserViewAutomationDriver` 已在 Automation 2.0
+> Phase 8 删除。当前适配器是 `browserview-core-session.ts` 及各 Capability Service。
+
 ## 已实现
 
 `BrowserViewAutomationDriver` 已实现执行器需要的 BrowserView 侧能力：
@@ -57,5 +60,5 @@ CSS 点击位置      = 设备像素 × CSS 视口尺寸 ÷ 截图尺寸 + offse
 运行：
 
 ```bash
-npm run probe:automation-m2
+npm run probe:automation-viewport
 ```

@@ -250,7 +250,7 @@ useEffect(() => {
 | 用途 | 文件 |
 |------|------|
 | Flash 插件注册 | `src/main/modules/flash.ts` |
-| 会话/webRequest/CORS 拦截 | `src/main/modules/session.ts` |
+| 会话/webRequest/CORS 拦截 | `src/main/modules/session-manager.ts` |
 | BrowserView 标签管理 + 下载 | `src/main/modules/tabs.ts` |
 | Ruffle JS 预加载 | `src/main/modules/ruffle-bundle.ts` |
 | Ruffle 注入（preload） | `src/webview-preload/index.ts` |

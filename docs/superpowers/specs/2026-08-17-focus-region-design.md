@@ -1,5 +1,8 @@
 # 视觉脚本"播放器区域"搜索范围设计方案（focusRegion）
 
+> 状态：历史设计记录；旧 Step/Driver 接口已被 Automation 2.0 的 Region Context、
+> Surface 与 FrameGeometry 取代。
+
 > 版本：2026-08-17，基于《03 视觉自动化平台》模块设计与自动化 schema 现状。
 > 需求来源：用户希望视觉脚本的图片搜索范围"可选指定到 Flash 游戏区域"，
 > 而非默认全 BrowserView。
@@ -220,7 +223,7 @@ zh-CN + en 双侧；改后 `npm run i18n` 再 build。
 |----|------|
 | vitest | `element-selector.test.ts`：describeElement 稳定性（id→tag.class→nth-of-type 路径）、id/类名转义防注入、iframe 命中返回 iframe rect 语义；`focus-region-policy.test.ts`：resolveEffectiveRegion 三优先级别断（静态 region > focusRegion > 全区）、零尺寸/不存在回退、regionScope 覆盖 |
 | Electron 冒烟 | `focus-region-smoke.cjs`（自带夹具页 + mock 全部 preload 通道，凭 AGENTS.md 守则）：① 拾取端到端——注入拾取器→模拟点击播放器元素→断言返回 selector+rect 且页面无残留监听；② 运行时——workflow 带 focusRegion 跑夹具页：区域内目标命中且**区域外同形干扰物不触发命中**；③ 回退——无播放器元素页跑该 workflow：脚本走完、日志见 `focus-region-fallback` |
-| 回归 | 既有 `test:automation`/`probe:deep` 全绿（兼容性）；`npm run i18n` 后 typecheck+lint |
+| 回归 | `npm test -- --run`、`npm run test:integration`、`npm run probe:deep` 全绿；`npm run i18n` 后 typecheck+lint |
 
 ## 边界与注意
 

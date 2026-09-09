@@ -1,7 +1,7 @@
 # Auto-fill 免解锁跨平台密钥后端设计（keyring 抽象 + A/C′ 双档 + OS 查看门禁）
 
 - 日期：2026-09-03
-- 状态：已评审（决策 1–8 全部定稿，待写实现计划）
+- 状态：实施中；Windows DPAPI 与 v2 无主密码存储已接入，Linux/macOS 后端和查看门禁待完成
 - 目标作者：密码模块 / 主进程适配层
 - 相关测量 / 实证：
   - 提交 `1346ab1`（9-01）引入 safeStorage 加密 auto-fill key，并规定"safeStorage 不可用时拒绝写入"。

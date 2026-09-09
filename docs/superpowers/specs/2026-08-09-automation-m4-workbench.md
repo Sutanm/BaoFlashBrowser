@@ -1,5 +1,7 @@
 # 自动化 M4：主程序工作台
 
+> 状态：历史 M4 交付记录；当前工作台使用 Blockly v2 和 `.baoauto` v3。
+
 ## 页面结构
 
 M4 使用两个互补入口：
@@ -36,7 +38,7 @@ Blockly 通过动态 import 按需加载。普通浏览首包约 611KB；约 742
 
 ## 验证
 
-`npm run probe:automation-m4` 会构建 renderer，然后验证：
+`npm run probe:automation-authoring` 会构建对应 smoke bundle，然后验证：
 
 - `about:automation` 能通过 `file://` 动态加载。
 - 脚本库和导入工作流正常显示。

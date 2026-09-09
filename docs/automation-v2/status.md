@@ -1,6 +1,10 @@
 # Automation 2.0 状态
 
-> 最后更新：2026-09-06
+> 最后更新：2026-09-09
+>
+> 状态边界：Phase 0–8 的数字和“最近完成批次”是带日期的实施证据，不随当前代码滚动
+> 重算。现行结构以 [`docs/modules/03-automation.md`](../modules/03-automation.md) 为准；
+> 当前工作树状态应通过 `git status --short` 获取，不记录在文档中。
 
 ## 当前状态
 
@@ -27,17 +31,16 @@
 | 8 包格式/Recorder/清理 | Complete | 新 `.baoauto`、Recorder、Legacy 清零 | Phase 6/7 Complete |
 | 后续 Pixel OCR | Out of Scope | 独立研究计划 | Automation 2.0 稳定后 |
 
-## 已确认基线
+## Phase 0 历史基线
 
-- 当前 Workflow Step Type：34。
-- 当前 Blockly Block Type：43。
-- Runtime `step.type` 分支：34。
-- 工作台 Automation IPC：37；页面助手 Automation IPC：16。
-- Automation 专项测试：26 个文件，约 4,154 行。
+- 当时 Workflow Step Type：34。
+- 当时 Blockly Block Type：43。
+- 当时 Runtime `step.type` 分支：34。
+- 当时工作台 Automation IPC：37；页面助手 Automation IPC：16。
+- 当时 Automation 专项测试：26 个文件，约 4,154 行。
 - 2026-08-30 完整 Vitest：84 files / 558 tests passed。
 - `npm run probe` 的构建新鲜度、config 和日志探针失败；原因分别为陈旧 smoke bundle、本机无 config、本机无 main.log，不视为产品逻辑失败。
-- 当前 `.baoauto` 已使用 `formatVersion: 2`；Automation 2.0 新格式不得复用该版本号。
-- 当前工作树包含用户对 `.idea/workspace.xml` 和 `browserview-driver.ts` 的未提交修改。
+- 当时 `.baoauto` 使用 `formatVersion: 2`；Automation 2.0 后续使用 v3，未复用版本号。
 
 ## 进行中研究（未立项）
 

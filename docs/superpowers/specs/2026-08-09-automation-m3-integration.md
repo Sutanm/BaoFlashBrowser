@@ -1,5 +1,8 @@
 # 自动化 M3：主程序接入边界
 
+> 状态：历史 M3 交付记录；现行入口、IPC 和包格式见
+> [`docs/modules/03-automation.md`](../../modules/03-automation.md)。
+
 ## 本阶段结果
 
 M2 的截图、OpenCV 识别和 CDP 输入链已接入主程序生命周期。自动化现已作为正式功能默认启用；开发验证时使用：

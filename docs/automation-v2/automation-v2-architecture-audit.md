@@ -4,6 +4,11 @@
 > 当前完成批次：P0-T05 — 审计收口  
 > 最后更新：2026-08-30  
 > 审计原则：以源码、测试和构建配置为证据；Phase 0 禁止修改产品代码
+>
+> 历史边界（2026-09-09）：本文是 Automation 1.x 的 Phase 0 输入快照，表格中的
+> 行数、测试数量、旧文件路径和工作树状态不得当作当前事实。Phase 8 已删除旧
+> Step/Runtime/Driver；现行结构见 [`status.md`](status.md) 与
+> [`docs/modules/03-automation.md`](../modules/03-automation.md)。可复制命令已按当前脚本校正。
 
 ## 1. 文档目的与边界
 
@@ -210,12 +215,10 @@ Blockly / JSON / Test Bench             Automation Assistant userscript
 - `probe:automation-viewport`
 - `probe:automation-viewport-engines`
 - `probe:automation-visual`
-- `probe:automation-blockly`
+- `probe:automation-authoring`
 - `probe:automation-flash`
-- `probe:automation-workbench`
-- `probe:automation-m2`
-- `probe:automation-m4`
-- `probe:automation-m5-engines`
+- `probe:automation-scale-reference`
+- `probe:automation-js-sandbox`
 - `demo:automation`
 
 部分 Electron smoke 需要先运行自己的 build script；仅运行普通 `npm run build` 不会刷新 `release/tests/` 产物。

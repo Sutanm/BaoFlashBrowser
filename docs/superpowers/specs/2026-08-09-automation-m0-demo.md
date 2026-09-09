@@ -2,6 +2,10 @@
 
 日期：2026-08-09
 
+> 状态：历史 M0 验证记录。现行 Automation 2.0 入口见
+> [`docs/modules/03-automation.md`](../../modules/03-automation.md)。下列命令名已按当前
+> `package.json` 校正，数值结果仍属于当时机器。
+
 ## 目标
 
 在不接入正式标签生命周期和工作台的前提下，验证以下关键能力：
@@ -70,7 +74,7 @@
 ```bash
 npm run probe:automation-input
 npm run probe:automation-visual
-npm run probe:automation-blockly
+npm run probe:automation-authoring
 npm run probe:automation-flash
 ```
 

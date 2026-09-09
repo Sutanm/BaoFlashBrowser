@@ -1,7 +1,10 @@
 # 设计：css-has-pseudo 集成 + js-patch esbuild 按需转译
 
 日期：2026-08-06
-状态：待审阅
+状态：已实现；本文为设计记录
+
+> 现行实现由构建期 CSS Fixer 与 JS patch 链路承载；修改内置修复器后必须运行
+> `npm run build:css-fixer`，再执行 `npm run test:css-fixer`。
 
 ## 背景
 

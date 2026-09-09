@@ -1,6 +1,6 @@
 # BaoFlashBrowser 架构手册
 
-> 历史说明：本文包含早期实现和演进过程，部分文件名、状态管理与构建工具描述已经过时。当前开发基线请从 [`docs/README.md`](README.md) 和 [`docs/modules/00-overview.md`](modules/00-overview.md) 进入，并以源码与 `AGENTS.md` 为准。
+> 文档边界（2026-09-09 复核）：本文前半部保留早期实现和演进过程，不作为当前文件索引或 API 规范。当前开发基线从 [`docs/modules/00-overview.md`](modules/00-overview.md) 进入；完整分类见 [`docs/documentation-status.md`](documentation-status.md)，并以源码、`package.json` 与 `AGENTS.md` 为准。
 
 > 面向二次开发者的完整系统解析，涵盖模块、数据流、开发阻力和经验教训。
 
@@ -14,10 +14,10 @@
 4. [主进程详解](#4-主进程详解)
    - [4.1 启动入口 (index.ts)](#41-启动入口-indexts)
    - [4.2 Flash 插件系统 (flash.ts)](#42-flash-插件系统-flashts)
-   - [4.3 会话管理 (session.ts + session-manager.ts)](#43-会话管理-sessionts--session-managerts)
+   - [4.3 会话管理 (session-manager.ts)](#43-会话管理-session-managerts)
    - [4.4 BrowserView 标签管理器 (tabs.ts)](#44-browserview-标签管理器-tabsts)
    - [4.5 CDP 密码捕获 (password-capture.ts)](#45-cdp-密码捕获-password-capturets)
-   - [4.6 密码存储 (password-store.ts + dpapi.ts)](#46-密码存储-password-storets--dpapits)
+   - [4.6 密码存储 (password-store.ts + keyring)](#46-密码存储-password-storets--keyring)
    - [4.7 Ruffle 内联脚本 (ruffle-bundle.ts)](#47-ruffle-内联脚本-ruffle-bundlets)
    - [4.8 下载管理器 (download.ts)](#48-下载管理器-downloadts)
    - [4.9 窗口管理 (window.ts)](#49-窗口管理-windowts)
@@ -200,15 +200,15 @@ app.commandLine.appendSwitch('ppapi-flash-version', ver);
 
 ---
 
-### 4.3 会话管理 (session.ts + session-manager.ts)
+### 4.3 会话管理 (session-manager.ts)
 
-#### session.ts — defaultSession 初始化
-
-初始化 `session.defaultSession`（主窗口 + 首个 BrowserView）：
+`src/main/modules/session-manager.ts` 统一初始化 `defaultSession` 与每个 `persist:`
+BrowserView session：
 
 1. **UA 设置** → Chrome 87 标准 UA 字符串
-2. **crossdomain.xml 拦截** → 直接 serve 全放行 XML（Flash 跨域请求用）
-3. **淘米 SWFObject 拦截** → 网络层将 `webres.61.com/common/js/swfobject.js` 重定向到修补版（`patchedSWFObject()`）
+2. **淘米 SWFObject 拦截** → 网络层将目标 `swfobject.js` 重定向到修补版
+3. **SWF 响应头兼容** → 只对 Ruffle 所需的 `.swf` 请求补充允许头；站点原生
+   `crossdomain.xml` 必须原样返回，禁止重定向到 `data:`
 
 #### patchedSWFObject() — 淘米反检测核心
 
@@ -218,11 +218,9 @@ app.commandLine.appendSwitch('ppapi-flash-version', ver);
 
 **修补方案：** `checkUpgrade: function(a){return false;}` — 始终返回不拦截。在网络层用 `webRequest.onBeforeRequest` 拦截 + `data:text/javascript` 注入修补后的整个 SWFObject 库。
 
-#### session-manager.ts — persist: session 初始化
-
-对使用 `partition:'persist:'` 的 BrowserView 调用 `setupSessionOnce(sess)`：
-- 确保单次初始化（`sessionSetup` flag）
-- 同样设置 UA + SWFObject 拦截 + 下载 handler
+对使用 `partition:'persist:'` 的 BrowserView 调用 `setupSessionOnce(sess)`，以 WeakSet
+保证每个 session 只注册一次。Electron 11 的 `webRequest` 同类监听器重复注册会互相替换，
+用户脚本 `GM_webRequest` 因而通过 session-manager 的单一回调分发，不能另装监听器。
 
 **⚠️ 陷阱：** `defaultSession` 和 `persist:` session 是**两个独立 session**。webRequest 拦截器必须分别在两者上注册！
 
@@ -342,39 +340,30 @@ consoleAPICalled → 解析 JSON
 
 ---
 
-### 4.6 密码存储 (password-store.ts + dpapi.ts)
+### 4.6 密码存储 (password-store.ts + keyring)
 
 `src/main/modules/password-store.ts` — 加密密码管理器
 
-**加密方案：** DEK（数据加密密钥）+ DPAPI（系统级密钥保护）
-- DEK 用 AES-256-GCM 加密密码条目
-- DEK 本身用 DPAPI 保护（Windows）或 AES-KW 密钥包裹（跨平台）
-- 用户主密码用 PBKDF2 派生，加盐 32 字节
-
-**IndexedDB 表：** `passwords` (electron-store)
-- 存储加密后的密码条目：`{id, host, origin, title, username, encryptedPassword, iv, tag, updatedAt}`
-- `_dek` 元条目：DPAPI 加密后的 DEK
-- `_config` 元条目：`{enabled, defaultId}`
+**当前加密方案（v2，无主密码）：**
+- 随机 DEK 使用 AES-256-GCM 加密密码条目。
+- DEK 由设备 wrap key 包装；Windows 优先使用 DPAPI 档位 A。
+- 无可用 OS 后端时自动使用 C′ 本地弱保护，只防止文本直读，不抵御主动文件读取者。
+- v1 密码本和旧明文 key 只改名为 `.legacy.bak` 搁置，不读取、不迁移。
 
 **核心 API：**
 | 函数 | 用途 |
 |------|------|
 | `init()` | 从 DB 加载 DEK 并解密，初始化状态 |
-| `setupMaster(password)` | 创建 DEK + PBKDF2 派生，DPAPI 加密存储 |
-| `unlockWithMaster(password)` | 用主密码解密 DEK |
+| `initVault()` | 创建 v2 DEK 与 wrap key，并返回当前保护档位 |
+| `getTier()` | 返回 A / C′ 保护档位 |
 | `addEntry({host, username, password})` | DEK 加密密码 → 存储 |
-| `getDecryptedPassword(id)` | 解密单条密码 |
+| `getDecryptedPassword(id)` | 供已授权的填充或未来查看门禁解密单条密码 |
 | `setDefault(id)` | 设置默认填充条目 |
 | `resetAll()` | 清空所有密码数据 |
 
-**状态机：** `uninitialized → locked → unlocked`
-- `isInitialized()`: DEK 存在
-- `isUnlocked()`: DEK 已解密可用
-- `isEnabled()`: 用户已启用密码本
-
-`src/main/modules/dpapi.ts` — Windows DPAPI 封装
-- 通过 `powershell` 或 `win-dpapi` npm 包调用
-- `selfTest()` 验证 DPAPI 可用性（加密→解密往返）
+当前没有 `locked/unlocked` 状态：初始化后 DEK 经设备 wrap key 加载。实现位于
+`keyring.ts` 与 `keyring-win-dpapi.ts`；Linux/macOS 后端和查看密码的 OS 身份门禁尚未接入，
+因此 `password:reveal` 目前固定拒绝未授权调用。
 
 ---
 
@@ -615,23 +604,16 @@ protocol.registerBufferProtocol('ruffle-resource', (req, cb) => {
 
 项目采用 **demo 先行** 的调试方法论——在与主项目环境一致的独立 Electron 应用中验证功能，再移植到主项目。
 
-### 测试 Demo 清单
+### 当前测试与探查入口
 
-| Demo | 环境 | 用途 |
-|------|------|------|
-| `test/cdp-capture-test/` | **BrowserWindow** + CDP | 验证 CDP 密码捕获基本能力 (confirmed: 4399 ✅ 7k7k ✅) |
-| `test/ws-capture-test/` | **BrowserWindow** + eval/WebSocket | 对比 eval 模式 vs CDP 的差异 (4399 ❌ 7k7k ✅) |
-| **`test/bv-capture-test/`** | **BrowserView** + CDP/eval 双模式 | 验证 BrowserView 环境下的捕获 (CDP 完美，eval 仅 7k7k) |
-| `test/download-test/` | BrowserWindow + aria2 子进程 | 验证 aria2 RPC 通信 + 下载进度轮询 |
-
-### 网站探查
-
-**`test/7k7k-probe.py`** — Playwright 脚本，自动抓 7k7k 登录时的所有网络请求 + POST body。
-用法：
-```bash
-python test/7k7k-probe.py
-# → 打开 Chromium → 手动登录 → 按 Enter → 保存到 7k7k-reqs.json
-```
+| 入口 | 用途 |
+|------|------|
+| `npm test -- --run` | 快速 unit 层 |
+| `npm run test:integration` | OpenCV 与 OCR sidecar 重型层 |
+| `npm run test:e2e` | Electron 11 外壳 e2e；不能直接断言 BrowserView DOM |
+| `npm run test:compat` | session、SWFObject 与 CORS 兼容 |
+| `npm run test:electron` | BrowserView 生命周期 |
+| `npm run probe` / `npm run probe:deep` | 构建、配置、日志与 Electron 运行态探查 |
 
 **核心发现（驱动后续开发）：** 7k7k 登录是 GET 请求 JSONP（`<script src="Post_pay.php?username=&password=">`），不是 POST——所有 fetch/XHR 钩子空转。
 
@@ -730,12 +712,12 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 |------|---------|------|
 | `src/main/index.ts` | 160 | 启动编排、崩溃保护、单实例锁 |
 | `src/main/modules/flash.ts` | 60 | PPAPI 插件加载 + mms.cfg 写入 |
-| `src/main/modules/session.ts` | 160 | defaultSession: UA/CORS/SWFObject |
-| `src/main/modules/session-manager.ts` | 30 | persist: session 初始化 + 去重 |
-| `src/main/modules/tabs.ts` | 410 | BrowserView TabManager（核心）|
-| `src/main/modules/password-capture.ts` | 370 | CDP 密码捕获（8 种策略）|
-| `src/main/modules/password-store.ts` | 250 | DPAPI 加密密码本 |
-| `src/main/modules/dpapi.ts` | 80 | Windows DPAPI 封装 |
+| `src/main/modules/session-manager.ts` | — | default/persist session 的 UA、兼容策略与监听分发 |
+| `src/main/modules/tabs.ts` | — | BrowserView TabManager（核心）|
+| `src/main/modules/password-capture.ts` | — | CDP binding 密码捕获 |
+| `src/main/modules/password-store.ts` | — | v2 无主密码加密保险库 |
+| `src/main/modules/keyring.ts` | — | OS 密钥后端抽象与档位探测 |
+| `src/main/modules/keyring-win-dpapi.ts` | — | Windows DPAPI 后端 |
 | `src/main/modules/ruffle-bundle.ts` | 70 | Ruffle WASM 预加载 |
 | `src/main/modules/download.ts` | 350 | aria2 子进程 + 下载 handler |
 | `src/main/modules/window.ts` | 40 | BrowserWindow 创建 + 可恢复性 |
@@ -765,8 +747,8 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 | 文件 | 职责 |
 |------|------|
 | `src/renderer/App.tsx` | React 根，hydration + 持久化 |
-| `src/renderer/atoms/data.atom.ts` | 全局状态原子 |
-| `src/renderer/atoms/tabs.atom.ts` | 标签状态原子 |
+| `src/renderer/store/useDataStore.ts` | 设置、历史、收藏与下载 Zustand store |
+| `src/renderer/store/useTabsStore.ts` | 标签 Zustand store |
 | `src/renderer/services/db.ts` | Dexie/IndexedDB 封装 |
 | `src/renderer/services/keyboard.service.ts` | 键盘快捷键分发 |
 | `src/renderer/services/id.service.ts` | Nano ID + URL 标准化 |
@@ -828,15 +810,14 @@ Windows 上 Flash 也会读取 `C:\Windows\System32\Macromed\Flash\mms.cfg`，�
 
 | 路径 | 用途 |
 |------|------|
-| `test/cdp-capture-test/` | BrowserWindow CDP 捕获 demo |
-| `test/ws-capture-test/` | BrowserWindow eval 模式 demo |
-| `test/bv-capture-test/` | BrowserView CDP/eval 双模式 demo |
-| `test/download-test/` | aria2 下载测试 demo |
-| `test/7k7k-probe.py` | 7k7k 登录探查脚本 |
+| `tests/` | Vitest unit/integration 与 Electron smoke/e2e |
+| `tools/probe/` | 只读健康探针与 Electron 深度探针 |
+| `tools/vision-benchmark/` | 视觉语料、benchmark 与专项门禁 |
+| `tools/ocr-benchmark/` | OCR 语料与 provider benchmark |
 
 ---
 
-> 基础架构记录始于 2026-07-31，自动化章节更新于 2026-08-29 | Electron 11.5.0 / Chromium 87
+> 基础架构记录始于 2026-07-31；现行补章与索引于 2026-09-09 复核 | Electron 11.5.0 / Chromium 87
 
 ---
 

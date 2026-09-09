@@ -10,11 +10,13 @@
 | --- | --- |
 | `src/main/modules/password-capture.ts` | CDP `Runtime.addBinding` 捕获、动态表单观察、短期 pending credential |
 | `src/main/modules/password-fill.ts` | 主框架与 CDP execution context 自动填充 |
-| `src/main/modules/password-store.ts` | 保险库、主密码、设备本地包装、默认账号和站点排除 |
+| `src/main/modules/password-store.ts` | v2 保险库、DEK、设备包装、默认账号和站点排除 |
+| `src/main/modules/keyring.ts` | OS 密钥后端探测与包装接口；无后端时回落 C′ |
+| `src/main/modules/keyring-win-dpapi.ts` | Windows DPAPI 子进程后端 |
 | `src/main/modules/crypto-helper.ts` | 加密辅助 |
 | `src/main/modules/cdp-lease.ts` | 密码捕获与自动化的调试器租约互斥 |
 | `src/webview-preload/password-form-observer.ts` | 只报告“检测到密码表单”的存在信号 |
-| `src/main/ipc/password.ipc.ts` | 状态、解锁、保存确认、忽略、删除、填充和设置 IPC |
+| `src/main/ipc/password.ipc.ts` | 状态、初始化、保存确认、忽略、删除、填充和设置 IPC |
 
 ## 3 核心流程
 
@@ -25,7 +27,15 @@
 
 ## 4 保险库与接口
 
-保险库支持初始化、主密码设置/解锁/修改、锁定、重置、启停、自动捕获、自动填充、排除站点和默认账号。IPC 包括 `password:status/setup/unlock/lock/list/save-confirm/ignore/delete/get-password/set-default/fill/reset` 及设置项。
+当前数据格式为 v2，无主密码和锁定状态。随机 DEK 使用 AES-256-GCM 加密条目，
+再由设备 wrap key 包装；Windows 优先用 DPAPI（档位 A），没有可用 OS 后端时使用
+本地可逆弱保护（档位 C′，保护级别近似 Chromium `basic_text`）。旧 v1 密码本和旧明文
+key 文件只会改名为 `.legacy.bak` 搁置，不读取、不迁移。
+
+现行 IPC 包括状态/初始化、列表、启停、自动捕获、自动填充、站点排除、保存确认、忽略、
+删除、查看、默认账号、填充与重置。Linux Secret Service、
+macOS Keychain 和查看门禁尚未接入；在门禁完成前 `password:reveal` 固定返回
+`not-authorized`，不会把密码明文送入渲染层。
 
 ## 5 安全不变量
 
@@ -34,6 +44,7 @@
 - 导航、刷新、前进、后退或引擎切换前先 `teardownCapture(wc)`；长期附着会冻结 JSONP 和导航。
 - 自动化持有 CDP 租约时密码捕获必须让步；释放后由页面生命周期重新附着。
 - 自动填充只填字段，不提交。
+- 档位 C′ 只是防止文本直接读取，不抵御能读取用户文件的主动攻击者；UI 必须如实显示保护等级。
 
 ## 6 验证与雷区
 
