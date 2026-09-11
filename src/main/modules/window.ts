@@ -98,9 +98,14 @@ export function createWindow(): BrowserWindow {
   mainWindow.webContents.on('preload-error', (_event, preloadPathValue, error) => {
     log.error('[Window] preload failed:', preloadPathValue, error instanceof Error ? error.message : String(error));
   });
+  // Chromium console levels: 0=verbose, 1=info, 2=warning, 3=error. Level 2 is a
+  // warning and must not be recorded as an error, or genuine failures drown in
+  // noise (Blockly emits its warnings at level 2).
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     if (level < 2) return;
-    log.error(`[Window] renderer console level=${level}: ${message} (${sourceId}:${line})`);
+    const entry = `[Window] renderer console level=${level}: ${message} (${sourceId}:${line})`;
+    if (level === 2) log.warn(entry);
+    else log.error(entry);
   });
 
   mainWindow.on('page-title-updated', (e) => {

@@ -6,6 +6,7 @@ import { useI18nContext } from '../../i18n/i18n-react';
 import { validateWorkflowDocument, type WorkflowDocumentV3 } from '../../../shared/automation/core';
 import { AUTOMATION_V2_BLOCK_TYPES, automationV2Toolbox, registerAutomationV2Blocks } from './automation-blockly-v2-schema';
 import { ensureAutomationV2Entry, workflowV3ToWorkspace, workspaceToWorkflowV3 } from './automation-blockly-v2-codec';
+import { automateTeardown } from './automation-blockly-teardown';
 
 export type AutomationBlocklyV2EditorHandle = {
   compile(): WorkflowDocumentV3;
@@ -24,6 +25,7 @@ export type AutomationBlocklyV2EditorProps = {
 };
 
 const NAMED_SURFACES = { game: { kind: 'visual', visualHint: 'container' } } as const;
+
 
 /** Automation 2.0 editor. It never reads or writes Automation 1.x Blockly XML. */
 const AutomationBlocklyV2Editor = forwardRef<AutomationBlocklyV2EditorHandle, AutomationBlocklyV2EditorProps>(function AutomationBlocklyV2Editor(
@@ -68,21 +70,9 @@ const AutomationBlocklyV2Editor = forwardRef<AutomationBlocklyV2EditorHandle, Au
       catch { localStorage.removeItem(draftKey); }
     } else if (documentRef.current) workflowV3ToWorkspace(workspace, documentRef.current);
 
-    const resize = new ResizeObserver(() => Blockly.svgResize(workspace));
-    resize.observe(host);
-    const onChange = (event: Blockly.Events.Abstract): void => {
-      if (event.isUiEvent || event.type === Blockly.Events.FINISHED_LOADING) return;
-      localStorage.setItem(draftKey, Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(workspace)));
-      onDirtyChange?.(true);
-    };
-    workspace.addChangeListener(onChange);
-    return () => {
-      resize.disconnect();
-      toolboxObserver.disconnect();
-      workspace.removeChangeListener(onChange);
-      workspace.dispose();
+    return automateTeardown(workspace, host, toolboxObserver, draftKey, onDirtyChange, () => {
       workspaceRef.current = null;
-    };
+    });
   }, [assetFingerprint, draftKey, locale, onDirtyChange, scriptFingerprint]);
 
   useImperativeHandle(ref, () => ({

@@ -9,6 +9,7 @@ import type {
   WorkflowDocumentV3,
   WorkflowNode,
 } from '../../../shared/automation/core';
+import { automationV2MissingOptionLabel } from './automation-blockly-v2-schema';
 import { decodeAutomationImageGroup, encodeAutomationImageGroup } from '../../../shared/automation/image-groups';
 import { DEFAULT_IMAGE_MATCH_MASK } from '../../../shared/automation/vision-policy';
 
@@ -195,8 +196,31 @@ function createEntry(workspace: Blockly.Workspace, type: 'bao2_entry_uncondition
   return initialize(workspace.newBlock(type));
 }
 
+const DROPDOWN_REFERENCE_FIELDS = new Set(['ASSET', 'SCRIPT']);
+
+/**
+ * Keep a referenced asset/script selectable when the package no longer provides
+ * it. Otherwise Blockly rejects the value ("Cannot set the dropdown's value to
+ * an unavailable option") and the reference is silently lost.
+ *
+ * The appended entry is deliberately visible so the missing dependency is
+ * obvious; the workflow validator still rejects the run until it is restored or
+ * the block is repointed at an existing script/asset.
+ */
+function ensureDropdownOption(block: Blockly.Block, name: string, value: string): void {
+  const field = block.getField(name);
+  if (!(field instanceof Blockly.FieldDropdown)) return;
+  const options = field.getOptions(false) as unknown as Array<[string, string]>;
+  if (options.some(([, optionValue]) => optionValue === value)) return;
+  const kind = name === 'ASSET' ? 'asset' : 'script';
+  options.push([value + ' ' + automationV2MissingOptionLabel('zh-CN', kind), value]);
+}
+
 function setField(block: Blockly.Block, name: string, value: unknown): void {
-  if (value !== undefined) block.setFieldValue(String(value), name);
+  if (value === undefined) return;
+  const text = String(value);
+  if (DROPDOWN_REFERENCE_FIELDS.has(name)) ensureDropdownOption(block, name, text);
+  block.setFieldValue(text, name);
 }
 
 function connectValue(parent: Blockly.Block, input: string, child: Blockly.Block): void {

@@ -33,6 +33,8 @@ const labels = {
     binary: '%1 %2 %3', exists: '检查 %1 是否存在 保存到 %2', readText: 'OCR 读取区域文字 保存到 %1', readNumber: 'OCR 读取区域数字 保存到 %1',
     viewport: '页面视口', game: '游戏区域', exact: '完全', contains: '包含', normalized: '规范化',
     primary: '左键', secondary: '右键', middle: '中键', true: '真', false: '假',
+    assetDropped: '(素材缺失)', scriptDropped: '(脚本已删除)',
+    resultNumber: '数字', resultString: '文字', resultBoolean: '布尔', resultNull: '空值',
     callScript: '运行脚本 %1 参数 %2 结果保存到 %3 类型 %4', noScripts: '请先新建脚本…', visible: '出现', hidden: '消失', catEntry: '启动方式', catMouse: '鼠标', catKeyboard: '键盘', catRecognition: '图片与文字识别', catContext: '坐标与区域', catControl: '流程控制', catValue: '变量与 OCR', catScript: '脚本与扩展', catPage: '页面与调试',
   },
   en: {
@@ -46,11 +48,16 @@ const labels = {
     binary: '%1 %2 %3', exists: 'check %1 exists, save to %2', readText: 'OCR read region text into %1', readNumber: 'OCR read region number into %1',
     viewport: 'viewport', game: 'game surface', exact: 'exact', contains: 'contains', normalized: 'normalized',
     primary: 'left', secondary: 'right', middle: 'middle', true: 'true', false: 'false',
-    callScript: 'run script %1 argument %2 save result to %3 type %4', noScripts: 'create a script first…', visible: 'visible', hidden: 'hidden', catEntry: 'Start', catMouse: 'Mouse', catKeyboard: 'Keyboard', catRecognition: 'Image & text recognition', catContext: 'Coordinates & regions', catControl: 'Flow', catValue: 'Variables & OCR', catScript: 'Scripts', catPage: 'Page & debug',
+    callScript: 'run script %1 argument %2 save result to %3 type %4',
+    assetDropped: '(asset missing)', scriptDropped: '(script deleted)',
+    resultNumber: 'number', resultString: 'text', resultBoolean: 'boolean', resultNull: 'nothing', noScripts: 'create a script first…', visible: 'visible', hidden: 'hidden', catEntry: 'Start', catMouse: 'Mouse', catKeyboard: 'Keyboard', catRecognition: 'Image & text recognition', catContext: 'Coordinates & regions', catControl: 'Flow', catValue: 'Variables & OCR', catScript: 'Scripts', catPage: 'Page & debug',
   },
 } as const;
 
 type Locale = keyof typeof labels;
+
+/** Signature (locale + asset/script options) of the currently defined block set. */
+let lastRegisteredSignature: string | null = null;
 
 function imageAssetOptions(assets: readonly string[], groupLabel: string): string[][] {
   const unique = [...new Set(assets)].sort();
@@ -59,11 +66,39 @@ function imageAssetOptions(assets: readonly string[], groupLabel: string): strin
   return [...groupOptions, ...unique.map((asset) => [asset, asset])];
 }
 
+/**
+ * Localized label for a dropdown value that a saved workflow still references
+ * but that no longer exists in the package (deleted asset or script). The codec
+ * appends such a value so restoring a workflow cannot silently drop it.
+ */
+export function automationV2MissingOptionLabel(locale: string, kind: 'asset' | 'script'): string {
+  const l = labels[locale === 'en' ? 'en' : 'zh-CN'];
+  return kind === 'asset' ? l.assetDropped : l.scriptDropped;
+}
+
+/**
+ * Register the Automation 2.0 block set.
+ *
+ * Blockly warns (`Block definiton "x" overwrites previous definition`) for every
+ * type that is already present in Blockly.Blocks. The editor effect re-runs on
+ * each mount and whenever its locale or asset/script list changes, and it passes
+ * a new `onDirtyChange` identity every time, so redefining unconditionally
+ * produced thousands of [Window] error lines per session.
+ *
+ * A definition must still be replaced when the locale or the option lists
+ * change, because the messages and the asset/script dropdown contents are
+ * captured at definition time. Redefinition is therefore driven by that
+ * signature: identical input is a no-op, changed input replaces the definitions
+ * (one warning per genuinely new signature, which is intended).
+ */
 export function registerAutomationV2Blocks(locale: Locale, assets: readonly string[] = [], scripts: readonly string[] = []): void {
+  const signature = JSON.stringify([locale, assets, scripts]);
+  if (signature === lastRegisteredSignature) return;
+  lastRegisteredSignature = signature;
   const l = labels[locale];
   const assetOptions = assets.length ? imageAssetOptions(assets, l.imageGroup) : [[l.assetMissing, '']];
   const scriptOptions = scripts.length ? scripts.map((script) => [script, script]) : [[l.noScripts, '']];
-  Blockly.defineBlocksWithJsonArray([
+  const definitions = [
     { type: 'bao2_entry_unconditional', message0: l.entryUnconditional, message1: l.execute, args1: [{ type: 'input_statement', name: 'BODY' }], colour: 265 },
     { type: 'bao2_entry_region', message0: l.entryRegion, args0: [{ type: 'field_input', name: 'TOP_LEFT', text: '0,0' }, { type: 'field_input', name: 'BOTTOM_RIGHT', text: '10000,10000' }], message1: l.execute, args1: [{ type: 'input_statement', name: 'BODY' }], colour: 265 },
     { type: 'bao2_entry_game', message0: l.entryGame, args0: [{ type: GAME_SURFACE_FIELD, name: 'GAME_SURFACE', value: '', importLabel: l.importFeature }], message1: l.gameCoordinateHint, message2: l.execute, args2: [{ type: 'input_statement', name: 'BODY' }], colour: 265 },
@@ -83,7 +118,7 @@ export function registerAutomationV2Blocks(locale: Locale, assets: readonly stri
     { type: 'bao2_with_page_coordinates', message0: l.withPageCoordinates, args0: [{ type: 'input_statement', name: 'BODY' }], previousStatement: null, nextStatement: null, colour: 260 },
     { type: 'bao2_with_game_coordinates', message0: l.withGameCoordinates, args0: [{ type: GAME_SURFACE_FIELD, name: 'GAME_SURFACE', value: '', importLabel: l.importFeature }, { type: 'input_statement', name: 'BODY' }], previousStatement: null, nextStatement: null, colour: 260 },
     { type: 'bao2_with_region', message0: l.withRegion, args0: [{ type: 'field_number', name: 'X', value: 0, min: 0, max: 9999, precision: 1 }, { type: 'field_number', name: 'Y', value: 0, min: 0, max: 9999, precision: 1 }, { type: 'field_number', name: 'WIDTH', value: 10000, min: 1, max: 10000, precision: 1 }, { type: 'field_number', name: 'HEIGHT', value: 10000, min: 1, max: 10000, precision: 1 }, { type: 'input_statement', name: 'BODY' }], previousStatement: null, nextStatement: null, colour: 260 },
-    { type: 'bao2_call_script', message0: l.callScript, args0: [{ type: 'field_dropdown', name: 'SCRIPT', options: scriptOptions }, { type: 'input_value', name: 'ARG', check: BAO_VALUE_CHECK }, { type: 'field_input', name: 'ASSIGN', text: 'result' }, { type: 'field_dropdown', name: 'RESULT_TYPE', options: [['数字', 'number'], ['文字', 'string'], ['布尔', 'boolean'], ['空值', 'null']] }], previousStatement: null, nextStatement: null, colour: 28 },
+    { type: 'bao2_call_script', message0: l.callScript, args0: [{ type: 'field_dropdown', name: 'SCRIPT', options: scriptOptions }, { type: 'input_value', name: 'ARG', check: BAO_VALUE_CHECK }, { type: 'field_input', name: 'ASSIGN', text: 'result' }, { type: 'field_dropdown', name: 'RESULT_TYPE', options: [[l.resultNumber, 'number'], [l.resultString, 'string'], [l.resultBoolean, 'boolean'], [l.resultNull, 'null']] }], previousStatement: null, nextStatement: null, colour: 28 },
     { type: 'bao2_if', message0: l.if, args0: [{ type: 'input_value', name: 'CONDITION', check: BAO_VALUE_CHECK }, { type: 'input_statement', name: 'THEN' }, { type: 'input_statement', name: 'ELSE' }], previousStatement: null, nextStatement: null, colour: 45 },
     { type: 'bao2_repeat', message0: l.repeat, args0: [{ type: 'input_value', name: 'COUNT', check: BAO_VALUE_CHECK }, { type: 'input_statement', name: 'BODY' }], previousStatement: null, nextStatement: null, colour: 45 },
     { type: 'bao2_forever', message0: l.forever, args0: [{ type: 'input_statement', name: 'BODY' }], previousStatement: null, nextStatement: null, colour: 45, tooltip: l.foreverTip },
@@ -102,7 +137,8 @@ export function registerAutomationV2Blocks(locale: Locale, assets: readonly stri
     { type: 'bao2_query_exists', message0: l.exists, args0: [{ type: 'input_value', name: 'TARGET', check: BAO_LOCATOR_CHECK }, { type: 'field_input', name: 'NAME', text: 'exists' }], previousStatement: null, nextStatement: null, colour: 310 },
     { type: 'bao2_query_read_text', message0: l.readText, args0: [{ type: 'field_input', name: 'NAME', text: 'text' }], previousStatement: null, nextStatement: null, colour: 205 },
     { type: 'bao2_query_read_number', message0: l.readNumber, args0: [{ type: 'field_input', name: 'NAME', text: 'number' }], previousStatement: null, nextStatement: null, colour: 205 },
-  ]);
+  ];
+  Blockly.defineBlocksWithJsonArray(definitions);
 }
 
 export function automationV2Toolbox(locale: Locale): Blockly.utils.toolbox.ToolboxDefinition {
