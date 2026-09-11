@@ -1,7 +1,7 @@
 // GM_xmlhttpRequest policy: @connect validation, address classification and
 // log redaction. Pure logic (no Electron imports); the network execution lives
 // in GmRequestService below.
-// Mirrors the planned src/main/modules/userscripts/userscript-request.ts.
+
 
 import ipaddr from 'ipaddr.js';
 

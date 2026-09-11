@@ -1,5 +1,5 @@
 // Main-process value namespace with atomic JSON persistence.
-// Mirrors the planned src/main/modules/userscripts/userscript-store.ts.
+
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import type { GMSerializable } from '../../../shared/userscript-types';

@@ -57,7 +57,8 @@
 # 阶段 1：最小运行时 Demo 验证记录（终版，含两轮评审修复）
 
 > 日期：2026-08-04（同日追加）  
-> 命令：`npm run test:userscripts`（构建 `tests/electron/userscripts/` 模块 + 运行 Electron smoke）  
+> 命令：`npm run test:userscripts`（当时从 demo 副本验证；**现该命令构建的是
+> `src/webview-preload/index.ts` 生产 preload**，见 `build-userscript-runtime-smoke.mjs`）  
 > 单测：`vitest` 113/113（含 manager 命令校验 8 项、调度器 6 项、解析器/匹配器/值/存储全项）  
 > 回归：`test:electron`、`test:ruffle`、`test:compat` 全部通过，未破坏现有能力。
 
@@ -352,7 +353,12 @@ ppapi 隔离世界模式下 `unsafeWindow` 现在**真实指向页面主世界**
 关键实测结论:
 - preload 在 document-start 的 sendSync（get-ruffle-mode / userscript:get-config）必须有主进程 handler,否则多次导航后渲染进程卡死（JS_HUNG,CDP 不可达）。
 - 最终验证:smoke 143/143 required、vitest 246、test:electron/ruffle/compat 全绿。
-- demo 目录 tests/electron/userscripts/ 保留作对照与回归（不删除）。
+- demo 目录 tests/electron/userscripts/ 当时保留作对照与回归（不删除）。
+  **2026-09 核查更新**：该副本此后未跟进生产改动，已严重漂移（`preload/gm-api.ts`
+  约为生产源码的 56%），且其 `*.test.ts` 因相对导入只验证副本本身——
+  **不再构成对生产代码的回归保护**。真正覆盖生产代码的是 `tests/userscripts/`；
+  唯一独有的 `scheduler.test.ts` 已迁移至 `tests/userscripts/scheduler.test.ts`。
+  目录去留待用户确认，现状见 `tests/electron/userscripts/README.md`。
 
 ---
 

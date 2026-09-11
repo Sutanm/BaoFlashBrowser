@@ -1,6 +1,6 @@
-// Main-process demo service: script index, per-view registration, frame
+// Main-process userscript service: script index, per-view registration, frame
 // snapshot, value namespace, menu commands and validated reports.
-// Mirrors the planned src/main/modules/userscripts/userscript-manager.ts.
+
 
 import type {
   FrameSnapshot,

@@ -1,6 +1,6 @@
 // GM value serialization rules. Values are JSON round-tripped; anything that
 // cannot survive JSON is rejected at the store boundary.
-// Mirrors the planned src/main/modules/userscripts/userscript-values.ts.
+
 
 import type { GMSerializable } from '../../../shared/userscript-types';
 

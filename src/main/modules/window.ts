@@ -7,6 +7,16 @@ import { markCleanShutdown } from './session-recovery';
 let mainWindow: BrowserWindow | null = null;
 const READY_TO_SHOW_FALLBACK_MS = 8000;
 
+// The renderer's CSP forbids inline scripts, so the global error handlers can no
+// longer sit in index.html. They must still be installed BEFORE the entry module
+// evaluates, or an error thrown while modules initialise would go unreported.
+// Injecting on `did-start-loading` (which fires before the document's own scripts)
+// preserves that early coverage without weakening `script-src`.
+const EARLY_RENDERER_ERROR_HANDLERS = `(function () {
+  window.onerror = function (m, s, l, c, e) { console.error('GLOBAL ERR:', m, s, l, c, e); };
+  window.onunhandledrejection = function (e) { console.error('UNHANDLED:', e.reason); };
+})();`;
+
 export function createWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, 'preload.js');
   const iconPath = process.platform === 'win32'
@@ -47,6 +57,13 @@ export function createWindow(): BrowserWindow {
     log.error('[Window] renderer load failed:', message);
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
   };
+
+  mainWindow.webContents.on('did-start-loading', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    void mainWindow.webContents.executeJavaScript(EARLY_RENDERER_ERROR_HANDLERS).catch((error) => {
+      log.warn('[Window] early error-handler injection failed:', error instanceof Error ? error.message : String(error));
+    });
+  });
 
   if (app.isPackaged) {
     void mainWindow.loadFile(distHtml).catch((error) => showAfterLoadFailure(error instanceof Error ? error.message : String(error)));
@@ -103,7 +120,9 @@ export function createWindow(): BrowserWindow {
   // noise (Blockly emits its warnings at level 2).
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     if (level < 2) return;
-    const entry = `[Window] renderer console level=${level}: ${message} (${sourceId}:${line})`;
+    // Name the severity instead of leaking Chromium's numeric level to the reader.
+    const severity = level === 2 ? 'warn' : 'error';
+    const entry = `[Window] renderer console level=${severity}: ${message} (${sourceId}:${line})`;
     if (level === 2) log.warn(entry);
     else log.error(entry);
   });

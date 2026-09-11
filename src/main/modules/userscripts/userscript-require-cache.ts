@@ -1,7 +1,6 @@
 // @require/@resource fetch cache. Pure TS with injected network and disk
-// adapters so it is unit-testable and portable to the real main process.
-// Mirrors the planned src/main/modules/userscripts/userscript-require-cache.ts
-// (upstream naming: userscript-require-cache).
+// adapters so it is unit-testable.
+
 
 export interface RequireCacheOptions {
   fetcher: (url: string) => Promise<string>;

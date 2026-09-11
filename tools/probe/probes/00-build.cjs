@@ -1,9 +1,16 @@
 // Probe: build artifact freshness. Compares each product against the newest
 // mtime of its source tree and reports which build command is stale. This is
 // the #1 cause of "I ran the smoke and it tested OLD code" time sinks.
+//
+// The release/tests/ smoke bundles are described by scripts/smoke-bundles.cjs so
+// this probe and scripts/ensure-build.cjs cannot drift apart. They previously
+// kept private, diverging lists — the probe silently ignored several bundles
+// (automation-authoring-core, automation-js-sandbox-host).
 'use strict';
 
 const path = require('path');
+// probes/ -> probe/ -> tools/ -> repo root
+const { SMOKE_BUNDLES, SMOKE_SOURCES } = require(path.join(__dirname, '..', '..', '..', 'scripts', 'smoke-bundles.cjs'));
 
 module.exports = {
   id: '00-build',
@@ -36,24 +43,14 @@ module.exports = {
         sources: ['src/renderer', 'src/shared'],
         build: 'npm run build:renderer',
       },
-      {
-        name: 'userscripts admin module (release/tests/userscripts-admin-module.cjs)',
-        product: path.join(ctx.root, 'release', 'tests', 'userscripts-admin-module.cjs'),
-        sources: ['src/main/modules/userscripts', 'src/shared'],
-        build: 'node tests/electron/build-userscripts-admin-smoke.mjs',
-      },
-      {
-        name: 'userscript runtime preload (release/tests/userscript-runtime-preload.cjs)',
-        product: path.join(ctx.root, 'release', 'tests', 'userscript-runtime-preload.cjs'),
-        sources: ['src/webview-preload/userscripts', 'src/shared'],
-        build: 'node tests/electron/build-userscript-runtime-smoke.mjs',
-      },
-      {
-        name: 'compatibility smoke (release/tests/session-compatibility-smoke.cjs)',
-        product: path.join(ctx.root, 'release', 'tests', 'session-compatibility-smoke.cjs'),
-        sources: ['src/main/modules/session-manager.ts', 'tests/electron/session-compatibility-smoke.ts'],
-        build: 'node tests/electron/build-compatibility-smoke.mjs',
-      },
+      // Smoke bundles come from the shared manifest; rebuild one with
+      // `node scripts/ensure-build.cjs <id>`, or all of them without an id.
+      ...SMOKE_BUNDLES.map((bundle) => ({
+        name: `${bundle.id} (${bundle.what})`,
+        product: path.join(ctx.root, bundle.product),
+        sources: SMOKE_SOURCES,
+        build: `node scripts/ensure-build.cjs ${bundle.id}`,
+      })),
     ];
 
     const entries = pairs.map((pair) => {

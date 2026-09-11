@@ -403,7 +403,10 @@ export function setupCapture(wc: WebContents): void {
     if (method === 'Runtime.executionContextCreated') {
       const ctxId = params.context.id;
       state.contexts.add(ctxId);
-      log.info('[PasswordCapture] context created: ' + ctxId + ' (total=' + state.contexts.size + ')');
+      // Per-context diagnostics: CDP emits this for every frame and isolated
+      // world, which flooded the log (~1.5k lines in a single session). Kept at
+      // debug so it stays available without burying real events.
+      log.debug('[PasswordCapture] context created: ' + ctxId + ' (total=' + state.contexts.size + ')');
       void injectContext(state, ctxId);
     }
     if (method === 'Runtime.executionContextDestroyed') {

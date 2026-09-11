@@ -1,6 +1,6 @@
 // URL matcher: compiles @match/@include/@exclude/@exclude-match rules into
 // regular expressions. Pure module, no Electron imports.
-// Mirrors the planned src/main/modules/userscripts/userscript-matcher.ts.
+
 //
 // Semantics (documented in docs/userscript-platform-plan.md §9):
 // - @match follows Chrome match-pattern semantics (scheme://host/path, * wildcards).

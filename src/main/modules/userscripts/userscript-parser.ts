@@ -1,5 +1,5 @@
 // Metadata parser for `==UserScript==` headers. Pure module, no Electron imports.
-// Mirrors the planned src/main/modules/userscripts/userscript-parser.ts.
+
 
 import type { ParsedUserscriptMetadata, RunAt } from '../../../shared/userscript-types';
 

@@ -1,6 +1,6 @@
 // GM API construction. All APIs are injected lexically into the script
 // execution scope; nothing is placed on the page global.
-// Mirrors the planned src/webview-preload/userscripts/gm-api.ts.
+
 
 import type { GMSerializable, GmCookie, GmWebRequestEvent, SnapshotScript } from '../../shared/userscript-types';
 import { DEFAULT_IMAGE_MATCH_THRESHOLD } from '../../shared/automation/vision-policy';

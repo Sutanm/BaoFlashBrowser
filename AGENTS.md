@@ -33,8 +33,24 @@ are not reachable through Playwright DOM APIs).
 
 **IMPORTANT — `npm run build` does NOT rebuild `release/tests/` products.** Smoke bundles
 (`release/tests/userscripts-admin-module.cjs`, `userscript-runtime-preload.cjs`,
-`session-compatibility-smoke.cjs`) are built only by their own `tests/electron/build-*.mjs`.
-After editing userscript sources, run the matching build script first or smokes test STALE code.
+`automation-authoring-core.cjs`, `automation-js-sandbox-host.cjs`,
+`session-compatibility-smoke.cjs`, `userscript-runtime-smoke.cjs`) are built only by their own
+`tests/electron/build-*.mjs`.
+
+This no longer causes stale-code smokes, because the mechanism is now enforced rather than
+remembered:
+
+- `scripts/smoke-bundles.cjs` is the single manifest of every smoke bundle (id, product,
+  build script). Both the freshness probe and the ensure step read it, so they cannot drift.
+- `npm run ensure:smoke-bundles` (`scripts/ensure-build.cjs`) rebuilds any bundle older than
+  its sources; it is wired into every npm script that runs a smoke, and `test:smokes` runs it
+  first. Rebuilding is idempotent and costs ~50 ms when nothing is stale.
+- `scripts/run-smokes.cjs` additionally refuses to start on stale bundles, so a direct
+  `node scripts/run-smokes.cjs` cannot test outdated code either.
+- `tools/probe/probes/00-build.cjs` reports staleness (`--check` semantics).
+
+Only a raw `npx electron tests/electron/<smoke>.cjs` bypasses all of this. If you go that
+route, run `node scripts/ensure-build.cjs` first — or just check `npm run probe`.
 
 ## Architecture
 

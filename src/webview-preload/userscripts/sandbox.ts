@@ -9,7 +9,6 @@
 //   `vm.runInThisContext`, which compiles at the V8 level (no CSP eval check)
 //   and only sees global scope — Node bindings live in the preload closure,
 //   not on the page global, so they stay unreachable.
-// Mirrors the planned src/webview-preload/userscripts/sandbox.ts.
 
 const SHADOWED_NODE_NAMES = [
   'require',

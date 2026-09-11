@@ -212,6 +212,14 @@ try {
           throw error;
         }
       } else {
+        // Deliberately UNPINNED (`@latest`), not an oversight. The bundled runtime
+        // is the normal path; this CDN fallback only runs when no bundled copy is
+        // available. Pinning would freeze the fallback at a version that may be
+        // long obsolete — or gone — if this project ever stops being maintained,
+        // while the live package keeps being fixed. The trade-off (a mutable
+        // third-party URL supplying code to a legacy site) is accepted so a user
+        // can still run Flash content after the project's own releases stop.
+        // Do not "fix" this into a pinned version without revisiting that balance.
         const _doCdn = () => {
           const parent = document.head || document.documentElement;
           if (parent) {

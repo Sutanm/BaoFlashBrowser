@@ -1,7 +1,7 @@
 // GmDownloadService: main-process download proxy. Validates like GM_xmlhttpRequest
 // (@connect / address / protocol), streams the response to disk with size,
 // timeout and concurrency limits, and supports abort.
-// Mirrors the planned src/main/modules/userscripts/userscript-download.ts.
+
 
 import { net } from 'electron';
 import { createWriteStream, existsSync, mkdirSync, unlinkSync } from 'fs';

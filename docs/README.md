@@ -34,6 +34,9 @@
 
 1. 版本变化时同步检查 README、发行说明、打包手册、回归记录和模块总览。
 2. 文档中的命令必须来自 `package.json`；CI 平台与触发条件必须来自 `.github/workflows/`。
-3. `npm run build` 不会重建 `release/tests/` 冒烟构件；相关文档必须保留这一限制。
+3. `npm run build` 仍不重建 `release/tests/` 冒烟构件；但重建已由
+   `npm run ensure:smoke-bundles` 自动完成（所有 smoke 命令都会先跑它），
+   清单在 `scripts/smoke-bundles.cjs`。新增或改动 smoke 构件时更新该清单，
+   而不是在各文档里另写一份路径。
 4. 历史设计不追改为当前实现，只在开头标明历史属性并从本索引分流。
 5. 新增、移动源码后，检查模块文档中的文件路径和测试命令。

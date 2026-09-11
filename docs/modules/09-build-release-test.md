@@ -38,13 +38,19 @@ npm run i18n       # typesafe-i18n 代码生成
 npm run check      # i18n、typecheck、lint、Vitest、生产 build
 ```
 
-`npm run build` 不会生成以下 smoke 专用文件：
+`npm run build` 不会生成 smoke 专用文件（清单见 `scripts/smoke-bundles.cjs`）：
 
 - `release/tests/userscripts-admin-module.cjs`
 - `release/tests/userscript-runtime-preload.cjs`
+- `release/tests/userscript-runtime-smoke.cjs`
 - `release/tests/session-compatibility-smoke.cjs`
+- `release/tests/automation-authoring-core.cjs`
+- `release/tests/automation-js-sandbox-host.cjs`
 
-修改相关源码后必须运行对应 `test:*` 命令，让 `build-*.mjs` 先生成新 bundle。
+这一限制不再需要人工记忆：所有会运行 smoke 的 npm 命令都先执行
+`npm run ensure:smoke-bundles`（`scripts/ensure-build.cjs`），按清单重建任何比源文件旧的
+产物；`scripts/run-smokes.cjs` 在产物陈旧时直接拒绝启动；`npm run probe` 的 `00-build`
+也会报告新鲜度。清单是唯一事实来源——新增 smoke 构件时更新它，而不是另抄一份路径表。
 
 `BAO_MODULES` 接受 `core`、`userscripts`、`automation`、`passwords`、`screenshot`、`download`、`diagnostics`、`memory-monitor` 和 `js-patch`。未设置、`default` 与 `all` 都启用全部模块；自定义列表总会隐式包含 `core`，未知名称会令构建失败。只有启用 userscripts 时才生成 CSS Fixer，且 userscripts 与 automation 同时启用时才生成悬浮助手。
 

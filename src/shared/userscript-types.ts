@@ -1,5 +1,5 @@
-// Shared types for the demo userscript runtime. Mirrors the planned
-// src/main/modules/userscripts/userscript-types.ts so the port is mechanical.
+// Shared types for the userscript runtime (main process + preload).
+
 
 export type RunAt = 'document-start' | 'document-body' | 'document-end' | 'document-idle';
 

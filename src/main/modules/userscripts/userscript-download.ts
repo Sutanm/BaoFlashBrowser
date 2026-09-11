@@ -1,5 +1,5 @@
 // GM_download filename sanitization and constants. Pure logic, no Electron.
-// Mirrors the planned src/main/modules/userscripts/userscript-download.ts.
+
 
 export { sanitizeDownloadFilename as sanitizeFileName } from '../../utils/download-path';
 

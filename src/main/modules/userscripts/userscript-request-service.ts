@@ -1,7 +1,6 @@
 // GmRequestService: main-process request proxy over Electron net.request.
-// Mirrors the planned request chain:
-//   userscript → preload validation → main-process proxy → net.request
-// Mirrors the planned src/main/modules/userscripts/userscript-request.ts.
+// Request chain: userscript → preload validation → main-process proxy → net.request
+
 
 import { net } from 'electron';
 import {

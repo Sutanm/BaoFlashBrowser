@@ -48,5 +48,6 @@
 - `npm run test:userscripts-admin`：安装、管理、内置脚本和悬浮助手。
 - `npm run test:css-fixer`：CSS Fixer 两条注入路径。
 - 修改 `bundled-scripts/css-fixer-entry.ts` 后先运行 `npm run build:css-fixer`；smoke 专用 bundle 由各自的 `build-*.mjs` 生成，`npm run build` 不会刷新它们。
+  这些 bundle 的新鲜度由 `npm run ensure:smoke-bundles` 自动保障（清单 `scripts/smoke-bundles.cjs`，所有 smoke 命令都会先跑），无需手动按序调用 `build-*.mjs`。
 
 详细 API、容量和扩展步骤见 [`../userscript-developer-guide.md`](../userscript-developer-guide.md)。

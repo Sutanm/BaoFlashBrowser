@@ -93,7 +93,14 @@ npm run probe:automation-js-sandbox
 npm run probe:automation-flash
 ```
 
-`npm run build` 不会重建 `release/tests/` 下的用户脚本/兼容性 smoke bundle。修改对应源码后，必须通过各自的 `test:*` 命令重新生成，不能直接运行旧 `.cjs` 产物。
+`npm run build` 不会重建 `release/tests/` 下的 smoke bundle（用户脚本、兼容性、automation
+等）。这一限制已由机制兜住：所有会运行 smoke 的 npm 命令都会先执行
+`npm run ensure:smoke-bundles`（`scripts/ensure-build.cjs`），它按
+`scripts/smoke-bundles.cjs` 清单重建任何比源文件旧的产物；`scripts/run-smokes.cjs`
+还会在产物陈旧时直接拒绝启动。因此正常路径下不会测到旧代码。
+
+只有直接 `npx electron tests/electron/<smoke>.cjs` 会绕过这些保护——那种情况下请先手动
+跑 `node scripts/ensure-build.cjs`，或用 `npm run probe` 查看 `00-build` 的新鲜度结论。
 
 打包完成后：
 

@@ -1,6 +1,6 @@
 // run-at scheduler. Handles documents that are already past a phase when the
 // preload runs (e.g. body present, DOMContentLoaded already fired).
-// Mirrors the planned src/webview-preload/userscripts/scheduler.ts.
+
 
 import type { RunAt, SnapshotScript } from '../../shared/userscript-types';
 

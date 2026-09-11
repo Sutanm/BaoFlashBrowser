@@ -1,7 +1,8 @@
 // Serial runner for the Electron userscript smokes.
-// Builds the release/tests bundles first, then runs each smoke and reports a
-// combined PASS/FAIL (non-zero exit on any failure).
-// Usage: node scripts/run-smokes.cjs
+// Runs each smoke and reports a combined PASS/FAIL (non-zero exit on any failure).
+// Usage: node scripts/run-smokes.cjs   (or `npm run test:smokes`, which ensures
+// the release/tests bundles are fresh first — this script refuses to start on
+// stale bundles so a direct invocation cannot silently test old code either).
 'use strict';
 
 const { spawnSync } = require('child_process');
@@ -12,6 +13,21 @@ const os = require('os');
 const ROOT = path.join(__dirname, '..');
 const NODE = process.execPath;
 const ELECTRON_CLI = path.join(ROOT, 'node_modules', 'electron', 'cli.js');
+
+// Refuse to run against stale bundles. `npm run test:smokes` rebuilds them first;
+// this guard covers a direct `node scripts/run-smokes.cjs` invocation, which is
+// exactly how a smoke used to end up testing outdated code.
+{
+  const check = spawnSync(NODE, [path.join(__dirname, 'ensure-build.cjs'), '--check'], {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
+  if (check.status !== 0) {
+    console.error('\n[run-smokes] refusing to run: smoke bundles are stale (see above).');
+    console.error('[run-smokes] fix with: node scripts/ensure-build.cjs');
+    process.exit(1);
+  }
+}
 const SMOKE_TIMEOUT_MS = 5 * 60 * 1000;
 const SMOKE_USER_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'bao-userscript-smokes-'));
 const SMOKE_ENV = { ...process.env, BAO_SMOKE_USER_DATA: SMOKE_USER_DATA };
@@ -41,9 +57,11 @@ function runElectron(label, smokePath, extraArgs = []) {
   return run(label, launchArgs);
 }
 
+// Bundle freshness is handled by `npm run test:smokes`
+// (`node scripts/ensure-build.cjs`), which rebuilds any release/tests/ artifact
+// older than its sources. Keeping a second hand-written build step here is what
+// previously let these smokes run against stale bundles.
 const steps = [
-  ['build admin-module', () => run('build admin-module', ['tests/electron/build-userscripts-admin-smoke.mjs'])],
-  ['build runtime-preload', () => run('build runtime-preload', ['tests/electron/build-userscript-runtime-smoke.mjs'])],
   ['values-persistence (process A)', () => runElectron('values-persistence A', 'tests/electron/values-persistence-smoke.cjs')],
   ['values-persistence (process B)', () => runElectron('values-persistence B', 'tests/electron/values-persistence-smoke.cjs', ['--second'])],
   ['gm-capacity', () => runElectron('gm-capacity', 'tests/electron/gm-capacity-smoke.cjs')],
@@ -53,6 +71,7 @@ const steps = [
   ['userscripts-web-request', () => runElectron('userscripts-web-request', 'tests/electron/userscripts-web-request-smoke.cjs')],
   ['background-script (round 1)', () => runElectron('background-script r1', 'tests/electron/background-script-smoke.cjs')],
   ['background-script (round 2)', () => runElectron('background-script r2', 'tests/electron/background-script-smoke.cjs')],
+  ['renderer-csp', () => runElectron('renderer-csp', 'tests/electron/csp-smoke.cjs')],
 ];
 
 const failures = [];
