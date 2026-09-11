@@ -4,6 +4,7 @@
  * input across host sizes without changing the live page zoom or its bounds.
  */
 const { app, BrowserView, BrowserWindow } = require('electron');
+require('./isolate-user-data.cjs')(app, 'automation-fixed-viewport-probe');
 const fs = require('fs');
 const path = require('path');
 

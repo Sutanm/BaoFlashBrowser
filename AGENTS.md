@@ -93,10 +93,11 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 ## Debugging workflow
 
 1. **Think first** — map the full chain before touching code
-2. **Probe before guessing** — `npm run probe` (build freshness, scripts, config, git, log tail) and `npm run probe:deep` (manager + BrowserView runtime). `00-build` tells you if a smoke will test STALE bundles.
-3. **Write a demo** matching the main project environment (e.g. BrowserView + PPAPI + the same session hooks, not BrowserWindow)
-4. **Demo passes → port to main project**
-5. **Site-specific failures** — compare a minimal control probe with a probe that adds project policies one at a time. Record network failures, SWF requests and screenshots without logging tokens/query strings.
+2. **Probe before guessing** — `npm run probe` (build freshness, scripts, config, git, log fingerprints) and `npm run probe:deep` (manager + BrowserView runtime). `00-build` tells you if a smoke will test STALE bundles.
+3. **For renderer / live-page questions, add a probe — do not hand-roll an Electron script.** `probe:deep` runs any `needsElectron: true` probe with `ctx.electron` (`app`, `BrowserWindow`, `BrowserView`, `ipcMain`) plus a per-probe `timeoutMs` and a global watchdog, so you get real Electron behavior with timeouts already solved. `tools/probe/probes/11-views.cjs` is the working template: it loads a BrowserView with the production preload and asserts over `webContents.executeJavaScript`. New probe = copy `probes/_template.cjs` — and prefer adding the check there over writing a one-off `tests/electron/*.cjs`.
+4. **Write a demo** matching the main project environment (e.g. BrowserView + PPAPI + the same session hooks, not BrowserWindow)
+5. **Demo passes → port to main project**
+6. **Site-specific failures** — compare a minimal control probe with a probe that adds project policies one at a time. Record network failures, SWF requests and screenshots without logging tokens/query strings.
 
 ## Landmines
 
@@ -150,4 +151,7 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 
 ### Build & tests
 
-- **Standalone Electron smokes must mock every preload channel AND pin userData** — `tests/electron/*.cjs` do not load `userscripts.ipc.ts`; register your own `ipcMain.on` handlers for `get-config`/`report`/`menu-register` and call `app.setPath('userData', .../bao-flash-browser)`, or sends are silently dropped and electron-store reads `%APPDATA%\Electron`.
+- **Standalone Electron smokes must mock every preload channel AND isolate userData** — `tests/electron/*.cjs` do not load `userscripts.ipc.ts`; register your own `ipcMain.on` handlers for `get-config`/`report`/`menu-register`, or sends are silently dropped.
+  For userData, put this immediately after requiring electron and before any `app.*` call:
+  `require('./isolate-user-data.cjs')(app, '<smoke-name>');`
+  It pins userData to a fresh temp dir (honoring `BAO_SMOKE_USER_DATA`). **Do NOT point it at the real app dir**: without it Electron falls back to `%APPDATA%\Electron`, where smokes previously shared and polluted one directory (`userscripts.json` grew to 518 KB, plus `password-store.json` / `password-autofill-key.json`). That last one is the dangerous case — `password-store.init()` SHELVES and CLEARS the wrap key when the OS keyring cannot unwrap it, so a smoke aimed at real userData would make existing vault entries permanently unreadable.

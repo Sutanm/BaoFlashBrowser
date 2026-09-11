@@ -1,4 +1,5 @@
 const { app, BrowserView, BrowserWindow } = require('electron');
+require('./isolate-user-data.cjs')(app, 'automation-calib-probe');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');

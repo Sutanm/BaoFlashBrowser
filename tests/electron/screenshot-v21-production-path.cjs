@@ -4,6 +4,7 @@
  * 场景：窗口最小化 + SWF（带 tabs.ts 同款 CSS 修复）+ 输出到真实默认目录
  */
 const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
+require('./isolate-user-data.cjs')(app, 'screenshot-v21-production-path');
 const path = require('path');
 const fs = require('fs');
 

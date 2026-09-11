@@ -8,6 +8,7 @@
  *  - debugger detaches and navigation still works afterwards.
  */
 const { app, BrowserView, BrowserWindow } = require('electron');
+require('./isolate-user-data.cjs')(app, 'automation-m0-input-smoke');
 const fs = require('fs');
 const path = require('path');
 

@@ -9,6 +9,7 @@
  * T4   minimized + hidden（对照）
  */
 const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
+require('./isolate-user-data.cjs')(app, 'screenshot-v20-gate');
 const path = require('path');
 const fs = require('fs');
 

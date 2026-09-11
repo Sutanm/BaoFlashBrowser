@@ -4,6 +4,7 @@
 //   npx electron tests/electron/swf-render-verify.cjs
 //
 const { app, BrowserView, BrowserWindow } = require('electron');
+require('./isolate-user-data.cjs')(app, 'swf-render-verify');
 const path = require('path');
 
 const SWF_PATH = path.join(__dirname, '..', 'sample-swf-files-sample_1280x720.swf');

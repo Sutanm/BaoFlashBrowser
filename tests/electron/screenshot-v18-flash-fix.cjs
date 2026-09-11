@@ -17,6 +17,7 @@
  *   T5: contextIsolation:true + 无法注入（对照）
  */
 const { app, BrowserView, BrowserWindow, ipcMain, webFrame } = require('electron');
+require('./isolate-user-data.cjs')(app, 'screenshot-v18-flash-fix');
 const path = require('path');
 const fs = require('fs');
 

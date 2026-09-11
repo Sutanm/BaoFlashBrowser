@@ -105,9 +105,12 @@ function createElectronSafeStorageBackend(): KeyringBackend | null {
         const secret = ss.decryptString(Buffer.from(blob, 'base64'));
         return { ok: true, secret };
       } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        log.warn('[keyring] electron-safestorage unwrap failed:', reason);
-        return { ok: false, reason: 'unwrap-failed' };
+        const detail = error instanceof Error ? error.message : String(error);
+        log.warn('[keyring] electron-safestorage unwrap failed:', detail);
+        // Carry the underlying message: the caller logs only `reason`, and the
+        // bare 'unwrap-failed' code made a real occurrence impossible to diagnose
+        // (the detail vanished from every log that recorded the rotation).
+        return { ok: false, reason: `unwrap-failed: ${detail}` };
       }
     },
   };

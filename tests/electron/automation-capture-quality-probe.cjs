@@ -15,6 +15,7 @@
  * Optional: BAO_PROBE_DPR=1.5 to force a device scale factor.
  */
 const { app, BrowserView, BrowserWindow } = require('electron');
+require('./isolate-user-data.cjs')(app, 'automation-capture-quality-probe');
 const fs = require('fs');
 const path = require('path');
 

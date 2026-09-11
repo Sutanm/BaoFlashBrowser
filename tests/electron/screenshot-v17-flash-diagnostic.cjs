@@ -11,6 +11,7 @@
  *   T3: 修复后截图验证
  */
 const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
+require('./isolate-user-data.cjs')(app, 'screenshot-v17-flash-diagnostic');
 const path = require('path');
 const fs = require('fs');
 

@@ -9,6 +9,7 @@
  *   T5: 最小化后截图（无CSS修复，对照）
  */
 const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
+require('./isolate-user-data.cjs')(app, 'screenshot-v19-minimize-test');
 const path = require('path');
 const fs = require('fs');
 

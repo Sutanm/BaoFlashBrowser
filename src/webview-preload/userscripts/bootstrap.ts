@@ -1,9 +1,9 @@
 // Userscript runtime bootstrap for BrowserView preloads. Invoked by
 // src/webview-preload/index.ts (both main frames and subframes) after the
 // Ruffle/PPAPI shims; a failed runtime must never break the page.
-// This module is the single implementation: the older demo mirror under
-// tests/electron/userscripts/ drifted badly and was removed, so tests import
-// from here directly.
+// This module is the single implementation: the older demo mirror drifted badly
+// and was archived to archive/tests-electron-userscripts-demo/ (2026-09), so
+// tests import from here directly.
 
 import { ipcRenderer, webFrame } from 'electron';
 import type { FrameSnapshot, GmWebRequestEvent } from '../../shared/userscript-types';

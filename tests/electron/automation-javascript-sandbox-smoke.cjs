@@ -1,5 +1,6 @@
 const path = require('path');
 const { app } = require('electron');
+require('./isolate-user-data.cjs')(app, 'automation-javascript-sandbox-smoke');
 const { JavaScriptAutomationSandboxHost, JavaScriptAutomationCapabilityBroker } = require('../../release/tests/automation-js-sandbox-host.cjs');
 
 const METHODS = [

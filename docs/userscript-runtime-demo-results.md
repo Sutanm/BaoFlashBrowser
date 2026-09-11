@@ -353,12 +353,15 @@ ppapi 隔离世界模式下 `unsafeWindow` 现在**真实指向页面主世界**
 关键实测结论:
 - preload 在 document-start 的 sendSync（get-ruffle-mode / userscript:get-config）必须有主进程 handler,否则多次导航后渲染进程卡死（JS_HUNG,CDP 不可达）。
 - 最终验证:smoke 143/143 required、vitest 246、test:electron/ruffle/compat 全绿。
-- demo 目录 tests/electron/userscripts/ 当时保留作对照与回归（不删除）。
+- demo 目录 `tests/electron/userscripts/` 当时保留作对照与回归（不删除）。
   **2026-09 核查更新**：该副本此后未跟进生产改动，已严重漂移（`preload/gm-api.ts`
   约为生产源码的 56%），且其 `*.test.ts` 因相对导入只验证副本本身——
   **不再构成对生产代码的回归保护**。真正覆盖生产代码的是 `tests/userscripts/`；
   唯一独有的 `scheduler.test.ts` 已迁移至 `tests/userscripts/scheduler.test.ts`。
-  目录去留待用户确认，现状见 `tests/electron/userscripts/README.md`。
+  **2026-09 处置：已归档**至 `archive/tests-electron-userscripts-demo/`（保留不删除，
+  但移出 `tests/**`，因此不再被任何测试运行拾取）。归档前它在默认 `npm test` 里
+  提供 11 个文件 / 100 项虚假信心测试，测试数由 727 降为 627 即为此差额。
+  说明见 `archive/tests-electron-userscripts-demo/README.md`。
 
 ---
 

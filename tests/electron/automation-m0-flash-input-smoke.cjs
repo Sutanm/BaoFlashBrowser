@@ -4,6 +4,7 @@
  * minimizes the host, then uses transient CDP mouse input and pixel evidence.
  */
 const { app, BrowserView, BrowserWindow, protocol, session } = require('electron');
+require('./isolate-user-data.cjs')(app, 'automation-m0-flash-input-smoke');
 const fs = require('fs');
 const path = require('path');
 

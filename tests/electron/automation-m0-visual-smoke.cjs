@@ -4,6 +4,7 @@
  * convert device pixels to CSS pixels -> transient CDP click -> verify.
  */
 const { app, BrowserView, BrowserWindow } = require('electron');
+require('./isolate-user-data.cjs')(app, 'automation-m0-visual-smoke');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');

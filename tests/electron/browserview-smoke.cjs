@@ -1,4 +1,5 @@
 const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
+require('./isolate-user-data.cjs')(app, 'browserview-smoke');
 const path = require('path');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
