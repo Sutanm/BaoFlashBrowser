@@ -149,6 +149,15 @@ export function registerPasswordIPC(): void {
     };
   });
 
+  // 用户显式重建（唯一允许销毁密钥材料的产品路径之一，需确认词防误触）。
+  createValidatedHandler('password:rebuild-vault', z.object({ confirm: z.literal('REBUILD') }).strict(), async () => {
+    resetAll();
+    const result = await initVault();
+    notifyPasswordChanged();
+    if (result.success) tabManager.refreshPasswordFill();
+    return { success: result.success, tier: result.tier ?? 'none' };
+  });
+
   createHandler('password:reset', () => {
     resetAll();
     notifyPasswordChanged();

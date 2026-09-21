@@ -171,6 +171,16 @@ const en: Translation = {
     saveExcludedSites: 'Save exclusion list',
     excludedSitesSaved: 'Password capture exclusion list saved',
     excludedSitesSaveFailed: 'Failed to save the exclusion list',
+    keyRetrying: 'Key temporarily unavailable, retrying automatically (attempt {attempt})',
+    keyBlockedTitle: 'Cannot unlock the password vault key',
+    keyBlockedDesc: 'Reason: {reason}. The key file is left untouched. Try again first; if it keeps failing, the only option is rebuilding the vault (saved passwords are discarded).',
+    keyRetry: 'Retry',
+    keyRebuild: 'Rebuild vault…',
+    keyRebuildDesc: 'Rebuilding generates a new key and clears all saved passwords. This cannot be undone.',
+    keyRebuildConfirmLabel: 'Type {word} to confirm',
+    keyRebuildDone: 'Vault rebuilt — you can save passwords again',
+    keyRebuildFailed: 'Rebuild failed',
+    keyBackendLabel: 'Key backend',
   },
 
   settings: {

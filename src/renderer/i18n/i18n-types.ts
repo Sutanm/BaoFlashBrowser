@@ -608,6 +608,49 @@ type RootTranslation = {
 		 * 排​除​列​表​保​存​失​败
 		 */
 		excludedSitesSaveFailed: string
+		/**
+		 * 密​钥​暂​不​可​用​，​正​在​自​动​重​试​（​第​ ​{​a​t​t​e​m​p​t​}​ ​次​）
+		 * @param {unknown} attempt
+		 */
+		keyRetrying: RequiredParams<'attempt'>
+		/**
+		 * 无​法​解​开​密​码​本​密​钥
+		 */
+		keyBlockedTitle: string
+		/**
+		 * 原​因​：​{​r​e​a​s​o​n​}​。​密​钥​文​件​已​原​样​保​留​，​未​做​任​何​改​动​。​可​先​重​试​；​若​持​续​失​败​，​只​能​重​建​密​码​本​（​会​丢​弃​已​保​存​的​密​码​）​。
+		 * @param {unknown} reason
+		 */
+		keyBlockedDesc: RequiredParams<'reason'>
+		/**
+		 * 重​试
+		 */
+		keyRetry: string
+		/**
+		 * 重​建​密​码​本​…
+		 */
+		keyRebuild: string
+		/**
+		 * 重​建​会​生​成​新​密​钥​并​清​空​已​保​存​的​密​码​，​且​不​可​撤​销​。
+		 */
+		keyRebuildDesc: string
+		/**
+		 * 输​入​ ​{​w​o​r​d​}​ ​以​确​认
+		 * @param {unknown} word
+		 */
+		keyRebuildConfirmLabel: RequiredParams<'word'>
+		/**
+		 * 密​码​本​已​重​建​，​可​以​重​新​保​存​密​码
+		 */
+		keyRebuildDone: string
+		/**
+		 * 重​建​失​败
+		 */
+		keyRebuildFailed: string
+		/**
+		 * 密​钥​后​端
+		 */
+		keyBackendLabel: string
 	}
 	settings: {
 		/**
@@ -1995,6 +2038,46 @@ export type TranslationFunctions = {
 		 * 排除列表保存失败
 		 */
 		excludedSitesSaveFailed: () => LocalizedString
+		/**
+		 * 密钥暂不可用，正在自动重试（第 {attempt} 次）
+		 */
+		keyRetrying: (arg: { attempt: unknown }) => LocalizedString
+		/**
+		 * 无法解开密码本密钥
+		 */
+		keyBlockedTitle: () => LocalizedString
+		/**
+		 * 原因：{reason}。密钥文件已原样保留，未做任何改动。可先重试；若持续失败，只能重建密码本（会丢弃已保存的密码）。
+		 */
+		keyBlockedDesc: (arg: { reason: unknown }) => LocalizedString
+		/**
+		 * 重试
+		 */
+		keyRetry: () => LocalizedString
+		/**
+		 * 重建密码本…
+		 */
+		keyRebuild: () => LocalizedString
+		/**
+		 * 重建会生成新密钥并清空已保存的密码，且不可撤销。
+		 */
+		keyRebuildDesc: () => LocalizedString
+		/**
+		 * 输入 {word} 以确认
+		 */
+		keyRebuildConfirmLabel: (arg: { word: unknown }) => LocalizedString
+		/**
+		 * 密码本已重建，可以重新保存密码
+		 */
+		keyRebuildDone: () => LocalizedString
+		/**
+		 * 重建失败
+		 */
+		keyRebuildFailed: () => LocalizedString
+		/**
+		 * 密钥后端
+		 */
+		keyBackendLabel: () => LocalizedString
 	}
 	settings: {
 		/**

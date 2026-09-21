@@ -18,6 +18,8 @@ const PasswordsPanel: React.FC = () => {
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
   const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set());
   const [decryptedPasswords, setDecryptedPasswords] = useState<Map<string, string>>(new Map());
+  const [rebuildOpen, setRebuildOpen] = useState(false);
+  const [rebuildWord, setRebuildWord] = useState('');
   const activeTabId = useTabsStore((state) => state.activeTabId);
   const pushToast = useDataStore((state) => state.pushToast);
 
@@ -55,6 +57,24 @@ const PasswordsPanel: React.FC = () => {
     if (!api) return;
     const result = await api.init();
     if (!result.success) pushToast({ message: LL.password.initFailed(), type: 'error' });
+    refreshStatus();
+  };
+
+  const handleRetryKey = async () => {
+    if (!api) return;
+    await api.retryKey();
+    refreshStatus();
+  };
+
+  const handleRebuild = async () => {
+    if (!api) return;
+    const result = await api.rebuildVault('REBUILD');
+    setRebuildOpen(false);
+    setRebuildWord('');
+    pushToast({
+      message: result.success ? LL.password.keyRebuildDone() : LL.password.keyRebuildFailed(),
+      type: result.success ? 'success' : 'error',
+    });
     refreshStatus();
   };
 
@@ -126,18 +146,70 @@ const PasswordsPanel: React.FC = () => {
   for (const [, arr] of grouped) { arr.sort((a, b) => b.updatedAt - a.updatedAt); }
   const hosts = [...grouped.keys()].sort();
 
+  const keyStatus = status.keyStatus ?? 'ok';
+  const keyIssue = status.keyIssue;
+  const showTier = keyStatus === 'ok' && status.tier !== 'C';
+
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
       <div className="pwd-settings-bar" style={{ borderBottom: '1px solid var(--border-light)' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={status.enabled} onChange={handleToggleEnabled} /> {LL.password.enable()}
         </label>
-        {status.tier === 'C' ? (
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#b45309' }}>{LL.password.tierC()}</span>
-        ) : (
+        {keyStatus !== 'ok' ? (
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#b45309' }}>{LL.password.keyBlockedTitle()}</span>
+        ) : showTier ? (
           <span style={{ marginLeft: 'auto', fontSize: 12, color: '#185fa5' }}>{LL.password.tierA()}</span>
+        ) : (
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#b45309' }}>{LL.password.tierC()}</span>
         )}
       </div>
+
+      {keyStatus === 'retrying' && (
+        <div className="pwd-key-banner" data-state="retrying">
+          <span>{LL.password.keyRetrying({ attempt: keyIssue?.attempts ?? 0 })}</span>
+          <button className="btn-secondary pwd-btn-action" onClick={handleRetryKey}>{LL.password.keyRetry()}</button>
+        </div>
+      )}
+
+      {keyStatus === 'blocked' && (
+        <div className="pwd-key-banner" data-state="blocked">
+          <p className="pwd-key-banner-title">{LL.password.keyBlockedTitle()}</p>
+          <p className="pwd-key-banner-desc">{LL.password.keyBlockedDesc({ reason: keyIssue?.reason ?? 'unknown' })}</p>
+          {!rebuildOpen ? (
+            <div className="pwd-key-banner-actions">
+              <button className="btn-secondary pwd-btn-action" onClick={handleRetryKey}>{LL.password.keyRetry()}</button>
+              <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={() => setRebuildOpen(true)}>
+                {LL.password.keyRebuild()}
+              </button>
+            </div>
+          ) : (
+            <div className="pwd-key-banner-actions">
+              <p className="pwd-key-banner-desc">{LL.password.keyRebuildDesc()}</p>
+              <label className="pwd-key-confirm-label">
+                {LL.password.keyRebuildConfirmLabel({ word: 'REBUILD' })}
+                <input
+                  type="text"
+                  value={rebuildWord}
+                  onChange={(event) => setRebuildWord(event.target.value)}
+                  aria-label={LL.password.keyRebuildConfirmLabel({ word: 'REBUILD' })}
+                />
+              </label>
+              <button
+                className="btn-secondary pwd-btn-action pwd-btn-danger"
+                disabled={rebuildWord !== 'REBUILD'}
+                onClick={handleRebuild}
+              >
+                {LL.password.keyRebuild()}
+              </button>
+              <button className="btn-secondary pwd-btn-action" onClick={() => { setRebuildOpen(false); setRebuildWord(''); }}>
+                {LL.password.ignore()}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {hosts.length === 0 ? (
         <div className="sidebar-empty">{LL.password.empty()}</div>
       ) : (

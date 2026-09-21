@@ -4,7 +4,7 @@ import type {
   Aria2StatusPayload, PasswordCapturedPayload, PasswordChangedPayload, PasswordFilledPayload,
   RuffleDiagnosticPayload,
 } from '@shared/types/ipc';
-import type { KeyRetryResult, PasswordStoreStatus, RevealPasswordResult } from '@shared/types/passwords';
+import type { KeyRetryResult, PasswordStoreStatus, RebuildVaultResult, RevealPasswordResult } from '@shared/types/passwords';
 import type { DownloadEngine, DownloadItem } from '@shared/types/downloads';
 import type { FlashPluginChannel } from '@shared/types/flash';
 import type { SessionRecoveryStatus } from '@shared/types/session';
@@ -132,6 +132,7 @@ declare global {
       invoke(channel: 'password:fill', payload: { tabId: string; id: string }): Promise<PasswordFillOperationResult>;
       invoke(channel: 'password:reset'): Promise<PasswordOperationResult>;
       invoke(channel: 'password:retry-key'): Promise<KeyRetryResult>;
+      invoke(channel: 'password:rebuild-vault', payload: { confirm: 'REBUILD' }): Promise<RebuildVaultResult>;
       invoke(channel: 'diagnostics:export'): Promise<{ saved: boolean; canceled: boolean }>;
       invoke(channel: 'file:open-swf'): Promise<string | null>;
       invoke(channel: 'session:recovery-status'): Promise<SessionRecoveryStatus>;
@@ -205,6 +206,7 @@ declare global {
         fill(tabId: string, id: string): Promise<PasswordFillOperationResult>;
         resetAll(): Promise<PasswordOperationResult>;
         retryKey(): Promise<KeyRetryResult>;
+        rebuildVault(confirm: 'REBUILD'): Promise<RebuildVaultResult>;
       };
 
       diagnostics: {

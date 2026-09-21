@@ -4,6 +4,7 @@ import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { Settings } from '@shared/types/settings';
 import type { DownloadEngine } from '@shared/types/downloads';
 import type { FlashPluginChannel } from '@shared/types/flash';
+import type { PasswordKeyStatus } from '@shared/types/passwords';
 import { ArrowLeft, ChevronRight, Cpu, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
 import { requiresMainConfigRestart } from '@renderer/services/settings-restart';
 import ToggleSwitch from '../controls/ToggleSwitch';
@@ -68,6 +69,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   const [autoFillReady, setAutoFillReady] = useState(false);
   const [passwordTier, setPasswordTier] = useState<'A' | 'C' | 'none'>('none');
   const [passwordStoreInitialized, setPasswordStoreInitialized] = useState(false);
+  const [passwordKeyStatus, setPasswordKeyStatus] = useState<PasswordKeyStatus>('ok');
+  const [passwordKeyReason, setPasswordKeyReason] = useState<string | null>(null);
   const [excludedSitesText, setExcludedSitesText] = useState('');
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [cacheConfirming, setCacheConfirming] = useState(false);
@@ -114,6 +117,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       setAutoFillReady(status.autoFillReady);
       setPasswordStoreInitialized(status.initialized);
       setPasswordTier(status.tier);
+      setPasswordKeyStatus(status.keyStatus ?? 'ok');
+      setPasswordKeyReason(status.keyIssue?.reason ?? null);
       setExcludedSitesText(status.excludedSites.join('\n'));
     }).catch(() => {});
   }, []);
@@ -239,6 +244,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     setAutoFillReady(status.autoFillReady);
     setPasswordStoreInitialized(status.initialized);
     setPasswordTier(status.tier);
+    setPasswordKeyStatus(status.keyStatus ?? 'ok');
+    setPasswordKeyReason(status.keyIssue?.reason ?? null);
     setExcludedSitesText(status.excludedSites.join('\n'));
     pushToast({ message: LL.password.resetDone(), type: 'info' });
   }, [resetConfirming, setStoreStatus, pushToast, LL]);
@@ -544,6 +551,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
             {passwordStoreInitialized && autoFillReady && (
               <span className="field-hint" style={{ display: 'block', marginTop: 3 }}>
                 {passwordTier === 'C' ? LL.password.tierC() : LL.password.tierA()}
+              </span>
+            )}
+            {passwordStoreInitialized && passwordKeyStatus !== 'ok' && (
+              <span className="field-hint" style={{ display: 'block', marginTop: 3, color: '#b45309' }}>
+                {LL.password.keyBlockedTitle()} · {passwordKeyReason ?? 'unknown'}
               </span>
             )}
           </span>

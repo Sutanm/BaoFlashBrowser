@@ -57,6 +57,12 @@ export interface KeyRetryResult {
   ready: boolean;
 }
 
+/** password:rebuild-vault 结果（危险操作，需 confirm='REBUILD'）。 */
+export interface RebuildVaultResult {
+  success: boolean;
+  tier: PasswordTier;
+}
+
 /** password:reveal 结果（Task 5 起按 view-gate 授权）。 */
 export interface RevealPasswordResult {
   password?: string;
