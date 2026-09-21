@@ -512,6 +512,7 @@ export async function init(): Promise<void> {
 }
 
 async function _loadDekFromStore(): Promise<'ok' | 'transient' | 'deterministic'> {
+  const startedAt = Date.now();
   _clearDek();
   if (!isInitialized()) {
     _keyLoadState = { outcome: 'ok', attempts: 0 };
@@ -562,6 +563,12 @@ async function _loadDekFromStore(): Promise<'ok' | 'transient' | 'deterministic'
   }
   _dek = dek;
   _keyLoadState = { outcome: 'ok', attempts: 0 };
+  // 成功路径也要留痕（规格 D7）：否则"重建成功/加载成功"在日志里完全不可见，
+  // 排查时只能看到失败行，无法判断某一时刻密钥到底可用不可用。
+  log.info(
+    `[password-store] key loaded backend=${autoFillKeyStore.get('keyEnc') ? (getActiveBackendId() ?? 'unknown') : 'local'}`
+    + ` took=${Date.now() - startedAt}ms`,
+  );
   return 'ok';
 }
 

