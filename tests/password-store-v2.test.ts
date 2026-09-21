@@ -220,6 +220,23 @@ describe('密钥状态暴露与自愈（规格 D6/D7）', () => {
     expect(a).toEqual(b);
     expect(isDekReady()).toBe(true);
   });
+
+  // 2026-09-21 实测回归：ensureKeyLoaded 位于每次自动填充尝试的路径上，
+  // 不带短路时每次都会重新解包（DPAPI 起 PowerShell，~170ms/次），
+  // 实测 13 秒会话解包 22 次。
+  it('DEK 已就绪时短路：不再重新解包', async () => {
+    keyringState.backend = 'win-dpapi';
+    await initVault();
+    dispose();
+    const unwrap = (await import('../src/main/modules/keyring')).keyringUnwrapAffine as unknown as { mock: { calls: unknown[] } };
+    await ensureKeyLoaded();
+    const afterFirst = unwrap.mock.calls.length;
+    await ensureKeyLoaded();
+    await ensureKeyLoaded();
+    expect(unwrap.mock.calls.length).toBe(afterFirst);
+    expect(isDekReady()).toBe(true);
+    expect(getKeyStatus()).toEqual({ status: 'ok' });
+  });
 });
 
 describe('密钥失败种类 → transient/deterministic 归属（规格 D2）', () => {

@@ -235,6 +235,12 @@ function _issueFor(outcome: 'transient' | 'deterministic'): PasswordKeyIssue {
  * 并发调用共享同一次尝试（in-flight 去重），失败按退避排定重试，成功即停表。
  */
 export async function ensureKeyLoaded(): Promise<KeyLoadState> {
+  // 已就绪短路（2026-09-21 实测修正）：本函数位于"每次自动填充尝试"的路径上
+  // （tabs 的 form-detected 信号 → _attemptPasswordFill），而不短路时每次都会**重新解包**
+  // wrap key —— DPAPI 后端每次要起一个 PowerShell 子进程，实测约 170ms。
+  // 观测到的后果：一次 13 秒会话里解包 22 次、打 22 行日志，既拖慢填充，
+  // 又把真正的诊断行淹没。DEK 一旦就绪即为只读常量，重建路径会走 resetAll 清空它。
+  if (_dek && _keyLoadState.outcome === 'ok') return { ..._keyLoadState };
   if (_ensureKeyInFlight) return _ensureKeyInFlight;
   const run = (async () => {
     try {
