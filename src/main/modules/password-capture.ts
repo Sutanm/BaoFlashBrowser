@@ -94,6 +94,19 @@ export const CAPTURE_SCRIPT = `
     var u=findUserInput(c);if(u&&u.value)_rawUser=u.value;
     _baopEmit({_type:'baop_diag',msg:'input pw len='+_rawPass.length+' host='+location.hostname});
   },true);
+  // 诊断兜底（每 frame 只报一次）：若页面在 window 捕获阶段 stopPropagation 吞掉 input
+  // 事件，本 frame 将完全没有证据，排查只能靠猜。记录"首次键盘输入落在哪个元素上"，
+  // 即可判定键盘输入是否真的进到本 frame 的 DOM（以及落在什么类型元素上）。
+  var _firstKeyDiagDone = false;
+  window.addEventListener('keydown', function(e) {
+    try {
+      if (_firstKeyDiagDone) return;
+      _firstKeyDiagDone = true;
+      var t = (e && e.target) || {};
+      _baopEmit({_type:'baop_diag',msg:'first keydown tag='+(t.tagName||'?')+' type='+(t.type||'-')
+        +' pwDoc='+document.querySelectorAll('input[type="password"]').length+' host='+location.hostname});
+    } catch(err) {}
+  }, true);
   document.addEventListener('submit',function(e){
     var p=e.target.querySelector('input[type="password"]');
     _baopEmit({_type:'baop_diag',msg:'submit form='+e.target.tagName+' hasPw='+(!!p)+' host='+location.hostname});
@@ -236,11 +249,13 @@ export const CAPTURE_SCRIPT = `
       var tagName = target.tagName || '';
       var isButton = tagName === 'BUTTON' || tagName === 'INPUT' && (target.type === 'submit' || target.type === 'button');
       var isLoginText = /登\\s*录|login|sign(?:\\s|_|-)*in|submit|确\\s*定|进\\s*入|go/.test(text);
-      if (!isButton && !isLoginText) return;
       var container = target.closest('form') || target.closest('[class*="login"]') || target.closest('[class*="con"]') || target.closest('[class*="pop"]');
       var pwDoc = document.querySelectorAll('input[type="password"]').length;
-      if (pwDoc === 0 && !container) return; // 与登录无关的点击不刷日志
       var pwInContainer = container ? container.querySelector('input[type="password"]') : null;
+      // 触发面刻意放宽：图片按钮/无文字按钮点不到 isButton||isLoginText，
+      // 只要点在含密码框的容器内也上报，避免"点了但没记录"造成漏判。
+      if (!isButton && !isLoginText && !pwInContainer) return;
+      if (pwDoc === 0 && !container) return; // 与登录无关的点击不刷日志
       _baopEmit({_type:'baop_diag',msg:'click any tag='+tagName+' txt='+text+' pwDoc='+pwDoc
         +' pwContainer='+(pwInContainer?1:0)+' hasRawPass='+(_rawPass?_rawPass.length:0)
         +' btn='+isButton+' login='+isLoginText+' host='+location.hostname});
