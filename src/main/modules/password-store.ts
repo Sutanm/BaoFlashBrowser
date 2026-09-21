@@ -8,7 +8,7 @@ import {
 } from './crypto-helper';
 import { domainMatchesRule, normalizeDomainRule } from '../utils/domain-rules';
 import { selectFillEntry } from '../utils/password-fill-policy';
-import { detectKeyring, keyringWrap, keyringUnwrap } from './keyring';
+import { detectKeyring, getActiveBackendId, keyringWrap, keyringUnwrap, type KeyringFailureKind } from './keyring';
 
 /**
  * password-store.ts — 密码本 v2（无主密码）。
@@ -88,6 +88,53 @@ const autoFillKeyStore = new Store<AutoFillKeySchema>({
 
 /** 单一 DEK：v2 下是条目解密与填充的唯一钥匙（原 _dekFromMaster/_dekForAutoFill 并轨）。 */
 let _dek: Buffer | null = null;
+
+// ---------------------------------------------------------------------------
+// 密钥获取失败语义（规格 D1/D2，2026-09-21 事故根因修复）
+//
+// 硬不变式：**读取/解封路径不得写盘**。任何失败都必须保留密钥材料原样，
+// 因为读路径拿到的错误不足以区分"这把 key 永久作废"与"这一刻拿不到"，
+// 而后者若被当成前者处理（搁置 + 轮换）= 丢弃全部条目（不可逆）。
+// 唯一允许销毁/轮换密钥材料的地方：enroll（initVault / 用户显式重建）
+// 与旧明文 key 迁移（决策 8，白名单例外）。
+// ---------------------------------------------------------------------------
+
+/** 密码本侧的密钥失败种类：keyring 传输层 5 种 + 存储层 4 种。 */
+export type PasswordKeyFailureKind =
+  | KeyringFailureKind
+  | 'key-length-mismatch'
+  | 'corrupt-local'
+  | 'legacy-plaintext'
+  | 'key-material-missing';
+
+/** 确定性失败：文件保留、状态 blocked、等用户显式决策（绝不自动轮换）。 */
+const DETERMINISTIC_KEY_FAILURES: ReadonlySet<PasswordKeyFailureKind> = new Set<PasswordKeyFailureKind>([
+  'decrypt-failed',
+  'key-length-mismatch',
+  'corrupt-local',
+  'legacy-plaintext',
+  'key-material-missing',
+]);
+
+export function isDeterministicKeyFailure(kind: PasswordKeyFailureKind): boolean {
+  return DETERMINISTIC_KEY_FAILURES.has(kind);
+}
+
+interface WrapKeyLoad {
+  key: Buffer | null;
+  /** 无 key 但也不该报错（尚未 enroll）时为 'ok'。 */
+  outcome: 'ok' | 'transient' | 'deterministic';
+  kind?: PasswordKeyFailureKind;
+  reason?: string;
+  backend?: string | null;
+}
+
+/** 最近一次密钥加载结果（K1 仅供日志与内部判断；K3 经 IPC 暴露给 UI）。 */
+let _keyLoadState: { outcome: 'ok' | 'transient' | 'deterministic'; kind?: PasswordKeyFailureKind; reason?: string; backend?: string | null; attempts: number } = { outcome: 'ok', attempts: 0 };
+
+export function getKeyLoadState(): Readonly<typeof _keyLoadState> {
+  return { ..._keyLoadState };
+}
 
 // ---------------------------------------------------------------------------
 // 旧数据搁置（决策 8；检测条件审计 #10：非 null 判定 + version<2）
@@ -228,42 +275,60 @@ async function _persistWrapKey(key: Buffer, tier: 'A' | 'C'): Promise<boolean> {
   return true;
 }
 
-/** 读当前可用 wrap key；旧明文/无法解密 → 搁置文件并返回 null（下次 enroll 轮换）。 */
-async function _loadWrapKey(): Promise<Buffer | null> {
+/**
+ * 读当前可用 wrap key。
+ *
+ * **零破坏**：本函数在任何失败分支都不改名、不清空、不轮换密钥材料，
+ * 只返回分类后的 outcome 交给调用方（重试 / 上报 / 等用户决策）。
+ * 唯一的写盘例外是旧明文 key 迁移（决策 8 白名单：搁置不读；此处不迁移，
+ * 因为键已被 `_looksLikeLegacyPlainKey` 判定为不可信遗留）。
+ */
+async function _loadWrapKey(): Promise<WrapKeyLoad> {
   const raw = _readJsonFileSafe(autoFillKeyStore.path);
   if (raw !== null && _looksLikeLegacyPlainKey(raw)) {
+    // 决策 8：旧明文 key 不读取、不迁移 —— 唯一的读路径搁置白名单。
     _shelfFile(autoFillKeyStore.path);
     autoFillKeyStore.clear();
-    return null;
+    return { key: null, outcome: 'deterministic', kind: 'legacy-plaintext', reason: 'legacy-plaintext' };
   }
   const keyEnc = autoFillKeyStore.get('keyEnc');
   if (keyEnc) {
     const result = await keyringUnwrap(keyEnc);
     if (!result.ok) {
-      log.warn('[password-store] OS-keyring unwrap failed, rotating wrap key:', result.reason);
-      _shelfFile(autoFillKeyStore.path);
-      autoFillKeyStore.clear();
-      return null;
+      const outcome = isDeterministicKeyFailure(result.kind) ? 'deterministic' : 'transient';
+      log.warn(
+        `[password-store] wrap key unavailable kind=${result.kind} reason=${result.reason}`
+        + `${result.detail ? ` detail=${result.detail}` : ''} backend=${getActiveBackendId() ?? 'none'}`
+        + ' (key file kept, no rotation)',
+      );
+      return {
+        key: null,
+        outcome,
+        kind: result.kind,
+        reason: result.reason,
+        backend: getActiveBackendId(),
+      };
     }
     const key = unb64(result.secret);
     if (key.length !== KEY_LEN) {
       key.fill(0);
-      _shelfFile(autoFillKeyStore.path);
-      autoFillKeyStore.clear();
-      return null;
+      log.warn(`[password-store] wrap key length mismatch expected=${KEY_LEN} (key file kept, no rotation)`);
+      return { key: null, outcome: 'deterministic', kind: 'key-length-mismatch', reason: 'key-length-mismatch' };
     }
-    return key;
+    return { key, outcome: 'ok' };
   }
   const keyLocal = autoFillKeyStore.get('keyLocal');
   if (keyLocal) {
     const key = _deobfuscateLocal(keyLocal);
     if (!key || key.length !== KEY_LEN) {
       if (key) key.fill(0);
-      return null;
+      log.warn('[password-store] local wrap key unreadable (key file kept, no rotation)');
+      return { key: null, outcome: 'deterministic', kind: 'corrupt-local', reason: 'corrupt-local' };
     }
-    return key;
+    return { key, outcome: 'ok' };
   }
-  return null;
+  // 无任何 key = 尚未 enroll，不是失败。
+  return { key: null, outcome: 'ok' };
 }
 
 // ---------------------------------------------------------------------------
@@ -305,16 +370,58 @@ export async function init(): Promise<void> {
   await _loadDekFromStore();
 }
 
-async function _loadDekFromStore(): Promise<void> {
+async function _loadDekFromStore(): Promise<'ok' | 'transient' | 'deterministic'> {
   _clearDek();
-  if (!isInitialized()) return;
+  if (!isInitialized()) {
+    _keyLoadState = { outcome: 'ok', attempts: 0 };
+    return 'ok';
+  }
   const blob = store.get('dekAutoFillEnc');
-  if (!blob) return;
-  const wrapKey = await _loadWrapKey();
-  if (!wrapKey) return;
-  const dek = decryptBuf(wrapKey, blob);
-  wrapKey.fill(0);
-  if (dek) _dek = dek;
+  if (!blob) {
+    _keyLoadState = { outcome: 'ok', attempts: 0 };
+    return 'ok';
+  }
+  const loaded = await _loadWrapKey();
+  if (!loaded.key) {
+    if (loaded.outcome === 'ok') {
+      // 库已建但 keyEnc / keyLocal 皆空 —— 密钥材料缺失（例如被历史版本的破坏性
+      // 失败处理搁置过）。确定性失败：绝不静默装作正常，也不自行重建。
+      log.warn('[password-store] vault initialized but no key material present (no rotation, user decision required)');
+      _keyLoadState = {
+        outcome: 'deterministic',
+        kind: 'key-material-missing',
+        reason: 'key-material-missing',
+        backend: getActiveBackendId(),
+        attempts: _keyLoadState.attempts + 1,
+      };
+      return 'deterministic';
+    }
+    _keyLoadState = {
+      outcome: loaded.outcome,
+      kind: loaded.kind,
+      reason: loaded.reason,
+      backend: loaded.backend ?? getActiveBackendId(),
+      attempts: _keyLoadState.attempts + 1,
+    };
+    return loaded.outcome;
+  }
+  const dek = decryptBuf(loaded.key, blob);
+  loaded.key.fill(0);
+  if (!dek) {
+    // 有 wrap key 却解不开 dekAutoFillEnc ⇒ 密钥与密文不匹配。保留文件，不轮换。
+    log.warn('[password-store] DEK unwrap failed with the stored wrap key (key file kept, no rotation)');
+    _keyLoadState = {
+      outcome: 'deterministic',
+      kind: 'decrypt-failed',
+      reason: 'dek-unwrap-failed',
+      backend: getActiveBackendId(),
+      attempts: _keyLoadState.attempts + 1,
+    };
+    return 'deterministic';
+  }
+  _dek = dek;
+  _keyLoadState = { outcome: 'ok', attempts: 0 };
+  return 'ok';
 }
 
 /** 新建 v2 密码本（无密码）：生成 DEK → wrap key 按档位落盘 → dekAutoFillEnc。 */
@@ -513,6 +620,7 @@ export function resetAll(): void {
   store.set('_excludedSites', _excludedSites);
   autoFillKeyStore.clear();
   _clearDek();
+  _keyLoadState = { outcome: 'ok', attempts: 0 };
 }
 
 // ---------------------------------------------------------------------------

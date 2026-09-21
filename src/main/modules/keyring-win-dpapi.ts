@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import type { KeyringBackend } from './keyring';
+import type { KeyringBackend, KeyringFailure, KeyringFailureKind } from './keyring';
 
 /**
  * keyring-win-dpapi.ts — Windows DPAPI 后端。
@@ -50,6 +50,20 @@ const PS_UNPROTECT = [
 ].join('\n');
 
 const PROBE_PLAIN = 'keyring-probe-42';
+
+/**
+ * 子进程预算。可用 `BFB_KEYRING_TIMEOUT_MS` 覆盖（故障注入探针与单测用）。
+ * 预算一律 > 冷启动 PowerShell + Add-Type 的实测耗时，宁可等也不误判（规格 D5）。
+ */
+const DEFAULT_PROBE_WRAP_TIMEOUT_MS = 10_000;
+const DEFAULT_PROBE_UNWRAP_TIMEOUT_MS = 15_000;
+const DEFAULT_WRAP_TIMEOUT_MS = 10_000;
+const DEFAULT_UNWRAP_TIMEOUT_MS = 15_000;
+
+function budgetMs(fallback: number): number {
+  const raw = Number(process.env.BFB_KEYRING_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
 
 export type PsOutcome =
   | { code: 'ok'; value: string; exitCode?: number }
@@ -113,19 +127,42 @@ export function runPowerShell(script: string, payloadB64: string, timeoutMs: num
   });
 }
 
-export function classifyPsOutcome(outcome: PsOutcome): { ok: boolean; reason: string } {
+/** 失败子集（'ok' 之外的全部 outcome），供类型安全的方向敏感分类使用。 */
+export type PsFailureOutcome = Exclude<PsOutcome, { code: 'ok' }>;
+
+/**
+ * 子进程失败结果 → 失败语义分类（规格 D2）。
+ *
+ * 方向敏感：`unwrap` 方向的 `ps-error:*` = 后端明确说"这段密文解不开"（确定性失败，
+ * 调用方必须保留文件等用户决策）；`wrap` 方向 = 密文根本没生成（环境/策略问题，可重试）。
+ * `ERR empty-input` 属协议层问题，与密文无关。
+ */
+export function classifyPsFailure(outcome: PsFailureOutcome, direction: 'wrap' | 'unwrap'): KeyringFailure {
   switch (outcome.code) {
-    case 'ok':
-      return { ok: true, reason: '' };
     case 'spawn-error':
-      return { ok: false, reason: 'no-powershell' };
+      return { ok: false, kind: 'spawn-failed', reason: 'no-powershell' };
     case 'timeout':
-      return { ok: false, reason: 'timeout' };
-    case 'exit-error':
-      return { ok: false, reason: `ps-error:${outcome.message.slice(0, 120) || 'exit'}` };
+      return { ok: false, kind: 'timeout', reason: 'timeout' };
+    case 'exit-error': {
+      if (/empty-input/.test(outcome.message)) {
+        return { ok: false, kind: 'protocol-error', reason: 'empty-input' };
+      }
+      const reason = `ps-error:${outcome.message.slice(0, 120) || 'exit'}`;
+      const kind: KeyringFailureKind = direction === 'unwrap' ? 'decrypt-failed' : 'backend-unavailable';
+      return { ok: false, kind, reason, detail: outcome.stderr };
+    }
     case 'bad-response':
-      return { ok: false, reason: 'bad-response' };
+      return { ok: false, kind: 'protocol-error', reason: 'bad-response', detail: outcome.stderr };
   }
+}
+
+/** 总函数（probe / 单测用）：成功时返回 `{ ok: true, reason: '' }`。 */
+export function classifyPsOutcome(
+  outcome: PsOutcome,
+  direction: 'wrap' | 'unwrap',
+): { ok: true; reason: '' } | KeyringFailure {
+  if (outcome.code === 'ok') return { ok: true, reason: '' };
+  return classifyPsFailure(outcome, direction);
 }
 
 export class WinDpapiBackend implements KeyringBackend {
@@ -141,29 +178,29 @@ export class WinDpapiBackend implements KeyringBackend {
 
   async probe(): Promise<{ ok: boolean; reason?: string }> {
     const probeB64 = Buffer.from(PROBE_PLAIN, 'utf8').toString('base64');
-    const wrapOutcome = await this.exec(PS_PROTECT, probeB64, 10_000);
-    if (wrapOutcome.code !== 'ok') return classifyPsOutcome(wrapOutcome);
-    const unwrapOutcome = await this.exec(PS_UNPROTECT, wrapOutcome.value, 15_000);
-    if (unwrapOutcome.code !== 'ok') return classifyPsOutcome(unwrapOutcome);
+    const wrapOutcome = await this.exec(PS_PROTECT, probeB64, budgetMs(DEFAULT_PROBE_WRAP_TIMEOUT_MS));
+    if (wrapOutcome.code !== 'ok') {
+      const classified = classifyPsOutcome(wrapOutcome, 'wrap');
+      return { ok: false, reason: classified.reason };
+    }
+    const unwrapOutcome = await this.exec(PS_UNPROTECT, wrapOutcome.value, budgetMs(DEFAULT_PROBE_UNWRAP_TIMEOUT_MS));
+    if (unwrapOutcome.code !== 'ok') {
+      const classified = classifyPsOutcome(unwrapOutcome, 'wrap');
+      return { ok: false, reason: classified.reason };
+    }
     if (unwrapOutcome.value !== probeB64) return { ok: false, reason: 'probe-mismatch' };
     return { ok: true };
   }
 
-  async wrap(b64secret: string): Promise<{ ok: true; blob: string } | { ok: false; reason: string }> {
-    const outcome = await this.exec(PS_PROTECT, b64secret, 10_000);
-    if (outcome.code !== 'ok') {
-      const classified = classifyPsOutcome(outcome);
-      return { ok: false, reason: classified.reason };
-    }
+  async wrap(b64secret: string): Promise<{ ok: true; blob: string } | KeyringFailure> {
+    const outcome = await this.exec(PS_PROTECT, b64secret, budgetMs(DEFAULT_WRAP_TIMEOUT_MS));
+    if (outcome.code !== 'ok') return classifyPsFailure(outcome, 'wrap');
     return { ok: true, blob: outcome.value };
   }
 
-  async unwrap(blob: string): Promise<{ ok: true; secret: string } | { ok: false; reason: string }> {
-    const outcome = await this.exec(PS_UNPROTECT, blob, 15_000);
-    if (outcome.code !== 'ok') {
-      const classified = classifyPsOutcome(outcome);
-      return { ok: false, reason: classified.reason };
-    }
+  async unwrap(blob: string): Promise<{ ok: true; secret: string } | KeyringFailure> {
+    const outcome = await this.exec(PS_UNPROTECT, blob, budgetMs(DEFAULT_UNWRAP_TIMEOUT_MS));
+    if (outcome.code !== 'ok') return classifyPsFailure(outcome, 'unwrap');
     return { ok: true, secret: outcome.value };
   }
 

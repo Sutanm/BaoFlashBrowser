@@ -116,13 +116,30 @@ describe('runPowerShell 解析契约', () => {
   });
 });
 
-describe('classifyPsOutcome 失败分类', () => {
-  it('映射到稳定 reason', () => {
-    expect(classifyPsOutcome({ code: 'spawn-error', message: 'x' })).toEqual({ ok: false, reason: 'no-powershell' });
-    expect(classifyPsOutcome({ code: 'timeout' })).toEqual({ ok: false, reason: 'timeout' });
-    expect(classifyPsOutcome({ code: 'bad-response' })).toEqual({ ok: false, reason: 'bad-response' });
-    expect(classifyPsOutcome({ code: 'exit-error', message: 'boom' })).toEqual({ ok: false, reason: 'ps-error:boom' });
-    expect(classifyPsOutcome({ code: 'ok', value: 'v' })).toEqual({ ok: true, reason: '' });
+describe('classifyPsOutcome 失败分类（方向敏感）', () => {
+  it('传输层失败映射到稳定 kind/reason', () => {
+    expect(classifyPsOutcome({ code: 'spawn-error', message: 'x' }, 'unwrap'))
+      .toEqual({ ok: false, kind: 'spawn-failed', reason: 'no-powershell' });
+    expect(classifyPsOutcome({ code: 'timeout' }, 'unwrap'))
+      .toEqual({ ok: false, kind: 'timeout', reason: 'timeout' });
+    expect(classifyPsOutcome({ code: 'bad-response' }, 'unwrap'))
+      .toEqual({ ok: false, kind: 'protocol-error', reason: 'bad-response' });
+    expect(classifyPsOutcome({ code: 'ok', value: 'v' }, 'unwrap')).toEqual({ ok: true, reason: '' });
+  });
+
+  it('ps-error 在 unwrap 方向 = 后端明确拒绝解密（确定性失败）', () => {
+    const r = classifyPsOutcome({ code: 'exit-error', message: 'boom' }, 'unwrap');
+    expect(r).toMatchObject({ ok: false, kind: 'decrypt-failed', reason: 'ps-error:boom' });
+  });
+
+  it('ps-error 在 wrap 方向 = 密文未生成（环境/策略问题，可重试）', () => {
+    const r = classifyPsOutcome({ code: 'exit-error', message: 'boom' }, 'wrap');
+    expect(r).toMatchObject({ ok: false, kind: 'backend-unavailable', reason: 'ps-error:boom' });
+  });
+
+  it('ERR empty-input 属协议层问题，与密文无关', () => {
+    const r = classifyPsOutcome({ code: 'exit-error', message: 'empty-input' }, 'unwrap');
+    expect(r).toMatchObject({ ok: false, kind: 'protocol-error', reason: 'empty-input' });
   });
 });
 
@@ -163,16 +180,35 @@ describe('WinDpapiBackend（注入 exec，不触真实 PowerShell）', () => {
     await expect(backend.unwrap('W1')).resolves.toEqual({ ok: true, secret: 'W1' });
   });
 
-  it('wrap spawn 失败 → no-powershell', async () => {
+  it('wrap spawn 失败 → spawn-failed/no-powershell（可重试）', async () => {
     const backend = new WinDpapiBackend(async () => ({ code: 'spawn-error', message: 'ENOENT' }));
-    await expect(backend.wrap('c2VjcmV0')).resolves.toEqual({ ok: false, reason: 'no-powershell' });
+    await expect(backend.wrap('c2VjcmV0')).resolves.toEqual({ ok: false, kind: 'spawn-failed', reason: 'no-powershell' });
   });
 
-  it('unwrap 退出错误 → ps-error 前缀', async () => {
+  it('unwrap 退出错误 → decrypt-failed/ps-error 前缀（调用方保留文件）', async () => {
     const backend = new WinDpapiBackend(async () => ({ code: 'exit-error', message: 'Add-Type failed' }));
     const result = await backend.unwrap('W1');
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason.startsWith('ps-error:')).toBe(true);
+    if (!result.ok) {
+      expect(result.kind).toBe('decrypt-failed');
+      expect(result.reason.startsWith('ps-error:')).toBe(true);
+    }
+  });
+
+  it('BFB_KEYRING_TIMEOUT_MS 覆盖子进程预算（故障注入探针用）', async () => {
+    process.env.BFB_KEYRING_TIMEOUT_MS = '1234';
+    try {
+      const seen: number[] = [];
+      const backend = new WinDpapiBackend(async (_s: string, _p: string, timeoutMs: number) => {
+        seen.push(timeoutMs);
+        return { code: 'ok', value: 'X' } as PsOutcome;
+      });
+      await backend.wrap('c2VjcmV0');
+      await backend.unwrap('X');
+      expect(seen).toEqual([1234, 1234]);
+    } finally {
+      delete process.env.BFB_KEYRING_TIMEOUT_MS;
+    }
   });
 
   it('remove 为空操作且 ok', async () => {

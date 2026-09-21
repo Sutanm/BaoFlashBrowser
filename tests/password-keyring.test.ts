@@ -3,11 +3,13 @@ import {
   resolveBackend,
   detectKeyring,
   clearKeyringCache,
+  getActiveBackendId,
   _setActiveBackendForTest,
   keyringWrap,
   keyringUnwrap,
   type KeyringBackend,
   type KeyringBackendId,
+  type KeyringFailureKind,
 } from '../src/main/modules/keyring';
 
 function makeBackend(
@@ -18,6 +20,7 @@ function makeBackend(
     probeReason?: string;
     wrapOk?: boolean;
     wrapReason?: string;
+    wrapKind?: KeyringFailureKind;
   } = {},
 ): KeyringBackend {
   return {
@@ -30,7 +33,7 @@ function makeBackend(
     },
     async wrap(_secret) {
       return opts.wrapOk === false
-        ? { ok: false, reason: opts.wrapReason ?? 'wrap-failed' }
+        ? { ok: false, kind: opts.wrapKind ?? 'backend-unavailable', reason: opts.wrapReason ?? 'wrap-failed' }
         : { ok: true, blob: `blob:${_secret}` };
     },
     async unwrap(blob) {
@@ -89,14 +92,21 @@ describe('keyring wrap/unwrap 便捷封装', () => {
     expect(u).toEqual({ ok: true, secret: 'secret:blob:x' });
   });
 
-  it('无活跃后端时返回失败与 reason', async () => {
+  it('无活跃后端时返回 backend-unavailable（transient，可重试）', async () => {
     _setActiveBackendForTest(null);
-    expect(await keyringWrap('c2VjcmV0')).toEqual({ ok: false, reason: 'test-none' });
-    expect(await keyringUnwrap('x')).toEqual({ ok: false, reason: 'test-none' });
+    expect(await keyringWrap('c2VjcmV0')).toEqual({ ok: false, kind: 'backend-unavailable', reason: 'test-none' });
+    expect(await keyringUnwrap('x')).toEqual({ ok: false, kind: 'backend-unavailable', reason: 'test-none' });
   });
 
-  it('后端 wrap 失败时透传其 reason', async () => {
-    _setActiveBackendForTest(makeBackend('win-dpapi', { wrapOk: false, wrapReason: 'no-powershell' }));
-    expect(await keyringWrap('c2VjcmV0')).toEqual({ ok: false, reason: 'no-powershell' });
+  it('后端 wrap 失败时透传其 kind 与 reason（wrap 方向 = 密文未生成，可重试）', async () => {
+    _setActiveBackendForTest(makeBackend('win-dpapi', { wrapOk: false, wrapReason: 'no-powershell', wrapKind: 'spawn-failed' }));
+    expect(await keyringWrap('c2VjcmV0')).toEqual({ ok: false, kind: 'spawn-failed', reason: 'no-powershell' });
+  });
+
+  it('getActiveBackendId 反映当前活跃后端（诊断/状态展示用）', () => {
+    _setActiveBackendForTest(makeBackend('win-dpapi'));
+    expect(getActiveBackendId()).toBe('win-dpapi');
+    _setActiveBackendForTest(null);
+    expect(getActiveBackendId()).toBeNull();
   });
 });

@@ -20,6 +20,30 @@ export type KeyringBackendId =
   | 'linux-secret-service'
   | 'darwin-keychain';
 
+/**
+ * 失败语义分类（规格 D2，2026-09-21）：
+ * - transient：这一时刻拿不到（超时 / 子进程起不来 / 输出被干扰 / 本机无候选后端）。
+ *   处置 = **保留密钥材料不动** + 退避重试。
+ * - deterministic：后端明确说"解不开"（`decrypt-failed`）。处置 = 保留文件 + `blocked`，
+ *   等用户显式决策（重试 / 重建），**绝不自动轮换**。
+ *
+ * 方向敏感：同一个 `ps-error` 在 wrap 方向是"密文根本没生成"（环境/策略问题，可重试），
+ * 在 unwrap 方向才是"现有密文解不开"（确定性）。
+ */
+export type KeyringFailureKind =
+  | 'backend-unavailable'
+  | 'timeout'
+  | 'spawn-failed'
+  | 'protocol-error'
+  | 'decrypt-failed';
+
+export interface KeyringFailure {
+  ok: false;
+  kind: KeyringFailureKind;
+  reason: string;
+  detail?: string;
+}
+
 export interface KeyringStatus {
   /** null = 无任何可用 OS 后端 → 走 C′ */
   backend: KeyringBackendId | null;
@@ -34,9 +58,9 @@ export interface KeyringBackend {
   /** 探测②：往返探针（写→读→删），识别"装了但守护没跑/沙箱"等。 */
   probe(): Promise<{ ok: boolean; reason?: string }>;
   /** 加密 base64 秘密，返回 base64 blob。 */
-  wrap(b64secret: string): Promise<{ ok: true; blob: string } | { ok: false; reason: string }>;
+  wrap(b64secret: string): Promise<{ ok: true; blob: string } | KeyringFailure>;
   /** 解密 base64 blob，返回 base64 秘密。 */
-  unwrap(blob: string): Promise<{ ok: true; secret: string } | { ok: false; reason: string }>;
+  unwrap(blob: string): Promise<{ ok: true; secret: string } | KeyringFailure>;
   /** 撤销（可选）：DPAPI 无撤销语义，实现为空操作。 */
   remove?(blob: string): Promise<{ ok: boolean; reason?: string }>;
 }
@@ -95,9 +119,10 @@ function createElectronSafeStorageBackend(): KeyringBackend | null {
         const enc = ss.encryptString(b64secret);
         return { ok: true, blob: enc.toString('base64') };
       } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        log.warn('[keyring] electron-safestorage wrap failed:', reason);
-        return { ok: false, reason: 'wrap-failed' };
+        const detail = error instanceof Error ? error.message : String(error);
+        log.warn('[keyring] electron-safestorage wrap failed:', detail);
+        // wrap 方向失败 = 密文未生成（环境/策略问题），可重试，不是密文损坏。
+        return { ok: false, kind: 'backend-unavailable', reason: 'wrap-failed', detail };
       }
     },
     async unwrap(blob) {
@@ -107,10 +132,11 @@ function createElectronSafeStorageBackend(): KeyringBackend | null {
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         log.warn('[keyring] electron-safestorage unwrap failed:', detail);
+        // unwrap 方向失败 = 后端明确拒绝该密文 → 确定性失败（调用方保留文件、等用户决策）。
         // Carry the underlying message: the caller logs only `reason`, and the
         // bare 'unwrap-failed' code made a real occurrence impossible to diagnose
         // (the detail vanished from every log that recorded the rotation).
-        return { ok: false, reason: `unwrap-failed: ${detail}` };
+        return { ok: false, kind: 'decrypt-failed', reason: 'unwrap-failed', detail };
       }
     },
   };
@@ -190,16 +216,25 @@ export async function resolveBackend(
   return { backend: null, status: { backend: null, reason: 'unsupported-platform' } };
 }
 
+/** 当前活跃后端 id（诊断/状态展示用；探测未跑时可能为 null）。 */
+export function getActiveBackendId(): KeyringBackendId | null {
+  return _activeBackend?.id ?? null;
+}
+
 /** 用当前可用后端加密 base64 秘密；无后端时失败（调用方转 C′）。 */
-export async function keyringWrap(b64secret: string): Promise<{ ok: true; blob: string } | { ok: false; reason: string }> {
+export async function keyringWrap(b64secret: string): Promise<{ ok: true; blob: string } | KeyringFailure> {
   await detectKeyring();
-  if (!_activeBackend) return { ok: false, reason: _cachedStatus?.reason ?? 'keyring-unavailable' };
+  if (!_activeBackend) {
+    return { ok: false, kind: 'backend-unavailable', reason: _cachedStatus?.reason ?? 'keyring-unavailable' };
+  }
   return _activeBackend.wrap(b64secret);
 }
 
-/** 用当前可用后端解密 blob；失败时调用方视为"后端失配"，转 C′ 或重 enroll。 */
-export async function keyringUnwrap(blob: string): Promise<{ ok: true; secret: string } | { ok: false; reason: string }> {
+/** 用当前可用后端解密 blob；失败时调用方按 kind 分类处置（**保留文件**，不轮换）。 */
+export async function keyringUnwrap(blob: string): Promise<{ ok: true; secret: string } | KeyringFailure> {
   await detectKeyring();
-  if (!_activeBackend) return { ok: false, reason: _cachedStatus?.reason ?? 'keyring-unavailable' };
+  if (!_activeBackend) {
+    return { ok: false, kind: 'backend-unavailable', reason: _cachedStatus?.reason ?? 'keyring-unavailable' };
+  }
   return _activeBackend.unwrap(blob);
 }
