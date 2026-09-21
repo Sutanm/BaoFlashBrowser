@@ -160,6 +160,16 @@ function createPlatformBackend(platform: NodeJS.Platform): KeyringBackend | null
 let _activeBackend: KeyringBackend | null = null;
 let _cachedStatus: KeyringStatus | null = null;
 
+/** 平台候选构造（safeStorage 优先 → 平台后端），供探测与亲和试解共用。 */
+async function buildCandidates(platform: NodeJS.Platform): Promise<KeyringBackend[]> {
+  const out: KeyringBackend[] = [];
+  const ss = createElectronSafeStorageBackend();
+  if (ss) out.push(ss);
+  const plat = createPlatformBackend(platform);
+  if (plat) out.push(plat);
+  return out;
+}
+
 /** 探测失败后可重试。 */
 export function clearKeyringCache(): void {
   _activeBackend = null;
@@ -185,14 +195,7 @@ export async function resolveBackend(
   platform: NodeJS.Platform,
   candidates?: KeyringBackend[],
 ): Promise<{ backend: KeyringBackend | null; status: KeyringStatus }> {
-  const list = candidates ?? (() => {
-    const out: KeyringBackend[] = [];
-    const ss = createElectronSafeStorageBackend();
-    if (ss) out.push(ss);
-    const plat = createPlatformBackend(platform);
-    if (plat) out.push(plat);
-    return out;
-  })();
+  const list = candidates ?? await buildCandidates(platform);
 
   for (const backend of list) {
     try {
@@ -219,6 +222,63 @@ export async function resolveBackend(
 /** 当前活跃后端 id（诊断/状态展示用；探测未跑时可能为 null）。 */
 export function getActiveBackendId(): KeyringBackendId | null {
   return _activeBackend?.id ?? null;
+}
+
+/** 本机候选后端（不做往返探针，只做廉价的 available 检查）。 */
+async function buildAvailableCandidates(platform: NodeJS.Platform): Promise<KeyringBackend[]> {
+  const out: KeyringBackend[] = [];
+  for (const backend of await buildCandidates(platform)) {
+    try {
+      if (await backend.available()) out.push(backend);
+    } catch { /* 候选不可用即跳过 */ }
+  }
+  return out;
+}
+
+/**
+ * 按亲和标签解封（规格 D4）。
+ *
+ * 顺序：标签后端 → 当前活跃后端 → 其余可用候选，**最多试 2 个**。
+ * 试解全程只读：失败绝不写盘，成功才由调用方回写正确标签。
+ *
+ * 失败归并：任何一个候选报 `decrypt-failed`（后端明确拒绝该密文）即视为确定性失败；
+ * 否则按首个失败（超时/起不来/协议异常）视为瞬时失败，可重试。
+ */
+export async function keyringUnwrapAffine(
+  blob: string,
+  preferred: KeyringBackendId | null,
+): Promise<{ ok: true; secret: string; backend: KeyringBackendId } | KeyringFailure> {
+  await detectKeyring();
+  const activeId = getActiveBackendId();
+  const available = await buildAvailableCandidates(process.platform);
+  const byId = new Map(available.map((backend) => [backend.id, backend]));
+
+  const order: KeyringBackendId[] = [];
+  if (preferred && byId.has(preferred)) order.push(preferred);
+  if (activeId && byId.has(activeId) && !order.includes(activeId)) order.push(activeId);
+  for (const backend of available) {
+    if (order.length >= 2) break;
+    if (!order.includes(backend.id)) order.push(backend.id);
+  }
+
+  if (order.length === 0) {
+    return { ok: false, kind: 'backend-unavailable', reason: _cachedStatus?.reason ?? 'no-candidate' };
+  }
+
+  let firstFailure: KeyringFailure | null = null;
+  let sawDecryptFailure = false;
+  for (const id of order.slice(0, 2)) {
+    const backend = byId.get(id);
+    if (!backend) continue;
+    const result = await backend.unwrap(blob);
+    if (result.ok) return { ok: true, secret: result.secret, backend: id };
+    if (result.kind === 'decrypt-failed') sawDecryptFailure = true;
+    if (!firstFailure) firstFailure = result;
+  }
+  if (sawDecryptFailure) {
+    return { ok: false, kind: 'decrypt-failed', reason: firstFailure?.reason ?? 'unwrap-failed', detail: firstFailure?.detail };
+  }
+  return firstFailure ?? { ok: false, kind: 'backend-unavailable', reason: 'no-candidate' };
 }
 
 /** 用当前可用后端加密 base64 秘密；无后端时失败（调用方转 C′）。 */

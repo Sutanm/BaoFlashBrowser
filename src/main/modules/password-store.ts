@@ -8,7 +8,10 @@ import {
 } from './crypto-helper';
 import { domainMatchesRule, normalizeDomainRule } from '../utils/domain-rules';
 import { selectFillEntry } from '../utils/password-fill-policy';
-import { detectKeyring, getActiveBackendId, keyringWrap, keyringUnwrap, type KeyringFailureKind } from './keyring';
+import {
+  detectKeyring, getActiveBackendId, keyringWrap, keyringUnwrapAffine,
+  type KeyringBackendId, type KeyringFailureKind,
+} from './keyring';
 
 /**
  * password-store.ts — 密码本 v2（无主密码）。
@@ -55,6 +58,8 @@ interface PasswordStoreSchema {
 
 interface AutoFillKeySchema {
   keyEnc: string | null;
+  /** 后端亲和标签（规格 D4）：keyEnc 由哪个 OS 后端产出。空 = 历史遗留（逐个只读试解）。 */
+  keyEncBackend: KeyringBackendId | null;
   keyLocal: string | null;
   /** 旧版明文遗留（读取即搁置，绝不复用）。 */
   key?: string | null;
@@ -83,7 +88,7 @@ const store = new Store<PasswordStoreSchema>({
 
 const autoFillKeyStore = new Store<AutoFillKeySchema>({
   name: 'password-autofill-key',
-  defaults: { keyEnc: null, keyLocal: null },
+  defaults: { keyEnc: null, keyEncBackend: null, keyLocal: null },
 });
 
 /** 单一 DEK：v2 下是条目解密与填充的唯一钥匙（原 _dekFromMaster/_dekForAutoFill 并轨）。 */
@@ -266,11 +271,14 @@ async function _persistWrapKey(key: Buffer, tier: 'A' | 'C'): Promise<boolean> {
     const enc = await keyringWrap(b64(key));
     if (!enc.ok) return false;
     autoFillKeyStore.set('keyEnc', enc.blob);
+    // 亲和标签：记录 keyEnc 由哪个后端产出，避免日后"解不开"无法区分后端不符与密文损坏。
+    autoFillKeyStore.set('keyEncBackend', getActiveBackendId());
     autoFillKeyStore.set('keyLocal', null);
     return true;
   }
   autoFillKeyStore.set('keyLocal', _obfuscateLocal(key));
   autoFillKeyStore.set('keyEnc', null);
+  autoFillKeyStore.set('keyEncBackend', null);
   _chmodKeyFile();
   return true;
 }
@@ -293,21 +301,29 @@ async function _loadWrapKey(): Promise<WrapKeyLoad> {
   }
   const keyEnc = autoFillKeyStore.get('keyEnc');
   if (keyEnc) {
-    const result = await keyringUnwrap(keyEnc);
+    const tag = autoFillKeyStore.get('keyEncBackend') ?? null;
+    // 亲和编码（规格 D4）：优先标签后端；标签为空（历史裸 base64）/ 标签后端不是当前
+    // 活跃后端时，由 keyring 侧按"标签 → 活跃 → 其余可用候选"只读试解（≤2 个）。
+    const result = await keyringUnwrapAffine(keyEnc, tag);
     if (!result.ok) {
       const outcome = isDeterministicKeyFailure(result.kind) ? 'deterministic' : 'transient';
       log.warn(
         `[password-store] wrap key unavailable kind=${result.kind} reason=${result.reason}`
-        + `${result.detail ? ` detail=${result.detail}` : ''} backend=${getActiveBackendId() ?? 'none'}`
-        + ' (key file kept, no rotation)',
+        + `${result.detail ? ` detail=${result.detail}` : ''} tag=${tag ?? 'none'}`
+        + ` active=${getActiveBackendId() ?? 'none'} (key file kept, no rotation)`,
       );
       return {
         key: null,
         outcome,
         kind: result.kind,
         reason: result.reason,
-        backend: getActiveBackendId(),
+        backend: tag ?? getActiveBackendId(),
       };
+    }
+    if (tag !== result.backend) {
+      // 只在**成功**路径回写标签（历史密文补齐来源信息）；失败路径绝不写盘。
+      autoFillKeyStore.set('keyEncBackend', result.backend);
+      log.info(`[password-store] wrap key backend affinity recorded: ${result.backend} (was ${tag ?? 'none'})`);
     }
     const key = unb64(result.secret);
     if (key.length !== KEY_LEN) {
@@ -325,6 +341,8 @@ async function _loadWrapKey(): Promise<WrapKeyLoad> {
       log.warn('[password-store] local wrap key unreadable (key file kept, no rotation)');
       return { key: null, outcome: 'deterministic', kind: 'corrupt-local', reason: 'corrupt-local' };
     }
+    // C′ 自包含、无外部后端依赖：成功时清掉可能残留的 A 档标签。
+    if (autoFillKeyStore.get('keyEncBackend')) autoFillKeyStore.set('keyEncBackend', null);
     return { key, outcome: 'ok' };
   }
   // 无任何 key = 尚未 enroll，不是失败。

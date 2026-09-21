@@ -52,10 +52,10 @@ vi.mock('../src/main/modules/keyring', () => ({
       ? { ok: true, blob: `enc:${secret}` }
       : { ok: false, kind: 'backend-unavailable', reason: 'keyring-unavailable' }
   )),
-  keyringUnwrap: vi.fn(async (blob: string) => {
+  keyringUnwrapAffine: vi.fn(async (blob: string, preferred: string | null) => {
     if (!keyringState.backend) return { ok: false, kind: 'backend-unavailable', reason: 'keyring-unavailable' };
     if (!keyringState.unwrapOk) return { ok: false, kind: keyringState.unwrapKind, reason: keyringState.unwrapReason };
-    return { ok: true, secret: blob.startsWith('enc:') ? blob.slice(4) : blob };
+    return { ok: true, secret: blob.startsWith('enc:') ? blob.slice(4) : blob, backend: (preferred ?? keyringState.backend) };
   }),
 }));
 
