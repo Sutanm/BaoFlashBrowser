@@ -134,11 +134,134 @@ interface WrapKeyLoad {
   backend?: string | null;
 }
 
-/** 最近一次密钥加载结果（K1 仅供日志与内部判断；K3 经 IPC 暴露给 UI）。 */
-let _keyLoadState: { outcome: 'ok' | 'transient' | 'deterministic'; kind?: PasswordKeyFailureKind; reason?: string; backend?: string | null; attempts: number } = { outcome: 'ok', attempts: 0 };
+/** 最近一次密钥加载结果（规格 D7：经 IPC 暴露给 UI）。 */
+interface KeyLoadState {
+  outcome: 'ok' | 'transient' | 'deterministic';
+  kind?: PasswordKeyFailureKind;
+  reason?: string;
+  backend?: string | null;
+  attempts: number;
+}
 
-export function getKeyLoadState(): Readonly<typeof _keyLoadState> {
+let _keyLoadState: KeyLoadState = { outcome: 'ok', attempts: 0 };
+
+export function getKeyLoadState(): Readonly<KeyLoadState> {
   return { ..._keyLoadState };
+}
+
+export type PasswordKeyStatus = 'ok' | 'loading' | 'retrying' | 'blocked';
+
+export interface PasswordKeyIssue {
+  kind: 'transient' | 'deterministic';
+  reason: string;
+  backend?: string | null;
+  attempts: number;
+  nextRetryInMs?: number;
+  hint?: 'wait' | 'rebuild' | 'no-backend';
+}
+
+/** 退避重试间隔（规格 D6）：0 / 3s / 10s / 30s，用尽后只保留按需触发。 */
+const DEFAULT_RETRY_DELAYS_MS = [0, 3_000, 10_000, 30_000];
+
+function retryDelaysMs(): number[] {
+  const raw = process.env.BFB_KEYRING_RETRY_MS;
+  if (raw === undefined) return DEFAULT_RETRY_DELAYS_MS;
+  if (raw.trim() === '') return []; // 显式关闭（单测/脚本用）
+  const parsed = raw.split(',').map((entry) => Number(entry.trim())).filter((n) => Number.isFinite(n) && n >= 0);
+  return parsed.length > 0 ? parsed : DEFAULT_RETRY_DELAYS_MS;
+}
+
+/** vitest 下不排定常驻定时器，避免测试相互污染。 */
+const RETRY_ENABLED = !process.env.VITEST;
+
+let _ensureKeyInFlight: Promise<KeyLoadState> | null = null;
+let _retryTimers: ReturnType<typeof setTimeout>[] = [];
+
+function _clearRetryTimers(): void {
+  for (const timer of _retryTimers) clearTimeout(timer);
+  _retryTimers = [];
+}
+
+function _scheduleRetries(): void {
+  _clearRetryTimers();
+  if (!RETRY_ENABLED) return;
+  const delays = retryDelaysMs();
+  // 第一次（0ms）已由本次调用覆盖，故从第二个延迟开始排定。
+  for (let i = 1; i < delays.length; i++) {
+    const timer = setTimeout(() => {
+      if (_keyLoadState.outcome !== 'transient') return;
+      void ensureKeyLoaded();
+    }, delays[i]);
+    // 常驻定时器不得拖住进程退出。
+    (timer as unknown as { unref?: () => void }).unref?.();
+    _retryTimers.push(timer);
+  }
+}
+
+/** 距下一次重试的剩余毫秒（供状态展示；无排定则 undefined）。 */
+function _nextRetryInMs(): number | undefined {
+  const delays = retryDelaysMs();
+  const next = delays[Math.min(_keyLoadState.attempts, delays.length - 1)];
+  if (_keyLoadState.outcome !== 'transient' || _keyLoadState.attempts >= delays.length) return undefined;
+  return next;
+}
+
+/**
+ * 密钥获取状态（规格 D7）。`ok` 之外的状态在 UI 上必须可见 ——
+ * 2026-09-21 事故里 `initialized=true` 而密钥不可用，界面却显示"A 档"，纯属误导演示。
+ */
+export function getKeyStatus(): { status: PasswordKeyStatus; issue?: PasswordKeyIssue } {
+  if (_ensureKeyInFlight) return { status: 'loading', issue: _issueFor('transient') };
+  if (_keyLoadState.outcome === 'ok') return { status: 'ok' };
+  return {
+    status: _keyLoadState.outcome === 'transient' ? 'retrying' : 'blocked',
+    issue: _issueFor(_keyLoadState.outcome),
+  };
+}
+
+function _issueFor(outcome: 'transient' | 'deterministic'): PasswordKeyIssue {
+  return {
+    kind: outcome,
+    reason: _keyLoadState.reason ?? _keyLoadState.kind ?? 'unknown',
+    backend: _keyLoadState.backend ?? getActiveBackendId(),
+    attempts: _keyLoadState.attempts,
+    nextRetryInMs: _nextRetryInMs(),
+    hint: outcome === 'deterministic' ? 'rebuild' : (_keyLoadState.kind === 'backend-unavailable' ? 'no-backend' : 'wait'),
+  };
+}
+
+/**
+ * 幂等的密钥加载入口（规格 D6）：启动一次 + 按需触发（填充前/保存前/面板打开/手动重试）。
+ * 并发调用共享同一次尝试（in-flight 去重），失败按退避排定重试，成功即停表。
+ */
+export async function ensureKeyLoaded(): Promise<KeyLoadState> {
+  if (_ensureKeyInFlight) return _ensureKeyInFlight;
+  const run = (async () => {
+    try {
+      const outcome = await _loadDekFromStore();
+      if (_keyLoadState.outcome === 'ok' && outcome === 'ok') {
+        _clearRetryTimers();
+      } else if (outcome === 'transient') {
+        const delays = retryDelaysMs();
+        log.warn(
+          `[password-store] key unavailable kind=${_keyLoadState.kind ?? 'unknown'} reason=${_keyLoadState.reason ?? 'unknown'}`
+          + ` (attempt ${_keyLoadState.attempts}/${delays.length}, backend=${_keyLoadState.backend ?? 'none'})`,
+        );
+        _scheduleRetries();
+      } else {
+        log.warn(
+          `[password-store] key blocked kind=${_keyLoadState.kind ?? 'unknown'} reason=${_keyLoadState.reason ?? 'unknown'}`
+          + ' (user decision required: retry or rebuild)',
+        );
+        _clearRetryTimers();
+      }
+      return { ..._keyLoadState };
+    } finally {
+      _ensureKeyInFlight = null;
+    }
+  })();
+  _ensureKeyInFlight = run;
+  return run;
 }
 
 // ---------------------------------------------------------------------------
@@ -380,12 +503,12 @@ export function isInitialized(): boolean {
   return !!store.get('dekAutoFillEnc');
 }
 
-/** 启动加载：搁置旧数据 → 按 A/C′ 解出 DEK。 */
+/** 启动加载：搁置旧数据 → 按 A/C′ 解出 DEK（失败不再静默，见 ensureKeyLoaded）。 */
 export async function init(): Promise<void> {
   _loadEnabled();
   if (_shelveLegacyStoreIfAny()) _resetStoreToFreshV2();
   if (!_enabled) return;
-  await _loadDekFromStore();
+  await ensureKeyLoaded();
 }
 
 async function _loadDekFromStore(): Promise<'ok' | 'transient' | 'deterministic'> {
@@ -638,6 +761,7 @@ export function resetAll(): void {
   store.set('_excludedSites', _excludedSites);
   autoFillKeyStore.clear();
   _clearDek();
+  _clearRetryTimers();
   _keyLoadState = { outcome: 'ok', attempts: 0 };
 }
 
@@ -668,7 +792,8 @@ export function isEnabled(): boolean {
 export function toggleEnabled(): boolean {
   _enabled = !_enabled;
   store.set('_enabled', _enabled);
-  if (_enabled) void _loadDekFromStore();
+  if (_enabled) void ensureKeyLoaded();
+  else _clearRetryTimers();
   return _enabled;
 }
 
@@ -694,7 +819,7 @@ export function isAutoFillReady(): boolean {
 export function setAutoFill(enabled: boolean): boolean {
   _autoFill = enabled;
   store.set('_autoFill', enabled);
-  if (enabled) void _loadDekFromStore();
+  if (enabled) void ensureKeyLoaded();
   return _autoFill;
 }
 
@@ -721,5 +846,6 @@ export function setDefault(id: string): void {
 }
 
 export function dispose(): void {
+  _clearRetryTimers();
   _clearDek();
 }

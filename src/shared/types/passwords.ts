@@ -9,6 +9,19 @@ export interface PasswordEntry {
 
 export type PasswordTier = 'A' | 'C' | 'none';
 
+/** 密钥可用性（规格 D7）：ok=可用；loading=正在获取；retrying=瞬时失败自动重试中；blocked=需用户决策。 */
+export type PasswordKeyStatus = 'ok' | 'loading' | 'retrying' | 'blocked';
+
+export interface PasswordKeyIssue {
+  kind: 'transient' | 'deterministic';
+  /** 归一化机器码，如 'timeout' / 'decrypt-failed' / 'key-material-missing'。 */
+  reason: string;
+  backend?: string | null;
+  attempts: number;
+  nextRetryInMs?: number;
+  hint?: 'wait' | 'rebuild' | 'no-backend';
+}
+
 export type ViewGuardMode = 'os-win' | 'os-mac' | 'keyring' | 'none';
 
 export interface ViewGuardStatus {
@@ -30,8 +43,18 @@ export interface PasswordStoreStatus {
   autoFill: boolean;
   /** auto-fill 是否就绪（开关开 + vault 已建 + DEK 在内存）。 */
   autoFillReady: boolean;
+  /** 密钥可用性：只有 'ok' 才代表 DEK 真的可用（规格 D7）。 */
+  keyStatus: PasswordKeyStatus;
+  keyIssue?: PasswordKeyIssue;
   viewGuard: ViewGuardStatus;
   excludedSites: string[];
+}
+
+/** password:retry-key 结果：强制失效探测缓存并重试一次，返回最新状态。 */
+export interface KeyRetryResult {
+  keyStatus: PasswordKeyStatus;
+  keyIssue?: PasswordKeyIssue;
+  ready: boolean;
 }
 
 /** password:reveal 结果（Task 5 起按 view-gate 授权）。 */

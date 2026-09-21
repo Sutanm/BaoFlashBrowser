@@ -17,6 +17,8 @@ export interface OptionalTabServices {
     ): Promise<PasswordFillResult>;
     getFillCredentialForUrl(pageUrl: string, requestedId?: string, automatic?: boolean): FillCredential | null;
     isAutoFillEnabled(): boolean;
+    /** 按需自愈（规格 D6）：填充前确保密钥已就绪，瞬时失败可在会话内恢复。 */
+    ensureKeyLoaded?(): Promise<unknown>;
   };
   getUserscriptManager?: () => UserscriptManager | null;
 }
@@ -654,6 +656,8 @@ class TabManager {
       || this.automationTargets.has(tabId) || this.passwordFillInFlight.has(wc.id)) return;
     this.passwordFillInFlight.add(wc.id);
     try {
+      // 按需自愈：密钥若曾因瞬时故障缺席，这里补一次加载（失败则本次照常返回 no-credential）。
+      try { await passwords.ensureKeyLoaded?.(); } catch { /* 自愈失败不阻断填充流程 */ }
       const result = await passwords.fillPasswords(wc, (url) => passwords.getFillCredentialForUrl(url, undefined, true));
       if (result.success && this._isCurrentWebContents(tabId, wc)) {
         this._clearPasswordFillTimers(wc.id);
@@ -691,6 +695,7 @@ class TabManager {
     if (this.automationTargets.has(tabId)) return { success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'debugger-unavailable' };
     const passwords = optionalServices.passwords;
     if (!passwords) return { success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'no-credential' };
+    try { await passwords.ensureKeyLoaded?.(); } catch { /* 自愈失败不阻断填充流程 */ }
     const result = await passwords.fillPasswords(wc, (url) => passwords.getFillCredentialForUrl(url, entryId, false));
     if (result.success) this.send('password:filled', { tabId, username: result.usernames[0] || '', count: result.filledCredentials, automatic: false });
     return result;

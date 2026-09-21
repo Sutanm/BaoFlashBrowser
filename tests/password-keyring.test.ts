@@ -1,10 +1,12 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import {
   resolveBackend,
   detectKeyring,
   clearKeyringCache,
+  invalidateKeyring,
   getActiveBackendId,
   _setActiveBackendForTest,
+  _setCandidateBackendsForTest,
   keyringWrap,
   keyringUnwrap,
   type KeyringBackend,
@@ -108,5 +110,46 @@ describe('keyring wrap/unwrap 便捷封装', () => {
     expect(getActiveBackendId()).toBe('win-dpapi');
     _setActiveBackendForTest(null);
     expect(getActiveBackendId()).toBeNull();
+  });
+});
+
+describe('探测失败缓存与重试（规格 D5）', () => {
+  beforeEach(() => {
+    clearKeyringCache();
+    _setCandidateBackendsForTest(null);
+  });
+
+  afterEach(() => {
+    _setCandidateBackendsForTest(null);
+    clearKeyringCache();
+    vi.useRealTimers();
+  });
+
+  it('失败结论按 TTL 过期后重新探测（不再污染整个会话）', async () => {
+    let probeOk = false;
+    const backend = makeBackend('win-dpapi');
+    backend.probe = async () => (probeOk ? { ok: true } : { ok: false, reason: 'timeout' });
+    _setCandidateBackendsForTest([backend]);
+
+    expect(await detectKeyring()).toEqual({ backend: null, reason: 'timeout' });
+    // TTL 内复用失败结论（不重复跑子进程）
+    expect(await detectKeyring()).toEqual({ backend: null, reason: 'timeout' });
+
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 16_000);
+    probeOk = true;
+    expect(await detectKeyring()).toEqual({ backend: 'win-dpapi' });
+  });
+
+  it('invalidateKeyring 立即清掉失败结论，下次探测重跑', async () => {
+    let probeOk = false;
+    const backend = makeBackend('win-dpapi');
+    backend.probe = async () => (probeOk ? { ok: true } : { ok: false, reason: 'timeout' });
+    _setCandidateBackendsForTest([backend]);
+
+    expect((await detectKeyring()).backend).toBeNull();
+    probeOk = true;
+    invalidateKeyring();
+    expect(await detectKeyring()).toEqual({ backend: 'win-dpapi' });
   });
 });

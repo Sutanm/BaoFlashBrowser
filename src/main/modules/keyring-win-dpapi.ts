@@ -11,7 +11,9 @@ import type { KeyringBackend, KeyringFailure, KeyringFailureKind } from './keyri
  * 安全约束：
  * - payload（base64 秘密）经 stdin 传入，绝不进入命令行参数（ps 可见）。
  * - stdout 首行契约：`OK <base64>` / `ERR <code>`；stderr 仅日志。
- * - 强制短超时（wrap 10s / unwrap 15s），超时 kill。
+ * - 强制超时（probe 25s / wrap 20s / unwrap 25s），超时 kill。预算按"冷启动 PowerShell +
+ *   Add-Type 在机器繁忙时的实测耗时"设定（2026-09-20 事故：10s 预算在启动风暴下被击穿），
+ *   宁可等也不误判；`BFB_KEYRING_TIMEOUT_MS` 可覆盖（故障注入探针/单测用）。
  * - dev-only 覆盖：BFB_POWERSHELL_CMD 可替换可执行路径，用于失败路径冒烟
  *   （GPO 强制执行策略 / AppLocker 拦 Add-Type 的场景无法在本进程模拟，
  *   由该 hook 覆盖 spawn 失败路径，真实策略拦截依赖真机验证）。
@@ -55,10 +57,10 @@ const PROBE_PLAIN = 'keyring-probe-42';
  * 子进程预算。可用 `BFB_KEYRING_TIMEOUT_MS` 覆盖（故障注入探针与单测用）。
  * 预算一律 > 冷启动 PowerShell + Add-Type 的实测耗时，宁可等也不误判（规格 D5）。
  */
-const DEFAULT_PROBE_WRAP_TIMEOUT_MS = 10_000;
-const DEFAULT_PROBE_UNWRAP_TIMEOUT_MS = 15_000;
-const DEFAULT_WRAP_TIMEOUT_MS = 10_000;
-const DEFAULT_UNWRAP_TIMEOUT_MS = 15_000;
+const DEFAULT_PROBE_WRAP_TIMEOUT_MS = 25_000;
+const DEFAULT_PROBE_UNWRAP_TIMEOUT_MS = 25_000;
+const DEFAULT_WRAP_TIMEOUT_MS = 20_000;
+const DEFAULT_UNWRAP_TIMEOUT_MS = 25_000;
 
 function budgetMs(fallback: number): number {
   const raw = Number(process.env.BFB_KEYRING_TIMEOUT_MS);

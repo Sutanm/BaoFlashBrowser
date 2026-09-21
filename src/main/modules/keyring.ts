@@ -69,6 +69,8 @@ export interface KeyringBackend {
 export function _setActiveBackendForTest(backend: KeyringBackend | null): void {
   _activeBackend = backend;
   _cachedStatus = backend ? { backend: backend.id } : { backend: null, reason: 'test-none' };
+  _cachedAt = Date.now();
+  _probed = true;
 }
 
 /** Electron ≥15 的最小 safeStorage 形态（11 上不存在，动态探测）。 */
@@ -159,9 +161,29 @@ function createPlatformBackend(platform: NodeJS.Platform): KeyringBackend | null
 
 let _activeBackend: KeyringBackend | null = null;
 let _cachedStatus: KeyringStatus | null = null;
+let _cachedAt = 0;
+/** 缓存结论是否来自真实往返探针（读路径的"提示性"解析不算）。 */
+let _probed = false;
+
+/**
+ * 探测失败的缓存时长（规格 D5）。成功结论进程级有效；失败只保留很短一段时间，
+ * 否则一次瞬时超时会污染整个会话（2026-09-20 事故的放大器之一）。
+ */
+function failureTtlMs(): number {
+  const raw = Number(process.env.BFB_KEYRING_FAILURE_TTL_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 15_000;
+}
+
+/** 仅供单元测试注入候选后端（不改动真实平台链，配合 clearKeyringCache 复位）。 */
+let _candidateOverride: KeyringBackend[] | null = null;
+
+export function _setCandidateBackendsForTest(list: KeyringBackend[] | null): void {
+  _candidateOverride = list;
+}
 
 /** 平台候选构造（safeStorage 优先 → 平台后端），供探测与亲和试解共用。 */
 async function buildCandidates(platform: NodeJS.Platform): Promise<KeyringBackend[]> {
+  if (_candidateOverride) return _candidateOverride;
   const out: KeyringBackend[] = [];
   const ss = createElectronSafeStorageBackend();
   if (ss) out.push(ss);
@@ -174,20 +196,50 @@ async function buildCandidates(platform: NodeJS.Platform): Promise<KeyringBacken
 export function clearKeyringCache(): void {
   _activeBackend = null;
   _cachedStatus = null;
+  _cachedAt = 0;
+  _probed = false;
+}
+
+/** 使缓存失效（重试路径调用）：下一次探测会真正重跑，而不是复用失败结论。 */
+export function invalidateKeyring(): void {
+  clearKeyringCache();
 }
 
 /** 依次探测候选后端（safeStorage 优先 → 平台后端），命中即缓存。 */
 export async function detectKeyring(): Promise<KeyringStatus> {
-  if (_cachedStatus) return _cachedStatus;
+  if (_cachedStatus && _probed) {
+    const isFailure = !_cachedStatus.backend;
+    // 成功结论进程级有效；失败结论只保留很短时间（规格 D5，避免一次超时污染整个会话）。
+    if (!isFailure || Date.now() - _cachedAt < failureTtlMs()) return _cachedStatus;
+  }
   const result = await resolveBackend(process.platform);
   _activeBackend = result.backend;
   _cachedStatus = result.status;
+  _cachedAt = Date.now();
+  _probed = true;
   if (!result.status.backend) {
     log.info(`[keyring] no OS backend available (reason=${result.status.reason ?? 'unknown'})`);
   } else {
     log.info(`[keyring] backend active: ${result.status.backend}`);
   }
   return result.status;
+}
+
+/**
+ * 不做往返探针的后端解析（读路径专用，规格 D5）。
+ *
+ * 读路径手上就有一段真实密文，unwrap 本身就是最强的探针；再跑一轮 protect→unprotect
+ * 既慢又会在机器繁忙时误判（事故当天正是如此）。此处只做廉价的 available 检查，
+ * 且**不缓存失败结论**——下一次调用自然重试。
+ */
+async function resolveWithoutProbe(platform: NodeJS.Platform): Promise<void> {
+  if (_probed && _cachedStatus?.backend) return;
+  const available = await buildAvailableCandidates(platform);
+  _activeBackend = available[0] ?? null;
+  _cachedStatus = _activeBackend ? { backend: _activeBackend.id } : { backend: null, reason: 'no-tool' };
+  _cachedAt = Date.now();
+  // 不是探针结论：enroll（写）路径必须重新探测，绝不凭此写入。
+  _probed = false;
 }
 
 /** 供单元测试直接探测给定候选（绕过平台与缓存）。 */
@@ -248,7 +300,8 @@ export async function keyringUnwrapAffine(
   blob: string,
   preferred: KeyringBackendId | null,
 ): Promise<{ ok: true; secret: string; backend: KeyringBackendId } | KeyringFailure> {
-  await detectKeyring();
+  // 读路径不跑往返探针（规格 D5）：unwrap 自身即探针，且失败不缓存、下次自然重试。
+  await resolveWithoutProbe(process.platform);
   const activeId = getActiveBackendId();
   const available = await buildAvailableCandidates(process.platform);
   const byId = new Map(available.map((backend) => [backend.id, backend]));

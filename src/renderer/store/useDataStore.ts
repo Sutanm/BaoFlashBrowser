@@ -89,6 +89,7 @@ export const useDataStore = create<DataState>((set, get) => ({
     autoCapture: true,
     autoFill: true,
     autoFillReady: false,
+    keyStatus: 'ok',
     viewGuard: { mode: 'none', fallbackEnabled: false },
     excludedSites: [],
   },

@@ -145,6 +145,7 @@ function bootstrap(): void {
         fillPasswords: passwordFill.fillPasswordsInWebContents,
         getFillCredentialForUrl: passwordStore.getFillCredentialForUrl,
         isAutoFillEnabled: passwordStore.isAutoFillEnabled,
+        ensureKeyLoaded: passwordStore.ensureKeyLoaded,
       } : undefined,
     });
 

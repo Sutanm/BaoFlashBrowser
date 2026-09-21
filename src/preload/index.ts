@@ -24,7 +24,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'password:status', 'password:init',
   'password:toggle-enabled', 'password:set-auto-capture', 'password:set-auto-fill', 'password:set-excluded-sites', 'password:list', 'password:save-confirm',
   'password:ignore', 'password:delete', 'password:reveal', 'password:set-default',
-  'password:reset', 'password:fill',
+  'password:reset', 'password:fill', 'password:retry-key',
   'diagnostics:export',
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
@@ -146,6 +146,7 @@ const electronAPI = {
     setDefault: (id: string) => safeInvoke('password:set-default', { id }),
     fill: (tabId: string, id: string) => safeInvoke('password:fill', { tabId, id }),
     resetAll: () => safeInvoke('password:reset'),
+    retryKey: () => safeInvoke('password:retry-key'),
   },
 
   diagnostics: {

@@ -6,8 +6,9 @@ import {
   addEntry, listEntries, deleteEntry,
   setDefault, isAutoCaptureEnabled, setAutoCapture,
   getExcludedSites, setExcludedSites, isAutoFillEnabled, isAutoFillReady, setAutoFill,
-  isDekReady, resetAll,
+  isDekReady, resetAll, ensureKeyLoaded, getKeyStatus,
 } from '../modules/password-store';
+import { invalidateKeyring } from '../modules/keyring';
 import type { PasswordTier, RevealPasswordResult, ViewGuardMode } from '../../shared/types/passwords';
 import { getPendingCredential, removePendingCredential, notifyPasswordChanged } from '../modules/password-capture';
 import { tabManager } from '../modules/tabs';
@@ -27,6 +28,7 @@ function resolveTierView(tier: PasswordTier): { mode: ViewGuardMode; fallbackEna
 export function registerPasswordIPC(): void {
   createHandler('password:status', async () => {
     const tier: PasswordTier = isInitialized() ? (await getTier()) ?? 'none' : 'none';
+    const key = getKeyStatus();
     return {
       enabled: isEnabled(),
       initialized: isInitialized(),
@@ -34,9 +36,19 @@ export function registerPasswordIPC(): void {
       autoCapture: isAutoCaptureEnabled(),
       autoFill: isAutoFillEnabled(),
       autoFillReady: isAutoFillReady(),
+      keyStatus: key.status,
+      keyIssue: key.issue,
       viewGuard: resolveTierView(tier),
       excludedSites: getExcludedSites(),
     };
+  });
+
+  // 手动重试：使探测缓存失效（瞬时失败不再污染会话）后重试一次。
+  createHandler('password:retry-key', async () => {
+    invalidateKeyring();
+    await ensureKeyLoaded();
+    const key = getKeyStatus();
+    return { keyStatus: key.status, keyIssue: key.issue, ready: isAutoFillReady() };
   });
 
   const idArg = z.object({ id: z.string().min(1).max(128) }).strict();
@@ -84,8 +96,10 @@ export function registerPasswordIPC(): void {
     return { excludedSites };
   });
 
-  createValidatedHandler('password:save-confirm', captureArg, ({ captureId }) => {
+  createValidatedHandler('password:save-confirm', captureArg, async ({ captureId }) => {
     if (!isEnabled()) return { success: false, error: 'Password store is disabled' };
+    // 按需自愈（规格 D6）：此前若因瞬时故障未取到密钥，这里再试一次再决定成败。
+    if (!isDekReady()) await ensureKeyLoaded();
     if (!isInitialized() || !isDekReady()) return { success: false, error: 'Password store not ready' };
     const cred = getPendingCredential(captureId);
     if (!cred) return { success: false, error: 'Credentials expired' };

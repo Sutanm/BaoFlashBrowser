@@ -64,6 +64,7 @@ import {
   init, initVault, isInitialized, isDekReady, isAutoFillReady,
   setAutoFill, dispose, addEntry, listEntries, getDecryptedPassword,
   getFillCredentialForUrl, deleteEntry, resetAll, getKeyLoadState, isDeterministicKeyFailure,
+  getKeyStatus, ensureKeyLoaded,
   _looksLikeLegacyStoreText, _looksLikeLegacyPlainKey,
 } from '../src/main/modules/password-store';
 
@@ -151,6 +152,73 @@ describe('password-store v2 生命周期（C′ 档：无 OS 密钥库）', () =
     expect(storeState.writes).toEqual([]);
     expect(keyStore.get('keyLocal')).toBe('garbage-not-v1');
     expect(getKeyLoadState()).toMatchObject({ outcome: 'deterministic', kind: 'corrupt-local' });
+  });
+});
+
+describe('密钥状态暴露与自愈（规格 D6/D7）', () => {
+  beforeEach(() => {
+    for (const data of storeState.stores.values()) data.clear();
+    keyringState.unwrapOk = true;
+    keyringState.unwrapKind = 'decrypt-failed';
+    keyringState.unwrapReason = 'unwrap-failed';
+    for (const data of storeState.stores.values()) {
+      data.set('version', 2);
+      data.set('dekAutoFillEnc', null);
+      data.set('entries', []);
+      data.set('_enabled', true);
+      data.set('_autoCapture', true);
+      data.set('_autoFill', true);
+      data.set('_excludedSites', []);
+    }
+    dispose();
+  });
+
+  it('成功：keyStatus=ok、无 issue', async () => {
+    keyringState.backend = 'win-dpapi';
+    await initVault();
+    dispose();
+    await ensureKeyLoaded();
+    expect(getKeyStatus()).toEqual({ status: 'ok' });
+  });
+
+  it('瞬时失败：keyStatus=retrying，issue 带原因/尝试次数/下次重试；自愈后可恢复', async () => {
+    keyringState.backend = 'win-dpapi';
+    await initVault();
+    keyringState.unwrapOk = false;
+    keyringState.unwrapKind = 'timeout';
+    keyringState.unwrapReason = 'timeout';
+    dispose();
+    await ensureKeyLoaded();
+    const status = getKeyStatus();
+    expect(status.status).toBe('retrying');
+    expect(status.issue).toMatchObject({ kind: 'transient', reason: 'timeout', hint: 'wait' });
+    expect(status.issue?.attempts).toBeGreaterThanOrEqual(1);
+    // 会话内自愈：故障消失后再次加载即恢复（无需重启、无需轮换密钥）
+    keyringState.unwrapOk = true;
+    await ensureKeyLoaded();
+    expect(getKeyStatus()).toEqual({ status: 'ok' });
+    expect(isAutoFillReady()).toBe(true);
+  });
+
+  it('确定性失败：keyStatus=blocked，hint=rebuild（等用户决策，不自动动作）', async () => {
+    keyringState.backend = 'win-dpapi';
+    await initVault();
+    keyringState.unwrapOk = false;
+    keyringState.unwrapKind = 'decrypt-failed';
+    dispose();
+    await ensureKeyLoaded();
+    const status = getKeyStatus();
+    expect(status.status).toBe('blocked');
+    expect(status.issue).toMatchObject({ kind: 'deterministic', reason: 'unwrap-failed', hint: 'rebuild' });
+  });
+
+  it('ensureKeyLoaded 幂等：并发调用共享同一次尝试', async () => {
+    keyringState.backend = 'win-dpapi';
+    await initVault();
+    dispose();
+    const [a, b] = await Promise.all([ensureKeyLoaded(), ensureKeyLoaded()]);
+    expect(a).toEqual(b);
+    expect(isDekReady()).toBe(true);
   });
 });
 
