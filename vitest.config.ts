@@ -33,6 +33,9 @@ export default defineConfig({
     pool: 'threads',
     minThreads: 4,
     maxThreads: 16,
+    // 单测不得写真实应用日志（electron-log 在纯 Node 下指向 %APPDATA%\<name>\logs\main.log，
+    // 会让 mock 路径的告警混进真机日志，2026-09-21 排查时被它误导过）。
+    setupFiles: [path.resolve(__dirname, 'tests/setup/quiet-electron-log.ts')],
     coverage: {
       provider: 'v8',
       // Keep V8 temp raw coverage and reports out of the workspace:
