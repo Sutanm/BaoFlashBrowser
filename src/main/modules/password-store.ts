@@ -44,12 +44,20 @@ interface StoredEntry extends EntryMeta {
   createdAt: number;
 }
 
+/** 查看密码的校验材料（规格 G6）：PBKDF2-HMAC-SHA256，绝不可逆。 */
+export interface ViewFallbackRecord {
+  salt: string;
+  hash: string;
+  /** 迭代次数入库：将来调参时旧记录仍按自己的参数校验，不误判。 */
+  iter: number;
+}
+
 interface PasswordStoreSchema {
   version: number;
   dekAutoFillEnc: EncBlob | null;
   entries: StoredEntry[];
-  /** C′ 可选兜底查看密码的哈希（预留位，Task 5 才填充；默认 null）。 */
-  viewFallback: { salt: string; hash: string } | null;
+  /** C 档查看密码的校验材料；null = 尚未设置（默认 null）。 */
+  viewFallback: ViewFallbackRecord | null;
   _enabled: boolean;
   _autoCapture: boolean;
   _autoFill: boolean;
@@ -696,13 +704,32 @@ export function deleteEntry(id: string): boolean {
   return true;
 }
 
-/** 纯解密函数：由 view-gate 授权后的 reveal 路径调用（Task 5+），本层不做门禁。 */
+/**
+ * 查看密码的校验材料读写（规格 G6）。
+ *
+ * 只负责存取，**不做任何判定**：门禁策略、失败计数与锁定都在 view-gate 模块，
+ * 本层不 import 它（避免环形依赖，与 keyring 的分层一致）。
+ */
+export function getViewFallback(): ViewFallbackRecord | null {
+  return store.get('viewFallback') || null;
+}
+
+export function setViewFallback(record: ViewFallbackRecord | null): void {
+  store.set('viewFallback', record);
+}
+
+/** 纯解密函数：由 view-gate 授权后的 reveal 路径调用（规格 G1），本层不做门禁。 */
 export function getDecryptedPassword(id: string): string | null {
   if (!_dek) return null;
   const idx = _findEntryIndex(id);
   if (idx < 0) return null;
   const entries = store.get('entries') || [];
   return decryptStr(_dek, entries[idx].passwordEnc);
+}
+
+/** 门禁前置判断用：条目是否存在（不存在就不该弹验证框）。 */
+export function hasEntry(id: string): boolean {
+  return _findEntryIndex(id) >= 0;
 }
 
 export interface FillCredential {

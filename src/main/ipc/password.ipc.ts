@@ -14,15 +14,15 @@ import { getPendingCredential, removePendingCredential, notifyPasswordChanged } 
 import { tabManager } from '../modules/tabs';
 
 /**
- * 临时档位/门禁判定（Task 5 view-gate.ts 就绪后替换为真实模块）。
- * 仅服务状态展示，不承载任何安全决策：reveal 在 Task 5 前恒 not-authorized。
+ * 临时档位/门禁判定（V3 接入 view-gate 的 `resolveViewGuard()` 后删除）。
+ * 仅服务状态展示，不承载任何安全决策：reveal 在门禁接线前恒 not-authorized。
  */
-function resolveTierView(tier: PasswordTier): { mode: ViewGuardMode; fallbackEnabled: boolean; reason?: string } {
-  if (tier === 'none') return { mode: 'none', fallbackEnabled: false };
-  if (tier === 'C') return { mode: 'none', fallbackEnabled: false, reason: 'no-os-keyring' };
-  if (process.platform === 'win32') return { mode: 'os-win', fallbackEnabled: false };
-  if (process.platform === 'darwin') return { mode: 'os-mac', fallbackEnabled: false };
-  return { mode: 'keyring', fallbackEnabled: false };
+function resolveTierView(tier: PasswordTier): { mode: ViewGuardMode; passwordSet: boolean; reason?: string } {
+  if (tier === 'none') return { mode: 'none', passwordSet: false };
+  if (tier === 'C') return { mode: 'none', passwordSet: false, reason: 'no-os-keyring' };
+  if (process.platform === 'win32') return { mode: 'os-win', passwordSet: false };
+  if (process.platform === 'darwin') return { mode: 'os-mac', passwordSet: false };
+  return { mode: 'keyring', passwordSet: false };
 }
 
 export function registerPasswordIPC(): void {

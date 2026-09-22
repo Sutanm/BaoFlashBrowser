@@ -90,7 +90,7 @@ export const useDataStore = create<DataState>((set, get) => ({
     autoFill: true,
     autoFillReady: false,
     keyStatus: 'ok',
-    viewGuard: { mode: 'none', fallbackEnabled: false },
+    viewGuard: { mode: 'none', passwordSet: false },
     excludedSites: [],
   },
   activePanel: null,

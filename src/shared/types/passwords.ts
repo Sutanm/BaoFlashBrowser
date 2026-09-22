@@ -22,15 +22,19 @@ export interface PasswordKeyIssue {
   hint?: 'wait' | 'rebuild' | 'no-backend';
 }
 
-export type ViewGuardMode = 'os-win' | 'os-mac' | 'keyring' | 'none';
+export type ViewGuardMode = 'os-win' | 'os-mac' | 'keyring' | 'password' | 'none';
 
 export interface ViewGuardStatus {
-  /** 查看明文密码的门禁形态（Task 5/6 由 view-gate 模块填充真实值）。 */
+  /** 查看明文密码的门禁形态（规格 2026-09-22 §2）。'password' = 用户自定义查看密码。 */
   mode: ViewGuardMode;
-  /** C′ 可选兜底查看密码是否已启用。 */
-  fallbackEnabled: boolean;
-  /** 诊断原因（如无 OS 密钥库）。 */
+  /** 查看密码是否已设置（仅 'password' 模式有意义）。 */
+  passwordSet: boolean;
+  /** 诊断原因（如 not-initialized / key-unavailable / tier-c / no-os-auth-backend）。 */
   reason?: string;
+  /** 锁定期剩余毫秒；未锁定时为 undefined。 */
+  lockedForMs?: number;
+  /** 还剩几次尝试机会；锁定期间为 0。 */
+  remainingAttempts?: number;
 }
 
 export interface PasswordStoreStatus {
