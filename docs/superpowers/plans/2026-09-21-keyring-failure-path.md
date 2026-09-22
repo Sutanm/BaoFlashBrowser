@@ -49,7 +49,7 @@ K2–K4 都建立在"失败已不再破坏数据"这个前提上。
 | K4 状态可见化 + 重建入口 | ✅ 完成 | `7705a2a` | typecheck/lint 0 error；649 项；产物已重建并核对含新逻辑 |
 | K5 真机数据处置 | ✅ 已完成 | — | 用户已通过密码本面板"重建密码本…"（敲 `REBUILD`）完成处置；库内现为 1 条真实条目，无遗留数据 |
 | 探针 23（真机故障注入） | ⏳ 待补 | — | 需要为 password-store 增加可被 Electron 探针加载的 smoke 构件（新 build 脚本 + `scripts/smoke-bundles.cjs` 清单项），单独提交 |
-| PasswordsPanel 三态渲染测试 | ⏳ 待补 | — | **2026-09-22 修正前提**：仓库 jsdom 基建不止覆盖 SettingsPanel（已有 `settings-panel.test.tsx` 等 7 个 `.tsx` 用例），ipc mock 与 i18n provider 包装的模板现成，补面板测试无需先补基建。 |
+| PasswordsPanel 三态渲染测试 | ✅ 已完成 | `b976a4d` | **2026-09-22 修正前提**：仓库 jsdom 基建不止覆盖 SettingsPanel（已有 `settings-panel.test.tsx` 等 7 个 `.tsx` 用例），ipc mock 与 i18n provider 包装的模板现成。落地于 `tests/passwords-panel-view-gate.test.tsx`（7 项，view-gate V4），并顺带查出两个渲染层缺陷（剩余次数被错误提示顶掉、倒计时基准陈旧）。 |
 
 **落地时的两处偏差（相对上文任务书）**：
 1. K1 的失败路径测试**并入** `tests/password-store-v2.test.ts`（而非新建

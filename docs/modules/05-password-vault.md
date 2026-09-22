@@ -45,10 +45,21 @@ key 文件只会改名为 `.legacy.bak` 搁置，不读取、不迁移。
 - 唯一允许销毁密钥的产品路径是 `password:rebuild-vault`（须提交确认词 `REBUILD`）。
 
 现行 IPC 包括状态/初始化、列表、启停、自动捕获、自动填充、站点排除、保存确认、忽略、
-删除、查看、默认账号、填充与重置，另加 `password:retry-key`（强制失效探测缓存并重试）
-与 `password:rebuild-vault`；`password:status` 携带 `keyStatus` / `keyIssue` 供 UI 呈现三态。
-Linux Secret Service、macOS Keychain 和查看门禁尚未接入；在门禁完成前 `password:reveal`
-固定返回 `not-authorized`，不会把密码明文送入渲染层。
+删除、查看、默认账号、填充与重置，另加 `password:retry-key`（强制失效探测缓存并重试）、
+`password:rebuild-vault`、`password:set-view-password` 与 `password:reset-os-auth`；
+`password:status` 携带 `keyStatus` / `keyIssue` 供 UI 呈现三态，并携带 `viewGuard`
+（`mode` / `passwordSet` / `lockedForMs` / `remainingAttempts`）。
+
+**查看门禁已接入**（2026-09-22，规格 `docs/superpowers/specs/2026-09-22-view-gate-design.md`）：
+`password:reveal` 由恒 `not-authorized` 的占位改为**授权制**——先判"库可否解密"→
+再判"条目是否存在"→ 最后验证 → 通过后才解密，且**每次查看都要验证**（无会话豁免）。
+门禁形态按档位：A 档走系统凭据对话框（Windows `CredUIPromptForWindowsCredentials` +
+`LogonUserW` + SID 比对），C 档走用户自定义查看密码（PBKDF2 250k）。
+连续失败 5 次锁 30 分钟，锁定记录存独立 store `password-view-guard`
+（**不随 `resetAll()` / 重建清除**：锁定是关于"尝试"的）。渲染层文案与交互见
+`PasswordViewGateModal.tsx` / `PasswordsPanel.tsx` / `SettingsPanel.tsx`。
+Linux Secret Service 与 macOS Keychain 仍未接入（`createPlatformBackend` 返回 null），
+因此这两个平台上 A 档会落到查看密码，而不是"无门禁放行"。
 
 **条目的用户名可以为空**（2026-09-22 起，对齐 Chrome）：没有用户名框（卡号/手机号即账号）
 或捕获时用户名还没进 DOM 的登录同样会保存，面板显示"（无用户名）"，查重键为 `host + ''`。

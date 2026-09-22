@@ -146,13 +146,15 @@ Windows 账户用 PIN / Windows Hello，或账户被策略禁止网络登录时�
 
 ## 9. IPC 表面（G11）
 
-**只新增一个通道**，`password:reveal` 扩展一个可选参数：
+**只新增一个通道**（实现时因 §8 的"重新检测系统验证"需要一个入口，实际新增了两个），
+`password:reveal` 扩展一个可选参数：
 
 | 通道 | 入参 | 返回 |
 |---|---|---|
 | `password:status`（既有，扩展） | — | `viewGuard: { mode, passwordSet, lockedForMs?, remainingAttempts?, reason? }` |
-| `password:reveal`（既有，扩展） | `{ id, secret? }` | `{ password?, error?, remainingAttempts?, lockedForMs? }` |
-| `password:set-view-password`（新增） | `{ password, current? }` | `{ success, error? }` |
+| `password:reveal`（既有，扩展） | `{ id, secret? }` | `{ password?, error?, remainingAttempts?, lockedForMs?, mode?, reason? }` |
+| `password:set-view-password`（新增） | `{ password, current? }` | `{ success, error? }`；当前档位不需要查看密码时返回 `not-available` |
+| `password:reset-os-auth`（新增，非必需项） | — | `{ viewGuard }`：清掉 §8 的降级标记后返回最新状态 |
 
 `error` 取值（实现中的 `ViewAuthCode`）：
 
