@@ -224,7 +224,7 @@ const PasswordsPanel: React.FC = () => {
               {expandedHosts.has(host) && items.map((entry) => (
                 <div key={entry.id} className="pwd-entry">
                   <div className="pwd-entry-row">
-                    <span style={{ color: 'var(--text-primary)' }}>{entry.username}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{entry.username || LL.password.noUsername()}</span>
                     {entry.id === defaultId && <span className="pwd-default-star">★</span>}
                   </div>
                   <div className="pwd-entry-actions">

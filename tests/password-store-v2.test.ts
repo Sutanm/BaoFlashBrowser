@@ -64,7 +64,7 @@ import {
   init, initVault, isInitialized, isDekReady, isAutoFillReady,
   setAutoFill, dispose, addEntry, listEntries, getDecryptedPassword,
   getFillCredentialForUrl, deleteEntry, resetAll, getKeyLoadState, isDeterministicKeyFailure,
-  getKeyStatus, ensureKeyLoaded,
+  getKeyStatus, ensureKeyLoaded, getMetaForHost,
   _looksLikeLegacyStoreText, _looksLikeLegacyPlainKey,
 } from '../src/main/modules/password-store';
 
@@ -113,6 +113,19 @@ describe('password-store v2 生命周期（C′ 档：无 OS 密钥库）', () =
     setAutoFill(false);
     expect(getFillCredentialForUrl('https://example.com/login', undefined, true)).toBeNull();
     expect(getFillCredentialForUrl('https://example.com/login', id, false)?.password).toBe('S3cret!');
+  });
+
+  // 2026-09-22：对齐 Chrome —— 用户名允许为空（没有用户名框、或捕获时用户名还没进 DOM）。
+  it('空用户名条目可以保存与读取，且查重键为 host + 空串', async () => {
+    await initVault();
+    const id = addEntry({ host: 'nouser.example', username: '', password: 'S3cret!' });
+    expect(id).toBeTruthy();
+    expect(listEntries().map((e) => e.username)).toEqual(['']);
+    expect(getDecryptedPassword(id)).toBe('S3cret!');
+    expect(getMetaForHost('nouser.example').map((e) => e.username)).toEqual(['']);
+    // host / password 仍然必填
+    expect(() => addEntry({ host: '', username: '', password: 'x' })).toThrow('Incomplete params');
+    expect(() => addEntry({ host: 'nouser.example', username: '', password: '' })).toThrow('Incomplete params');
   });
 
   it('重启（dispose→init）：C′ keyLocal 解混淆恢复 DEK，免任何输入', async () => {

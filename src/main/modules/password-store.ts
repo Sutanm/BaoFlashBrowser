@@ -639,7 +639,9 @@ export function addEntry(opts: {
   origin?: string;
   title?: string;
 }): string {
-  if (!opts || !opts.host || !opts.username || !opts.password) throw new Error('Incomplete params');
+  // 用户名可以为空（对齐 Chrome）：有些登录页没有用户名框（卡号/手机号即账号），
+  // 或捕获时用户名还没被填进 DOM。此时仍保存条目，用户名留空，查重键为 host + ''。
+  if (!opts || !opts.host || !opts.password) throw new Error('Incomplete params');
   const dek = _getDekForWrite();
   const entries = store.get('entries') || [];
   let idx = -1;

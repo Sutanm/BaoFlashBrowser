@@ -513,9 +513,12 @@ export function setupCapture(wc: WebContents): void {
           continue;
         }
         if (data._type !== 'baop_capture') continue;
-        if (!data.user || !data.pass || data.pass.length < 2) continue;
+        // 用户名允许为空（对齐 Chrome）：部分登录页先填密码、用户名由站点 JS 后补，或压根没有
+        // 用户名框（卡号/手机号/邮箱即账号）。此前 `!data.user` 会让这类登录静默不弹提示。
+        if (!data.pass || String(data.pass).length < 2) continue;
+        const username = typeof data.user === 'string' ? data.user : '';
         if (isCaptureExcluded(String(data.origin || data.host || ''))) continue;
-        const key = `${data.host}/${data.user}`;
+        const key = `${data.host}/${username}`;
         if (state.capturedSet.has(key)) continue;
 
         let skipToast = shownToastKeys.has(key);
@@ -528,7 +531,7 @@ export function setupCapture(wc: WebContents): void {
         if (!skipToast) {
           globalPendingCredentials.set(captureId, {
             host: data.host,
-            username: data.user,
+            username,
             password: data.pass,
             origin: credentialOrigin(String(data.origin || ''), String(data.host || '')),
             title: data.title || '',
@@ -540,7 +543,7 @@ export function setupCapture(wc: WebContents): void {
         if (!skipToast) {
           try {
             const existing = getMetaForHost(data.host);
-            if (existing.some((e) => e.username === data.user)) {
+            if (existing.some((e) => e.username === username)) {
               log.info('[PasswordCapture] skip already-saved host=' + data.host);
               skipToast = true;
             }
@@ -561,7 +564,7 @@ export function setupCapture(wc: WebContents): void {
         }
 
         shownToastKeys.set(key, { captureId, timestamp: Date.now() });
-        sendToRenderer('password:captured', { captureId, host: data.host, username: data.user });
+        sendToRenderer('password:captured', { captureId, host: data.host, username });
         log.info('[PasswordCapture] captured host=' + data.host + ' source=' + data.source);
         // LRU：超过 50 条删最早的（removePendingCredential 里也会兜底）
         if (globalPendingCredentials.size > 50) { const fk = globalPendingCredentials.keys().next().value; if (fk) globalPendingCredentials.delete(fk); }

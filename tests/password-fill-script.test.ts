@@ -52,4 +52,28 @@ describe('password fill page script', () => {
     document.body.innerHTML = '<form><input autocomplete="username"><input style="display:none" type="password"></form>';
     expect(run()).toEqual({ filledFields: 0, filledCredentials: 0 });
   });
+
+  // 2026-09-22：配合"用户名可为空"的条目（对齐 Chrome）。
+  // 实测语义：这类条目只会填密码，且沿用"场地里已有别的用户名就整体不填"的既有保护——
+  // 因为空用户名无法证明那条密码属于谁，宁可不填。
+  it('空用户名条目只填密码：无账号框或账号框为空时填密码，账号框已有内容时不填', () => {
+    // 账号框为空 → 填密码，账号框保持为空（不得写入空值）
+    document.body.innerHTML = '<form><input autocomplete="username"><input type="password"></form>';
+    let inputs = document.querySelectorAll('input');
+    expect(run('', 'secret')).toEqual({ filledFields: 1, filledCredentials: 1 });
+    expect(inputs[0].value).toBe('');
+    expect(inputs[1].value).toBe('secret');
+
+    // 压根没有账号框（卡号/手机号这类自助登录）→ 只填密码
+    document.body.innerHTML = '<form><input type="password" autocomplete="current-password"></form>';
+    inputs = document.querySelectorAll('input');
+    expect(run('', 'secret')).toEqual({ filledFields: 1, filledCredentials: 1 });
+    expect(inputs[0].value).toBe('secret');
+
+    // 账号框已被填上别的用户名 → 整体不填（沿用既有保护，且不得清空用户已输入的用户名）
+    document.body.innerHTML = '<form><input autocomplete="username" value="typed-by-user"><input type="password"></form>';
+    inputs = document.querySelectorAll('input');
+    expect(run('', 'secret')).toEqual({ filledFields: 0, filledCredentials: 0 });
+    expect(inputs[0].value).toBe('typed-by-user');
+  });
 });

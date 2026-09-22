@@ -5,10 +5,19 @@ const logMock = vi.hoisted(() => ({
   debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
 }));
 
+// getMainWindow 打桩成"可观测窗口"：sendToRenderer 的调用可以直接断言
+// （此前固定返回 null，"捕获是否上报"这件事在单测里完全不可见）。
+const windowMock = vi.hoisted(() => ({ send: vi.fn() }));
+
 vi.mock('../src/main/modules/password-store', () => ({
   getMetaForHost: () => [], isAutoCaptureEnabled: () => true, isCaptureExcluded: () => false,
 }));
-vi.mock('../src/main/modules/window', () => ({ getMainWindow: () => null }));
+vi.mock('../src/main/modules/window', () => ({
+  getMainWindow: () => ({
+    isDestroyed: () => false,
+    webContents: { send: (...args: unknown[]) => windowMock.send(...args) },
+  }),
+}));
 vi.mock('electron-log', () => ({ default: logMock }));
 
 import { addBoundedCaptureKey, getCaptureContextIds, setupCapture, teardownCapture } from '../src/main/modules/password-capture';
@@ -44,6 +53,7 @@ describe('password capture lifecycle', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     logMock.debug.mockClear();
+    windowMock.send.mockClear();
   });
 
   it('removes its exact listener, state and retry timer across repeated setup/teardown', async () => {
@@ -84,5 +94,44 @@ describe('password capture lifecycle', () => {
     expect([...keys]).toEqual(['two', 'three']);
     addBoundedCaptureKey(keys, 'three', 2);
     expect([...keys]).toEqual(['two', 'three']);
+  });
+
+  // 2026-09-22：对齐 Chrome —— 用户名允许为空。此前 `!data.user` 会让"用户名还没进 DOM 的登录"
+  // （先填密码、或压根没有用户名框）静默不弹保存提示。
+  // 注意：shownToastKeys 是模块级去重表，跨用例必须换 host，否则会被判成"已提示过"。
+  const emitCapture = (wc: ReturnType<typeof fakeWebContents>, host: string, payload: Record<string, unknown>): void => {
+    wc.debugger.emit('message', {}, 'Runtime.bindingCalled', {
+      name: '__baopReport',
+      payload: JSON.stringify({ _type: 'baop_capture', host, origin: `https://${host}/login`, title: 't', source: 'submit', ...payload }),
+    });
+  };
+
+  it('用户名可为空：空账号的捕获照样上报，且 username 是空串而不是 undefined', () => {
+    const wc = fakeWebContents(79);
+    setupCapture(wc as never);
+    emitCapture(wc, 'empty-user.example', { user: '', pass: 'pw12345' });
+    expect(windowMock.send).toHaveBeenCalledTimes(1);
+    expect(windowMock.send).toHaveBeenCalledWith('password:captured', expect.objectContaining({
+      host: 'empty-user.example', username: '',
+    }));
+    teardownCapture(wc as never);
+  });
+
+  it('user 字段缺失时按空串处理（不写 undefined 进查重键/待保存凭据）', () => {
+    const wc = fakeWebContents(80);
+    setupCapture(wc as never);
+    emitCapture(wc, 'missing-user.example', { pass: 'pw12345' });
+    expect(windowMock.send).toHaveBeenCalledTimes(1);
+    expect(windowMock.send).toHaveBeenCalledWith('password:captured', expect.objectContaining({ username: '' }));
+    teardownCapture(wc as never);
+  });
+
+  it('密码过短仍被丢弃（放开空用户名不等于放开一切）', () => {
+    const wc = fakeWebContents(81);
+    setupCapture(wc as never);
+    emitCapture(wc, 'short-pass.example', { user: '', pass: 'x' });
+    emitCapture(wc, 'short-pass.example', { user: 'bao', pass: '' });
+    expect(windowMock.send).not.toHaveBeenCalled();
+    teardownCapture(wc as never);
   });
 });

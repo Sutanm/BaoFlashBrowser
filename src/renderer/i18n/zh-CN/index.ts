@@ -182,6 +182,7 @@ const zhCN: BaseTranslation = {
     saveExcludedSites: '保存排除列表',
     excludedSitesSaved: '密码捕获排除列表已保存',
     excludedSitesSaveFailed: '排除列表保存失败',
+    noUsername: '（无用户名）',
     keyRetrying: '密钥暂不可用，正在自动重试（第 {attempt} 次）',
     keyBlockedTitle: '无法解开密码本密钥',
     keyBlockedDesc: '原因：{reason}。密钥文件已原样保留，未做任何改动。可先重试；若持续失败，只能重建密码本（会丢弃已保存的密码）。',

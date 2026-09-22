@@ -609,6 +609,10 @@ type RootTranslation = {
 		 */
 		excludedSitesSaveFailed: string
 		/**
+		 * （​无​用​户​名​）
+		 */
+		noUsername: string
+		/**
 		 * 密​钥​暂​不​可​用​，​正​在​自​动​重​试​（​第​ ​{​a​t​t​e​m​p​t​}​ ​次​）
 		 * @param {unknown} attempt
 		 */
@@ -2038,6 +2042,10 @@ export type TranslationFunctions = {
 		 * 排除列表保存失败
 		 */
 		excludedSitesSaveFailed: () => LocalizedString
+		/**
+		 * （无用户名）
+		 */
+		noUsername: () => LocalizedString
 		/**
 		 * 密钥暂不可用，正在自动重试（第 {attempt} 次）
 		 */

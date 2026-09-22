@@ -171,6 +171,7 @@ const en: Translation = {
     saveExcludedSites: 'Save exclusion list',
     excludedSitesSaved: 'Password capture exclusion list saved',
     excludedSitesSaveFailed: 'Failed to save the exclusion list',
+    noUsername: '(no username)',
     keyRetrying: 'Key temporarily unavailable, retrying automatically (attempt {attempt})',
     keyBlockedTitle: 'Cannot unlock the password vault key',
     keyBlockedDesc: 'Reason: {reason}. The key file is left untouched. Try again first; if it keeps failing, the only option is rebuilding the vault (saved passwords are discarded).',
