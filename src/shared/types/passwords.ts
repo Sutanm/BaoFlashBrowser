@@ -67,10 +67,60 @@ export interface RebuildVaultResult {
   tier: PasswordTier;
 }
 
-/** password:reveal 结果（Task 5 起按 view-gate 授权）。 */
+/** password:reveal 结果（门禁授权制，规格 2026-09-22 G11）。 */
 export interface RevealPasswordResult {
   password?: string;
-  error?: 'not-authorized' | 'missing';
+  error?: RevealErrorCode;
+  /** 仅 wrong-credential：还剩几次机会。 */
+  remainingAttempts?: number;
+  /** 仅 locked：剩余毫秒。 */
+  lockedForMs?: number;
+  /** 当前门禁形态，省掉 UI 再查一次 status 的往返。 */
+  mode?: ViewGuardMode;
+  /** 机器码补充（如 bad-credential / not-current-user / timeout），供 UI 分类提示。 */
+  reason?: string;
+}
+
+/**
+ * 门禁校验结果码（view-gate 与 reveal 共用；放在 shared 以免 shared ← main 反向依赖）。
+ * 语义与"是否计入失败"见规格 §9 的表。
+ */
+export type ViewAuthCode =
+  /** 通过。 */
+  | 'ok'
+  /** 锁定期内（含口令正确也拒绝；不累加、不延长）。 */
+  | 'locked'
+  /** 尚未设置查看密码 → 引导设置。 */
+  | 'needs-setup'
+  /** 密码模式但本次没带口令。 */
+  | 'needs-input'
+  /** 口令/凭据错误（**计入失败**；触发锁定时附 lockedForMs）。 */
+  | 'wrong-credential'
+  /** 用户取消了系统验证对话框（不计入失败）。 */
+  | 'cancelled'
+  /** 验证通道不可用/超时，fail closed（不计入失败）。 */
+  | 'unavailable'
+  /** Windows 账户已被系统锁定（不计入失败）。 */
+  | 'account-locked'
+  /** OS 验证不可用，已降级为查看密码（不计入失败）。 */
+  | 'degraded'
+  /** 无门禁可用（未建库 / 密钥不可用）。 */
+  | 'none';
+
+/** reveal 的错误码：门禁码去掉 ok，加上 IPC 层自己的两种。 */
+export type RevealErrorCode = Exclude<ViewAuthCode, 'ok'> | 'not-authorized' | 'missing';
+
+/** password:set-view-password 结果（设置/修改查看密码）。 */
+export interface SetViewPasswordResult {
+  success: boolean;
+  error?: 'weak-password' | 'current-required' | 'locked' | 'wrong-credential' | 'not-available';
+  remainingAttempts?: number;
+  lockedForMs?: number;
+}
+
+/** password:reset-os-auth 结果：清掉"OS 验证不可用"的降级标记后返回最新门禁状态。 */
+export interface ResetOsAuthResult {
+  viewGuard: ViewGuardStatus;
 }
 
 /** Sent from main → renderer via password:captured. Does NOT contain password. */

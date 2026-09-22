@@ -6,7 +6,9 @@ import {
   getViewFallback, setViewFallback, isDekReady, isInitialized, getTier,
   type ViewFallbackRecord,
 } from './password-store';
-import type { ViewGuardStatus } from '../../shared/types/passwords';
+import type {
+  SetViewPasswordResult, ViewAuthCode, ViewGuardStatus,
+} from '../../shared/types/passwords';
 import { createWinCredUiBackend } from './view-gate-win';
 
 /**
@@ -34,37 +36,24 @@ export const VIEW_LOCK_MS = 30 * 60 * 1000;
 export const VIEW_PASSWORD_MIN = 6;
 export const VIEW_PASSWORD_MAX = 128;
 
-export type ViewAuthCode =
-  | 'ok'
-  /** 锁定期内（含正确口令也拒绝）。 */
-  | 'locked'
-  /** C 档尚未设置查看密码 → 引导设置。 */
-  | 'needs-setup'
-  /** 密码模式但本次没带口令（调用方未输入）。 */
-  | 'needs-input'
-  /** 口令/凭据错误（已计入失败）。 */
-  | 'wrong-credential'
-  /** 用户取消了系统验证对话框（不计入失败）。 */
-  | 'cancelled'
-  /** 验证通道不可用/超时，fail closed（不计入失败）。 */
-  | 'unavailable'
-  /** Windows 账户已被系统锁定（不计入失败）。 */
-  | 'account-locked'
-  /** OS 验证不可用，已降级为查看密码（不计入失败）。 */
-  | 'degraded'
-  /** 无门禁可用（未建库 / 密钥不可用）。 */
-  | 'none';
+export type { ViewAuthCode };
 
-export interface ViewAuthResult {
-  ok: boolean;
-  code: ViewAuthCode;
-  /** 仅 wrong-credential：还剩几次机会。 */
-  remainingAttempts?: number;
-  /** 仅 locked：剩余毫秒。 */
-  lockedForMs?: number;
-  /** 机器码补充，供 UI 分类提示（不含任何口令信息）。 */
-  reason?: string;
-}
+/**
+ * 判别联合：`ok: true`（此时 code 恒为 'ok'）与失败分支分开，
+ * 调用方在 `if (!result.ok)` 里就能拿到不含 'ok' 的 code 类型。
+ */
+export type ViewAuthResult =
+  | { ok: true; code: 'ok' }
+  | {
+    ok: false;
+    code: Exclude<ViewAuthCode, 'ok'>;
+    /** 仅 wrong-credential：还剩几次机会。 */
+    remainingAttempts?: number;
+    /** 仅 locked（或触发锁定的那次失败）：剩余毫秒。 */
+    lockedForMs?: number;
+    /** 机器码补充（如 bad-credential / not-current-user / timeout），不含任何口令信息。 */
+    reason?: string;
+  };
 
 export interface OsVerifyResultOk {
   ok: true;
@@ -239,12 +228,8 @@ async function _verifyPassword(candidate: string, record: ViewFallbackRecord): P
   }
 }
 
-export interface SetViewPasswordResult {
-  success: boolean;
-  error?: string;
-  remainingAttempts?: number;
-  lockedForMs?: number;
-}
+/** 设置/修改查看密码的结果类型定义在 shared（渲染层要用同一份）。 */
+export type { SetViewPasswordResult };
 
 /**
  * 设置 / 修改查看密码（规格 G6）。
