@@ -17,8 +17,8 @@
 > 三处已在三个独立提交中修复并各自验证。
 >
 > **2026-09-22 已结案（见 §5）**：用户两次复现证明捕获链路全程正常（第一次捕获并保存成功，
-> 第二次因"同账号已保存"按设计静默跳过）。复现同时暴露两处新缺陷（§5.1 fill 与 capture 争抢
-> debugger 且不重试；§5.2 去重零提示），尚未修复。
+> 第二次因"同账号已保存且密码未变"按新语义静默跳过）。复现暴露的两处缺陷（§5.1 fill 与 capture
+> 争抢 debugger；§5.2 去重零提示）已在 `4f124b4` 一并修复。
 
 ---
 
@@ -29,6 +29,8 @@
 | 1 | `_baopPristineAdd` 递归自造 iframe（每次注入都在每个 frame 里再建 iframe） | **P0** | `password-capture.ts:77-100`（旧代码） | `20ffc06` |
 | 2 | `findUserInput` 把提交按钮当账号框，用户名被填成按钮文字"提交" | P1 | `password-capture.ts:109-120` | `70e70e1` |
 | 3 | 空用户名的登录被闸门静默丢弃（与 Chrome 行为不一致） | P2 | `password-capture.ts:515-521`、`password-store.ts:644`、`PasswordsPanel.tsx:227` | `75e7993` |
+| 4 | fill 与 capture 争抢 debugger，捕获只 warn 不重试 → 该标签页永久无捕获 | P1 | `password-capture.ts` 的 `setupCapture` attach 分支 | `4f124b4` |
+| 5 | 去重一律静默，用户无法区分"没捕获"与"已保存过" | P2 | `password-capture.ts` 的 `skip already-saved` 分支 | `4f124b4` |
 
 三者互不重叠，各自独立可回退。第 1 条是本次最要紧的发现——它由我们自己引入，且**在被证明之前一直是"隐形"的**。
 
@@ -250,7 +252,7 @@ Chrome/87 UA（与应用 `session-manager.ts:147` 一致），用 `exposeBinding
 ⇒ 输入、点击、上报、保存全部正常。第二次没有提示是**设计行为**（同 host + 同账号不再重复弹提示），
 参见 §5.2。另可注意 `username=q379630001` 是真实账号而非按钮文字，说明 `70e70e1` 的修复同样生效。
 
-### 5.1 复现中发现的缺陷 A：fill 与 capture 争抢 debugger，且不重试
+### 5.1 复现中发现的缺陷 A：fill 与 capture 争抢 debugger，且不重试 —— **已修（`4f124b4`）**
 
 ```
 11:29:29.534  [PasswordCapture] setupCapture wc=4 url=https://news.7k7k.com/pkt/
@@ -263,14 +265,20 @@ Chrome/87 UA（与应用 `session-manager.ts:147` 一致），用 `exposeBinding
 `password-capture.ts` 只打一行 warn 就 `return`，**没有任何重试** → **那个标签页此后完全无捕获**。
 日志里 wc=4（用户的第二个 7k7k 标签）正是如此。
 
-修法（择一）：`setupCapture` 对这个特定错误安排一次短延迟重试（最小改动）；
-或让 fill 也走 `cdp-lease`（多一个 owner）。
+**修法**：按 250/500/1000/2000/3000ms 递增间隔有限次重试（成功即清表，到上限放弃并留
+`attach retries exhausted` 日志；定时器 `unref`；`teardownCapture` 取消挂起重试）。
+更彻底的做法是让 fill 也走 `cdp-lease`（多一个 owner），尚未做。
 
-### 5.2 复现中发现的缺陷 B：去重零提示（用户直接踩到）
+### 5.2 复现中发现的缺陷 B：去重零提示 —— **已修（`4f124b4`），改为 Chrome 语义**
 
-`skip already-saved`（`password-capture.ts:546`）在"同 host + 同账号"时静默跳过，
-**既不打点也不提示**。用户因此无法区分"没捕获"和"已保存过所以不提示"，会再次误判成功能坏了。
-Chrome 的行为是"密码变了才提示更新"。这是本次误判的直接来源，也是 §2.5 里"零日志"体感的成因。
+`skip already-saved` 在"同 host + 同账号"时静默跳过，用户无法区分"没捕获"和"已保存过"，
+会再次误判成功能坏了。**现在按 Chrome 的"变了才提示"**：
+
+| 情况 | 行为 | 日志 |
+|---|---|---|
+| 同账号 + 同密码 | 静默跳过 | `skip already-saved … (same password)` |
+| 同账号 + 密码已变 | 照常弹提示（保存即覆盖旧条目＝更新密码） | `password changed … — prompting update` |
+| 解不出明文（密钥不可用） | 沿用静默，不误报 | `skip already-saved … (key unavailable)` |
 
 ### 5.3 小观察：同一 frame 被注入两次
 
