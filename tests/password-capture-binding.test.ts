@@ -53,7 +53,7 @@ describe('password capture page transport', () => {
 
     const msgs = report.mock.calls.map(([value]) => String(JSON.parse(String(value)).msg ?? ''));
     expect(msgs.some((m) => m.startsWith('input pw len=4'))).toBe(true);
-    expect(msgs.some((m) => m.startsWith('listener env patched='))).toBe(true);
+    expect(msgs.some((m) => m.startsWith('listener env selftest='))).toBe(true);
     expect(msgs.some((m) => m.includes('selftest=true'))).toBe(true);
     vi.useRealTimers();
   });
@@ -73,4 +73,38 @@ describe('password capture page transport', () => {
     expect(msgs.some((m) => m.startsWith('first input tag=INPUT type=text id=fake name=pwdMask'))).toBe(true);
     vi.useRealTimers();
   });
+
+  // 2026-09-22 回归防线：脚本曾在每个 frame 里造一个同源 about:blank iframe
+  // 去取"未被改写的 addEventListener"。注入是按"新执行上下文创建"触发的，子帧会跑同一段
+  // 脚本、再建子帧……实测同一页面多出 69 个空帧、57 次栈溢出。这里锁死：注入不得建 frame。
+  it('注入脚本不得自造 iframe（历史回归：iframe 取干净 API 会导致嵌套自繁殖）', () => {
+    vi.useFakeTimers();
+    const report = vi.fn();
+    Object.assign(window, { __baopReport: report });
+    document.body.innerHTML = '';
+    document.body.appendChild(document.createElement('div'));
+    const iframesBefore = document.querySelectorAll('iframe').length;
+
+    window.eval(CAPTURE_SCRIPT);
+
+    expect(document.querySelectorAll('iframe').length).toBe(iframesBefore);
+    expect(iframeCountInDomTree()).toBe(0);
+    // 自检仍要在（它才是判断"监听到底生效没有"的唯一手段）
+    const msgs = report.mock.calls.map(([value]) => String(JSON.parse(String(value)).msg ?? ''));
+    expect(msgs.some((m) => m.startsWith('listener env selftest='))).toBe(true);
+    vi.useRealTimers();
+  });
 });
+
+/** 递归统计整棵树（含子 document）里的 iframe，避免只查浅层就误判。 */
+function iframeCountInDomTree(): number {
+  let count = 0;
+  const walk = (node: Document | ShadowRoot | Element): void => {
+    count += node.querySelectorAll('iframe').length;
+    for (const el of node.querySelectorAll('*')) {
+      if (el.shadowRoot) walk(el.shadowRoot);
+    }
+  };
+  walk(document);
+  return count;
+}
