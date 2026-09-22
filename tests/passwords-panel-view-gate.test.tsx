@@ -191,4 +191,50 @@ describe('查看门禁渲染', () => {
     expect(dialog.querySelectorAll('input')).toHaveLength(0);
     expect(await screen.findByText('pw-C')).toBeInTheDocument();
   });
+
+  // 2026-09-22 用户问："有些电脑没有设置密码，又当如何？"
+  // 那些电脑上 LogonUser 会以 1327（空密码登录受限）失败 → 主进程持久降级。
+  // 此时必须立刻引导设置查看密码，而不是丢一个"要再点一次查看"的错。
+  it('系统验证降级（未设 Windows 密码的电脑）→ 直接引导设置查看密码并说明原因', async () => {
+    const api = installApi({ mode: 'os-win', passwordSet: false });
+    api.status
+      .mockResolvedValueOnce(baseStatus({ mode: 'os-win', passwordSet: false }))
+      .mockResolvedValue(baseStatus({ mode: 'password', passwordSet: false, reason: 'os-auth-unavailable' }));
+    api.reveal.mockResolvedValue({ error: 'degraded', mode: 'os-win' });
+    await renderPanelWithEntry();
+
+    fireEvent.click(screen.getByText('查看'));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() => expect(dialog).toHaveTextContent('设置查看密码'));
+    expect(dialog).toHaveTextContent('系统验证无法用于当前 Windows 账户');
+    // 关键：必须真的能输入（降级后 mode 已变成 password；若用旧 mode 渲染会是 0 个输入框）
+    expect(dialog.querySelectorAll('input')).toHaveLength(2);
+  });
+
+  it('已降级过（reason 持久化）→ 再点"查看"直接是"设置查看密码"并带降级说明', async () => {
+    const api = installApi({ mode: 'password', passwordSet: false, reason: 'os-auth-unavailable' });
+    await renderPanelWithEntry();
+
+    fireEvent.click(screen.getByText('查看'));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('设置查看密码');
+    expect(dialog).toHaveTextContent('系统验证无法用于当前 Windows 账户');
+    // 不该去调 OS 验证（那注定失败，还会让用户白等一次对话框）
+    expect(api.reveal).not.toHaveBeenCalled();
+  });
+
+  it('已降级但有查看密码 → 降级当次只提示"已改用查看密码"，下次输入即可', async () => {
+    const api = installApi({ mode: 'os-win', passwordSet: true });
+    api.status
+      .mockResolvedValueOnce(baseStatus({ mode: 'os-win', passwordSet: true }))
+      .mockResolvedValue(baseStatus({ mode: 'password', passwordSet: true, reason: 'os-auth-unavailable' }));
+    api.reveal.mockResolvedValue({ error: 'degraded', mode: 'os-win' });
+    await renderPanelWithEntry();
+
+    fireEvent.click(screen.getByText('查看'));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() => expect(dialog).toHaveTextContent('已改用查看密码'));
+    // 已经有查看密码就不该再让他"设置"一次
+    expect(dialog).not.toHaveTextContent('设置查看密码');
+  });
 });

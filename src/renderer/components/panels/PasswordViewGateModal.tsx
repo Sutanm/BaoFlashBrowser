@@ -17,6 +17,11 @@ export interface PasswordViewGateModalProps {
   mode: ViewGuardMode;
   /** true = 首次设置查看密码。 */
   setup: boolean;
+  /**
+   * true = 这次设置是被"系统验证降级"逼出来的（常见于未设置 Windows 登录密码的电脑）。
+   * 只影响说明文案：用户需要知道为什么突然要用自定义密码。
+   */
+  degraded?: boolean;
   busy: boolean;
   errorText?: string;
   remainingAttempts?: number;
@@ -37,7 +42,7 @@ export function formatLockRemaining(ms: number): string {
 }
 
 const PasswordViewGateModal: React.FC<PasswordViewGateModalProps> = ({
-  mode, setup, busy, errorText, remainingAttempts, lockedForMs, onSubmit, onCancel,
+  mode, setup, degraded, busy, errorText, remainingAttempts, lockedForMs, onSubmit, onCancel,
 }) => {
   const { LL } = useI18nContext();
   const [secret, setSecret] = useState('');
@@ -74,7 +79,11 @@ const PasswordViewGateModal: React.FC<PasswordViewGateModalProps> = ({
         <p className="pwd-gate-title">{title}</p>
 
         {isOsMode && <p className="pwd-gate-desc">{LL.password.viewGateOsWaiting()}</p>}
-        {!isOsMode && setup && <p className="pwd-gate-desc">{LL.password.viewGateSetupDesc()}</p>}
+        {!isOsMode && setup && (
+          <p className="pwd-gate-desc">
+            {degraded ? LL.password.viewGateSetupDescDegraded() : LL.password.viewGateSetupDesc()}
+          </p>
+        )}
         {!isOsMode && !setup && <p className="pwd-gate-desc">{LL.password.viewGateAskDesc()}</p>}
 
         {!isOsMode && (

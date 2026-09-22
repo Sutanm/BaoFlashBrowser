@@ -25,6 +25,8 @@ const PasswordsPanel: React.FC = () => {
   // --- 查看门禁（规格 2026-09-22）：每次查看都验证，因此没有"已授权"状态可缓存 ---
   const [gateTargetId, setGateTargetId] = useState<string | null>(null);
   const [gateSetup, setGateSetup] = useState(false);
+  /** true = 本次设置是被"系统验证降级"逼出来的（只影响说明文案）。 */
+  const [gateDegraded, setGateDegraded] = useState(false);
   const [gateBusy, setGateBusy] = useState(false);
   const [gateError, setGateError] = useState<{ text?: string; remaining?: number } | null>(null);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
@@ -45,8 +47,9 @@ const PasswordsPanel: React.FC = () => {
     setLockedUntil(now + ms);
   }, []);
 
-  const refreshStatus = useCallback(async () => {
-    if (!api) return;
+  /** 取回权威状态并把锁定剩余时间落到本地；返回该状态供调用方接着决策。 */
+  const refreshStatus = useCallback(async (): Promise<PasswordStoreStatus | null> => {
+    if (!api) return null;
     const s: PasswordStoreStatus = await api.status();
     setStatus(s);
     // 锁定由主进程裁决：把剩余时间落到本地，用于倒计时展示。
@@ -59,6 +62,7 @@ const PasswordsPanel: React.FC = () => {
       setEntries([]);
       setDecryptedPasswords(new Map());
     }
+    return s;
   }, [api, applyLock]);
 
   // 仅在锁定期间走秒，其它时候不产生定时器。
@@ -138,9 +142,12 @@ const PasswordsPanel: React.FC = () => {
     setGateError(null);
     setGateTargetId(id);
     if (guard.mode === 'password' && !guard.passwordSet) {
+      // 之前已经降级过（reason 持久化）→ 说明文案要讲清"为什么突然要设自定义密码"。
+      setGateDegraded(guard.reason === 'os-auth-unavailable');
       setGateSetup(true);
       return;
     }
+    setGateDegraded(false);
     setGateSetup(false);
     // A 档：主进程弹系统对话框；模态只作"等待验证"提示。
     if (guard.mode !== 'password') void attemptReveal(id);
@@ -156,6 +163,7 @@ const PasswordsPanel: React.FC = () => {
         setGateTargetId(null);
         setGateError(null);
         setGateSetup(false);
+        setGateDegraded(false);
         if (afterSetup) pushToast({ message: LL.password.viewGateSaved(), type: 'success' });
         return;
       }
@@ -177,10 +185,21 @@ const PasswordsPanel: React.FC = () => {
           applyLock(result.lockedForMs ?? 0);
           setGateError({ text: undefined });
           return;
-        case 'degraded':
-          setGateError({ text: LL.password.viewGateDegraded() });
-          refreshStatus();
+        case 'degraded': {
+          // 系统验证用不了（1327 空密码受限 / 1385 策略拒绝等，常见于未设 Windows 登录密码的账户）。
+          // 主进程已持久降级 → 先取回权威状态：mode 会变成 'password'，模态才渲染得出输入框。
+          // 必须 await：否则还会用旧的 'os-win' 渲染，用户看到一个没有输入框的"设置"框。
+          const next = await refreshStatus();
+          const passwordSet = next?.viewGuard.passwordSet ?? status?.viewGuard.passwordSet ?? false;
+          if (!passwordSet) {
+            setGateDegraded(true);
+            setGateSetup(true);
+            setGateError(null);
+          } else {
+            setGateError({ text: LL.password.viewGateDegraded() });
+          }
           return;
+        }
         case 'account-locked':
           setGateError({ text: LL.password.viewGateAccountLocked() });
           return;
@@ -384,12 +403,13 @@ const PasswordsPanel: React.FC = () => {
         <PasswordViewGateModal
           mode={status.viewGuard.mode}
           setup={gateSetup}
+          degraded={gateDegraded}
           busy={gateBusy}
           errorText={gateError?.text}
           remainingAttempts={gateError?.remaining}
           lockedForMs={lockRemaining}
           onSubmit={(secret) => { void handleGateSubmit(secret); }}
-          onCancel={() => { setGateTargetId(null); setGateError(null); setGateSetup(false); }}
+          onCancel={() => { setGateTargetId(null); setGateError(null); setGateSetup(false); setGateDegraded(false); }}
         />
       )}
     </div>

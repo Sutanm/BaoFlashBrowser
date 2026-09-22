@@ -28,7 +28,10 @@ const { spawn } = require('child_process');
 const SKIP_FLAG = 'BFB_VIEWGATE_SKIP_PROMPT';
 
 /** 脚本数组里插值的模块常量（必须与 view-gate-win.ts 同名）。 */
-const CONST_NAMES = ['CREDUI_FLAGS', 'WIN32_ERROR_CANCELLED', 'LOGON32_LOGON_NETWORK', 'LOGON32_PROVIDER_DEFAULT'];
+const CONST_NAMES = [
+  'CREDUI_FLAGS', 'WIN32_ERROR_CANCELLED', 'LOGON32_LOGON_NETWORK', 'LOGON32_PROVIDER_DEFAULT',
+  'CRED_PACK_PROTECTED_CREDENTIALS',
+];
 
 /**
  * 从 view-gate-win.ts 抽出 PS_VERIFY 脚本（唯一真源）。
@@ -138,14 +141,25 @@ module.exports = {
     const hasDialog = script.includes('CredUIPromptForWindowsCredentialsW');
     const hasLogon = script.includes('LogonUserW');
     const hasSidCheck = script.includes('not-current-user');
+    // 用户名预填：Chromium 同款做法（把当前用户打包成 in-auth-buffer）。
+    const hasPrefill = script.includes('CredPackAuthenticationBufferW')
+      && script.includes('$inBuf, $inSize,');
 
     const previousSkip = process.env[SKIP_FLAG];
     const previousCmd = process.env.BFB_POWERSHELL_CMD;
-    process.env[SKIP_FLAG] = '1';
+    const previousDump = process.env.BFB_VIEWGATE_DUMP_INBUF;
     const timeout = 60_000;
-    const result = { asciiOnly, hasDialog, hasLogon, hasSidCheck };
+    const result = { asciiOnly, hasDialog, hasLogon, hasSidCheck, hasPrefill };
 
     try {
+      // 0) 预填缓冲：用 dev 钩子只构建、不弹框（弹框需要人，见文件头）。
+      //    刻意不设 SKIP_PROMPT，好让脚本走真正的对话框分支。
+      delete process.env[SKIP_FLAG];
+      process.env.BFB_VIEWGATE_DUMP_INBUF = '1';
+      result.prefill = await runScript(script, '', timeout);
+      delete process.env.BFB_VIEWGATE_DUMP_INBUF;
+
+      process.env[SKIP_FLAG] = '1';
       // 1) 自检：空凭据 → 用当前进程 token 走同一条 SID 比对路径 → OK granted
       result.selfCheck = await runScript(script, '', timeout);
 
@@ -176,11 +190,27 @@ module.exports = {
       else process.env[SKIP_FLAG] = previousSkip;
       if (previousCmd === undefined) delete process.env.BFB_POWERSHELL_CMD;
       else process.env.BFB_POWERSHELL_CMD = previousCmd;
+      if (previousDump === undefined) delete process.env.BFB_VIEWGATE_DUMP_INBUF;
+      else process.env.BFB_VIEWGATE_DUMP_INBUF = previousDump;
     }
 
     const problems = [];
     if (!asciiOnly) problems.push('script is not ASCII-only');
     if (!hasDialog || !hasLogon || !hasSidCheck) problems.push('script lost dialog/LogonUser/SID check');
+    if (!hasPrefill) problems.push('script no longer pre-fills the user name into CredUI');
+    {
+      // dev 钩子输出 DIAG 而不是 OK —— stdout 的授权形状只允许 'OK granted' 一种
+      // （诊断行看起来像授权是危险的），所以这里解析 first 行而不是走 code==='ok'。
+      const prefillMatch = /^DIAG inbuf size=(\d+) user=(.+)$/.exec(result.prefill.first || '');
+      if (!prefillMatch) {
+        problems.push('pre-fill buffer was not built (' + JSON.stringify(result.prefill).slice(0, 160) + ')');
+      } else if (Number(prefillMatch[1]) <= 0) {
+        problems.push('pre-fill buffer size is not positive: ' + prefillMatch[1]);
+      } else if (!prefillMatch[2].includes('\\')) {
+        // WindowsIdentity.Name 是全限定名（DOMAIN\user），少了域信息说明取错了来源。
+        problems.push('pre-fill used a non-qualified user name: ' + prefillMatch[2]);
+      }
+    }
     if (result.selfCheck.code !== 'ok' || result.selfCheck.value !== 'granted') {
       problems.push('self-check did not return OK granted (' + JSON.stringify(result.selfCheck).slice(0, 120) + ')');
     }

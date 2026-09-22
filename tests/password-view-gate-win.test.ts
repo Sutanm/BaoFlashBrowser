@@ -11,7 +11,7 @@ const logMock = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn()
 vi.mock('electron-log', () => ({ default: logMock }));
 
 import {
-  classifyVerifyOutcome, WinCredUiBackend, _psVerifyScript, VIEW_PROMPT_TEXT,
+  classifyVerifyOutcome, WinCredUiBackend, _psVerifyScript, _psVerifyFacts, VIEW_PROMPT_TEXT,
 } from '../src/main/modules/view-gate-win';
 
 describe('classifyVerifyOutcome：脚本机器码 → 语义（规格 §3 错误分类表）', () => {
@@ -110,16 +110,19 @@ describe('PowerShell 脚本的硬约束', () => {
     expect(_psVerifyScript).not.toContain(VIEW_PROMPT_TEXT);
   });
 
-  it('stdout 只有 OK granted / ERR 两种输出（明文绝不进 stdout）', () => {
+  it('stdout 只有 OK granted / ERR 两种语义（明文绝不进 stdout）', () => {
     const writes = _psVerifyScript.split('\n')
       .map((line) => line.trim())
       .filter((line) => line.includes('Write-Output'));
     expect(writes.length).toBeGreaterThan(0);
     for (const line of writes) {
-      expect(line).toMatch(/Write-Output (("ERR " \+ \$code)|'OK granted'|"ERR " \+|\(.*ERR )/);
+      // 允许形状：ERR <码> / 'OK granted' / dev-only 的 DIAG（诊断，绝非授权语义）
+      expect(line).toMatch(/Write-Output \(?("ERR " \+|'OK granted'|"DIAG |'DIAG )/);
     }
+    // 授权只可能由这一行产生——它必须唯一存在
+    expect(_psVerifyScript.match(/'OK granted'/g)).toHaveLength(1);
     expect(_psVerifyScript).not.toContain('$pass)');
-    expect(_psVerifyScript).not.toContain("+ $pass");
+    expect(_psVerifyScript).not.toContain('+ $pass');
   });
 
   it('包含系统对话框、LogonUser 与 SID 比对三要素', () => {
@@ -128,5 +131,30 @@ describe('PowerShell 脚本的硬约束', () => {
     expect(_psVerifyScript).toContain('LogonUserW');
     expect(_psVerifyScript).toContain('not-current-user');
     expect(_psVerifyScript).toContain('CoTaskMemFree');
+  });
+
+  // 用户反馈 2026-09-22：对话框要求重新输入"自己是谁"。generic 形态只给空用户名框。
+  it('对话框走 logon 形态并预填当前用户（不得含 CREDUIWIN_GENERIC）', () => {
+    expect(_psVerifyFacts.credUiFlags & 0x1).toBe(0);          // CREDUIWIN_GENERIC 必须关闭
+    expect(_psVerifyFacts.credUiFlags & 0x200).toBe(0x200);    // ENUMERATE_CURRENT_USER
+    expect(_psVerifyFacts.credUiFlags & 0x1000).toBe(0x1000);  // SECURE_PROMPT
+    expect(_psVerifyFacts.credPackProtected).toBe(0x1);
+    expect(_psVerifyScript).toContain('CredPackAuthenticationBufferW');
+    // in-buffer 必须真的作为第 4、5 个参数交给对话框，否则预填不会生效
+    expect(_psVerifyScript).toMatch(
+      /CredUIPromptForWindowsCredentialsW\(\s*\n\s*\[ref\]\$info, 0, \[ref\]\$authPackage, \$inBuf, \$inSize,/,
+    );
+  });
+
+  // 2026-09-22 本机实测：临时 WindowsIdentity 的 .Token 是悬空句柄（对象被终结时句柄已关）。
+  // 表现是 -Command 下 100% 失败、-File 下侥幸通过；强制 GC 后两种投递都失败。
+  it('自检路径保留 WindowsIdentity 引用（悬空令牌句柄必失败）', () => {
+    expect(_psVerifyScript).toContain(
+      '$script:ownIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()',
+    );
+    expect(_psVerifyScript).toContain('$script:tokenHandle = $script:ownIdentity.Token');
+    expect(_psVerifyScript).not.toMatch(
+      /tokenHandle = \[Security\.Principal\.WindowsIdentity\]::GetCurrent\(\)\.Token/,
+    );
   });
 });

@@ -22,8 +22,17 @@ import type { OsVerifyBackend, OsVerifyResult } from './view-gate';
 const WIN32_ERROR_CANCELLED = 1223;
 const LOGON32_LOGON_NETWORK = 3;
 const LOGON32_PROVIDER_DEFAULT = 0;
-/** CREDUIWIN_GENERIC | CREDUIWIN_ENUMERATE_CURRENT_USER | CREDUIWIN_SECURE_PROMPT */
-const CREDUI_FLAGS = 0x1 | 0x200 | 0x1000;
+/** CRED_PACK_PROTECTED_CREDENTIALS：in-buffer 用调用方登录会话加密（Chromium 同款）。 */
+const CRED_PACK_PROTECTED_CREDENTIALS = 0x1;
+/**
+ * CREDUIWIN_ENUMERATE_CURRENT_USER | CREDUIWIN_SECURE_PROMPT。
+ *
+ * 刻意**不用** `CREDUIWIN_GENERIC`：generic 形态只给一个空的用户名/密码框，
+ * 用户名要用户自己敲（实测 2026-09-22，用户反馈"用户名就是当前登录用户，为什么还要输"）。
+ * 走 logon 形态 + 把当前用户名打包进 in-auth-buffer，对话框才会预填用户名——这也是
+ * Chromium 的做法。见下方 `CredPackAuthenticationBufferW` 的用法。
+ */
+const CREDUI_FLAGS = 0x200 | 0x1000;
 
 const DEFAULT_VERIFY_TIMEOUT_MS = 120_000;
 
@@ -72,6 +81,11 @@ const PS_VERIFY = [
   '    StringBuilder pszDomainName, ref uint pcchMaxDomainName,',
   '    StringBuilder pszPassword, ref uint pcchMaxPassword);',
   '',
+  '  [DllImport("credui.dll", CharSet = CharSet.Unicode, SetLastError = true)]',
+  '  public static extern bool CredPackAuthenticationBufferW(',
+  '    int dwFlags, string pszUserName, string pszPassword,',
+  '    IntPtr pPackedCredentials, ref uint pcbPackedCredentials);',
+  '',
   '  [DllImport("credui.dll")]',
   '  public static extern void CoTaskMemFree(IntPtr pv);',
   '',
@@ -114,7 +128,15 @@ const PS_VERIFY = [
   '    if ($parts.Length -ge 3) { $domain = $parts[2] }',
   '    if ([string]::IsNullOrEmpty($user)) {',
   '      # Self-check: use the current process token; same SID comparison path.',
-  '      $script:tokenHandle = [Security.Principal.WindowsIdentity]::GetCurrent().Token',
+  '      # Hold the WindowsIdentity in a script-scoped variable: it OWNS the token handle',
+  '      # and closes it when finalized. Reading .Token off a temporary leaves a dangling',
+  '      # handle, and constructing WindowsIdentity from it then throws',
+  '      # "invalid impersonation token".',
+  '      # Measured 2026-09-22: the temporary form passes under -File but fails under',
+  '      # -Command; forcing a GC makes even -File fail -> it is a lifetime bug, not a',
+  '      # delivery-mode bug. Never go back to the one-liner.',
+  '      $script:ownIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()',
+  '      $script:tokenHandle = $script:ownIdentity.Token',
   '    }',
   '  } else {',
   '    if ($parts.Length -ge 1 -and -not [string]::IsNullOrEmpty($parts[0])) { $msg = $parts[0] }',
@@ -129,9 +151,47 @@ const PS_VERIFY = [
   '    $save = $false',
   '    $outBuf = [IntPtr]::Zero',
   '    $outSize = 0',
+  '',
+  '    # Pre-fill the user name: pack the CURRENT user with an empty password and hand it to',
+  '    # CredUI as the in-auth-buffer. Without this the dialog opens with a blank user name',
+  '    # and asks the user to retype who they already are. (Chromium does the same.)',
+  '    $curUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name',
+  '    $inSize = 0',
+  '    $inBuf = [IntPtr]::Zero',
+  '    $haveInBuf = $false',
+  `    $null = [BaoCredUi]::CredPackAuthenticationBufferW(${CRED_PACK_PROTECTED_CREDENTIALS}, $curUser, '', [IntPtr]::Zero, [ref]$inSize)`,
+  '    if ($inSize -gt 0) {',
+  '      $inBuf = [Runtime.InteropServices.Marshal]::AllocHGlobal([int]$inSize)',
+  `      $haveInBuf = [BaoCredUi]::CredPackAuthenticationBufferW(${CRED_PACK_PROTECTED_CREDENTIALS}, $curUser, '', $inBuf, [ref]$inSize)`,
+  '      if (-not $haveInBuf) {',
+  '        [Runtime.InteropServices.Marshal]::FreeHGlobal($inBuf)',
+  '        $inBuf = [IntPtr]::Zero',
+  '        $inSize = 0',
+  '      }',
+  '    }',
+  '    if ($env:BFB_VIEWGATE_DUMP_INBUF -eq \'1\') {',
+  '      # dev-only: report that the pre-fill buffer was built, without opening a dialog.',
+  '      # Deliberately NOT an "OK ..." line: stdout must stay exactly two shapes',
+  '      # (OK granted / ERR <code>) so nothing diagnostic can ever look like a verdict.',
+  '      # (The classifier only accepts "granted" anyway, so it always fails closed.)',
+  '      if ($haveInBuf) { [Runtime.InteropServices.Marshal]::FreeHGlobal($inBuf) }',
+  '      Write-Output ("DIAG inbuf size=" + $inSize + " user=" + $curUser)',
+  '      exit 0',
+  '    }',
+  '',
   '    $rc = [BaoCredUi]::CredUIPromptForWindowsCredentialsW(',
-  '      [ref]$info, 0, [ref]$authPackage, [IntPtr]::Zero, 0,',
+  '      [ref]$info, 0, [ref]$authPackage, $inBuf, $inSize,',
   '      [ref]$outBuf, [ref]$outSize, [ref]$save, ' + CREDUI_FLAGS + ')',
+  '    if ($haveInBuf) { [Runtime.InteropServices.Marshal]::FreeHGlobal($inBuf) }',
+  '    if ($rc -ne 0 -and $rc -ne ' + WIN32_ERROR_CANCELLED + ' -and $haveInBuf) {',
+  '      # The pre-fill buffer was rejected (e.g. by policy). Retry with an empty in-buffer:',
+  '      # the user then has to type the name, but must never be blocked from viewing.',
+  "      [Console]::Error.WriteLine('viewgate: prefill rejected rc=' + $rc + ', retrying without it')",
+  '      $authPackage = 0',
+  '      $rc = [BaoCredUi]::CredUIPromptForWindowsCredentialsW(',
+  '        [ref]$info, 0, [ref]$authPackage, [IntPtr]::Zero, 0,',
+  '        [ref]$outBuf, [ref]$outSize, [ref]$save, ' + CREDUI_FLAGS + ')',
+  '    }',
   `    if ($rc -eq ${WIN32_ERROR_CANCELLED}) { Fail 'cancelled' }`,
   "    if ($rc -ne 0) { Fail ('prompt-failed:' + $rc) }",
   '',
@@ -264,3 +324,9 @@ export function createWinCredUiBackend(): WinCredUiBackend {
 
 /** 导出脚本本体供本机验证用（不参与生产逻辑）。 */
 export const _psVerifyScript = PS_VERIFY;
+
+/** 导出脚本里插值的常量，供单测把"对话框形态"与"in-buffer 打包方式"钉死。 */
+export const _psVerifyFacts = {
+  credUiFlags: CREDUI_FLAGS,
+  credPackProtected: CRED_PACK_PROTECTED_CREDENTIALS,
+};

@@ -731,9 +731,13 @@ type RootTranslation = {
 		 */
 		viewGateAccountLocked: string
 		/**
-		 * 系​统​验​证​不​可​用​，​已​改​用​查​看​密​码
+		 * 系​统​验​证​无​法​用​于​当​前​ ​W​i​n​d​o​w​s​ ​账​户​（​常​见​于​未​设​置​登​录​密​码​的​电​脑​）​，​已​改​用​查​看​密​码
 		 */
 		viewGateDegraded: string
+		/**
+		 * 系​统​验​证​无​法​用​于​当​前​ ​W​i​n​d​o​w​s​ ​账​户​（​常​见​于​未​设​置​登​录​密​码​的​电​脑​）​，​因​此​由​你​自​定​义​的​查​看​密​码​来​保​护​。
+		 */
+		viewGateSetupDescDegraded: string
 		/**
 		 * 密​码​本​尚​未​建​立​，​无​法​查​看
 		 */
@@ -2302,9 +2306,13 @@ export type TranslationFunctions = {
 		 */
 		viewGateAccountLocked: () => LocalizedString
 		/**
-		 * 系统验证不可用，已改用查看密码
+		 * 系统验证无法用于当前 Windows 账户（常见于未设置登录密码的电脑），已改用查看密码
 		 */
 		viewGateDegraded: () => LocalizedString
+		/**
+		 * 系统验证无法用于当前 Windows 账户（常见于未设置登录密码的电脑），因此由你自定义的查看密码来保护。
+		 */
+		viewGateSetupDescDegraded: () => LocalizedString
 		/**
 		 * 密码本尚未建立，无法查看
 		 */
