@@ -101,9 +101,20 @@ export const CAPTURE_SCRIPT = `
   var _rawUser='',_rawPass='';
   var extractCredentialParams = (${extractCredentialParams.toString()});
   var extractCredentialPayload = (${extractCredentialPayload.toString()});
+  // 不可作为账号框的 input 类型。历史坑（2026-09-22 修）：选择器里有
+  // input[name*="login"] / input[id*="user"] 这类宽匹配，而旧守卫只排除了 password 与 hidden，
+  // 于是登录页账号框一为空（先输密码、或站点 JS 后填）就会命中 type=submit 的提交按钮，
+  // 把按钮文字当用户名上报 —— 实测 7k7k 登录页 3 条 capture 的 user 全是按钮上的"提交"，
+  // 会存成垃圾账号，并带歪 skip already-saved 的查重键（host+user）。
+  var _BAOP_NON_TEXT_INPUTS = {password:1,hidden:1,submit:1,button:1,image:1,reset:1,checkbox:1,radio:1,file:1,range:1,color:1};
   function findUserInput(container) {
     var s=['input[type="text"]','input[type="email"]','input[type="tel"]','input[name*="user"]','input[name*="login"]','input[name*="account"]','input[name*="username"]','input[name*="name"]','input[id*="user"]','input[id*="login"]','input[id*="name"]','input[autocomplete="username"]'];
-    for(var i=0;i<s.length;i++){var e=container.querySelector(s[i]);if(e&&e.value&&e.type!=='password'&&e.type!=='hidden')return e;}
+    for(var i=0;i<s.length;i++){
+      var e=container.querySelector(s[i]);
+      if(!e||!e.value)continue;
+      if(_BAOP_NON_TEXT_INPUTS[String(e.type||'').toLowerCase()])continue;
+      return e;
+    }
     return null;
   }
   function report(src) {

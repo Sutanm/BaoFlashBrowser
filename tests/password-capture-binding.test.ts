@@ -94,6 +94,49 @@ describe('password capture page transport', () => {
     expect(msgs.some((m) => m.startsWith('listener env selftest='))).toBe(true);
     vi.useRealTimers();
   });
+
+  // 2026-09-22 回归防线：findUserInput 的选择器含 input[name*="login"]、input[id*="user"] 等宽匹配，
+  // 旧守卫只排除 password/hidden —— 账号框一为空就会命中 type=submit 的按钮，把按钮文字当用户名
+  // （实测 7k7k 登录页 3 条 capture 的 user 全是"提交"）。
+  it('账号框为空时不得把 submit 按钮当账号；有值时正常取用', () => {
+    vi.useFakeTimers();
+    const report = vi.fn();
+    Object.assign(window, { __baopReport: report });
+    document.body.innerHTML = [
+      '<form id="login">',
+      '<input id="username" name="username">',
+      '<input id="password" type="password">',
+      '<input id="loginbtn" name="loginsubmit" type="submit" value="提交">',
+      '</form>',
+    ].join('');
+
+    window.eval(CAPTURE_SCRIPT);
+    const userField = document.getElementById('username') as HTMLInputElement;
+    const passField = document.getElementById('password') as HTMLInputElement;
+    const captures = (): Record<string, string>[] => report.mock.calls
+      .map(([value]) => JSON.parse(String(value)))
+      .filter((p) => p._type === 'baop_capture');
+
+    // 账号框为空 → 宁可为空字符串，也绝不能把提交按钮的文字当账号
+    passField.value = 'abcd';
+    passField.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('login')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(captures().length).toBeGreaterThan(0);
+    expect(captures().every((c) => c.user === '')).toBe(true);
+
+    // 账号填上后仍要能正常取到（修 bug 不能把正路一起堵死）
+    const report2 = vi.fn();
+    Object.assign(window, { __baopReport: report2 });
+    userField.value = 'bao';
+    passField.value = 'abcd';
+    passField.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('login')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    const second = report2.mock.calls
+      .map(([value]) => JSON.parse(String(value)))
+      .filter((p) => p._type === 'baop_capture');
+    expect(second.map((c) => c.user)).toContain('bao');
+    vi.useRealTimers();
+  });
 });
 
 /** 递归统计整棵树（含子 document）里的 iframe，避免只查浅层就误判。 */
