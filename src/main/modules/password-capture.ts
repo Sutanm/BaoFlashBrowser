@@ -2,7 +2,7 @@
 import type { WebContents } from 'electron';
 import log from 'electron-log';
 import { getMainWindow } from './window';
-import { getMetaForHost, isAutoCaptureEnabled, isCaptureExcluded } from './password-store';
+import { getMetaForHost, getDecryptedPassword, isAutoCaptureEnabled, isCaptureExcluded } from './password-store';
 import { credentialOrigin, redactUrlForLog } from '@shared/utils/url-privacy';
 import { acquireCdpLease, type CdpLease } from './cdp-lease';
 import { extractCredentialParams, extractCredentialPayload } from './password-capture-params';
@@ -29,6 +29,47 @@ export function addBoundedCaptureKey(keys: Set<string>, key: string, maxSize = 2
 }
 
 const captures = new Map<number, CaptureState>();
+
+/**
+ * 附着失败重试（2026-09-22）。
+ *
+ * `password-fill` 需要跨 execution context 求值，它会**直接** `wc.debugger.attach('1.3')`
+ * （不经 cdp-lease），几十毫秒后自行 detach；捕获若恰好撞进这个窗口，`acquireCdpLease`
+ * 会抛 `CDP is already attached by an unmanaged client`。此前捕获只打一行 warn 就返回，
+ * **没有任何重试** —— 那个标签页此后完全无捕获（实测 wc=4 即如此）。
+ *
+ * 这里按递增间隔有限次重试：成功即清表（下次独立失败重新计数），失败到上限后放弃并留日志，
+ * 不做无限自旋。定时器 unref，不阻止进程退出。
+ */
+const ATTACH_RETRY_DELAYS_MS = [250, 500, 1000, 2000, 3000];
+const attachRetries = new Map<number, { timer: ReturnType<typeof setTimeout>; attempts: number }>();
+
+function clearAttachRetry(wcId: number): void {
+  const pending = attachRetries.get(wcId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  attachRetries.delete(wcId);
+}
+
+function scheduleAttachRetry(wc: WebContents): void {
+  const wcId = wc.id;
+  const attempts = attachRetries.get(wcId)?.attempts ?? 0;
+  if (attempts >= ATTACH_RETRY_DELAYS_MS.length) {
+    clearAttachRetry(wcId);
+    log.warn('[PasswordCapture] attach retries exhausted, wc.id=' + wcId);
+    return;
+  }
+  if (attachRetries.has(wcId)) clearTimeout(attachRetries.get(wcId)!.timer);
+  const delay = ATTACH_RETRY_DELAYS_MS[attempts];
+  const timer = setTimeout(() => {
+    // 保留计数（不要在这里删表），否则连续失败会退化成无限重试。
+    if (wc.isDestroyed()) { clearAttachRetry(wcId); return; }
+    log.info('[PasswordCapture] attach retry ' + (attempts + 1) + '/' + ATTACH_RETRY_DELAYS_MS.length + ' wc.id=' + wcId);
+    setupCapture(wc);
+  }, delay);
+  if (typeof timer.unref === 'function') timer.unref();
+  attachRetries.set(wcId, { timer, attempts: attempts + 1 });
+}
 
 /** Snapshot of frame execution contexts already discovered by the capture CDP session. */
 export function getCaptureContextIds(wc: WebContents): number[] {
@@ -466,8 +507,11 @@ export function setupCapture(wc: WebContents): void {
   let cdpLease: CdpLease;
   try { cdpLease = acquireCdpLease(wc, 'password-capture'); } catch (e: any) {
     log.warn('[PasswordCapture] attach failed:', e.message);
+    // 多为与 password-fill 的短命 debugger 客户端争抢，几十毫秒后即可拿到；见 scheduleAttachRetry。
+    scheduleAttachRetry(wc);
     return;
   }
+  clearAttachRetry(wc.id);
 
   const state: CaptureState = {
     wc,
@@ -539,13 +583,25 @@ export function setupCapture(wc: WebContents): void {
           });
         }
 
-        // 已保存账号查重：跳过密码本中已有的 host+username 组合，避免重复弹出 toast
+        // 已保存账号查重（2026-09-22 起对齐 Chrome 的"变了才提示"）：
+        //   同账号 + 同密码 → 静默跳过（重复登录不必再问一次）
+        //   同账号 + 密码已变 → 照常提示（save-confirm 会覆盖旧条目，即"更新密码"）
+        //   解不出明文（密钥不可用）→ 沿用旧的静默行为，不误报成"新密码"
+        // 此前一律静默，用户无法区分"没捕获"和"已保存过"，是多次误判成功能坏了的直接来源。
         if (!skipToast) {
           try {
-            const existing = getMetaForHost(data.host);
-            if (existing.some((e) => e.username === username)) {
-              log.info('[PasswordCapture] skip already-saved host=' + data.host);
-              skipToast = true;
+            const saved = getMetaForHost(data.host).find((e) => e.username === username);
+            if (saved) {
+              const known = getDecryptedPassword(saved.id);
+              if (known === null) {
+                log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (key unavailable)');
+                skipToast = true;
+              } else if (known === String(data.pass)) {
+                log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (same password)');
+                skipToast = true;
+              } else {
+                log.info('[PasswordCapture] password changed host=' + data.host + ' — prompting update');
+              }
             }
           } catch { /* password-store 未初始化时忽略 */ }
         }
@@ -588,6 +644,8 @@ export function setupCapture(wc: WebContents): void {
 
 export function teardownCapture(wc: WebContents): void {
   if (!wc) return;
+  // 即使当前没有捕获状态，也要清掉挂起中的附着重试（自动化占位/标签页关闭都走这里）。
+  clearAttachRetry(wc.id);
   const state = captures.get(wc.id); if (!state) return;
   captures.delete(wc.id);
   state.destroyed = true;

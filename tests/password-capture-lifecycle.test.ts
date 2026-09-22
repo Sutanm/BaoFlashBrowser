@@ -9,8 +9,18 @@ const logMock = vi.hoisted(() => ({
 // （此前固定返回 null，"捕获是否上报"这件事在单测里完全不可见）。
 const windowMock = vi.hoisted(() => ({ send: vi.fn() }));
 
+// 密码本打桩：saved 提供 host+username 查重结果，passwords 提供"能否解出明文"。
+// 2026-09-22 的"变了才提示"语义依赖这两者，故必须在测试里可控。
+const storeMock = vi.hoisted(() => ({
+  saved: [] as { id: string; username: string }[],
+  passwords: new Map<string, string | null>(),
+}));
+
 vi.mock('../src/main/modules/password-store', () => ({
-  getMetaForHost: () => [], isAutoCaptureEnabled: () => true, isCaptureExcluded: () => false,
+  getMetaForHost: () => storeMock.saved,
+  getDecryptedPassword: (id: string) => (storeMock.passwords.has(id) ? storeMock.passwords.get(id)! : null),
+  isAutoCaptureEnabled: () => true,
+  isCaptureExcluded: () => false,
 }));
 vi.mock('../src/main/modules/window', () => ({
   getMainWindow: () => ({
@@ -26,8 +36,16 @@ class FakeDebugger extends EventEmitter {
   attached = false;
   evaluateContexts: number[] = [];
   failures = new Set<number>();
+  /** >0 时 attach 会抛错，用于复现"与 fill 争抢 debugger"的窗口。 */
+  attachFailures = 0;
 
-  attach(): void { this.attached = true; }
+  attach(): void {
+    if (this.attachFailures > 0) {
+      this.attachFailures -= 1;
+      throw new Error('CDP is already attached by an unmanaged client');
+    }
+    this.attached = true;
+  }
   detach(): void { this.attached = false; }
   isAttached(): boolean { return this.attached; }
   sendCommand(method: string, params?: { contextId?: number }): Promise<void> {
@@ -53,7 +71,11 @@ describe('password capture lifecycle', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     logMock.debug.mockClear();
+    logMock.info.mockClear();
+    logMock.warn.mockClear();
     windowMock.send.mockClear();
+    storeMock.saved = [];
+    storeMock.passwords.clear();
   });
 
   it('removes its exact listener, state and retry timer across repeated setup/teardown', async () => {
@@ -133,5 +155,83 @@ describe('password capture lifecycle', () => {
     emitCapture(wc, 'short-pass.example', { user: 'bao', pass: '' });
     expect(windowMock.send).not.toHaveBeenCalled();
     teardownCapture(wc as never);
+  });
+
+  // 2026-09-22：去重从"一律静默"改为 Chrome 的"变了才提示"。
+  // 此前静默是用户误判"捕获坏了"的直接来源（日志里只有一行 skip already-saved）。
+  it('同账号 + 同密码：静默跳过，不弹提示', () => {
+    const wc = fakeWebContents(84);
+    storeMock.saved = [{ id: 'e1', username: 'bao' }];
+    storeMock.passwords.set('e1', 'pw12345');
+    setupCapture(wc as never);
+    emitCapture(wc, 'same-pass.example', { user: 'bao', pass: 'pw12345' });
+    expect(windowMock.send).not.toHaveBeenCalled();
+    expect(logMock.info).toHaveBeenCalledWith('[PasswordCapture] skip already-saved host=same-pass.example (same password)');
+    teardownCapture(wc as never);
+  });
+
+  it('同账号但密码已变：照常弹提示（保存即覆盖旧条目＝更新密码）', () => {
+    const wc = fakeWebContents(85);
+    storeMock.saved = [{ id: 'e2', username: 'bao' }];
+    storeMock.passwords.set('e2', 'OLD-password');
+    setupCapture(wc as never);
+    emitCapture(wc, 'changed-pass.example', { user: 'bao', pass: 'NEW-password' });
+    expect(windowMock.send).toHaveBeenCalledTimes(1);
+    expect(windowMock.send).toHaveBeenCalledWith('password:captured', expect.objectContaining({ host: 'changed-pass.example' }));
+    expect(logMock.info).toHaveBeenCalledWith('[PasswordCapture] password changed host=changed-pass.example — prompting update');
+    teardownCapture(wc as never);
+  });
+
+  it('解不出明文（密钥不可用）时沿用静默，不把旧密码误报成"已变"', () => {
+    const wc = fakeWebContents(86);
+    storeMock.saved = [{ id: 'e3', username: 'bao' }];
+    storeMock.passwords.set('e3', null);
+    setupCapture(wc as never);
+    emitCapture(wc, 'locked-key.example', { user: 'bao', pass: 'whatever' });
+    expect(windowMock.send).not.toHaveBeenCalled();
+    expect(logMock.info).toHaveBeenCalledWith('[PasswordCapture] skip already-saved host=locked-key.example (key unavailable)');
+    teardownCapture(wc as never);
+  });
+
+  // 2026-09-22：password-fill 会短命 attach debugger（绕过 cdp-lease），捕获撞上时必须重试，
+  // 否则该标签页永久无捕获（实测 wc=4 即如此）。
+  it('attach 撞上 fill 的短命客户端时会重试，直到拿到租约', async () => {
+    const wc = fakeWebContents(87);
+    wc.debugger.attachFailures = 1;
+    setupCapture(wc as never);
+    expect(wc.debugger.listenerCount('message')).toBe(0);
+    expect(logMock.warn).toHaveBeenCalledWith(
+      '[PasswordCapture] attach failed:',
+      'CDP is already attached by an unmanaged client',
+    );
+
+    await vi.advanceTimersByTimeAsync(250);
+    expect(wc.debugger.attached).toBe(true);
+    expect(wc.debugger.listenerCount('message')).toBe(1);
+    teardownCapture(wc as never);
+  });
+
+  it('连续失败到上限后放弃，不无限自旋（并留有日志）', async () => {
+    const wc = fakeWebContents(88);
+    wc.debugger.attachFailures = 99;
+    setupCapture(wc as never);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(wc.debugger.attached).toBe(false);
+    const retries = logMock.info.mock.calls.filter(([m]) => String(m).startsWith('[PasswordCapture] attach retry')).length;
+    expect(retries).toBe(5);
+    expect(logMock.warn).toHaveBeenCalledWith('[PasswordCapture] attach retries exhausted, wc.id=88');
+    teardownCapture(wc as never);
+  });
+
+  it('teardown 会取消挂起中的附着重试（标签页关闭/自动化占位时不残留定时器）', async () => {
+    const wc = fakeWebContents(89);
+    wc.debugger.attachFailures = 1;
+    const baseline = vi.getTimerCount();
+    setupCapture(wc as never);
+    expect(vi.getTimerCount()).toBeGreaterThan(baseline);
+    teardownCapture(wc as never);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(wc.debugger.attached).toBe(false);
+    expect(vi.getTimerCount()).toBe(baseline);
   });
 });
