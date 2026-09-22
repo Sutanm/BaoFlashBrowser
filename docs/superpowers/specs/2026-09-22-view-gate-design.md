@@ -77,6 +77,18 @@ Microsoft 账户（用户名与本地 `USERNAME` 不一致）。不一致 → `n
 `windowsHide`、`-NoProfile -NonInteractive -ExecutionPolicy Bypass`、
 stdout 首行契约 `OK <payload>` / `ERR <code>`、stderr 只进日志、超时 kill。
 
+**脚本必须纯 ASCII**（2026-09-22 本机实跑撞出的坑）：Windows PowerShell 5.1 按控制台 ANSI
+代码页解码 `-Command` 参数与**无 BOM 的 .ps1 文件**，脚本里的中文会被错误解码并吃掉引号配对，
+导致整段脚本语法错误（`表达式或语句中包含意外的标记` / `字符串缺少终止符`）。
+DPAPI 脚本一直是纯 ASCII，所以这个坑从未暴露。因此：
+**脚本本体保持纯 ASCII；提示文案与凭据一律走 stdin（base64 + UTF-8）**。
+单测里有 ASCII 不变式断言钉死这条。
+
+**解包结果的形态**（同次实测）：`CredUnPackAuthenticationBufferW` 返回的是**全限定名**，
+域字段为空（实测 `user="BATEST\95470"`、`domain=""`）。而 `LogonUserW` 要求账户名与域分列。
+故脚本在调用前按最后一个 `\` 拆分；UPN 形式且域为空时按文档传**真正的 NULL**
+（PowerShell 会把 `$null` 强转成 `""`，需用 `[NullString]::Value` 绕开）。
+
 ## 4. 查看密码（C 档强制，G6）
 
 - **KDF**：PBKDF2-HMAC-SHA256，250k 迭代，16B 随机 salt，导出 32B（复用 `crypto-helper.ts` 的 `PBKDF2_ITER` / `SALT_LEN`）。零第三方依赖，与既有加密栈一致。
@@ -89,6 +101,8 @@ stdout 首行契约 `OK <payload>` / `ERR <code>`、stderr 只进日志、超时
 ## 5. 失败计数与锁定（G7）
 
 - 连续失败 **5 次** → 锁定 **30 分钟**（`VIEW_LOCK_MS`）。
+  **触发锁定的那一次仍以 `wrong-credential` 返回，并附带 `lockedForMs`**——
+  UI 需要同时说清"口令错了"与"已被锁 30 分钟"；此后（含正确口令）一律返回 `locked`。
 - **持久化**：独立 electron-store 文件 `password-view-guard.json`，字段
   `{ failCount, lockedUntil, osAuthUnavailable }`。
   **不随 `resetAll()` / 重建密码本清除** —— 锁定是关于"尝试"的记录，不是关于"数据"的。
@@ -140,8 +154,20 @@ Windows 账户用 PIN / Windows Hello，或账户被策略禁止网络登录时�
 | `password:reveal`（既有，扩展） | `{ id, secret? }` | `{ password?, error?, remainingAttempts?, lockedForMs? }` |
 | `password:set-view-password`（新增） | `{ password, current? }` | `{ success, error? }` |
 
-`error` 取值：`'not-authorized'`（未通过 / 无门禁可用）、`'missing'`（条目不存在）、
-`'locked'`、`'needs-setup'`、`'cancelled'`、`'wrong-credential'`、`'unavailable'`。
+`error` 取值（实现中的 `ViewAuthCode`）：
+
+| 码 | 含义 | 计入失败 |
+|---|---|---|
+| `not-authorized` | 无门禁可用（IPC 层沿用既有语义，等价 `none`） | 否 |
+| `missing` | 条目不存在 | 否 |
+| `locked` | 处于锁定期（含口令正确） | 否（不累加、不延长） |
+| `needs-setup` | C 档尚未设置查看密码 → 引导设置 | 否 |
+| `needs-input` | 密码模式但本次未带口令 | 否 |
+| `wrong-credential` | 口令/凭据错误（`reason` 说明 `bad-credential` / `not-current-user`；触发锁定时附 `lockedForMs`） | **是** |
+| `cancelled` | 用户取消系统对话框 | 否 |
+| `unavailable` | 验证通道不可用/超时，fail closed | 否 |
+| `account-locked` | Windows 账户已被系统锁定 | 否 |
+| `degraded` | OS 验证不可用，已降级为查看密码（需引导设置） | 否 |
 
 **为什么不做独立的 `verify-view` 通道**：门禁是"为这次查看"服务的，每一次查看都要重新验证（G12），
 因此没有任何需要跨请求保存的"已授权"状态。把验证并入 reveal，通道更少、更难被绕过
@@ -173,6 +199,11 @@ Windows 账户用 PIN / Windows Hello，或账户被策略禁止网络登录时�
 - 不把查看密码做成数据加密密钥（它不是 KEK，不参与 DEK 解包；忘记它不会导致数据不可解）。
 
 ## 12. 待确认项
+
+用户已拍板的四项：**① Windows 用 CredUI（含校验）② 每次查看都验证、无会话豁免
+③ C 档用用户自定义查看密码（防窥屏）④ 连续失败 5 次锁 30 分钟。**
+
+下表三项是**实现时按本规格取值做的，都可否决**（改动量都很小）：
 
 | # | 项 | 本规格取值 | 影响面 |
 |---|---|---|---|
