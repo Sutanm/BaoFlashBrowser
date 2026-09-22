@@ -4,7 +4,7 @@ import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { Settings } from '@shared/types/settings';
 import type { DownloadEngine } from '@shared/types/downloads';
 import type { FlashPluginChannel } from '@shared/types/flash';
-import type { PasswordKeyStatus } from '@shared/types/passwords';
+import type { PasswordKeyStatus, ViewGuardStatus } from '@shared/types/passwords';
 import { ArrowLeft, ChevronRight, Cpu, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
 import { requiresMainConfigRestart } from '@renderer/services/settings-restart';
 import ToggleSwitch from '../controls/ToggleSwitch';
@@ -72,6 +72,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
   const [passwordKeyStatus, setPasswordKeyStatus] = useState<PasswordKeyStatus>('ok');
   const [passwordKeyReason, setPasswordKeyReason] = useState<string | null>(null);
   const [excludedSitesText, setExcludedSitesText] = useState('');
+  // --- 查看保护（规格 2026-09-22 §8）：门禁形态 + 查看密码设置/修改 ---
+  const [viewGuard, setViewGuard] = useState<ViewGuardStatus | null>(null);
+  const [viewPwdOpen, setViewPwdOpen] = useState(false);
+  const [viewPwdCurrent, setViewPwdCurrent] = useState('');
+  const [viewPwdNext, setViewPwdNext] = useState('');
+  const [viewPwdConfirm, setViewPwdConfirm] = useState('');
+  const [viewPwdBusy, setViewPwdBusy] = useState(false);
+  const [viewPwdError, setViewPwdError] = useState<string | null>(null);
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [cacheConfirming, setCacheConfirming] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
@@ -120,6 +128,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       setPasswordKeyStatus(status.keyStatus ?? 'ok');
       setPasswordKeyReason(status.keyIssue?.reason ?? null);
       setExcludedSitesText(status.excludedSites.join('\n'));
+      setViewGuard(status.viewGuard);
     }).catch(() => {});
   }, []);
 
@@ -247,8 +256,49 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     setPasswordKeyStatus(status.keyStatus ?? 'ok');
     setPasswordKeyReason(status.keyIssue?.reason ?? null);
     setExcludedSitesText(status.excludedSites.join('\n'));
+    setViewGuard(status.viewGuard);
     pushToast({ message: LL.password.resetDone(), type: 'info' });
   }, [resetConfirming, setStoreStatus, pushToast, LL]);
+
+  /** 重新拉取门禁状态（设置查看密码/重新检测系统验证之后）。 */
+  const reloadViewGuard = useCallback(async () => {
+    const status = await window.electronAPI.pwd.status();
+    setViewGuard(status.viewGuard);
+  }, []);
+
+  const handleViewPwdSave = useCallback(async () => {
+    if (viewPwdNext.length < 6) { setViewPwdError(LL.password.viewGateTooShort()); return; }
+    if (viewPwdNext !== viewPwdConfirm) { setViewPwdError(LL.password.viewGateMismatch()); return; }
+    setViewPwdBusy(true);
+    try {
+      const result = await window.electronAPI.pwd.setViewPassword(viewPwdNext, viewPwdCurrent || undefined);
+      if (!result.success) {
+        setViewPwdError(
+          result.error === 'wrong-credential'
+            ? LL.password.viewGateWrong()
+            : LL.password.viewGateChangeFailed(),
+        );
+        return;
+      }
+      setViewPwdCurrent(''); setViewPwdNext(''); setViewPwdConfirm('');
+      setViewPwdOpen(false); setViewPwdError(null);
+      pushToast({ message: LL.password.viewGateChanged(), type: 'success' });
+      await reloadViewGuard();
+    } finally {
+      setViewPwdBusy(false);
+    }
+  }, [viewPwdNext, viewPwdConfirm, viewPwdCurrent, pushToast, LL, reloadViewGuard]);
+
+  const handleRecheckOsAuth = useCallback(async () => {
+    const result = await window.electronAPI.pwd.resetOsAuth();
+    setViewGuard(result.viewGuard);
+  }, []);
+
+  /** 查看保护区块里的次要按钮（与既有内联按钮风格一致）。 */
+  const compactButtonStyle: React.CSSProperties = {
+    width: '100%', padding: 8, borderRadius: 6, border: 'none',
+    background: 'var(--bg-hover)', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer',
+  };
 
   const handleExportDiagnostics = useCallback(async () => {
     setExportingDiagnostics(true);
@@ -565,6 +615,85 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
             onChange={(checked) => void handleAutoFillChange(checked)}
           />
         </div>
+        <div className="field">
+          <div className="field-label">{LL.password.viewProtectionTitle()}</div>
+          <div className="field-hint" style={{ marginBottom: 6 }}>
+            {viewGuard?.mode === 'os-win'
+              ? LL.password.viewProtectionOsWin()
+              : viewGuard?.mode === 'password'
+                ? (viewGuard.passwordSet
+                  ? LL.password.viewProtectionPassword()
+                  : LL.password.viewProtectionPasswordUnset())
+                : viewGuard?.reason === 'key-unavailable'
+                  ? LL.password.viewProtectionNoneKey()
+                  : LL.password.viewProtectionNoneInit()}
+          </div>
+          {viewGuard?.reason === 'os-auth-unavailable' && (
+            <div className="field-hint" style={{ marginBottom: 6, color: '#b45309' }}>
+              {LL.password.viewProtectionDegraded()}
+            </div>
+          )}
+
+          {viewGuard?.mode === 'password' && !viewPwdOpen && (
+            <button
+              style={compactButtonStyle}
+              onClick={() => { setViewPwdOpen(true); setViewPwdError(null); }}
+            >
+              {viewGuard.passwordSet ? LL.password.viewProtectionChangeBtn() : LL.password.viewProtectionSetBtn()}
+            </button>
+          )}
+
+          {viewGuard?.reason === 'os-auth-unavailable' && (
+            <button style={{ ...compactButtonStyle, marginTop: 6 }} onClick={() => void handleRecheckOsAuth()}>
+              {LL.password.viewProtectionRecheck()}
+            </button>
+          )}
+
+          {viewGuard?.mode === 'password' && viewPwdOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {viewGuard.passwordSet && (
+                <input
+                  className="pwd-gate-input"
+                  type="password"
+                  aria-label={LL.password.viewGateCurrentLabel()}
+                  placeholder={LL.password.viewGateCurrentLabel()}
+                  value={viewPwdCurrent}
+                  onChange={(event) => setViewPwdCurrent(event.target.value)}
+                />
+              )}
+              <input
+                className="pwd-gate-input"
+                type="password"
+                aria-label={LL.password.viewGatePasswordLabel()}
+                placeholder={LL.password.viewGatePasswordLabel()}
+                value={viewPwdNext}
+                onChange={(event) => setViewPwdNext(event.target.value)}
+              />
+              <input
+                className="pwd-gate-input"
+                type="password"
+                aria-label={LL.password.viewGateConfirmLabel()}
+                placeholder={LL.password.viewGateConfirmLabel()}
+                value={viewPwdConfirm}
+                onChange={(event) => setViewPwdConfirm(event.target.value)}
+              />
+              <div className="field-hint">{LL.password.viewGateSetupWarning()}</div>
+              {viewPwdError && <div className="field-hint" style={{ color: '#e74c3c' }}>{viewPwdError}</div>}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button style={compactButtonStyle} disabled={viewPwdBusy} onClick={() => void handleViewPwdSave()}>
+                  {LL.save()}
+                </button>
+                <button
+                  style={compactButtonStyle}
+                  onClick={() => { setViewPwdOpen(false); setViewPwdError(null); }}
+                >
+                  {LL.cancel()}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="field">
           <div className="field-label">{LL.password.excludedSites()}</div>
           <div className="field-hint" style={{ marginBottom: 6 }}>{LL.password.excludedSitesHint()}</div>

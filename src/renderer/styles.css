@@ -982,6 +982,79 @@ body.keyboard-navigation .address-input:focus {
   font-size: 12px;
 }
 
+/* --- 查看门禁模态（规格 2026-09-22 §4）：覆盖在密码本面板内，不遮住标签栏 --- */
+.pwd-gate-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pwd-gate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 300px;
+  padding: 14px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-primary, #fff);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.pwd-gate-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pwd-gate-desc,
+.pwd-gate-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.pwd-gate-warn {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b45309;
+}
+
+.pwd-gate-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #e74c3c;
+}
+
+.pwd-gate-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-secondary, transparent);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+}
+
+.pwd-gate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
 /* 密钥状态横幅：不可用/重试中必须可见（否则只剩"功能突然不能用"的静默故障） */
 .pwd-key-banner {
   margin: 8px;

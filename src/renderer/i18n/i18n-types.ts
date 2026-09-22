@@ -655,6 +655,149 @@ type RootTranslation = {
 		 * 密​钥​后​端
 		 */
 		keyBackendLabel: string
+		/**
+		 * 验​证​后​查​看​密​码
+		 */
+		viewGateTitle: string
+		/**
+		 * 为​防​止​旁​人​窥​屏​，​每​次​查​看​都​需​要​验​证​身​份​。
+		 */
+		viewGateAskDesc: string
+		/**
+		 * 设​置​查​看​密​码
+		 */
+		viewGateSetupTitle: string
+		/**
+		 * 当​前​没​有​可​用​的​系​统​钥​匙​串​，​查​看​密​码​将​由​你​自​定​义​的​查​看​密​码​保​护​。
+		 */
+		viewGateSetupDesc: string
+		/**
+		 * 查​看​密​码
+		 */
+		viewGatePasswordLabel: string
+		/**
+		 * 再​次​输​入
+		 */
+		viewGateConfirmLabel: string
+		/**
+		 * 当​前​查​看​密​码
+		 */
+		viewGateCurrentLabel: string
+		/**
+		 * 验​证
+		 */
+		viewGateSubmit: string
+		/**
+		 * 保​存​并​查​看
+		 */
+		viewGateSaveAndView: string
+		/**
+		 * 修​改​查​看​密​码
+		 */
+		viewGateChangeTitle: string
+		/**
+		 * 请​在​系​统​对​话​框​中​完​成​验​证​…
+		 */
+		viewGateOsWaiting: string
+		/**
+		 * 两​次​输​入​的​密​码​不​一​致
+		 */
+		viewGateMismatch: string
+		/**
+		 * 查​看​密​码​至​少​ ​6​ ​位
+		 */
+		viewGateTooShort: string
+		/**
+		 * 查​看​密​码​不​正​确
+		 */
+		viewGateWrong: string
+		/**
+		 * 还​可​尝​试​ ​{​c​o​u​n​t​}​ ​次
+		 * @param {unknown} count
+		 */
+		viewGateRemaining: RequiredParams<'count'>
+		/**
+		 * 已​锁​定​，​请​在​ ​{​t​i​m​e​}​ ​后​重​试
+		 * @param {unknown} time
+		 */
+		viewGateLocked: RequiredParams<'time'>
+		/**
+		 * 系​统​验​证​不​可​用​（​{​r​e​a​s​o​n​}​）​，​可​稍​后​重​试
+		 * @param {unknown} reason
+		 */
+		viewGateUnavailable: RequiredParams<'reason'>
+		/**
+		 * W​i​n​d​o​w​s​ ​账​户​已​被​系​统​锁​定​，​请​先​用​其​它​方​式​登​录​系​统​后​再​试
+		 */
+		viewGateAccountLocked: string
+		/**
+		 * 系​统​验​证​不​可​用​，​已​改​用​查​看​密​码
+		 */
+		viewGateDegraded: string
+		/**
+		 * 密​码​本​尚​未​建​立​，​无​法​查​看
+		 */
+		viewGateNoVault: string
+		/**
+		 * 密​码​本​密​钥​当​前​不​可​用​，​请​先​修​复​密​钥
+		 */
+		viewGateNoKey: string
+		/**
+		 * 请​牢​记​这​个​密​码​：​忘​记​后​只​能​重​建​密​码​本​，​会​丢​弃​全​部​已​保​存​的​密​码​。
+		 */
+		viewGateSetupWarning: string
+		/**
+		 * 查​看​密​码​已​设​置
+		 */
+		viewGateSaved: string
+		/**
+		 * 查​看​密​码​已​修​改
+		 */
+		viewGateChanged: string
+		/**
+		 * 查​看​密​码​修​改​失​败
+		 */
+		viewGateChangeFailed: string
+		/**
+		 * 查​看​保​护
+		 */
+		viewProtectionTitle: string
+		/**
+		 * 查​看​密​码​需​验​证​ ​W​i​n​d​o​w​s​ ​账​户​身​份​（​系​统​对​话​框​）
+		 */
+		viewProtectionOsWin: string
+		/**
+		 * 查​看​密​码​需​输​入​自​定​义​查​看​密​码
+		 */
+		viewProtectionPassword: string
+		/**
+		 * 尚​未​设​置​查​看​密​码​，​首​次​查​看​时​会​引​导​设​置
+		 */
+		viewProtectionPasswordUnset: string
+		/**
+		 * 密​码​本​未​建​立
+		 */
+		viewProtectionNoneInit: string
+		/**
+		 * 密​钥​不​可​用​，​暂​时​无​法​查​看​密​码
+		 */
+		viewProtectionNoneKey: string
+		/**
+		 * 系​统​验​证​不​可​用​，​已​改​用​查​看​密​码
+		 */
+		viewProtectionDegraded: string
+		/**
+		 * 重​新​检​测​系​统​验​证
+		 */
+		viewProtectionRecheck: string
+		/**
+		 * 设​置​查​看​密​码
+		 */
+		viewProtectionSetBtn: string
+		/**
+		 * 修​改​查​看​密​码
+		 */
+		viewProtectionChangeBtn: string
 	}
 	settings: {
 		/**
@@ -2086,6 +2229,146 @@ export type TranslationFunctions = {
 		 * 密钥后端
 		 */
 		keyBackendLabel: () => LocalizedString
+		/**
+		 * 验证后查看密码
+		 */
+		viewGateTitle: () => LocalizedString
+		/**
+		 * 为防止旁人窥屏，每次查看都需要验证身份。
+		 */
+		viewGateAskDesc: () => LocalizedString
+		/**
+		 * 设置查看密码
+		 */
+		viewGateSetupTitle: () => LocalizedString
+		/**
+		 * 当前没有可用的系统钥匙串，查看密码将由你自定义的查看密码保护。
+		 */
+		viewGateSetupDesc: () => LocalizedString
+		/**
+		 * 查看密码
+		 */
+		viewGatePasswordLabel: () => LocalizedString
+		/**
+		 * 再次输入
+		 */
+		viewGateConfirmLabel: () => LocalizedString
+		/**
+		 * 当前查看密码
+		 */
+		viewGateCurrentLabel: () => LocalizedString
+		/**
+		 * 验证
+		 */
+		viewGateSubmit: () => LocalizedString
+		/**
+		 * 保存并查看
+		 */
+		viewGateSaveAndView: () => LocalizedString
+		/**
+		 * 修改查看密码
+		 */
+		viewGateChangeTitle: () => LocalizedString
+		/**
+		 * 请在系统对话框中完成验证…
+		 */
+		viewGateOsWaiting: () => LocalizedString
+		/**
+		 * 两次输入的密码不一致
+		 */
+		viewGateMismatch: () => LocalizedString
+		/**
+		 * 查看密码至少 6 位
+		 */
+		viewGateTooShort: () => LocalizedString
+		/**
+		 * 查看密码不正确
+		 */
+		viewGateWrong: () => LocalizedString
+		/**
+		 * 还可尝试 {count} 次
+		 */
+		viewGateRemaining: (arg: { count: unknown }) => LocalizedString
+		/**
+		 * 已锁定，请在 {time} 后重试
+		 */
+		viewGateLocked: (arg: { time: unknown }) => LocalizedString
+		/**
+		 * 系统验证不可用（{reason}），可稍后重试
+		 */
+		viewGateUnavailable: (arg: { reason: unknown }) => LocalizedString
+		/**
+		 * Windows 账户已被系统锁定，请先用其它方式登录系统后再试
+		 */
+		viewGateAccountLocked: () => LocalizedString
+		/**
+		 * 系统验证不可用，已改用查看密码
+		 */
+		viewGateDegraded: () => LocalizedString
+		/**
+		 * 密码本尚未建立，无法查看
+		 */
+		viewGateNoVault: () => LocalizedString
+		/**
+		 * 密码本密钥当前不可用，请先修复密钥
+		 */
+		viewGateNoKey: () => LocalizedString
+		/**
+		 * 请牢记这个密码：忘记后只能重建密码本，会丢弃全部已保存的密码。
+		 */
+		viewGateSetupWarning: () => LocalizedString
+		/**
+		 * 查看密码已设置
+		 */
+		viewGateSaved: () => LocalizedString
+		/**
+		 * 查看密码已修改
+		 */
+		viewGateChanged: () => LocalizedString
+		/**
+		 * 查看密码修改失败
+		 */
+		viewGateChangeFailed: () => LocalizedString
+		/**
+		 * 查看保护
+		 */
+		viewProtectionTitle: () => LocalizedString
+		/**
+		 * 查看密码需验证 Windows 账户身份（系统对话框）
+		 */
+		viewProtectionOsWin: () => LocalizedString
+		/**
+		 * 查看密码需输入自定义查看密码
+		 */
+		viewProtectionPassword: () => LocalizedString
+		/**
+		 * 尚未设置查看密码，首次查看时会引导设置
+		 */
+		viewProtectionPasswordUnset: () => LocalizedString
+		/**
+		 * 密码本未建立
+		 */
+		viewProtectionNoneInit: () => LocalizedString
+		/**
+		 * 密钥不可用，暂时无法查看密码
+		 */
+		viewProtectionNoneKey: () => LocalizedString
+		/**
+		 * 系统验证不可用，已改用查看密码
+		 */
+		viewProtectionDegraded: () => LocalizedString
+		/**
+		 * 重新检测系统验证
+		 */
+		viewProtectionRecheck: () => LocalizedString
+		/**
+		 * 设置查看密码
+		 */
+		viewProtectionSetBtn: () => LocalizedString
+		/**
+		 * 修改查看密码
+		 */
+		viewProtectionChangeBtn: () => LocalizedString
 	}
 	settings: {
 		/**

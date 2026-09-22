@@ -4,13 +4,15 @@ import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { PasswordEntry, PasswordStoreStatus } from '@shared/types/passwords';
 import { useTabsStore } from '@renderer/store/useTabsStore';
 import { useDataStore } from '@renderer/store/useDataStore';
+import PasswordViewGateModal, { formatLockRemaining } from './PasswordViewGateModal';
 
 /**
  * 侧边栏"密码本"面板 — v2（无主密码/无解锁态）。
  * - 未启用：开启开关。
  * - 已启用未建库：一键"启用密码管理器"（无任何密码输入）。
- * - 已启用：列表常显；"查看/复制"走 reveal 门禁（Task5 view-gate 接线前
- *   后端恒返回 not-authorized，UI 显示占位提示）。
+ * - 已启用：列表常显；"查看"走 view-gate 门禁（规格 2026-09-22）——
+ *   每次查看都验证：A 档弹系统对话框，C 档输入自定义查看密码；
+ *   未通过一律只显示掩码，明文只在 reveal 返回时短暂存在于组件状态里。
  */
 const PasswordsPanel: React.FC = () => {
   const { LL } = useI18nContext();
@@ -20,15 +22,36 @@ const PasswordsPanel: React.FC = () => {
   const [decryptedPasswords, setDecryptedPasswords] = useState<Map<string, string>>(new Map());
   const [rebuildOpen, setRebuildOpen] = useState(false);
   const [rebuildWord, setRebuildWord] = useState('');
+  // --- 查看门禁（规格 2026-09-22）：每次查看都验证，因此没有"已授权"状态可缓存 ---
+  const [gateTargetId, setGateTargetId] = useState<string | null>(null);
+  const [gateSetup, setGateSetup] = useState(false);
+  const [gateBusy, setGateBusy] = useState(false);
+  const [gateError, setGateError] = useState<{ text?: string; remaining?: number } | null>(null);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
   const activeTabId = useTabsStore((state) => state.activeTabId);
   const pushToast = useDataStore((state) => state.pushToast);
 
   const api = window.electronAPI?.pwd;
+  const lockRemaining = lockedUntil ? Math.max(0, lockedUntil - clock) : 0;
+
+  /**
+   * 落定锁定时必须同时校准 `clock`：否则基准还停在挂载时刻，
+   * 倒计时会多算出"挂载到现在"的时间（实测显示 01:31 而实际 01:30）。
+   */
+  const applyLock = useCallback((ms: number) => {
+    const now = Date.now();
+    setClock(now);
+    setLockedUntil(now + ms);
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     if (!api) return;
     const s: PasswordStoreStatus = await api.status();
     setStatus(s);
+    // 锁定由主进程裁决：把剩余时间落到本地，用于倒计时展示。
+    if (s.viewGuard.lockedForMs) applyLock(s.viewGuard.lockedForMs);
+    else setLockedUntil(null);
     if (s.initialized && s.enabled) {
       const list: PasswordEntry[] = await api.list();
       setEntries(list);
@@ -36,7 +59,22 @@ const PasswordsPanel: React.FC = () => {
       setEntries([]);
       setDecryptedPasswords(new Map());
     }
-  }, [api]);
+  }, [api, applyLock]);
+
+  // 仅在锁定期间走秒，其它时候不产生定时器。
+  useEffect(() => {
+    if (!lockedUntil || lockedUntil <= Date.now()) return;
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [lockedUntil]);
+
+  // 倒计时到点：清掉本地锁定态并回主进程取权威状态。
+  useEffect(() => {
+    if (lockedUntil && lockRemaining === 0) {
+      setLockedUntil(null);
+      void refreshStatus();
+    }
+  }, [lockedUntil, lockRemaining, refreshStatus]);
 
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
@@ -83,12 +121,106 @@ const PasswordsPanel: React.FC = () => {
       setDecryptedPasswords((prev) => { const m = new Map(prev); m.delete(id); return m; });
       return;
     }
+    if (!api || !status) return;
+    const guard = status.viewGuard;
+    // 门禁不可用（未建库 / 密钥不可用）就不该弹输入框——先修根因。
+    if (guard.mode === 'none') {
+      pushToast({
+        message: guard.reason === 'key-unavailable' ? LL.password.viewGateNoKey() : LL.password.viewGateNoVault(),
+        type: 'warning',
+      });
+      return;
+    }
+    if (lockRemaining > 0) {
+      pushToast({ message: LL.password.viewGateLocked({ time: formatLockRemaining(lockRemaining) }), type: 'warning' });
+      return;
+    }
+    setGateError(null);
+    setGateTargetId(id);
+    if (guard.mode === 'password' && !guard.passwordSet) {
+      setGateSetup(true);
+      return;
+    }
+    setGateSetup(false);
+    // A 档：主进程弹系统对话框；模态只作"等待验证"提示。
+    if (guard.mode !== 'password') void attemptReveal(id);
+  };
+
+  const attemptReveal = async (id: string, secret?: string, afterSetup = false) => {
     if (!api) return;
-    const result = await api.reveal(id);
-    if (result.password) {
-      setDecryptedPasswords((prev) => new Map(prev).set(id, result.password!));
-    } else if (result.error === 'not-authorized') {
-      pushToast({ message: LL.password.viewLocked(), type: 'warning' });
+    setGateBusy(true);
+    try {
+      const result = await api.reveal(id, secret);
+      if (result.password) {
+        setDecryptedPasswords((prev) => new Map(prev).set(id, result.password!));
+        setGateTargetId(null);
+        setGateError(null);
+        setGateSetup(false);
+        if (afterSetup) pushToast({ message: LL.password.viewGateSaved(), type: 'success' });
+        return;
+      }
+      switch (result.error) {
+        case 'cancelled':
+          // 用户主动取消：静默关闭，不报错（也不计入失败）。
+          setGateTargetId(null);
+          setGateError(null);
+          return;
+        case 'needs-setup':
+          setGateSetup(true);
+          setGateError(null);
+          return;
+        case 'wrong-credential':
+          setGateError({ text: LL.password.viewGateWrong(), remaining: result.remainingAttempts });
+          if (result.lockedForMs) applyLock(result.lockedForMs);
+          return;
+        case 'locked':
+          applyLock(result.lockedForMs ?? 0);
+          setGateError({ text: undefined });
+          return;
+        case 'degraded':
+          setGateError({ text: LL.password.viewGateDegraded() });
+          refreshStatus();
+          return;
+        case 'account-locked':
+          setGateError({ text: LL.password.viewGateAccountLocked() });
+          return;
+        case 'unavailable':
+          setGateError({ text: LL.password.viewGateUnavailable({ reason: result.reason ?? 'unknown' }) });
+          return;
+        default:
+          setGateError({ text: LL.password.viewGateWrong() });
+          return;
+      }
+    } finally {
+      setGateBusy(false);
+    }
+  };
+
+  const handleGateSubmit = async (secret: string) => {
+    const id = gateTargetId;
+    if (!id || !api) return;
+    if (!gateSetup) {
+      await attemptReveal(id, secret);
+      return;
+    }
+    setGateBusy(true);
+    try {
+      const result = await api.setViewPassword(secret);
+      if (!result.success) {
+        setGateError({
+          text: result.error === 'weak-password'
+            ? LL.password.viewGateTooShort()
+            : LL.password.viewGateChangeFailed(),
+          remaining: result.remainingAttempts,
+        });
+        return;
+      }
+      await refreshStatus();
+      setGateSetup(false);
+      // 规格 §5：设置成功后当次直接视为已授权（同一次交互意图），立刻把明文给他。
+      await attemptReveal(id, secret, true);
+    } finally {
+      setGateBusy(false);
     }
   };
 
@@ -151,7 +283,7 @@ const PasswordsPanel: React.FC = () => {
   const showTier = keyStatus === 'ok' && status.tier !== 'C';
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto' }}>
+    <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
       <div className="pwd-settings-bar" style={{ borderBottom: '1px solid var(--border-light)' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={status.enabled} onChange={handleToggleEnabled} /> {LL.password.enable()}
@@ -246,6 +378,19 @@ const PasswordsPanel: React.FC = () => {
             </div>
           );
         })
+      )}
+
+      {gateTargetId && (
+        <PasswordViewGateModal
+          mode={status.viewGuard.mode}
+          setup={gateSetup}
+          busy={gateBusy}
+          errorText={gateError?.text}
+          remainingAttempts={gateError?.remaining}
+          lockedForMs={lockRemaining}
+          onSubmit={(secret) => { void handleGateSubmit(secret); }}
+          onCancel={() => { setGateTargetId(null); setGateError(null); setGateSetup(false); }}
+        />
       )}
     </div>
   );
