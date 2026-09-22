@@ -78,6 +78,12 @@ Linux Secret Service、macOS Keychain 和查看门禁尚未接入；在门禁完
 - **诊断行的判读**：`frame info`（登录框在哪个 frame）、`first keydown` / `first input`（按键有没有进
   这个 frame、落在什么元素上）、`listener env selftest=… addFnLen=… instOverridden=…`（监听是否生效）。
   完整判读矩阵见技能 `bao-password-capture-triage`。
+- **fill 与 capture 会争抢 debugger（2026-09-22 实测）**：`password-fill.ts:113` 直接
+  `wc.debugger.attach('1.3')` 绕过 `cdp-lease`（几十毫秒窗口后自行 detach）。捕获的 `setupCapture`
+  若撞进该窗口，会拿到 `CDP is already attached by an unmanaged client`，而它只打一行 warn
+  **不重试** → 该标签页此后完全无捕获（实测 wc=4 即如此）。排查"某个标签页捕获不到"先搜这行日志。
+- **去重是静默的**：`skip already-saved`（同 host + 同账号）不弹任何提示，用户无法区分
+  "没捕获"与"已保存过"。日志里看到它 ≠ 捕获失败。
 - 纯 Node（vitest）下 electron-log 会写真实 `logs/main.log`，含 `/mock/` 路径的行是单测噪声——
   读日志先按来源区分，否则会把单测告警当成真机故障（09-11 的 26 条 `unwrap-failed` 就是这么误判的）。
 

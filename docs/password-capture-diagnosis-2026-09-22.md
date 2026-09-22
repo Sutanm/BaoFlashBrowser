@@ -14,8 +14,11 @@
 > 现象：7k7k 上输入账号密码点登录没有保存提示，4399 正常。用户怀疑"某次提交弄坏了"或"站点改了登录行为"。
 >
 > 结论：**站点没有改，捕获脚本也没有被改坏。** 失灵由三处代码缺陷造成，其中一处是 09-21 引入的 P0 回归；
-> 三处已在三个独立提交中修复并各自验证。另有一件事（应用侧那次会话为何零事件）**尚未定论**，
-> 已把需要的一次复现交代清楚，见 §5。
+> 三处已在三个独立提交中修复并各自验证。
+>
+> **2026-09-22 已结案（见 §5）**：用户两次复现证明捕获链路全程正常（第一次捕获并保存成功，
+> 第二次因"同账号已保存"按设计静默跳过）。复现同时暴露两处新缺陷（§5.1 fill 与 capture 争抢
+> debugger 且不重试；§5.2 去重零提示），尚未修复。
 
 ---
 
@@ -218,15 +221,62 @@ Chrome/87 UA（与应用 `session-manager.ts:147` 一致），用 `exposeBinding
 
 ---
 
-## 5. 尚未定论的部分
+## 5. 结案（2026-09-22 用户复现）
 
-**应用侧 14:22 那次会话为何零事件，仍未定量结案。** 已排除站点 / 脚本 / 密钥 / 排除列表 /
-自动化占位；剩下的嫌疑集中在挂载时机（§2.5 两条）。要闭合需要一次复现：
+**原结论"应用侧为何零事件"已闭合：捕获链路从头到尾就没坏过。** 用户当天两次复现（11:29 / 11:53，
+`news.7k7k.com/pkt/`）给出完整证据链：
 
-1. 重启应用（用含新诊断的 `dist`）；
-2. 打开 7k7k 登录页，完整登录一次；
-3. **在页面上停留 5~10 秒再切走**（关键——上次会话只有 32 秒观测窗）；
-4. 读 `%APPDATA%\bao-flash-browser\logs\main.log`，按 §6 的判读矩阵定位。
+```
+11:29:16.452  setupCapture wc=2 url=https://news.7k7k.com/pkt/
+11:29:16.47x  DIAG: listener env selftest=true addFnLen=45 instOverridden=false   ×16
+11:29:18.523  DIAG: first keydown tag=INPUT type=password pwDoc=5
+11:29:18.52x  DIAG: input pw len=1..10 host=web.7k7k.com
+11:29:20.929  DIAG: click any tag=A txt=登录 ... hasRawPass=10 login=true
+11:29:20.931  DIAG: click trigger isBtn=false isLogin=true
+11:29:20.932  [PasswordCapture] detach after capture source=click-login
+11:29:20.932  [PasswordCapture] captured host=web.7k7k.com source=click-login   ← 捕获成功
+11:29:22      密码本新增：web.7k7k.com / username=q379630001 / title=pkt-login   ← 保存成功
+```
+
+第二次（11:53，同账号再登一次）：
+
+```
+11:53:58.365  DIAG: input pw len=10 host=web.7k7k.com
+11:53:59.332  DIAG: click any tag=A txt=登录 ... hasRawPass=10 login=true
+11:53:59.333  DIAG: click trigger isBtn=false isLogin=true
+11:53:59.333  [PasswordCapture] skip already-saved host=web.7k7k.com   ← 被"已保存同账号"去重跳过
+```
+
+⇒ 输入、点击、上报、保存全部正常。第二次没有提示是**设计行为**（同 host + 同账号不再重复弹提示），
+参见 §5.2。另可注意 `username=q379630001` 是真实账号而非按钮文字，说明 `70e70e1` 的修复同样生效。
+
+### 5.1 复现中发现的缺陷 A：fill 与 capture 争抢 debugger，且不重试
+
+```
+11:29:29.534  [PasswordCapture] setupCapture wc=4 url=https://news.7k7k.com/pkt/
+11:29:29.535  [warn] [PasswordCapture] attach failed: CDP is already attached by an unmanaged client
+```
+
+`password-fill.ts:113` 直接 `wc.debugger.attach('1.3')`，**绕过 `cdp-lease`**（它在 `finally`
+里会 detach，所以只是一个几十毫秒的窗口）。但捕获的 `setupCapture` 撞进这个窗口时，
+`acquireCdpLease` 会抛 `CDP is already attached by an unmanaged client`；而
+`password-capture.ts` 只打一行 warn 就 `return`，**没有任何重试** → **那个标签页此后完全无捕获**。
+日志里 wc=4（用户的第二个 7k7k 标签）正是如此。
+
+修法（择一）：`setupCapture` 对这个特定错误安排一次短延迟重试（最小改动）；
+或让 fill 也走 `cdp-lease`（多一个 owner）。
+
+### 5.2 复现中发现的缺陷 B：去重零提示（用户直接踩到）
+
+`skip already-saved`（`password-capture.ts:546`）在"同 host + 同账号"时静默跳过，
+**既不打点也不提示**。用户因此无法区分"没捕获"和"已保存过所以不提示"，会再次误判成功能坏了。
+Chrome 的行为是"密码变了才提示更新"。这是本次误判的直接来源，也是 §2.5 里"零日志"体感的成因。
+
+### 5.3 小观察：同一 frame 被注入两次
+
+`input pw len=10` 每次上报两遍 → 主世界与 `contextIsolation` 隔离世界各被注入一次
+（`window.__baop_pw_capture` 守卫是 per-window 的，两个世界是两个 window）。
+功能无害（有去重），但日志量翻倍，可按 execution context 去重。
 
 ---
 
