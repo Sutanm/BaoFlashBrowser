@@ -53,9 +53,7 @@ jobs:
       - name: Playwright shell e2e (Linux)
         if: runner.os == 'Linux'
         shell: bash
-        run: |
-          xvfb-run -a ./node_modules/.bin/electron --version >/dev/null 2>&1 || true
-          npm run test:e2e
+        run: xvfb-run -a npm run test:e2e
         env:
           # e2e launches Electron with --no-sandbox on Linux via helpers/launch.ts
           CI: 'true'
