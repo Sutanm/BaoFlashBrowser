@@ -48,8 +48,7 @@ jobs:
         shell: bash
         run: |
           xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/browserview-smoke.cjs
-          node tests/electron/build-automation-m2-visual.mjs
-          xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/automation-m5-ruffle-visual-smoke.cjs
+          xvfb-run -a npm run test:ruffle
           node tests/electron/build-compatibility-smoke.mjs
           xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/session-compatibility-smoke.cjs
       - name: Playwright shell e2e (Linux)
@@ -72,18 +71,18 @@ jobs:
             command: build:win64
             artifact: baoflashbrowser-win64
             path: |
-              release/BaoFlashBrowser-*-x64.exe
-              release/BaoFlashBrowser-*-x64.exe.blockmap
+              release/standard/BaoFlashBrowser-*-x64.exe
+              release/standard/BaoFlashBrowser-*-x64.exe.blockmap
           - os: windows-latest
             command: build:win32
             artifact: baoflashbrowser-win32
             path: |
-              release/BaoFlashBrowser-*-ia32.exe
-              release/BaoFlashBrowser-*-ia32.exe.blockmap
+              release/standard/BaoFlashBrowser-*-ia32.exe
+              release/standard/BaoFlashBrowser-*-ia32.exe.blockmap
           - os: ubuntu-latest
             command: build:linux
             artifact: baoflashbrowser-linux-x64
-            path: release/BaoFlashBrowser-*-x86_64.AppImage
+            path: release/standard/BaoFlashBrowser-*-x86_64.AppImage
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
