@@ -1,0 +1,86 @@
+/* CodeMirror 5 theming for the code editor — adapts to the app's
+   light/dark CSS variables (body.dark flips the token palette). */
+
+.code-editor {
+  height: 100%;
+  min-height: 200px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.code-editor .CodeMirror,
+.code-editor .CodeMirror-scroll {
+  height: 100%;
+}
+.code-editor .CodeMirror-scroll {
+  overflow: auto;
+}
+
+.code-editor .CodeMirror {
+  height: 100%;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* light mode */
+body:not(.dark) .code-editor .CodeMirror {
+  background: #ffffff;
+  color: #1d1d1f;
+}
+body:not(.dark) .code-editor .CodeMirror-gutters {
+  background: #f5f5f5;
+}
+body:not(.dark) .code-editor .CodeMirror-linenumber {
+  color: #6e7781;
+}
+
+/* dark mode */
+body.dark .code-editor .CodeMirror {
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+body.dark .code-editor .CodeMirror-gutters {
+  background: #252526;
+}
+body.dark .code-editor .CodeMirror-linenumber {
+  color: #858585;
+}
+
+.code-editor .CodeMirror-cursor {
+  border-left: 2px solid var(--accent);
+}
+
+.code-editor .CodeMirror-selected {
+  background: rgba(0, 113, 227, 0.2);
+}
+
+.code-editor .CodeMirror-matchingbracket {
+  outline: 1px solid var(--accent);
+  color: inherit !important;
+}
+
+/* syntax tokens: light (VS Code Light+ inspired) */
+body:not(.dark) .code-editor .cm-keyword { color: #0000ff; }
+body:not(.dark) .code-editor .cm-string, body:not(.dark) .code-editor .cm-string-2 { color: #a31515; }
+body:not(.dark) .code-editor .cm-comment { color: #008000; font-style: italic; }
+body:not(.dark) .code-editor .cm-number, body:not(.dark) .code-editor .cm-atom { color: #098658; }
+body:not(.dark) .code-editor .cm-def { color: #795e26; }
+body:not(.dark) .code-editor .cm-variable { color: #001080; }
+body:not(.dark) .code-editor .cm-property { color: #001080; }
+body:not(.dark) .code-editor .cm-operator { color: #000000; }
+
+/* syntax tokens: dark (VS Code Dark+ inspired) */
+body.dark .code-editor .cm-keyword { color: #569cd6; }
+body.dark .code-editor .cm-string, body.dark .code-editor .cm-string-2 { color: #ce9178; }
+body.dark .code-editor .cm-comment { color: #6a9955; font-style: italic; }
+body.dark .code-editor .cm-number, body.dark .code-editor .cm-atom { color: #b5cea8; }
+body.dark .code-editor .cm-def { color: #dcdcaa; }
+body.dark .code-editor .cm-variable { color: #9cdcfe; }
+body.dark .code-editor .cm-property { color: #9cdcfe; }
+body.dark .code-editor .cm-operator { color: #d4d4d4; }

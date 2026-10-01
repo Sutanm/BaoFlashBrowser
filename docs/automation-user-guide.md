@@ -2,6 +2,9 @@
 
 > 适用于 BaoFlashBrowser 1.1.2，按 2026-09-08 源码核对。旧工作台、旧 JSON Step、旧 `.baoauto` v1/v2 和 M0–M5 教程仅作为历史资料，不适用于当前包。
 
+如果希望让 AI 通过逐步提问、收集素材并代为制作脚本，请先阅读
+[《如何委托 AI 制作 `.baoauto` 自动化脚本》](baoauto-script-request-guide.md)。
+
 ## 1. 能做什么
 
 Automation 2.0 可以在指定的 BaoFlashBrowser 标签中：

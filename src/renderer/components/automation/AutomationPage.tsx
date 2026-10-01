@@ -28,6 +28,8 @@ import { useTabsStore } from '../../store/useTabsStore';
 import AutomationBlocklyV2Editor, {
   type AutomationBlocklyV2EditorHandle,
 } from './AutomationBlocklyV2Editor';
+import CodeEditor from '../common/CodeEditor';
+import { docSections } from './automation-docs-data';
 import './automation.css';
 
 const CAPABILITIES: readonly JavaScriptAutomationCapability[] = [
@@ -100,6 +102,7 @@ export default function AutomationPage(): React.JSX.Element {
   const [scriptLanguage, setScriptLanguage] = useState<'javascript' | 'typescript'>('typescript');
   const [permissions, setPermissions] = useState<JavaScriptAutomationCapability[]>(['log']);
   const [selectedAsset, setSelectedAsset] = useState('');
+  const [docSection, setDocSection] = useState(0);
   const [contextOpen, setContextOpen] = useState(true);
   const [testKind, setTestKind] = useState<'image' | 'ocr'>('image');
   const [testText, setTestText] = useState('购买');
@@ -1023,13 +1026,13 @@ export default function AutomationPage(): React.JSX.Element {
                       <option value="javascript">JavaScript</option>
                     </select>
                   </div>
-                  <textarea
+                  <CodeEditor
                     value={scriptSource}
-                    onChange={(event) => {
-                      setScriptSource(event.target.value);
+                    onChange={(value) => {
+                      setScriptSource(value);
                       setDirty(true);
                     }}
-                    spellCheck={false}
+                    language={scriptLanguage}
                   />
                   <div className="permission-row">
                     <b>权限</b>
@@ -1073,48 +1076,12 @@ export default function AutomationPage(): React.JSX.Element {
           {mode === 'docs' && (
             <section className="awb-docs">
               <aside>
-                {[
-                  '快速开始',
-                  '权限与沙箱',
-                  '坐标与游戏区域',
-                  'Locator',
-                  'bao.input',
-                  'bao.vision',
-                  'bao.ocr',
-                  'bao.page',
-                  'bao.time',
-                  '完整示例',
-                ].map((item) => (
-                  <button key={item}>{item}</button>
+                {docSections.map((section, index) => (
+                  <button key={section.id} className={docSection === index ? 'active' : ''} onClick={() => setDocSection(index)}>{section.title}</button>
                 ))}
               </aside>
               <article>
-                <h2>Automation API</h2>
-                <p>
-                  脚本在隔离沙箱中运行，只能通过 <code>bao.*</code> 使用经过授权的 Automation Core
-                  能力。
-                </p>
-                <h3>bao.ocr.readNumber</h3>
-                <pre>bao.ocr.readNumber(region?: PersistedRegion): Promise&lt;number&gt;</pre>
-                <p>读取区域中的数字，结果可以直接参与 JavaScript/TypeScript 计算。</p>
-                <h3>bao.vision.waitForRegionChange</h3>
-                <pre>bao.vision.waitForRegionChange(region, options?): Promise&lt;RegionChangeResult&gt;</pre>
-                <p>
-                  在主进程中高速采样一个小区域，等待目标经过引起的像素变化。它不启动 OpenCV；
-                  <code>reference</code> 可选 <code>baseline</code>（相对首帧）或 <code>previous</code>（相对上一帧）。
-                </p>
-                <pre>{`const result = await bao.vision.waitForRegionChange(
-  { unit: 'logical', x: 420, y: 280, width: 6, height: 12 },
-  { timeoutMs: 20000, pollIntervalMs: 10, colorDelta: 32,
-    minimumChangedPixels: 3, changedPixelRatio: 0.04,
-    consecutiveFrames: 1, reference: 'baseline' }
-);
-if (!result.changed) throw new Error('等待目标经过超时');`}</pre>
-                <h3>bao.vision.waitForColor</h3>
-                <pre>bao.vision.waitForColor(region, colors, options?): Promise&lt;RegionColorResult&gt;</pre>
-                <p>持续采样小区域，直到指定 RGB 色出现；颜色使用 <code>#RRGGBB</code>，可设置容差和最少像素数。</p>
-                <h3>积木调用脚本</h3>
-                <pre>{`// 脚本通过 input 接收“运行脚本”积木传入的参数\nconst [region] = input;\nreturn await bao.ocr.readNumber(region);`}</pre>
+                {docSections[docSection]?.content}
               </article>
             </section>
           )}
