@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -78,7 +78,7 @@ jobs:
             path: |
               release/standard/BaoFlashBrowser-*-ia32.exe
               release/standard/BaoFlashBrowser-*-ia32.exe.blockmap
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             command: build:linux
             artifact: baoflashbrowser-linux-x64
             path: release/standard/BaoFlashBrowser-*-x86_64.AppImage
