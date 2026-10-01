@@ -125,7 +125,7 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "jsdom": "26.1.0",
     "lucide-react": "^1.34.0",
-    "playwright": "^1.42.0",
+    "playwright": "1.42.0",
     "png-to-ico": "^3.0.1",
     "postcss": "^8.5.26",
     "postcss-selector-parser": "^7.1.4",
