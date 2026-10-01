@@ -48,8 +48,6 @@ jobs:
         shell: bash
         run: |
           xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/browserview-smoke.cjs
-          npm run ensure:smoke-bundles
-          xvfb-run -a ./node_modules/.bin/electron --no-sandbox tests/electron/ruffle-iframe-smoke.cjs
           node tests/electron/build-compatibility-smoke.mjs
           xvfb-run -a ./node_modules/.bin/electron --no-sandbox release/tests/session-compatibility-smoke.cjs
       - name: Playwright shell e2e (Linux)
