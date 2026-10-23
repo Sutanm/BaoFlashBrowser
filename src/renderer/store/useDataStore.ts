@@ -145,8 +145,8 @@ export const useDataStore = create<DataState>((set, get) => ({
       const nextSettings = { ...state.settings, themeMode: t };
       if (!skipPersist) {
         enqueuePersistence('themeMode', async () => {
-          await db.transaction('rw', db.settings, db.meta, async () => {
-            await db.settings.put(nextSettings, 'default');
+          await db.transaction('rw', db.settingsSingleton, db.meta, async () => {
+            await db.settingsSingleton.put(nextSettings, 'default');
             await saveMeta('themeMode', t);
           });
         });
@@ -159,7 +159,7 @@ export const useDataStore = create<DataState>((set, get) => ({
     set((state) => {
       const next = typeof s === 'function' ? s(state.settings) : s;
       if (!skipPersist) {
-        enqueuePersistence('settings', () => db.settings.put(next, 'default').then(() => undefined));
+        enqueuePersistence('settings', () => db.settingsSingleton.put(next, 'default').then(() => undefined));
       }
       return { settings: next, themeMode: next.themeMode };
     }),

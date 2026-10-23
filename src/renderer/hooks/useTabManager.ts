@@ -346,11 +346,11 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       try {
         const [rawSession, storedSettings, recoveryStatus] = await Promise.all([
           loadMeta(TAB_SESSION_META_KEY),
-          db.settings.toArray(),
+          db.settingsSingleton.get('default'),
           window.electronAPI.session.recoveryStatus(),
         ]);
-        const restoreEnabled = storedSettings[0]?.restoreSession !== false;
-        const restoredRuffleSource = storedSettings[0]?.ruffleSource || useDataStore.getState().settings.ruffleSource;
+        const restoreEnabled = storedSettings?.restoreSession !== false;
+        const restoredRuffleSource = storedSettings?.ruffleSource || useDataStore.getState().settings.ruffleSource;
         const snapshot = selectCrashRecoverySession(rawSession, recoveryStatus.abnormalExit, restoreEnabled);
         if (!snapshot) {
           await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});

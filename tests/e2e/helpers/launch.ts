@@ -14,14 +14,15 @@ const DIST_MAIN = path.join(__dirname, '..', '..', '..', 'dist', 'main.js');
  *   binary is reused for plain Node scripts. Playwright launches Electron as
  *   an application; Electron treats the variable's PRESENCE as "run as Node"
  *   (any value, including '0'), so it must be deleted, not zeroed.
- * - Each launch gets a fresh temporary --user-data-dir: the app persists
+ * - Each launch defaults to a fresh temporary --user-data-dir. Restart tests
+ *   may reuse their own temporary profile with profilePath: the app persists
  *   bookmarks/history/etc. in IndexedDB under its userData profile, so
  *   sharing the real profile across tests would leak state between runs.
  */
-export async function launchApp(): Promise<ElectronApplication> {
+export async function launchApp(profilePath?: string): Promise<ElectronApplication> {
   const args = [DIST_MAIN];
   if (process.platform === 'linux') args.unshift('--no-sandbox');
-  const profile = path.join(os.tmpdir(), `bao-e2e-${crypto.randomBytes(6).toString('hex')}`);
+  const profile = profilePath ?? path.join(os.tmpdir(), `bao-e2e-${crypto.randomBytes(6).toString('hex')}`);
   args.push(`--user-data-dir=${profile}`);
   const env: Record<string, string> = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;

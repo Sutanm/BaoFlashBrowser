@@ -57,13 +57,15 @@ module.exports = {
         accepted: true,
       });
     });
-    ipcMain.handle('userscript:automation-list', async () => []);
-    ipcMain.handle('userscript:automation-status', async () => ({
+    let automationListCalls = 0;
+    let automationStatusCalls = 0;
+    ipcMain.handle('userscript:automation-v3-list', async () => { automationListCalls++; return []; });
+    ipcMain.handle('userscript:automation-v3-status', async () => { automationStatusCalls++; return {
       enabled: true,
       state: 'idle',
       executedSteps: 0,
       logs: [],
-    }));
+    }; });
 
     const srv = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -151,12 +153,14 @@ module.exports = {
         );
         check('command invoke actually ran in page', ok === true);
       }
+      await waitFor(async () => automationListCalls > 0 && automationStatusCalls > 0, { timeoutMs: 10_000, label: 'automation v3 IPC calls' });
     } finally {
+      if (!view.webContents.isDestroyed()) view.webContents.destroy();
       try { host.destroy(); } catch { /* ignore */ }
       srv.close();
       mod.uninstallUserscript(fixtureId);
-      ipcMain.removeHandler('userscript:automation-list');
-      ipcMain.removeHandler('userscript:automation-status');
+      ipcMain.removeHandler('userscript:automation-v3-list');
+      ipcMain.removeHandler('userscript:automation-v3-status');
     }
 
     return {

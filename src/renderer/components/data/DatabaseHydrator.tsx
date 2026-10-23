@@ -8,7 +8,7 @@ const DatabaseHydrator: React.FC = () => {
   const setDownloads = useDataStore((state) => state.setDownloads);
   const favorites = useLiveQuery(async () => (await db.favorites.toArray()).sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0)), []);
   const history = useLiveQuery(() => db.history.orderBy('lastVisit').reverse().limit(5000).toArray(), []);
-  const settings = useLiveQuery(async () => (await db.settings.toArray())[0] || null, []);
+  const settings = useLiveQuery(async () => (await db.settingsSingleton.get('default')) || null, []);
   const themeMode = useLiveQuery(async () => (await db.meta.get('themeMode'))?.value as 'light' | 'dark' | 'system' | undefined, []);
 
   useEffect(() => { if (favorites) hydrateFromDb({ favorites }); }, [favorites]);
