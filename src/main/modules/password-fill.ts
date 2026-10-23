@@ -83,7 +83,7 @@ export function buildPasswordFillExpression(username: string, password: string):
   return `${fillFunction}(${JSON.stringify(username)},${JSON.stringify(password)})`;
 }
 
-async function evaluate(debuggerApi: WebContents['debugger'], expression: string, contextId?: number): Promise<any> {
+async function evaluate(debuggerApi: WebContents['debugger'], expression: string, contextId?: number): Promise<{ result?: { value?: unknown } }> {
   const params: Record<string, unknown> = { expression, returnByValue: true, userGesture: true };
   if (contextId !== undefined) params.contextId = contextId;
   return debuggerApi.sendCommand('Runtime.evaluate', params);
@@ -98,10 +98,10 @@ export async function fillPasswordsInWebContents(
 
   const contexts = new Set<number>(getCaptureContextIds(wc));
   let attachedHere = false;
-  const onMessage = (_event: Electron.Event, method: string, params: any): void => {
-    if (method === 'Runtime.executionContextCreated' && params?.context?.id !== undefined) {
+  const onMessage = (_event: Electron.Event, method: string, params: { context?: { id?: unknown }; executionContextId?: unknown }): void => {
+    if (method === 'Runtime.executionContextCreated' && typeof params?.context?.id === 'number') {
       contexts.add(params.context.id);
-    } else if (method === 'Runtime.executionContextDestroyed' && params?.executionContextId !== undefined) {
+    } else if (method === 'Runtime.executionContextDestroyed' && typeof params?.executionContextId === 'number') {
       contexts.delete(params.executionContextId);
     } else if (method === 'Runtime.executionContextsCleared') {
       contexts.clear();
@@ -155,8 +155,8 @@ export async function fillPasswordsInWebContents(
       usernames: [...usernames],
       reason: filledCredentials > 0 ? undefined : (matchedCredential ? 'no-form' : 'no-credential'),
     };
-  } catch (error: any) {
-    log.debug('[PasswordFill] CDP unavailable:', error?.message || error);
+  } catch (error) {
+    log.debug('[PasswordFill] CDP unavailable:', error instanceof Error ? error.message : 'Unknown error');
     return { ...empty, reason: 'debugger-unavailable' };
   } finally {
     try { wc.debugger.removeListener('message', onMessage); } catch { /* destroyed */ }

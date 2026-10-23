@@ -70,7 +70,7 @@ export function registerPasswordIPC(): void {
     const wasEnabled = isEnabled();
     const newState = toggleEnabled();
     if (!wasEnabled && newState) {
-      try { await init(); } catch (error: any) { log.warn('[Password] re-init failed:', error?.message); }
+      try { await init(); } catch (error) { log.warn('[Password] re-init failed:', error instanceof Error ? error.message : 'Unknown error'); }
     }
     return { enabled: newState };
   });
@@ -107,9 +107,10 @@ export function registerPasswordIPC(): void {
       removePendingCredential(captureId);
       notifyPasswordChanged();
       return { success: true };
-    } catch (error: any) {
-      log.error('[Password] save failed:', error.message);
-      return { success: false, error: error.message };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      log.error('[Password] save failed:', message);
+      return { success: false, error: message };
     }
   });
 

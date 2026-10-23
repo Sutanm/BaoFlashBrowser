@@ -9,7 +9,7 @@ interface DownloadStateSchema {
 const store = new Store<DownloadStateSchema>({
   name: 'download-state',
   defaults: { records: [] },
-  schema: { records: { type: 'array' } } as any,
+  schema: { records: { type: 'array' } },
 });
 
 const records = new Map<string, StoredDownload>();

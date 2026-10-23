@@ -78,12 +78,12 @@ export function registerDownloadIPC(): void {
       await fs.promises.unlink(savePath);
       log.info('[Download] file deleted:', savePath);
       return true;
-    } catch (e: any) {
-      if (e.code === 'ENOENT') {
+    } catch (e) {
+      if (e instanceof Error && 'code' in e && e.code === 'ENOENT') {
         log.info('[Download] file already removed:', savePath);
         return true;
       }
-      log.error('[Download] delete file failed:', e.message);
+      log.error('[Download] delete file failed:', e instanceof Error ? e.message : 'Unknown error');
       return false;
     }
   });
