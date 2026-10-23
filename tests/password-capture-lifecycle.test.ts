@@ -78,6 +78,22 @@ describe('password capture lifecycle', () => {
     storeMock.passwords.clear();
   });
 
+  it('ignores malformed CDP context and binding messages without losing valid contexts', async () => {
+    const wc = fakeWebContents(707);
+    setupCapture(wc as never);
+    try {
+      wc.debugger.emit('message', {}, 'Runtime.executionContextCreated', { context: { id: 9 } });
+      for (const params of [null, {}, { context: { id: '9' } }, { executionContextId: '9' }]) {
+        expect(() => wc.debugger.emit('message', {}, 'Runtime.executionContextCreated', params)).not.toThrow();
+        expect(() => wc.debugger.emit('message', {}, 'Runtime.executionContextDestroyed', params)).not.toThrow();
+      }
+      wc.debugger.emit('message', {}, 'Runtime.bindingCalled', { name: '__baopReport', payload: {} });
+      expect(getCaptureContextIds(wc as never)).toEqual([9]);
+      expect(windowMock.send).not.toHaveBeenCalled();
+      await Promise.resolve();
+    } finally { teardownCapture(wc as never); }
+  });
+
   it('removes its exact listener, state and retry timer across repeated setup/teardown', async () => {
     const wc = fakeWebContents();
     const baselineTimers = vi.getTimerCount();

@@ -56,7 +56,7 @@
     "prepare:mac-flash": "bash scripts/prepare-macos-flash.sh",
     "build:mac": "npm run prepare:mac-flash && npm run build && npm run verify:release -- --stage source --platform darwin --arch x64 && npm run prepare:release && cross-env BAO_TARGET_PLATFORM=darwin BAO_TARGET_ARCH=x64 electron-builder --config build/electron-builder.config.cjs --mac --x64 --publish never && npm run verify:release -- --stage unpacked --platform darwin --arch x64",
     "build:all": "npm run build:win64 && npm run build:win32 && npm run build:linux",
-    "lint": "eslint src/ --ext .ts,.tsx",
+    "lint": "eslint src/ --ext .ts,.tsx --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",

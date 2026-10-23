@@ -10,6 +10,7 @@ import { availableSavePath, isPathWithinDirectory, sanitizeDownloadFilename } fr
 import { flushDownloadState, getDownloadRecord, updateDownloadRecord } from './download-state';
 import type { DownloadItem as DownloadRecord } from '@shared/types/downloads';
 import { redactUrlForLog } from '@shared/utils/url-privacy';
+import { aria2GidSchema, aria2StatusSchema } from '../utils/aria2-response';
 import { createAria2RpcClient, type Aria2RpcClient } from './aria2-rpc';
 import { getAria2Candidates, getAria2LibraryDirectory, type Aria2Candidate } from './aria2-locator';
 
@@ -48,7 +49,7 @@ function emitDownload(patch: Partial<DownloadRecord> & Pick<DownloadRecord, 'id'
 }
 
 // ─── aria2 RPC ──────────────────────────────────────────────────────
-function aria2Rpc(method: string, ...params: unknown[]): Promise<any> {
+function aria2Rpc(method: string, ...params: unknown[]): Promise<unknown> {
   if (!aria2RpcClient) return Promise.reject(new Error('aria2 RPC is not initialized'));
   return aria2RpcClient.call(method, ...params);
 }
@@ -113,8 +114,8 @@ async function tryStartCandidate(candidate: Aria2Candidate): Promise<boolean> {
       '--allow-overwrite=false',
       '--console-log-level=error',
     ], { stdio: ['ignore', 'ignore', 'ignore'], env, windowsHide: true });
-  } catch (err: any) {
-    log.warn(`[Download] aria2 spawn exception: ${candidate.path} — ${err?.message}`);
+  } catch (err) {
+    log.warn(`[Download] aria2 spawn exception: ${candidate.path} — ${(err instanceof Error ? err.message : 'Unknown error')}`);
     return false;
   }
 
@@ -133,8 +134,8 @@ async function tryStartCandidate(candidate: Aria2Candidate): Promise<boolean> {
 
   try {
     await Promise.race([readyPromise, earlyFailure]);
-  } catch (err: any) {
-    log.warn(`[Download] aria2 candidate failed: ${candidate.path} — ${err.message}`);
+  } catch (err) {
+    log.warn(`[Download] aria2 candidate failed: ${candidate.path} — ${(err instanceof Error ? err.message : 'Unknown error')}`);
     try { child.kill('SIGKILL'); } catch { /* best-effort kill, ignore ESRCH/EPERM */ }
     return false;
   }
@@ -294,13 +295,13 @@ async function aria2Download(url: string, filename: string, retry?: DownloadReco
   });
 
   try {
-    const gid = await aria2Rpc('aria2.addUri', [url], { out: filename, dir });
+    const gid = aria2GidSchema.parse(await aria2Rpc('aria2.addUri', [url], { out: filename, dir }));
     aria2Gids.set(dlId, gid);
     log.info('[Download] aria2 addUri OK:', gid, filename);
     pollAria2Status(dlId, gid, filename, url);
     return true;
-  } catch (err: any) {
-    log.error('[Download] aria2 addUri FAILED:', err.message);
+  } catch (err) {
+    log.error('[Download] aria2 addUri FAILED:', (err instanceof Error ? err.message : 'Unknown error'));
     emitDownload({
       id: dlId,
       filename,
@@ -322,9 +323,9 @@ async function pollAria2Status(dlId: string, gid: string, filename: string, url:
   };
   const poll = async () => {
     try {
-      const status = await aria2Rpc('aria2.tellStatus', gid, [
+      const status = aria2StatusSchema.parse(await aria2Rpc('aria2.tellStatus', gid, [
         'totalLength', 'completedLength', 'downloadSpeed', 'status', 'files',
-      ]);
+      ]));
 
       const total = parseInt(status.totalLength) || 0;
       const completed = parseInt(status.completedLength) || 0;
@@ -363,7 +364,7 @@ async function pollAria2Status(dlId: string, gid: string, filename: string, url:
         aria2PollTimers.delete(dlId);
         aria2Gids.delete(dlId);
       }
-    } catch (err: any) {
+    } catch (err) {
       if (!aria2Gids.has(dlId)) return;
       errorCount++;
       if (errorCount > 5) {
@@ -372,7 +373,7 @@ async function pollAria2Status(dlId: string, gid: string, filename: string, url:
         emitDownload({ id: dlId, state: 'interrupted', speed: 0, engine: 'aria2', filename, url });
         return;
       }
-      log.warn('[Download] aria2 poll retry:', errorCount, err.message);
+      log.warn('[Download] aria2 poll retry:', errorCount, (err instanceof Error ? err.message : 'Unknown error'));
       schedule(1000);
     }
   };
@@ -440,7 +441,7 @@ export function cancelDownload(id: string): void {
     aria2PollTimers.delete(id);
     if (gid && aria2Ready) {
       aria2Rpc('aria2.remove', gid).catch((err) => {
-        log.error('[Download] aria2 remove failed:', err.message);
+        log.error('[Download] aria2 remove failed:', (err instanceof Error ? err.message : 'Unknown error'));
       });
     }
     emitDownload({ id, state: 'cancelled', speed: 0 });
@@ -464,8 +465,8 @@ export async function pauseDownload(id: string): Promise<boolean> {
         await aria2Rpc('aria2.pause', gid);
         emitDownload({ id, state: 'paused', speed: 0 });
         return true;
-      } catch (err: any) {
-        log.error('[Download] aria2 pause failed:', err.message);
+      } catch (err) {
+        log.error('[Download] aria2 pause failed:', (err instanceof Error ? err.message : 'Unknown error'));
         return false;
       }
     }
@@ -491,8 +492,8 @@ export async function resumeDownload(id: string): Promise<boolean> {
         await aria2Rpc('aria2.unpause', gid);
         emitDownload({ id, state: 'progressing', speed: 0 });
         return true;
-      } catch (err: any) {
-        log.error('[Download] aria2 unpause failed:', err.message);
+      } catch (err) {
+        log.error('[Download] aria2 unpause failed:', (err instanceof Error ? err.message : 'Unknown error'));
         return false;
       }
     }

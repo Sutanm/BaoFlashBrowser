@@ -28,8 +28,8 @@ export function loadRuffleJs(): void {
       sha256: crypto.createHash('sha256').update(_content).digest('hex'),
     };
     log.info(`[Ruffle] loaded ruffle.js: version=${version}, bytes=${_info.bytes}, sha256=${_info.sha256}`);
-  } catch (e: any) {
-    log.warn('[Ruffle] failed to load ruffle.js: ' + (e?.message || e));
+  } catch (e) {
+    log.warn('[Ruffle] failed to load ruffle.js: ' + (e instanceof Error ? e.message : 'Unknown error'));
   }
 }
 

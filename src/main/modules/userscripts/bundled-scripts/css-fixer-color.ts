@@ -62,19 +62,6 @@ function labToXyz(l: number, a: number, b: number): [number, number, number] {
   return [fInv(fx) * D65.X, fInv(fy), fInv(fz) * D65.Z];
 }
 
-function labToOklab(l: number, a: number, b: number): [number, number, number] {
-  const [x, y, z] = labToXyz(l, a, b);
-  // OKLab cube-roots XYZ normalized to D65 white = (1,1,1)
-  const lr = Math.cbrt(x / D65.X);
-  const mr = Math.cbrt(y);
-  const sr = Math.cbrt(z / D65.Z);
-  return [
-    0.2104542553 * lr + 0.793617785 * mr - 0.0040720468 * sr,
-    1.9779984951 * lr - 2.428592205 * mr + 0.4505937099 * sr,
-    0.0259040371 * lr + 0.7827717662 * mr - 0.808675766 * sr,
-  ];
-}
-
 function oklabToLab(L: number, a: number, b: number): [number, number, number] {
   const lr = L + 0.3963377774 * a + 0.2158037573 * b;
   const mr = L - 0.1055613458 * a - 0.0638541728 * b;
@@ -159,24 +146,6 @@ interface MixEntry {
 }
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
-
-function parsePercentOrNumber(node: valueParser.Node, fallback = 1): number {
-  if (node.type === 'word') {
-    if (node.value.endsWith('%')) return parseFloat(node.value) / 100;
-    return parseFloat(node.value);
-  }
-  return fallback;
-}
-
-function parseAngle(node: valueParser.Node): number {
-  if (node.type !== 'word') return 0;
-  const v = node.value;
-  const n = parseFloat(v);
-  if (v.endsWith('turn')) return n * 360;
-  if (v.endsWith('rad')) return (n * 180) / Math.PI;
-  if (v.endsWith('grad')) return n * 0.9;
-  return n;
-}
 
 // Splits the parsed function-node argument list into numeric components.
 // Returns null when the argument shape is not understood (e.g. `from`

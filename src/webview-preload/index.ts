@@ -88,7 +88,7 @@ try {
     // polyfill mode switch).
     webFrame.executeJavaScript(PAGE_WORLD_CLOSE_GUARD, true).catch(() => {});
     if (polyfillMode !== 'off') {
-      const inject = (attempt: number): void => {
+      const inject = (_attempt: number): void => {
         webFrame.executeJavaScript(PAGE_WORLD_POLYFILLS, true).catch(() => {});
       };
       inject(0);

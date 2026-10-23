@@ -73,7 +73,6 @@ const UserscriptEditor: React.FC<UserscriptEditorProps> = ({ value, onChange }) 
       editorRef.current = null;
       cm.getWrapperElement().remove();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

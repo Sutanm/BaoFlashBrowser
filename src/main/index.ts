@@ -89,8 +89,8 @@ function bootstrap(): void {
         },
       });
       protocol.registerSchemesAsPrivileged(privilegedSchemes);
-  } catch (e: any) {
-    log.warn('[Ruffle] scheme privileges registration failed:', e?.message);
+  } catch (e) {
+    log.warn('[Ruffle] scheme privileges registration failed:', (e instanceof Error ? e.message : 'Unknown error'));
   }
 
   app.whenReady().then(() => {
@@ -100,8 +100,8 @@ function bootstrap(): void {
     try {
       registerRuffleProtocol(session.defaultSession, 'defaultSession');
       registerRuffleProtocol(session.fromPartition('persist:'), 'persist:');
-    } catch (e: any) {
-      log.error('[Ruffle] resource protocol registration failed:', e?.message || e);
+    } catch (e) {
+      log.error('[Ruffle] resource protocol registration failed:', (e instanceof Error ? e.message : 'Unknown error'));
     }
 
     // 创建主窗口优先于可选模块初始化，保留快速首屏；BrowserView 要等 IPC
@@ -162,7 +162,7 @@ function bootstrap(): void {
     registerScreenshotIPC(() => getMainWindow());
     if (MODULE_PASSWORDS) {
       const { registerPasswordIPC } = require('./ipc/password.ipc') as typeof import('./ipc/password.ipc');
-      passwordStore?.init().catch((e: any) => log.warn('[App] password store init failed:', e?.message));
+      passwordStore?.init().catch((e: unknown) => log.warn('[App] password store init failed:', (e instanceof Error ? e.message : 'Unknown error')));
       registerPasswordIPC();
     }
     if (MODULE_DIAGNOSTICS) {

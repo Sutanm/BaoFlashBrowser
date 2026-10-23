@@ -702,7 +702,7 @@ class TabManager {
   }
 
   private _detachDebuggerBeforeNavigate(wc: Electron.WebContents): void {
-    try { passwordCapture.teardown(wc); } catch (error: any) { log.warn('[TabManager] teardownCapture failed:', error?.message); }
+    try { passwordCapture.teardown(wc); } catch (error) { log.warn('[TabManager] teardownCapture failed:', (error instanceof Error ? error.message : 'Unknown error')); }
   }
 
   navigate(tabId: string, url: string): void {

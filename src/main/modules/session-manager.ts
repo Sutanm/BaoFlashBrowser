@@ -162,7 +162,7 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
   // ES2022 chunk patch (js-patch-service) shares this callback.
   sess.webRequest.onBeforeRequest(
     { urls: ['*://*/*'] },
-    (details: any, callback: any) => {
+    (details, callback) => {
       try {
         const jsRedirect = optionalServices.jsPatchRedirect?.(details.url);
         if (jsRedirect) {
@@ -190,7 +190,7 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
   // 收窄范围到 SWF，不全局注入以防过度宽松
   sess.webRequest.onHeadersReceived(
     { urls: ['*://*/*.swf', '*://*/*.swf?*'] },
-    (details: any, callback: any) => {
+    (details, callback) => {
       const responseHeaders = details.responseHeaders || {};
       responseHeaders['Access-Control-Allow-Origin'] = ['*'];
       responseHeaders['Access-Control-Allow-Methods'] = ['GET, POST, HEAD, OPTIONS'];

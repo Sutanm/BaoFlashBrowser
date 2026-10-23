@@ -7,6 +7,13 @@ import { credentialOrigin, redactUrlForLog } from '@shared/utils/url-privacy';
 import { acquireCdpLease, type CdpLease } from './cdp-lease';
 import { extractCredentialParams, extractCredentialPayload } from './password-capture-params';
 
+interface CaptureMessageParams {
+  context?: { id?: unknown };
+  executionContextId?: unknown;
+  name?: unknown;
+  payload?: unknown;
+}
+
 interface CaptureState {
   wc: WebContents;
   destroyed: boolean;
@@ -14,7 +21,7 @@ interface CaptureState {
   contexts: Set<number>;
   injectedContexts: Set<number>;
   retryContexts: Set<number>;
-  messageListener: (_event: Electron.Event, method: string, params: any) => void;
+  messageListener: (_event: Electron.Event, method: string, params: CaptureMessageParams) => void;
   capturedSet: Set<string>;
   cdpLease: CdpLease;
 }
@@ -505,8 +512,8 @@ export function setupCapture(wc: WebContents): void {
   }
 
   let cdpLease: CdpLease;
-  try { cdpLease = acquireCdpLease(wc, 'password-capture'); } catch (e: any) {
-    log.warn('[PasswordCapture] attach failed:', e.message);
+  try { cdpLease = acquireCdpLease(wc, 'password-capture'); } catch (e) {
+    log.warn('[PasswordCapture] attach failed:', (e instanceof Error ? e.message : 'Unknown error'));
     // 多为与 password-fill 的短命 debugger 客户端争抢，几十毫秒后即可拿到；见 scheduleAttachRetry。
     scheduleAttachRetry(wc);
     return;
@@ -526,9 +533,9 @@ export function setupCapture(wc: WebContents): void {
   };
   log.info('[PasswordCapture] attached, wc.id=' + wc.id);
 
-  state.messageListener = (_event, method, params: any) => {
+  state.messageListener = (_event, method, params) => {
     if (state.destroyed) return;
-    if (method === 'Runtime.executionContextCreated') {
+    if (method === 'Runtime.executionContextCreated' && typeof params?.context?.id === 'number') {
       const ctxId = params.context.id;
       state.contexts.add(ctxId);
       // Per-context diagnostics: CDP emits this for every frame and isolated
@@ -537,7 +544,7 @@ export function setupCapture(wc: WebContents): void {
       log.debug('[PasswordCapture] context created: ' + ctxId + ' (total=' + state.contexts.size + ')');
       void injectContext(state, ctxId);
     }
-    if (method === 'Runtime.executionContextDestroyed') {
+    if (method === 'Runtime.executionContextDestroyed' && typeof params?.executionContextId === 'number') {
       state.contexts.delete(params.executionContextId);
       state.injectedContexts.delete(params.executionContextId);
       state.retryContexts.delete(params.executionContextId);
@@ -547,8 +554,8 @@ export function setupCapture(wc: WebContents): void {
       state.injectedContexts.clear();
       state.retryContexts.clear();
     }
-    if (method !== 'Runtime.bindingCalled' || params.name !== '__baopReport') return;
-    for (const text of [String(params.payload || '')]) {
+    if (method !== 'Runtime.bindingCalled' || params?.name !== '__baopReport' || typeof params.payload !== 'string') return;
+    for (const text of [params.payload]) {
       if (!text.startsWith('{"_type":"baop_')) continue;
       try {
         const data = JSON.parse(text);
@@ -635,8 +642,8 @@ export function setupCapture(wc: WebContents): void {
     wc.debugger.sendCommand('Runtime.evaluate', { expression: CAPTURE_SCRIPT, awaitPromise: false }).catch((error) => {
       log.debug('[PasswordCapture] main-frame injection failed', error instanceof Error ? error.message : String(error));
     });
-  }).catch((e: any) => {
-    log.warn('[PasswordCapture] Runtime.enable failed:', e?.message);
+  }).catch((e: unknown) => {
+    log.warn('[PasswordCapture] Runtime.enable failed:', (e instanceof Error ? e.message : 'Unknown error'));
   });
 
   captures.set(wc.id, state);

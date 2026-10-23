@@ -87,11 +87,15 @@ const store = new Store<PasswordStoreSchema>({
     _excludedSites: [],
   },
   schema: {
+    version: {},
+    dekAutoFillEnc: {},
+    entries: {},
+    viewFallback: {},
     _enabled: { type: 'boolean' },
     _autoCapture: { type: 'boolean' },
     _autoFill: { type: 'boolean' },
     _excludedSites: { type: 'array', items: { type: 'string' } },
-  } as any,
+  },
 });
 
 const autoFillKeyStore = new Store<AutoFillKeySchema>({
