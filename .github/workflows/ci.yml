@@ -10,7 +10,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-22.04]
+        # Electron 11/Chromium 87 needs a stable OS baseline; latest tracks newer Windows images.
+        os: [windows-2022, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -64,13 +65,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2022
             command: build:win64
             artifact: baoflashbrowser-win64
             path: |
               release/standard/BaoFlashBrowser-*-x64.exe
               release/standard/BaoFlashBrowser-*-x64.exe.blockmap
-          - os: windows-latest
+          - os: windows-2022
             command: build:win32
             artifact: baoflashbrowser-win32
             path: |

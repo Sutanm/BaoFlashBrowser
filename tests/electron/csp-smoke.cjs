@@ -16,14 +16,16 @@ const os = require('os');
 const fs = require('fs');
 
 const WATCHDOG_MS = 20000;
+let stage = 'app ready';
 const watchdog = setTimeout(() => {
-  console.log('WATCHDOG: no result within ' + WATCHDOG_MS + 'ms — forcing exit');
+  console.log('WATCHDOG: no result within ' + WATCHDOG_MS + 'ms at ' + stage + ' — forcing exit');
   app.exit(2);
 }, WATCHDOG_MS);
 watchdog.unref?.();
 
 app.setPath('userData', path.join(os.tmpdir(), 'bao-csp-smoke-' + process.pid));
 app.commandLine.appendSwitch('ignore-gpu-blacklist');
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 
 const messages = [];
 const loadFailures = [];
@@ -58,6 +60,8 @@ app.whenReady().then(async () => {
       preload: path.join(repoRoot, 'dist', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: false,
+      backgroundThrottling: false,
     },
   });
   win.webContents.on('console-message', (_event, level, message) => {
@@ -72,7 +76,9 @@ app.whenReady().then(async () => {
     });
   });
 
+  stage = 'load renderer';
   await win.loadFile(rendererHtml);
+  stage = 'React mount';
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
   const probe = await win.webContents.executeJavaScript(`(function () {
@@ -83,6 +89,7 @@ app.whenReady().then(async () => {
     };
   })()`);
 
+  stage = 'error handler proof';
   const handlerProof = await win.webContents.executeJavaScript(`(function () {
     return new Promise(function (resolve) {
       try { window.onerror('probe', 'file', 1, 1, new Error('probe')); } catch (e) {}
@@ -98,6 +105,7 @@ app.whenReady().then(async () => {
   const violationMessages = messages.filter((m) => /Refused to execute inline script/.test(m.message));
   const securityWarnings = messages.filter((m) => /Insecure Content-Security-Policy/.test(m.message));
 
+  stage = 'CSP enforcement';
   const enforcement = await win.webContents.executeJavaScript(`(function () {
     window.__inlineRan = false;
     var script = document.createElement('script');

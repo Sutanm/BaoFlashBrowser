@@ -17,7 +17,13 @@ app.setPath('userData', USER_DATA);
 const failures = [];
 function check(name, ok, detail) {
   console.log(`[bg-smoke] ${ok ? 'PASS' : 'FAIL'} ${name}${detail !== undefined ? ' ' + JSON.stringify(detail) : ''}`);
-  if (!ok) failures.push(name);
+  if (!ok) {
+    failures.push(name);
+    // Fixture-only reports: expose scheduling failures instead of reporting null values alone.
+    if (manager) console.log('[bg-smoke] runtime reports', JSON.stringify(manager.getReports().map((r) => ({
+      phase: r.phase, detail: r.detail,
+    }))));
+  }
 }
 
 const BG_FIXTURE_PATH = path.join(__dirname, 'fixtures', 'background-demo.user.js');
@@ -149,7 +155,7 @@ app.whenReady().then(async () => {
     const report = manager.getReports().find((r) => r.phase === 'bootstrap' && Array.isArray(r.detail?.scripts) && r.detail.scripts.includes(bgId));
     return report;
   }, 15000);
-  check('bootstrap report includes bg script', Boolean(boot) && boot.mode === 'ppapi', boot && { mode: boot.mode, scripts: boot.detail.scripts });
+  check('bootstrap report includes bg script', Boolean(boot) && boot.mode === 'ppapi', boot && { mode: boot.mode, readyState: boot.detail.readyState, scripts: boot.detail.scripts });
   check('background booted quickly (no sendSync hang)', boot !== null && Date.now() - t0 < 15000, boot && Date.now() - t0);
   check('get-ruffle-mode queried by background preload', getRuffleQueries > 0, getRuffleQueries);
 
