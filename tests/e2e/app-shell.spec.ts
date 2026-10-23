@@ -72,9 +72,18 @@ test.describe('browser shell', () => {
       // Same race guard as the bookmarking test above.
       await expect(window.locator('.tab-item')).toHaveCount(1, { timeout: 15_000 });
       const address = window.locator('.address-input');
+      const requests: string[] = [];
+      window.on('request', (request) => requests.push(request.url()));
+      const started = Date.now();
       await address.fill('about:automation');
       await address.press('Enter');
       await expect(window.locator('.automation-workbench-v3')).toBeVisible({ timeout: 15_000 });
+      console.log(`Automation workbench visible: ${Date.now() - started} ms`);
+      expect(requests.some((url) => url.includes('AutomationBlocklyV2Editor-'))).toBe(false);
+      await window.locator('.awb-empty button').click();
+      await window.locator('.awb-dialog button[type="submit"]').click();
+      await expect(window.locator('.blocklySvg').first()).toBeVisible({ timeout: 15_000 });
+      expect(requests.some((url) => url.includes('AutomationBlocklyV2Editor-'))).toBe(true);
     } finally {
       await closeApp(app);
     }

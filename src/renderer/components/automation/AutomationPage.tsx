@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import {
   BookOpen,
   Box,
@@ -25,12 +25,12 @@ import {
 } from '@shared/automation/image-groups';
 import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales } from '@shared/automation/vision-policy';
 import { useTabsStore } from '../../store/useTabsStore';
-import AutomationBlocklyV2Editor, {
-  type AutomationBlocklyV2EditorHandle,
-} from './AutomationBlocklyV2Editor';
-import CodeEditor from '../common/CodeEditor';
+import type { AutomationBlocklyV2EditorHandle } from './AutomationBlocklyV2Editor';
 import { docSections } from './automation-docs-data';
 import './automation.css';
+
+const AutomationBlocklyV2Editor = lazy(() => import('./AutomationBlocklyV2Editor'));
+const CodeEditor = lazy(() => import('../common/CodeEditor'));
 
 const CAPABILITIES: readonly JavaScriptAutomationCapability[] = [
   'input',
@@ -687,17 +687,19 @@ export default function AutomationPage(): React.JSX.Element {
         <main className="awb-main">
           {detail?.workflow && mode === 'blocks' && (
             <div className={`awb-blocks ${contextOpen ? '' : 'context-closed'}`}>
-              <AutomationBlocklyV2Editor
-                ref={editor}
-                key={`${detail.packageId}:${scripts.map((entry) => entry.id).join(',')}`}
-                packageId={detail.packageId}
-                workflowId={detail.workflow.id}
-                workflowName={detail.workflow.name}
-                initialDocument={detail.workflow}
-                assets={detail.assets.map(shortAsset)}
-                scripts={scripts.map((entry) => entry.id)}
-                onDirtyChange={setDirty}
-              />
+              <Suspense fallback={<div role="status">加载编辑器…</div>}>
+                <AutomationBlocklyV2Editor
+                  ref={editor}
+                  key={`${detail.packageId}:${scripts.map((entry) => entry.id).join(',')}`}
+                  packageId={detail.packageId}
+                  workflowId={detail.workflow.id}
+                  workflowName={detail.workflow.name}
+                  initialDocument={detail.workflow}
+                  assets={detail.assets.map(shortAsset)}
+                  scripts={scripts.map((entry) => entry.id)}
+                  onDirtyChange={setDirty}
+                />
+              </Suspense>
               <aside className="awb-context">
                 <button className="collapse" onClick={() => setContextOpen((value) => !value)}>
                   {contextOpen ? <ChevronRight /> : <ChevronLeft />}
@@ -1026,14 +1028,16 @@ export default function AutomationPage(): React.JSX.Element {
                       <option value="javascript">JavaScript</option>
                     </select>
                   </div>
-                  <CodeEditor
-                    value={scriptSource}
-                    onChange={(value) => {
-                      setScriptSource(value);
-                      setDirty(true);
-                    }}
-                    language={scriptLanguage}
-                  />
+                  <Suspense fallback={<div role="status">加载编辑器…</div>}>
+                    <CodeEditor
+                      value={scriptSource}
+                      onChange={(value) => {
+                        setScriptSource(value);
+                        setDirty(true);
+                      }}
+                      language={scriptLanguage}
+                    />
+                  </Suspense>
                   <div className="permission-row">
                     <b>权限</b>
                     {CAPABILITIES.map((capability) => (
