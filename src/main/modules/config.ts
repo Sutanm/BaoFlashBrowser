@@ -1,3 +1,4 @@
+import { DEFAULT_PROXY, type ProxySettings } from '@shared/types/proxy';
 import Store from 'electron-store';
 import log from 'electron-log';
 import type { DownloadEngine } from '@shared/types/downloads';
@@ -6,6 +7,7 @@ import type { FlashPluginChannel } from '@shared/types/flash';
 export const DEFAULT_FLASH_VERSION = '34.0.0.330';
 
 export interface Config {
+  proxy: ProxySettings;
   flashVersion: string;
   flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
@@ -24,6 +26,7 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Config = {
+  proxy: { ...DEFAULT_PROXY },
   flashVersion: DEFAULT_FLASH_VERSION,
   flashPluginChannel: 'stable',
   lowEndMode: false,
@@ -51,6 +54,19 @@ export const DEFAULT_CONFIG: Config = {
 export const CONFIG_KEYS = Object.keys(DEFAULT_CONFIG) as Array<keyof Config>;
 
 export const CONFIG_SCHEMA: Store.Schema<Config> = {
+  proxy: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['mode', 'protocol', 'host', 'port', 'bypass', 'pacUrl'],
+    properties: {
+      mode: { type: 'string', enum: ['system', 'direct', 'manual', 'pac'] },
+      protocol: { type: 'string', enum: ['http', 'socks5'] },
+      host: { type: 'string', maxLength: 253 },
+      port: { type: 'integer', minimum: 1, maximum: 65535 },
+      bypass: { type: 'string', maxLength: 4096 },
+      pacUrl: { type: 'string', maxLength: 2048 },
+    },
+  },
   flashVersion: {
     type: 'string',
     pattern: '^\\d+\\.\\d+\\.\\d+\\.\\d+$',

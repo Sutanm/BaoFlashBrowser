@@ -4,6 +4,7 @@ import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
+import { usesBrowserDownloads } from './proxy';
 import { loadConfig } from './config';
 import { getMainWindow } from './window';
 import { availableSavePath, isPathWithinDirectory, sanitizeDownloadFilename } from '../utils/download-path';
@@ -410,7 +411,7 @@ export function initDownloadManager(): void {
 
 export function setupDownloadHandlers(sess: Electron.Session): void {
   sess.on('will-download', (event, item) => {
-    const engine = loadConfig().downloadEngine ?? 'aria2';
+    const engine = usesBrowserDownloads() ? 'chromium' : (loadConfig().downloadEngine ?? 'aria2');
     log.info('[Download] will-download: engine=' + engine + ', aria2Ready=' + aria2Ready + ', url=' + redactUrlForLog(item.getURL()));
 
     if (engine === 'aria2' && aria2Ready) {
@@ -498,6 +499,10 @@ export async function resumeDownload(id: string): Promise<boolean> {
       }
     }
     const record = getDownloadRecord(id);
+    if (record?.url && usesBrowserDownloads()) {
+      session.defaultSession.downloadURL(record.url);
+      return true;
+    }
     if (record?.url && aria2Ready) {
       return aria2Download(record.url, record.filename, record);
     } else {

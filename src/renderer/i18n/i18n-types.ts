@@ -804,6 +804,116 @@ type RootTranslation = {
 		viewProtectionChangeBtn: string
 	}
 	settings: {
+		proxy: {
+			/**
+			 * 检​测​次​数​已​达​本​次​启​动​的​上​限​（​3​2​ ​次​）​，​请​重​启​浏​览​器​后​重​试​。
+			 */
+			testLimit: string
+			/**
+			 * 网​络​代​理
+			 */
+			title: string
+			/**
+			 * 系​统​代​理​ ​·​ ​H​T​T​P​ ​/​ ​S​O​C​K​S​5​ ​·​ ​P​A​C
+			 */
+			description: string
+			/**
+			 * 保​存​后​重​启​浏​览​器​生​效​。​代​理​应​用​于​所​有​网​页​标​签​和​浏​览​器​网​络​请​求​；​F​l​a​s​h​ ​游​戏​内​部​通​信​需​按​游​戏​验​证​。
+			 */
+			hint: string
+			/**
+			 * 代​理​模​式
+			 */
+			mode: string
+			/**
+			 * 跟​随​系​统
+			 */
+			system: string
+			/**
+			 * 直​接​连​接​（​不​使​用​代​理​）
+			 */
+			direct: string
+			/**
+			 * 手​动​代​理
+			 */
+			manual: string
+			/**
+			 * P​A​C​ ​自​动​配​置
+			 */
+			pac: string
+			/**
+			 * 代​理​协​议
+			 */
+			protocol: string
+			/**
+			 * 服​务​器​地​址​（​不​含​协​议​和​端​口​）
+			 */
+			host: string
+			/**
+			 * 端​口
+			 */
+			port: string
+			/**
+			 * 绕​过​代​理​的​地​址
+			 */
+			bypass: string
+			/**
+			 * 使​用​分​号​分​隔​域​名​或​ ​I​P​ ​规​则​。​本​机​回​环​地​址​默​认​直​连​。
+			 */
+			bypassHint: string
+			/**
+			 * P​A​C​ ​地​址​（​H​T​T​P​ ​/​ ​H​T​T​P​S​）
+			 */
+			pacUrl: string
+			/**
+			 * 手​动​代​理​、​P​A​C​ ​或​直​接​连​接​模​式​下​，​新​下​载​统​一​使​用​ ​C​h​r​o​m​i​u​m​，​以​遵​循​此​处​设​置​。​跟​随​系​统​模​式​保​留​下​载​引​擎​选​择​，​a​r​i​a​2​ ​使​用​自​身​网​络​配​置​。
+			 */
+			downloadHint: string
+			/**
+			 * 当​前​版​本​不​提​供​代​理​账​号​密​码​配​置​，​请​使​用​无​需​认​证​的​代​理​或​本​地​代​理​客​户​端​。
+			 */
+			authHint: string
+			/**
+			 * 检​测​网​址
+			 */
+			testUrl: string
+			/**
+			 * 检​测​当​前​填​写​的​配​置
+			 */
+			test: string
+			/**
+			 * 正​在​检​测​…
+			 */
+			testing: string
+			/**
+			 * 检​测​不​会​保​存​配​置​，​也​不​使​用​浏​览​器​登​录​状​态​。​显​示​所​选​路​由​和​目​标​网​站​的​ ​H​T​T​P​ ​响​应​，​不​能​验​证​ ​F​l​a​s​h​ ​内​部​通​信​。
+			 */
+			testHint: string
+			/**
+			 * 连​接​成​功
+			 */
+			success: string
+			/**
+			 * 连​接​未​成​功
+			 */
+			failure: string
+			/**
+			 * 所​选​路​由
+			 */
+			route: string
+			/**
+			 * 请​检​查​代​理​地​址​、​端​口​、​P​A​C​ ​地​址​和​检​测​网​址​。
+			 */
+			invalid: string
+			/**
+			 * 检​测​超​时​（​1​5​ ​秒​）
+			 */
+			timeout: string
+			/**
+			 * 无​法​连​接​，​请​检​查​代​理​服​务​、​网​络​和​目​标​网​址​。
+			 */
+			networkError: string
+		}
 		/**
 		 * 设​置
 		 */
@@ -2379,6 +2489,116 @@ export type TranslationFunctions = {
 		viewProtectionChangeBtn: () => LocalizedString
 	}
 	settings: {
+		proxy: {
+			/**
+			 * 检测次数已达本次启动的上限（32 次），请重启浏览器后重试。
+			 */
+			testLimit: () => LocalizedString
+			/**
+			 * 网络代理
+			 */
+			title: () => LocalizedString
+			/**
+			 * 系统代理 · HTTP / SOCKS5 · PAC
+			 */
+			description: () => LocalizedString
+			/**
+			 * 保存后重启浏览器生效。代理应用于所有网页标签和浏览器网络请求；Flash 游戏内部通信需按游戏验证。
+			 */
+			hint: () => LocalizedString
+			/**
+			 * 代理模式
+			 */
+			mode: () => LocalizedString
+			/**
+			 * 跟随系统
+			 */
+			system: () => LocalizedString
+			/**
+			 * 直接连接（不使用代理）
+			 */
+			direct: () => LocalizedString
+			/**
+			 * 手动代理
+			 */
+			manual: () => LocalizedString
+			/**
+			 * PAC 自动配置
+			 */
+			pac: () => LocalizedString
+			/**
+			 * 代理协议
+			 */
+			protocol: () => LocalizedString
+			/**
+			 * 服务器地址（不含协议和端口）
+			 */
+			host: () => LocalizedString
+			/**
+			 * 端口
+			 */
+			port: () => LocalizedString
+			/**
+			 * 绕过代理的地址
+			 */
+			bypass: () => LocalizedString
+			/**
+			 * 使用分号分隔域名或 IP 规则。本机回环地址默认直连。
+			 */
+			bypassHint: () => LocalizedString
+			/**
+			 * PAC 地址（HTTP / HTTPS）
+			 */
+			pacUrl: () => LocalizedString
+			/**
+			 * 手动代理、PAC 或直接连接模式下，新下载统一使用 Chromium，以遵循此处设置。跟随系统模式保留下载引擎选择，aria2 使用自身网络配置。
+			 */
+			downloadHint: () => LocalizedString
+			/**
+			 * 当前版本不提供代理账号密码配置，请使用无需认证的代理或本地代理客户端。
+			 */
+			authHint: () => LocalizedString
+			/**
+			 * 检测网址
+			 */
+			testUrl: () => LocalizedString
+			/**
+			 * 检测当前填写的配置
+			 */
+			test: () => LocalizedString
+			/**
+			 * 正在检测…
+			 */
+			testing: () => LocalizedString
+			/**
+			 * 检测不会保存配置，也不使用浏览器登录状态。显示所选路由和目标网站的 HTTP 响应，不能验证 Flash 内部通信。
+			 */
+			testHint: () => LocalizedString
+			/**
+			 * 连接成功
+			 */
+			success: () => LocalizedString
+			/**
+			 * 连接未成功
+			 */
+			failure: () => LocalizedString
+			/**
+			 * 所选路由
+			 */
+			route: () => LocalizedString
+			/**
+			 * 请检查代理地址、端口、PAC 地址和检测网址。
+			 */
+			invalid: () => LocalizedString
+			/**
+			 * 检测超时（15 秒）
+			 */
+			timeout: () => LocalizedString
+			/**
+			 * 无法连接，请检查代理服务、网络和目标网址。
+			 */
+			networkError: () => LocalizedString
+		}
 		/**
 		 * 设置
 		 */

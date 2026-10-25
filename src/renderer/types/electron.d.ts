@@ -13,6 +13,7 @@ import type { FlashPluginChannel } from '@shared/types/flash';
 import type { SessionRecoveryStatus } from '@shared/types/session';
 
 interface MainConfig {
+  proxy: import('@shared/types/proxy').ProxySettings;
   flashVersion: string;
   flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
@@ -174,6 +175,7 @@ declare global {
 
       config: {
         get(): Promise<MainConfig | null>;
+        testProxy(proxy: import('@shared/types/proxy').ProxySettings, url: string): Promise<import('@shared/types/proxy').ProxyTestResult>;
       };
 
       cache: {

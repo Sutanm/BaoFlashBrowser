@@ -7,15 +7,18 @@ import type { FlashPluginChannel } from '@shared/types/flash';
 import type { PasswordKeyStatus, ViewGuardStatus } from '@shared/types/passwords';
 import { ArrowLeft, ChevronRight, Cpu, Download, Gauge, Globe2, Shield, Wrench } from 'lucide-react';
 import { requiresMainConfigRestart } from '@renderer/services/settings-restart';
+import { DEFAULT_PROXY, proxySettingsSchema, type ProxySettings } from '@shared/types/proxy';
+import ProxySettingsCard from './ProxySettingsCard';
 import ToggleSwitch from '../controls/ToggleSwitch';
 
 interface SettingsPanelProps {
   onOpenUrl: (url: string, newTab: boolean) => void;
 }
 
-type SettingsSection = 'general' | 'engine' | 'downloads' | 'privacy' | 'automation' | 'advanced';
+type SettingsSection = 'general' | 'engine' | 'downloads' | 'privacy' | 'automation' | 'advanced' | 'network';
 
 interface MainConfigForm {
+  proxy: ProxySettings;
   flashVersion: string;
   flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
@@ -33,6 +36,7 @@ interface MainConfigForm {
 }
 
 const DEFAULT_MAIN_CONFIG = {
+  proxy: { ...DEFAULT_PROXY },
   flashVersion: '34.0.0.330',
   flashPluginChannel: 'stable',
   lowEndMode: false,
@@ -90,6 +94,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     window.electronAPI?.config?.get().then((cfg) => {
       if (cfg) {
         const loaded = {
+          proxy: cfg.proxy ?? { ...DEFAULT_PROXY },
           flashVersion: cfg.flashVersion,
           flashPluginChannel: cfg.flashPluginChannel,
           lowEndMode: cfg.lowEndMode,
@@ -181,7 +186,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
 
   const handleSave = useCallback(async () => {
     try {
+      if (!proxySettingsSchema.safeParse(mainForm.proxy).success) {
+        throw new Error(LL.settings.proxy.invalid());
+      }
       const result = await window.electronAPI.invoke('save-config', {
+        proxy: mainForm.proxy,
         flashVersion: mainForm.flashVersion,
         flashPluginChannel: mainForm.flashPluginChannel,
         lowEndMode: mainForm.lowEndMode,
@@ -338,6 +347,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     icon: React.ComponentType<{ className?: string }>;
   }> = [
     { id: 'general', title: LL.settings.general(), description: `${LL.settings.homepage()} · ${LL.settings.searchEngine()}`, icon: Globe2 },
+    { id: 'network', title: LL.settings.proxy.title(), description: LL.settings.proxy.description(), icon: Globe2 },
     { id: 'engine', title: `${LL.ruffle.flash()} / Ruffle`, description: `${LL.settings.spoofVersion()} · ${LL.settings.defaultEngine()}`, icon: Gauge },
     {
       id: 'downloads',
@@ -435,6 +445,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           </select>
         </div>
       </div>
+      )}
+
+      {activeSection === 'network' && (
+        <ProxySettingsCard value={mainForm.proxy} onChange={(proxy) => handleMainChange('proxy', proxy)} />
       )}
 
       {activeSection === 'engine' && (

@@ -1,4 +1,5 @@
 export interface RestartSensitiveMainConfig {
+  proxy?: import('@shared/types/proxy').ProxySettings;
   flashVersion: string;
   flashPluginChannel: 'stable' | 'experimental';
   lowEndMode: boolean;
@@ -11,7 +12,8 @@ export function requiresMainConfigRestart(
   previous: RestartSensitiveMainConfig,
   next: RestartSensitiveMainConfig,
 ): boolean {
-  return previous.flashVersion !== next.flashVersion
+  return JSON.stringify(previous.proxy) !== JSON.stringify(next.proxy)
+    || previous.flashVersion !== next.flashVersion
     || previous.flashPluginChannel !== next.flashPluginChannel
     || previous.lowEndMode !== next.lowEndMode
     || (MODULE_USERSCRIPTS && previous.userscriptMaxValueKB !== next.userscriptMaxValueKB)

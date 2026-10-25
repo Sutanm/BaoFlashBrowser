@@ -1,3 +1,5 @@
+import { proxySettingsSchema, proxyTestSchema } from '@shared/types/proxy';
+import { testProxy } from '../modules/proxy';
 import { createHandler } from '../utils/ipc-wrapper';
 import { z } from 'zod';
 import { app } from 'electron';
@@ -16,9 +18,11 @@ const pathField = (field: string) => z.string().max(32767).optional().refine(
 export function registerConfigIPC(options: {
   applyUserscriptCapacityConfig?: (cfg: Partial<Config>) => void;
 } = {}): void {
+  createValidatedHandler('proxy:test', proxyTestSchema, ({ proxy, url }) => testProxy(proxy, url));
   createHandler('load-config', () => loadConfig());
   createValidatedHandler('cache:clear', z.object({}).optional(), () => clearBrowserCache());
   createValidatedHandler('save-config', z.object({
+    proxy: proxySettingsSchema.optional(),
     flashVersion: z.string().regex(/^\d+\.\d+\.\d+\.\d+$/).optional(),
     flashPluginChannel: z.enum(['stable', 'experimental']).optional(),
     lowEndMode: z.boolean().optional(),

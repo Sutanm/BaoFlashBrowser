@@ -6,6 +6,7 @@ import log from 'electron-log';
 
 import { setupFlash } from './modules/flash';
 import { configureOptionalSessionServices, initSession } from './modules/session-manager';
+import { initializeProxy } from './modules/proxy';
 import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow } from './modules/window';
 import { handleWebviewBeforeInputEvent, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
@@ -93,7 +94,15 @@ function bootstrap(): void {
     log.warn('[Ruffle] scheme privileges registration failed:', (e instanceof Error ? e.message : 'Unknown error'));
   }
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    // Apply before creating windows, background scripts or navigations.
+    try {
+      await initializeProxy(config.proxy);
+    } catch {
+      log.error('[Proxy] configuration failed; startup stopped');
+      app.quit();
+      return;
+    }
     // Custom protocols are session-scoped. BrowserView tabs use persist:, while
     // the main renderer uses defaultSession, so both must be registered before
     // any page can request Ruffle's JS/WASM components.

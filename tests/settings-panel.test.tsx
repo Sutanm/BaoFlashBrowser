@@ -56,7 +56,7 @@ describe('SettingsPanel section rendering', () => {
     fireEvent.change(homepage, { target: { value: 'https://example.com/home' } });
 
     fireEvent.click(container.querySelector<HTMLButtonElement>('.settings-page-head button')!);
-    fireEvent.click(categories()[1]);
+    fireEvent.click(categories().find((button) => button.textContent?.includes('Ruffle'))!);
     expect(container.querySelectorAll('.settings-section-card')).toHaveLength(2);
     expect(screen.queryByPlaceholderText('about:newtab')).not.toBeInTheDocument();
 
@@ -78,5 +78,22 @@ describe('SettingsPanel section rendering', () => {
 
     fireEvent.click(clearButton);
     await waitFor(() => expect(clearCache).toHaveBeenCalledTimes(1));
+  });
+
+  it('preserves proxy drafts across sections and fixes an invalid hidden port when changing mode', async () => {
+    const { container } = renderPanel();
+    await waitFor(() => expect(window.electronAPI.config.get).toHaveBeenCalled());
+    const openProxy = () => fireEvent.click(screen.getByRole('button', { name: /网络代理/ }));
+    openProxy();
+    fireEvent.change(screen.getByLabelText('代理模式'), { target: { value: 'manual' } });
+    fireEvent.change(screen.getByLabelText('服务器地址（不含协议和端口）'), { target: { value: '127.0.0.1' } });
+    fireEvent.change(screen.getByLabelText('端口'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('代理模式'), { target: { value: 'direct' } });
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.settings-page-head button')!);
+    openProxy();
+    expect(screen.getByLabelText('代理模式')).toHaveValue('direct');
+    fireEvent.change(screen.getByLabelText('代理模式'), { target: { value: 'manual' } });
+    expect(screen.getByLabelText('端口')).toHaveValue(7890);
+    expect(screen.getByLabelText('服务器地址（不含协议和端口）')).toHaveValue('127.0.0.1');
   });
 });

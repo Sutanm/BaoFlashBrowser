@@ -19,6 +19,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'tab:setBounds', 'tab:setRuffleMode',
   'load-config', 'save-config',
   'cache:clear',
+  'proxy:test',
   'download:aria2-status', 'download:get-dir', 'download:set-dir', 'download:delete-file',
   'download:list', 'download:remove-record', 'download:clear-finished', 'download:pause', 'download:resume',
   'password:status', 'password:init',
@@ -111,6 +112,7 @@ const electronAPI = {
 
   config: {
     get: () => safeInvoke('load-config'),
+    testProxy: (proxy: import('../shared/types/proxy').ProxySettings, url: string) => safeInvoke('proxy:test', { proxy, url }),
   },
 
   cache: {
