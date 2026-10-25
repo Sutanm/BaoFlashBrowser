@@ -24,8 +24,8 @@ const METADATA = `// ==UserScript==
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      0.5.7
-// @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
+// @version      0.6.1
+// @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, media ranges, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
 // @match        *://*.github.com/*
 // @run-at       document-start

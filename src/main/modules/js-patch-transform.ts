@@ -9,6 +9,7 @@
 // and must not trigger the esbuild path ("zero overhead" promise).
 
 import { patchModernJs } from './userscripts/bundled-scripts/css-fixer-core';
+import { getJsCompiler } from './js-compiler';
 
 const PREFLIGHT_RE = /static\s*\{|\busing\s+\w/;
 
@@ -17,24 +18,10 @@ export interface PatchResult {
   mode: 'esbuild' | 'regex' | 'verbatim';
 }
 
-interface EsbuildTransform {
-  transform(text: string, opts: { target: string; loader: string }): Promise<{ code: string }>;
-}
-
-let esbuildMod: EsbuildTransform | null = null;
-
-function getEsbuild(): EsbuildTransform {
-  if (!esbuildMod) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    esbuildMod = require('esbuild') as EsbuildTransform;
-  }
-  return esbuildMod;
-}
-
 export async function patchModernJsAsync(text: string): Promise<PatchResult> {
   if (!PREFLIGHT_RE.test(text)) return { text: null, mode: 'verbatim' };
   try {
-    const out = await getEsbuild().transform(text, { target: 'chrome87', loader: 'js' });
+    const out = await getJsCompiler().transform(text, { target: 'chrome87', loader: 'js' });
     // esbuild re-serializes even untouched input (line wrapping, trailing
     // newline); compare whitespace-insensitively so no-op runs stay verbatim.
     if (out.code.replace(/\s+/g, '') === text.replace(/\s+/g, '')) return { text: null, mode: 'verbatim' };

@@ -5,6 +5,10 @@
 'use strict';
 
 const { app } = require('electron');
+require('electron').protocol.registerSchemesAsPrivileged([{
+  scheme: 'bfb-github-module',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+}]);
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

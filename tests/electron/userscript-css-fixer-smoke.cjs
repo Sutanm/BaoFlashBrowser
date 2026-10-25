@@ -48,8 +48,21 @@ const FIXTURE_HTML = `<!doctype html>
     .m_has:has(.m_has-child) { color: rgb(1, 2, 3) }
     .m_has-wrap:has(.m_has-child) { background-color: rgb(4, 5, 6) }
   </style>
+  <style>
+    .lp-SectionIntro-content h2 { opacity: 0; transform: translateY(24px); transition: opacity .1s, transform .1s }
+    .lp-SectionIntro-content.is-visible h2 { opacity: 1; transform: none }
+    .inactive-slide { opacity: 0 }
+    .lp-SectionHero-visual-frame { aspect-ratio: 4 / 1 }
+    .range-nav { padding-top: 68px; width: 100% }
+    @media (width>=800px) { .range-nav { padding-top: 0; width: auto } }
+    @media (width<=799.98px) { .range-nav { padding-top: 40px } }
+  </style>
 </head>
 <body>
+  <div class="lp-Home"><div class="lp-SectionIntro-content"><h2 id="fallback-heading">Below-fold content</h2></div><div class="inactive-slide">Inactive carousel slide</div><div id="ratio-frame" class="lp-SectionHero-visual-frame" style="width:200px"></div></div>
+  <react-partial partial-name="marketing-global-banner"><div data-target="react-partial.reactRoot" style="position:absolute;top:0;height:30px">Banner</div></react-partial>
+  <header data-marketing-header="true" style="position:fixed;top:var(--marketing-header-fixed-top,0px)">Header</header>
+  <nav id="range-nav" class="range-nav">GitHub desktop navigation</nav>
   <div id="container" class="m_container" data-strategy="block">
     <div class="m_code"><pre>code block</pre></div>
     <div id="ext" class="m_ext" data-x>external</div>
@@ -86,7 +99,7 @@ const FIXTURE_HTML = `<!doctype html>
 </body>
 </html>`;
 
-const EXT_CSS = '.m_ext:where([data-x]){color:rgb(255,0,0)}';
+const EXT_CSS = '.m_ext:where([data-x]){color:rgb(255,0,0)}@media (width>=800px){.range-nav{margin-top:13px}}';
 const PLAIN_CSS = '.plain{color:rgb(0,128,0)}';
 // chrome-style store badge: SVG intrinsic 661x200, HTML height=66.
 // Modern browsers render 66*661/200=218px wide; Chromium 87 renders the
@@ -111,6 +124,10 @@ const ASSERT_SCRIPT = `(() => {
     styles.push({ id: s.id, fixed: s.getAttribute('data-bf-css-fixed'), len: (s.textContent || '').length });
   }
   return {
+    rangePadding: getComputedStyle(document.getElementById('range-nav')).paddingTop,
+    rangeMargin: getComputedStyle(document.getElementById('range-nav')).marginTop,
+    headerTop: getComputedStyle(document.querySelector('[data-marketing-header]')).top,
+    fallbackOpacity: getComputedStyle(document.getElementById('fallback-heading')).opacity,
     container: cs('#container'),
     pre: cs('.m_code pre'),
     ext: cs('#ext'),
@@ -158,6 +175,8 @@ const ASSERT_SCRIPT = `(() => {
 })()`;
 
 app.whenReady().then(async () => {
+  ipcMain.handle('userscript:automation-v3-list', async () => []);
+  ipcMain.handle('userscript:automation-v3-status', async () => ({ enabled: true, state: 'idle', executedSteps: 0, logs: [] }));
   ipcMain.on('get-ruffle-mode', (event) => { event.returnValue = { enabled: false }; });
   ipcMain.on('userscript:get-config', (event, payload) => {
     event.returnValue = mod.getUserscriptManager()
@@ -215,6 +234,16 @@ app.whenReady().then(async () => {
   check('re-enable after update semantics', mod.setUserscriptEnabled(builtIn.id, true) === true);
 
   const srv = http.createServer((req, res) => {
+    if (req.url === '/seed') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<!doctype html><title>cache seed</title>');
+      return;
+    }
+    if (req.url === '/late.css') {
+      res.writeHead(200, { 'Content-Type': 'text/css' });
+      res.end('@media (width>=800px){.range-nav{color:rgb(17,18,19)}}');
+      return;
+    }
     if (req.url === '/ext.css') {
       res.writeHead(200, { 'Content-Type': 'text/css' });
       res.end(EXT_CSS);
@@ -237,7 +266,7 @@ app.whenReady().then(async () => {
   const url = `http://127.0.0.1:${srv.address().port}/`;
 
   const preloadPath = path.join(__dirname, '..', '..', 'release', 'tests', 'userscript-runtime-preload.cjs');
-  const host = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { nodeIntegration: false, contextIsolation: true, spellcheck: false } });
+  const host = new BrowserWindow({ show: true, focusable: false, width: 900, height: 700, webPreferences: { nodeIntegration: false, contextIsolation: true, spellcheck: false } });
   const view = new BrowserView({
     webPreferences: {
       preload: preloadPath,
@@ -253,6 +282,20 @@ app.whenReady().then(async () => {
   view.setBounds({ x: 0, y: 0, width: 900, height: 700 });
   mod.getUserscriptManager().registerView(view.webContents.id, { mode: 'ppapi', generation: 1, token: 'css-fixer-smoke' });
 
+  await view.webContents.loadURL(url + 'seed');
+  // Simulate a persisted rewrite produced before range-query support.
+  await view.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const request = indexedDB.open('bf-css-fixer', 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('sheets', { keyPath: 'url' });
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction('sheets', 'readwrite');
+      tx.objectStore('sheets').put({ url: ${JSON.stringify(url + 'ext.css')}, text: '.m_ext{color:rgb(0,0,255)}', ts: Date.now(), bytes: 36 });
+      tx.oncomplete = () => { db.close(); resolve(true); };
+      tx.onerror = () => reject(tx.error);
+    };
+  })`);
   await view.webContents.loadURL(url);
 
   // 3. Poll until the fixer has applied (link path + container queries are async).
@@ -272,11 +315,28 @@ app.whenReady().then(async () => {
       && (result?.atPolyfill ?? null) !== null
       && result?.hasColor === 'rgb(1, 2, 3)'
       && result?.hasBox2Bg === 'rgb(4, 5, 6)';
-    if (done) break;
+    const fallbackDone = result?.fallbackOpacity === '1';
+    if (done && fallbackDone) break;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
   // 4. Assertions.
+  check('GitHub range media query restores desktop navigation', result?.rangePadding === '0px', result?.rangePadding);
+  check('GitHub section reveals when native modules cannot hydrate', result?.fallbackOpacity === '1', result?.fallbackOpacity);
+  const frameHeight = await view.webContents.executeJavaScript(`document.getElementById('ratio-frame').getBoundingClientRect().height`);
+  check('GitHub media frame retains its aspect ratio', frameHeight === 50, frameHeight);
+  await view.webContents.executeJavaScript(`document.getElementById('ratio-frame').style.width = '320px'`);
+  let resizedHeight;
+  for (let i = 0; i < 20; i++) {
+    resizedHeight = await view.webContents.executeJavaScript(`document.getElementById('ratio-frame').getBoundingClientRect().height`);
+    if (resizedHeight === 80) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  check('GitHub media frame responds to resizing', resizedHeight === 80, resizedHeight);
+  const inactiveOpacity = await view.webContents.executeJavaScript(`getComputedStyle(document.querySelector('.inactive-slide')).opacity`);
+  check('inactive slides stay hidden', inactiveOpacity === '0', inactiveOpacity);
+  check('fixed GitHub header clears the visible global banner', result?.headerTop === '30px', result?.headerTop);
+  check('range queries rewritten in external sheets despite old cache', result?.rangeMargin === '13px', result?.rangeMargin);
   check('container max-width restored (inline path)', result?.container?.maxWidth === '640px', result?.container);
   const autoCentered = result?.container?.marginLeft === result?.container?.marginRight && result?.container?.marginLeft !== '0px';
   check('container centered by auto margins (inline path)', autoCentered, result?.container);
@@ -311,6 +371,32 @@ app.whenReady().then(async () => {
   check('has polyfill style applied', result?.hasColor === 'rgb(1, 2, 3)', result?.hasColor);
   check('has polyfill second rule applied', result?.hasBox2Bg === 'rgb(4, 5, 6)', result?.hasBox2Bg);
 
+  await view.webContents.executeJavaScript(`(async () => {
+    const style = document.createElement('style'); document.head.appendChild(style);
+    for (let i = 0; i < 180; i++) style.textContent = '.churn{z-index:' + i + '}';
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = '/late.css'; document.head.appendChild(link);
+  })()`);
+  let lateColor;
+  for (let i = 0; i < 50; i++) {
+    lateColor = await view.webContents.executeJavaScript(`getComputedStyle(document.getElementById('range-nav')).color`);
+    if (lateColor === 'rgb(17, 18, 19)') break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  check('late GitHub stylesheet survives 180 mutations to an existing sheet', lateColor === 'rgb(17, 18, 19)', lateColor);
+  const lateOverrides = await view.webContents.executeJavaScript(`document.querySelectorAll('style[data-bf-css-fix-source$="/late.css"]').length`);
+  check('external sheet gets exactly one override', lateOverrides === 1, lateOverrides);
+  await view.webContents.executeJavaScript(`document.querySelector('react-partial[partial-name="marketing-global-banner"]').remove()`);
+  let headerAfterDismiss;
+  for (let i = 0; i < 25; i++) {
+    headerAfterDismiss = await view.webContents.executeJavaScript(`getComputedStyle(document.querySelector('[data-marketing-header]')).top`);
+    if (headerAfterDismiss === '0px') break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  check('dismissing the banner resets the header offset', headerAfterDismiss === '0px', headerAfterDismiss);
+  view.setBounds({ x: 0, y: 0, width: 700, height: 700 });
+  const mobilePadding = await view.webContents.executeJavaScript(`getComputedStyle(document.getElementById('range-nav')).paddingTop`);
+  check('range media query responds to mobile resize', mobilePadding === '40px', mobilePadding);
   host.destroy();
   srv.close();
   console.log(`[css-fixer-smoke] ${failures.length === 0 ? 'ALL PASS' : 'FAILURES: ' + failures.join(', ')}`);

@@ -11,6 +11,11 @@ export interface OptionalSessionServices {
   downloadSetup?: (sess: Session) => void;
   jsPatchRedirect?: (url: string) => string | null;
   webRequestObserver?: SessionWebRequestObserver | null;
+  githubModules?: {
+    register(sess: Session): void;
+    redirect(url: string, wcId: number): Promise<string | null>;
+    patchCsp(headers: Record<string, string[]>): Record<string, string[]>;
+  };
 }
 
 let optionalServices: OptionalSessionServices = {};
@@ -143,6 +148,7 @@ window.SWFObject=deconcept.SWFObject;
 }
 
 export function applyCompatibilitySessionConfig(sess: Session): void {
+  optionalServices.githubModules?.register(sess);
   sess.setUserAgent(
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36',
   );
@@ -163,6 +169,11 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
   sess.webRequest.onBeforeRequest(
     { urls: ['*://*/*'] },
     (details, callback) => {
+      if (optionalServices.githubModules && /^https:\/\/github\.githubassets\.com\/assets\/[\w.-]+\.js$/.test(details.url)) {
+        void optionalServices.githubModules.redirect(details.url, details.webContentsId ?? -1)
+          .then(redirectURL => callback(redirectURL ? { redirectURL } : {}), () => callback({}));
+        return;
+      }
       try {
         const jsRedirect = optionalServices.jsPatchRedirect?.(details.url);
         if (jsRedirect) {
@@ -189,9 +200,15 @@ export function applyCompatibilitySessionConfig(sess: Session): void {
   // CORS 头注入：仅对 .swf 文件，避免 Ruffle 跨域 fetch 失败
   // 收窄范围到 SWF，不全局注入以防过度宽松
   sess.webRequest.onHeadersReceived(
-    { urls: ['*://*/*.swf', '*://*/*.swf?*'] },
+    { urls: ['*://*/*.swf', '*://*/*.swf?*', 'https://github.com/*'] },
     (details, callback) => {
-      const responseHeaders = details.responseHeaders || {};
+      let responseHeaders = details.responseHeaders || {};
+      if (details.url.startsWith('https://github.com/')) {
+        if (details.resourceType === 'mainFrame') {
+          responseHeaders = optionalServices.githubModules?.patchCsp(responseHeaders) || responseHeaders;
+        }
+        callback({ responseHeaders }); return;
+      }
       responseHeaders['Access-Control-Allow-Origin'] = ['*'];
       responseHeaders['Access-Control-Allow-Methods'] = ['GET, POST, HEAD, OPTIONS'];
       responseHeaders['Access-Control-Allow-Headers'] = ['*'];

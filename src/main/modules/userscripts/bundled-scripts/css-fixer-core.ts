@@ -16,6 +16,7 @@ const PSEUDOS_TO_UNWRAP = new Set([':where', ':is']);
 const DVH_RE = /(?:\d+\.?\d*)dvh\b/;
 const DVH_REPLACE_RE = /(\d+(?:\.\d+)?)dvh\b/g;
 const CQ_DUMMY = 'container-query-polyfill';
+const MEDIA_RANGE_RE = /@media\b[^{}]*[<>=]/;
 
 export function needsRewrite(css: string): boolean {
   return (
@@ -25,9 +26,40 @@ export function needsRewrite(css: string): boolean {
     css.includes('@layer') ||
     css.includes('@container') ||
     css.includes('&') ||
+    /aspect-ratio\s*:/.test(css) ||
+    MEDIA_RANGE_RE.test(css) ||
     DVH_RE.test(css) ||
     needsColorRewrite(css)
   );
+}
+
+// GitHub ships inclusive range queries even in otherwise plain sheets.
+// Restrict conversion to known range features and literal values; leave
+// strict inequalities / unsupported expressions intact rather than changing
+// their boundary semantics. Parsing the at-rule keeps declarations and
+// strings containing similar text untouched.
+function rewriteMediaRanges(root: postcss.Root): void {
+  const feature = /^(?:width|height|device-width|device-height|aspect-ratio|device-aspect-ratio|resolution)$/i;
+  const literal = /^(?:\d*\.)?\d+(?:[a-z]+|\s*\/\s*\d+(?:\.\d+)?)?$/i;
+  const comparison = (left: string, op: string, right: string): string | null => {
+    if (feature.test(right) && literal.test(left)) {
+      return comparison(right, op === '>=' ? '<=' : op === '<=' ? '>=' : op, left);
+    }
+    if (!feature.test(left) || !literal.test(right)) return null;
+    return `(${op === '>=' ? 'min-' : op === '<=' ? 'max-' : ''}${left}:${right})`;
+  };
+  root.walkAtRules(/^media$/i, (rule) => {
+    rule.params = rule.params.replace(/\(([^()]*)\)/g, (original, inner: string) => {
+      const parts = inner.split(/(<=|>=|=)/).map((part) => part.trim());
+      if (parts.length === 3) return comparison(parts[0], parts[1], parts[2]) ?? original;
+      if (parts.length === 5) {
+        const first = comparison(parts[0], parts[1], parts[2]);
+        const second = comparison(parts[2], parts[3], parts[4]);
+        if (first && second) return `${first} and ${second}`;
+      }
+      return original;
+    });
+  });
 }
 
 // Chromium 87 does not support cascade layers: the whole @layer block (and
@@ -270,8 +302,8 @@ export function patchModernJs(text: string): string | null {
   return out === text ? null : out;
 }
 
-export function rewriteCssText(css: string): string {
-  if (!needsRewrite(css)) return css;
+export function rewriteCssText(css: string, baseUrl?: string): string {
+  if (!needsRewrite(css) && !baseUrl) return css;
   // css-has-pseudo text-layer conversion (preserve: false — the original
   // :has() rule is dropped by Chromium 87 anyway): E:has(F) becomes
   // [csstools-has-<base36-encoded-F>]:not(does-not-exist). The browser
@@ -311,6 +343,7 @@ export function rewriteCssText(css: string): string {
   }
 
   flattenLayers(root);
+  rewriteMediaRanges(root);
   flattenNesting(root);
   addContainerDummies(root);
 
@@ -336,6 +369,34 @@ export function rewriteCssText(css: string): string {
     }
     if (out !== decl.value) decl.value = out;
   });
+  root.walkDecls('aspect-ratio', decl => {
+    if (decl.prev()?.type === 'decl' && (decl.prev() as postcss.Declaration).prop === '--bf-aspect-ratio') return;
+    decl.cloneBefore({ prop: '--bf-aspect-ratio' });
+  });
+
+  if (baseUrl) {
+    const resolveUrl = (url: string): string => {
+      if (!url || /^(?:#|data:|blob:)/i.test(url)) return url;
+      try { return new URL(url, baseUrl).href; } catch { return url; }
+    };
+    const resolveValue = (value: string): string => {
+      const parsed = valueParser(value);
+      parsed.walk(node => {
+        if (node.type !== 'function' || node.value.toLowerCase() !== 'url') return;
+        if (node.nodes.length === 1 && (node.nodes[0].type === 'word' || node.nodes[0].type === 'string')) {
+          node.nodes[0].value = resolveUrl(node.nodes[0].value);
+        }
+        return false;
+      });
+      return parsed.toString();
+    };
+    root.walkDecls(decl => { decl.value = resolveValue(decl.value); });
+    root.walkAtRules(/^import$/i, rule => {
+      const parsed = valueParser(resolveValue(rule.params));
+      if (parsed.nodes[0]?.type === 'string') parsed.nodes[0].value = resolveUrl(parsed.nodes[0].value);
+      rule.params = parsed.toString();
+    });
+  }
 
   return root.toString();
 }

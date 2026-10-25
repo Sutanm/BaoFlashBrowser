@@ -89,6 +89,10 @@ function bootstrap(): void {
           stream: true,
         },
       });
+      if (MODULE_JS_PATCH) privilegedSchemes.push({
+        scheme: 'bfb-github-module',
+        privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+      });
       protocol.registerSchemesAsPrivileged(privilegedSchemes);
   } catch (e) {
     log.warn('[Ruffle] scheme privileges registration failed:', (e instanceof Error ? e.message : 'Unknown error'));
@@ -130,6 +134,10 @@ function bootstrap(): void {
     const jsPatch = MODULE_JS_PATCH
       ? require('./modules/js-patch-service') as typeof import('./modules/js-patch-service')
       : undefined;
+    const githubModules = MODULE_JS_PATCH
+      ? require('./modules/github-module-service') as typeof import('./modules/github-module-service')
+      : undefined;
+    githubModules?.setupGitHubModules();
     const passwordStore = MODULE_PASSWORDS
       ? require('./modules/password-store') as typeof import('./modules/password-store')
       : undefined;
@@ -145,6 +153,11 @@ function bootstrap(): void {
       downloadSetup: downloads?.setupDownloadHandlers,
       jsPatchRedirect: jsPatch?.chunkRedirectUrl,
       webRequestObserver: userscripts?.getWebRequestObserver(),
+      githubModules: githubModules ? {
+        register: githubModules.registerGitHubModuleSession,
+        redirect: githubModules.githubModuleRedirect,
+        patchCsp: githubModules.patchGitHubModuleCsp,
+      } : undefined,
     });
     configureOptionalTabServices({
       getUserscriptManager: userscripts?.getUserscriptManager,

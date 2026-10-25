@@ -4,9 +4,9 @@
 // @author       Sutanm
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
-// @version      0.5.7
-// @updateHash  b16b81531f2a
-// @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
+// @version      0.6.1
+// @updateHash  d6c276e9ac05
+// @description  Restores modern-CSS rules that Chromium 87 drops (:where/:is unwrap, @layer flatten, media ranges, dvh, colors). Covers ruffle.rs + github.com; add more sites in the editor.
 // @match        *://*.ruffle.rs/*
 // @match        *://*.github.com/*
 // @run-at       document-start
@@ -8953,8 +8953,32 @@
   var DVH_RE = /(?:\d+\.?\d*)dvh\b/;
   var DVH_REPLACE_RE = /(\d+(?:\.\d+)?)dvh\b/g;
   var CQ_DUMMY = "container-query-polyfill";
+  var MEDIA_RANGE_RE = /@media\b[^{}]*[<>=]/;
   function needsRewrite(css) {
-    return css.includes(":where(") || css.includes(":is(") || css.includes(":has(") || css.includes("@layer") || css.includes("@container") || css.includes("&") || DVH_RE.test(css) || needsColorRewrite(css);
+    return css.includes(":where(") || css.includes(":is(") || css.includes(":has(") || css.includes("@layer") || css.includes("@container") || css.includes("&") || /aspect-ratio\s*:/.test(css) || MEDIA_RANGE_RE.test(css) || DVH_RE.test(css) || needsColorRewrite(css);
+  }
+  function rewriteMediaRanges(root2) {
+    const feature = /^(?:width|height|device-width|device-height|aspect-ratio|device-aspect-ratio|resolution)$/i;
+    const literal = /^(?:\d*\.)?\d+(?:[a-z]+|\s*\/\s*\d+(?:\.\d+)?)?$/i;
+    const comparison = (left, op, right) => {
+      if (feature.test(right) && literal.test(left)) {
+        return comparison(right, op === ">=" ? "<=" : op === "<=" ? ">=" : op, left);
+      }
+      if (!feature.test(left) || !literal.test(right)) return null;
+      return `(${op === ">=" ? "min-" : op === "<=" ? "max-" : ""}${left}:${right})`;
+    };
+    root2.walkAtRules(/^media$/i, (rule2) => {
+      rule2.params = rule2.params.replace(/\(([^()]*)\)/g, (original, inner) => {
+        const parts = inner.split(/(<=|>=|=)/).map((part) => part.trim());
+        if (parts.length === 3) return comparison(parts[0], parts[1], parts[2]) ?? original;
+        if (parts.length === 5) {
+          const first = comparison(parts[0], parts[1], parts[2]);
+          const second = comparison(parts[2], parts[3], parts[4]);
+          if (first && second) return `${first} and ${second}`;
+        }
+        return original;
+      });
+    });
   }
   function flattenLayers(root2) {
     const layers = [];
@@ -9143,8 +9167,8 @@
     });
     return parsed.toString();
   }
-  function rewriteCssText(css) {
-    if (!needsRewrite(css)) return css;
+  function rewriteCssText(css, baseUrl) {
+    if (!needsRewrite(css) && !baseUrl) return css;
     let root2 = postcss_default.parse(css);
     if (css.includes(":has(")) {
       const pre = postcss_default.parse(css);
@@ -9166,6 +9190,7 @@
       }
     }
     flattenLayers(root2);
+    rewriteMediaRanges(root2);
     flattenNesting(root2);
     addContainerDummies(root2);
     root2.walkRules((rule2) => {
@@ -9187,7 +9212,195 @@
       }
       if (out !== decl2.value) decl2.value = out;
     });
+    root2.walkDecls("aspect-ratio", (decl2) => {
+      var _a;
+      if (((_a = decl2.prev()) == null ? void 0 : _a.type) === "decl" && decl2.prev().prop === "--bf-aspect-ratio") return;
+      decl2.cloneBefore({ prop: "--bf-aspect-ratio" });
+    });
+    if (baseUrl) {
+      const resolveUrl = (url) => {
+        if (!url || /^(?:#|data:|blob:)/i.test(url)) return url;
+        try {
+          return new URL(url, baseUrl).href;
+        } catch {
+          return url;
+        }
+      };
+      const resolveValue = (value) => {
+        const parsed = (0, import_postcss_value_parser3.default)(value);
+        parsed.walk((node) => {
+          if (node.type !== "function" || node.value.toLowerCase() !== "url") return;
+          if (node.nodes.length === 1 && (node.nodes[0].type === "word" || node.nodes[0].type === "string")) {
+            node.nodes[0].value = resolveUrl(node.nodes[0].value);
+          }
+          return false;
+        });
+        return parsed.toString();
+      };
+      root2.walkDecls((decl2) => {
+        decl2.value = resolveValue(decl2.value);
+      });
+      root2.walkAtRules(/^import$/i, (rule2) => {
+        var _a;
+        const parsed = (0, import_postcss_value_parser3.default)(resolveValue(rule2.params));
+        if (((_a = parsed.nodes[0]) == null ? void 0 : _a.type) === "string") parsed.nodes[0].value = resolveUrl(parsed.nodes[0].value);
+        rule2.params = parsed.toString();
+      });
+    }
     return root2.toString();
+  }
+
+  // src/main/modules/userscripts/bundled-scripts/css-fixer-github.ts
+  function installGitHubContentFallback(nativeModules = false) {
+    var _a, _b;
+    const scriptClass = HTMLScriptElement;
+    if ((_a = scriptClass.supports) == null ? void 0 : _a.call(scriptClass, "importmap")) return;
+    const hiddenClasses = [
+      "lp-SectionHero-content--hidden",
+      "lp-SectionTemplate-grid--hidden",
+      "Security-grid--hidden",
+      "Security-grid--hiddenOnMobile",
+      "lp-CustomerStories-grid--hidden"
+    ];
+    const selectors = [".lp-SectionIntro-content", ".lp-Cta", ...hiddenClasses.map((name) => "." + name)].join(",");
+    const seen = /* @__PURE__ */ new WeakSet();
+    const mediaSeen = /* @__PURE__ */ new WeakSet();
+    const activeVideos = /* @__PURE__ */ new WeakSet();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let ready = false;
+    let scanTimer = null;
+    let heroAsset = null;
+    const nativeDeadline = Date.now() + 12e3;
+    const frames = /* @__PURE__ */ new Set();
+    const sizeFrame = (frame) => {
+      const value = getComputedStyle(frame).getPropertyValue("--bf-aspect-ratio").trim();
+      const match = value.match(/^(?:auto\s+)?([\d.]+)(?:\s*\/\s*([\d.]+))?$/);
+      if (!match) return;
+      const ratio = Number(match[1]) / Number(match[2] || 1);
+      const width = frame.getBoundingClientRect().width;
+      if (ratio > 0 && width > 0) {
+        const height = width / ratio + "px";
+        if (frame.style.height !== height) frame.style.height = height;
+      }
+    };
+    const frameResize = new ResizeObserver((entries) => {
+      for (const entry of entries) sizeFrame(entry.target);
+    });
+    if (!CSS.supports("aspect-ratio", "1")) {
+      const style = document.createElement("style");
+      style.textContent = "*{--bf-aspect-ratio:initial}";
+      (_b = document.head) == null ? void 0 : _b.insertBefore(style, document.head.firstChild);
+      window.addEventListener("resize", () => {
+        for (const frame of frames) sizeFrame(frame);
+      }, { passive: true });
+    }
+    const reveal = (el) => {
+      el.classList.add("is-visible");
+      for (const name of hiddenClasses) el.classList.remove(name);
+      el.setAttribute("data-bf-revealed", "1");
+    };
+    const reveals = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        reveal(entry.target);
+        reveals.unobserve(entry.target);
+      }
+    }, { rootMargin: "80px 0px", threshold: 0.05 });
+    const findHeroAsset = () => {
+      if (heroAsset) return heroAsset;
+      heroAsset = (async () => {
+        const script = document.querySelector('script[src*="/landing-pages-"]');
+        if (!script) return null;
+        const url = new URL(script.src);
+        if (url.protocol !== "https:" || url.hostname !== "github.githubassets.com") return null;
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 1e4);
+        try {
+          const response = await fetch(url.href, { signal: controller.signal, cache: "force-cache" });
+          if (!response.ok) return null;
+          const text = await response.text();
+          const match = text.match(/"(code-1_desktop-[a-z0-9]+\.mp4)"/);
+          return match ? new URL(match[1], url).href : null;
+        } catch {
+          return null;
+        } finally {
+          clearTimeout(timer);
+        }
+      })();
+      return heroAsset;
+    };
+    const videos = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const video = entry.target;
+        if (!entry.isIntersecting) {
+          activeVideos.delete(video);
+          video.pause();
+          continue;
+        }
+        activeVideos.add(video);
+        if (!video.getAttribute("src") && !video.querySelector("source")) {
+          void findHeroAsset().then((src) => {
+            if (!src || !video.isConnected || video.getAttribute("src") || video.querySelector("source")) return;
+            video.src = src;
+            video.muted = true;
+            video.loop = true;
+            video.playsInline = true;
+            video.controls = true;
+            video.preload = "metadata";
+            if (!reducedMotion.matches && activeVideos.has(video)) void video.play().catch(() => {
+            });
+          });
+        } else if (!reducedMotion.matches) {
+          void video.play().catch(() => {
+          });
+        }
+      }
+    }, { rootMargin: "100px 0px" });
+    const scan = () => {
+      scanTimer = null;
+      const home = document.querySelector(".lp-Home");
+      if (!home) return;
+      for (const frame of frames) {
+        if (!frame.isConnected) {
+          frameResize.unobserve(frame);
+          frames.delete(frame);
+        }
+      }
+      if (!CSS.supports("aspect-ratio", "1")) {
+        for (const frame of Array.from(home.querySelectorAll(".lp-SectionHero-visual-frame"))) {
+          if (!frames.has(frame)) {
+            frames.add(frame);
+            frameResize.observe(frame);
+          }
+          sizeFrame(frame);
+        }
+      }
+      if (nativeModules || document.querySelector('react-app[app-name="landing-pages"].loaded')) return;
+      if (document.documentElement.hasAttribute("data-bf-github-module-active") && Date.now() < nativeDeadline) {
+        scanTimer = window.setTimeout(scan, 500);
+        return;
+      }
+      for (const el of Array.from(home.querySelectorAll(selectors))) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        if (reducedMotion.matches) reveal(el);
+        else reveals.observe(el);
+      }
+      for (const video of Array.from(home.querySelectorAll(".lp-HeroCarousel-visual video"))) {
+        if (mediaSeen.has(video)) continue;
+        mediaSeen.add(video);
+        videos.observe(video);
+      }
+    };
+    const schedule = () => {
+      if (!ready || scanTimer !== null) return;
+      scanTimer = window.setTimeout(scan, 100);
+    };
+    window.setTimeout(() => {
+      ready = true;
+      scan();
+    }, 2e3);
+    new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
   }
 
   // src/main/modules/userscripts/bundled-scripts/vendor/container-query-polyfill.js
@@ -10270,15 +10483,6 @@ ${t5.join("\n")}`);
       super(e4), this.context = void 0, this.controller = null, this.styleSheet = null, this.context = t3;
     }
     connected() {
-      var e4 = this;
-      const t3 = this.node;
-      if ("stylesheet" === t3.rel) {
-        const n2 = new URL(t3.href, document.baseURI);
-        n2.origin === location.origin && (this.controller = rt(async function(r2) {
-          const u2 = await fetch(n2.toString(), { signal: r2 }), o2 = await u2.text(), s2 = e4.styleSheet = await e4.context.registerStyleSheet({ source: o2, url: n2, signal: r2 }), l2 = new Blob([s2.source], { type: "text/css" }), c2 = new Image();
-          c2.onload = c2.onerror = s2.refresh, c2.src = t3.href = URL.createObjectURL(l2);
-        }));
-      }
     }
     disconnected() {
       var e4, t3;
@@ -10972,6 +11176,7 @@ ${t5.join("\n")}`);
   var MAX_SHEETS = 150;
   var CACHE_DB = "bf-css-fixer";
   var CACHE_STORE = "sheets";
+  var CACHE_REVISION = 4;
   var CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
   var CACHE_MAX_BYTES = 20 * 1024 * 1024;
   var dbPromise = null;
@@ -11002,7 +11207,7 @@ ${t5.join("\n")}`);
           const req = db.transaction(CACHE_STORE, "readonly").objectStore(CACHE_STORE).get(url);
           req.onsuccess = () => {
             const row = req.result;
-            if (row && typeof row.text === "string" && row.ts && Date.now() - row.ts < CACHE_TTL_MS) {
+            if (row && row.revision === CACHE_REVISION && typeof row.text === "string" && row.ts && Date.now() - row.ts < CACHE_TTL_MS) {
               resolve(row.text);
             } else {
               resolve(null);
@@ -11021,7 +11226,7 @@ ${t5.join("\n")}`);
       try {
         const tx = db.transaction(CACHE_STORE, "readwrite");
         const store = tx.objectStore(CACHE_STORE);
-        store.put({ url, text, ts: Date.now(), bytes: text.length });
+        store.put({ url, text, ts: Date.now(), bytes: text.length, revision: CACHE_REVISION });
         const allReq = store.getAll();
         allReq.onsuccess = () => {
           const rows = allReq.result || [];
@@ -11111,11 +11316,36 @@ ${t5.join("\n")}`);
     }
   }
   var markHasTimer = null;
+  var headerFrame = null;
+  var observedBanners = /* @__PURE__ */ new WeakSet();
+  var offsetHeaders = /* @__PURE__ */ new WeakSet();
+  var bannerResize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => scheduleHeaderOffset());
+  function scheduleHeaderOffset() {
+    if (headerFrame !== null) return;
+    headerFrame = window.setTimeout(() => {
+      headerFrame = null;
+      const header = document.querySelector('[data-marketing-header="true"]');
+      if (!header || getComputedStyle(header).position !== "fixed") return;
+      const banner = document.querySelector('react-partial[partial-name="marketing-global-banner"] [data-target="react-partial.reactRoot"]');
+      if (banner && !observedBanners.has(banner)) {
+        observedBanners.add(banner);
+        bannerResize == null ? void 0 : bannerResize.observe(banner);
+      }
+      const bottom = banner ? Math.max(0, banner.getBoundingClientRect().bottom) : 0;
+      if (!offsetHeaders.has(header) && header.getBoundingClientRect().top >= bottom - 1) return;
+      offsetHeaders.add(header);
+      const value = bottom + "px";
+      if (header.style.getPropertyValue("--marketing-header-fixed-top") !== value) {
+        header.style.setProperty("--marketing-header-fixed-top", value);
+      }
+    }, 50);
+  }
   function scheduleMarkHas() {
     if (markHasTimer !== null) return;
     markHasTimer = window.setTimeout(() => {
       markHasTimer = null;
       markHasInSheets();
+      scheduleHeaderOffset();
     }, 500);
   }
   function startHasReMarkLoop() {
@@ -11131,6 +11361,8 @@ ${t5.join("\n")}`);
   }
   var FETCH_TIMEOUT_MS = 1e4;
   var MAX_FETCH_ATTEMPTS = 2;
+  var handledLinks = /* @__PURE__ */ new WeakSet();
+  var generatedStyles = /* @__PURE__ */ new WeakSet();
   function toArray(list2) {
     const out = [];
     for (let i2 = 0; i2 < list2.length; i2++) out.push(list2.item(i2));
@@ -11192,12 +11424,14 @@ ${t5.join("\n")}`);
   async function processLink(link, attempt = 0) {
     var _a;
     try {
+      if (handledLinks.has(link)) return;
       if (link.hasAttribute(MARKER)) return;
       if (link.disabled) return;
       const rel = (link.rel || "").toLowerCase().split(/\s+/);
       if (!rel.includes("stylesheet")) return;
       const href = link.href;
       if (!href || /^data:/i.test(href)) return;
+      handledLinks.add(link);
       const cachedText = await cacheGet(href);
       let text;
       let overridden = cachedText !== null;
@@ -11213,7 +11447,7 @@ ${t5.join("\n")}`);
         } finally {
           clearTimeout(timer);
         }
-        const rewritten = rewriteCssText(text);
+        const rewritten = rewriteCssText(text, href);
         if (rewritten !== text) {
           text = rewritten;
           overridden = true;
@@ -11225,9 +11459,12 @@ ${t5.join("\n")}`);
       style.setAttribute(MARKER, "1");
       style.setAttribute("data-bf-css-fix-source", href);
       style.textContent = text;
+      generatedStyles.add(style);
+      style.__bfLastWrite = text;
       (_a = link.parentNode) == null ? void 0 : _a.insertBefore(style, link.nextSibling);
       scheduleMarkHas();
     } catch {
+      handledLinks.delete(link);
       if (attempt < MAX_FETCH_ATTEMPTS && link.isConnected) {
         setTimeout(() => {
           void processLink(link, attempt + 1);
@@ -11240,22 +11477,26 @@ ${t5.join("\n")}`);
       if (typeof CSS === "undefined" || !CSS.supports || CSS.supports("selector(:where(*))")) return;
       if (typeof document === "undefined" || typeof MutationObserver === "undefined") return;
       let processed = 0;
-      const handleStyle = (el) => {
-        if (processed >= MAX_SHEETS) return;
+      const admitted = /* @__PURE__ */ new WeakSet();
+      const admit = (el) => {
+        if (admitted.has(el)) return true;
+        if (processed >= MAX_SHEETS) return false;
+        admitted.add(el);
         processed += 1;
+        return true;
+      };
+      const handleStyle = (el) => {
+        if (!generatedStyles.has(el) && !admit(el)) return;
         processStyle(el);
       };
       const handleLink = (link) => {
-        if (processed >= MAX_SHEETS) return;
-        processed += 1;
+        if (!link.href || !(link.rel || "").toLowerCase().split(/\s+/).includes("stylesheet")) return;
+        if (!admit(link)) return;
         void processLink(link);
       };
       const scheduleReMark = () => scheduleMarkHas();
       const observer = new MutationObserver((mutations) => {
-        if (processed >= MAX_SHEETS) {
-          observer.disconnect();
-          return;
-        }
+        scheduleHeaderOffset();
         for (const mutation of mutations) {
           const target = mutation.target;
           if (target && target.nodeType === 1 && target.tagName === "STYLE") {
@@ -11291,6 +11532,10 @@ ${t5.join("\n")}`);
         fixNextImages(document);
         markHasInSheets();
         startHasReMarkLoop();
+        installGitHubContentFallback();
+        scheduleHeaderOffset();
+        window.addEventListener("scroll", scheduleHeaderOffset, { passive: true });
+        window.addEventListener("resize", scheduleHeaderOffset, { passive: true });
         observer.observe(document.documentElement, { childList: true, subtree: true });
       };
       if (document.documentElement) {

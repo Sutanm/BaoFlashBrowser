@@ -25,6 +25,35 @@ describe('css-fixer-core needsRewrite', () => {
 });
 
 describe('css-fixer-core rewriteCssText', () => {
+  it('retains aspect ratios for the Chromium 87 frame fallback without duplicating them', () => {
+    const out = rewriteCssText('.frame{aspect-ratio:var(--ratio)}');
+    expect(out).toContain('--bf-aspect-ratio:var(--ratio)');
+    expect(rewriteCssText(out)).toBe(out);
+  });
+  it('preserves stylesheet-relative fonts, images and imports in inline overrides', () => {
+    const css = '@import "./theme.css" screen;@font-face{src:url(./font.woff2)}.x{background:url("../image.webp");mask:url(#icon);content:"url(fake.png)"}';
+    const out = rewriteCssText(css, 'https://cdn.example/assets/css/main.css');
+    expect(out).toContain('"https://cdn.example/assets/css/theme.css"');
+    expect(out).toContain('url(https://cdn.example/assets/css/font.woff2)');
+    expect(out).toContain('url("https://cdn.example/assets/image.webp")');
+    expect(out).toContain('url(#icon)');
+    expect(out).toContain('content:"url(fake.png)"');
+  });
+  it('rewrites GitHub desktop/mobile range queries in otherwise plain CSS', () => {
+    const css = '@media (width>=1012px){.HeaderMenu{padding:0}}@media (width<=1011.98px){.HeaderMenu{display:flex}}';
+    expect(needsRewrite(css)).toBe(true);
+    expect(rewriteCssText(css)).toBe('@media (min-width:1012px){.HeaderMenu{padding:0}}@media (max-width:1011.98px){.HeaderMenu{display:flex}}');
+  });
+
+  it('handles reversed, chained, equality and combined range conditions', () => {
+    expect(rewriteCssText('@media screen and (544px <= width <= 1012px), (resolution>=192dpi), (height=500px){.x{color:red}}'))
+      .toBe('@media screen and (min-width:544px) and (max-width:1012px), (min-resolution:192dpi), (height:500px){.x{color:red}}');
+  });
+
+  it('preserves strict boundaries, non-range features and declaration strings', () => {
+    const css = '@media (width>800px), (hover=hover){.x{content:"(width>=1px)"}}';
+    expect(rewriteCssText(css)).toBe(css);
+  });
   it('unwraps a single :where in compound position', () => {
     const css = '.m_7485cace:where([data-strategy=block]){max-width:100px;margin:0 auto}';
     expect(rewriteCssText(css)).toBe('.m_7485cace[data-strategy=block]{max-width:100px;margin:0 auto}');

@@ -4,6 +4,15 @@
 
 import { installPasswordFormObserver } from './password-form-observer';
 import coreApiPolyfills from './web-api-polyfills.generated';
+import { installGitHubImportMapBridge } from './github-import-map';
+
+if (MODULE_JS_PATCH) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const ipc = require('electron').ipcRenderer;
+    installGitHubImportMapBridge(text => ipc.sendSync('github-module:map', text) === true);
+  } catch { /* optional compatibility must not prevent navigation */ }
+}
 
 interface RuffleModeConfig {
   enabled: boolean;

@@ -51,4 +51,23 @@ describe('session manager setup', () => {
     expect(mocks.defaultSession.clearCache).toHaveBeenCalledTimes(1);
     expect(mocks.persistentSession.clearCache).toHaveBeenCalledTimes(1);
   });
+
+  it('patches only GitHub document CSP and keeps CORS restricted to SWF', async () => {
+    vi.resetModules();
+    const { configureOptionalSessionServices, initSession } = await import('../src/main/modules/session-manager');
+    const patchCsp = vi.fn(headers => ({ ...headers, patched: ['yes'] }));
+    configureOptionalSessionServices({ githubModules: { register: vi.fn(), redirect: vi.fn().mockResolvedValue(null), patchCsp } });
+    initSession();
+    const handler = mocks.defaultSession.webRequest.onHeadersReceived.mock.calls[0][1];
+    const xhr = vi.fn();
+    handler({ url: 'https://github.com/api/test', resourceType: 'xhr', responseHeaders: { original: ['keep'] } }, xhr);
+    expect(xhr).toHaveBeenCalledWith({ responseHeaders: { original: ['keep'] } });
+    expect(patchCsp).not.toHaveBeenCalled();
+    const document = vi.fn();
+    handler({ url: 'https://github.com/', resourceType: 'mainFrame', responseHeaders: { original: ['keep'] } }, document);
+    expect(document).toHaveBeenCalledWith({ responseHeaders: { original: ['keep'], patched: ['yes'] } });
+    const swf = vi.fn();
+    handler({ url: 'https://game.test/game.swf', resourceType: 'object', responseHeaders: {} }, swf);
+    expect(swf.mock.calls[0][0].responseHeaders['Access-Control-Allow-Origin']).toEqual(['*']);
+  });
 });

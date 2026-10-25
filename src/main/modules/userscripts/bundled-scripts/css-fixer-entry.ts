@@ -12,7 +12,9 @@
 /// <reference lib="dom" />
 
 import { needsRewrite, rewriteCssText } from './css-fixer-core';
-// GoogleChromeLabs container-query-polyfill, vendored with ONE patch: its
+import { installGitHubContentFallback } from './css-fixer-github';
+// GoogleChromeLabs container-query-polyfill, vendored with integration patches:
+// external links stay owned by this fixer (blob links violate GitHub CSP); its
 // <style> processor only transpiles sheets containing container-query signals
 // (@container / container-type / cq units), so plain modern sheets (nesting,
 // colors) are left for the fixer's text-layer rewrite alone. The fixer adds
@@ -36,6 +38,9 @@ const MAX_SHEETS = 150;
 // failure falls back to the normal fetch path.
 const CACHE_DB = 'bf-css-fixer';
 const CACHE_STORE = 'sheets';
+// Increment when the rewrite semantics change: URLs alone cannot identify
+// which transformer produced a persisted sheet.
+const CACHE_REVISION = 4;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_MAX_BYTES = 20 * 1024 * 1024;
 
@@ -66,8 +71,8 @@ function cacheGet(url: string): Promise<string | null> {
       try {
         const req = db.transaction(CACHE_STORE, 'readonly').objectStore(CACHE_STORE).get(url);
         req.onsuccess = () => {
-          const row = req.result as { text?: string; ts?: number } | undefined;
-          if (row && typeof row.text === 'string' && row.ts && Date.now() - row.ts < CACHE_TTL_MS) {
+          const row = req.result as { text?: string; ts?: number; revision?: number } | undefined;
+          if (row && row.revision === CACHE_REVISION && typeof row.text === 'string' && row.ts && Date.now() - row.ts < CACHE_TTL_MS) {
             resolve(row.text);
           } else {
             resolve(null);
@@ -85,7 +90,7 @@ function cachePut(url: string, text: string): Promise<void> {
     try {
       const tx = db.transaction(CACHE_STORE, 'readwrite');
       const store = tx.objectStore(CACHE_STORE);
-      store.put({ url, text, ts: Date.now(), bytes: text.length });
+      store.put({ url, text, ts: Date.now(), bytes: text.length, revision: CACHE_REVISION });
       // Opportunistic eviction: drop entries older than TTL, then oldest
       // beyond the byte cap.
       const allReq = store.getAll();
@@ -181,11 +186,41 @@ function markHasInSheets(): void {
 }
 
 let markHasTimer: number | null = null;
+let headerFrame: number | null = null;
+const observedBanners = new WeakSet<Element>();
+const offsetHeaders = new WeakSet<HTMLElement>();
+const bannerResize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => scheduleHeaderOffset());
+
+// GitHub's fixed marketing header relies on page JS to publish the global
+// banner's height. If that bundle cannot run on C87, the header sits behind
+// the banner even after its responsive CSS has been restored.
+function scheduleHeaderOffset(): void {
+  if (headerFrame !== null) return;
+  headerFrame = window.setTimeout(() => {
+    headerFrame = null;
+    const header = document.querySelector<HTMLElement>('[data-marketing-header="true"]');
+    if (!header || getComputedStyle(header).position !== 'fixed') return;
+    const banner = document.querySelector('react-partial[partial-name="marketing-global-banner"] [data-target="react-partial.reactRoot"]');
+    if (banner && !observedBanners.has(banner)) {
+      observedBanners.add(banner);
+      bannerResize?.observe(banner);
+    }
+    const bottom = banner ? Math.max(0, banner.getBoundingClientRect().bottom) : 0;
+    if (!offsetHeaders.has(header) && header.getBoundingClientRect().top >= bottom - 1) return;
+    offsetHeaders.add(header);
+    const value = bottom + 'px';
+    if (header.style.getPropertyValue('--marketing-header-fixed-top') !== value) {
+      header.style.setProperty('--marketing-header-fixed-top', value);
+    }
+  }, 50);
+}
+
 function scheduleMarkHas(): void {
   if (markHasTimer !== null) return;
   markHasTimer = window.setTimeout(() => {
     markHasTimer = null;
     markHasInSheets();
+    scheduleHeaderOffset();
   }, 500);
 }
 
@@ -209,6 +244,10 @@ function startHasReMarkLoop(): void {
 // still bounding the total stall.
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_FETCH_ATTEMPTS = 2;
+const handledLinks = new WeakSet<HTMLLinkElement>();
+// Generated overrides are already processed; their observer notifications
+// must not consume another source-sheet slot.
+const generatedStyles = new WeakSet<HTMLStyleElement>();
 
 function toArray<T>(list: { item(i: number): T; length: number }): T[] {
   const out: T[] = [];
@@ -293,12 +332,14 @@ function processStyle(el: HTMLStyleElement): void {
 // never disabled, emptied or removed.
 async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
   try {
+    if (handledLinks.has(link)) return;
     if (link.hasAttribute(MARKER)) return;
     if (link.disabled) return;
     const rel = (link.rel || '').toLowerCase().split(/\s+/);
     if (!rel.includes('stylesheet')) return;
     const href = link.href;
     if (!href || /^data:/i.test(href)) return;
+    handledLinks.add(link);
 
     // Cache hit: the sheet was rewritten on an earlier visit to this site
     // (CSS URLs are content-hashed on modern sites) — skip fetch + postcss.
@@ -319,7 +360,7 @@ async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
       } finally {
         clearTimeout(timer);
       }
-      const rewritten = rewriteCssText(text);
+      const rewritten = rewriteCssText(text, href);
       if (rewritten !== text) {
         text = rewritten;
         overridden = true;
@@ -334,11 +375,14 @@ async function processLink(link: HTMLLinkElement, attempt = 0): Promise<void> {
     style.setAttribute(MARKER, '1');
     style.setAttribute('data-bf-css-fix-source', href);
     style.textContent = text;
+    generatedStyles.add(style);
+    (style as unknown as { __bfLastWrite?: string }).__bfLastWrite = text;
     // Insert AFTER the link (document order gives it precedence over the
     // link's rules at equal specificity). Do NOT disable or remove the link.
     link.parentNode?.insertBefore(style, link.nextSibling);
     scheduleMarkHas();
   } catch {
+    handledLinks.delete(link);
     // Leave the untouched link as-is: never disable, never empty it.
     // A fetch that aborted during the page's network peak (React-inserted
     // sheets) is retried once the page settles.
@@ -354,14 +398,21 @@ function main(): void {
     if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
 
     let processed = 0;
-    const handleStyle = (el: HTMLStyleElement): void => {
-      if (processed >= MAX_SHEETS) return;
+    const admitted = new WeakSet<Element>();
+    const admit = (el: Element): boolean => {
+      if (admitted.has(el)) return true;
+      if (processed >= MAX_SHEETS) return false;
+      admitted.add(el);
       processed += 1;
+      return true;
+    };
+    const handleStyle = (el: HTMLStyleElement): void => {
+      if (!generatedStyles.has(el) && !admit(el)) return;
       processStyle(el);
     };
     const handleLink = (link: HTMLLinkElement): void => {
-      if (processed >= MAX_SHEETS) return;
-      processed += 1;
+      if (!link.href || !(link.rel || '').toLowerCase().split(/\s+/).includes('stylesheet')) return;
+      if (!admit(link)) return;
       void processLink(link);
     };
 
@@ -370,10 +421,7 @@ function main(): void {
     const scheduleReMark = (): void => scheduleMarkHas();
 
     const observer = new MutationObserver((mutations) => {
-      if (processed >= MAX_SHEETS) {
-        observer.disconnect();
-        return;
-      }
+      scheduleHeaderOffset();
       for (const mutation of mutations) {
         // The container-query-polyfill replaces a <style> text node (childList
         // mutation on the STYLE element). processStyle's re-verify path needs
@@ -417,6 +465,10 @@ function main(): void {
       // node-tracking pass would re-run later and strip our markers.
       markHasInSheets();
       startHasReMarkLoop();
+      installGitHubContentFallback();
+      scheduleHeaderOffset();
+      window.addEventListener('scroll', scheduleHeaderOffset, { passive: true });
+      window.addEventListener('resize', scheduleHeaderOffset, { passive: true });
       observer.observe(document.documentElement, { childList: true, subtree: true });
     };
 
