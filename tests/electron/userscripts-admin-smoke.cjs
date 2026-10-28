@@ -34,6 +34,13 @@ app.setPath('userData', USER_DATA);
 let mod = null;
 
 app.whenReady().then(async () => {
+  let modeQueries = 0;
+  // The production preload asks synchronously before document startup.
+  // Leaving sendSync unhandled can corrupt Electron 11 renderer IPC.
+  ipcMain.on('get-ruffle-mode', (event) => {
+    modeQueries += 1;
+    event.returnValue = { enabled: false };
+  });
   ipcMain.handle('userscript:automation-v3-list', async () => []);
   ipcMain.handle('userscript:automation-v3-status', async () => ({ state: 'idle' }));
   ipcMain.on('userscript:get-config', (event, payload) => {
@@ -101,6 +108,7 @@ app.whenReady().then(async () => {
   }
   check('real script executes end-to-end', Boolean(complete), complete ? { scriptId: complete.scriptId, phase: complete.phase } : null);
   check('script id matches installed id', complete?.detail?.scriptId === installed.script.id, { reportScriptId: complete?.detail?.scriptId, installedId: installed.script.id });
+  check('production preload mode query received a synchronous response', modeQueries > 0, modeQueries);
   // 4. Toggle disable then re-enable.
   const byId = (id) => mod.listUserscripts().find((s) => s.id === id);
   check('disable', mod.setUserscriptEnabled(installed.script.id, false) === true && byId(installed.script.id)?.enabled === false);

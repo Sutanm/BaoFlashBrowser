@@ -25,6 +25,7 @@ const logEvents = [];
 ipcMain.on('userscript:log', (_event, payload) => { logEvents.push(payload); });
 
 app.whenReady().then(async () => {
+  ipcMain.on('get-ruffle-mode', (event) => { event.returnValue = { enabled: false }; });
   // The bundled assistant is present, but automation is outside this fixture.
   ipcMain.handle('userscript:automation-v3-list', async () => []);
   ipcMain.handle('userscript:automation-v3-status', async () => ({ state: 'idle' }));
