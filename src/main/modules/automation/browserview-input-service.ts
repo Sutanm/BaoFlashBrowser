@@ -1,4 +1,5 @@
 import { acquireAutomationCdpLease } from '../cdp-lease';
+import { performance } from 'perf_hooks';
 
 export type AutomationInputPoint = { readonly x: number; readonly y: number };
 export type AutomationMouseButton = 'left' | 'right' | 'middle';
@@ -15,6 +16,8 @@ export type BrowserViewInputTarget = {
   readonly id: number;
   isDestroyed(): boolean;
   readonly debugger: DebuggerLike;
+  sendInputEvent?(event: { type: 'mouseMove'; x: number; y: number; button?: AutomationMouseButton;
+    modifiers?: Array<'leftButtonDown' | 'middleButtonDown' | 'rightButtonDown'> }): void;
 };
 
 type KeyboardDescriptor = {
@@ -66,6 +69,7 @@ export type BrowserViewInputServiceOptions = {
   readonly toDisplayPoint: (point: AutomationInputPoint) => AutomationInputPoint;
   readonly displayScale: () => { readonly x: number; readonly y: number };
   readonly sleep: (durationMs: number, signal: AbortSignal) => Promise<void>;
+  readonly now?: () => number;
 };
 
 /** CDP-backed input port. It owns debugger leases and guarantees drag release. */
@@ -75,14 +79,14 @@ export class BrowserViewInputService {
   constructor(private readonly target: BrowserViewInputTarget, private readonly options: BrowserViewInputServiceOptions) {}
 
   async move(point: AutomationInputPoint, signal: AbortSignal): Promise<void> {
-    await this.withCdp(signal, (send) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...this.options.toDisplayPoint(point) }));
+    await this.withCdp(signal, (send) => this.movePointer(this.options.toDisplayPoint(point), send));
     this.pointer = point;
   }
 
   async click(point: AutomationInputPoint, button: AutomationMouseButton, clickCount: number, signal: AbortSignal): Promise<void> {
     const display = this.options.toDisplayPoint(point);
     await this.withCdp(signal, async (send) => {
-      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...display });
+      await this.movePointer(display, send);
       for (let count = 1; count <= clickCount; count += 1) {
         await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...display, button, clickCount: count });
         await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...display, button, clickCount: count });
@@ -96,15 +100,21 @@ export class BrowserViewInputService {
     let current = start;
     await this.withCdp(signal, async (send) => {
       const displayStart = this.options.toDisplayPoint(start);
-      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...displayStart });
+      await this.movePointer(displayStart, send);
       await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...displayStart, button, buttons: buttonMask, clickCount: 1 });
       try {
         const steps = Math.max(1, Math.min(120, Math.ceil(durationMs / 16)));
-        const intervalMs = durationMs / steps;
+        const now = this.options.now ?? (() => performance.now());
+        const startedAt = now();
         for (let index = 1; index <= steps; index += 1) {
-          if (intervalMs > 0) await this.options.sleep(intervalMs, signal);
+          const remaining = startedAt + durationMs * index / steps - now();
+          if (remaining > 0) await this.options.sleep(remaining, signal);
+          if (signal.aborted) throw new Error('automation cancelled');
+          // Skip obsolete intermediate points after a delayed step instead of
+          // extending the whole drag or replaying a burst of overdue moves.
+          if (durationMs > 0) index = Math.max(index, Math.min(steps, Math.floor((now() - startedAt) * steps / durationMs)));
           current = { x: start.x + (end.x - start.x) * index / steps, y: start.y + (end.y - start.y) * index / steps };
-          await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...this.options.toDisplayPoint(current), button, buttons: buttonMask });
+          await this.movePointer(this.options.toDisplayPoint(current), send, button);
         }
       } finally {
         await this.target.debugger.sendCommand('Input.dispatchMouseEvent', {
@@ -156,6 +166,27 @@ export class BrowserViewInputService {
 
   private modifierMask(modifiers: AutomationKeyModifier[]): number {
     return modifiers.reduce((mask, modifier) => mask | ({ alt: 1, control: 2, meta: 4, shift: 8 })[modifier], 0);
+  }
+
+  private async movePointer(
+    display: AutomationInputPoint,
+    send: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+    heldButton?: AutomationMouseButton,
+  ): Promise<void> {
+    if (this.target.sendInputEvent) {
+      // Chromium 87 may hold the CDP mouseMoved response for a compositor
+      // frame while minimized (hundreds of ms, up to its 5s timeout hidden).
+      // Electron injects the same trusted hover event without that frame ack.
+      // Native drag motion must explicitly carry the held-button modifier.
+      this.target.sendInputEvent({ type: 'mouseMove', x: Math.round(display.x), y: Math.round(display.y),
+        ...(heldButton ? { button: heldButton, modifiers: [({ left: 'leftButtonDown', middle: 'middleButtonDown', right: 'rightButtonDown' } as const)[heldButton]] } : {}),
+      });
+    } else {
+      // Retain the structural port used by embedders without native input.
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...display,
+        ...(heldButton ? { button: heldButton, buttons: ({ left: 1, right: 2, middle: 4 })[heldButton] } : {}),
+      });
+    }
   }
 
   private async withCdp(

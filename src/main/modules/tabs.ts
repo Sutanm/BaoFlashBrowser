@@ -679,9 +679,16 @@ class TabManager {
 
   notifyPasswordFormDetected(wcId: number): void {
     const tabId = this.wcToId.get(wcId); const tab = tabId ? this.tabs.get(tabId) : null; const wc = tab?.browserView?.webContents;
-    if (!tabId || !wc || wc.id !== wcId || !optionalServices.passwords?.isAutoFillEnabled() || this.automationTargets.has(tabId)) return;
+    if (!tabId || !wc || wc.isDestroyed() || wc.id !== wcId || !optionalServices.passwords || this.automationTargets.has(tabId)) return;
+    // Re-arm on form discovery/focus rather than waiting for the fill debounce.
+    // Never reattach while a login resource is still loading (JSONP onload).
+    if (!wc.isLoading()) passwordCapture.setup(wc);
     const existing = this.passwordFormSignalTimers.get(wcId); if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => { this.passwordFormSignalTimers.delete(wcId); void this._attemptPasswordFill(wc, tabId); }, 100);
+    const timer = setTimeout(() => {
+      this.passwordFormSignalTimers.delete(wcId);
+      if (wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc) || this.automationTargets.has(tabId)) return;
+      void this._attemptPasswordFill(wc, tabId);
+    }, 100);
     this.passwordFormSignalTimers.set(wcId, timer);
   }
 

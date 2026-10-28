@@ -163,7 +163,9 @@ export function startMouseHook(): void {
     return;
   }
 
-  const resourceRoot = app.isPackaged ? process.resourcesPath : app.getAppPath();
+  // The bundled main entry lives in dist even when Electron is launched with
+  // dist/main.js directly (app.getAppPath() then points at dist).
+  const resourceRoot = app.isPackaged ? process.resourcesPath : path.join(__dirname, '..');
   const exePath = path.join(resourceRoot, 'native', exeName);
   try {
     const child = spawn(exePath, [], { stdio: ['ignore', 'pipe', 'ignore'] });

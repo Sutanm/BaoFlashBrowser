@@ -34,6 +34,8 @@ app.setPath('userData', USER_DATA);
 let mod = null;
 
 app.whenReady().then(async () => {
+  ipcMain.handle('userscript:automation-v3-list', async () => []);
+  ipcMain.handle('userscript:automation-v3-status', async () => ({ state: 'idle' }));
   ipcMain.on('userscript:get-config', (event, payload) => {
     event.returnValue = mod.getUserscriptManager()
       ? mod.getUserscriptManager().snapshotFor(event.sender.id, payload?.url ?? '', Boolean(payload?.isMainFrame))

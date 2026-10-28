@@ -37,6 +37,7 @@ interface StoredReport extends UserscriptReport {
 const checks: CheckResult[] = [];
 const reports: StoredReport[] = [];
 const wcRegistry = new Map<number, WebContents>();
+const clipboardWrites = new Map<number, { text: string; readBack: string }>();
 let manager: UserscriptManager | null = null;
 let realManagerRef: UserscriptManager | null = null;
 let requestService: GmRequestService | null = null;
@@ -63,6 +64,7 @@ function httpGetText(url: string): Promise<string> {
 
 function addCheck(mode: CheckResult['mode'], name: string, required: boolean, passed: boolean, detail?: unknown): void {
   checks.push({ mode, name, required, passed, detail });
+  if (required && !passed) console.error('[userscript-smoke] REQUIRED FAILURE ' + JSON.stringify({ mode, name, detail }));
 }
 
 function listen(server: http.Server, host = '127.0.0.1'): Promise<number> {
@@ -1313,9 +1315,11 @@ async function runMode(
     addCheck(mode, 'GM_download abort cancels and fires onerror', true,
       dl.abort?.ok === false, dl.abort);
 
-    const clipboardText = clipboard.readText();
+    // Assert the read-back captured at the write, rather than the global
+    // clipboard several async checks later (other apps/smokes can change it).
+    const clipboardWrite = clipboardWrites.get(wcId);
     addCheck(mode, 'GM_setClipboard copies to the system clipboard', true,
-      clipboardText === 'clipboard-demo', clipboardText);
+      clipboardWrite?.text === 'clipboard-demo' && clipboardWrite.readBack === 'clipboard-demo', clipboardWrite);
 
     const notification = manager?.getNotifications().find((n) => n.text === 'notify-text');
     addCheck(mode, 'GM_notification recorded with text and title', true,
@@ -1940,10 +1944,11 @@ function registerIpc(): void {
     active.removeValueListener(event.sender.id, String(payload?.scriptId ?? ''), Number(payload?.listenerId));
   });
 
-  ipcMain.handle('userscript:set-clipboard', async (_event, payload) => {
+  ipcMain.handle('userscript:set-clipboard', async (event, payload) => {
     if (!activeManager()) return { ok: false };
     const text = String(payload?.text ?? '').slice(0, 1024 * 1024);
     clipboard.writeText(text);
+    clipboardWrites.set(event.sender.id, { text, readBack: clipboard.readText() });
     return { ok: true };
   });
 

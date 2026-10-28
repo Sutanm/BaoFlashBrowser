@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>自动化点击时序测试</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; background: #182333; color: white; }
+  button { width: 100vw; height: 70vh; font-size: 28px; background: #358048; color: white; }
+  pre { padding: 16px; }
+  #marker { position: absolute; pointer-events: none; left: 160px; top: 90px; width: 64px; height: 64px;
+    background: linear-gradient(35deg, #fdcc00 0%, #fdcc00 45%, #0044ff 45%, #0044ff 75%, #fff 75%); border: 4px solid #111; box-sizing: border-box; }
+</style>
+<button id="target">点击计时区域（测试不访问真实游戏）</button>
+<div id="marker"></div>
+<input id="typing-target" aria-label="输入路径测试" style="position:fixed;left:20vw;top:80vh;width:50vw;height:40px;z-index:10">
+<pre id="result">等待测试输入</pre>
+<script>
+  window.timing = { clicks: [], timers: [], frames: 0, moves: [], inputEvents: [] };
+  ['keydown', 'keyup', 'beforeinput', 'input', 'wheel', 'mousedown', 'mouseup', 'mousemove'].forEach(function (type) {
+    document.addEventListener(type, function (event) {
+      window.timing.inputEvents.push({ type: type, at: performance.now(), trusted: event.isTrusted, buttons: event.buttons || 0 });
+    }, true);
+  });
+  document.getElementById('target').addEventListener('mousemove', function (event) {
+    window.timing.moves.push({ at: performance.now(), trusted: event.isTrusted });
+  });
+  document.getElementById('target').addEventListener('click', function (event) {
+    var now = performance.now();
+    window.timing.clicks.push({ at: now, trusted: event.isTrusted, visibility: document.visibilityState,
+      moveCount: window.timing.moves.length, lastMoveTrusted: window.timing.moves.length > 0 && window.timing.moves[window.timing.moves.length - 1].trusted });
+    var clicks = window.timing.clicks;
+    document.getElementById('result').textContent = JSON.stringify({
+      count: clicks.length, intervalMs: clicks.length > 1 ? now - clicks[clicks.length - 2].at : null,
+      visibility: document.visibilityState
+    }, null, 2);
+  });
+  setInterval(function () { window.timing.timers.push(performance.now()); }, 100);
+  function frame() { window.timing.frames++; requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+</script>

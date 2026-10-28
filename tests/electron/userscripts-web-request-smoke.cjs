@@ -51,6 +51,8 @@ async function waitFor(probe, timeoutMs, intervalMs = 100) {
 }
 
 app.whenReady().then(async () => {
+  ipcMain.handle('userscript:automation-v3-list', async () => []);
+  ipcMain.handle('userscript:automation-v3-status', async () => ({ state: 'idle' }));
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require('../../release/tests/userscripts-admin-module.cjs');
   mod.initUserscriptManager();

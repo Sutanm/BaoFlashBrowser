@@ -2,13 +2,13 @@
 // 页面经 Set-Cookie 落 cookie 到 persist 会话;fixture 脚本用 GM_cookie.list/get
 // 读取并写进 GM_setValue;冒烟轮询断言;未放行域返回空数组。
 const { app, BrowserView, BrowserWindow, ipcMain } = require('electron');
+require('./isolate-user-data.cjs')(app, 'userscripts-cookie-smoke');
 const http = require('http');
 const path = require('path');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
 if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
 app.on('window-all-closed', () => {});
-app.setPath('userData', process.env.BAO_SMOKE_USER_DATA || path.join(app.getPath('appData'), 'bao-flash-browser'));
 
 const failures = [];
 function check(name, ok, detail) {
@@ -55,6 +55,8 @@ async function waitFor(probe, timeoutMs, intervalMs = 100) {
 }
 
 app.whenReady().then(async () => {
+  ipcMain.handle('userscript:automation-v3-list', async () => []);
+  ipcMain.handle('userscript:automation-v3-status', async () => ({ state: 'idle' }));
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require('../../release/tests/userscripts-admin-module.cjs');
   mod.initUserscriptManager();

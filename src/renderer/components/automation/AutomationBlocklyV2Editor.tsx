@@ -48,6 +48,7 @@ const AutomationBlocklyV2Editor = forwardRef<AutomationBlocklyV2EditorHandle, Au
     Blockly.setLocale(locale === 'en' ? enMessages : zhHans);
     registerAutomationV2Blocks(blockLocale, assetFingerprint ? assetFingerprint.split('\n') : [], scriptFingerprint ? scriptFingerprint.split('\n') : []);
     const workspace = Blockly.inject(host, {
+      sounds: false,
       toolbox: automationV2Toolbox(blockLocale), trashcan: true, renderer: 'geras',
       zoom: { controls: true, wheel: true, startScale: .85, minScale: .45, maxScale: 1.4 },
       grid: { spacing: 20, length: 3, colour: '#d9e2ef', snap: true },

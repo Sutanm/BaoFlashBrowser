@@ -114,6 +114,16 @@ function brightPixelRatio(image) {
 }
 
 async function cdpMouse(wc, type, point) {
+  if (type === 'mouseMoved' && process.env.BAO_PROBE_FLASH_CDP_HOVER !== '1') {
+    const { BrowserViewInputService, createAutomationAbortController } = require('../../release/tests/automation-authoring-core.cjs');
+    const input = new BrowserViewInputService(wc, {
+      assertCurrent: () => assert(!wc.isDestroyed(), 'view destroyed'),
+      toDisplayPoint: (value) => ({ x: value.x * FIXED_VIEWPORT_SCALE, y: value.y * FIXED_VIEWPORT_SCALE }),
+      displayScale: () => ({ x: FIXED_VIEWPORT_SCALE, y: FIXED_VIEWPORT_SCALE }), sleep: delay,
+    });
+    await input.move(point, createAutomationAbortController().signal);
+    return;
+  }
   wc.debugger.attach('1.3');
   try {
     // Chromium 87 expects coordinates in displayed BrowserView DIPs here. The

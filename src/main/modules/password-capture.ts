@@ -507,7 +507,7 @@ export function setupCapture(wc: WebContents): void {
   // 强制清理旧 state（对齐 bv demo 的 detach+reattach 模式）
   const existing = captures.get(wc.id);
   if (existing) {
-    if (!existing.destroyed && wc.debugger.isAttached()) return;
+    if (!existing.destroyed && !existing.cdpLease.released && wc.debugger.isAttached()) return;
     teardownCapture(wc);
   }
 

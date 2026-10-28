@@ -239,6 +239,23 @@ describe('password capture lifecycle', () => {
     teardownCapture(wc as never);
   });
 
+  it('does not mistake a transient fill debugger for its released capture lease', async () => {
+    const wc = fakeWebContents(7901);
+    setupCapture(wc as never);
+    emitCapture(wc, 'switch-lease.example', { user: 'fixture-a', pass: 'fixture-pass-a', source: 'click-login' });
+    expect(wc.debugger.isAttached()).toBe(false);
+    wc.debugger.attach(); // An unrelated, short-lived fill client.
+    setupCapture(wc as never);
+    expect(wc.debugger.listenerCount('message')).toBe(0);
+    expect(wc.debugger.isAttached()).toBe(true);
+    wc.debugger.detach();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(wc.debugger.listenerCount('message')).toBe(1);
+    emitCapture(wc, 'switch-lease.example', { user: 'fixture-b', pass: 'fixture-pass-b' });
+    expect(windowMock.send).toHaveBeenCalledWith('password:captured', expect.objectContaining({ username: 'fixture-b' }));
+    teardownCapture(wc as never);
+  });
+
   it('teardown 会取消挂起中的附着重试（标签页关闭/自动化占位时不残留定时器）', async () => {
     const wc = fakeWebContents(89);
     wc.debugger.attachFailures = 1;

@@ -10,7 +10,7 @@
 //
 // A hard watchdog exits non-zero instead of wedging the runner on a hung await.
 'use strict';
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -44,6 +44,22 @@ const EARLY_ERROR_HANDLERS = `(function () {
 })();`;
 
 app.whenReady().then(async () => {
+  // Only the renderer is under test; supply its startup IPC contract without
+  // loading production services or creating real tabs/downloads/vaults.
+  const startupResponses = {
+    'download:list': [],
+    'win:isMaximized': false,
+    'session:recovery-status': { abnormalExit: false },
+    'password:status': { enabled: false, initialized: false, tier: 'none', excludedSites: [] },
+    'userscripts:list': { scripts: [] },
+    'userscripts:background-status': [],
+  };
+  for (const [channel, response] of Object.entries(startupResponses)) {
+    ipcMain.handle(channel, async () => response);
+  }
+  for (const channel of ['tab:setBounds', 'tab:create', 'tab:activate', 'session:resolve-recovery']) {
+    ipcMain.handle(channel, async () => undefined);
+  }
   const repoRoot = path.join(__dirname, '..', '..');
   const rendererHtml = path.join(repoRoot, 'dist', 'renderer', 'index.html');
   // This smoke inspects the BUILT renderer. `npm run test:smokes` builds only the

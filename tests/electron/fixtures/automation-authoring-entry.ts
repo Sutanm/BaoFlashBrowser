@@ -1,4 +1,6 @@
 export { BrowserViewAutomationCoreSession } from '../../../src/main/modules/automation/browserview-core-session';
+export { BrowserViewInputService } from '../../../src/main/modules/automation/browserview-input-service';
+export { createAutomationAbortController } from '../../../src/shared/automation/abort-controller';
 export { detectGameSurfaces, gameSurfaceFeatureFromCandidate } from '../../../src/main/modules/automation/game-surface-detector';
 export { encodeGameSurfaceFeature } from '../../../src/shared/automation/core';
 export { inspectWithPasswordCapturePaused } from '../../../src/main/modules/automation/transient-cdp-inspection';

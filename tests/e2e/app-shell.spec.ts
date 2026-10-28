@@ -84,6 +84,7 @@ test.describe('browser shell', () => {
       await window.locator('.awb-dialog button[type="submit"]').click();
       await expect(window.locator('.blocklySvg').first()).toBeVisible({ timeout: 15_000 });
       expect(requests.some((url) => url.includes('AutomationBlocklyV2Editor-'))).toBe(true);
+      expect(requests.filter((url) => /blockly-demo\.appspot\.com\/static\/media\/.*\.(mp3|wav|ogg)(\?|$)/.test(url))).toEqual([]);
     } finally {
       await closeApp(app);
     }
