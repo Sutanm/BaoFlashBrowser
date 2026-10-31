@@ -1,0 +1,40 @@
+.first-run-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.first-run-dialog {
+  width: 100%;
+  max-width: 420px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  box-shadow: 0 12px 40px #0002;
+}
+.first-run-dialog h1 { margin: 0 0 12px; font-size: 24px; }
+.first-run-dialog p { color: var(--text-secondary); line-height: 1.6; }
+.first-run-dialog form { display: flex; flex-direction: column; gap: 12px; }
+.first-run-dialog select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.first-run-dialog button {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.first-run-dialog button:disabled { opacity: .5; cursor: wait; }
+.first-run-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.first-run-dialog [role='alert'] { color: var(--text-primary); }

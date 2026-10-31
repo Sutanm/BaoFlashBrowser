@@ -153,6 +153,15 @@ const en: Translation = {
     assetCount: "Assets: ",
   },
 
+  firstRun: {
+    title: "Choose your language",
+    description: "Welcome to BaoFlashBrowser. Choose your interface language. You can change it later in Settings.",
+    continue: "Continue",
+    loading: "Loading settings…",
+    error: "Unable to read or save settings. Please try again.",
+    retry: "Retry",
+  },
+
   ok: 'OK',
   cancel: 'Cancel',
   retry: 'Retry',

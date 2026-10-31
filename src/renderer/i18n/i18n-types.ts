@@ -636,6 +636,32 @@ type RootTranslation = {
 		 */
 		assetCount: string
 	}
+	firstRun: {
+		/**
+		 * 选​择​语​言
+		 */
+		title: string
+		/**
+		 * 欢​迎​使​用​ ​B​a​o​F​l​a​s​h​B​r​o​w​s​e​r​。​请​选​择​界​面​语​言​，​之​后​也​可​在​设​置​中​修​改​。
+		 */
+		description: string
+		/**
+		 * 确​认​并​开​始​使​用
+		 */
+		'continue': string
+		/**
+		 * 正​在​读​取​设​置​…
+		 */
+		loading: string
+		/**
+		 * 无​法​保​存​或​读​取​设​置​，​请​重​试​。
+		 */
+		error: string
+		/**
+		 * 重​试
+		 */
+		retry: string
+	}
 	/**
 	 * 确​定
 	 */
@@ -2968,6 +2994,32 @@ export type TranslationFunctions = {
 		 * 素材：
 		 */
 		assetCount: () => LocalizedString
+	}
+	firstRun: {
+		/**
+		 * 选择语言
+		 */
+		title: () => LocalizedString
+		/**
+		 * 欢迎使用 BaoFlashBrowser。请选择界面语言，之后也可在设置中修改。
+		 */
+		description: () => LocalizedString
+		/**
+		 * 确认并开始使用
+		 */
+		'continue': () => LocalizedString
+		/**
+		 * 正在读取设置…
+		 */
+		loading: () => LocalizedString
+		/**
+		 * 无法保存或读取设置，请重试。
+		 */
+		error: () => LocalizedString
+		/**
+		 * 重试
+		 */
+		retry: () => LocalizedString
 	}
 	/**
 	 * 确定

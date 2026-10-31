@@ -10,7 +10,7 @@ import { useTabManager } from './hooks/useTabManager';
 import { useDownloadListener } from './hooks/useDownloadListener';
 import { useDataStore } from './store/useDataStore';
 import { usePasswordListener } from './hooks/usePasswordListener';
-import { migrateFromLocalStorage } from './services/db';
+import FirstRunLanguageGate from './components/overlays/FirstRunLanguageGate';
 import DatabaseHydrator from './components/data/DatabaseHydrator';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 import { isNewtabUrl } from './services/url-utils';
@@ -24,7 +24,6 @@ const UserscriptsPage = MODULE_USERSCRIPTS ? lazy(() => import('./components/use
 
 const AppInner: React.FC = () => {
   const { LL, setLocale } = useI18nContext();
-  useTheme();
   const favorites = useDataStore((s) => s.favorites);
   const activeDownloadCount = useDataStore((s) => s.downloads.filter((d) => d.state === 'progressing' || d.state === 'paused').length);
   const settings = useDataStore((s) => s.settings);
@@ -34,11 +33,6 @@ const AppInner: React.FC = () => {
 
   const activePanel = useDataStore((s) => s.activePanel);
   const setActivePanel = useDataStore((s) => s.setActivePanel);
-
-  // L36: localStorage → IndexedDB 一次性迁移（仅首次启动执行）
-  useEffect(() => {
-    migrateFromLocalStorage().catch((e) => console.warn('[App] migrate failed:', e));
-  }, []);
 
   // Sync i18n locale when settings.language changes
   useEffect(() => {
@@ -304,6 +298,7 @@ const AppInner: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  useTheme();
   const settings = useDataStore((s) => s.settings);
   const initRef = useRef(false);
   if (!initRef.current) {
@@ -312,7 +307,7 @@ const App: React.FC = () => {
   }
   return (
     <TypesafeI18n locale={isLocale(settings.language) ? settings.language : 'zh-CN'}>
-      <AppInner />
+      <FirstRunLanguageGate><AppInner /></FirstRunLanguageGate>
     </TypesafeI18n>
   );
 };

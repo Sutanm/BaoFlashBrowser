@@ -154,6 +154,15 @@ const zhCN: BaseTranslation = {
     assetCount: "素材：",
   },
 
+  firstRun: {
+    title: "选择语言",
+    description: "欢迎使用 BaoFlashBrowser。请选择界面语言，之后也可在设置中修改。",
+    continue: "确认并开始使用",
+    loading: "正在读取设置…",
+    error: "无法保存或读取设置，请重试。",
+    retry: "重试",
+  },
+
   ok: '确定',
   cancel: '取消',
   retry: '重试',
