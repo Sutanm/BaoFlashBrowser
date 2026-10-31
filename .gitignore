@@ -29,3 +29,6 @@ test-results/
 # local packaging scratch (~1.8 GB of worktrees) and tool-private agent memory
 .packaging-worktrees/
 .workbuddy/
+
+# Local captures, downloaded site assets and diagnostic reports
+artifacts/

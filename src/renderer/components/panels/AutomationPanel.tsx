@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Check, Download, Play, RefreshCw, ScanSearch, Square, Workflow, X } from 'lucide-react';
+import { Camera, Check, Download, ExternalLink, Play, RefreshCw, ScanSearch, Square, Workflow, X } from 'lucide-react';
 import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales } from '@shared/automation/vision-policy';
 import '../automation/automation.css';
+import { useI18nContext } from '../../i18n/i18n-react';
+import { useDataStore } from '../../store/useDataStore';
 
 interface AutomationPanelProps {
   tabId: string | null;
@@ -12,6 +14,8 @@ interface AutomationPanelProps {
 type SelectionRect = { x: number; y: number; width: number; height: number };
 
 export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: AutomationPanelProps): React.JSX.Element {
+  const { LL } = useI18nContext();
+  const t = LL.automationPanel;
   const api = window.electronAPI.automationV3;
   const [packages, setPackages] = useState<Awaited<ReturnType<typeof api.listPackages>>>([]);
   const [packageId, setPackageId] = useState('');
@@ -44,22 +48,22 @@ export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: Automa
 
   const run = async (): Promise<void> => {
     if (!canRun || !tabId) return; setBusy(true);
-    try { const result = await api.start(packageId, frontendId, tabId, profilePath || undefined); setMessage(`运行中 · ${result.runId}`); await refresh(); }
+    try { const result = await api.start(packageId, frontendId, tabId, profilePath || undefined); setMessage(t.runStarted({ id: result.runId })); await refresh(); }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
 
-  const cancel = async (): Promise<void> => { setBusy(true); try { await api.cancel(); await refresh(); setMessage('已取消'); } finally { setBusy(false); } };
+  const cancel = async (): Promise<void> => { setBusy(true); try { await api.cancel(); await refresh(); setMessage(t.cancelled()); } finally { setBusy(false); } };
 
   const importPackage = async (): Promise<void> => {
     setBusy(true);
     try {
-      const opened = await api.openPackage({ title: '导入自动化包', filterName: 'Bao Automation' }); if (opened.canceled) return;
+      const opened = await api.openPackage({ title: t.importTitle(), filterName: 'Bao Automation' }); if (opened.canceled) return;
       const approvals: Record<string, string[]> = {};
       for (const script of opened.scripts) {
-        if (script.permissions.length && window.confirm(`JavaScript「${script.name}」请求权限：\n${script.permissions.join('\n')}\n\n是否授权？`)) approvals[script.id] = [...script.permissions];
+        if (script.permissions.length && window.confirm(t.permission({ name: script.name, permissions: script.permissions.join('\n') }))) approvals[script.id] = [...script.permissions];
       }
-      await api.installPackage(opened.token, opened.exists, approvals); await refresh(); setMessage(`已导入 ${opened.name}`);
+      await api.installPackage(opened.token, opened.exists, approvals); await refresh(); setMessage(t.imported({ name: opened.name }));
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
@@ -78,59 +82,63 @@ export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: Automa
 
   const saveCapture = async (): Promise<void> => {
     if (!capture || !selection || !assetName.trim()) return; setBusy(true);
-    try { await api.saveCapturedAsset(packageId, capture.token, assetName, selection); setCapture(undefined); setSelection(undefined); await refresh(); setMessage(`已保存素材 ${assetName}.png`); }
+    try { await api.saveCapturedAsset(packageId, capture.token, assetName, selection); setCapture(undefined); setSelection(undefined); await refresh(); setMessage(t.saved({ name: assetName })); }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
 
   const testAsset = async (): Promise<void> => {
     if (!tabId || !selectedAsset) return; setBusy(true);
-    try { const result = await api.testAsset(packageId, tabId, selectedAsset, threshold, imageMatchScales(), DEFAULT_IMAGE_MATCH_MASK); setMessage(result ? `识图成功 ${(result.score * 100).toFixed(1)}% · ${Math.round(result.bounds.x)},${Math.round(result.bounds.y)}` : '没有找到匹配图片'); }
+    try { const result = await api.testAsset(packageId, tabId, selectedAsset, threshold, imageMatchScales(), DEFAULT_IMAGE_MATCH_MASK); setMessage(result ? t.imageMatch({ score: (result.score * 100).toFixed(1), x: Math.round(result.bounds.x), y: Math.round(result.bounds.y) }) : t.noImage()); }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
 
   const testText = async (): Promise<void> => {
     if (!tabId || !ocrText.trim()) return; setBusy(true);
-    try { const result = await api.testText(packageId, tabId, ocrText.trim(), 'contains', .5); setMessage(result ? `OCR 成功 ${(result.score * 100).toFixed(1)}% · ${Math.round(result.bounds.x)},${Math.round(result.bounds.y)}` : `没有找到文字：${ocrText.trim()}`); }
+    try { const result = await api.testText(packageId, tabId, ocrText.trim(), 'contains', .5); setMessage(result ? t.textMatch({ score: (result.score * 100).toFixed(1), x: Math.round(result.bounds.x), y: Math.round(result.bounds.y) }) : t.noText({ text: ocrText.trim() })); }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
 
   return <div className="automation-panel">
+    <button type="button" className="automation-panel-manage" title={t.assistantHint()} disabled={!tabId || !/^(https?|file):/iu.test(currentUrl)} onClick={() => {
+      if (!tabId) return;
+      void api.showAssistant(tabId).then(() => useDataStore.getState().setActivePanel(null)).catch((error: unknown) => setMessage(error instanceof Error ? error.message : String(error)));
+    }}><ExternalLink className="w-4 h-4" />{t.assistant()}</button>
     <button type="button" className="automation-panel-manage" onClick={() => onOpenUrl('about:automation', true)}>
-      <Workflow className="w-4 h-4" />进入自动化工作台
+      <Workflow className="w-4 h-4" />{t.workbench()}
     </button>
 
     <div className="automation-panel-section">
-      <div className="automation-panel-heading"><span>自动化脚本</span><button type="button" onClick={() => void importPackage()} disabled={busy}><Download className="w-3.5 h-3.5" />导入</button></div>
+      <div className="automation-panel-heading"><span>{t.scripts()}</span><button type="button" onClick={() => void importPackage()} disabled={busy}><Download className="w-3.5 h-3.5" />{t.import()}</button></div>
       {packages.length ? <select value={packageId} onChange={(event) => setPackageId(event.target.value)} disabled={runActive}>
         {packages.map((entry) => <option key={entry.packageId} value={entry.packageId}>{entry.name}</option>)}
-      </select> : <div className="automation-panel-notice"><Download className="w-4 h-4" />请进入工作台创建或导入自动化包</div>}
+      </select> : <div className="automation-panel-notice"><Download className="w-4 h-4" />{t.empty()}</div>}
       {selected && <select value={frontendId} onChange={(event) => setFrontendId(event.target.value)} disabled={runActive}>
         {selected.frontends.map((entry) => <option key={entry.id} value={entry.id}>{entry.kind === 'blockly' ? 'Blockly' : 'JavaScript'} · {entry.name}</option>)}
       </select>}
       {selected?.profiles.length ? <select value={profilePath} onChange={(event) => setProfilePath(event.target.value)} disabled={runActive}>
-        <option value="">默认配置</option>{selected.profiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
+        <option value="">{t.defaultProfile()}</option>{selected.profiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
       </select> : null}
     </div>
 
     {selected && <div className="automation-panel-section automation-asset-test">
-      <div className="automation-panel-heading"><span>页面取材与识别</span><button type="button" onClick={() => void refresh()} disabled={busy}><RefreshCw className="w-3.5 h-3.5" />刷新</button></div>
-      <button type="button" className="automation-capture-button" onClick={() => void captureFrame()} disabled={busy || runActive || !canRun}><Camera className="w-3.5 h-3.5" />框选图片素材</button>
-      {selected.assets.length ? <><select value={selectedAsset} onChange={(event) => setSelectedAsset(event.target.value)}>{selected.assets.map((asset) => <option key={asset} value={asset}>{asset}</option>)}</select><input type="range" min=".5" max="1" step=".01" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} /><button type="button" onClick={() => void testAsset()} disabled={busy || !canRun}><ScanSearch className="w-3.5 h-3.5" />捕获并识图 · {Math.round(threshold * 100)}%</button></> : null}
-      <input value={ocrText} onChange={(event) => setOcrText(event.target.value)} placeholder="输入要识别的文字" /><button type="button" onClick={() => void testText()} disabled={busy || !canRun || !ocrText.trim()}><ScanSearch className="w-3.5 h-3.5" />捕获并 OCR</button>
+      <div className="automation-panel-heading"><span>{t.recognition()}</span><button type="button" onClick={() => void refresh()} disabled={busy}><RefreshCw className="w-3.5 h-3.5" />{t.refresh()}</button></div>
+      <button type="button" className="automation-capture-button" onClick={() => void captureFrame()} disabled={busy || runActive || !canRun}><Camera className="w-3.5 h-3.5" />{t.capture()}</button>
+      {selected.assets.length ? <><select value={selectedAsset} onChange={(event) => setSelectedAsset(event.target.value)}>{selected.assets.map((asset) => <option key={asset} value={asset}>{asset}</option>)}</select><input type="range" min=".5" max="1" step=".01" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} /><button type="button" onClick={() => void testAsset()} disabled={busy || !canRun}><ScanSearch className="w-3.5 h-3.5" />{t.testImage()} · {Math.round(threshold * 100)}%</button></> : null}
+      <input value={ocrText} onChange={(event) => setOcrText(event.target.value)} placeholder={t.textPlaceholder()} /><button type="button" onClick={() => void testText()} disabled={busy || !canRun || !ocrText.trim()}><ScanSearch className="w-3.5 h-3.5" />{t.testText()}</button>
     </div>}
 
-    {capture && <div className="automation-capture-editor"><div className="automation-panel-heading"><span>拖动框选素材</span><button onClick={() => setCapture(undefined)}><X className="w-3.5 h-3.5" /></button></div><div ref={captureRef} className="automation-capture-canvas" onPointerDown={(event) => { const value = selectionPoint(event); if (!value) return; dragStart.current = value; event.currentTarget.setPointerCapture(event.pointerId); setSelection({ ...value, width: 0, height: 0 }); }} onPointerMove={(event) => { if (!dragStart.current) return; const value = selectionPoint(event); if (!value) return; setSelection({ x: Math.min(dragStart.current.x, value.x), y: Math.min(dragStart.current.y, value.y), width: Math.abs(value.x - dragStart.current.x), height: Math.abs(value.y - dragStart.current.y) }); }} onPointerUp={(event) => { event.currentTarget.releasePointerCapture(event.pointerId); dragStart.current = undefined; }}><img src={capture.dataUrl} draggable={false} />{selection && <span className="automation-capture-selection" style={{ left: `${selection.x / capture.previewWidth * 100}%`, top: `${selection.y / capture.previewHeight * 100}%`, width: `${selection.width / capture.previewWidth * 100}%`, height: `${selection.height / capture.previewHeight * 100}%` }} />}</div><input value={assetName} onChange={(event) => setAssetName(event.target.value)} placeholder="素材名称" /><button onClick={() => void saveCapture()} disabled={busy || !selection || selection.width < 2 || selection.height < 2 || !assetName.trim()}><Check className="w-3.5 h-3.5" />保存素材</button></div>}
+    {capture && <div className="automation-capture-editor"><div className="automation-panel-heading"><span>{t.selectRegion()}</span><button type="button" aria-label={t.close()} title={t.close()} onClick={() => setCapture(undefined)}><X className="w-3.5 h-3.5" /></button></div><div ref={captureRef} className="automation-capture-canvas" onPointerDown={(event) => { const value = selectionPoint(event); if (!value) return; dragStart.current = value; event.currentTarget.setPointerCapture(event.pointerId); setSelection({ ...value, width: 0, height: 0 }); }} onPointerMove={(event) => { if (!dragStart.current) return; const value = selectionPoint(event); if (!value) return; setSelection({ x: Math.min(dragStart.current.x, value.x), y: Math.min(dragStart.current.y, value.y), width: Math.abs(value.x - dragStart.current.x), height: Math.abs(value.y - dragStart.current.y) }); }} onPointerUp={(event) => { event.currentTarget.releasePointerCapture(event.pointerId); dragStart.current = undefined; }}><img src={capture.dataUrl} alt={t.selectRegion()} draggable={false} />{selection && <span className="automation-capture-selection" style={{ left: `${selection.x / capture.previewWidth * 100}%`, top: `${selection.y / capture.previewHeight * 100}%`, width: `${selection.width / capture.previewWidth * 100}%`, height: `${selection.height / capture.previewHeight * 100}%` }} />}</div><input value={assetName} onChange={(event) => setAssetName(event.target.value)} placeholder={t.assetName()} /><button onClick={() => void saveCapture()} disabled={busy || !selection || selection.width < 2 || selection.height < 2 || !assetName.trim()}><Check className="w-3.5 h-3.5" />{t.saveAsset()}</button></div>}
 
     <div className="automation-panel-section">
-      <div className={`automation-status-card is-${status.state}`}><span className="automation-status-dot" /><div><strong>{runActive ? (status.state === 'cancelling' ? '正在停止' : '正在运行') : status.state === 'failed' ? '执行失败' : status.state === 'completed' ? '执行完成' : '可以开始'}</strong><small>{runActive ? (status.currentStep ?? `${status.packageId} / ${status.frontendId}`) : (status.message ?? message)}</small></div></div>
+      <div className={`automation-status-card is-${status.state}`}><span className="automation-status-dot" /><div><strong>{runActive ? (status.state === 'cancelling' ? t.stopping() : t.running()) : status.state === 'failed' ? t.failed() : status.state === 'completed' ? t.completed() : t.ready()}</strong><small>{runActive ? (status.currentStep ?? `${status.packageId} / ${status.frontendId}`) : (status.message ?? message)}</small></div></div>
       <div className="automation-panel-actions">
-        <button className="primary" onClick={() => void run()} disabled={busy || !canRun}><Play />立即运行</button>
-        <button className="danger" onClick={() => void cancel()} disabled={busy || !runActive}><Square />停止</button>
+        <button className="primary" onClick={() => void run()} disabled={busy || !canRun}><Play />{t.run()}</button>
+        <button className="danger" onClick={() => void cancel()} disabled={busy || !runActive}><Square />{t.stop()}</button>
       </div>
-      {!tabId || !/^(https?|file):/iu.test(currentUrl) ? <div className="automation-panel-notice">请在网页或游戏标签页运行自动化。</div> : null}
+      {!tabId || !/^(https?|file):/iu.test(currentUrl) ? <div className="automation-panel-notice">{t.pageRequired()}</div> : null}
     </div>
   </div>;
 }

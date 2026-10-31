@@ -286,6 +286,7 @@ declare global {
       };
 
       automationV3: {
+        showAssistant(tabId: string): Promise<{ shown: true }>;
         listPackages(): Promise<Array<{
           packageId: string; name: string; mainEntryId: string; assets: string[]; profiles: string[];
           frontends: Array<{ id: string; kind: 'blockly' | 'javascript'; name: string }>;

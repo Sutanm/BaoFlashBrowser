@@ -44,7 +44,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'automation-v3:list', 'automation-v3:get', 'automation-v3:create', 'automation-v3:validate-workflow',
     'automation-v3:update-workflow', 'automation-v3:upsert-script', 'automation-v3:delete-script', 'automation-v3:set-main-entry', 'automation-v3:delete',
     'automation-v3:open', 'automation-v3:install', 'automation-v3:export',
-    'automation-v3:status', 'automation-v3:start', 'automation-v3:cancel',
+    'automation-v3:show-assistant', 'automation-v3:status', 'automation-v3:start', 'automation-v3:cancel',
     'automation-v3:read-clipboard', 'automation-v3:asset-preview',
     'automation-v3:open-test-scene', 'automation-v3:test-asset-on-scene', 'automation-v3:test-text-on-scene',
     'automation-v3:import-assets', 'automation-v3:import-asset-folder', 'automation-v3:delete-asset',
@@ -217,6 +217,7 @@ const electronAPI = {
   },
 
     automationV3: {
+      showAssistant: (tabId: string) => safeInvoke('automation-v3:show-assistant', { tabId }),
     listPackages: () => safeInvoke('automation-v3:list', {}),
     getPackage: (packageId: string) => safeInvoke('automation-v3:get', { packageId }),
     createPackage: (id: string, name: string) => safeInvoke('automation-v3:create', { id, name }),

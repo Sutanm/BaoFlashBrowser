@@ -32,6 +32,7 @@ describe('SettingsPanel section rendering', () => {
     Object.defineProperty(window, 'electronAPI', {
       configurable: true,
       value: {
+        invoke: vi.fn().mockResolvedValue('1.1.2'),
         config: { get: vi.fn().mockResolvedValue(mainConfig) },
         pwd: {
           status: vi.fn().mockResolvedValue({
@@ -51,7 +52,7 @@ describe('SettingsPanel section rendering', () => {
     const categories = () => Array.from(container.querySelectorAll<HTMLButtonElement>('.settings-category-row'));
 
     fireEvent.click(categories()[0]);
-    expect(container.querySelectorAll('.settings-section-card')).toHaveLength(1);
+    expect(container.querySelectorAll('.settings-section-card')).toHaveLength(2);
     const homepage = screen.getByPlaceholderText('about:newtab');
     fireEvent.change(homepage, { target: { value: 'https://example.com/home' } });
 

@@ -1,3 +1,6 @@
+import { installNativeAutomationAssistant } from './native-automation-assistant';
+// Register before userscript scheduling/Node-global stripping so the native UI owns its root.
+if (MODULE_AUTOMATION) installNativeAutomationAssistant();
 // BrowserView preload: Ruffle injection and PPAPI compatibility shims.
 // Password capture and filling live in the main process CDP modules so that
 // cross-origin frames work and plaintext credentials never enter renderer IPC.

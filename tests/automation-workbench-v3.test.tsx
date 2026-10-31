@@ -8,6 +8,8 @@ vi.mock('../src/renderer/components/automation/AutomationBlocklyV2Editor', () =>
   default: React.forwardRef(() => <div data-testid="blockly-editor" />),
 }));
 
+import TypesafeI18n from '../src/renderer/i18n/i18n-react';
+import { loadAllLocales } from '../src/renderer/i18n/i18n-util.sync';
 import AutomationPage from '../src/renderer/components/automation/AutomationPage';
 import { useTabsStore } from '../src/renderer/store/useTabsStore';
 
@@ -17,6 +19,7 @@ describe('Automation 2.0 workbench creation', () => {
   const getPackage = vi.fn();
 
   beforeEach(() => {
+    loadAllLocales();
     createPackage.mockReset().mockResolvedValue({});
     listPackages.mockReset().mockResolvedValue([]);
     getPackage.mockReset();
@@ -37,8 +40,16 @@ describe('Automation 2.0 workbench creation', () => {
 
   afterEach(() => cleanup());
 
+  it('shows the workbench and creation dialog in English', async () => {
+    render(<TypesafeI18n locale="en"><AutomationPage /></TypesafeI18n>);
+    fireEvent.click(screen.getByRole('button', { name: 'New automation package' }));
+    expect(screen.getByRole('heading', { name: 'New automation package' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument();
+    await waitFor(() => expect(listPackages).toHaveBeenCalled());
+  });
+
   it('uses an in-app dialog and dispatches package creation', async () => {
-    render(<AutomationPage />);
+    render(<TypesafeI18n locale="zh-CN"><AutomationPage /></TypesafeI18n>);
     fireEvent.click(screen.getByRole('button', { name: /新建/u }));
     expect(screen.getByRole('heading', { name: '新建自动化包' })).toBeInTheDocument();
     const inputs = screen.getAllByRole('textbox');
@@ -69,7 +80,7 @@ describe('Automation 2.0 workbench creation', () => {
       ],
     });
 
-    render(<AutomationPage />);
+    render(<TypesafeI18n locale="zh-CN"><AutomationPage /></TypesafeI18n>);
     await waitFor(() => expect(screen.getByRole('button', { name: '运行主入口' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: '运行主入口' }));
 

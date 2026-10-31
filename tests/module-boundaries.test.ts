@@ -25,8 +25,11 @@ describe('optional module boundaries', () => {
     const genericIpc = source('src/main/ipc/userscripts.ipc.ts');
     const bridgeIpc = source('src/main/ipc/automation-userscript-bridge.ipc.ts');
     expect(genericIpc).not.toContain('userscript:automation-v3-');
-    expect(bridgeIpc).toContain('userscript:automation-v3-start');
-    expect(bridgeIpc).toContain('userscript:automation-v3-surfaces');
+    expect(bridgeIpc).toContain("registerAutomationAssistantBridge('userscript:automation-v3-'");
+    const sharedBridge = source('src/main/ipc/automation-assistant-bridge.ts');
+    expect(sharedBridge).toContain('`${prefix}start`');
+    expect(sharedBridge).toContain('`${prefix}surfaces`');
+    expect(sharedBridge).not.toContain("modules/userscripts");
   });
 
   it('allows the automation script deletion channel through the main-window preload', () => {

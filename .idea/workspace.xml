@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="3340e713-6a75-4be9-aa30-49763809523b" name="更改" comment="" />
+    <list default="true" id="3340e713-6a75-4be9-aa30-49763809523b" name="更改" comment="">
+      <change beforePath="$PROJECT_DIR$/plugins/win64/mm.cfg" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/win64/mm.cfg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/win64/mms.cfg" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/win64/mms.cfg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/webview-preload/web-api-polyfills.generated.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/webview-preload/web-api-polyfills.generated.ts" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -34,14 +38,16 @@
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "git-widget-placeholder": "main",
     "kotlin-language-version-configured": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
     "nodejs_package_manager_path": "npm"
   }
 }]]></component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-jdk-30f59d01ecdd-63390994e64e-intellij.indexing.shared.core-IU-262.8665.337" />
-        <option value="bundled-js-predefined-d6986cc7102b-4abd2a77f808-JavaScript-IU-262.8665.337" />
+        <option value="bundled-jdk-30f59d01ecdd-34e2839f716b-intellij.indexing.shared.core-IU-262.9437.185" />
+        <option value="bundled-js-predefined-d6986cc7102b-4abd2a77f808-JavaScript-IU-262.9437.185" />
       </set>
     </attachedChunks>
   </component>
@@ -69,7 +75,7 @@
                   <entry key="branch">
                     <value>
                       <list>
-                        <option value="HEAD" />
+                        <option value="main" />
                       </list>
                     </value>
                   </entry>

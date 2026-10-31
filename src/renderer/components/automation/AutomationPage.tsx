@@ -28,6 +28,7 @@ import { useTabsStore } from '../../store/useTabsStore';
 import type { AutomationBlocklyV2EditorHandle } from './AutomationBlocklyV2Editor';
 import { docSections } from './automation-docs-data';
 import './automation.css';
+import { useI18nContext } from '../../i18n/i18n-react';
 
 const AutomationBlocklyV2Editor = lazy(() => import('./AutomationBlocklyV2Editor'));
 const CodeEditor = lazy(() => import('../common/CodeEditor'));
@@ -88,6 +89,8 @@ function AssetPreview({
 }
 
 export default function AutomationPage(): React.JSX.Element {
+  const { LL } = useI18nContext();
+  const t = LL.automationWorkbench;
   const api = window.electronAPI.automationV3;
   const editor = useRef<AutomationBlocklyV2EditorHandle>(null);
   const lastRunState = useRef<string>('idle');
@@ -105,7 +108,7 @@ export default function AutomationPage(): React.JSX.Element {
   const [docSection, setDocSection] = useState(0);
   const [contextOpen, setContextOpen] = useState(true);
   const [testKind, setTestKind] = useState<'image' | 'ocr'>('image');
-  const [testText, setTestText] = useState('购买');
+  const [testText, setTestText] = useState<string>(t.buy());
   const [threshold, setThreshold] = useState(DEFAULT_IMAGE_MATCH_THRESHOLD);
   const [testScene, setTestScene] = useState<{
     token: string;
@@ -132,7 +135,7 @@ export default function AutomationPage(): React.JSX.Element {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState(false);
-  const [notice, setNotice] = useState('Automation Core 已就绪');
+  const [notice, setNotice] = useState<string>(t.automationCoreReady());
   const [dialog, setDialog] = useState<Dialog>();
   const runnableTabs = tabs.filter((tab) => /^(https?|file):/iu.test(tab.url));
   const [targetTabId, setTargetTabId] = useState('');
@@ -199,7 +202,7 @@ export default function AutomationPage(): React.JSX.Element {
         const active = ['preparing', 'running', 'cancelling'].includes(status.state);
         setRunning(active);
         if (status.state !== lastRunState.current && ['completed', 'failed', 'cancelled'].includes(status.state)) {
-          setNotice(status.message ?? (status.state === 'completed' ? '自动化脚本执行完成' : status.state === 'failed' ? '自动化脚本执行失败' : '已停止'));
+          setNotice(status.message ?? (status.state === 'completed' ? t.automationCompleted() : status.state === 'failed' ? t.automationFailed() : t.stopped()));
         }
         lastRunState.current = status.state;
       } catch { /* Workbench teardown. */ }
@@ -234,18 +237,18 @@ export default function AutomationPage(): React.JSX.Element {
         );
       else if (mode === 'blocks' && detail.workflow) {
         const workflow = editor.current?.compile();
-        if (!workflow) throw new Error('积木工作区尚未准备好');
+        if (!workflow) throw new Error(t.blocklyWorkspaceIsNotReady());
         const validation = await api.validateWorkflow(workflow);
         if (!validation.valid)
           throw new Error(validation.issues.map((issue) => issue.message).join('\n'));
         await api.updateWorkflow(detail.packageId, validation.workflow);
         editor.current?.clearDraft();
       } else {
-        setNotice('当前页面没有需要保存的内容');
+        setNotice(t.nothingToSaveOnThisPage());
         return true;
       }
       applyDetail(await api.getPackage(detail.packageId), true);
-      setNotice('已保存');
+      setNotice(t.saved());
       setDirty(false);
       return true;
     } catch (error) {
@@ -257,7 +260,7 @@ export default function AutomationPage(): React.JSX.Element {
   };
   const runMain = async (): Promise<void> => {
     if (!detail || !targetTabId) {
-      setNotice('请先打开一个游戏页面');
+      setNotice(t.openAGamePageFirst());
       return;
     }
     if (dirty && !await save()) return;
@@ -270,7 +273,7 @@ export default function AutomationPage(): React.JSX.Element {
       await api.start(detail.packageId, detail.mainEntryId, targetTabId);
       setRunning(true);
       setNotice(
-        `正在运行主入口：${detail.mainEntryId === 'workflow' ? '主流程' : detail.mainEntryId}`,
+        t.starting({ name: detail.mainEntryId === 'workflow' ? t.mainWorkflow() : detail.mainEntryId }),
       );
     } catch (error) {
       showError(error);
@@ -281,7 +284,7 @@ export default function AutomationPage(): React.JSX.Element {
   const stop = async (): Promise<void> => {
     await api.cancel();
     setRunning(false);
-    setNotice('已停止');
+    setNotice(t.stopped());
   };
   const importPackage = async (): Promise<void> => {
     setBusy(true);
@@ -291,7 +294,7 @@ export default function AutomationPage(): React.JSX.Element {
       const requested = [...new Set(opened.scripts.flatMap((entry) => entry.permissions))];
       if (
         requested.length &&
-        !window.confirm(`这个自动化请求以下权限：\n\n${requested.join('\n')}\n\n是否允许并导入？`)
+        !window.confirm(t.permission({ permissions: requested.join('\n') }))
       )
         return;
       const approvals = Object.fromEntries(
@@ -312,7 +315,7 @@ export default function AutomationPage(): React.JSX.Element {
       const result = await api.importAssets(detail.packageId);
       if (!result.canceled) {
         applyDetail(result.detail, true);
-        setNotice('素材已导入');
+        setNotice(t.assetsImported());
       }
     } catch (error) {
       showError(error);
@@ -327,7 +330,7 @@ export default function AutomationPage(): React.JSX.Element {
       const result = await api.importAssetFolder(detail.packageId);
       if (!result.canceled) {
         applyDetail(result.detail, true);
-        setNotice('图片组文件夹已导入，可在图片积木中直接选择');
+        setNotice(t.imageGroupImportedAndAvailableInImage());
       }
     } catch (error) {
       showError(error);
@@ -336,7 +339,7 @@ export default function AutomationPage(): React.JSX.Element {
     }
   };
   const deleteAsset = async (): Promise<void> => {
-    if (!detail || !selectedAsset || !window.confirm(`删除素材 ${shortAsset(selectedAsset)}？`))
+    if (!detail || !selectedAsset || !window.confirm(t.deleteAsset({ name: shortAsset(selectedAsset) })))
       return;
     try {
       applyDetail(await api.deleteAsset(detail.packageId, selectedAsset), true);
@@ -346,7 +349,7 @@ export default function AutomationPage(): React.JSX.Element {
   };
   const deletePackage = async (): Promise<void> => {
     if (!detail || running) return;
-    const warning = `确定删除自动化包“${detail.name}”吗？\n\n包内的主流程、脚本、素材和配置都会永久删除。`;
+    const warning = t.deletePackage({ name: detail.name });
     if (!window.confirm(warning)) return;
     setBusy(true);
     try {
@@ -355,7 +358,7 @@ export default function AutomationPage(): React.JSX.Element {
       setSelectedScriptId('');
       setMode('blocks');
       await refresh();
-      setNotice(`已删除自动化包“${deletedName}”`);
+      setNotice(t.packageDeleted({ name: deletedName }));
     } catch (error) {
       showError(error);
     } finally {
@@ -367,16 +370,16 @@ export default function AutomationPage(): React.JSX.Element {
     const script = detail.scripts.find((entry) => entry.id === selectedScriptId);
     if (!script) return;
     const mainWarning = detail.mainEntryId === script.id
-      ? '\n\n这是当前主入口；删除后会自动切换到 Blockly 主流程或其他脚本。'
+      ? t.mainWarning()
       : '';
-    const dirtyWarning = dirty ? '\n\n尚未保存的修改也会丢失。' : '';
-    if (!window.confirm(`确定删除脚本“${script.name}”吗？${mainWarning}${dirtyWarning}`)) return;
+    const dirtyWarning = dirty ? t.dirtyWarning() : '';
+    if (!window.confirm(t.deleteScript({ name: script.name, main: mainWarning, dirty: dirtyWarning }))) return;
     setBusy(true);
     try {
       const next = await api.deleteScript(detail.packageId, script.id);
       setSelectedScriptId('');
       applyDetail(next);
-      setNotice(`已删除脚本“${script.name}”`);
+      setNotice(t.scriptDeleted({ name: script.name }));
     } catch (error) {
       showError(error);
     } finally {
@@ -396,7 +399,7 @@ export default function AutomationPage(): React.JSX.Element {
           sourceHeight: opened.sourceHeight,
         });
         setTestResult(undefined);
-        setNotice(`已导入测试画面：${opened.name}`);
+        setNotice(t.sceneImported({ name: opened.name }));
       }
     } catch (error) {
       showError(error);
@@ -406,13 +409,13 @@ export default function AutomationPage(): React.JSX.Element {
   };
   const runTest = async (): Promise<void> => {
     if (!detail || !testScene) {
-      setNotice('请先在中间导入一张待测试画面');
+      setNotice(t.importATestScreenshotFirst());
       return;
     }
     setBusy(true);
     try {
       if (testKind === 'image') {
-        if (!selectedAsset) throw new Error('请先选择素材');
+        if (!selectedAsset) throw new Error(t.selectAnAssetFirst());
         const result = await api.testAssetOnScene(
           detail.packageId,
           testScene.token,
@@ -459,14 +462,14 @@ export default function AutomationPage(): React.JSX.Element {
         if (!detail) return;
         applyDetail((await api.setMainEntry(detail.packageId, dialog.id)) as Detail, true);
         setDialog(undefined);
-        setNotice('主入口已更新');
+        setNotice(t.mainEntryUpdated());
         return;
       }
       if (!detail) return;
       const source =
         dialog.language === 'typescript'
-          ? 'const [value] = input as [unknown];\nawait bao.log.info("脚本已启动");\nreturn value ?? null;\n'
-          : 'const value = input[0];\nawait bao.log.info("脚本已启动");\nreturn value ?? null;\n';
+          ? 'const [value] = input as [unknown];\nawait bao.log.info("Script started");\nreturn value ?? null;\n'
+          : 'const value = input[0];\nawait bao.log.info("Script started");\nreturn value ?? null;\n';
       await api.upsertScript(
         detail.packageId,
         dialog.id,
@@ -500,7 +503,7 @@ export default function AutomationPage(): React.JSX.Element {
   const assetChoices = [
     ...imageGroups.map((group) => ({
       value: group.value,
-      label: `图片组：${shortAsset(group.directory)}（${group.assets.length} 张）`,
+      label: t.groupLabel({ name: shortAsset(group.directory), count: group.assets.length }),
     })),
     ...(detail?.assets ?? []).map((asset) => ({ value: asset, label: shortAsset(asset) })),
   ];
@@ -512,7 +515,7 @@ export default function AutomationPage(): React.JSX.Element {
         <div className="awb-brand">
           <Workflow />
           <span>
-            <strong>自动化工作台</strong>
+            <strong>{t.automationWorkbench()}</strong>
             <small>Automation 2.0</small>
           </span>
         </div>
@@ -524,19 +527,19 @@ export default function AutomationPage(): React.JSX.Element {
           ))}
         </select>
         <div className="awb-breadcrumb">
-          {detail?.name ?? '未选择项目'} <b>/</b>{' '}
+          {detail?.name ?? t.noProjectSelected()} <b>/</b>{' '}
           {mode === 'blocks'
-            ? '主流程'
+            ? t.mainWorkflow()
             : mode === 'script'
               ? `${selectedScriptId}.${scriptLanguage === 'typescript' ? 'ts' : 'js'}`
               : mode === 'assets'
-                ? '素材中心'
+                ? t.assets()
                 : mode === 'test'
-                  ? '测试中心'
-                  : '接口文档'}
+                  ? t.testCenter()
+                  : t.apiDocumentation()}
         </div>
-        <select value={targetTabId} onChange={(event) => setTargetTabId(event.target.value)} title="运行页面">
-          {runnableTabs.length ? runnableTabs.map((tab) => <option key={tab.id} value={tab.id}>运行于：{tab.title || tab.url}</option>) : <option value="">没有可运行页面</option>}
+        <select value={targetTabId} onChange={(event) => setTargetTabId(event.target.value)} title={t.targetPage()}>
+          {runnableTabs.length ? runnableTabs.map((tab) => <option key={tab.id} value={tab.id}>{t.runAt()}{tab.title || tab.url}</option>) : <option value="">{t.noRunnablePages()}</option>}
         </select>
         <div className="awb-actions">
           <button
@@ -544,55 +547,55 @@ export default function AutomationPage(): React.JSX.Element {
               setDialog({
                 kind: 'package',
                 id: `automation-${Date.now()}`,
-                name: '新自动化',
+                name: t.newAutomation(),
                 language: 'typescript',
               })
             }
           >
             <Plus />
-            新建自动化包
+            {t.newAutomationPackage()}
           </button>
           <button onClick={() => void importPackage()}>
             <Download />
-            导入
+            {t.import()}
           </button>
           <button
             disabled={!detail}
             onClick={() => detail && void api.exportPackage(detail.packageId)}
           >
             <Upload />
-            导出
+            {t.export()}
           </button>
           <button
             className="danger"
             disabled={!detail || busy || running}
             onClick={() => void deletePackage()}
-            title="删除当前自动化包"
+            title={t.deleteCurrentAutomationPackage()}
           >
             <Trash2 />
-            删除包
+            {t.deletePackageLabel()}
           </button>
           {running ? (
             <button onClick={() => void stop()}>
               <Square />
-              停止
+              {t.stop()}
             </button>
           ) : (
             <button onClick={() => void runMain()} disabled={!detail || busy}>
               <Play />
-              运行主入口
+              {t.runMainEntry()}
             </button>
           )}
           <button className="primary" onClick={() => void save()} disabled={!detail || busy}>
             <Save />
-            保存
+            {t.save()}
           </button>
         </div>
       </header>
       <div className="awb-body">
         <aside className="awb-sidebar">
           <div className="awb-section-title">
-            <strong>主入口</strong>
+            <strong>{t.mainEntry()}</strong>
             <span>1</span>
           </div>
           {detail && (
@@ -608,13 +611,13 @@ export default function AutomationPage(): React.JSX.Element {
               <span>
                 <strong>
                   {detail.mainEntryId === 'workflow'
-                    ? '主流程'
+                    ? t.mainWorkflow()
                     : scripts.find((entry) => entry.id === detail.mainEntryId)?.name}
                 </strong>
                 <small>
                   {detail.mainEntryId === 'workflow'
-                    ? 'Blockly · 点击运行时执行'
-                    : '脚本 · 点击运行时执行'}
+                    ? t.blocklyExecutedWhenRun()
+                    : t.scriptExecutedWhenRun()}
                 </small>
               </span>
             </button>
@@ -626,10 +629,10 @@ export default function AutomationPage(): React.JSX.Element {
               setDialog({ kind: 'main', id: detail.mainEntryId, name: '', language: 'typescript' })
             }
           >
-            更换主入口
+            {t.changeMainEntry()}
           </button>
           <div className="awb-section-title">
-            <strong>可复用脚本</strong>
+            <strong>{t.reusableScripts()}</strong>
             <span>{scripts.length}</span>
           </div>
           {scripts.map((script) => (
@@ -643,7 +646,7 @@ export default function AutomationPage(): React.JSX.Element {
               </span>
               <span>
                 <strong>{script.name}</strong>
-                <small>{shortAsset(script.path)} · 可被积木调用</small>
+                <small>{shortAsset(script.path)}{t.callable()}</small>
               </span>
             </button>
           ))}
@@ -654,40 +657,40 @@ export default function AutomationPage(): React.JSX.Element {
                 setDialog({
                   kind: 'script',
                   id: `script-${scripts.length + 1}`,
-                  name: '新脚本',
+                  name: t.newScript(),
                   language: 'typescript',
                 })
               }
             >
               <Plus />
-              新建 JS / TS 脚本
+              {t.newJsTsScript()}
             </button>
           )}
           <div className="awb-section-title">
-            <strong>资源工具</strong>
+            <strong>{t.resources()}</strong>
           </div>
           <nav>
             <button className={mode === 'assets' ? 'active' : ''} onClick={() => setMode('assets')}>
               <Box />
-              管理素材
+              {t.manageAssets()}
             </button>
             <button className={mode === 'test' ? 'active' : ''} onClick={() => setMode('test')}>
               <ScanSearch />
-              测试识别
+              {t.testRecognition()}
             </button>
             <button className={mode === 'docs' ? 'active' : ''} onClick={() => setMode('docs')}>
               <BookOpen />
-              接口文档
+              {t.apiDocumentation()}
             </button>
           </nav>
           <p className="awb-help">
-            <b>一个默认主入口</b>脚本既可以独立设为主入口，也可以被 Blockly 的“运行脚本”积木调用。
+            <b>{t.oneDefaultMainEntry()}</b>{t.scriptsCanRunAsTheMainEntry()}
           </p>
         </aside>
         <main className="awb-main">
           {detail?.workflow && mode === 'blocks' && (
             <div className={`awb-blocks ${contextOpen ? '' : 'context-closed'}`}>
-              <Suspense fallback={<div role="status">加载编辑器…</div>}>
+              <Suspense fallback={<div role="status">{t.loadingEditor()}</div>}>
                 <AutomationBlocklyV2Editor
                   ref={editor}
                   key={`${detail.packageId}:${scripts.map((entry) => entry.id).join(',')}`}
@@ -707,12 +710,12 @@ export default function AutomationPage(): React.JSX.Element {
                 {contextOpen && (
                   <>
                     <div className="context-head">
-                      <strong>素材托盘</strong>
+                      <strong>{t.assetTray()}</strong>
                       <button onClick={() => void importAssets()}>
                         <FolderPlus />
-                        导入
+                        {t.import()}
                       </button>
-                      <small>点击素材可用于当前图片积木。</small>
+                      <small>{t.clickAnAssetToUseItIn()}</small>
                     </div>
                     <div className="awb-asset-grid compact">
                       {detail.assets.map((asset) => (
@@ -735,19 +738,19 @@ export default function AutomationPage(): React.JSX.Element {
             <section className="awb-page">
               <div className="awb-page-head">
                 <div>
-                  <h2>素材中心</h2>
+                  <h2>{t.assets()}</h2>
                   <p>
-                    Blockly 与 JS/TS 共用当前包中的素材；一个文件夹内至少两张图片时自动成为图片组。
+                    {t.blocklyAndJsTsSharePackageAssets()}
                   </p>
                 </div>
                 <div>
                   <button onClick={() => void importAssets()}>
                     <Image />
-                    导入图片
+                    {t.importImages()}
                   </button>
                   <button className="primary" onClick={() => void importAssetFolder()}>
                     <FolderPlus />
-                    导入图片组文件夹
+                    {t.importImageGroupFolder()}
                   </button>
                 </div>
               </div>
@@ -766,22 +769,22 @@ export default function AutomationPage(): React.JSX.Element {
                   {!detail.assets.length && (
                     <div className="awb-empty">
                       <Image />
-                      <b>暂无素材</b>
-                      <span>导入 PNG、JPG、WebP 或 BMP 图片。</span>
+                      <b>{t.noAssets()}</b>
+                      <span>{t.importPngJpgWebpOrBmpImages()}</span>
                     </div>
                   )}
                 </div>
                 <aside className="awb-preview">
-                  <h3>{selectedAsset ? shortAsset(selectedAsset) : '选择一个素材'}</h3>
+                  <h3>{selectedAsset ? shortAsset(selectedAsset) : t.selectAnAsset()}</h3>
                   {selectedAsset && (
                     <>
                       <div className="large-preview">
                         <AssetPreview packageId={detail.packageId} asset={selectedAsset} />
                       </div>
-                      <button onClick={() => setMode('test')}>在场景中测试</button>
+                      <button onClick={() => setMode('test')}>{t.testInScene()}</button>
                       <button className="danger" onClick={() => void deleteAsset()}>
                         <Trash2 />
-                        删除素材
+                        {t.deleteAssetLabel()}
                       </button>
                     </>
                   )}
@@ -793,8 +796,8 @@ export default function AutomationPage(): React.JSX.Element {
             <section className="awb-page">
               <div className="awb-page-head">
                 <div>
-                  <h2>测试中心</h2>
-                  <p>导入一张待测试画面，离线验证单张图片、图片组和 OCR。</p>
+                  <h2>{t.testCenter()}</h2>
+                  <p>{t.importAScreenshotToTestImagesImage()}</p>
                 </div>
                 <div className="awb-segment">
                   <button
@@ -804,7 +807,7 @@ export default function AutomationPage(): React.JSX.Element {
                       setTestResult(undefined);
                     }}
                   >
-                    图片对比
+                    {t.imageMatching()}
                   </button>
                   <button
                     className={testKind === 'ocr' ? 'active' : ''}
@@ -813,7 +816,7 @@ export default function AutomationPage(): React.JSX.Element {
                       setTestResult(undefined);
                     }}
                   >
-                    文字识别 OCR
+                    {t.textRecognitionOcr()}
                   </button>
                 </div>
               </div>
@@ -822,7 +825,7 @@ export default function AutomationPage(): React.JSX.Element {
                   {testKind === 'image' ? (
                     <>
                       <label>
-                        选择图片或图片组
+                        {t.selectImageOrImageGroup()}
                         <select
                           value={selectedAsset}
                           onChange={(event) => {
@@ -838,7 +841,7 @@ export default function AutomationPage(): React.JSX.Element {
                         </select>
                       </label>
                       <label>
-                        相似度 {Math.round(threshold * 100)}%
+                        {t.similarity()}{Math.round(threshold * 100)}%
                         <input
                           type="range"
                           min="10"
@@ -857,8 +860,8 @@ export default function AutomationPage(): React.JSX.Element {
                           </div>
                           <strong>
                             {selectedImageGroup
-                              ? `图片组（${selectedImageGroup.length} 张）`
-                              : '当前识别素材'}
+                              ? t.groupCount({ count: selectedImageGroup.length })
+                              : t.currentMatchingAsset()}
                           </strong>
                           <span>
                             {selectedImageGroup
@@ -871,7 +874,7 @@ export default function AutomationPage(): React.JSX.Element {
                   ) : (
                     <>
                       <label>
-                        要识别的文字
+                        {t.textToRecognize()}
                         <input
                           value={testText}
                           onChange={(event) => setTestText(event.target.value)}
@@ -879,8 +882,8 @@ export default function AutomationPage(): React.JSX.Element {
                       </label>
                       <div className="awb-test-target-preview text">
                         <ScanSearch />
-                        <strong>OCR 识别内容</strong>
-                        <span>{testText || '尚未输入文字'}</span>
+                        <strong>{t.ocrText()}</strong>
+                        <span>{testText || t.noTextEntered()}</span>
                       </div>
                     </>
                   )}
@@ -889,25 +892,25 @@ export default function AutomationPage(): React.JSX.Element {
                     onClick={() => void runTest()}
                     disabled={busy || !testScene}
                   >
-                    开始测试
+                    {t.startTest()}
                   </button>
                   {testResult && (
                     <div className={testResult.matched ? 'result good' : 'result bad'}>
                       <b>
                         {testResult.matched
-                          ? '匹配成功'
+                          ? t.matchFound()
                           : testResult.candidate
                             ? testResult.rejectionReason === 'automatic-policy'
-                              ? '最佳候选未通过自动校验'
-                              : '最佳候选低于条件'
-                            : '没有识别到候选'}
+                              ? t.bestCandidateFailedAutomaticValidation()
+                              : t.bestCandidateBelowThreshold()
+                            : t.noCandidatesFound()}
                       </b>
                       {testResult.candidate && (
                         <span>
                           {testResult.candidate.text
                             ? `“${testResult.candidate.text}” · `
                             : ''}
-                          坐标 {Math.round(testResult.candidate.x)},
+                          {t.position()}{Math.round(testResult.candidate.x)},
                           {Math.round(testResult.candidate.y)} ·{' '}
                           {Math.round((testResult.candidate.score ?? 0) * 100)}%
                         </span>
@@ -944,7 +947,7 @@ export default function AutomationPage(): React.JSX.Element {
                         )}
                       </svg>
                       <span className="automation-test-scene-size">
-                        原图 {testScene.sourceWidth} × {testScene.sourceHeight} · 等比适应窗口
+                        {t.original()}{testScene.sourceWidth} × {testScene.sourceHeight}{t.fit()}
                       </span>
                       <button
                         className="automation-test-scene-replace"
@@ -952,7 +955,7 @@ export default function AutomationPage(): React.JSX.Element {
                         disabled={busy}
                       >
                         <ImagePlus />
-                        更换测试画面
+                        {t.changeTestScreenshot()}
                       </button>
                     </>
                   ) : (
@@ -962,8 +965,8 @@ export default function AutomationPage(): React.JSX.Element {
                       disabled={busy}
                     >
                       <ImagePlus />
-                      <strong>导入测试画面</strong>
-                      <small>选择一张完整截图，在本地离线进行识图或 OCR 测试</small>
+                      <strong>{t.importTestScreenshot()}</strong>
+                      <small>{t.selectAFullScreenshotForLocalOffline()}</small>
                     </button>
                   )}
                 </div>
@@ -978,8 +981,8 @@ export default function AutomationPage(): React.JSX.Element {
                     {selectedScriptId}.{scriptLanguage === 'typescript' ? 'ts' : 'js'}
                   </h2>
                   <p>
-                    {scriptLanguage === 'typescript' ? 'TypeScript · 保存时编译' : 'JavaScript'} ·
-                    可被积木调用 · 沙箱运行
+                    {scriptLanguage === 'typescript' ? t.typescriptCompiledOnSave() : 'JavaScript'} ·
+                    {t.sandbox()}
                   </p>
                 </div>
                 {detail.mainEntryId !== selectedScriptId && (
@@ -991,7 +994,7 @@ export default function AutomationPage(): React.JSX.Element {
                         .catch(showError)
                     }
                   >
-                    设为主入口
+                    {t.setAsMainEntry()}
                   </button>
                 )}
                 <button
@@ -1000,11 +1003,11 @@ export default function AutomationPage(): React.JSX.Element {
                   disabled={busy || running}
                 >
                   <Trash2 />
-                  删除脚本
+                  {t.deleteScriptLabel()}
                 </button>
                 <button onClick={() => setMode('docs')}>
                   <BookOpen />
-                  完整接口文档
+                  {t.fullApiDocumentation()}
                 </button>
               </div>
               <div className="script-body">
@@ -1028,7 +1031,7 @@ export default function AutomationPage(): React.JSX.Element {
                       <option value="javascript">JavaScript</option>
                     </select>
                   </div>
-                  <Suspense fallback={<div role="status">加载编辑器…</div>}>
+                  <Suspense fallback={<div role="status">{t.loadingEditor()}</div>}>
                     <CodeEditor
                       value={scriptSource}
                       onChange={(value) => {
@@ -1039,7 +1042,7 @@ export default function AutomationPage(): React.JSX.Element {
                     />
                   </Suspense>
                   <div className="permission-row">
-                    <b>权限</b>
+                    <b>{t.permissions()}</b>
                     {CAPABILITIES.map((capability) => (
                       <label key={capability}>
                         <input
@@ -1060,8 +1063,8 @@ export default function AutomationPage(): React.JSX.Element {
                   </div>
                 </div>
                 <aside className="api-reference">
-                  <h3>当前 API 快速参考</h3>
-                  <p>完整文档不挤占编辑空间；这里显示常用签名。</p>
+                  <h3>{t.apiQuickReference()}</h3>
+                  <p>{t.commonSignaturesAreShownHereOpenThe()}</p>
                   {[
                     'bao.input.click(target)',
                     'bao.vision.find(locator)',
@@ -1092,18 +1095,18 @@ export default function AutomationPage(): React.JSX.Element {
           {!detail && (
             <div className="awb-empty full">
               <Workflow />
-              <h2>创建或导入自动化包</h2>
+              <h2>{t.createOrImportAnAutomationPackage()}</h2>
               <button
                 onClick={() =>
                   setDialog({
                     kind: 'package',
                     id: `automation-${Date.now()}`,
-                    name: '新自动化',
+                    name: t.newAutomation(),
                     language: 'typescript',
                   })
                 }
               >
-                创建自动化
+                {t.createAutomation()}
               </button>
             </div>
           )}
@@ -1112,11 +1115,11 @@ export default function AutomationPage(): React.JSX.Element {
       <footer className="awb-status">
         <span className="ready">● {notice}</span>
         <span>
-          主入口：
-          {detail?.mainEntryId === 'workflow' ? 'Blockly 主流程' : (detail?.mainEntryId ?? '-')}
+          {t.entryLabel()}
+          {detail?.mainEntryId === 'workflow' ? t.blocklyWorkflow() : (detail?.mainEntryId ?? '-')}
         </span>
-        <span>素材：{detail?.assets.length ?? 0}</span>
-        <span>{dirty ? '未保存' : '已保存'}</span>
+        <span>{t.assetCount()}{detail?.assets.length ?? 0}</span>
+        <span>{dirty ? t.unsaved() : t.saved()}</span>
       </footer>
       {dialog && (
         <div
@@ -1134,16 +1137,16 @@ export default function AutomationPage(): React.JSX.Element {
           >
             <h2>
               {dialog.kind === 'package'
-                ? '新建自动化包'
+                ? t.newAutomationPackage()
                 : dialog.kind === 'script'
-                  ? '新建可复用脚本'
-                  : '选择主入口'}
+                  ? t.newReusableScript()
+                  : t.selectMainEntry()}
             </h2>
             {dialog.kind === 'main' ? (
               <div className="main-entry-options">
                 {[
                   ...(detail?.workflow
-                    ? [{ id: 'workflow', name: 'Blockly 主流程', language: 'javascript' as const }]
+                    ? [{ id: 'workflow', name: t.blocklyWorkflow(), language: 'javascript' as const }]
                     : []),
                   ...scripts,
                 ].map((entry) => (
@@ -1156,7 +1159,7 @@ export default function AutomationPage(): React.JSX.Element {
                     {entry.id === 'workflow' ? <Workflow /> : <FileCode2 />}
                     <span>
                       <b>{entry.name}</b>
-                      <small>{entry.id === 'workflow' ? '积木入口' : '脚本入口'}</small>
+                      <small>{entry.id === 'workflow' ? t.blocklyEntry() : t.scriptEntry()}</small>
                     </span>
                   </button>
                 ))}
@@ -1174,7 +1177,7 @@ export default function AutomationPage(): React.JSX.Element {
                   />
                 </label>
                 <label>
-                  名称
+                  {t.name()}
                   <input
                     value={dialog.name}
                     onChange={(event) => setDialog({ ...dialog, name: event.target.value })}
@@ -1183,7 +1186,7 @@ export default function AutomationPage(): React.JSX.Element {
                 </label>
                 {dialog.kind === 'script' && (
                   <label>
-                    语言
+                    {t.language()}
                     <select
                       value={dialog.language}
                       onChange={(event) =>
@@ -1202,10 +1205,10 @@ export default function AutomationPage(): React.JSX.Element {
             )}
             <div>
               <button type="button" onClick={() => setDialog(undefined)}>
-                取消
+                {t.cancel()}
               </button>
               <button className="primary" type="submit">
-                {dialog.kind === 'main' ? '设为主入口' : '创建'}
+                {dialog.kind === 'main' ? t.setAsMainEntry() : t.create()}
               </button>
             </div>
           </form>

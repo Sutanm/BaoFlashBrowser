@@ -14,6 +14,628 @@ export type Translation = RootTranslation
 export type Translations = RootTranslation
 
 type RootTranslation = {
+	automationPanel: {
+		/**
+		 * 打​开​页​面​悬​浮​助​手​并​收​起​侧​栏​，​不​挤​压​游​戏​画​面
+		 */
+		assistantHint: string
+		/**
+		 * 打​开​页​面​悬​浮​助​手
+		 */
+		assistant: string
+		/**
+		 * 进​入​自​动​化​工​作​台
+		 */
+		workbench: string
+		/**
+		 * 自​动​化​脚​本
+		 */
+		scripts: string
+		/**
+		 * 导​入
+		 */
+		'import': string
+		/**
+		 * 请​进​入​工​作​台​创​建​或​导​入​自​动​化​包
+		 */
+		empty: string
+		/**
+		 * 默​认​配​置
+		 */
+		defaultProfile: string
+		/**
+		 * 页​面​取​材​与​识​别
+		 */
+		recognition: string
+		/**
+		 * 刷​新
+		 */
+		refresh: string
+		/**
+		 * 框​选​图​片​素​材
+		 */
+		capture: string
+		/**
+		 * 捕​获​并​识​图
+		 */
+		testImage: string
+		/**
+		 * 输​入​要​识​别​的​文​字
+		 */
+		textPlaceholder: string
+		/**
+		 * 捕​获​并​ ​O​C​R
+		 */
+		testText: string
+		/**
+		 * 拖​动​框​选​素​材
+		 */
+		selectRegion: string
+		/**
+		 * 素​材​名​称
+		 */
+		assetName: string
+		/**
+		 * 保​存​素​材
+		 */
+		saveAsset: string
+		/**
+		 * 正​在​停​止
+		 */
+		stopping: string
+		/**
+		 * 正​在​运​行
+		 */
+		running: string
+		/**
+		 * 执​行​失​败
+		 */
+		failed: string
+		/**
+		 * 执​行​完​成
+		 */
+		completed: string
+		/**
+		 * 可​以​开​始
+		 */
+		ready: string
+		/**
+		 * 立​即​运​行
+		 */
+		run: string
+		/**
+		 * 停​止
+		 */
+		stop: string
+		/**
+		 * 请​在​网​页​或​游​戏​标​签​页​运​行​自​动​化​。
+		 */
+		pageRequired: string
+		/**
+		 * 已​取​消
+		 */
+		cancelled: string
+		/**
+		 * 导​入​自​动​化​包
+		 */
+		importTitle: string
+		/**
+		 * 没​有​找​到​匹​配​图​片
+		 */
+		noImage: string
+		/**
+		 * 关​闭
+		 */
+		close: string
+		/**
+		 * 运​行​中​ ​·​ ​{​i​d​}
+		 * @param {string} id
+		 */
+		runStarted: RequiredParams<'id'>
+		/**
+		 * 已​导​入​ ​{​n​a​m​e​}
+		 * @param {string} name
+		 */
+		imported: RequiredParams<'name'>
+		/**
+		 * 已​保​存​素​材​ ​{​n​a​m​e​}​.​p​n​g
+		 * @param {string} name
+		 */
+		saved: RequiredParams<'name'>
+		/**
+		 * J​a​v​a​S​c​r​i​p​t​「​{​n​a​m​e​}​」​请​求​权​限​：​
+	​{​p​e​r​m​i​s​s​i​o​n​s​}​
+	​
+	​是​否​授​权​？
+		 * @param {string} name
+		 * @param {string} permissions
+		 */
+		permission: RequiredParams<'name' | 'permissions'>
+		/**
+		 * 识​图​成​功​ ​{​s​c​o​r​e​}​%​ ​·​ ​{​x​}​,​{​y​}
+		 * @param {string} score
+		 * @param {number} x
+		 * @param {number} y
+		 */
+		imageMatch: RequiredParams<'score' | 'x' | 'y'>
+		/**
+		 * O​C​R​ ​成​功​ ​{​s​c​o​r​e​}​%​ ​·​ ​{​x​}​,​{​y​}
+		 * @param {string} score
+		 * @param {number} x
+		 * @param {number} y
+		 */
+		textMatch: RequiredParams<'score' | 'x' | 'y'>
+		/**
+		 * 没​有​找​到​文​字​：​{​t​e​x​t​}
+		 * @param {string} text
+		 */
+		noText: RequiredParams<'text'>
+	}
+	automationWorkbench: {
+		/**
+		 * 正​在​运​行​主​入​口​：​{​n​a​m​e​}
+		 * @param {string} name
+		 */
+		starting: RequiredParams<'name'>
+		/**
+		 * 这​个​自​动​化​请​求​以​下​权​限​：​
+	​
+	​{​p​e​r​m​i​s​s​i​o​n​s​}​
+	​
+	​是​否​允​许​并​导​入​？
+		 * @param {string} permissions
+		 */
+		permission: RequiredParams<'permissions'>
+		/**
+		 * 删​除​素​材​ ​{​n​a​m​e​}​？
+		 * @param {string} name
+		 */
+		deleteAsset: RequiredParams<'name'>
+		/**
+		 * 确​定​删​除​自​动​化​包​“​{​n​a​m​e​}​”​吗​？​
+	​
+	​包​内​的​主​流​程​、​脚​本​、​素​材​和​配​置​都​会​永​久​删​除​。
+		 * @param {string} name
+		 */
+		deletePackage: RequiredParams<'name'>
+		/**
+		 * 已​删​除​自​动​化​包​“​{​n​a​m​e​}​”
+		 * @param {string} name
+		 */
+		packageDeleted: RequiredParams<'name'>
+		/**
+		 *
+	​
+	​这​是​当​前​主​入​口​；​删​除​后​会​自​动​切​换​到​ ​B​l​o​c​k​l​y​ ​主​流​程​或​其​他​脚​本​。
+		 */
+		mainWarning: string
+		/**
+		 *
+	​
+	​尚​未​保​存​的​修​改​也​会​丢​失​。
+		 */
+		dirtyWarning: string
+		/**
+		 * 确​定​删​除​脚​本​“​{​n​a​m​e​}​”​吗​？​{​m​a​i​n​}​{​d​i​r​t​y​}
+		 * @param {string} dirty
+		 * @param {string} main
+		 * @param {string} name
+		 */
+		deleteScript: RequiredParams<'dirty' | 'main' | 'name'>
+		/**
+		 * 已​删​除​脚​本​“​{​n​a​m​e​}​”
+		 * @param {string} name
+		 */
+		scriptDeleted: RequiredParams<'name'>
+		/**
+		 * 已​导​入​测​试​画​面​：​{​n​a​m​e​}
+		 * @param {string} name
+		 */
+		sceneImported: RequiredParams<'name'>
+		/**
+		 * 图​片​组​：​{​n​a​m​e​}​（​{​c​o​u​n​t​}​ ​张​）
+		 * @param {number} count
+		 * @param {string} name
+		 */
+		groupLabel: RequiredParams<'count' | 'name'>
+		/**
+		 * 图​片​组​（​{​c​o​u​n​t​}​ ​张​）
+		 * @param {number} count
+		 */
+		groupCount: RequiredParams<'count'>
+		/**
+		 * 购​买
+		 */
+		buy: string
+		/**
+		 * A​u​t​o​m​a​t​i​o​n​ ​C​o​r​e​ ​已​就​绪
+		 */
+		automationCoreReady: string
+		/**
+		 * 自​动​化​脚​本​执​行​完​成
+		 */
+		automationCompleted: string
+		/**
+		 * 自​动​化​脚​本​执​行​失​败
+		 */
+		automationFailed: string
+		/**
+		 * 已​停​止
+		 */
+		stopped: string
+		/**
+		 * 积​木​工​作​区​尚​未​准​备​好
+		 */
+		blocklyWorkspaceIsNotReady: string
+		/**
+		 * 当​前​页​面​没​有​需​要​保​存​的​内​容
+		 */
+		nothingToSaveOnThisPage: string
+		/**
+		 * 已​保​存
+		 */
+		saved: string
+		/**
+		 * 请​先​打​开​一​个​游​戏​页​面
+		 */
+		openAGamePageFirst: string
+		/**
+		 * 主​流​程
+		 */
+		mainWorkflow: string
+		/**
+		 * 素​材​已​导​入
+		 */
+		assetsImported: string
+		/**
+		 * 图​片​组​文​件​夹​已​导​入​，​可​在​图​片​积​木​中​直​接​选​择
+		 */
+		imageGroupImportedAndAvailableInImage: string
+		/**
+		 * 请​先​在​中​间​导​入​一​张​待​测​试​画​面
+		 */
+		importATestScreenshotFirst: string
+		/**
+		 * 请​先​选​择​素​材
+		 */
+		selectAnAssetFirst: string
+		/**
+		 * 主​入​口​已​更​新
+		 */
+		mainEntryUpdated: string
+		/**
+		 * 自​动​化​工​作​台
+		 */
+		automationWorkbench: string
+		/**
+		 * 未​选​择​项​目
+		 */
+		noProjectSelected: string
+		/**
+		 * 素​材​中​心
+		 */
+		assets: string
+		/**
+		 * 测​试​中​心
+		 */
+		testCenter: string
+		/**
+		 * 接​口​文​档
+		 */
+		apiDocumentation: string
+		/**
+		 * 运​行​页​面
+		 */
+		targetPage: string
+		/**
+		 * 没​有​可​运​行​页​面
+		 */
+		noRunnablePages: string
+		/**
+		 * 新​自​动​化
+		 */
+		newAutomation: string
+		/**
+		 * 新​建​自​动​化​包
+		 */
+		newAutomationPackage: string
+		/**
+		 * 导​入
+		 */
+		'import': string
+		/**
+		 * 导​出
+		 */
+		'export': string
+		/**
+		 * 删​除​当​前​自​动​化​包
+		 */
+		deleteCurrentAutomationPackage: string
+		/**
+		 * 删​除​包
+		 */
+		deletePackageLabel: string
+		/**
+		 * 停​止
+		 */
+		stop: string
+		/**
+		 * 运​行​主​入​口
+		 */
+		runMainEntry: string
+		/**
+		 * 保​存
+		 */
+		save: string
+		/**
+		 * 主​入​口
+		 */
+		mainEntry: string
+		/**
+		 * B​l​o​c​k​l​y​ ​·​ ​点​击​运​行​时​执​行
+		 */
+		blocklyExecutedWhenRun: string
+		/**
+		 * 脚​本​ ​·​ ​点​击​运​行​时​执​行
+		 */
+		scriptExecutedWhenRun: string
+		/**
+		 * 更​换​主​入​口
+		 */
+		changeMainEntry: string
+		/**
+		 * 可​复​用​脚​本
+		 */
+		reusableScripts: string
+		/**
+		 * 新​脚​本
+		 */
+		newScript: string
+		/**
+		 * 新​建​ ​J​S​ ​/​ ​T​S​ ​脚​本
+		 */
+		newJsTsScript: string
+		/**
+		 * 资​源​工​具
+		 */
+		resources: string
+		/**
+		 * 管​理​素​材
+		 */
+		manageAssets: string
+		/**
+		 * 测​试​识​别
+		 */
+		testRecognition: string
+		/**
+		 * 一​个​默​认​主​入​口
+		 */
+		oneDefaultMainEntry: string
+		/**
+		 * 脚​本​既​可​以​独​立​设​为​主​入​口​，​也​可​以​被​ ​B​l​o​c​k​l​y​ ​的​“​运​行​脚​本​”​积​木​调​用​。
+		 */
+		scriptsCanRunAsTheMainEntry: string
+		/**
+		 * 加​载​编​辑​器​…
+		 */
+		loadingEditor: string
+		/**
+		 * 素​材​托​盘
+		 */
+		assetTray: string
+		/**
+		 * 点​击​素​材​可​用​于​当​前​图​片​积​木​。
+		 */
+		clickAnAssetToUseItIn: string
+		/**
+		 * B​l​o​c​k​l​y​ ​与​ ​J​S​/​T​S​ ​共​用​当​前​包​中​的​素​材​；​一​个​文​件​夹​内​至​少​两​张​图​片​时​自​动​成​为​图​片​组​。
+		 */
+		blocklyAndJsTsSharePackageAssets: string
+		/**
+		 * 导​入​图​片
+		 */
+		importImages: string
+		/**
+		 * 导​入​图​片​组​文​件​夹
+		 */
+		importImageGroupFolder: string
+		/**
+		 * 暂​无​素​材
+		 */
+		noAssets: string
+		/**
+		 * 导​入​ ​P​N​G​、​J​P​G​、​W​e​b​P​ ​或​ ​B​M​P​ ​图​片​。
+		 */
+		importPngJpgWebpOrBmpImages: string
+		/**
+		 * 选​择​一​个​素​材
+		 */
+		selectAnAsset: string
+		/**
+		 * 在​场​景​中​测​试
+		 */
+		testInScene: string
+		/**
+		 * 删​除​素​材
+		 */
+		deleteAssetLabel: string
+		/**
+		 * 导​入​一​张​待​测​试​画​面​，​离​线​验​证​单​张​图​片​、​图​片​组​和​ ​O​C​R​。
+		 */
+		importAScreenshotToTestImagesImage: string
+		/**
+		 * 图​片​对​比
+		 */
+		imageMatching: string
+		/**
+		 * 文​字​识​别​ ​O​C​R
+		 */
+		textRecognitionOcr: string
+		/**
+		 * 选​择​图​片​或​图​片​组
+		 */
+		selectImageOrImageGroup: string
+		/**
+		 * 当​前​识​别​素​材
+		 */
+		currentMatchingAsset: string
+		/**
+		 * 要​识​别​的​文​字
+		 */
+		textToRecognize: string
+		/**
+		 * O​C​R​ ​识​别​内​容
+		 */
+		ocrText: string
+		/**
+		 * 尚​未​输​入​文​字
+		 */
+		noTextEntered: string
+		/**
+		 * 开​始​测​试
+		 */
+		startTest: string
+		/**
+		 * 匹​配​成​功
+		 */
+		matchFound: string
+		/**
+		 * 最​佳​候​选​未​通​过​自​动​校​验
+		 */
+		bestCandidateFailedAutomaticValidation: string
+		/**
+		 * 最​佳​候​选​低​于​条​件
+		 */
+		bestCandidateBelowThreshold: string
+		/**
+		 * 没​有​识​别​到​候​选
+		 */
+		noCandidatesFound: string
+		/**
+		 * 更​换​测​试​画​面
+		 */
+		changeTestScreenshot: string
+		/**
+		 * 导​入​测​试​画​面
+		 */
+		importTestScreenshot: string
+		/**
+		 * 选​择​一​张​完​整​截​图​，​在​本​地​离​线​进​行​识​图​或​ ​O​C​R​ ​测​试
+		 */
+		selectAFullScreenshotForLocalOffline: string
+		/**
+		 * T​y​p​e​S​c​r​i​p​t​ ​·​ ​保​存​时​编​译
+		 */
+		typescriptCompiledOnSave: string
+		/**
+		 * 设​为​主​入​口
+		 */
+		setAsMainEntry: string
+		/**
+		 * 删​除​脚​本
+		 */
+		deleteScriptLabel: string
+		/**
+		 * 完​整​接​口​文​档
+		 */
+		fullApiDocumentation: string
+		/**
+		 * 权​限
+		 */
+		permissions: string
+		/**
+		 * 当​前​ ​A​P​I​ ​快​速​参​考
+		 */
+		apiQuickReference: string
+		/**
+		 * 完​整​文​档​不​挤​占​编​辑​空​间​；​这​里​显​示​常​用​签​名​。
+		 */
+		commonSignaturesAreShownHereOpenThe: string
+		/**
+		 * 创​建​或​导​入​自​动​化​包
+		 */
+		createOrImportAnAutomationPackage: string
+		/**
+		 * 创​建​自​动​化
+		 */
+		createAutomation: string
+		/**
+		 * B​l​o​c​k​l​y​ ​主​流​程
+		 */
+		blocklyWorkflow: string
+		/**
+		 * 未​保​存
+		 */
+		unsaved: string
+		/**
+		 * 新​建​可​复​用​脚​本
+		 */
+		newReusableScript: string
+		/**
+		 * 选​择​主​入​口
+		 */
+		selectMainEntry: string
+		/**
+		 * 积​木​入​口
+		 */
+		blocklyEntry: string
+		/**
+		 * 脚​本​入​口
+		 */
+		scriptEntry: string
+		/**
+		 * 名​称
+		 */
+		name: string
+		/**
+		 * 语​言
+		 */
+		language: string
+		/**
+		 * 取​消
+		 */
+		cancel: string
+		/**
+		 * 创​建
+		 */
+		create: string
+		/**
+		 * 运​行​于​：
+		 */
+		runAt: string
+		/**
+		 *  ​·​ ​可​被​积​木​调​用
+		 */
+		callable: string
+		/**
+		 * 相​似​度​
+		 */
+		similarity: string
+		/**
+		 * 坐​标​
+		 */
+		position: string
+		/**
+		 * 原​图​
+		 */
+		original: string
+		/**
+		 *  ​·​ ​等​比​适​应​窗​口
+		 */
+		fit: string
+		/**
+		 * 可​被​积​木​调​用​ ​·​ ​沙​箱​运​行
+		 */
+		sandbox: string
+		/**
+		 * 主​入​口​：
+		 */
+		entryLabel: string
+		/**
+		 * 素​材​：
+		 */
+		assetCount: string
+	}
 	/**
 	 * 确​定
 	 */
@@ -1750,6 +2372,603 @@ type RootTranslation = {
 }
 
 export type TranslationFunctions = {
+	automationPanel: {
+		/**
+		 * 打开页面悬浮助手并收起侧栏，不挤压游戏画面
+		 */
+		assistantHint: () => LocalizedString
+		/**
+		 * 打开页面悬浮助手
+		 */
+		assistant: () => LocalizedString
+		/**
+		 * 进入自动化工作台
+		 */
+		workbench: () => LocalizedString
+		/**
+		 * 自动化脚本
+		 */
+		scripts: () => LocalizedString
+		/**
+		 * 导入
+		 */
+		'import': () => LocalizedString
+		/**
+		 * 请进入工作台创建或导入自动化包
+		 */
+		empty: () => LocalizedString
+		/**
+		 * 默认配置
+		 */
+		defaultProfile: () => LocalizedString
+		/**
+		 * 页面取材与识别
+		 */
+		recognition: () => LocalizedString
+		/**
+		 * 刷新
+		 */
+		refresh: () => LocalizedString
+		/**
+		 * 框选图片素材
+		 */
+		capture: () => LocalizedString
+		/**
+		 * 捕获并识图
+		 */
+		testImage: () => LocalizedString
+		/**
+		 * 输入要识别的文字
+		 */
+		textPlaceholder: () => LocalizedString
+		/**
+		 * 捕获并 OCR
+		 */
+		testText: () => LocalizedString
+		/**
+		 * 拖动框选素材
+		 */
+		selectRegion: () => LocalizedString
+		/**
+		 * 素材名称
+		 */
+		assetName: () => LocalizedString
+		/**
+		 * 保存素材
+		 */
+		saveAsset: () => LocalizedString
+		/**
+		 * 正在停止
+		 */
+		stopping: () => LocalizedString
+		/**
+		 * 正在运行
+		 */
+		running: () => LocalizedString
+		/**
+		 * 执行失败
+		 */
+		failed: () => LocalizedString
+		/**
+		 * 执行完成
+		 */
+		completed: () => LocalizedString
+		/**
+		 * 可以开始
+		 */
+		ready: () => LocalizedString
+		/**
+		 * 立即运行
+		 */
+		run: () => LocalizedString
+		/**
+		 * 停止
+		 */
+		stop: () => LocalizedString
+		/**
+		 * 请在网页或游戏标签页运行自动化。
+		 */
+		pageRequired: () => LocalizedString
+		/**
+		 * 已取消
+		 */
+		cancelled: () => LocalizedString
+		/**
+		 * 导入自动化包
+		 */
+		importTitle: () => LocalizedString
+		/**
+		 * 没有找到匹配图片
+		 */
+		noImage: () => LocalizedString
+		/**
+		 * 关闭
+		 */
+		close: () => LocalizedString
+		/**
+		 * 运行中 · {id}
+		 */
+		runStarted: (arg: { id: string }) => LocalizedString
+		/**
+		 * 已导入 {name}
+		 */
+		imported: (arg: { name: string }) => LocalizedString
+		/**
+		 * 已保存素材 {name}.png
+		 */
+		saved: (arg: { name: string }) => LocalizedString
+		/**
+		 * JavaScript「{name}」请求权限：
+	{permissions}
+
+	是否授权？
+		 */
+		permission: (arg: { name: string, permissions: string }) => LocalizedString
+		/**
+		 * 识图成功 {score}% · {x},{y}
+		 */
+		imageMatch: (arg: { score: string, x: number, y: number }) => LocalizedString
+		/**
+		 * OCR 成功 {score}% · {x},{y}
+		 */
+		textMatch: (arg: { score: string, x: number, y: number }) => LocalizedString
+		/**
+		 * 没有找到文字：{text}
+		 */
+		noText: (arg: { text: string }) => LocalizedString
+	}
+	automationWorkbench: {
+		/**
+		 * 正在运行主入口：{name}
+		 */
+		starting: (arg: { name: string }) => LocalizedString
+		/**
+		 * 这个自动化请求以下权限：
+
+	{permissions}
+
+	是否允许并导入？
+		 */
+		permission: (arg: { permissions: string }) => LocalizedString
+		/**
+		 * 删除素材 {name}？
+		 */
+		deleteAsset: (arg: { name: string }) => LocalizedString
+		/**
+		 * 确定删除自动化包“{name}”吗？
+
+	包内的主流程、脚本、素材和配置都会永久删除。
+		 */
+		deletePackage: (arg: { name: string }) => LocalizedString
+		/**
+		 * 已删除自动化包“{name}”
+		 */
+		packageDeleted: (arg: { name: string }) => LocalizedString
+		/**
+		 *
+
+	这是当前主入口；删除后会自动切换到 Blockly 主流程或其他脚本。
+		 */
+		mainWarning: () => LocalizedString
+		/**
+		 *
+
+	尚未保存的修改也会丢失。
+		 */
+		dirtyWarning: () => LocalizedString
+		/**
+		 * 确定删除脚本“{name}”吗？{main}{dirty}
+		 */
+		deleteScript: (arg: { dirty: string, main: string, name: string }) => LocalizedString
+		/**
+		 * 已删除脚本“{name}”
+		 */
+		scriptDeleted: (arg: { name: string }) => LocalizedString
+		/**
+		 * 已导入测试画面：{name}
+		 */
+		sceneImported: (arg: { name: string }) => LocalizedString
+		/**
+		 * 图片组：{name}（{count} 张）
+		 */
+		groupLabel: (arg: { count: number, name: string }) => LocalizedString
+		/**
+		 * 图片组（{count} 张）
+		 */
+		groupCount: (arg: { count: number }) => LocalizedString
+		/**
+		 * 购买
+		 */
+		buy: () => LocalizedString
+		/**
+		 * Automation Core 已就绪
+		 */
+		automationCoreReady: () => LocalizedString
+		/**
+		 * 自动化脚本执行完成
+		 */
+		automationCompleted: () => LocalizedString
+		/**
+		 * 自动化脚本执行失败
+		 */
+		automationFailed: () => LocalizedString
+		/**
+		 * 已停止
+		 */
+		stopped: () => LocalizedString
+		/**
+		 * 积木工作区尚未准备好
+		 */
+		blocklyWorkspaceIsNotReady: () => LocalizedString
+		/**
+		 * 当前页面没有需要保存的内容
+		 */
+		nothingToSaveOnThisPage: () => LocalizedString
+		/**
+		 * 已保存
+		 */
+		saved: () => LocalizedString
+		/**
+		 * 请先打开一个游戏页面
+		 */
+		openAGamePageFirst: () => LocalizedString
+		/**
+		 * 主流程
+		 */
+		mainWorkflow: () => LocalizedString
+		/**
+		 * 素材已导入
+		 */
+		assetsImported: () => LocalizedString
+		/**
+		 * 图片组文件夹已导入，可在图片积木中直接选择
+		 */
+		imageGroupImportedAndAvailableInImage: () => LocalizedString
+		/**
+		 * 请先在中间导入一张待测试画面
+		 */
+		importATestScreenshotFirst: () => LocalizedString
+		/**
+		 * 请先选择素材
+		 */
+		selectAnAssetFirst: () => LocalizedString
+		/**
+		 * 主入口已更新
+		 */
+		mainEntryUpdated: () => LocalizedString
+		/**
+		 * 自动化工作台
+		 */
+		automationWorkbench: () => LocalizedString
+		/**
+		 * 未选择项目
+		 */
+		noProjectSelected: () => LocalizedString
+		/**
+		 * 素材中心
+		 */
+		assets: () => LocalizedString
+		/**
+		 * 测试中心
+		 */
+		testCenter: () => LocalizedString
+		/**
+		 * 接口文档
+		 */
+		apiDocumentation: () => LocalizedString
+		/**
+		 * 运行页面
+		 */
+		targetPage: () => LocalizedString
+		/**
+		 * 没有可运行页面
+		 */
+		noRunnablePages: () => LocalizedString
+		/**
+		 * 新自动化
+		 */
+		newAutomation: () => LocalizedString
+		/**
+		 * 新建自动化包
+		 */
+		newAutomationPackage: () => LocalizedString
+		/**
+		 * 导入
+		 */
+		'import': () => LocalizedString
+		/**
+		 * 导出
+		 */
+		'export': () => LocalizedString
+		/**
+		 * 删除当前自动化包
+		 */
+		deleteCurrentAutomationPackage: () => LocalizedString
+		/**
+		 * 删除包
+		 */
+		deletePackageLabel: () => LocalizedString
+		/**
+		 * 停止
+		 */
+		stop: () => LocalizedString
+		/**
+		 * 运行主入口
+		 */
+		runMainEntry: () => LocalizedString
+		/**
+		 * 保存
+		 */
+		save: () => LocalizedString
+		/**
+		 * 主入口
+		 */
+		mainEntry: () => LocalizedString
+		/**
+		 * Blockly · 点击运行时执行
+		 */
+		blocklyExecutedWhenRun: () => LocalizedString
+		/**
+		 * 脚本 · 点击运行时执行
+		 */
+		scriptExecutedWhenRun: () => LocalizedString
+		/**
+		 * 更换主入口
+		 */
+		changeMainEntry: () => LocalizedString
+		/**
+		 * 可复用脚本
+		 */
+		reusableScripts: () => LocalizedString
+		/**
+		 * 新脚本
+		 */
+		newScript: () => LocalizedString
+		/**
+		 * 新建 JS / TS 脚本
+		 */
+		newJsTsScript: () => LocalizedString
+		/**
+		 * 资源工具
+		 */
+		resources: () => LocalizedString
+		/**
+		 * 管理素材
+		 */
+		manageAssets: () => LocalizedString
+		/**
+		 * 测试识别
+		 */
+		testRecognition: () => LocalizedString
+		/**
+		 * 一个默认主入口
+		 */
+		oneDefaultMainEntry: () => LocalizedString
+		/**
+		 * 脚本既可以独立设为主入口，也可以被 Blockly 的“运行脚本”积木调用。
+		 */
+		scriptsCanRunAsTheMainEntry: () => LocalizedString
+		/**
+		 * 加载编辑器…
+		 */
+		loadingEditor: () => LocalizedString
+		/**
+		 * 素材托盘
+		 */
+		assetTray: () => LocalizedString
+		/**
+		 * 点击素材可用于当前图片积木。
+		 */
+		clickAnAssetToUseItIn: () => LocalizedString
+		/**
+		 * Blockly 与 JS/TS 共用当前包中的素材；一个文件夹内至少两张图片时自动成为图片组。
+		 */
+		blocklyAndJsTsSharePackageAssets: () => LocalizedString
+		/**
+		 * 导入图片
+		 */
+		importImages: () => LocalizedString
+		/**
+		 * 导入图片组文件夹
+		 */
+		importImageGroupFolder: () => LocalizedString
+		/**
+		 * 暂无素材
+		 */
+		noAssets: () => LocalizedString
+		/**
+		 * 导入 PNG、JPG、WebP 或 BMP 图片。
+		 */
+		importPngJpgWebpOrBmpImages: () => LocalizedString
+		/**
+		 * 选择一个素材
+		 */
+		selectAnAsset: () => LocalizedString
+		/**
+		 * 在场景中测试
+		 */
+		testInScene: () => LocalizedString
+		/**
+		 * 删除素材
+		 */
+		deleteAssetLabel: () => LocalizedString
+		/**
+		 * 导入一张待测试画面，离线验证单张图片、图片组和 OCR。
+		 */
+		importAScreenshotToTestImagesImage: () => LocalizedString
+		/**
+		 * 图片对比
+		 */
+		imageMatching: () => LocalizedString
+		/**
+		 * 文字识别 OCR
+		 */
+		textRecognitionOcr: () => LocalizedString
+		/**
+		 * 选择图片或图片组
+		 */
+		selectImageOrImageGroup: () => LocalizedString
+		/**
+		 * 当前识别素材
+		 */
+		currentMatchingAsset: () => LocalizedString
+		/**
+		 * 要识别的文字
+		 */
+		textToRecognize: () => LocalizedString
+		/**
+		 * OCR 识别内容
+		 */
+		ocrText: () => LocalizedString
+		/**
+		 * 尚未输入文字
+		 */
+		noTextEntered: () => LocalizedString
+		/**
+		 * 开始测试
+		 */
+		startTest: () => LocalizedString
+		/**
+		 * 匹配成功
+		 */
+		matchFound: () => LocalizedString
+		/**
+		 * 最佳候选未通过自动校验
+		 */
+		bestCandidateFailedAutomaticValidation: () => LocalizedString
+		/**
+		 * 最佳候选低于条件
+		 */
+		bestCandidateBelowThreshold: () => LocalizedString
+		/**
+		 * 没有识别到候选
+		 */
+		noCandidatesFound: () => LocalizedString
+		/**
+		 * 更换测试画面
+		 */
+		changeTestScreenshot: () => LocalizedString
+		/**
+		 * 导入测试画面
+		 */
+		importTestScreenshot: () => LocalizedString
+		/**
+		 * 选择一张完整截图，在本地离线进行识图或 OCR 测试
+		 */
+		selectAFullScreenshotForLocalOffline: () => LocalizedString
+		/**
+		 * TypeScript · 保存时编译
+		 */
+		typescriptCompiledOnSave: () => LocalizedString
+		/**
+		 * 设为主入口
+		 */
+		setAsMainEntry: () => LocalizedString
+		/**
+		 * 删除脚本
+		 */
+		deleteScriptLabel: () => LocalizedString
+		/**
+		 * 完整接口文档
+		 */
+		fullApiDocumentation: () => LocalizedString
+		/**
+		 * 权限
+		 */
+		permissions: () => LocalizedString
+		/**
+		 * 当前 API 快速参考
+		 */
+		apiQuickReference: () => LocalizedString
+		/**
+		 * 完整文档不挤占编辑空间；这里显示常用签名。
+		 */
+		commonSignaturesAreShownHereOpenThe: () => LocalizedString
+		/**
+		 * 创建或导入自动化包
+		 */
+		createOrImportAnAutomationPackage: () => LocalizedString
+		/**
+		 * 创建自动化
+		 */
+		createAutomation: () => LocalizedString
+		/**
+		 * Blockly 主流程
+		 */
+		blocklyWorkflow: () => LocalizedString
+		/**
+		 * 未保存
+		 */
+		unsaved: () => LocalizedString
+		/**
+		 * 新建可复用脚本
+		 */
+		newReusableScript: () => LocalizedString
+		/**
+		 * 选择主入口
+		 */
+		selectMainEntry: () => LocalizedString
+		/**
+		 * 积木入口
+		 */
+		blocklyEntry: () => LocalizedString
+		/**
+		 * 脚本入口
+		 */
+		scriptEntry: () => LocalizedString
+		/**
+		 * 名称
+		 */
+		name: () => LocalizedString
+		/**
+		 * 语言
+		 */
+		language: () => LocalizedString
+		/**
+		 * 取消
+		 */
+		cancel: () => LocalizedString
+		/**
+		 * 创建
+		 */
+		create: () => LocalizedString
+		/**
+		 * 运行于：
+		 */
+		runAt: () => LocalizedString
+		/**
+		 *  · 可被积木调用
+		 */
+		callable: () => LocalizedString
+		/**
+		 * 相似度
+		 */
+		similarity: () => LocalizedString
+		/**
+		 * 坐标
+		 */
+		position: () => LocalizedString
+		/**
+		 * 原图
+		 */
+		original: () => LocalizedString
+		/**
+		 *  · 等比适应窗口
+		 */
+		fit: () => LocalizedString
+		/**
+		 * 可被积木调用 · 沙箱运行
+		 */
+		sandbox: () => LocalizedString
+		/**
+		 * 主入口：
+		 */
+		entryLabel: () => LocalizedString
+		/**
+		 * 素材：
+		 */
+		assetCount: () => LocalizedString
+	}
 	/**
 	 * 确定
 	 */

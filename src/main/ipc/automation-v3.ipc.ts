@@ -1,4 +1,6 @@
 import fs from 'fs';
+import { registerAutomationAssistantBridge } from './automation-assistant-bridge';
+import { tabManager } from '../modules/tabs';
 import path from 'path';
 import { randomBytes } from 'crypto';
 import { app, BrowserWindow, clipboard, dialog, nativeImage, type NativeImage } from 'electron';
@@ -50,6 +52,8 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
   const repository = new AutomationPackageV3Repository(path.join(app.getPath('userData'), 'automation-v3', 'packages'));
   const service = new AutomationV3Service(repository, new JavaScriptAutomationGrantStore(path.join(app.getPath('userData'), 'automation-v3', 'grants.json')));
   setAutomationV3Service(service);
+  registerAutomationAssistantBridge('automation-assistant:', (wcId, identity) => identity === 'native' && Boolean(tabManager.getTabIdForWebContents(wcId)));
+  createValidatedHandler('automation-v3:show-assistant', z.object({ tabId }).strict(), ({ tabId: target }) => tabManager.inspectAutomationTarget(target, async (wc) => { wc.send('automation-assistant:show'); return { shown: true }; }));
   createValidatedHandler('automation-v3:list', z.object({}).optional(), () => service.listPackages());
   createValidatedHandler('automation-v3:status', z.object({}).optional(), () => service.status());
   createValidatedHandler('automation-v3:get', z.object({ packageId: id }).strict(), ({ packageId }) => service.getPackage(packageId));

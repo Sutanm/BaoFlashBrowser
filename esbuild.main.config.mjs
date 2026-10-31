@@ -1,6 +1,7 @@
 import esbuild from 'esbuild';
 import { copy } from 'esbuild-plugin-copy';
 import fs from 'fs';
+import path from 'path';
 import { moduleDefines, moduleSummary, parseModules } from './build/module-flags.mjs';
 
 const isWatch = process.argv.includes('--watch');
@@ -24,6 +25,16 @@ const shared = {
     // Built-in userscript sources are embedded as text into the main bundle
     '.user.js': 'text',
   },
+  plugins: [{
+    name: 'native-automation-ui',
+    setup(build) {
+      build.onResolve({ filter: /\.user\.js\?native$/ }, args => ({ path: path.resolve(args.resolveDir, args.path.replace(/\?native$/, '')), namespace: 'native-automation-ui' }));
+      build.onLoad({ filter: /.*/, namespace: 'native-automation-ui' }, args => ({
+        contents: `export default function install(GM) {\n${fs.readFileSync(args.path, 'utf8')}\n}`,
+        loader: 'js', watchFiles: [args.path],
+      }));
+    },
+  }],
   logLevel: 'info',
   define: moduleDefines(modules),
   // Compile-time module guards only become removable branches when syntax
@@ -39,6 +50,7 @@ const builds = [
     entryPoints: ['src/main/index.ts'],
     outfile: 'dist/main.js',
     plugins: [
+      ...shared.plugins,
       copy({
         assets: [
           {

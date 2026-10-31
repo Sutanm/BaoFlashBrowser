@@ -23,6 +23,20 @@
   color: var(--accent);
   font-size: 13px;
   font-weight: 600;
+  min-height: 38px;
+  cursor: pointer;
+  transition: background-color .15s, opacity .15s;
+}
+.automation-panel-manage:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.automation-panel-manage:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.automation-panel-manage:disabled {
+  opacity: .45;
+  cursor: not-allowed;
 }
 .automation-panel-notice,
 .automation-panel-empty {
@@ -2596,4 +2610,29 @@ body.dark .awb-docs .doc-callout.doc-warn {
   .script-body {
     grid-template-columns: 1fr 220px;
   }
+}
+
+/* Keep translated labels and native controls usable in the narrow sidebar. */
+.automation-panel > *,
+.automation-panel-section > * {
+  min-width: 0;
+}
+.automation-panel button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.automation-panel button > svg {
+  flex-shrink: 0;
+}
+.automation-panel button:not(:disabled) {
+  cursor: pointer;
+}
+.automation-panel button:disabled {
+  cursor: not-allowed;
+}
+.automation-panel button:focus-visible,
+.automation-panel input:focus-visible,
+.automation-panel select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
