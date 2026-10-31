@@ -234,6 +234,15 @@ const zhCN: BaseTranslation = {
 
   // 设置
   settings: {
+    updateTitle: '关于与更新',
+    updateCheck: '检查更新',
+    updateChecking: '正在检查…',
+    updateCurrent: '当前版本：{version}',
+    updateLatest: '已是最新版本',
+    updateAvailable: '发现新版本：{version}',
+    updateFailed: '检查失败，请检查网络或稍后重试',
+    updateDownload: '前往发布页下载',
+
     proxy: {
       testLimit: '检测次数已达本次启动的上限（32 次），请重启浏览器后重试。',
       "title": "网络代理",

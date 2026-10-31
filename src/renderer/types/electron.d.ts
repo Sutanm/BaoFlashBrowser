@@ -105,6 +105,9 @@ declare global {
       on(channel: 'ruffle:diagnostic', cb: (payload: RuffleDiagnosticPayload) => void): () => void;
       on(channel: string, cb: (...args: unknown[]) => void): () => void;
 
+      invoke(channel: 'app:version'): Promise<string>;
+      invoke(channel: 'app:check-update'): Promise<import('../../shared/types/app-update').AppUpdateResult>;
+      invoke(channel: 'app:open-release'): Promise<void>;
       invoke(channel: 'load-config'): Promise<MainConfig | null>;
       invoke(channel: 'save-config', payload: Partial<MainConfig>): Promise<boolean>;
       invoke(channel: 'cache:clear', payload?: Record<string, never>): Promise<{ clearedSessions: number }>;

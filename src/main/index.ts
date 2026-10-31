@@ -1,3 +1,4 @@
+import { registerAppUpdateIPC } from './ipc/app-update.ipc';
 /*! BaoFlashBrowser · crafted by Sutanm */
 /* eslint-disable @typescript-eslint/no-require-imports -- compile-time guarded CommonJS loads let esbuild physically omit disabled modules */
 import path from 'path';
@@ -177,6 +178,7 @@ function bootstrap(): void {
     registerWindowIPC(() => getMainWindow());
     registerConfigIPC({ applyUserscriptCapacityConfig: userscripts?.applyCapacityConfig });
     registerTabsIPC();
+    registerAppUpdateIPC();
     if (MODULE_DOWNLOAD) {
       const { registerDownloadIPC } = require('./ipc/download.ipc') as typeof import('./ipc/download.ipc');
       registerDownloadIPC();

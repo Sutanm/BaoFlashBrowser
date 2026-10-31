@@ -221,6 +221,15 @@ const en: Translation = {
   },
 
   settings: {
+    updateTitle: 'About and updates',
+    updateCheck: 'Check for updates',
+    updateChecking: 'Checking…',
+    updateCurrent: 'Current version: {version}',
+    updateLatest: 'You are up to date',
+    updateAvailable: 'New version available: {version}',
+    updateFailed: 'Update check failed. Check your connection or try again later.',
+    updateDownload: 'Download from releases',
+
     proxy: {
       testLimit: 'The limit of 32 tests per launch has been reached. Restart the browser to test again.',
       "title": "Network proxy",

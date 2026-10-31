@@ -804,6 +804,40 @@ type RootTranslation = {
 		viewProtectionChangeBtn: string
 	}
 	settings: {
+		/**
+		 * 关​于​与​更​新
+		 */
+		updateTitle: string
+		/**
+		 * 检​查​更​新
+		 */
+		updateCheck: string
+		/**
+		 * 正​在​检​查​…
+		 */
+		updateChecking: string
+		/**
+		 * 当​前​版​本​：​{​v​e​r​s​i​o​n​}
+		 * @param {unknown} version
+		 */
+		updateCurrent: RequiredParams<'version'>
+		/**
+		 * 已​是​最​新​版​本
+		 */
+		updateLatest: string
+		/**
+		 * 发​现​新​版​本​：​{​v​e​r​s​i​o​n​}
+		 * @param {unknown} version
+		 */
+		updateAvailable: RequiredParams<'version'>
+		/**
+		 * 检​查​失​败​，​请​检​查​网​络​或​稍​后​重​试
+		 */
+		updateFailed: string
+		/**
+		 * 前​往​发​布​页​下​载
+		 */
+		updateDownload: string
 		proxy: {
 			/**
 			 * 检​测​次​数​已​达​本​次​启​动​的​上​限​（​3​2​ ​次​）​，​请​重​启​浏​览​器​后​重​试​。
@@ -2489,6 +2523,38 @@ export type TranslationFunctions = {
 		viewProtectionChangeBtn: () => LocalizedString
 	}
 	settings: {
+		/**
+		 * 关于与更新
+		 */
+		updateTitle: () => LocalizedString
+		/**
+		 * 检查更新
+		 */
+		updateCheck: () => LocalizedString
+		/**
+		 * 正在检查…
+		 */
+		updateChecking: () => LocalizedString
+		/**
+		 * 当前版本：{version}
+		 */
+		updateCurrent: (arg: { version: unknown }) => LocalizedString
+		/**
+		 * 已是最新版本
+		 */
+		updateLatest: () => LocalizedString
+		/**
+		 * 发现新版本：{version}
+		 */
+		updateAvailable: (arg: { version: unknown }) => LocalizedString
+		/**
+		 * 检查失败，请检查网络或稍后重试
+		 */
+		updateFailed: () => LocalizedString
+		/**
+		 * 前往发布页下载
+		 */
+		updateDownload: () => LocalizedString
 		proxy: {
 			/**
 			 * 检测次数已达本次启动的上限（32 次），请重启浏览器后重试。

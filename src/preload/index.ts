@@ -18,6 +18,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'tab:reload', 'tab:stop', 'tab:zoom', 'tab:mute', 'tab:devtools', 'tab:find', 'tab:stopFind',
   'tab:setBounds', 'tab:setRuffleMode',
   'load-config', 'save-config',
+  'app:version', 'app:check-update', 'app:open-release',
   'cache:clear',
   'proxy:test',
   'download:aria2-status', 'download:get-dir', 'download:set-dir', 'download:delete-file',

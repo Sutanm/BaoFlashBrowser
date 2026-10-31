@@ -1,3 +1,4 @@
+import type { AppUpdateResult } from '@shared/types/app-update';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDataStore, defaultSettings } from '@renderer/store/useDataStore';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
@@ -66,6 +67,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
 
   const [form, setForm] = useState<Settings>({ ...defaultSettings, ...settings });
   const [mainForm, setMainForm] = useState<MainConfigForm>({ ...DEFAULT_MAIN_CONFIG });
+  const [appVersion, setAppVersion] = useState('');
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<AppUpdateResult | null>(null);
+  useEffect(() => {
+    void window.electronAPI.invoke('app:version').then(setAppVersion).catch(() => {});
+  }, []);
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    setUpdateResult(null);
+    try {
+      setUpdateResult(await window.electronAPI.invoke('app:check-update'));
+    } catch {
+      setUpdateResult({ status: 'error', currentVersion: appVersion });
+    } finally { setCheckingUpdate(false); }
+  };
   const [saved, setSaved] = useState<boolean | 'restart'>(false);
   const [resetConfirming, setResetConfirming] = useState(false);
   const [autoCapture, setAutoCapture] = useState(true);
@@ -742,6 +758,28 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           {resetConfirming ? LL.password.resetConfirm() : LL.password.resetBtn()}
         </button>
       </div>
+      )}
+
+      {activeSection === 'general' && (
+        <div className="panel-card settings-section-card">
+          <div className="panel-card-title">{LL.settings.updateTitle()}</div>
+          <div className="field-hint">{LL.settings.updateCurrent({ version: appVersion || '…' })}</div>
+          <button type="button" className="btn-secondary" disabled={checkingUpdate} onClick={() => void handleCheckUpdate()}>
+            {checkingUpdate ? LL.settings.updateChecking() : LL.settings.updateCheck()}
+          </button>
+          <div role="status" aria-live="polite">
+            {updateResult?.status === 'current' && LL.settings.updateLatest()}
+            {updateResult?.status === 'error' && LL.settings.updateFailed()}
+            {updateResult?.status === 'available' && <>
+              <p>{LL.settings.updateAvailable({ version: updateResult.latestVersion ?? '' })}</p>
+              <button type="button" className="btn-secondary" onClick={() => {
+                void window.electronAPI.invoke('app:open-release').catch(() => {
+                  setUpdateResult({ status: 'error', currentVersion: appVersion });
+                });
+              }}>{LL.settings.updateDownload()}</button>
+            </>}
+          </div>
+        </div>
       )}
 
       {activeSection === 'advanced' && (
