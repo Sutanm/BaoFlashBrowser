@@ -12,6 +12,7 @@ import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow } from './modules/window';
 import { handleWebviewBeforeInputEvent, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
+import { registerThemeIPC } from './ipc/theme.ipc';
 import { registerConfigIPC } from './ipc/config.ipc';
 import { registerTabsIPC } from './ipc/tabs.ipc';
 import { registerScreenshotIPC } from './ipc/screenshot.ipc';
@@ -176,6 +177,7 @@ function bootstrap(): void {
     registerZoomShortcuts();
     startMouseHook();
     registerWindowIPC(() => getMainWindow());
+    registerThemeIPC();
     registerConfigIPC({ applyUserscriptCapacityConfig: userscripts?.applyCapacityConfig });
     registerTabsIPC();
     registerAppUpdateIPC();

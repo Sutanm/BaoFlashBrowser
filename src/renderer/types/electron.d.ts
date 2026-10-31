@@ -147,6 +147,7 @@ declare global {
       invoke(channel: 'session:recovery-status'): Promise<SessionRecoveryStatus>;
       invoke(channel: 'session:resolve-recovery'): Promise<void>;
       invoke(channel: 'win:minimize' | 'win:maximize' | 'win:unmaximize' | 'win:close' | 'win:toggleFullscreen'): Promise<void>;
+      invoke(channel: 'theme:set-source', source: 'system' | 'light' | 'dark'): Promise<void>;
       invoke(channel: 'win:setFullscreen', fullscreen: boolean): Promise<void>;
       invoke(channel: 'win:isMaximized'): Promise<boolean>;
       invoke(channel: 'screenshot:capture', payload: { tabId: string } & ScreenshotOptions): Promise<ScreenshotResult>;

@@ -33,6 +33,8 @@ test('search engine, language and theme survive an application restart', async (
   try {
     expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(profile);
     let page = await app.firstWindow();
+    // Playwright defaults to a light color-scheme emulation; use Chromium's actual preference.
+    await page.emulateMedia({ colorScheme: null });
     await openSettings(page);
     // Establish the old key first so switching engines exercises the regression.
     await page.locator('.settings-save-button').click();
@@ -47,13 +49,19 @@ test('search engine, language and theme survive an application restart', async (
     const desiredTheme = await theme.getAttribute('aria-checked') === 'true' ? 'light' : 'dark';
     await theme.click();
     await expect.poll(async () => (await persistedSettings(page)).themeMode).toBe(desiredTheme);
+    await expect.poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe(desiredTheme);
+    await expect.poll(() => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(desiredTheme === 'dark');
     await closeApp(app);
     app = await launchApp(profile);
     page = await app.firstWindow();
+    // Playwright defaults to a light color-scheme emulation; use Chromium's actual preference.
+    await page.emulateMedia({ colorScheme: null });
     await openSettings(page);
     await expect(page.locator('select').filter({ has: page.locator('option[value="google"]') })).toHaveValue('google');
     await expect(page.locator('select').filter({ has: page.locator('option[value="en"]') })).toHaveValue('en');
     await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
     await expect(page.locator('.theme-toggle').first()).toHaveAttribute('aria-checked', String(desiredTheme === 'dark'));
+    await expect.poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe(desiredTheme);
+    await expect.poll(() => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(desiredTheme === 'dark');
   } finally { await closeApp(app); }
 });

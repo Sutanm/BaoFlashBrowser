@@ -298,7 +298,12 @@ const AppInner: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  useTheme();
+  const { themeMode } = useTheme();
+  useEffect(() => {
+    // Send the selected mode, not the resolved color: system must remove the override.
+    void window.electronAPI.invoke('theme:set-source', themeMode)
+      .catch((error) => console.warn('[Theme] native theme sync failed:', error));
+  }, [themeMode]);
   const settings = useDataStore((s) => s.settings);
   const initRef = useRef(false);
   if (!initRef.current) {
