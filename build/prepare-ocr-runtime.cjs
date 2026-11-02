@@ -60,9 +60,11 @@ function copyDirectory(source, destination) {
 }
 
 async function main() {
-  if (process.platform !== 'win32') throw new Error('Paddle OCR runtime preparation currently requires Windows');
+  // Linux stages these files only to reuse the pinned PP-OCRv3 models in its
+  // native build. No Windows executable is launched by this preparation step.
+  if (!['win32', 'linux'].includes(process.platform)) throw new Error('Paddle OCR staging requires Windows or Linux');
   const readyMetadata = path.join(targetRoot, 'OCR-RUNTIME.json');
-  if (fs.existsSync(path.join(targetRoot, 'bao-paddle-ocr-sidecar.exe')) && fs.existsSync(readyMetadata)) {
+  if (!process.env.BAO_OCR_FORCE_PREPARE && fs.existsSync(path.join(targetRoot, 'bao-paddle-ocr-sidecar.exe')) && fs.existsSync(readyMetadata)) {
     const metadata = JSON.parse(fs.readFileSync(readyMetadata, 'utf8'));
     if (metadata.protocol === 1 && metadata.sidecarSha256 === sidecarSha256 && metadata.archiveSha256 === archiveSha256) {
       console.log(`OCR runtime already prepared: ${path.relative(projectRoot, targetRoot)}`);
@@ -93,7 +95,13 @@ async function main() {
   const extractRoot = path.join(cacheRoot, `extract-${version}`);
   fs.rmSync(extractRoot, { recursive: true, force: true });
   fs.mkdirSync(extractRoot, { recursive: true });
-  const extracted = spawnSync(process.platform === 'linux' ? 'bsdtar' : 'tar', ['-xf', archive, '-C', extractRoot], { stdio: 'inherit' });
+  // Windows Server's built-in tar can lack the LZMA codec used by this archive.
+  // Use electron-builder's checksum-verified 7zip toolset on Windows instead.
+  const extractor = process.platform === 'win32'
+    ? await require('app-builder-lib/out/toolsets/7zip').getPath7za()
+    : 'bsdtar';
+  const extractArgs = process.platform === 'win32' ? ['x', archive, `-o${extractRoot}`, '-y'] : ['-xf', archive, '-C', extractRoot];
+  const extracted = spawnSync(extractor, extractArgs, { stdio: 'inherit' });
   if (extracted.status !== 0) throw new Error(`failed to extract OCR archive (tar exit ${extracted.status})`);
   const sourceRoot = path.join(extractRoot, `PaddleOCR-json_v${version}`);
   if (!fs.existsSync(path.join(sourceRoot, 'PaddleOCR-json.exe'))) throw new Error('OCR archive has an unexpected layout');
