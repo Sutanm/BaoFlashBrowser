@@ -13,7 +13,10 @@ test -d "$source_root"
 test -f "$inference_archive"
 actual_inference_sha="$(sha256sum "$inference_archive" | awk '{print $1}')"
 test "$actual_inference_sha" = "$expected_inference_sha"
-actual_source_commit="$(git -C "$source_root/../.." rev-parse HEAD)"
+source_repo="$(cd "$source_root/../.." && pwd -P)"
+# The bind mount belongs to the host runner while the compiler container runs
+# as root. Trust only this pinned source checkout for this one Git command.
+actual_source_commit="$(git -c safe.directory="$source_repo" -C "$source_repo" rev-parse HEAD)"
 test "$actual_source_commit" = "$expected_source_commit"
 
 rm -rf "$build_root"
