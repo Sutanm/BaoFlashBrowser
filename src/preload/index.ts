@@ -22,7 +22,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'app:version', 'app:check-update', 'app:open-release',
   'cache:clear',
   'proxy:test',
-  'download:aria2-status', 'download:get-dir', 'download:set-dir', 'download:delete-file',
+  'download:open-folder', 'download:aria2-status', 'download:get-dir', 'download:set-dir', 'download:delete-file',
   'download:list', 'download:remove-record', 'download:clear-finished', 'download:pause', 'download:resume',
   'password:status', 'password:init',
   'password:toggle-enabled', 'password:set-auto-capture', 'password:set-auto-fill', 'password:set-excluded-sites', 'password:list', 'password:save-confirm',
@@ -41,7 +41,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'userscripts:background-status', 'userscripts:background-restart',
   'userscripts:export-source',
   'userscripts:list-values', 'userscripts:set-value-admin', 'userscripts:delete-value-admin',
-  'screenshot:capture', 'screenshot:capture-active', 'screenshot:reveal', 'screenshot:set-dir',
+  'screenshot:get-dir', 'screenshot:capture', 'screenshot:capture-active', 'screenshot:reveal', 'screenshot:set-dir',
     'automation-v3:list', 'automation-v3:get', 'automation-v3:create', 'automation-v3:validate-workflow',
     'automation-v3:update-workflow', 'automation-v3:upsert-script', 'automation-v3:delete-script', 'automation-v3:set-main-entry', 'automation-v3:delete',
     'automation-v3:open', 'automation-v3:install', 'automation-v3:export',
@@ -128,6 +128,7 @@ const electronAPI = {
     resume: (id: string) => safeInvoke('download:resume', { id }),
     open: (savePath: string) => safeSend('download:open', { savePath }),
     openDir: (savePath: string) => safeSend('download:openDir', { savePath }),
+    openFolder: () => safeInvoke('download:open-folder', {}),
     getDir: () => safeInvoke('download:get-dir'),
     setDir: (title?: string) => safeInvoke('download:set-dir', { title }),
     deleteFile: (savePath: string) => safeInvoke('download:delete-file', { savePath }),
@@ -209,6 +210,7 @@ const electronAPI = {
   },
 
   screenshot: {
+    getDir: () => safeInvoke('screenshot:get-dir', {}),
     capture: (tabId: string, opts?: { save?: boolean; savePath?: string; returnData?: boolean; rect?: { x: number; y: number; width: number; height: number } }) =>
       safeInvoke('screenshot:capture', { tabId, ...opts }),
     captureActive: (opts?: { save?: boolean; savePath?: string; returnData?: boolean; rect?: { x: number; y: number; width: number; height: number } }) =>

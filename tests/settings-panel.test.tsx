@@ -34,6 +34,8 @@ describe('SettingsPanel section rendering', () => {
       value: {
         invoke: vi.fn().mockResolvedValue('1.1.2'),
         config: { get: vi.fn().mockResolvedValue(mainConfig) },
+        dl: { getDir: vi.fn().mockResolvedValue('D:\\Downloads\\BaoFlashBrowser'), setDir: vi.fn().mockResolvedValue('E:\\Games\\Downloads') },
+        screenshot: { getDir: vi.fn().mockResolvedValue('D:\\Pictures\\BaoFlashBrowser') },
         pwd: {
           status: vi.fn().mockResolvedValue({
             initialized: false, unlocked: false, enabled: true,
@@ -46,6 +48,15 @@ describe('SettingsPanel section rendering', () => {
   });
 
   afterEach(() => cleanup());
+
+  it('shows both effective full paths and changes the download folder from settings', async () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /下载与截图/ }));
+    expect(await screen.findByText('D:\\Downloads\\BaoFlashBrowser')).toBeVisible();
+    expect(await screen.findByText('D:\\Pictures\\BaoFlashBrowser')).toBeVisible();
+    fireEvent.click(screen.getByRole('region', { name: '下载保存目录' }).querySelector('button')!);
+    expect(await screen.findByText('E:\\Games\\Downloads')).toBeVisible();
+  });
 
   it('mounts only the selected section and preserves parent-owned draft state', () => {
     const { container } = renderPanel();

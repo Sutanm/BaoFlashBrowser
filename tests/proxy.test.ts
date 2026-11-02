@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
   session: { defaultSession: mocks.defaultSession, fromPartition: mocks.fromPartition },
   net: { request: mocks.request },
 }));
-import { initializeProxy, testProxy, usesBrowserDownloads } from '../src/main/modules/proxy';
+import { initializeProxy, testProxy } from '../src/main/modules/proxy';
 
 const manual = { ...DEFAULT_PROXY, mode: 'manual' as const, host: '127.0.0.1' };
 
@@ -66,14 +66,12 @@ describe('proxy sessions', () => {
     await initializeProxy(manual);
     expect(mocks.defaultSession.setProxy).toHaveBeenCalledWith(toElectronProxy(manual));
     expect(mocks.tabSession.setProxy).toHaveBeenCalledWith(toElectronProxy(manual));
-    expect(usesBrowserDownloads()).toBe(true);
   });
 
   it('does not override the system configuration', async () => {
     await initializeProxy(DEFAULT_PROXY);
     expect(mocks.defaultSession.setProxy).not.toHaveBeenCalled();
     expect(mocks.tabSession.setProxy).not.toHaveBeenCalled();
-    expect(usesBrowserDownloads()).toBe(false);
   });
 
   it('tests unsaved settings in isolation and stops downloading at response headers', async () => {

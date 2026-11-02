@@ -33,41 +33,29 @@ function FileIcon({ filename }: { filename: string }) {
   return <File className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />;
 }
 
-function dirName(fullPath: string): string {
-  if (!fullPath) return '';
-  const parts = fullPath.replace(/\\/g, '/').split('/');
-  return parts[parts.length - 1] || fullPath;
-}
-
 const DownloadsPanel: React.FC = () => {
   const { LL } = useI18nContext();
   const downloads = useDataStore((s) => s.downloads);
   const setDownloads = useDataStore((s) => s.setDownloads);
   const pushToast = useDataStore((s) => s.pushToast);
-  const [aria2Status, setAria2Status] = useState<{ ready: boolean; port?: number; dir?: string } | null>(null);
   const [downloadDir, setDownloadDir] = useState('');
   const [engine, setEngine] = useState<DownloadEngine>('aria2');
-
+  const [aria2Ready, setAria2Ready] = useState<boolean | null>(null);
   useEffect(() => {
-    window.electronAPI?.config?.get().then((cfg) => {
-      if (cfg?.downloadEngine) setEngine(cfg.downloadEngine as DownloadEngine);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const cleanup = window.electronAPI?.on('aria2:status', (data) => {
-      setAria2Status(data);
+    let subscribed = true;
+    let receivedStatus = false;
+    const cleanup = window.electronAPI.on('aria2:status', (status) => {
+      receivedStatus = true;
+      if (subscribed) setAria2Ready(status.ready);
     });
-    window.electronAPI?.invoke('download:aria2-status').then((data) => {
-      if (data) setAria2Status(data);
-    }).catch(() => {});
-    return () => { cleanup?.(); };
+    window.electronAPI.config.get().then((cfg) => { if (subscribed && cfg?.downloadEngine) setEngine(cfg.downloadEngine); }).catch(() => {});
+    window.electronAPI.invoke('download:aria2-status').then((status) => {
+      if (subscribed && !receivedStatus && status) setAria2Ready(status.ready);
+    }).catch(() => { if (subscribed && !receivedStatus) setAria2Ready(false); });
+    return () => { subscribed = false; cleanup(); };
   }, []);
-
   useEffect(() => {
-    window.electronAPI?.dl?.getDir().then((dir: string) => {
-      if (dir) setDownloadDir(dir);
-    }).catch(() => {});
+    window.electronAPI?.dl?.getDir().then(setDownloadDir).catch(() => {});
   }, []);
 
   const removeEntry = useCallback(async (e: React.MouseEvent, id: string) => {
@@ -132,14 +120,6 @@ const DownloadsPanel: React.FC = () => {
     }
   }, [setDownloads, pushToast, LL]);
 
-  const chooseDir = useCallback(async () => {
-    const newDir = await window.electronAPI?.dl?.setDir(LL.download.selectDir());
-    if (newDir) {
-      setDownloadDir(newDir);
-      pushToast({ message: LL.download.dirChanged(), type: 'success' });
-    }
-  }, [pushToast, LL]);
-
   const clearCompleted = useCallback(async () => {
     try {
       const result = await window.electronAPI.dl.clearFinished();
@@ -162,44 +142,15 @@ const DownloadsPanel: React.FC = () => {
 
   return (
     <>
-      {/* Engine status + download directory */}
-      <div style={{
-        borderBottom: '1px solid var(--border-light)',
-        padding: '8px 12px',
-        fontSize: 12,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}>
-        {/* Engine line: 显示实际生效的引擎 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
-          <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{LL.download.engine()}:</span>
-          <span>{aria2Status?.ready ? 'aria2' : 'Chromium'}</span>
-          <span style={{
-            width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-            background: aria2Status?.ready ? '#27ae60' : '#3498db',
-            boxShadow: aria2Status?.ready ? '0 0 6px #27ae60' : '0 0 6px #3498db',
-          }} />
-          <span style={{ fontSize: 11, opacity: 0.6 }}>
-            {engine === 'aria2' && !aria2Status?.ready && aria2Status !== null ? `(${LL.download.aria2Unavailable()})` : ''}
-            {aria2Status?.ready ? `${LL.download.ready()} :${aria2Status.port}` : aria2Status ? '' : LL.download.detecting()}
-          </span>
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-light)' }}>
+        <div role="status" aria-label={LL.download.engine()} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+          <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: engine === 'chromium' ? '#3498db' : aria2Ready === null ? '#999' : aria2Ready ? '#27ae60' : '#e67e22' }} />
+          <span>{LL.download.engine()}: {engine === 'aria2' && aria2Ready === false ? 'Chromium' : engine === 'aria2' ? 'aria2' : 'Chromium'}</span>
+          <span>{engine === 'chromium' ? LL.download.ready() : aria2Ready === null ? LL.download.detecting() : aria2Ready ? LL.download.ready() : LL.download.aria2Unavailable()}</span>
         </div>
-        {/* Directory line */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
-          <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{LL.download.location()}:</span>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {downloadDir ? dirName(downloadDir) : LL.default()}
-          </span>
-          <button
-            onClick={chooseDir}
-            className="btn-icon"
-            style={{ width: 24, height: 24, flexShrink: 0 }}
-            title={LL.download.selectDir()}
-          >
-            <FolderOpen className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', minHeight: 32 }} title={downloadDir} onClick={() => {
+          void window.electronAPI.dl.openFolder().catch(() => pushToast({ message: LL.download.openFolderFailed(), type: 'error' }));
+        }}><FolderOpen className="w-3.5 h-3.5" /> {LL.download.openFolder()}</button>
       </div>
 
       {hasCompleted && (

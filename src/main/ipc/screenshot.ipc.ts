@@ -21,6 +21,7 @@ const commonSchema = {
 };
 
 export function registerScreenshotIPC(getWin: () => BrowserWindow | null): void {
+  createValidatedHandler('screenshot:get-dir', z.object({}).optional(), () => getScreenshotDir());
   createValidatedHandler('screenshot:capture',
     z.object({ tabId: z.string().min(1).max(128), ...commonSchema }).strict(),
     (args) => captureTab(args.tabId, args));

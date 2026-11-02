@@ -4,7 +4,7 @@ import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
-import { usesBrowserDownloads } from './proxy';
+import { resolveDownloadProxy } from './download-proxy';
 import { loadConfig } from './config';
 import { getMainWindow } from './window';
 import { availableSavePath, isPathWithinDirectory, sanitizeDownloadFilename } from '../utils/download-path';
@@ -31,6 +31,28 @@ const aria2Gids = new Map<string, string>(); // dlId -> aria2 GID
 const aria2PollTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const chromiumItems = new Map<string, DownloadItem>(); // dlId -> DownloadItem
 const pendingChromiumRetries = new Map<string, DownloadRecord[]>();
+const browserOnlyDownloads = new WeakMap<Electron.Session, Map<string, number>>();
+
+function browserDownload(sess: Electron.Session, url: string, retry?: DownloadRecord): void {
+  const pending = browserOnlyDownloads.get(sess) ?? new Map<string, number>();
+  browserOnlyDownloads.set(sess, pending);
+  pending.set(url, (pending.get(url) || 0) + 1);
+  if (retry) {
+    const queue = pendingChromiumRetries.get(url) || [];
+    queue.push(retry);
+    pendingChromiumRetries.set(url, queue);
+  }
+  try { sess.downloadURL(url); }
+  catch (error) {
+    const count = pending.get(url) || 1;
+    if (count === 1) pending.delete(url); else pending.set(url, count - 1);
+    if (retry) {
+      const queue = pendingChromiumRetries.get(url)?.filter((item) => item !== retry) || [];
+      if (queue.length) pendingChromiumRetries.set(url, queue); else pendingChromiumRetries.delete(url);
+    }
+    throw error;
+  }
+}
 
 // ─── IPC send helper ────────────────────────────────────────────────
 function send(channel: string, payload: unknown): void {
@@ -91,6 +113,9 @@ async function tryStartCandidate(candidate: Aria2Candidate): Promise<boolean> {
   sendLog('aria2', `trying ${candidate.bundled ? 'bundled' : 'system'}: ${candidate.path}`);
 
   const env: NodeJS.ProcessEnv = { ...process.env, LANG: 'C', LC_ALL: 'C' };
+  for (const key of Object.keys(env)) {
+    if (/^(?:https?|ftp|all|no)_proxy$/i.test(key)) delete env[key];
+  }
   // Bundled Linux aria2 may need libaria2.so.0 on LD_LIBRARY_PATH
   if (process.platform === 'linux' && candidate.bundled) {
     const libDir = getAria2LibraryDirectory();
@@ -102,6 +127,7 @@ async function tryStartCandidate(candidate: Aria2Candidate): Promise<boolean> {
   let child: ChildProcess;
   try {
     child = spawn(candidate.path, [
+      '--no-conf=true',
       '--enable-rpc',
       '--rpc-listen-port=' + rpcClient.port,
       '--rpc-allow-origin-all',
@@ -163,6 +189,7 @@ async function tryStartCandidate(candidate: Aria2Candidate): Promise<boolean> {
     }
     aria2PollTimers.clear();
     aria2Gids.clear();
+    send('aria2:status', { ready: false, port: 0, dir: getDownloadDir() });
     sendLog('aria2', `exited code=${code}`);
   });
 
@@ -273,7 +300,7 @@ function trackChromiumDownload(item: DownloadItem, retry?: DownloadRecord): void
 }
 
 // ─── aria2 download ─────────────────────────────────────────────────
-async function aria2Download(url: string, filename: string, retry?: DownloadRecord): Promise<boolean> {
+async function aria2Download(url: string, filename: string, retry: DownloadRecord | undefined, proxyOptions: Record<string, string>): Promise<boolean> {
   filename = sanitizeDownloadFilename(filename);
   const dlId = retry?.id || 'a2_' + nanoid(8);
   const configuredDir = getDownloadDir();
@@ -296,7 +323,7 @@ async function aria2Download(url: string, filename: string, retry?: DownloadReco
   });
 
   try {
-    const gid = aria2GidSchema.parse(await aria2Rpc('aria2.addUri', [url], { out: filename, dir }));
+    const gid = aria2GidSchema.parse(await aria2Rpc('aria2.addUri', [url], { out: filename, dir, ...proxyOptions }));
     aria2Gids.set(dlId, gid);
     log.info('[Download] aria2 addUri OK:', gid, filename);
     pollAria2Status(dlId, gid, filename, url);
@@ -410,13 +437,26 @@ export function initDownloadManager(): void {
 }
 
 export function setupDownloadHandlers(sess: Electron.Session): void {
+  const browserRetries = new Map<string, number>();
+  browserOnlyDownloads.set(sess, browserRetries);
   sess.on('will-download', (event, item) => {
-    const engine = usesBrowserDownloads() ? 'chromium' : (loadConfig().downloadEngine ?? 'aria2');
+    const url = item.getURL();
+    const pending = browserRetries.get(url) || 0;
+    if (pending === 1) browserRetries.delete(url);
+    else if (pending > 1) browserRetries.set(url, pending - 1);
+    const engine = pending || pendingChromiumRetries.get(url)?.length ? 'chromium' : (loadConfig().downloadEngine ?? 'aria2');
     log.info('[Download] will-download: engine=' + engine + ', aria2Ready=' + aria2Ready + ', url=' + redactUrlForLog(item.getURL()));
 
     if (engine === 'aria2' && aria2Ready) {
       event.preventDefault();
-      aria2Download(item.getURL(), item.getFilename() || 'download');
+      const filename = item.getFilename() || 'download';
+      void resolveDownloadProxy(sess, url).then((options) => {
+        if (options) return aria2Download(url, filename, undefined, options);
+        try { browserDownload(sess, url); }
+        catch {
+          log.warn('[Download] Chromium proxy fallback could not start');
+        }
+      });
       return;
     }
 
@@ -434,7 +474,7 @@ export function setupDownloadHandlers(sess: Electron.Session): void {
 }
 
 export function cancelDownload(id: string): void {
-  if (id.startsWith('a2_')) {
+  if ((getDownloadRecord(id)?.engine ?? (id.startsWith('a2_') ? 'aria2' : 'chromium')) === 'aria2') {
     const gid = aria2Gids.get(id);
     aria2Gids.delete(id);
     const timer = aria2PollTimers.get(id);
@@ -446,7 +486,7 @@ export function cancelDownload(id: string): void {
       });
     }
     emitDownload({ id, state: 'cancelled', speed: 0 });
-  } else if (id.startsWith('cr_')) {
+  } else {
     const item = chromiumItems.get(id);
     if (item) {
       item.cancel();
@@ -459,7 +499,7 @@ export function cancelDownload(id: string): void {
 }
 
 export async function pauseDownload(id: string): Promise<boolean> {
-  if (id.startsWith('a2_')) {
+  if ((getDownloadRecord(id)?.engine ?? (id.startsWith('a2_') ? 'aria2' : 'chromium')) === 'aria2') {
     const gid = aria2Gids.get(id);
     if (gid && aria2Ready) {
       try {
@@ -473,7 +513,7 @@ export async function pauseDownload(id: string): Promise<boolean> {
     }
     log.warn('[Download] aria2 pause unavailable:', id, 'ready=' + aria2Ready);
     return false;
-  } else if (id.startsWith('cr_')) {
+  } else {
     const item = chromiumItems.get(id);
     if (item) {
       item.pause();
@@ -486,7 +526,7 @@ export async function pauseDownload(id: string): Promise<boolean> {
 }
 
 export async function resumeDownload(id: string): Promise<boolean> {
-  if (id.startsWith('a2_')) {
+  if ((getDownloadRecord(id)?.engine ?? (id.startsWith('a2_') ? 'aria2' : 'chromium')) === 'aria2') {
     const gid = aria2Gids.get(id);
     if (gid && aria2Ready) {
       try {
@@ -499,18 +539,17 @@ export async function resumeDownload(id: string): Promise<boolean> {
       }
     }
     const record = getDownloadRecord(id);
-    if (record?.url && usesBrowserDownloads()) {
-      session.defaultSession.downloadURL(record.url);
-      return true;
-    }
     if (record?.url && aria2Ready) {
-      return aria2Download(record.url, record.filename, record);
+      const options = await resolveDownloadProxy(session.defaultSession, record.url);
+      if (options) return aria2Download(record.url, record.filename, record, options);
+      browserDownload(session.defaultSession, record.url, record);
+      return true;
     } else {
       log.warn('[Download] aria2 resume unavailable:', id, 'ready=' + aria2Ready);
       emitDownload({ id, state: 'interrupted', speed: 0 });
       return false;
     }
-  } else if (id.startsWith('cr_')) {
+  } else {
     const item = chromiumItems.get(id);
     if (item) {
       item.resume();

@@ -2,15 +2,13 @@ import { net, session } from 'electron';
 import { DEFAULT_PROXY, proxySettingsSchema, toElectronProxy, type ProxySettings, type ProxyTestResult } from '@shared/types/proxy';
 
 let activeProxy: ProxySettings = { ...DEFAULT_PROXY };
+export function getActiveProxy(): ProxySettings { return { ...activeProxy }; }
+
 let testing = false;
 let testId = 0;
 // Electron 11 pins Session objects for the process lifetime. Bound the number
 // of isolated test contexts rather than retaining unlimited network contexts.
 const MAX_TEST_SESSIONS = 32;
-
-export function usesBrowserDownloads(): boolean {
-  return activeProxy.mode !== 'system';
-}
 
 export async function initializeProxy(settings: ProxySettings): Promise<void> {
   const proxy = proxySettingsSchema.parse(settings);

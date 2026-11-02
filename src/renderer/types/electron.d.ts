@@ -193,6 +193,7 @@ declare global {
         resume(id: string): Promise<{ success: boolean }>;
         open(savePath: string): void;
         openDir(savePath: string): void;
+        openFolder(): Promise<void>;
         getDir(): Promise<string>;
         setDir(title?: string): Promise<string>;
         deleteFile(savePath: string): Promise<boolean>;
@@ -280,6 +281,7 @@ declare global {
       };
 
       screenshot: {
+        getDir(): Promise<string>;
         capture(tabId: string, opts?: ScreenshotOptions): Promise<ScreenshotResult>;
         captureActive(opts?: ScreenshotOptions): Promise<ScreenshotResult>;
         reveal(filePath: string): Promise<{ success: boolean; code?: string; error?: string }>;

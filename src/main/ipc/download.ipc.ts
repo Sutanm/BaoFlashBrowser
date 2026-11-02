@@ -33,6 +33,13 @@ export function registerDownloadIPC(): void {
     return getDownloadDir();
   });
 
+  createValidatedHandler('download:open-folder', z.object({}).optional(), async () => {
+    const dir = getDownloadDir();
+    await fs.promises.mkdir(dir, { recursive: true });
+    const error = await shell.openPath(dir);
+    if (error) throw new Error(error);
+  });
+
   createValidatedHandler('download:list', z.undefined(), () => getDownloadRecords());
 
   ipcMain.handle('download:set-dir', async (_event, payload?: { title?: string }) => {

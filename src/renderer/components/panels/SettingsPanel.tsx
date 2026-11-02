@@ -10,6 +10,7 @@ import { ArrowLeft, ChevronRight, Cpu, Download, Gauge, Globe2, Shield, Wrench }
 import { requiresMainConfigRestart } from '@renderer/services/settings-restart';
 import { DEFAULT_PROXY, proxySettingsSchema, type ProxySettings } from '@shared/types/proxy';
 import ProxySettingsCard from './ProxySettingsCard';
+import SaveDirectoryCard from './SaveDirectoryCard';
 import ToggleSwitch from '../controls/ToggleSwitch';
 
 interface SettingsPanelProps {
@@ -82,6 +83,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       setUpdateResult({ status: 'error', currentVersion: appVersion });
     } finally { setCheckingUpdate(false); }
   };
+  const [downloadDir, setDownloadDir] = useState('');
+  const [screenshotDir, setScreenshotDir] = useState('');
   const [saved, setSaved] = useState<boolean | 'restart'>(false);
   const [resetConfirming, setResetConfirming] = useState(false);
   const [autoCapture, setAutoCapture] = useState(true);
@@ -152,6 +155,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       setViewGuard(status.viewGuard);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'downloads') return;
+    if (MODULE_DOWNLOAD) window.electronAPI?.dl?.getDir().then(setDownloadDir).catch(() => {});
+    window.electronAPI?.screenshot?.getDir?.().then(setScreenshotDir).catch(() => {});
+  }, [activeSection]);
+
+  const handleSelectDownloadDir = useCallback(async () => {
+    try {
+      const dir = await window.electronAPI.dl.setDir(LL.download.selectDir());
+      if (dir) { setDownloadDir(dir); pushToast({ message: LL.download.dirChanged(), type: 'success' }); }
+    } catch { pushToast({ message: LL.settings.directoryFailed(), type: 'error' }); }
+  }, [LL, pushToast]);
 
   const handleAutoCaptureChange = useCallback(async (enabled: boolean) => {
     setAutoCapture(enabled);
@@ -253,6 +269,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       if (result.canceled) return;
       if (result.success && result.dir) {
         setMainForm((prev) => ({ ...prev, screenshotDir: result.dir as string }));
+        setScreenshotDir(result.dir);
         pushToast({ message: LL.settings.screenshot.dirChanged(), type: 'success' });
       } else {
         const msg = result.code === 'DIR_NOT_WRITABLE'
@@ -367,8 +384,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
     { id: 'engine', title: `${LL.ruffle.flash()} / Ruffle`, description: `${LL.settings.spoofVersion()} · ${LL.settings.defaultEngine()}`, icon: Gauge },
     {
       id: 'downloads',
-      title: MODULE_DOWNLOAD ? `${LL.settings.download()} / ${LL.settings.screenshot.dir()}` : LL.settings.screenshot.dir(),
-      description: MODULE_DOWNLOAD ? `${LL.settings.downloadEngine()} · ${LL.settings.screenshot.selectDir()}` : LL.settings.screenshot.selectDir(),
+      title: MODULE_DOWNLOAD ? LL.settings.filesTitle() : LL.settings.screenshot.dir(),
+      description: MODULE_DOWNLOAD ? LL.settings.filesDescription() : LL.settings.screenshot.selectDir(),
       icon: Download,
     },
     ...(MODULE_PASSWORDS ? [{ id: 'privacy' as const, title: LL.sidebar.passwords(), description: `${LL.password.autoCapture()} · ${LL.password.autoFill()}`, icon: Shield }] : []),
@@ -590,24 +607,23 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
       </div>
       )}
 
+      {activeSection === 'downloads' && MODULE_DOWNLOAD && (
+        <SaveDirectoryCard
+          title={LL.settings.downloadDirectory()}
+          path={downloadDir || LL.loading()}
+          buttonLabel={LL.settings.screenshot.selectDir()}
+          hint={LL.settings.directoryImmediate()}
+          onSelect={() => void handleSelectDownloadDir()}
+        />
+      )}
       {activeSection === 'downloads' && (
-      <div className="panel-card settings-section-card">
-        <div className="panel-card-title">{LL.settings.screenshot.dir()}</div>
-        <div className="field">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {mainForm.screenshotDir || LL.settings.screenshot.captureHint()}
-            </span>
-            <button
-              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: 'var(--bg-hover)', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', flexShrink: 0 }}
-              onClick={handleSelectScreenshotDir}
-            >
-              {LL.settings.screenshot.selectDir()}
-            </button>
-          </div>
-          <div className="field-hint">{LL.settings.screenshot.captureHint()}</div>
-        </div>
-      </div>
+        <SaveDirectoryCard
+          title={LL.settings.screenshot.dir()}
+          path={screenshotDir || mainForm.screenshotDir || LL.loading()}
+          buttonLabel={LL.settings.screenshot.selectDir()}
+          hint={LL.settings.directoryImmediate()}
+          onSelect={() => void handleSelectScreenshotDir()}
+        />
       )}
 
       {activeSection === 'privacy' && MODULE_PASSWORDS && (

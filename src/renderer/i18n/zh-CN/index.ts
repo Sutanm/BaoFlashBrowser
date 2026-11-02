@@ -268,6 +268,8 @@ const zhCN: BaseTranslation = {
 
   // 下载
   download: {
+    openFolder: "打开下载文件夹",
+    openFolderFailed: "无法打开下载文件夹",
     title: '下载文件',
     engine: '引擎',
     location: '位置',
@@ -395,6 +397,11 @@ const zhCN: BaseTranslation = {
 
   // 设置
   settings: {
+    filesTitle: "下载与截图",
+    filesDescription: "下载引擎与文件保存目录",
+    downloadDirectory: "下载保存目录",
+    directoryImmediate: "更改目录后立即生效。",
+    directoryFailed: "无法更改保存目录",
     updateTitle: '关于与更新',
     updateCheck: '检查更新',
     updateChecking: '正在检查…',
@@ -420,7 +427,7 @@ const zhCN: BaseTranslation = {
       "bypass": "绕过代理的地址",
       "bypassHint": "使用分号分隔域名或 IP 规则。本机回环地址默认直连。",
       "pacUrl": "PAC 地址（HTTP / HTTPS）",
-      "downloadHint": "手动代理、PAC 或直接连接模式下，新下载统一使用 Chromium，以遵循此处设置。跟随系统模式保留下载引擎选择，aria2 使用自身网络配置。",
+      "downloadHint": "aria2 按下载网址同步浏览器解析的系统代理、PAC 和绕过规则；支持 HTTP 代理及直连，SOCKS 等路由使用 Chromium。aria2 内部重定向沿用该任务的路由。",
       "authHint": "当前版本不提供代理账号密码配置，请使用无需认证的代理或本地代理客户端。",
       "testUrl": "检测网址",
       "test": "检测当前填写的配置",

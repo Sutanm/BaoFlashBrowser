@@ -15,9 +15,22 @@ HTTP 响应。它不会更改当前网页的代理，也不携带浏览器登录
 Electron 11.5.0 的 `setProxy` 不支持新版 `mode` 参数：跟随系统不覆盖新 Session 的配置；
 直连使用空 `proxyRules`；手动代理使用固定规则；PAC 使用 `pacScript`。
 
-手动、PAC 和直连模式下，新下载使用 Chromium，以遵循当前生效的代理设置；跟随系统时保留
-原下载引擎设置，aria2 使用自身网络配置。保存后、重启前，网页和下载继续使用原有代理配置。
+选择 aria2 下载引擎时，按下载网址调用当前 Session 的 `resolveProxy`，同步 Chromium 对
+系统代理、PAC、自定义绕过规则的解析结果。首选路由为 HTTP 代理或直连时使用 aria2。
+代理配置通过每个下载任务的 RPC 选项传入，显式覆盖各协议的代理配置，清理继承的代理环境变量，
+并禁用外部 aria2.conf，避免其他配置覆盖浏览器设置。Chromium 默认的回环和链路本地地址绕过
+也同步给 aria2。代理不可用时不会自动改为直连。
+
+首选路由为 SOCKS、HTTPS 代理等 aria2 不支持的类型，或解析失败、超时时，使用 Chromium，
+不会跳过首选代理去选择后面的 DIRECT。每个新任务和重建的重试任务重新解析路由。
+Chromium 最初的下载重定向已完成，但如果 aria2 再次收到重定向，它会沿用该任务的路由；
+目前没有实现 aria2 内部逐跳重新执行 PAC。对这种情况要求严格动态分流时，请选择 Chromium 引擎。
+保存后、重启前，网页和下载继续使用原有代理配置。
 不提供代理账号密码设置；可连接无需认证的代理或本地代理客户端。
+
+目录和下载引擎统一在“设置 → 下载与截图”管理，显示包含默认目录在内的完整路径。
+目录修改后立即生效；下载面板提供引擎与 aria2 就绪状态、打开下载文件夹的快捷入口，
+各任务保留实际引擎标签。顶部就绪状态说明服务可用，不代表所有任务必定使用 aria2。
 
 此功能不等同于系统 VPN。Flash 内部 Socket 等通信需要针对具体游戏验证。
 连接检测验证 HTTP(S) 访问，不验证 Flash 内部通信。
@@ -25,3 +38,4 @@ Electron 11.5.0 的 `setProxy` 不支持新版 `mode` 参数：跟随系统不�
 验证：`npm run probe:deep -- --only 15-proxy`，
 `npm test -- --run tests/proxy.test.ts`，
 `npm run test:e2e -- tests/e2e/proxy-settings.spec.ts`（先构建）。
+aria2 实际下载验证：`npm run probe:deep -- --only 26-aria2-proxy`。

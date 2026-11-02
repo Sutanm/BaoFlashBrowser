@@ -88,7 +88,6 @@ module.exports = {
       await listen(socks);
       const settings = { ...mod.DEFAULT_PROXY, mode: 'manual', host: '127.0.0.1', port: proxy.address().port };
       await mod.initializeProxy(settings);
-      assert.equal(mod.usesBrowserDownloads(), true);
       mod.initSession();
       const target = 'http://bao-proxy-probe.invalid/page';
       for (const sess of [session.defaultSession, session.fromPartition('persist:')]) {

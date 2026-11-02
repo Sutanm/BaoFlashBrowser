@@ -967,6 +967,14 @@ type RootTranslation = {
 	}
 	download: {
 		/**
+		 * 打​开​下​载​文​件​夹
+		 */
+		openFolder: string
+		/**
+		 * 无​法​打​开​下​载​文​件​夹
+		 */
+		openFolderFailed: string
+		/**
 		 * 下​载​文​件
 		 */
 		title: string
@@ -1453,6 +1461,26 @@ type RootTranslation = {
 	}
 	settings: {
 		/**
+		 * 下​载​与​截​图
+		 */
+		filesTitle: string
+		/**
+		 * 下​载​引​擎​与​文​件​保​存​目​录
+		 */
+		filesDescription: string
+		/**
+		 * 下​载​保​存​目​录
+		 */
+		downloadDirectory: string
+		/**
+		 * 更​改​目​录​后​立​即​生​效​。
+		 */
+		directoryImmediate: string
+		/**
+		 * 无​法​更​改​保​存​目​录
+		 */
+		directoryFailed: string
+		/**
 		 * 关​于​与​更​新
 		 */
 		updateTitle: string
@@ -1548,7 +1576,7 @@ type RootTranslation = {
 			 */
 			pacUrl: string
 			/**
-			 * 手​动​代​理​、​P​A​C​ ​或​直​接​连​接​模​式​下​，​新​下​载​统​一​使​用​ ​C​h​r​o​m​i​u​m​，​以​遵​循​此​处​设​置​。​跟​随​系​统​模​式​保​留​下​载​引​擎​选​择​，​a​r​i​a​2​ ​使​用​自​身​网​络​配​置​。
+			 * a​r​i​a​2​ ​按​下​载​网​址​同​步​浏​览​器​解​析​的​系​统​代​理​、​P​A​C​ ​和​绕​过​规​则​；​支​持​ ​H​T​T​P​ ​代​理​及​直​连​，​S​O​C​K​S​ ​等​路​由​使​用​ ​C​h​r​o​m​i​u​m​。​a​r​i​a​2​ ​内​部​重​定​向​沿​用​该​任​务​的​路​由​。
 			 */
 			downloadHint: string
 			/**
@@ -3323,6 +3351,14 @@ export type TranslationFunctions = {
 	}
 	download: {
 		/**
+		 * 打开下载文件夹
+		 */
+		openFolder: () => LocalizedString
+		/**
+		 * 无法打开下载文件夹
+		 */
+		openFolderFailed: () => LocalizedString
+		/**
 		 * 下载文件
 		 */
 		title: () => LocalizedString
@@ -3795,6 +3831,26 @@ export type TranslationFunctions = {
 	}
 	settings: {
 		/**
+		 * 下载与截图
+		 */
+		filesTitle: () => LocalizedString
+		/**
+		 * 下载引擎与文件保存目录
+		 */
+		filesDescription: () => LocalizedString
+		/**
+		 * 下载保存目录
+		 */
+		downloadDirectory: () => LocalizedString
+		/**
+		 * 更改目录后立即生效。
+		 */
+		directoryImmediate: () => LocalizedString
+		/**
+		 * 无法更改保存目录
+		 */
+		directoryFailed: () => LocalizedString
+		/**
 		 * 关于与更新
 		 */
 		updateTitle: () => LocalizedString
@@ -3888,7 +3944,7 @@ export type TranslationFunctions = {
 			 */
 			pacUrl: () => LocalizedString
 			/**
-			 * 手动代理、PAC 或直接连接模式下，新下载统一使用 Chromium，以遵循此处设置。跟随系统模式保留下载引擎选择，aria2 使用自身网络配置。
+			 * aria2 按下载网址同步浏览器解析的系统代理、PAC 和绕过规则；支持 HTTP 代理及直连，SOCKS 等路由使用 Chromium。aria2 内部重定向沿用该任务的路由。
 			 */
 			downloadHint: () => LocalizedString
 			/**

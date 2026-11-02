@@ -259,6 +259,8 @@ const en: Translation = {
   },
 
   download: {
+    openFolder: "Open download folder",
+    openFolderFailed: "Could not open the download folder",
     title: 'Download Files',
     engine: 'Engine',
     location: 'Location',
@@ -382,6 +384,11 @@ const en: Translation = {
   },
 
   settings: {
+    filesTitle: "Downloads & screenshots",
+    filesDescription: "Download engine and save folders",
+    downloadDirectory: "Download folder",
+    directoryImmediate: "Folder changes take effect immediately.",
+    directoryFailed: "Could not change the save folder",
     updateTitle: 'About and updates',
     updateCheck: 'Check for updates',
     updateChecking: 'Checking…',
@@ -407,7 +414,7 @@ const en: Translation = {
       "bypass": "Proxy bypass rules",
       "bypassHint": "Separate domain or IP rules with semicolons. Loopback addresses bypass the proxy by default.",
       "pacUrl": "PAC URL (HTTP / HTTPS)",
-      "downloadHint": "Manual, PAC and direct modes use Chromium for new downloads to follow these settings. System mode keeps your download engine selection; aria2 uses its own network configuration.",
+      "downloadHint": "aria2 uses the browser route resolved for each download, including system proxy, PAC and bypass rules. HTTP proxies and direct routes are supported; SOCKS and unsupported routes use Chromium. Redirects within aria2 retain that route.",
       "authHint": "Proxy username/password configuration is not available. Use a proxy without authentication or a local proxy client.",
       "testUrl": "Test URL",
       "test": "Test these settings",
