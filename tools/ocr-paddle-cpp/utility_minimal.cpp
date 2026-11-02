@@ -83,6 +83,9 @@ bool Utility::PathExists(const std::string &path) {
 #endif
 }
 
+#ifdef _WIN32
+// PaddleOCR-json's Windows headers add this helper. Upstream release/2.7
+// (the pinned Linux source) does not declare it and never calls it.
 std::string Utility::pathjoin(const std::string &parent, const std::string &child) {
   if (parent.empty()) return child;
   if (child.empty()) return parent;
@@ -95,6 +98,7 @@ std::string Utility::pathjoin(const std::string &parent, const std::string &chil
   const std::size_t child_start = (child.front() == '/' || child.front() == '\\') ? 1 : 0;
   return parent + (parent_has_separator ? "" : std::string(1, separator)) + child.substr(child_start);
 }
+#endif
 
 void Utility::sorted_boxes(std::vector<OCRPredictResult> &results) {
   std::sort(results.begin(), results.end(), Utility::comparison_box);
