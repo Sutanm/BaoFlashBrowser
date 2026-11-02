@@ -7,6 +7,11 @@ export function getJsCompiler(): typeof import('esbuild') {
   if (compiler) return compiler;
   // esbuild uses spawn(), which cannot execute a binary inside Electron's
   // ASAR archive. The runtime dependency is explicitly unpacked by the builder.
+  const packagedBinary = path.join(process.resourcesPath ?? '', 'native', 'esbuild',
+    process.platform === 'win32' ? 'esbuild.exe' : 'esbuild');
+  if (!process.env.ESBUILD_BINARY_PATH && existsSync(packagedBinary)) {
+    process.env.ESBUILD_BINARY_PATH = packagedBinary;
+  }
   const entry = require.resolve('esbuild');
   const marker = '.asar' + path.sep;
   const index = entry.indexOf(marker);

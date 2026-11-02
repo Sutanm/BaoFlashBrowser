@@ -1,3 +1,4 @@
+import { uiText } from '../modules/ui-language';
 import { app, dialog } from 'electron';
 import type { OpenDialogOptions } from 'electron';
 import fs from 'fs';
@@ -16,9 +17,9 @@ export function registerDiagnosticsIPC(): void {
   createHandler<void, string | null>('file:open-swf', async () => {
     const win = getMainWindow();
     const options: OpenDialogOptions = {
-      title: 'Open a local SWF game',
+      title: uiText('打开本地 SWF 游戏', 'Open a local SWF game'),
       properties: ['openFile'],
-      filters: [{ name: 'Flash games', extensions: ['swf'] }],
+      filters: [{ name: uiText('Flash 游戏', 'Flash games'), extensions: ['swf'] }],
     };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (result.canceled || !result.filePaths[0]) return null;
@@ -30,7 +31,7 @@ export function registerDiagnosticsIPC(): void {
   createHandler<void, DiagnosticExportResult>('diagnostics:export', async () => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const options = {
-      title: 'Export BaoFlashBrowser diagnostics',
+      title: uiText('导出 BaoFlashBrowser 诊断报告', 'Export BaoFlashBrowser diagnostics'),
       defaultPath: path.join(app.getPath('downloads'), `BaoFlashBrowser-diagnostics-${stamp}.json`),
       filters: [{ name: 'JSON', extensions: ['json'] }],
     };

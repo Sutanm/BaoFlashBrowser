@@ -58,10 +58,14 @@ npm run check      # i18n、typecheck、lint、Vitest、生产 build
 
 | 平台 | 命令 | 主要产物 |
 | --- | --- | --- |
-| Windows x64 | `npm run build:win64` | `BaoFlashBrowser-<version>-x64.exe` + blockmap |
-| Windows ia32 | `npm run build:win32` | `BaoFlashBrowser-<version>-ia32.exe` + blockmap |
-| Linux x64 | `npm run build:linux` | `BaoFlashBrowser-<version>-x86_64.AppImage` |
+| Windows x64（全模块、内置 OCR） | `npm run build:win64` | `BaoFlashBrowser-OCR-<version>-x64.exe` + blockmap |
+| Windows ia32（全模块、内置 Tesseract OCR） | `npm run build:win32` | `BaoFlashBrowser-OCR-<version>-ia32.exe` + blockmap |
+| Linux x64（全模块、内置 OCR） | `npm run build:linux` | `BaoFlashBrowser-<version>-x86_64.AppImage` |
 | macOS Intel x64（实验） | `npm run build:mac` | `BaoFlashBrowser-Experimental-<version>-x64.dmg/.zip` |
+
+Win64 与 Linux 默认包内置 OCR 模型和推理运行时，换电脑后直接安装即可，无需源码或重新编译。无 OCR 包使用 `build:win64:standard` / `build:linux:standard`。Win32 保留全部模块并内置 x86 Tesseract 5.3.0；无 OCR 包可用 `build:win32:standard`。它沿用 BAO1 传输与现有文字坐标/数字读取接口，不影响 Win64/Linux 的 Paddle 选择。构建 Win32 OCR 时需 MSVC x86 工具，安装用户无需 MSVC 或 .NET。Linux 首次构建 OCR 需要 Docker 和 `bsdtar`（Ubuntu：`libarchive-tools`）；准备脚本获取固定版本输入，在 manylinux_2_28 容器中编译，后续复用本地运行时归档。
+
+打包前从 lockfile 获取目标平台/架构的 esbuild，校验 SHA-512 后复制到 `resources/native/esbuild`；unpacked 校验会检查其原生架构，避免 x64 构建机生成的 Win32 包误用 x64 编译器。`27-packaged-runtime` 探针可在目标架构 Electron 下验证包内 JS 转译和 OpenCV，使用 `BAO_PROBE_PACKAGE_ROOT` 指向 unpacked 目录。
 
 每个正式平台命令执行生产构建、source 校验、发布准备、electron-builder 和 unpacked 校验。`verify-release.cjs` 检查 `dist/main.js`、两个 preload、renderer `bundle.js`/`bundle.css`、Ruffle 核心/WASM/字体以及目标平台原生资源，并把结果写到 `release/manifests/`。
 
@@ -86,6 +90,8 @@ macOS 构建先运行 `prepare:mac-flash`，从仓库 vendor DMG 提取并验证
 - 快检与运行时健康：`npm run probe`、`npm run probe:deep`。
 - 自动化专项：`probe:automation-input`、`probe:automation-viewport`、`probe:automation-viewport-engines`、`probe:automation-visual`、`probe:automation-authoring`、`probe:automation-scale-reference`、`probe:automation-js-sandbox`、`probe:automation-flash`。
 - 模块裁剪：`tests/module-flags.test.ts`、`tests/module-boundaries.test.ts` 加上 `build:full/minimal/no-automation/no-userscripts` 的实际构建。
+
+`28-local-time` 使用生产 BrowserView preload 对比主进程与网页的系统时区，以及一月/七月的 UTC 偏移，避免时区和夏令时发生偏差。Bing 搜索入口统一使用 `https://www.bing.com/search?q=`，不再写死中国地区子域名；这与系统时区是独立配置。
 
 ## 7 不变量与雷区
 

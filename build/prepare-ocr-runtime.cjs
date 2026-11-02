@@ -93,7 +93,7 @@ async function main() {
   const extractRoot = path.join(cacheRoot, `extract-${version}`);
   fs.rmSync(extractRoot, { recursive: true, force: true });
   fs.mkdirSync(extractRoot, { recursive: true });
-  const extracted = spawnSync('tar', ['-xf', archive, '-C', extractRoot], { stdio: 'inherit' });
+  const extracted = spawnSync(process.platform === 'linux' ? 'bsdtar' : 'tar', ['-xf', archive, '-C', extractRoot], { stdio: 'inherit' });
   if (extracted.status !== 0) throw new Error(`failed to extract OCR archive (tar exit ${extracted.status})`);
   const sourceRoot = path.join(extractRoot, `PaddleOCR-json_v${version}`);
   if (!fs.existsSync(path.join(sourceRoot, 'PaddleOCR-json.exe'))) throw new Error('OCR archive has an unexpected layout');

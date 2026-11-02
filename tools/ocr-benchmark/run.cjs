@@ -101,7 +101,7 @@ async function benchmark(Provider, samples) {
   const summarize = (subset) => { const text = subset.filter((item) => item.exact !== null); const numbers = subset.filter((item) => item.numberCorrect !== null); return { samples: subset.length, exactTextAccuracy: mean(text.map((item) => item.exact ? 1 : 0)), normalizedEditSimilarity: mean(text.map((item) => item.similarity)), numberAccuracy: mean(numbers.map((item) => item.numberCorrect ? 1 : 0)), p95Ms: percentile(subset.map((item) => item.latencyMs), .95) }; };
   const suites = {}; for (const suite of [...new Set(results.map((item) => item.suite))]) suites[suite] = summarize(results.filter((item) => item.suite === suite));
   const summary = summarize(results); const latencies = results.map((item) => item.latencyMs);
-  return { provider: providerId, coldStartMs, runtimeBytes, peakRssBytes, rounds, warmups, samples: samples.length, ...summary, latencyMs: { mean: mean(latencies), p50: percentile(latencies, .5), p95: percentile(latencies, .95) }, failures: results.filter((item) => item.error).length, suites, results };
+  return { provider: providerId, engineVersion: provider.engineVersion, processBits: provider.processBits, coldStartMs, runtimeBytes, peakRssBytes, rounds, warmups, samples: samples.length, ...summary, latencyMs: { mean: mean(latencies), p50: percentile(latencies, .5), p95: percentile(latencies, .95) }, failures: results.filter((item) => item.error).length, suites, results };
 }
 
 async function main() {
@@ -111,4 +111,5 @@ async function main() {
   const output = { schemaVersion: 1, generatedAt: new Date().toISOString(), platform: `${process.platform}-${process.arch}`, corpus: corpusRoot, reports };
   const outputDirectory = path.join(root, '.cache', 'ocr-benchmark'); fs.mkdirSync(outputDirectory, { recursive: true }); const outputFile = path.join(outputDirectory, `result-${new Date().toISOString().replace(/[:.]/g, '-')}.json`); fs.writeFileSync(outputFile, `${JSON.stringify(output, null, 2)}\n`); console.log(`Detailed result: ${outputFile}`);
 }
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+module.exports = { benchmark, loadFrame, LineProcess, PaddleBao1Provider, directoryBytes, processRssBytes };
+if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1; });

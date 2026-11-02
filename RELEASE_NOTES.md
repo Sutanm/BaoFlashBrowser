@@ -1,61 +1,50 @@
-# BaoFlashBrowser v1.1.2 正式版
+# BaoFlashBrowser v1.1.2 正式版 / Stable release
 
-BaoFlashBrowser 1.1.2 加入本地离线 OCR、页面与游戏画面双坐标体系、游戏画面自动绑定，并继续优化截图和图片识别链路。Electron 继续固定为 11.5.0 / Chromium 87。
+## 下载 / Downloads
 
-## 下载
-
-| 平台 | 安装包 | 支持状态 |
+| 平台 / Platform | 安装包 / Package | 离线 OCR / Offline OCR |
 | --- | --- | --- |
-| Windows x64 标准版 | `BaoFlashBrowser-1.1.2-x64.exe` | 不捆绑 OCR，支持坐标和图片识别 |
-| Windows x64 OCR 版 | `BaoFlashBrowser-OCR-1.1.2-x64.exe` | 捆绑离线 OCR，支持简体中文、英文和数字 |
+| Windows x64 | `BaoFlashBrowser-OCR-1.1.2-x64.exe` | Paddle / PP-OCRv3 |
+| Windows ia32 | `BaoFlashBrowser-OCR-1.1.2-ia32.exe` | Tesseract 5.3.0 x86 |
+| Linux x64 | `BaoFlashBrowser-1.1.2-x86_64.AppImage` | Paddle / PP-OCRv3 |
 
-已经安装标准版的用户可以直接运行 OCR 版安装包覆盖安装，脚本、素材和用户数据不受影响。Windows 安装包未进行代码签名，首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。
+三个正式包均保留全部功能模块，并内置 OCR 程序、依赖和中英文模型。换电脑后安装对应平台包即可，无需下载源码、另装 OCR 或重新编译。Windows `.blockmap`、`SHA256SUMS-1.1.2.txt` 和成品资源校验清单一同提供。macOS 仍为独立实验通道，不包含在本次正式制品中。
 
-## 文件校验
+All three packages include every feature module and an offline OCR runtime with Chinese/English models. Moving to another computer requires only the matching package, without source code or rebuilding. Windows blockmaps, SHA-256 checksums and verification manifests are attached. Experimental macOS builds are outside this stable release.
 
-| 文件 | 大小 | SHA-256 |
-| --- | ---: | --- |
-| `BaoFlashBrowser-1.1.2-x64.exe` | 91,931,821 字节 | `1E57880F032329D16C3C94A71B44851D8EE8881F8D1B4697A7E2CE374D050A6D` |
-| `BaoFlashBrowser-OCR-1.1.2-x64.exe` | 149,896,773 字节 | `64DE8FE47F4AB009DE623870FA8FEE2550F33518604756539EBF9FE6332E4E5A` |
+## 主要更新
 
-## 1.1.2 更新
+- 自动化工作台整合 Blockly、JavaScript/TypeScript、共享素材、脚本调用、文字/数字 OCR、页面与游戏画面双坐标体系。
+- 原生页面悬浮助手不再依赖启用用户脚本；支持取材、素材匹配、坐标获取、游戏画面绑定、运行控制与状态查看。
+- Win32 单独内置原生 Tesseract OCR，返回文字、置信度和矩形坐标；Win64/Linux 继续使用 Paddle。Win32 对低分辨率、描边游戏字的效果较弱，详见仓库中的 OCR 对比报告。
+- 完善中英文界面、英文自动化文档、浮窗助手实时语言切换、积木校验提示和原生导入对话框；首次启动提供语言选择。
+- 加入全局代理配置与连接诊断，aria2 下载路由跟随代理，并统一下载目录设置。
+- 浏览器主题同步到原生网页内容；修复新标签页搜索焦点布局，Bing 搜索入口统一为 `www.bing.com`。
+- 增加手动稳定版更新检查，改善 Chromium 87 上的现代 JS/CSS 和 GitHub 页面兼容性。
+- 修复设置保存、数据迁移保留、密码捕获重新启用和后台自动化输入时序问题。
+- 加强目标架构、运行时 esbuild、OCR 模型/动态库和成品 SHA-256 校验；默认构建及 CI 输出三个全模块、内置 OCR 的包。
 
-- 新增“点击文字”“等待文字出现/消失”和“文字条件”积木，支持包含/完全一致与最低可信度。
-- OCR 在本机离线运行；OCR-only 脚本不会启动 OpenCV，混合条件会复用同一张截图。
-- 悬浮助手“识别”页加入图片/文字测试切换，可显示文字框、可信度、截图耗时和 OCR 耗时。
-- Windows x64 提供标准版和 OCR 捆绑版两套安装包，标准版不包含 OCR 运行库。
-- 新增页面坐标与游戏画面坐标入口、游戏画面特征串、自动重新定位以及高速识图区域。
-- 优化截图传输、OpenCV 工作线程复用和区域识别性能。
+## Highlights
 
-## 1.1.1 更新
+- Unified Blockly and JavaScript/TypeScript automation with shared assets, script calls, offline text/number OCR and game-area coordinates.
+- Native floating assistant for capture, recognition, game-area binding and run control, independent of userscript enablement.
+- Native x86 Tesseract OCR for Win32; Paddle remains the engine on Win64 and Linux. Small outlined pixel text is a weak case for Win32 OCR.
+- More complete Chinese/English UI, English automation documentation, live assistant language switching and localized import dialogs.
+- Global proxy settings and connection diagnostics, synchronized aria2 proxy routes, unified download folders, native webpage theme synchronization and manual stable-update checks.
+- Improved Chromium 87 compatibility, search-focus layout, settings persistence, migration recovery, password capture and background input timing.
+- Target-specific esbuild binaries and stricter native/OCR package verification.
 
-- 新增稳定/实验 Flash 插件通道。Windows x64 实验通道可加载随包提供的国内修改版 PPAPI Flash 34.0.0.380；稳定通道保持原插件不变。
-- 新增 macOS Intel x64 实验 DMG/ZIP 打包链，一体化捆绑 PPAPI 插件；该平台尚未经过真实 Mac 硬件测试，不属于稳定支持范围。
-- 自动化脚本支持标准 `.baoauto` ZIP 包导入和导出，继续执行 manifest、工作流、素材路径、文件数量和解压体积校验。
-- 发布版默认启用自动化平台。
-- 修复切换脚本后再切回时 Blockly 工作区丢失、积木内容与 JSON 不一致的问题。脚本切换前会提交当前编辑器状态，重新选择时按该脚本已保存的工作流恢复。
-- 修复历史“已完成”状态在新页面初始化时反复弹出“自动化脚本执行完成”的问题；只有实际观察到 `running → completed` 状态转换才提示一次。
-- CI 的用户脚本管理冒烟改为等待真实页面状态，不再依赖固定延时；版本标签推送不再重复触发整套构建矩阵。
+## 验证与兼容性 / Validation and compatibility
 
-## 1.1.0 功能基线
+- Electron 固定为 **11.5.0 / Chromium 87**，保留 PPAPI Flash 支持。
+- Win32 已在 32 位 Electron 中验证 OCR、文字坐标、数字读取、esbuild 和 OpenCV；尚未经过真实 32 位 Windows 系统测试。
+- Linux AppImage 已在 WSL/Linux 构建与校验，OCR 推理库的 glibc 要求不高于 2.28；FUSE、图形系统库和 X11/Wayland 兼容性仍取决于发行版。
+- 类型、Lint、单元/集成测试、Electron 冒烟与界面回归，以及打包前后的资源校验均纳入本次发布验证。
 
-- 可视化自动化工作台：Scratch 风格积木与 JSON 双编辑、脚本库、素材管理和 `.baoauto` 包。
-- BrowserView 截图 + OpenCV 模板匹配，支持最小化运行、可信鼠标/键盘输入、点击前复核、条件和循环。
-- 素材测试台、页面内悬浮助手、框选取材、图片组和透明遮罩匹配。
-- 油猴风格用户脚本平台，包含受控 GM API、`@background`、只读 `GM_cookie`、仅观测 `GM_webRequest`，以及内置 CSS 修复器。
-- 中英文界面、PPAPI/Ruffle 双引擎、密码保险库、下载、会话恢复和诊断能力。
+Electron remains fixed at **11.5.0 / Chromium 87** for PPAPI Flash. Win32 was tested in 32-bit Electron, not on a physical 32-bit OS. Linux graphics/FUSE dependencies remain distribution-specific. Package creation does not imply macOS hardware validation.
 
-完整使用方法见 [`docs/automation-user-guide.md`](docs/automation-user-guide.md)，实验平台边界见 [`docs/experimental-platform-support.md`](docs/experimental-platform-support.md)。
+Windows 安装包未签名。请从本项目 Release 下载并核对 SHA-256。Electron 11、Chromium 87 和 Flash 已停止安全更新，请仅访问可信的旧游戏站点与本地内容，内容兼容时优先使用 Ruffle。
 
-## 验证状态
+Windows installers are unsigned. Verify the attached SHA-256 checksums. Electron 11, Chromium 87 and Flash no longer receive security updates; use trusted legacy content and prefer Ruffle where compatible.
 
-- 2026-08-23 GitHub CI 在 Windows 与 Ubuntu 完成 `npm run check`、用户脚本/CSS 冒烟和 BrowserView 兼容性冒烟。
-- Windows x64、Windows ia32 与 Linux x64 三个 CI 打包任务全部通过并上传候选制品。
-- 本地 Vitest：74 个测试文件、464 项测试通过。
-- PPAPI 自动化仍需在真实游戏上保留人工发布门；macOS 实验包构建成功不代表 Flash 已在真实 Mac 上可用。
-
-## 安全提示
-
-Electron 11、Chromium 87 和 Adobe Flash Player 均已停止安全更新。本程序只应用于可信旧游戏站点和本地内容，不建议用于邮箱、支付、网盘、办公系统或其他敏感业务。内容兼容时优先使用 Ruffle。
-
-项目源代码采用 MIT License；Flash Player、Ruffle、aria2、OpenCV、Blockly 和字体等第三方组件仍受各自许可证约束，详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+项目源码采用 MIT License，第三方组件分别适用其原始许可证，见 `THIRD_PARTY_NOTICES.md`。

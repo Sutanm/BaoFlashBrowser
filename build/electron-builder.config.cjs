@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { prepareEsbuildRuntime, runtimeDirectory } = require('./prepare-esbuild-runtime.cjs');
 const { parseModules } = require('./module-flags.cjs');
 
 const targetPlatform = process.env.BAO_TARGET_PLATFORM || process.platform;
@@ -31,6 +32,7 @@ function selectedResources() {
       { from: 'native/mouse-hook.exe', to: 'native/mouse-hook.exe' },
     ];
     if (hasDownload) resources.push({ from: 'native/aria2/win32/aria2c.exe', to: 'native/aria2/aria2c.exe' });
+    if (bundleOcr) resources.push({ from: 'native/ocr/win32', to: 'native/ocr' });
     return resources;
   }
 
@@ -83,7 +85,7 @@ module.exports = {
       'node_modules/@techstark/opencv-js/**/*',
     ] : []),
   ],
-  extraResources: selectedResources(),
+  extraResources: [...selectedResources(), { from: runtimeDirectory(targetPlatform, targetArch), to: 'native/esbuild', filter: [targetPlatform === 'win32' ? 'esbuild.exe' : 'esbuild'] }],
   win: {
     target: 'nsis',
     icon: 'build/icon.ico',
@@ -112,6 +114,7 @@ module.exports = {
     artifactName: bundleOcr ? 'BaoFlashBrowser-OCR-${version}-${arch}.${ext}' : 'BaoFlashBrowser-${version}-${arch}.${ext}',
   },
   beforePack: async () => {
+    await prepareEsbuildRuntime(targetPlatform, targetArch);
     if (targetPlatform !== 'linux') return;
     const executableFiles = ['native/mouse-hook-linux'];
     if (hasDownload) executableFiles.push('native/aria2/aria2c');

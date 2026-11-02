@@ -12,7 +12,7 @@ export function isUrl(text: string): boolean {
 }
 
 const SEARCH_ENGINES: Record<string, string> = {
-  bing: 'https://cn.bing.com/search?q=',
+  bing: 'https://www.bing.com/search?q=',
   google: 'https://www.google.com/search?q=',
   baidu: 'https://www.baidu.com/s?wd=',
 };

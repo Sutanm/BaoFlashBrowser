@@ -13,6 +13,7 @@ module.exports = {
     ipcMain.on('userscript:get-config', config);
     ipcMain.on('get-ruffle-mode', ruffle);
     let lists = 0, statuses = 0;
+    ipcMain.handle('ui:get-language', () => 'en');
     ipcMain.handle('automation-assistant:list', () => { lists++; return []; });
     ipcMain.handle('automation-assistant:status', () => { statuses++; return { state: 'idle', executedSteps: 0, logs: [] }; });
     const server = http.createServer((_req, res) => {
@@ -34,14 +35,21 @@ module.exports = {
           view.webContents.send('automation-assistant:show');
           await waitFor(() => view.webContents.executeJavaScript("document.getElementById('bao-automation-frame-assistant').classList.contains('bao-open')"), { timeoutMs: 3000, label: 'open native assistant' });
           assert.deepStrictEqual(await view.webContents.executeJavaScript('({width:innerWidth,height:innerHeight})'), before);
+          assert(!/[\p{Script=Han}]/u.test(await view.webContents.executeJavaScript("document.getElementById('bao-automation-frame-assistant').textContent")), 'English assistant contains Chinese UI');
+          view.webContents.send('ui:language-changed', 'zh-CN');
+          await waitFor(() => view.webContents.executeJavaScript("document.getElementById('bao-automation-frame-assistant').textContent.includes('自动化脚本')"), { timeoutMs: 3000, label: 'assistant language switch' });
+          view.webContents.send('ui:language-changed', 'en');
+          await waitFor(() => view.webContents.executeJavaScript("document.getElementById('bao-automation-frame-assistant').textContent.includes('Automation scripts')"), { timeoutMs: 3000, label: 'assistant English restored' });
+          assert.strictEqual(await view.webContents.executeJavaScript("document.querySelectorAll('#bao-automation-frame-assistant').length"), 1);
           assert.deepStrictEqual(view.getBounds(), { x: 0, y: 0, width: 900, height: 650 });
         } finally { view.webContents.destroy(); }
       }
       assert(lists > 0 && statuses > 0, 'native transport not used');
-      return { ok: true, summary: 'PPAPI + Ruffle isolation modes: native UI and IPC, unchanged game viewport, userscripts disabled' };
+      return { ok: true, summary: 'PPAPI + Ruffle isolation modes: native UI, English/Chinese live switching and IPC, unchanged game viewport, userscripts disabled' };
     } finally {
       host.destroy(); server.close();
       ipcMain.removeListener('userscript:get-config', config); ipcMain.removeListener('get-ruffle-mode', ruffle);
+      ipcMain.removeHandler('ui:get-language');
       ipcMain.removeHandler('automation-assistant:list'); ipcMain.removeHandler('automation-assistant:status');
     }
   },

@@ -26,6 +26,8 @@ import {
 import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchScales } from '@shared/automation/vision-policy';
 import { useTabsStore } from '../../store/useTabsStore';
 import type { AutomationBlocklyV2EditorHandle } from './AutomationBlocklyV2Editor';
+import { englishDocSections } from './automation-docs-en';
+import { localizeAutomationMessage } from '@shared/automation/localized-message';
 import { docSections } from './automation-docs-data';
 import './automation.css';
 import { useI18nContext } from '../../i18n/i18n-react';
@@ -89,7 +91,8 @@ function AssetPreview({
 }
 
 export default function AutomationPage(): React.JSX.Element {
-  const { LL } = useI18nContext();
+  const { LL, locale } = useI18nContext();
+  const sections = locale === 'en' ? englishDocSections : docSections;
   const t = LL.automationWorkbench;
   const api = window.electronAPI.automationV3;
   const editor = useRef<AutomationBlocklyV2EditorHandle>(null);
@@ -141,7 +144,7 @@ export default function AutomationPage(): React.JSX.Element {
   const [targetTabId, setTargetTabId] = useState('');
 
   const showError = (error: unknown): void =>
-    setNotice(error instanceof Error ? error.message : String(error));
+    setNotice(localizeAutomationMessage(error instanceof Error ? error.message : String(error), locale));
   const applyDetail = useCallback((next: Detail, preserveMode = false): void => {
     setDetail(next);
     setSelectedAsset((current) =>
@@ -202,7 +205,7 @@ export default function AutomationPage(): React.JSX.Element {
         const active = ['preparing', 'running', 'cancelling'].includes(status.state);
         setRunning(active);
         if (status.state !== lastRunState.current && ['completed', 'failed', 'cancelled'].includes(status.state)) {
-          setNotice(status.message ?? (status.state === 'completed' ? t.automationCompleted() : status.state === 'failed' ? t.automationFailed() : t.stopped()));
+          setNotice(status.message ? localizeAutomationMessage(status.message, locale) : (status.state === 'completed' ? t.automationCompleted() : status.state === 'failed' ? t.automationFailed() : t.stopped()));
         }
         lastRunState.current = status.state;
       } catch { /* Workbench teardown. */ }
@@ -1083,12 +1086,12 @@ export default function AutomationPage(): React.JSX.Element {
           {mode === 'docs' && (
             <section className="awb-docs">
               <aside>
-                {docSections.map((section, index) => (
+                {sections.map((section, index) => (
                   <button key={section.id} className={docSection === index ? 'active' : ''} onClick={() => setDocSection(index)}>{section.title}</button>
                 ))}
               </aside>
               <article>
-                {docSections[docSection]?.content}
+                {sections[docSection]?.content}
               </article>
             </section>
           )}

@@ -17,16 +17,17 @@ const ErrorBoundaryInner: React.FC<{ message?: string; onRetry: () => void }> = 
   // remain renderable when the i18n context has not been created yet.
   const context = useI18nContext();
   const LL = context?.LL;
+  const en = document.documentElement.lang === 'en' || navigator.language.startsWith('en');
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       height: '100%', padding: 24, color: 'var(--text-secondary)',
     }}>
       <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 8, color: 'var(--text-primary)' }}>
-        {LL?.error?.title?.() ?? '页面发生错误'}
+        {LL?.error?.title?.() ?? (en ? 'Something went wrong' : '页面发生错误')}
       </div>
       <div style={{ fontSize: 13, opacity: 0.7, textAlign: 'center', maxWidth: 400 }}>
-        {message || LL?.error?.default?.() || '界面初始化失败，请重试或查看主程序日志。'}
+        {message || LL?.error?.default?.() || (en ? 'Unable to initialize the interface. Retry or check the application log.' : '界面初始化失败，请重试或查看主程序日志。')}
       </div>
       <button
         onClick={onRetry}
@@ -35,7 +36,7 @@ const ErrorBoundaryInner: React.FC<{ message?: string; onRetry: () => void }> = 
           background: 'var(--accent)', color: '#fff', fontSize: 13,
         }}
       >
-        {LL?.retry?.() ?? '重试'}
+        {LL?.retry?.() ?? (en ? 'Retry' : '重试')}
       </button>
     </div>
   );

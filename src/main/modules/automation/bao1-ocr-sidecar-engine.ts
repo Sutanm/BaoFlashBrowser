@@ -25,7 +25,7 @@ function parseItem(value: unknown): OcrTextItem | null {
   return box.length >= 4 ? { text: item.text, score: item.score, box } : null;
 }
 
-/** Provider-neutral BAO1 process client. Paddle is the sole production provider. */
+/** Provider-neutral BAO1 process client shared by Paddle and Win32 Tesseract. */
 export class Bao1OcrSidecarEngine implements AutomationOcrEngine {
   private child: ChildProcessWithoutNullStreams | null = null;
   private startup: Promise<void> | null = null;

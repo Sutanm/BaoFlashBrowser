@@ -46,6 +46,7 @@ type AuthoringVisionSession = {
 };
 
 export type AutomationRunLog = {
+  readonly system?: boolean;
   readonly timestamp: number;
   readonly level: 'info' | 'success' | 'error';
   readonly message: string;
@@ -209,9 +210,9 @@ export class AutomationV3Service {
     this.runStatus = { ...this.runStatus, ...patch };
   }
 
-  private appendRunLog(level: AutomationRunLog['level'], message: string): void {
+  private appendRunLog(level: AutomationRunLog['level'], message: string, system = true): void {
     const clean = String(message).trim().slice(0, 4_000); if (!clean) return;
-    const logs = [...this.runStatus.logs, { timestamp: Date.now(), level, message: clean }].slice(-200);
+    const logs = [...this.runStatus.logs, { timestamp: Date.now(), level, message: clean, system }].slice(-200);
     this.runStatus = { ...this.runStatus, logs };
   }
 
@@ -342,7 +343,7 @@ export class AutomationV3Service {
       this.updateRunStatus({ currentStep: '正在初始化 Automation Core' });
       // 运行会话复用常驻 Worker/Sidecar,避免每次运行重新支付 OpenCV/OCR 冷启动。
       registerAutomationAssetSource(packageId, runtimePackage(source));
-      session = new BrowserViewAutomationCoreSession(tab, runtimePackage(source), profile, (message, level) => this.appendRunLog(level === 'error' ? 'error' : 'info', message), (entryId) => this.grants.get(packageId, entryId), { matcher: sharedAutomationVisionMatcher(), colorMatcher: sharedAutomationColorMatcher(), automaticMatcher: sharedAutomaticVisionMatcher(), ocrEngine: sharedAutomationOcrEngine() });
+      session = new BrowserViewAutomationCoreSession(tab, runtimePackage(source), profile, (message, level) => this.appendRunLog(level === 'error' ? 'error' : 'info', message, false), (entryId) => this.grants.get(packageId, entryId), { matcher: sharedAutomationVisionMatcher(), colorMatcher: sharedAutomationColorMatcher(), automaticMatcher: sharedAutomaticVisionMatcher(), ocrEngine: sharedAutomationOcrEngine() });
       const handle = frontendId === 'workflow' ? session.startWorkflow() : session.startJavaScript(frontendId, this.grants.get(packageId, frontendId));
       this.active = { session, handle, packageId, frontendId };
       this.updateRunStatus({ state: 'running', runId: handle.runId, currentStep: frontendId === 'workflow' ? '正在执行主流程' : `正在执行脚本 ${frontendId}` });

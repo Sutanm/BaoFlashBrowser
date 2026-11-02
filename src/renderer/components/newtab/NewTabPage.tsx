@@ -21,7 +21,7 @@ const QUICK_LINKS = [
 ];
 
 const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
-  const { LL } = useI18nContext();
+  const { LL, locale } = useI18nContext();
   const [search, setSearch] = useState('');
 
   const handleSearch = (e: React.KeyboardEvent) => {
@@ -82,7 +82,7 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
           >
             <div className="newtab-link-icon" style={{ background: link.bg }}>{link.icon}</div>
             <div className="newtab-link-title">
-              {link.title}
+              {locale === 'en' ? (link.title === '百度' ? 'Baidu' : link.title === 'B站' ? 'Bilibili' : link.title) : link.title}
             </div>
           </div>
         ))}

@@ -146,15 +146,29 @@ BaoFlashBrowser 不只是一个 Flash 浏览器。它将 **PPAPI/Ruffle 双引�
 - [v1.1.1 实验性 Flash/macOS 支持说明](docs/experimental-platform-support.md)
 - [v1.1.2 发行说明](RELEASE_NOTES.md)
 
+### 1.1.2 正式版安装包
+
+三个正式包均保留全部功能模块，并内置离线 OCR 程序、依赖和中英文模型。换电脑后直接安装对应包，无需下载源码、另装 OCR 或重新编译。
+
+| 平台 | 文件名 | 内置 OCR |
+| --- | --- | --- |
+| Windows 64 位 | `BaoFlashBrowser-OCR-1.1.2-x64.exe` | Paddle Inference / PP-OCRv3 |
+| Windows 32 位 | `BaoFlashBrowser-OCR-1.1.2-ia32.exe` | Tesseract 5.3.0 x86 |
+| Linux 64 位 | `BaoFlashBrowser-1.1.2-x86_64.AppImage` | Paddle Inference / PP-OCRv3 |
+
+Win32 的 Tesseract 适合清晰文字和数字，对低分辨率、描边游戏文字的效果弱于 Paddle，详见 [OCR 对比报告](docs/automation-v2/2026-11-02-tesseract-x86-comparison.md)。三个包均包含 OCR，“OCR”文件名不代表裁剪其他模块。macOS 仍为独立实验通道，不在本次正式包中。
+
+Release 同时提供 Windows `.blockmap`、`SHA256SUMS-1.1.2.txt` 和成品校验清单；校验文件对应本次发布的实际安装包。
+
 Windows 安装包当前**未进行代码签名**，安装或首次运行时可能出现 Microsoft Defender SmartScreen 的“未知发布者”提示。请只从项目 Release 页面下载，并核对页面公布的 SHA-256；也可以按照下方步骤从源码运行当前版本。
 
 ## 平台支持
 
 | 平台 | 状态 | 说明 |
 | --- | --- | --- |
-| Windows x64 | 主要支持 | 推荐使用，包含 PPAPI、aria2 和鼠标缩放钩子 |
-| Windows ia32 | 未完全测试 | 包含匹配的 32 位 PPAPI 与 aria2 |
-| Linux x64 | 有限支持 | 推荐从源码运行；AppImage 可能受发行版、FUSE、动态库及 X11/Wayland 影响 |
+| Windows x64 | 主要支持 | 全模块，包含 PPAPI、aria2、鼠标缩放钩子和 Paddle OCR |
+| Windows ia32 | 兼容支持 | 全模块，32 位 PPAPI、aria2 与 Tesseract OCR；已在 32 位 Electron 验证，尚无真实 32 位系统测试 |
+| Linux x64 | 有限支持 | 全模块 AppImage 内置 Paddle OCR；运行仍受发行版、FUSE、系统库及 X11/Wayland 影响 |
 | macOS Intel x64 | 实验性、零测试 | 一体化捆绑 PPAPI Flash 34.0.0.380；无 Mac 设备测试，Apple Silicon 只能尝试 Rosetta 2 |
 | Linux x86 | 不支持 | 缺少完整的 PPAPI 和原生资源支持链 |
 
@@ -186,18 +200,25 @@ sudo apt install -y libnss3 libgtk-3-0 libx11-xcb1 libxtst6 libxss1 \
 ## 构建与验证
 
 ```bash
-npm run check       # i18n、类型检查、Lint、单元测试和生产构建
-npm run build:win64          # Windows x64 标准版（不含 OCR）
-npm run build:win64:standard # 同上，名称更明确
-npm run build:win64:ocr      # Windows x64 OCR 版（首次构建会下载并校验离线 OCR）
-npm run build:win32 # Windows ia32 NSIS（未完全测试）
-npm run build:linux # Linux x64 AppImage，建议在 Linux/WSL 中执行
-npm run build:mac   # macOS Intel x64 实验 DMG/ZIP，必须在 macOS 上执行，未经任何测试
+npm run check               # i18n、类型检查、Lint、单元测试和生产构建
+npm run test:integration    # OpenCV/OCR 原生集成测试
+npm run build:win64         # 全模块 + Paddle OCR，输出 release/ocr/
+npm run build:win32         # 全模块 + Tesseract OCR，输出 release/ocr/
+npm run build:linux         # 全模块 + Paddle OCR AppImage，在 Linux/WSL 构建
+npm run build:win64:standard # 可选：全模块但不携带 OCR 运行时
+npm run build:win32:standard # 可选：全模块但不携带 OCR 运行时
+npm run build:linux:standard # 可选：全模块但不携带 OCR 运行时
+npm run build:mac           # 独立 macOS Intel x64 实验 DMG/ZIP；需 macOS
 ```
 
-`build:mac` 会校验仓库内实验性 Flash DMG 的 SHA-256，在临时目录中提取完整插件，并将解码后的 `PepperFlashPlayer.plugin` 直接捆绑进 `.app`；原始 DMG 不会进入最终安装包。也可以在 GitHub Actions 中手动运行 **Package experimental macOS build** 工作流获取 DMG/ZIP。
+默认启用全部模块；`BAO_MODULES` 是供开发者使用的编译裁剪选项，本次正式包不做模块裁剪。`npm run build` 只生成应用代码，不会生成安装包，也不会自动准备 OCR 运行时。
 
-Windows x64 同时提供两种安装包：标准版体积较小，不包含也不会启动 OCR；OCR 版额外携带 PaddleOCR-json 简中模型，可使用“点击文字”“等待文字”和“文字条件”积木。两版使用同一套应用代码，含 OCR 的脚本在标准版仍可编辑，但运行时会明确提示安装 OCR 版。发布脚本会检查 Ruffle、字体、PPAPI、aria2、鼠标钩子、OCR 隔离和目标架构，校验结果写入 `release/manifests/`。macOS 构建成功只代表资源和安装包结构通过检查，不代表 Flash 已在真实 Mac 上验证可用。
+- **Win64**：首次打包会获取并校验固定版本的 Paddle 运行时和模型。
+- **Win32**：需要安装 MSVC C++ x86 工具（Visual Studio / Build Tools）。构建脚本校验仓库内固定版本的 Tesseract 依赖归档，编译原生 x86 BAO1 sidecar；安装包用户无需安装 MSVC 或 .NET。
+- **Linux x64**：首次准备 OCR 需 Docker、Git 和 `bsdtar`（Ubuntu/Debian：`sudo apt install libarchive-tools`）。脚本获取固定版本输入，在 manylinux_2_28 容器构建推理程序，再复用本地归档。OCR 包携带所需推理库和模型，校验其 glibc 要求不高于 2.28；图形、FUSE 等系统依赖仍需由发行版提供。
+- **macOS**：`build:mac` 校验仓库内实验性 Flash DMG，提取完整插件并捆绑进 `.app`，原 DMG 不进入成品。它未经过真实 Mac 验证，也不作为 1.1.2 稳定制品发布。
+
+各平台打包前后均验证 Ruffle、字体、PPAPI、aria2、鼠标钩子、目标架构和 OCR 资源。运行时 esbuild 按目标架构单独准备，防止在 x64 机器上交叉打包 Win32 时混入错误架构。校验清单写入 `release/manifests/`；CI 默认构建与上传上述三个含 OCR 的正式候选包。详见 [打包与测试管线](docs/modules/09-build-release-test.md)。
 
 ## 浏览器基础能力
 

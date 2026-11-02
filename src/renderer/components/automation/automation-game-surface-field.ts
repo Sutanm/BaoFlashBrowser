@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly';
+import { localizeAutomationMessage } from '@shared/automation/localized-message';
 import { decodeGameSurfaceFeature, encodeGameSurfaceFeature, gameSurfaceFeatureLabel } from '../../../shared/automation/core';
 
 export const GAME_SURFACE_FIELD = 'field_game_surface_feature_v3';
@@ -23,7 +24,7 @@ export class GameSurfaceFeatureField extends Blockly.Field<string> {
     const value = this.getValue() || '';
     if (!value) return this.importLabel;
     try { return gameSurfaceFeatureLabel(decodeGameSurfaceFeature(value)); }
-    catch { return '特征码无效（点击重新导入）'; }
+    catch { return localizeAutomationMessage('特征码无效（点击重新导入）', document.documentElement.lang); }
   }
 
   isClickableInFlyout(_autoClosingFlyout: boolean): boolean { return true; }
@@ -35,7 +36,7 @@ export class GameSurfaceFeatureField extends Blockly.Field<string> {
         const normalized = encodeGameSurfaceFeature(decodeGameSurfaceFeature(text));
         this.setValue(normalized);
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : String(error));
+        window.alert(localizeAutomationMessage(error instanceof Error ? error.message : String(error), document.documentElement.lang));
       }
     })();
   }

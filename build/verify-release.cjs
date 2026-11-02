@@ -250,6 +250,22 @@ function highestGlibcRequirement(root) {
 function verifyOcr(resourcesRoot, packaged) {
   const ocrRoot = path.join(resourcesRoot, 'native', 'ocr');
   if (ocrMode === 'bundled') {
+    if (platform === 'win32' && arch === 'ia32') {
+      const runtime = packaged ? ocrRoot : path.join(ocrRoot, 'win32');
+      expectArch(path.join(runtime, 'bao-tesseract-ocr-sidecar.exe'), 'ia32', 'pe', 'Tesseract BAO1 sidecar');
+      const metadata = path.join(runtime, 'OCR-RUNTIME.json');
+      expectJsonFields(metadata, {
+        protocol: 1, provider: 'Tesseract', engine: '5.3.0', model: 'chi_sim+eng-fast', platform, arch,
+      }, 'Tesseract runtime manifest');
+      const vendor = require('../tools/ocr-tesseract/vendor/manifest.json');
+      for (const [name, hash] of Object.entries(vendor.files)) {
+        const file = path.join(runtime, name);
+        if (name.endsWith('.dll')) expectArch(file, 'ia32', 'pe', `Tesseract dependency ${name}`);
+        else record(file, `Tesseract resource ${name}`);
+        if (fs.existsSync(file) && sha256(file) !== hash) fail(`Tesseract runtime SHA-256 mismatch: ${name}`);
+      }
+      return;
+    }
     if (!['win32', 'linux'].includes(platform) || arch !== 'x64') fail(`bundled OCR is not supported for ${platform}-${arch}`);
     if (platform === 'win32') {
       const paddleRoot = packaged ? ocrRoot : path.join(ocrRoot, 'win64');
@@ -258,6 +274,11 @@ function verifyOcr(resourcesRoot, packaged) {
         protocol: 1, provider: 'Paddle Inference', engine: 'Paddle Inference C++ 2.3.2 CPU MKL', model: 'PP-OCRv3', platform, arch,
       }, 'Paddle runtime manifest');
       record(path.join(paddleRoot, 'LICENSE'), 'PaddleOCR/PaddleOCR-json license');
+      record(path.join(paddleRoot, 'models', 'dict_chinese.txt'), 'Paddle OCR dictionary');
+      for (const model of ['ch_PP-OCRv3_det_infer', 'ch_PP-OCRv3_rec_infer']) {
+        record(path.join(paddleRoot, 'models', model, 'inference.pdmodel'), `Paddle ${model} graph`);
+        record(path.join(paddleRoot, 'models', model, 'inference.pdiparams'), `Paddle ${model} parameters`);
+      }
       if (fs.existsSync(path.join(paddleRoot, 'PaddleOCR-json.exe'))) fail('Windows OCR package unexpectedly contains legacy PaddleOCR-json executable');
       if (packaged && fs.existsSync(path.join(ocrRoot, 'rapidocr'))) fail('Windows OCR package unexpectedly contains RapidOCR runtime');
       return;
@@ -389,6 +410,10 @@ function verifyUnpacked() {
     : path.join(root, 'resources');
   verifyAsar(path.join(resources, 'app.asar'));
   verifySelectedResources(resources);
+  const compilerBinary = path.join(resources, 'native', 'esbuild', platform === 'win32' ? 'esbuild.exe' : 'esbuild');
+  if (platform === 'win32') expectArch(compilerBinary, arch, 'pe', 'runtime esbuild');
+  else if (platform === 'linux') expectArch(compilerBinary, arch, 'elf', 'runtime esbuild');
+  else expectMachOArch(compilerBinary, arch, 'runtime esbuild');
   verifyOcr(resources, true);
   if (hasAutomation) verifyVisionWorkerUnpacked(resources);
 

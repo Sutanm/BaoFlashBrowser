@@ -4,6 +4,7 @@ import { registerAppUpdateIPC } from './ipc/app-update.ipc';
 import path from 'path';
 import { app, protocol, session } from 'electron';
 import log from 'electron-log';
+import { registerUiLanguageIPC } from './modules/ui-language';
 
 import { setupFlash } from './modules/flash';
 import { configureOptionalSessionServices, initSession } from './modules/session-manager';
@@ -101,6 +102,7 @@ function bootstrap(): void {
   }
 
   app.whenReady().then(async () => {
+    registerUiLanguageIPC(() => getMainWindow());
     // Apply before creating windows, background scripts or navigations.
     try {
       await initializeProxy(config.proxy);

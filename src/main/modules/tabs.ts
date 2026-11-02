@@ -1,3 +1,4 @@
+import { uiText } from './ui-language';
 import { BrowserView, Menu } from 'electron';
 import log from 'electron-log';
 import { getMainWindow } from './window';
@@ -565,16 +566,16 @@ class TabManager {
       if (!win || win.isDestroyed()) return;
       const tab = this.tabs.get(tabId);
       const template: Electron.MenuItemConstructorOptions[] = [
-        { label: '↩ 后退', enabled: wc.canGoBack(), click: () => this.goBack(tabId) },
-        { label: '↪ 前进', enabled: wc.canGoForward(), click: () => this.goForward(tabId) },
-        { label: '⟳ 刷新', click: () => this.reload(tabId) },
-        { type: 'separator' }, { label: '复制', enabled: Boolean(params.selectionText), role: 'copy' }, { label: '粘贴', role: 'paste' },
+        { label: uiText('↩ 后退', '↩ Back'), enabled: wc.canGoBack(), click: () => this.goBack(tabId) },
+        { label: uiText('↪ 前进', '↪ Forward'), enabled: wc.canGoForward(), click: () => this.goForward(tabId) },
+        { label: uiText('⟳ 刷新', '⟳ Reload'), click: () => this.reload(tabId) },
+        { type: 'separator' }, { label: uiText('复制', 'Copy'), enabled: Boolean(params.selectionText), role: 'copy' }, { label: uiText('粘贴', 'Paste'), role: 'paste' },
       ];
-      if (params.linkURL) template.push({ type: 'separator' }, { label: '在新标签页打开链接', click: () => this.send('tab:newwindow', { url: params.linkURL }) });
+      if (params.linkURL) template.push({ type: 'separator' }, { label: uiText('在新标签页打开链接', 'Open link in new tab'), click: () => this.send('tab:newwindow', { url: params.linkURL }) });
       template.push(
         { type: 'separator' },
-        { label: tab?.isRuffle ? `Flash 引擎: Ruffle (WASM 模拟)${tab.ruffleSource === 'cdn' ? ' (CDN)' : ''}` : 'Flash 引擎: PPAPI (原生)', enabled: false },
-        { label: '检查元素', click: () => wc.openDevTools({ mode: 'detach' }) },
+        { label: tab?.isRuffle ? `${uiText('Flash 引擎: Ruffle (WASM 模拟)', 'Flash engine: Ruffle (WASM)')}${tab.ruffleSource === 'cdn' ? ' (CDN)' : ''}` : uiText('Flash 引擎: PPAPI (原生)', 'Flash engine: PPAPI (native)'), enabled: false },
+        { label: uiText('检查元素', 'Inspect element'), click: () => wc.openDevTools({ mode: 'detach' }) },
       );
       Menu.buildFromTemplate(template).popup({ window: win, x: params.x, y: params.y });
     });

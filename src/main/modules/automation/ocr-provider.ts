@@ -1,5 +1,6 @@
 import type { AutomationOcrEngine } from './capability-contracts';
 import { bundledPaddleOcrSidecarAvailable, PaddleOcrSidecarEngine } from './paddle-ocr-sidecar-engine';
+import { bundledTesseractOcrAvailable, TesseractOcrSidecarEngine } from './tesseract-ocr-sidecar-engine';
 
 class UnavailableOcrEngine implements AutomationOcrEngine {
   readonly providerId = 'unavailable';
@@ -7,9 +8,10 @@ class UnavailableOcrEngine implements AutomationOcrEngine {
   async close(): Promise<void> { /* no process */ }
 }
 
-export type AutomationOcrProviderPreference = 'auto' | 'paddle';
+export type AutomationOcrProviderPreference = 'auto' | 'paddle' | 'tesseract';
 
 export function createAutomationOcrEngine(preference: AutomationOcrProviderPreference = 'auto'): AutomationOcrEngine {
+  if ((preference === 'auto' || preference === 'tesseract') && bundledTesseractOcrAvailable()) return new TesseractOcrSidecarEngine();
   if ((preference === 'auto' || preference === 'paddle') && bundledPaddleOcrSidecarAvailable()) return new PaddleOcrSidecarEngine();
   return new UnavailableOcrEngine();
 }

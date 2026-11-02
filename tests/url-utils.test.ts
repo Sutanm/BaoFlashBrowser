@@ -15,6 +15,14 @@ describe('URL normalization', () => {
     expect(normalizeUrl('flash game', 'baidu')).toBe('https://www.baidu.com/s?wd=flash%20game');
   });
 
+  it('uses the global Bing endpoint for both selected and fallback searches', () => {
+    const expected = 'https://www.bing.com/search?q=%E6%B8%B8%E6%88%8F%20game';
+    expect(normalizeUrl('游戏 game', 'bing')).toBe(expected);
+    expect(normalizeUrl('游戏 game')).toBe(expected);
+    expect(normalizeUrl('游戏 game', 'unknown')).toBe(expected);
+    expect(normalizeUrl('https://cn.bing.com/search?q=user')).toBe('https://cn.bing.com/search?q=user');
+  });
+
   it('recognizes renderer-owned new-tab URLs', () => {
     expect(isNewtabUrl('about:newtab')).toBe(true);
     expect(isNewtabUrl('about:blank')).toBe(true);

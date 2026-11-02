@@ -23,7 +23,11 @@ const AutomationPage = MODULE_AUTOMATION ? lazy(() => import('./components/autom
 const UserscriptsPage = MODULE_USERSCRIPTS ? lazy(() => import('./components/userscripts/UserscriptsPage')) : null;
 
 const AppInner: React.FC = () => {
-  const { LL, setLocale } = useI18nContext();
+  const { LL, locale, setLocale } = useI18nContext();
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    void window.electronAPI.invoke('ui:set-language', locale).catch(() => undefined);
+  }, [locale]);
   const favorites = useDataStore((s) => s.favorites);
   const activeDownloadCount = useDataStore((s) => s.downloads.filter((d) => d.state === 'progressing' || d.state === 'paused').length);
   const settings = useDataStore((s) => s.settings);

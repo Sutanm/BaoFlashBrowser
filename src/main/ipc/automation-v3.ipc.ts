@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { uiText } from '../modules/ui-language';
 import { registerAutomationAssistantBridge } from './automation-assistant-bridge';
 import { tabManager } from '../modules/tabs';
 import path from 'path';
@@ -92,7 +93,7 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
   createValidatedHandler('automation-v3:asset-preview', z.object({ packageId: id, asset: z.string().min(1).max(512) }).strict(), ({ packageId, asset }) => service.assetPreview(packageId, asset));
   createValidatedHandler('automation-v3:open-test-scene', z.object({}).optional(), async () => {
     const win = getWin() ?? BrowserWindow.getFocusedWindow(); if (!win) throw new Error('No window available');
-    const result = await dialog.showOpenDialog(win, { title: '导入待测试画面', properties: ['openFile'], filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
+    const result = await dialog.showOpenDialog(win, { title: uiText('导入待测试画面', 'Import test scene'), properties: ['openFile'], filters: [{ name: uiText('图片', 'Images'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
     if (result.canceled || !result.filePaths[0]) return { canceled: true as const };
     const stat = await fs.promises.stat(result.filePaths[0]); if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw new Error('测试图片不能超过 32MB');
     const image = nativeImage.createFromBuffer(await fs.promises.readFile(result.filePaths[0])); if (image.isEmpty()) throw new Error('无法读取测试图片');
@@ -110,14 +111,14 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
   });
   createValidatedHandler('automation-v3:import-assets', z.object({ packageId: id }).strict(), async ({ packageId }) => {
     const win = getWin() ?? BrowserWindow.getFocusedWindow(); if (!win) throw new Error('No window available');
-    const result = await dialog.showOpenDialog(win, { title: '导入图片素材', properties: ['openFile', 'multiSelections'], filters: [{ name: '图片素材', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
+    const result = await dialog.showOpenDialog(win, { title: uiText('导入图片素材', 'Import image assets'), properties: ['openFile', 'multiSelections'], filters: [{ name: uiText('图片素材', 'Image assets'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
     if (result.canceled) return { canceled: true as const };
     const files = await Promise.all(result.filePaths.map(async (filePath) => ({ name: path.basename(filePath), bytes: new Uint8Array(await fs.promises.readFile(filePath)) })));
     return { canceled: false as const, detail: await service.importAssets(packageId, files) };
   });
   createValidatedHandler('automation-v3:import-asset-folder', z.object({ packageId: id }).strict(), async ({ packageId }) => {
     const win = getWin() ?? BrowserWindow.getFocusedWindow(); if (!win) throw new Error('No window available');
-    const result = await dialog.showOpenDialog(win, { title: '导入图片组文件夹', properties: ['openDirectory'] });
+    const result = await dialog.showOpenDialog(win, { title: uiText('导入图片组文件夹', 'Import image group folder'), properties: ['openDirectory'] });
     if (result.canceled || !result.filePaths[0]) return { canceled: true as const };
     return { canceled: false as const, detail: await service.importAssets(packageId, await readImageDirectory(result.filePaths[0])) };
   });

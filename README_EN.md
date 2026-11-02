@@ -143,15 +143,29 @@ The spoofed version is the version reported to websites and is separate from the
 - [v1.1.1 Experimental Flash/macOS Support](docs/experimental-platform-support.md)
 - [v1.1.1 Release Notes](RELEASE_NOTES.md)
 
+### 1.1.2 release packages
+
+All three official packages include every feature module, an offline OCR engine, its dependencies, and Chinese/English models. Install the matching package on another computer without downloading source code, installing OCR separately, or rebuilding.
+
+| Platform | Filename | Bundled OCR |
+| --- | --- | --- |
+| Windows x64 | `BaoFlashBrowser-OCR-1.1.2-x64.exe` | Paddle Inference / PP-OCRv3 |
+| Windows ia32 | `BaoFlashBrowser-OCR-1.1.2-ia32.exe` | Tesseract 5.3.0 x86 |
+| Linux x64 | `BaoFlashBrowser-1.1.2-x86_64.AppImage` | Paddle Inference / PP-OCRv3 |
+
+Win32 Tesseract works best with clear text and numbers; small, outlined game text is a weak case. See the [OCR comparison](docs/automation-v2/2026-11-02-tesseract-x86-comparison.md). The OCR filename does not imply that other modules were removed. macOS remains a separate experimental channel and is not included in this stable release.
+
+The release also includes Windows `.blockmap` files, `SHA256SUMS-1.1.2.txt`, and package verification manifests.
+
 The Windows installers are currently **unsigned**. Microsoft Defender SmartScreen may display an “Unknown publisher” warning during installation or first launch. Download only from the project release pages and verify the published SHA-256 checksum, or run the current version from source as described below.
 
 ## Platform Support
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| Windows x64 | Primary | Recommended; includes PPAPI, aria2, and the mouse-wheel zoom hook |
-| Windows ia32 | Not fully tested | Includes matching 32-bit PPAPI and aria2 binaries |
-| Linux x64 | Limited | Running from source is recommended; AppImage behavior varies with FUSE, shared libraries, and X11/Wayland |
+| Windows x64 | Primary | Full modules, PPAPI, aria2, mouse-wheel zoom hook and Paddle OCR |
+| Windows ia32 | Compatibility support | Full modules, 32-bit PPAPI/aria2 and Tesseract OCR; tested in 32-bit Electron, not on a physical 32-bit OS |
+| Linux x64 | Limited | Full-module AppImage with Paddle OCR; system libraries, FUSE and X11/Wayland still affect compatibility |
 | macOS Intel x64 | Experimental, zero testing | Integrates PPAPI Flash 34.0.0.380; no Mac hardware testing. Apple Silicon can only attempt Rosetta 2 |
 | Linux x86 | Unsupported | No complete PPAPI and native-resource support chain |
 
@@ -183,16 +197,25 @@ The bundled Linux `aria2c` requires `libaria2.so.0`. If it is unavailable, the a
 ## Build and Verification
 
 ```bash
-npm run check       # i18n, type checks, lint, unit tests, and production build
-npm run build:win64 # Windows x64 NSIS
-npm run build:win32 # Windows ia32 NSIS (not fully tested)
-npm run build:linux # Linux x64 AppImage; run on Linux/WSL
-npm run build:mac   # Experimental macOS Intel x64 DMG/ZIP; must run on macOS and has never been tested
+npm run check               # i18n, types, lint, unit tests and production build
+npm run test:integration    # Native OpenCV/OCR integration tests
+npm run build:win64         # Full modules + Paddle OCR, output: release/ocr/
+npm run build:win32         # Full modules + Tesseract OCR, output: release/ocr/
+npm run build:linux         # Full modules + Paddle OCR AppImage; build on Linux/WSL
+npm run build:win64:standard # Optional: full modules without the OCR runtime
+npm run build:win32:standard # Optional: full modules without the OCR runtime
+npm run build:linux:standard # Optional: full modules without the OCR runtime
+npm run build:mac           # Separate experimental macOS Intel x64 DMG/ZIP
 ```
 
-`build:mac` verifies the experimental Flash DMG checksum, extracts the complete plugin in a temporary directory, and bundles the decoded `PepperFlashPlayer.plugin` directly into the `.app`. The source DMG is not included in the final package. The **Package experimental macOS build** GitHub Actions workflow can also be started manually to produce the DMG/ZIP.
+All modules are enabled by default. `BAO_MODULES` is a developer option for trimmed builds; official 1.1.2 packages do not trim modules. `npm run build` builds application code only, without installers or OCR runtime preparation.
 
-Release scripts validate Ruffle, fonts, PPAPI, aria2, mouse hooks, and target architectures. Manifests are written to `release/manifests/`. A successful macOS package build proves only that its resources and package structure passed validation; it does not prove that Flash works on real Mac hardware.
+- **Win64:** the first package build downloads and verifies a pinned Paddle runtime and models.
+- **Win32:** MSVC x86 C++ tools (Visual Studio / Build Tools) are required to compile the native BAO1 sidecar. The pinned Tesseract dependency archive is included in the repository and verified during preparation. End users need neither MSVC nor .NET.
+- **Linux x64:** the first OCR build requires Docker, Git and `bsdtar` (`sudo apt install libarchive-tools` on Ubuntu/Debian). Pinned inputs are built in a manylinux_2_28 container and cached locally. The package includes inference libraries and models, with glibc requirements checked against 2.28; graphics, FUSE and other system dependencies are supplied by the distribution.
+- **macOS:** the experimental Flash DMG is verified, extracted and integrated into the `.app`. This remains untested on real Mac hardware and is not a stable 1.1.2 release artifact.
+
+Packaging validates Ruffle, fonts, PPAPI, aria2, mouse hooks, target architectures and OCR resources. Runtime esbuild is prepared for the target architecture, including Win32 builds made on x64 hosts. Manifests are written to `release/manifests/`; CI builds the three OCR-inclusive candidate packages above. See the [packaging and test pipeline](docs/modules/09-build-release-test.md).
 
 ## Browser Essentials
 

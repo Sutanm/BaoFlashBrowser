@@ -14,6 +14,7 @@ const ALLOWED_ON_CHANNELS = new Set([
 ]);
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
+  'ui:set-language',
     'tab:create', 'tab:close', 'tab:suspend', 'tab:activate', 'tab:navigate', 'tab:goBack', 'tab:goForward',
   'tab:reload', 'tab:stop', 'tab:zoom', 'tab:mute', 'tab:devtools', 'tab:find', 'tab:stopFind',
   'tab:setBounds', 'tab:setRuffleMode',

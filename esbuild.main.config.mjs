@@ -3,6 +3,7 @@ import { copy } from 'esbuild-plugin-copy';
 import fs from 'fs';
 import path from 'path';
 import { moduleDefines, moduleSummary, parseModules } from './build/module-flags.mjs';
+import { nativeAssistantModule } from './build/native-assistant-i18n.mjs';
 
 const isWatch = process.argv.includes('--watch');
 const modules = parseModules();
@@ -30,7 +31,7 @@ const shared = {
     setup(build) {
       build.onResolve({ filter: /\.user\.js\?native$/ }, args => ({ path: path.resolve(args.resolveDir, args.path.replace(/\?native$/, '')), namespace: 'native-automation-ui' }));
       build.onLoad({ filter: /.*/, namespace: 'native-automation-ui' }, args => ({
-        contents: `export default function install(GM) {\n${fs.readFileSync(args.path, 'utf8')}\n}`,
+        contents: nativeAssistantModule(fs.readFileSync(args.path, 'utf8')),
         loader: 'js', watchFiles: [args.path],
       }));
     },

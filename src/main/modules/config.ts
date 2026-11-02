@@ -7,6 +7,7 @@ import type { FlashPluginChannel } from '@shared/types/flash';
 export const DEFAULT_FLASH_VERSION = '34.0.0.330';
 
 export interface Config {
+  uiLanguage: 'en' | 'zh-CN';
   proxy: ProxySettings;
   flashVersion: string;
   flashPluginChannel: FlashPluginChannel;
@@ -26,6 +27,7 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Config = {
+  uiLanguage: 'zh-CN',
   proxy: { ...DEFAULT_PROXY },
   flashVersion: DEFAULT_FLASH_VERSION,
   flashPluginChannel: 'stable',
@@ -54,6 +56,7 @@ export const DEFAULT_CONFIG: Config = {
 export const CONFIG_KEYS = Object.keys(DEFAULT_CONFIG) as Array<keyof Config>;
 
 export const CONFIG_SCHEMA: Store.Schema<Config> = {
+  uiLanguage: { type: 'string', enum: ['zh-CN', 'en'] },
   proxy: {
     type: 'object',
     additionalProperties: false,

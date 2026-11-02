@@ -4,18 +4,20 @@
 
 当前发布版本为 1.1.2。自动化工作台、视觉匹配工作线程、内置自动化相框助手和实验插件选择逻辑必须与用户脚本运行时一同进入 `app.asar`，不能只验证普通网页浏览资源。
 
+正式包默认全模块并内置 OCR 运行时和中英文模型，换电脑后直接安装使用。`build:win64:standard` / `build:win32:standard` / `build:linux:standard` 仅供明确需要无 OCR 包的开发者使用；详细构建前置条件见根目录中英文 README。
+
 ## 构建命令
 
 默认 `npm run build` 与 `npm run build:full` 都包含全部产品模块。开发者还可用 `build:minimal`（仅 core）、`build:no-automation` 或 `build:no-userscripts` 验证裁剪边界；自定义 `BAO_MODULES` 时，`build/verify-release.cjs` 和 electron-builder 使用同一份模块解析规则，并拒绝在未启用 automation 时捆绑 OCR。
 
 | 目标 | 命令 | 随包资源 |
 | --- | --- | --- |
-| Windows x64 | `npm run build:win64` | win64 PPAPI、x64 aria2、Windows mouse hook |
-| Windows ia32 | `npm run build:win32` | win32 PPAPI、ia32 aria2、Windows mouse hook |
-| Linux x64 | `npm run build:linux` | linux64 PPAPI、x64 aria2、Linux mouse hook |
+| Windows x64 | `npm run build:win64` | win64 PPAPI、x64 aria2、Windows mouse hook、Paddle OCR |
+| Windows ia32 | `npm run build:win32` | win32 PPAPI、ia32 aria2、Windows mouse hook、Tesseract OCR |
+| Linux x64 | `npm run build:linux` | linux64 PPAPI、x64 aria2、Linux mouse hook、Paddle OCR |
 | macOS Intel x64（实验） | `npm run build:mac` | 从校验过的 vendor DMG 提取并捆绑实验 PPAPI；生成 DMG/ZIP |
 
-Windows ia32 使用独立的 `native/aria2/win32/aria2c.exe`，打包后映射为标准资源路径；发布校验会确认它确实是 PE ia32，避免误装 x64 二进制。Windows ia32 当前属于未完全测试版本，应在发布页明确标注。
+Windows ia32 使用独立的 `native/aria2/win32/aria2c.exe`，打包后映射为标准资源路径；发布校验会确认它确实是 PE ia32，避免误装 x64 二进制。Win32 已在 32 位 Electron 下验证，但尚未经过真实 32 位 Windows 系统测试。
 
 Linux 只发布 x64，不提供 x86 构建；Electron、PPAPI Flash 及项目内其他原生资源没有完整的 Linux x86 支持链。
 
@@ -41,8 +43,8 @@ Linux 只发布 x64，不提供 x86 构建；Electron、PPAPI Flash 及项目内
 
 ## 输出
 
-- Windows 安装包：`release/BaoFlashBrowser-<version>-<arch>.exe`
-- Linux 安装包：`release/BaoFlashBrowser-<version>-x86_64.AppImage`
+- Windows 安装包：`release/ocr/BaoFlashBrowser-OCR-<version>-<arch>.exe`
+- Linux 安装包：`release/ocr/BaoFlashBrowser-<version>-x86_64.AppImage`
 - macOS 实验包：`release/BaoFlashBrowser-Experimental-<version>-x64.dmg` 与 `.zip`
 - 解包目录：`release/*-unpacked/`
 - 校验清单：`release/manifests/<platform>-<arch>-<stage>.json`

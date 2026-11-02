@@ -69,18 +69,18 @@ jobs:
             command: build:win64
             artifact: baoflashbrowser-win64
             path: |
-              release/standard/BaoFlashBrowser-*-x64.exe
-              release/standard/BaoFlashBrowser-*-x64.exe.blockmap
+              release/ocr/BaoFlashBrowser-OCR-*-x64.exe
+              release/ocr/BaoFlashBrowser-OCR-*-x64.exe.blockmap
           - os: windows-2022
             command: build:win32
             artifact: baoflashbrowser-win32
             path: |
-              release/standard/BaoFlashBrowser-*-ia32.exe
-              release/standard/BaoFlashBrowser-*-ia32.exe.blockmap
+              release/ocr/BaoFlashBrowser-OCR-*-ia32.exe
+              release/ocr/BaoFlashBrowser-OCR-*-ia32.exe.blockmap
           - os: ubuntu-22.04
             command: build:linux
             artifact: baoflashbrowser-linux-x64
-            path: release/standard/BaoFlashBrowser-*-x86_64.AppImage
+            path: release/ocr/BaoFlashBrowser-*-x86_64.AppImage
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -89,7 +89,13 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Linux OCR build prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
       - run: npm run ${{ matrix.command }}
+      - name: Validate native Win32 OCR text, coordinates and number reading
+        if: matrix.command == 'build:win32'
+        run: npx vitest run --project integration tests/automation-tesseract-sidecar-runtime.integration.test.ts
       - name: Upload candidate package
         uses: actions/upload-artifact@v4
         with:
