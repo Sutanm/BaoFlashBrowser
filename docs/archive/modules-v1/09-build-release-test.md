@@ -1,0 +1,102 @@
+# 09 · 构建、发布与测试管线
+
+## 1 范围与目标
+
+项目固定 Electron 11.5.0。主进程由 esbuild 输出 CJS，renderer 由 Vite 输出固定的 `bundle.js`/`bundle.css`，用户脚本与 Web API polyfill 有各自构建步骤。发布命令在打包前后执行资源与架构校验。
+
+## 2 当前结构
+
+| 路径 | 职责 |
+| --- | --- |
+| `package.json` | 所有开发、测试和平台构建命令 |
+| `esbuild.main.config.mjs` | 主进程、主窗口 preload、BrowserView preload 构建 |
+| `vite.renderer.config.ts` | renderer 构建与固定输出名 |
+| `build/module-flags.cjs` | 解析 `BAO_MODULES` 并生成 main/renderer 共用编译常量 |
+| `build/build-optional-assets.mjs` | 按模块组合生成 CSS Fixer 与自动化悬浮助手 |
+| `scripts/build-css-fixer.mjs` | 生成内置 CSS 修复器文本资产 |
+| `scripts/build-automation-assistant.mjs` | 生成自动化悬浮助手文本资产 |
+| `scripts/build-web-polyfills.mjs` | 生成 Chromium 87 Web API polyfill |
+| `build/prepare-release.cjs` | 准备隔离的发布元数据 |
+| `build/verify-release.cjs` | source/unpacked 资源、asar、原生架构、大小和 SHA-256 清单 |
+| `build/electron-builder.config.cjs` | Windows、Linux、macOS 实验包配置与资源选择 |
+| `tests/electron/build-*.mjs` | 生成 `release/tests/` 中的 smoke 专用 bundle |
+| `scripts/run-smokes.cjs` | 串行执行仓库 Electron smoke，统一超时与临时 userData |
+| `.github/workflows/ci.yml` | main/PR 检查及 Win64、Win32、Linux x64 打包 |
+| `.github/workflows/package-macos-experimental.yml` | 手动 macOS Intel x64 实验打包 |
+
+## 3 构建命令
+
+```bash
+npm start          # i18n → 完整 build → Electron
+npm run build      # clean → 可选资产 → Web polyfill/main/preloads → renderer
+npm run build:full # 显式启用全部模块（与默认 build 的能力集合相同）
+npm run build:minimal        # 仅 core
+npm run build:no-automation  # 除 automation 外的产品模块
+npm run build:no-userscripts # 除 userscripts 外的产品模块
+npm run dev        # main 与 renderer watch；不自动重启 Electron
+npm run i18n       # typesafe-i18n 代码生成
+npm run check      # i18n、typecheck、lint、Vitest、生产 build
+```
+
+`npm run build` 不会生成 smoke 专用文件（清单见 `scripts/smoke-bundles.cjs`）：
+
+- `release/tests/userscripts-admin-module.cjs`
+- `release/tests/userscript-runtime-preload.cjs`
+- `release/tests/userscript-runtime-smoke.cjs`
+- `release/tests/session-compatibility-smoke.cjs`
+- `release/tests/automation-authoring-core.cjs`
+- `release/tests/automation-js-sandbox-host.cjs`
+
+这一限制不再需要人工记忆：所有会运行 smoke 的 npm 命令都先执行
+`npm run ensure:smoke-bundles`（`scripts/ensure-build.cjs`），按清单重建任何比源文件旧的
+产物；`scripts/run-smokes.cjs` 在产物陈旧时直接拒绝启动；`npm run probe` 的 `00-build`
+也会报告新鲜度。清单是唯一事实来源——新增 smoke 构件时更新它，而不是另抄一份路径表。
+
+`BAO_MODULES` 接受 `core`、`userscripts`、`automation`、`passwords`、`screenshot`、`download`、`diagnostics`、`memory-monitor` 和 `js-patch`。未设置、`default` 与 `all` 都启用全部模块；自定义列表总会隐式包含 `core`，未知名称会令构建失败。只有启用 userscripts 时才生成 CSS Fixer，且 userscripts 与 automation 同时启用时才生成悬浮助手。
+
+## 4 平台发布
+
+| 平台 | 命令 | 主要产物 |
+| --- | --- | --- |
+| Windows x64（全模块、内置 OCR） | `npm run build:win64` | `BaoFlashBrowser-OCR-<version>-x64.exe` + blockmap |
+| Windows ia32（全模块、内置 Tesseract OCR） | `npm run build:win32` | `BaoFlashBrowser-OCR-<version>-ia32.exe` + blockmap |
+| Linux x64（全模块、内置 OCR） | `npm run build:linux` | `BaoFlashBrowser-<version>-x86_64.AppImage` |
+| macOS Intel x64（实验） | `npm run build:mac` | `BaoFlashBrowser-Experimental-<version>-x64.dmg/.zip` |
+
+Win64 与 Linux 默认包内置 OCR 模型和推理运行时，换电脑后直接安装即可，无需源码或重新编译。无 OCR 包使用 `build:win64:standard` / `build:linux:standard`。Win32 保留全部模块并内置 x86 Tesseract 5.3.0；无 OCR 包可用 `build:win32:standard`。它沿用 BAO1 传输与现有文字坐标/数字读取接口，不影响 Win64/Linux 的 Paddle 选择。构建 Win32 OCR 时需 MSVC x86 工具，安装用户无需 MSVC 或 .NET。Linux 首次构建 OCR 需要 Docker 和 `bsdtar`（Ubuntu：`libarchive-tools`）；准备脚本获取固定版本输入，在 manylinux_2_28 容器中编译，后续复用本地运行时归档。
+
+打包前从 lockfile 获取目标平台/架构的 esbuild，校验 SHA-512 后复制到 `resources/native/esbuild`；unpacked 校验会检查其原生架构，避免 x64 构建机生成的 Win32 包误用 x64 编译器。`27-packaged-runtime` 探针可在目标架构 Electron 下验证包内 JS 转译和 OpenCV，使用 `BAO_PROBE_PACKAGE_ROOT` 指向 unpacked 目录。
+
+每个正式平台命令执行生产构建、source 校验、发布准备、electron-builder 和 unpacked 校验。`verify-release.cjs` 检查 `dist/main.js`、两个 preload、renderer `bundle.js`/`bundle.css`、Ruffle 核心/WASM/字体以及目标平台原生资源，并把结果写到 `release/manifests/`。
+
+macOS 构建先运行 `prepare:mac-flash`，从仓库 vendor DMG 提取并验证插件；它是实验通道，包结构通过不等于真实硬件通过。
+
+## 5 CI 行为
+
+- `push` 仅限 `main`，`pull_request` 也运行检查；版本标签不会重复触发整套矩阵。
+- `check` 在 Windows 和 Ubuntu 分别运行 `npm ci`、`npm run check`、`npm run test:integration`（重型 OpenCV/OCR）、用户脚本/CSS smoke、构建新鲜度探针和 BrowserView 兼容 smoke；Linux 追加 Playwright shell e2e（xvfb）。
+- `package` 依赖两个 check 全部成功，再并行构建 Win64、Win32 和 Linux x64 并上传候选制品。
+- macOS 实验包走独立的手动工作流，不进入稳定 CI 矩阵。
+
+## 6 验证矩阵
+
+- Vitest 分层：`npm test -- --run` 只跑 `unit` project（快，排除重型）；`npm run test:integration` 跑重型三件套（vision-worker、OCR sidecar）；`npm run test:all` 全量。
+- 覆盖率：`npm run test:coverage`（unit 层 + v8 报告，报告目录在 OS 临时目录）。
+- 外壳 e2e：`npm run test:e2e`（Playwright 驱动项目自带 Electron 11，仅断言 React 外壳 UI；BrowserView 内容不可达）。
+- 类型、Lint、构建：`npm run check`。
+- BrowserView/兼容性：`npm run test:electron`、`test:ruffle`、`test:compat`。
+- 用户脚本：`npm run test:userscripts`、`test:userscripts-admin`、`test:css-fixer`。
+- 汇总 smoke：`npm run test:smokes`。
+- 快检与运行时健康：`npm run probe`、`npm run probe:deep`。
+- 自动化专项：`probe:automation-input`、`probe:automation-viewport`、`probe:automation-viewport-engines`、`probe:automation-visual`、`probe:automation-authoring`、`probe:automation-scale-reference`、`probe:automation-js-sandbox`、`probe:automation-flash`。
+- 模块裁剪：`tests/module-flags.test.ts`、`tests/module-boundaries.test.ts` 加上 `build:full/minimal/no-automation/no-userscripts` 的实际构建。
+
+`28-local-time` 使用生产 BrowserView preload 对比主进程与网页的系统时区，以及一月/七月的 UTC 偏移，避免时区和夏令时发生偏差。Bing 搜索入口统一使用 `https://www.bing.com/search?q=`，不再写死中国地区子域名；这与系统时区是独立配置。
+
+## 7 不变量与雷区
+
+1. 不升级 Electron；PPAPI、Chromium 87 行为和全部兼容层依赖该版本。
+2. smoke 必须固定临时 userData，并 mock 文档启动时查询的所有 preload IPC。
+3. Linux Electron smoke 使用 `--no-sandbox` 和 xvfb；AppImage 应在 Linux/WSL 或 CI 构建。
+4. 不以存在安装包作为成功标准；必须通过 unpacked 校验并记录大小/SHA-256。
+5. 发布时只提交明确的源码和文档，不把 `release/tests/`、IDE 状态或本地产物混入提交。

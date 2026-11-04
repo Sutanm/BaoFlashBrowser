@@ -1,7 +1,7 @@
 # BaoFlashBrowser 用户脚本平台 — 开发手册
 
 > 面向**平台扩展开发者**:新增 GM API、IPC 通道、运行时能力,或修改现有行为。
-> 脚本作者请参考 `docs/userscript-platform-plan.md`(设计)与本手册 GM API 章节。
+> 脚本作者请参考 `docs/archive/legacy/userscript-platform-plan.md`(设计)与本手册 GM API 章节。
 > 最终用户操作请参考 `docs/userscript-user-guide.md`。
 
 ## 1. 平台定位与硬性约束
@@ -179,7 +179,7 @@ Ruffle 模式共享世界,`unsafeWindow === window`,不走桥。
 | `@updateURL` / `@downloadURL` | ✅ | 大小写双兼容(`@updateURL`/`@updateurl`);管理页手动检查更新 |
 | `@background` | ✅ | 脚本在隐藏后台窗口常驻,不参与 URL 匹配(见 §7.5) |
 
-匹配语义详见 `docs/userscript-platform-plan.md` §9 与 `userscript-matcher.ts` 头注。
+匹配语义详见 `docs/archive/legacy/userscript-platform-plan.md` §9 与 `userscript-matcher.ts` 头注。
 
 ## 6. IPC 通道参考
 

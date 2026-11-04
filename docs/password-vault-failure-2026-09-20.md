@@ -24,7 +24,7 @@ wrap key 文件永久搁置并清空。** DEK 只由这把 key 包裹，`_dek` �
 | 2026-09-03 | v2 保险库定型（无主密码、A 档 OS keyring + C′ 兜底）；v1 旧库按决策 8 改名 `.legacy.bak` 搁置，不迁不读 |
 | **2026-09-20 15:02** | **事故**：启动风暴中 DPAPI probe 超时 → `_loadWrapKey` 判定后端失配 → `_shelfFile` + `clear()`，唯一 wrap key 被销毁 |
 | 2026-09-21 上午 | 事后取证：提交历史回溯 + userData/日志取证 + 密钥可恢复性实测（全程只读） |
-| 2026-09-21 下午 | 规格增量 D1–D8（`docs/superpowers/specs/2026-09-21-keyring-failure-path-design.md`）+ 实施计划 K1–K5（`docs/superpowers/plans/2026-09-21-keyring-failure-path.md`）；K1–K4 落地并各自独立提交 |
+| 2026-09-21 下午 | 规格增量 D1–D8（`docs/archive/superpowers/specs/2026-09-21-keyring-failure-path-design.md`）+ 实施计划 K1–K5（`docs/archive/superpowers/plans/2026-09-21-keyring-failure-path.md`）；K1–K4 落地并各自独立提交 |
 | 2026-09-22 | 阶段二：捕获失灵专项（见另一份文档） |
 
 ## 3. 三个症状与代码的对应
@@ -159,12 +159,12 @@ wrap 方向 = 密文根本没生成 → 可重试）；**A 档故障不可降级
 | 载体 | 内容 | 是否在仓库 |
 |---|---|---|
 | `docs/password-vault-failure-2026-09-20.md` | **本文档**——阶段一的正式记录 | ✅ |
-| `docs/superpowers/specs/2026-09-21-keyring-failure-path-design.md` | 规格增量 D1–D8（含事故复述与决策理由） | ✅ |
-| `docs/superpowers/plans/2026-09-21-keyring-failure-path.md` | 实施计划 K1–K5 + 落地记录与偏差 | ✅ |
+| `docs/archive/superpowers/specs/2026-09-21-keyring-failure-path-design.md` | 规格增量 D1–D8（含事故复述与决策理由） | ✅ |
+| `docs/archive/superpowers/plans/2026-09-21-keyring-failure-path.md` | 实施计划 K1–K5 + 落地记录与偏差 | ✅ |
 | `.workbuddy/memory/2026-09-21-password-vault-postmortem.md` | 最初的完整事后分析（本文档的来源） | ❌ 在 `.workbuddy/memory/`（工作区记忆目录），不随仓库 |
 | `.workbuddy/memory/2026-09-21.md`、`MEMORY.md` | 当日工作日志与长期项目笔记 | ❌ 同上 |
 
-**教训**：`docs/superpowers/{specs,plans}` 是 SDD 的工作产物，写的是"要做什么、怎么做"；
+**教训**：`docs/archive/superpowers/{specs,plans}` 是 SDD 的工作产物，写的是"要做什么、怎么做"；
 而"事故是什么、证据是什么、为什么会发生"这类**复盘**必须单独成文放进 `docs/`，
 否则它会止步于 agent 侧记忆目录，半年后没人找得到。
 

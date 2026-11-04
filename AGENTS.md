@@ -88,7 +88,7 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 | `src/renderer/services/toast.ts` | Address-bar toast queue, timing, priority and dismissal rules |
 | `tools/probe/` | Probe toolkit: hosts (`host.cjs` pure-Node, `host-electron.cjs`), `lib/timeout.cjs` (waitFor/withTimeout/watchdog, `SMOKE_TIMEOUT` env), probe protocol `{ id, name, needsElectron, timeoutMs, run(ctx) }`; new probes = copy `probes/_template.cjs`. Probing is read-only and NEVER clears logs. |
 | `tests/` | Vitest tests and Electron smoke tests |
-| `docs/superpowers/specs/` | Design specs (screenshot design incl. §调试 HTTP 口子) |
+| `docs/archive/superpowers/specs/` | Design specs (screenshot design incl. §调试 HTTP 口子) |
 
 ## Debugging workflow
 
@@ -123,7 +123,7 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 
 - **Password capture payloads use CDP `Runtime.addBinding`** — never send credentials through `console.log`, renderer IPC, or diagnostics. Dynamic form observation may send only a presence signal (`password:form-detected`).
 - **GM_cookie is READ-ONLY by design** (list/get only, no set/delete); host access is gated by the script's @connect list. No set/delete without a dedicated security review.
-- **Screenshot debug HTTP endpoint** — the ONLY external way to capture a RUNNING instance. Enable: `BAO_SCREENSHOT_HTTP=1 npm start` (dev only; packaged builds never listen). Token in `%APPDATA%\bao-flash-browser\logs\main.log` (`X-BAO-Token: <hex>`); `curl.exe -X POST http://127.0.0.1:44123/screenshot -H "X-BAO-Token: <token>" -d '{"save":true}'`. Loopback + header token + POST-only; newtab/userscripts pages have no BrowserView → `NO_TAB`. Full design: `docs/superpowers/specs/2026-08-07-screenshot-design.md` §调试 HTTP 口子.
+- **Screenshot debug HTTP endpoint** — the ONLY external way to capture a RUNNING instance. Enable: `BAO_SCREENSHOT_HTTP=1 npm start` (dev only; packaged builds never listen). Token in `%APPDATA%\bao-flash-browser\logs\main.log` (`X-BAO-Token: <hex>`); `curl.exe -X POST http://127.0.0.1:44123/screenshot -H "X-BAO-Token: <token>" -d '{"save":true}'`. Loopback + header token + POST-only; newtab/userscripts pages have no BrowserView → `NO_TAB`. Full design: `docs/archive/superpowers/specs/2026-08-07-screenshot-design.md` §调试 HTTP 口子.
 - **Value-store admin methods bypass the view gate BY DESIGN** — `listScriptValues`/`setScriptValue`/`deleteScriptValue` skip the registered-view check that `setValue` requires; serializable/size checks and `noteValueWrite` persist remain. `unregisterView` runs the injected `onViewRemoved` — keep it decoupled.
 
 ### Sessions & network interception

@@ -1,83 +1,88 @@
-# BaoFlashBrowser 1.1.1 回归基线（历史快照）
+# BaoFlashBrowser 1.1.2 回归基线
 
-> 发布快照日期：2026-09-01；命令名于 2026-09-09 按 1.1.2 的 `package.json`
-> 校正。结果、制品大小和测试数量仍属于 1.1.1，不代表当前工作树。现行验证入口见
-> [`docs/modules/09-build-release-test.md`](modules/09-build-release-test.md)。
+> 记录日期：**2026-11-04**。取代 `docs/archive/releases/1.1.1-regression-baseline.md`。
+> 本文只记录**本轮真实执行过**的结果；未执行的项明确标注，不沿用旧版数字。
+>
+> 环境：Windows 10.0.26300（win32 x64）、Node v22.22.2、Electron 11.5.0（项目固定）。
+> 工作树包含本次文档重写改动；产品代码与 1.1.2 发行提交 `4078b54` 一致。
 
-## 自动化覆盖
+## 1 自动化结果
 
-| 项目 | 验证内容 | 当前结果 |
+| 命令 | 结果 | 耗时 | 说明 |
+| --- | --- | --- | --- |
+| `npm run check`（i18n + typecheck×3 + lint + unit + build） | **通过** | 1m56s | 整体退出码 0 |
+| `npm test -- --run`（unit，check 内） | **128 文件 / 812 用例全通过** | 15.36s | Vitest 报告；无 skip/fail |
+| `npm run test:smokes`（Electron smoke） | **10 个套件全部 ALL PASS** | 37s | values-persistence ×2、gm-capacity、userscripts-update、menu-command-dedupe、userscripts-cookie、userscripts-web-request、background-script ×2、renderer-csp |
+| `npm run test:integration` | **4 文件 / 20 用例全通过** | 4.07s | 含 Paddle 侧车 1 例、Tesseract 侧车 1 例、BAO1 协议 4 例、OpenCV vision-worker 14 例 |
+| `npm run test:e2e`（Playwright） | **8/8 通过** | 1m18s | app-shell×4、download-settings、first-run-language、proxy-settings、settings-persistence |
+
+补充说明：
+
+- Paddle 与 Tesseract 侧车是**真实子进程**运行：Paddle 用 BGRA 内存帧识别（1505ms），
+  Tesseract 识别中文与数字并处理空帧（1584ms），不是 mock。
+- e2e 每条用例都会启动真实 Electron 11；`first-run-language`、`proxy-settings`、
+  `settings-persistence` 走重启流程。
+- `npm run build` 在 check 内成功：main 模块集合
+  `core,userscripts,automation,passwords,screenshot,download,diagnostics,memory-monitor,js-patch`，
+  renderer 1983 modules，`bundle.js` 496.12 kB（gzip 154.55 kB）。
+
+## 2 制品与校验
+
+以下制品的 SHA-256 取自仓库内 `release/SHA256SUMS-1.1.2.txt`，**本轮没有重新执行
+electron-builder 打包**，因此大小与哈希代表 2026-11-02 的既有产物。
+
+| 平台 | 文件 | 字节数 | SHA-256（前 16 位） |
+| --- | --- | --- | --- |
+| Windows x64 | `BaoFlashBrowser-OCR-1.1.2-x64.exe` | 157,931,247 | `9257a09da20780eb…` |
+| Windows ia32 | `BaoFlashBrowser-OCR-1.1.2-ia32.exe` | 94,914,353 | `40658563dfe128c3…` |
+| Linux x64 | `BaoFlashBrowser-1.1.2-x86_64.AppImage` | 246,678,838 | `6616eee0a7319d08…` |
+
+完整哈希与 unpacked 清单在同目录 `SHA256SUMS-1.1.2.txt`。macOS 仍是独立实验通道，
+不包含在本次正式制品中。
+
+## 3 相对 1.1.1 基线的变化
+
+- 正式包由"标准版 / OCR 版"二选一，变为**三个平台默认都内置 OCR**：Win64/Linux 用
+  Paddle PP-OCRv3，Win32 用 Tesseract 5.3.0 x86。
+- 新增全局代理与连接诊断、aria2 代理路由、统一下载目录、手动稳定版更新检查、
+  原生自动化助手、首次启动语言选择、主题同步。
+- e2e 从 4 条扩到 8 条，新增下载设置、首次启动语言、代理设置、设置持久化/重启。
+- unit 层规模从 1.1.1 时的"未固定记录"到本轮 **812** 用例；旧版刻意不写数量，
+  本文按实际报告记录，后续版本应重新跑并覆盖本表。
+
+## 4 未自动覆盖 / 人工门
+
+以下项目**本轮未验证**，不能据本文声称通过：
+
+| 项目 | 原因 | 建议 |
 | --- | --- | --- |
-| `npm run check` | i18n、主进程/渲染进程/preload 类型检查、ESLint、Vitest(unit)、生产构建 | 当时 CI Windows/Ubuntu 通过；具体数量以该次日志为准 |
-| `npm run test:integration` | 重型 Vitest：OpenCV vision-worker、PaddleOCR sidecar | 当时通过；具体数量以该次日志为准 |
-| `npm run test:e2e` | Playwright 外壳 e2e（Electron 11：渲染/标签/收藏/工作台） | 通过，4 条（Windows 本地实测，连跑稳定） |
-| `npm run test:compat` | session 策略、SWFObject、SWF CORS | 通过 |
-| `npm run test:electron` | BrowserView 生命周期 | 通过 |
-| `npm run test:userscripts` | PPAPI/Ruffle 用户脚本运行时和 GM API | 147/147 必需项通过；可选样本受 Chromium 87/体积限制 |
-| `npm run test:userscripts-admin` | 安装、管理、内置脚本及自动化助手取材 UI | 通过 |
-| `npm run test:css-fixer` | CSS 修复器两条注入路径 | 通过 |
-| `npm run test:smokes` | 仓库 smoke 汇总 | 通过 |
-| `npm run probe:automation-authoring` | 自动化工作台、积木、脚本包管理 | 当时对应链路通过 |
-| `npm run probe:automation-viewport-engines` | Web、PPAPI 注册、Ruffle 的最小化视觉和可信输入 | 历史结果：Web 98.8%、Ruffle 100%；PPAPI 夹具未渲染 |
-| 源资源发布校验 | `verify:release`，Windows x64 source stage | 通过，16 项资源 |
-| Windows x64 候选安装包 | NSIS、unpacked 校验、SHA-256 | CI 通过；95,408,809 字节，SHA-256 已写入发行说明 |
-| Windows ia32 候选安装包 | NSIS、unpacked 校验、SHA-256 | CI 通过；82,107,998 字节，SHA-256 已写入发行说明 |
-| Linux x64 候选安装包 | AppImage、unpacked 校验、SHA-256 | CI 通过；118,412,753 字节，SHA-256 已写入发行说明 |
+| 真实 PPAPI 游戏渲染、识图、可信点击 | 需要人工打开真实游戏 | 按 03 的发布前人工门执行 |
+| 4399 登录表单、7k7k JSONP 换账号捕获 | 依赖真实站点与账号 | 按 05 的真机回归清单执行 |
+| 真实网络下的系统代理 / PAC / 绕过 | e2e 用隔离 session，不触外网策略 | 用真实代理环境手工验证 |
+| 代理不可达时 aria2 → Chromium 回退 | 需要构造失败网络 | `probe:deep --only 26-aria2-proxy` + 手工断网 |
+| macOS 实验包 | 需要 macOS 硬件 | 独立手动工作流 |
+| Linux 实机图形/FUSE | 本轮只在 Windows 执行 | CI 或 WSL/Linux 复跑 |
+| 真实 32 位 Windows | 无该环境 | 已知限制，见发行说明 |
 
-## 自动化平台人工回归
+## 5 已知瑕疵与噪声（不影响本轮判定）
 
-已在实际运行实例完成：
+1. `renderer-csp` smoke 日志出现
+   `Error occurred in handler for 'theme:set-source': No handler registered`：
+   该 smoke 只加载渲染层文档，没有注册主题 IPC；CSP 用例本身仍 PASS。属于 **smoke
+   fixture 缺口**，不是产品缺陷。若要消除噪声，应在 fixture 中注册空 handler。
+2. unit 日志里的 `[password-store] wrap key unavailable … decrypt-failed` 来自使用
+   假后端的单测，按 05 的说明属于**测试噪声**，不是真机密钥故障。
+3. 构建有 Vite 的 "chunks larger than 500 kB" 警告（Blockly 编辑器 768 kB），
+   属于已知体积提示，不影响构建成功。
 
-1. 打开 `about:automation`，新建/选择脚本并进入积木工作区。
-2. 在网页中打开页面内悬浮助手，确认面板可展开、收起和切换执行/识别/取材，并可拖到页面两侧。
-3. 在恐龙游戏页进入框选取材，框选 UI、修改名称并保存成功；没有出现 `captured frame expired`。
-4. 保存后素材列表立即刷新并选中新素材。
-5. 再次进入取材后点击可见“取消”按钮，遮罩正常关闭，悬浮助手仍保留。
-6. 在深层 iframe/Flash 页面选择游戏画面，复制 `BFG1:` 特征串，并在自动游戏画面入口中从剪贴板导入；积木显示名称与尺寸。
-7. 分别在最大化、窗口化和运行中改变尺寸，确认游戏坐标重新定位；在同一脚本中切换页面/游戏坐标后，点击与识图范围符合各自边界。
-8. 取材提示位于页面顶部下方，没有与“正在捕获当前页面”提示重叠；界面中不再提示 Esc 取消。
-9. 回归产生的临时素材已经删除，脚本原素材未被修改。
-10. 在积木编辑中修改脚本 A，切换到脚本 B 后再切回 A，积木不丢失且与已应用 JSON 一致。
-11. 新页面首次读取历史 `completed` 状态不弹完成提示；真实 `running → completed` 转换只提示一次。
+## 6 复跑方式
 
-上述自动化回归已由用户脚本管理冒烟覆盖关键状态转换；真实 PPAPI 游戏与 macOS 实验包仍保留人工门。
+```bash
+npm run check            # i18n + typecheck + lint + unit + production build
+npm run test:smokes      # Electron smoke（会先 ensure:smoke-bundles）
+npm run test:integration # 重型：OpenCV worker + Paddle/Tesseract 侧车
+npm run test:e2e         # Playwright（需先构建）
+```
 
-## 自动化视觉与执行检查
-
-- 浏览器最小化后，Web 模板匹配为 98.8%，可信点击通过。
-- Ruffle 最小化模板匹配为 100%，输入后画面变化，调试器已正确卸载。
-- 动图目标必须只截取稳定部分；完整动画区域会使匹配分数从约 95% 波动到约 70%，只截静态区域可稳定在约 97%。
-- 测试台和正式运行统一使用 BrowserView 内容截图。悬浮助手与其他页面浮窗会保留在画面中，人工测试时应将它们移出识图区域。
-- 首次比对包含视觉引擎加载成本；预热和缓存可以改善后续比对，但不能保证所有机器首次耗时相同。
-
-## PPAPI 发布前人工门（已通过）
-
-自动化测试已确认 Windows PPAPI 插件注册，但当前自动化夹具没有成功渲染 PPAPI 内容。2026-08-17 已在真实 PPAPI 游戏完成人工回归，确认游戏持续渲染、图片识别和可信点击正常。
-
-1. 打开一个已知可玩的 PPAPI 游戏，确认游戏画面持续渲染。
-2. 从该画面框选静态 UI，保存到测试脚本。
-3. 在悬浮助手中捕获并比对，确认高亮区域正确。
-4. 最小化窗口后执行等待图片和一次可信按键或点击。
-5. 恢复窗口，确认动作生效、脚本能停止，之后刷新/前进/后退不冻结。
-
-上述核心链路已经通过。候选安装包生成后仍需复验启动、停止及导航，排除开发构建与 `app.asar` 成品差异。
-
-## 旧游戏站点持续回归
-
-1. 61.com：页面不再提示 Flash 版本不兼容，游戏 SWF 能开始加载。
-2. 4399：跨域登录 iframe 能提交，捕获开关关闭时不会附加 CDP 捕获器。
-3. 7k7k：JSONP 登录完成后能继续跳转，刷新、前进和后退不会冻结。
-4. 本地 SWF：设置 → 兼容性诊断 → 打开本地 SWF 游戏，确认 PPAPI 标签能播放测试文件。
-5. 会话恢复：只有模拟崩溃或强制结束后显示恢复提示；正常点击 X 不恢复。
-6. 标签休眠：不能休眠活动中、加载中、发声中或 React 内部页标签；切回后恢复原引擎、缩放和静音。
-
-Flash 站点自己的 `crossdomain.xml` 必须原样返回，禁止重定向到 `data:`。BrowserView 导航前必须卸载 CDP 密码捕获器，避免 7k7k JSONP 和页面跳转冻结。
-
-## 安全边界
-
-- 项目必须固定 Electron 11.5.0 / Chromium 87 才能保留 PPAPI Flash，禁止为发布方便升级 Electron。
-- 只访问可信旧游戏站点和本地 SWF，不用于邮箱、支付、网盘或办公系统。
-- 自动化是图像驱动，不理解业务含义；账号、交易、删除等不可逆操作必须保留人工确认。
-- `.baoauto` 导入必须继续执行 schema、路径、大小和目录越界检查。
-- 密码和令牌不得写入用户脚本日志、自动化日志、诊断或截图文件名。
-- Ruffle 通常风险更低，内容兼容时优先使用 Ruffle。
+要更新本文时，以新一轮实际输出为准，覆盖第 1 节的数字，并在页首更新记录日期；
+不要保留过期数字"以示连续"。

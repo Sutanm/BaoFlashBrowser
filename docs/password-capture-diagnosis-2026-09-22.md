@@ -340,4 +340,4 @@ BAO_OUT="$OUT" NODE_PATH="$REPO/node_modules" node "$S/capture-lab.cjs" https://
 | `tests/password-capture-binding.test.ts` | 注入脚本的行为（含"不得自造 iframe""不得把按钮当账号"回归防线） |
 | `tests/password-capture-lifecycle.test.ts` | CDP 生命周期 + 捕获闸门 |
 | `tests/password-fill-script.test.ts` | 填充脚本语义（含空用户名语义） |
-| `docs/superpowers/specs/2026-09-21-keyring-failure-path-design.md` | 密钥失败路径规格（上一件事，与本次无重叠） |
+| `docs/archive/superpowers/specs/2026-09-21-keyring-failure-path-design.md` | 密钥失败路径规格（上一件事，与本次无重叠） |

@@ -156,7 +156,7 @@ BaoFlashBrowser 不只是一个 Flash 浏览器。它将 **PPAPI/Ruffle 双引�
 | Windows 32 位 | `BaoFlashBrowser-OCR-1.1.2-ia32.exe` | Tesseract 5.3.0 x86 |
 | Linux 64 位 | `BaoFlashBrowser-1.1.2-x86_64.AppImage` | Paddle Inference / PP-OCRv3 |
 
-Win32 的 Tesseract 适合清晰文字和数字，对低分辨率、描边游戏文字的效果弱于 Paddle，详见 [OCR 对比报告](docs/automation-v2/2026-11-02-tesseract-x86-comparison.md)。三个包均包含 OCR，“OCR”文件名不代表裁剪其他模块。macOS 仍为独立实验通道，不在本次正式包中。
+Win32 的 Tesseract 适合清晰文字和数字，对低分辨率、描边游戏文字的效果弱于 Paddle，详见 [OCR 对比报告](docs/reports/2026-11-02-tesseract-x86-comparison.md)。三个包均包含 OCR，“OCR”文件名不代表裁剪其他模块。macOS 仍为独立实验通道，不在本次正式包中。
 
 Release 同时提供 Windows `.blockmap`、`SHA256SUMS-1.1.2.txt` 和成品校验清单；校验文件对应本次发布的实际安装包。
 
@@ -247,15 +247,16 @@ Windows 稳定通道实际使用 Flash 29.0.0.171，Windows x64 实验通道和 
 
 ## 文档
 
-- [自动化积木零基础说明书](docs/automation-blockly-beginner-guide.md)——不要求任何编程知识，逐块介绍全部积木和示例
+- [自动化零基础指南](docs/automation-blockly-beginner-guide.md)——从拖第一块积木开始，讲清坐标、识别与排错
+- [自动化使用手册](docs/automation-user-guide.md)——当前 1.1.2 工作台、积木、JS/TS 与 `.baoauto` v3 的完整说明
 - [文档索引与时效说明](docs/README.md)
 - [自动化脚本使用手册](docs/automation-user-guide.md)
 - [用户脚本使用手册](docs/userscript-user-guide.md)
 - [用户脚本开发手册](docs/userscript-developer-guide.md)
-- [架构与模块手册](docs/architecture-manual.md)
+- [架构总览](docs/architecture-overview.md)
 - [发布、打包与成品校验](docs/PACKAGE.md)
 - [测试与回归清单](docs/FINAL_REGRESSION.md)
-- [故障排查与经验记录](docs/lessons-learned.md)
+- [文档索引与故障排查入口](docs/README.md)
 - [第三方组件与许可证](THIRD_PARTY_NOTICES.md)
 
 ## License

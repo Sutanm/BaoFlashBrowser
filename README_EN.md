@@ -153,7 +153,7 @@ All three official packages include every feature module, an offline OCR engine,
 | Windows ia32 | `BaoFlashBrowser-OCR-1.1.2-ia32.exe` | Tesseract 5.3.0 x86 |
 | Linux x64 | `BaoFlashBrowser-1.1.2-x86_64.AppImage` | Paddle Inference / PP-OCRv3 |
 
-Win32 Tesseract works best with clear text and numbers; small, outlined game text is a weak case. See the [OCR comparison](docs/automation-v2/2026-11-02-tesseract-x86-comparison.md). The OCR filename does not imply that other modules were removed. macOS remains a separate experimental channel and is not included in this stable release.
+Win32 Tesseract works best with clear text and numbers; small, outlined game text is a weak case. See the [OCR comparison](docs/reports/2026-11-02-tesseract-x86-comparison.md). The OCR filename does not imply that other modules were removed. macOS remains a separate experimental channel and is not included in this stable release.
 
 The release also includes Windows `.blockmap` files, `SHA256SUMS-1.1.2.txt`, and package verification manifests.
 
@@ -244,15 +244,16 @@ The Windows stable channel uses Flash 29.0.0.171, the Windows x64 experimental c
 
 ## Documentation
 
-- [Zero-Experience Automation Blockly Guide](docs/automation-blockly-beginner-guide.md) (Chinese; no programming knowledge required)
+- [Zero-experience automation guide](docs/automation-blockly-beginner-guide.md) (Chinese; coordinates, recognition and troubleshooting from the first block)
+- [Automation user guide](docs/automation-user-guide.md) (Chinese; covers the 1.1.2 workbench, blocks, JS/TS and `.baoauto` v3)
 - [Documentation Index and Currency Notes](docs/README.md) (Chinese)
 - [Automation User Guide](docs/automation-user-guide.md) (Chinese)
 - [Userscript User Guide](docs/userscript-user-guide.md)
 - [Userscript Developer Guide](docs/userscript-developer-guide.md)
-- [Architecture and Module Manual](docs/architecture-manual.md)
+- [Architecture overview](docs/architecture-overview.md)
 - [Packaging and Release Verification](docs/PACKAGE.md)
 - [Test and Regression Checklist](docs/FINAL_REGRESSION.md)
-- [Troubleshooting and Lessons Learned](docs/lessons-learned.md)
+- [Documentation index and troubleshooting](docs/README.md)
 - [Third-Party Notices](THIRD_PARTY_NOTICES.md)
 
 ## License

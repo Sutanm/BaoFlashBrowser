@@ -1,6 +1,6 @@
 # BaoFlashBrowser Automation 2.0 使用手册
 
-> 适用于 BaoFlashBrowser 1.1.2，按 2026-09-08 源码核对。旧工作台、旧 JSON Step、旧 `.baoauto` v1/v2 和 M0–M5 教程仅作为历史资料，不适用于当前包。
+> 适用于 BaoFlashBrowser 1.1.2，按 2026-11-02 发布源码核对（含默认内置 OCR 与原生页面助手）。旧工作台、旧 JSON Step、旧 `.baoauto` v1/v2 和 M0–M5 教程仅作为历史资料，不适用于当前包。
 
 如果希望让 AI 通过逐步提问、收集素材并代为制作脚本，请先阅读
 [《如何委托 AI 制作 `.baoauto` 自动化脚本》](baoauto-script-request-guide.md)。
@@ -18,7 +18,7 @@ Automation 2.0 可以在指定的 BaoFlashBrowser 标签中：
 
 自动化只控制应用内明确选择的 BrowserView 标签，不控制桌面或其他程序。图片匹配也不理解业务语义；账号、交易、删除等不可逆操作应保留人工确认。
 
-Windows x64 有标准版和 OCR 版。标准版可使用坐标、图片和颜色识别；OCR 版额外捆绑本地 Paddle OCR sidecar 与模型。开发环境需要先运行 `npm run prepare:ocr`（Windows）或 `npm run prepare:ocr:paddle-linux`（Linux）。
+1.1.2 的三个正式包**都内置离线 OCR**：Windows x64 与 Linux x64 使用 Paddle PP-OCRv3，Windows ia32 使用 Tesseract 5.3.0。只有显式构建 `build:win64:standard` / `build:win32:standard` / `build:linux:standard` 才是不含 OCR 的标准包（坐标、图片与颜色识别仍可用）。开发环境准备运行时：`npm run prepare:ocr`（Windows Paddle）、`npm run prepare:ocr:paddle-linux`（Linux）或 `npm run prepare:ocr:tesseract`（Win32）。
 
 ## 2. 打开并认识工作台
 
@@ -64,7 +64,7 @@ Locator 与 Action 是分开的：例如把“图片或图片组”接入“点�
 
 窗口尺寸、网页缩放、导航或渲染进程更换后，平台会刷新坐标 generation。旧截图上得到的目标不会直接用于新画面；下一次识别或输入会等待当前 viewport 稳定并重新解析。网站自身响应式重排仍可能改变目标位置，因此固定页面坐标应谨慎使用。
 
-页面内“自动化相框助手”可以选择游戏画面、取点和框选素材。它使用独立的窄权限桥，不能访问任意 Electron IPC 或本地文件。助手与其他页面浮窗在截图时保持可见；请把它拖离目标区域，或在用户脚本管理页禁用后刷新页面。
+页面内“自动化相框助手”可以选择游戏画面、取点和框选素材。1.1.2 起它由 preload 直接安装（**原生助手**），不依赖用户脚本的启用状态；同一份 UI 仍保留一条作为内置用户脚本安装的通道。两条通道都只走窄权限桥，不能访问任意 Electron IPC 或本地文件。助手与其他页面浮窗在截图时保持可见；请把它拖离目标区域。
 
 ## 5. 素材与图片组
 
@@ -131,7 +131,7 @@ profiles/*.json        # 可选
 
 - 自动图片路由与颜色识别仍按实验能力管理，不能替代真实业务验收。
 - 模板匹配不能完整理解旋转、强动画、大幅变形和语义相似性。
-- OCR 依赖显式捆绑的本地运行时；标准包不包含 OCR。
+- OCR 依赖捆绑的本地运行时。1.1.2 正式包默认全部内置；只有显式构建的 `*:standard` 包不含 OCR，此时 OCR 相关积木会报运行时不可用。
 - PPAPI Flash 必须在真实兼容站点人工验证；插件注册成功不等于内容已渲染并接受输入。
 - Electron 11、Chromium 87 和 Flash 均已停止安全更新，只应访问可信旧站或本地内容。
 
