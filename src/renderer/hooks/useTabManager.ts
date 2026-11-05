@@ -458,6 +458,20 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     }
   }, [activeTabId, activeTab]);
 
+  // Re-assert page focus once loading finishes. The BrowserView loses keyboard
+  // focus while the new document commits (measured: isFocused() false ~200ms
+  // after the navigation), which would otherwise leave a Flash plugin
+  // unreachable until the user clicks it. Skipped while the shell holds the
+  // caret so this can never interrupt address-bar typing.
+  const activeLoading = activeTab?.isLoading ?? false;
+  useEffect(() => {
+    if (!activeTabId || activeLoading) return;
+    const el = document.activeElement as HTMLElement | null;
+    const tag = el?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+    void window.electronAPI.tab.focusActive().catch(() => {});
+  }, [activeTabId, activeLoading]);
+
   // --- Navigation ---
   const handleNavigate = useCallback((input: string) => {
     const url = normalizeUrl(input, settings.searchEngine);

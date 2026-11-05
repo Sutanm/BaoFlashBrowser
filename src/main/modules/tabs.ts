@@ -617,6 +617,26 @@ class TabManager {
     if (!wc.isFocused()) wc.focus();
     const focused = wc.isFocused();
     log.info(`[Tabs] focus-active tab=${this.activeId} wc=${wc.id} focused=${focused}`);
+    // Document focus is not enough for a PPAPI player: the per-frame preload
+    // asks `isActiveViewFocused` before grabbing the plugin element, so nothing
+    // else is needed here beyond having made this view the focused one.
+    return focused;
+  }
+
+  /**
+   * Gate for the per-frame plugin focus handoff (`webview-preload/plugin-focus.ts`).
+   *
+   * A PPAPI <embed> needs element-level focus, and the game lives in a
+   * cross-origin iframe that main-frame JS cannot reach — so each frame's
+   * preload asks this before focusing its own plugin. Returning false while the
+   * user is back in the address bar is what keeps the feature from stealing focus
+   * mid-typing.
+   */
+  isActiveViewFocused(wcId: number): boolean {
+    const tabId = this.wcToId.get(wcId);
+    const wc = tabId ? this.tabs.get(tabId)?.browserView?.webContents : null;
+    const focused = !!wc && !wc.isDestroyed() && wc.isFocused();
+    if (!tabId || tabId !== this.activeId) return false;
     return focused;
   }
 

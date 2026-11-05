@@ -93,21 +93,48 @@ muted。主进程 `suspend()` 对 active 标签直接拒绝。
 30s 窗口内累计计数：超过 3 次才 `preventCleanShutdownMark()` 后退出，之前每次延迟
 500ms 自动 reload（见 08）。
 
-### 3.7 键盘焦点归属
+### 3.7 键盘焦点归属（两层）
+
+#### 第一层：文档焦点（外壳 → 页面）
 
 BrowserView 是**独立渲染进程**，键盘焦点只能由两条路进入：用户点击其矩形（原生命中测试）
 或主进程显式 `webContents.focus()`。因此外壳侧提交导航后必须显式交还焦点：
 
 - `TabManager.focusActive()`（`tabs.ts`）→ IPC `tab:focusActive` → preload
   `tab.focusActive()`；`activeId` 无视图时返回 `false`（新标签页阶段正常）。
-- 唯一调用点是 `useTabManager.handleNavigate`，**在导航提交的同一 tick** 调用。
-  刻意不挂 `did-stop-loading`：页面加载完再抢焦点会打断"边加载边改地址"的输入。
-- `TopBar` 地址栏回车仍保留 `blur()`（不再依赖它"顺带"把焦点丢给页面）；
-  书签、快捷入口、新标签页搜索都走 `handleNavigate`，因此一并获得焦点交还。
-- 日志 `[Tabs] focus-active tab=… wc=… focused=…` 用于区分两种失败：
-  `focused=false` = 交还失败（主进程侧问题）；`focused=true` 但 Flash 输入框仍无光标
-  = Chromium 插件焦点模型限制（PPAPI `<embed>` 需 element 级焦点），与本机制无关。
+- 调用点两处，缺一不可：
+  1. `useTabManager.handleNavigate`，**导航提交的同一 tick**；
+  2. `useTabManager` 的 `isLoading` 转 false 时**再补一次**——实测新文档提交过程中
+     视图会丢焦点（导航后 ~200ms `wc.isFocused()===false`，事后 `focus()` 可稳定保持）。
+     该补调在 `document.activeElement` 是输入框/可编辑区时跳过，绝不打断地址栏输入。
+- 日志 `[Tabs] focus-active tab=… wc=… focused=…`。
 - 切标签（`activate()`）**不**抢焦点：Ctrl+Tab 切换时用户可能正在地址栏输入。
+
+#### 第二层：元素焦点（文档 → PPAPI 插件）
+
+文档拿到焦点**不等于**插件拿到键盘：PPAPI `<embed>` 必须成为所在文档的
+`activeElement`，否则按键落在 `document.body`（真机实测 `first keydown tag=BODY`）。
+而游戏常在**跨域 iframe** 内（`news.7k7k.com` → `web.7k7k.com`），主 frame 的 JS 摸不到它。
+
+链路（`src/webview-preload/plugin-focus.ts`，**每个帧都会跑**）：
+
+1. 每帧 `DOMContentLoaded` 起按 `0/400/1000/2000/3500/6000/10000ms` 重试：找本帧内
+   `embed|object`（type 含 shockwave/flash，且 ≥80×80，多个取面积最大者）；
+2. 找到后 `ipcRenderer.sendSync('plugin-focus-allowed')` 问主进程——主进程用
+   `TabManager.isActiveViewFocused(wcId)` 判定"是该标签且视图仍持有焦点"；
+3. 允许 → `tabIndex=0` + `focus()`，再 `send('plugin-focus-ack', {tag,focused,size})`
+   供日志取证；未允许则继续下一轮重试（视图焦点在提交期会被丢弃，重试要跨越这个窗口）。
+
+三条**实测**结论（跨域夹具 + 真实 SWF，探针见 `.git/bao-probe/`，未入库）：
+
+| 假设 | 结果 |
+|---|---|
+| `embed.focus()` 足以让插件吃键盘 | ✅ 同源夹具：聚焦后合成按键 target = `EMBED` |
+| 父帧 `postMessage` 能唤醒子帧 isolated world 里的预加载监听 | ❌ 预加载确实在该帧运行（DOM 标记可证），但 message 事件没到 isolated world |
+| 跨域子帧预加载能自行聚焦 | ✅ 跨域夹具：ack `{tag:EMBED,focused:true}`，子页 `activeElement=EMBED`、`hasFocus=true` |
+
+安全阀：若本帧 `activeElement` 已是 `INPUT/TEXTAREA/contenteditable`（页面自己聚焦了登录框、
+站内搜索），直接放弃，不抢光标。
 
 ## 4 数据模型与接口
 
