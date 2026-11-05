@@ -163,6 +163,7 @@ declare global {
         close(tabId: string): Promise<void>;
         suspend(tabId: string): Promise<void>;
         activate(tabId: string): Promise<void>;
+        focusActive(): Promise<boolean>;
         navigate(tabId: string, url: string): Promise<void>;
         goBack(tabId: string): Promise<void>;
         goForward(tabId: string): Promise<void>;

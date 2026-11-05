@@ -93,6 +93,22 @@ muted。主进程 `suspend()` 对 active 标签直接拒绝。
 30s 窗口内累计计数：超过 3 次才 `preventCleanShutdownMark()` 后退出，之前每次延迟
 500ms 自动 reload（见 08）。
 
+### 3.7 键盘焦点归属
+
+BrowserView 是**独立渲染进程**，键盘焦点只能由两条路进入：用户点击其矩形（原生命中测试）
+或主进程显式 `webContents.focus()`。因此外壳侧提交导航后必须显式交还焦点：
+
+- `TabManager.focusActive()`（`tabs.ts`）→ IPC `tab:focusActive` → preload
+  `tab.focusActive()`；`activeId` 无视图时返回 `false`（新标签页阶段正常）。
+- 唯一调用点是 `useTabManager.handleNavigate`，**在导航提交的同一 tick** 调用。
+  刻意不挂 `did-stop-loading`：页面加载完再抢焦点会打断"边加载边改地址"的输入。
+- `TopBar` 地址栏回车仍保留 `blur()`（不再依赖它"顺带"把焦点丢给页面）；
+  书签、快捷入口、新标签页搜索都走 `handleNavigate`，因此一并获得焦点交还。
+- 日志 `[Tabs] focus-active tab=… wc=… focused=…` 用于区分两种失败：
+  `focused=false` = 交还失败（主进程侧问题）；`focused=true` 但 Flash 输入框仍无光标
+  = Chromium 插件焦点模型限制（PPAPI `<embed>` 需 element 级焦点），与本机制无关。
+- 切标签（`activate()`）**不**抢焦点：Ctrl+Tab 切换时用户可能正在地址栏输入。
+
 ## 4 数据模型与接口
 
 - `TabEntry`（主）：`{ id, browserView, isRuffle, ruffleSource?, lastTargetUrl,

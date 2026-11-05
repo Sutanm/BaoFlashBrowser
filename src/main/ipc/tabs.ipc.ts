@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import { z } from 'zod';
-import { createValidatedHandler } from '../utils/ipc-wrapper';
+import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
 import { tabManager } from '../modules/tabs';
 import { ruffleBundleInfo, ruffleJsContent } from '../modules/ruffle-bundle';
 import log from 'electron-log';
@@ -64,6 +64,10 @@ export function registerTabsIPC(): void {
 
   createValidatedHandler('tab:activate', tabOnly, (args) =>
     tabManager.activate(args.tabId));
+
+  // Hand keyboard focus to the active BrowserView (no-op payload) so the shell
+  // stops swallowing keystrokes after an address-bar submit or link click.
+  createHandler<undefined, boolean>('tab:focusActive', () => tabManager.focusActive());
 
   createValidatedHandler('tab:navigate', z.object({ tabId, url }).strict(), (args) =>
     tabManager.navigate(args.tabId, args.url));

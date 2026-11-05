@@ -602,6 +602,24 @@ class TabManager {
     else this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
   }
 
+  /**
+   * Hand keyboard focus from the shell renderer to the active page.
+   *
+   * BrowserView is a separate renderer: a click inside its bounds moves focus
+   * through the native hit test, but nothing else does. Without this the shell
+   * keeps focus after an address-bar submit, so keystrokes (and therefore the
+   * PPAPI plugin's input fields) never see them until the user clicks the page.
+   */
+  focusActive(): boolean {
+    const view = this.activeId ? this.tabs.get(this.activeId)?.browserView : undefined;
+    const wc = view?.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    if (!wc.isFocused()) wc.focus();
+    const focused = wc.isFocused();
+    log.info(`[Tabs] focus-active tab=${this.activeId} wc=${wc.id} focused=${focused}`);
+    return focused;
+  }
+
   close(tabId: string): void {
     const tab = this.tabs.get(tabId); if (!tab) return;
     this.automationTargets.delete(tabId);

@@ -467,6 +467,10 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     if (activeTabId) {
       window.electronAPI.tab.stop(activeTabId);
       window.electronAPI.tab.navigate(activeTabId, url);
+      // Navigation is committed: hand keyboard focus to the page. At the moment
+      // of commit, not on did-stop-loading — the latter would yank focus back
+      // mid-typing if the user starts editing the address bar while loading.
+      void window.electronAPI.tab.focusActive().catch(() => {});
     }
   }, [activeTabId, createTab, updateTab, settings.searchEngine]);
 
