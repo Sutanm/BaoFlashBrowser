@@ -19,6 +19,7 @@
 | 09 | 构建、发布与测试管线 | [09-build-release-test.md](./09-build-release-test.md) | `build/`、`scripts/`、`tests/`、`.github/`、esbuild/vite 配置 |
 | 10 | 网络代理与连接诊断 | `10-network-proxy.md`（本轮新建） | `proxy.ts`、`download-proxy.ts`、`src/shared/types/proxy.ts` |
 | 11 | 界面语言、主题与更新检查 | `11-i18n-theme-update.md`（本轮新建） | `ui-language.ts`、`theme.ipc.ts`、`app-update.ts`、`src/renderer/i18n/` |
+| 12 | 内置开发者工具箱 | [12-devtoolbox.md](./12-devtoolbox.md) | `devtoolbox*.ts`、`src/main/ipc/devtoolbox.ipc.ts`、`src/renderer/components/devtools/` |
 
 ## 共同设计原则
 

@@ -4,6 +4,8 @@ import DrawerSidebar from './components/layout/DrawerSidebar';
 import { isSidebarPanel, SIDEBAR_WIDTH } from './components/layout/DrawerSidebar';
 import NewTabPage from './components/newtab/NewTabPage';
 import FindBar from './components/overlays/FindBar';
+import DevToolDrawer from './components/devtools/DevToolDrawer';
+import { useDevToolStore } from './store/useDevToolStore';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { useTabManager } from './hooks/useTabManager';
@@ -149,6 +151,7 @@ const AppInner: React.FC = () => {
       case 'stop-or-dismiss': { if (activeTabId) window.electronAPI.tab.stop(activeTabId); break; }
       case 'fullscreen': window.electronAPI.win.toggleFullscreen(); break;
       case 'devtools': { if (activeTabId) window.electronAPI.tab.devtools(activeTabId); break; }
+      case 'devtoolbox': useDevToolStore.getState().toggle(); break;
       case 'bookmark': setActivePanel((v) => v === 'favorites' ? null : 'favorites'); break;
       case 'history-panel': setActivePanel((v) => v === 'history' ? null : 'history'); break;
       case 'zoom-in': zoomIn(); break;
@@ -268,32 +271,39 @@ const AppInner: React.FC = () => {
           downloadCount={activeDownloadCount}
         />}
 
-        <div className="workspace-view" style={{ display: isOnNewTab ? 'flex' : 'none' }}>
-          <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
-        </div>
-        {UserscriptsPage && <div className="workspace-view" style={{ display: isOnUserscripts ? 'flex' : 'none' }}>
-          <Suspense fallback={<div className="internal-page-loading">Loading Userscripts…</div>}><UserscriptsPage /></Suspense>
-        </div>}
-        {automationMounted && <div className="workspace-view" style={{ display: isOnAutomation ? 'flex' : 'none' }}>
-          {AutomationPage && <Suspense fallback={<div className="internal-page-loading">Loading Automation 2.0…</div>}><AutomationPage /></Suspense>}
-        </div>}
-        <div className="workspace-view workspace-view-center" style={{ display: isCrashed ? 'flex' : 'none' }}>
-          <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>
-          <button
-            type="button"
-            onClick={() => { if (activeTabId) window.electronAPI.tab.reload(activeTabId); }}
-            style={{ padding: '8px 18px', borderRadius: 8, background: 'var(--accent)', color: '#fff' }}
-          >
-            {LL.refresh()}
-          </button>
-        </div>
-        <div className="browserview-column" style={{ display: browserViewHidden ? 'none' : 'flex' }}>
-          <FindBar
-            visible={findBarVisible && !isOnNewTab}
-            onClose={() => setFindBarVisible(false)}
-            activeTabId={activeTabId}
-          />
-          <div id="browserview-area" ref={bvAreaRef} className="browserview-native-area" />
+        <div className="workspace-main">
+          <div className="workspace-view" style={{ display: isOnNewTab ? 'flex' : 'none' }}>
+            <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
+          </div>
+          {UserscriptsPage && (
+            <div className="workspace-view" style={{ display: isOnUserscripts ? 'flex' : 'none' }}>
+              <Suspense fallback={<div className="internal-page-loading">Loading Userscripts…</div>}><UserscriptsPage /></Suspense>
+            </div>
+          )}
+          {automationMounted && (
+            <div className="workspace-view" style={{ display: isOnAutomation ? 'flex' : 'none' }}>
+              {AutomationPage && <Suspense fallback={<div className="internal-page-loading">Loading Automation 2.0…</div>}><AutomationPage /></Suspense>}
+            </div>
+          )}
+          <div className="workspace-view workspace-view-center" style={{ display: isCrashed ? 'flex' : 'none' }}>
+            <div style={{ fontSize: 22, fontWeight: 600 }}>{LL.error.pageCrashed()}</div>
+            <button
+              type="button"
+              onClick={() => { if (activeTabId) window.electronAPI.tab.reload(activeTabId); }}
+              style={{ padding: '8px 18px', borderRadius: 8, background: 'var(--accent)', color: '#fff' }}
+            >
+              {LL.refresh()}
+            </button>
+          </div>
+          <div className="browserview-column" style={{ display: browserViewHidden ? 'none' : 'flex' }}>
+            <FindBar
+              visible={findBarVisible && !isOnNewTab}
+              onClose={() => setFindBarVisible(false)}
+              activeTabId={activeTabId}
+            />
+            <div id="browserview-area" ref={bvAreaRef} className="browserview-native-area" />
+          </div>
+          <DevToolDrawer />
         </div>
 
       </div>

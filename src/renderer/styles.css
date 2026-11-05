@@ -6,9 +6,18 @@
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f7;
   --bg-tertiary: #e8e8ed;
-  --bg-toolbar: #f5f5f7;
+  --bg-toolbar: #ffffff;
+  /* 标签条单独一档底色：比工具栏深一档，非活动标签才有"凹进去"的边界感；
+     活动标签取工具栏同色（--bg-active-tab），与工具栏无缝连成一片 = Chrome/Edge 的"开口"。
+     三层配比是「灰条 / 白工具栏+白标签 / 内容」，灰色只占 45px 那一条，不会显得压顶。 */
+  --bg-tabstrip: #eceef2;
+  --bg-tab-hover: rgba(255, 255, 255, 0.55);
   --bg-panel: #ffffff;
   --bg-input: #ffffff;
+  --bg-address: #ffffff;
+  /* 图标类控件的 hover 底色：白色工具栏上不能用实心灰（看着像贴了块脏补丁），
+     用极淡的黑色叠加，压在纯白与浅色药丸上都不突兀 */
+  --bg-icon-hover: rgba(0, 0, 0, 0.055);
   --bg-hover: #e8e8ed;
   --bg-active-tab: #ffffff;
   --text-primary: #1d1d1f;
@@ -32,10 +41,14 @@ body.dark {
   --bg-secondary: #181825;
   --bg-tertiary: #313244;
   --bg-toolbar: #181825;
+  --bg-tabstrip: #101018;
+  --bg-tab-hover: rgba(255, 255, 255, 0.06);
   --bg-panel: #1e1e2e;
   --bg-input: #11111b;
+  --bg-address: #11111b;
+  --bg-icon-hover: rgba(255, 255, 255, 0.08);
   --bg-hover: #313244;
-  --bg-active-tab: #1e1e2e;
+  --bg-active-tab: #181825;
   --text-primary: #cdd6f4;
   --text-secondary: #a6adc8;
   --text-disabled: #585b70;
@@ -56,7 +69,7 @@ body.dark {
     color: var(--text-secondary);
     transition: all 0.15s;
   }
-  .btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-icon:hover { background: var(--bg-icon-hover); color: var(--text-primary); }
   .btn-icon:disabled { color: var(--text-disabled); cursor: default; }
   .btn-icon:disabled:hover { background: transparent; color: var(--text-disabled); }
 
@@ -117,26 +130,76 @@ body.dark {
   }
 
   .tab-item {
-    @apply flex items-center gap-1.5 h-[36px] pl-3 pr-1.5 cursor-pointer
-           text-sm border-none;
+    @apply h-[36px] cursor-pointer text-sm border-none;
+    position: relative;
     border-radius: 8px;
     font-size: 13px;
     background: transparent;
     color: var(--text-secondary);
-    min-width: 60px;
+    /* 标签等宽（对齐 Edge）：所有标签共用同一 flex 基准（160px），
+       剩余空间等分增长、宽度不够时等比例收紧，宽度不再由标题长度决定
+       （"新标签页"曾比长标题窄一截）。
+       max-width 兜底少标签时被拉得过宽；min-width: 0 表示**没有下限**——标签可以一直收到
+       只剩一条缝，因此整行永远不会溢出，加号（flex-shrink: 0，宽 32px）也就永远不会被挤出
+       可视区（Edge 实测 40+ 标签时标签仍收到 ~15px、加号照旧在最后）。
+       注意：水平留白不能用 padding —— 见下方「留白走 margin」注释。 */
+    flex: 1 1 160px;
+    min-width: 0;
     max-width: 200px;
     white-space: nowrap;
     -webkit-app-region: no-drag;
     transition: all 0.15s;
-    flex-shrink: 1;
   }
-  .tab-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+  /* 内容层：承担裁剪与排布。标签被挤到很窄时图标/关闭按钮由这一层裁掉，
+     而不会溢出画到相邻标签上；外层不能裁，否则见下方"开口圆角"会被一起裁掉。 */
+  .tab-inner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 100%;
+    overflow: hidden;
+    border-radius: inherit;
+  }
+  /* 留白走 margin，不走 padding：padding 属于盒子自身，`min-width: 0` 也压不穿它，
+     12px + 6px 会让每个标签硬停在 18px 下限（60 个标签时整行仍会溢出、加号被裁）。
+     挪到子元素的 margin 上后盒子最小宽度为 0，空间不够时留白随内容一起被裁，
+     加号在任何标签数量下都留在可视区内；空间充足时视觉与原来的 padding 完全一致。 */
+  .tab-inner > :first-child { margin-left: 12px; }
+  /* 活动标签不吃 hover 底色，否则底部圆角仍是 --bg-active-tab，会露馅 */
+  .tab-item:not(.active):hover { background: var(--bg-tab-hover); color: var(--text-primary); }
+  /* 活动标签：与工具栏同色、只留上圆角、去掉蓝线与投影 —— 底部与工具栏无缝相接，
+     形成 Chrome/Edge 的"标签开口"，靠"条底深一档 vs 标签亮一档"区分层次 */
   .tab-item.active {
     background: var(--bg-active-tab);
     color: var(--text-primary);
-    box-shadow: var(--shadow-sm);
-    border-bottom: 2px solid var(--accent);
+    border-radius: 8px 8px 0 0;
+    /* 抬一层：右脚会压到后一个标签的盒子里，否则被后者的 hover 底色盖住 */
+    z-index: 1;
   }
+  /* 开口两端的"内凹圆角"（Chrome 的标签脚）：8×8 的方块，靠近外侧一角用径向渐变挖成透明，
+     剩下的标签色正好贴在活动标签左/右外侧的底部 —— 视觉上标签像从工具栏里长出来。
+     用 border-radius 做不出内凹，必须靠"挖洞"：透明区是以方块外侧角为圆心的 8px 圆。
+     第一个标签不画左脚（它紧贴标签条左边界，与 Chrome 一致）。 */
+  .tab-item.active::before,
+  .tab-item.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    width: 8px;
+    height: 8px;
+    pointer-events: none;
+  }
+  .tab-item.active::before {
+    left: -8px;
+    background: radial-gradient(circle 8px at top left,
+      transparent 7.5px, var(--bg-active-tab) 8px);
+  }
+  .tab-item.active::after {
+    right: -8px;
+    background: radial-gradient(circle 8px at top right,
+      transparent 7.5px, var(--bg-active-tab) 8px);
+  }
+  .tab-item.active:first-child::before { display: none; }
   body.dark .tab-item { color: var(--text-secondary); }
   body.dark .tab-item.active { color: var(--text-primary); background: var(--bg-active-tab); }
 
@@ -153,6 +216,11 @@ body.dark {
   }
   .tab-item:hover .tab-close { opacity: 1; background: rgba(0,0,0,0.06); }
   body.dark .tab-close:hover { background: rgba(255,255,255,0.15); color: white; }
+  /* 关闭按钮固定贴在标签右边缘：标签等宽后（flex 撑到 200px）短标题（"新标签页"）
+     不再撑满整条，若按默认左对齐排布，X 会停在上一个字后面、右边留一大片空白。
+     margin-left: auto 把剩余空间全部吸收到 X 前面，X 就像 Chrome/Edge 那样恒在右缘
+     （margin-right 即原来的 pr-1.5，理由见上方「留白走 margin」）。 */
+  .tab-inner > .tab-close { margin-left: auto; margin-right: 6px; }
 
   .tab-item.drag-over {
     box-shadow: inset 2px 0 0 var(--accent);
@@ -406,7 +474,7 @@ body {
 }
 
 .topbar-tabbar {
-  background: var(--bg-secondary);
+  background: var(--bg-tabstrip);
 }
 
 .btn-win,
@@ -442,6 +510,16 @@ body.dark #loading-progress {
   min-height: 0;
   overflow: hidden;
   background: var(--bg-primary);
+}
+
+/* 主工作区：内容视图 + 底部开发者工具箱共用一列，抽屉开合会直接压缩页面区域 */
+.workspace-main {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .workspace-view {
@@ -488,16 +566,27 @@ body.dark #loading-progress {
   padding: 0 38px 0 13px;
   border-radius: 16px;
   border-color: transparent;
-  background: var(--bg-primary);
-  box-shadow: inset 0 0 0 1px var(--border-light);
+  /* 工具栏转白后，地址栏用"白药丸 + 发丝描边"而不是浅灰填充：
+     灰块贴在纯白上边界含糊，细线反而更干净；hover 才把描边压深一档 */
+  background: var(--bg-address);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.09);
+  transition: box-shadow 160ms ease, background 160ms ease;
+}
+
+.address-input:hover {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.17);
 }
 
 .address-input:focus,
 .address-input:focus-visible {
   border-color: transparent;
   outline: none;
-  box-shadow: inset 0 0 0 1px var(--border-light);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.17);
 }
+
+body.dark .address-input { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09); }
+body.dark .address-input:hover,
+body.dark .address-input:focus { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); }
 
 body.keyboard-navigation .address-input:focus {
   box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 2px rgba(0,113,227,.1);
@@ -1138,12 +1227,16 @@ body.keyboard-navigation .address-input:focus {
   align-items: center;
   gap: 2px;
   padding: 4px 8px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  /* 原来是 --bg-secondary(#f5f5f7) + --border 下边线：夹在白色工具栏与白色页面之间
+     正好形成「灰条 / 白工具栏 / 灰条」的斑马线。底色改为与页面同底的透明，
+     只保留一条发丝下边线，用来跟下面的页面内容分界（不带底色就不会回到斑马线）。 */
+  background: transparent;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   overflow-x: auto;
   white-space: nowrap;
   min-height: 32px;
 }
+body.dark .newtab-bookmarks-bar { border-bottom-color: rgba(255, 255, 255, 0.12); }
 
 .newtab-bookmark {
   display: inline-flex;
@@ -1158,7 +1251,7 @@ body.keyboard-navigation .address-input:focus {
   background: transparent;
   transition: background 0.15s;
 }
-.newtab-bookmark:hover { background: var(--bg-hover); }
+.newtab-bookmark:hover { background: var(--bg-icon-hover); }
 
 .newtab-bookmark-favicon {
   width: 16px;
@@ -1468,7 +1561,32 @@ body.keyboard-navigation button:focus {
   width: 30px;
   height: 30px;
   border-radius: 7px;
-  transition: color 160ms ease, background 160ms ease, transform 120ms ease;
+  transition: color 160ms ease, box-shadow 160ms ease, background 160ms ease, transform 120ms ease;
+}
+
+/* 白色工具栏上的图标：hover 只描一圈发丝边，不铺实心块（实心灰贴在纯白上边界含糊） */
+.browser-toolbar .btn-icon:hover {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.13);
+  color: var(--text-primary);
+}
+.browser-toolbar .btn-icon:active {
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+}
+.browser-toolbar .btn-icon:disabled:hover {
+  background: transparent;
+  box-shadow: none;
+}
+body.dark .browser-toolbar .btn-icon:hover {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+/* 收藏星在白色地址药丸内部：描边会显脏、铺底也显重，只把图标压深一档 */
+.browser-toolbar .address-bookmark-button:hover {
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-primary);
 }
 
 .browser-toolbar button:active,
@@ -1489,16 +1607,18 @@ body.keyboard-navigation button:focus {
   height: 18px;
   margin: 0 3px 0 2px;
   flex: 0 0 auto;
-  background: var(--border-light);
-  opacity: .72;
+  /* 原来用 --border-light + .72 透明度，在纯白工具栏上几乎看不见，改用 --border 提一档 */
+  background: var(--border);
+  opacity: .8;
 }
 
 .toolbar-divider-mode { height: 20px; margin-inline: 3px; }
 
 .sidebar-toggle-button {
   color: var(--accent) !important;
-  background: var(--bg-hover) !important;
-  box-shadow: inset 0 0 0 1px rgba(48,111,219,.18);
+  /* 白色工具栏上不铺灰底，只留一圈 accent 发丝边（呼吸动画本身就在画内描边） */
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 113, 227, 0.35);
   animation: sidebar-invite 2.6s ease-in-out infinite;
 }
 
@@ -1509,8 +1629,8 @@ body.keyboard-navigation button:focus {
 }
 
 @keyframes sidebar-invite {
-  0%, 100% { box-shadow: inset 0 0 0 1px rgba(48,111,219,.18), 0 0 0 0 rgba(48,111,219,.08); }
-  50% { box-shadow: inset 0 0 0 1px rgba(48,111,219,.28), 0 0 0 4px rgba(48,111,219,.11); }
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(0,113,227,.35), 0 0 0 0 rgba(48,111,219,.08); }
+  50% { box-shadow: inset 0 0 0 1px rgba(0,113,227,.55), 0 0 0 4px rgba(48,111,219,.11); }
 }
 
 @keyframes sidebar-breathe {

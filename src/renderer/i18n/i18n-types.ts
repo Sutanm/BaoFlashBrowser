@@ -204,13 +204,13 @@ type RootTranslation = {
 		 */
 		packageDeleted: RequiredParams<'name'>
 		/**
-		 *
+		 * 
 	​
 	​这​是​当​前​主​入​口​；​删​除​后​会​自​动​切​换​到​ ​B​l​o​c​k​l​y​ ​主​流​程​或​其​他​脚​本​。
 		 */
 		mainWarning: string
 		/**
-		 *
+		 * 
 	​
 	​尚​未​保​存​的​修​改​也​会​丢​失​。
 		 */
@@ -608,15 +608,15 @@ type RootTranslation = {
 		 */
 		callable: string
 		/**
-		 * 相​似​度​
+		 * 相​似​度​ 
 		 */
 		similarity: string
 		/**
-		 * 坐​标​
+		 * 坐​标​ 
 		 */
 		position: string
 		/**
-		 * 原​图​
+		 * 原​图​ 
 		 */
 		original: string
 		/**
@@ -1924,7 +1924,7 @@ type RootTranslation = {
 		 */
 		automationOcrWarmStart: string
 		/**
-		 * 启​动​时​后​台​加​载​ ​O​C​R​ ​引​擎​,​首​次​文​字​识​别​不​再​等​待​。​常​驻​约​占​用​ ​2​3​4​ ​M​B​ ​内​存​;​标​准​版​不​含​ ​O​C​R​ ​时​自​动​失​效​。
+		 * 启​动​时​后​台​加​载​ ​O​C​R​ ​引​擎​,​首​次​文​字​识​别​不​再​等​待​。​常​驻​约​占​用​ ​2​3​4​ ​M​B​ ​内​存​;​安​装​包​不​含​ ​O​C​R​ ​运​行​时​则​自​动​跳​过​。
 		 */
 		automationOcrWarmStartHint: string
 		screenshot: {
@@ -2401,6 +2401,145 @@ type RootTranslation = {
 			restartAllHint: string
 		}
 	}
+	devtools: {
+		/**
+		 * 开​发​者​工​具​箱
+		 */
+		title: string
+		/**
+		 * D​e​v​T​o​o​l​s
+		 */
+		tabDevtools: string
+		/**
+		 * 捕​获
+		 */
+		tabCapture: string
+		/**
+		 * F​l​a​s​h
+		 */
+		tabFlash: string
+		/**
+		 * 主​进​程
+		 */
+		tabMain: string
+		/**
+		 * 当​前​页​面
+		 */
+		targetPage: string
+		/**
+		 * 外​壳​界​面
+		 */
+		targetShell: string
+		/**
+		 * 没​有​可​用​的​调​试​端​口​。​用​ ​-​-​r​e​m​o​t​e​-​d​e​b​u​g​g​i​n​g​-​p​o​r​t​=​<​端​口​>​ ​启​动​应​用​后​，​这​里​会​加​载​真​正​的​ ​D​e​v​T​o​o​l​s​。
+		 */
+		noDebugPort: string
+		/**
+		 * 清​空
+		 */
+		clear: string
+		/**
+		 * 关​闭
+		 */
+		close: string
+		/**
+		 * 刷​新
+		 */
+		refresh: string
+		/**
+		 * 原​生​面​板
+		 */
+		native: string
+		/**
+		 * 打​开​页​面​的​原​生​ ​D​e​v​T​o​o​l​s​（​英​文​界​面​）
+		 */
+		nativePage: string
+		/**
+		 * 打​开​外​壳​的​原​生​ ​D​e​v​T​o​o​l​s​（​英​文​界​面​）
+		 */
+		nativeShell: string
+		/**
+		 * 输​入​ ​J​a​v​a​S​c​r​i​p​t​ ​表​达​式​，​回​车​执​行
+		 */
+		inputPlaceholder: string
+		/**
+		 * 还​没​有​捕​获​事​件​。​登​录​一​次​并​提​交​表​单​后​能​看​到​链​路​日​志​。
+		 */
+		emptyCapture: string
+		/**
+		 * 当​前​页​面​没​有​检​测​到​ ​S​W​F​。
+		 */
+		emptyFlash: string
+		/**
+		 * 主​进​程​还​没​有​日​志​。
+		 */
+		emptyMain: string
+		/**
+		 * 未​检​测​到​ ​S​W​F​（​R​u​f​f​l​e​ ​模​式​或​游​戏​尚​未​加​载​）
+		 */
+		swfEmpty: string
+		/**
+		 * 空​闲
+		 */
+		cdpFree: string
+		/**
+		 * 工​具​箱​不​占​用​ ​C​D​P​，​密​码​捕​获​与​自​动​化​照​常​工​作
+		 */
+		cdpNote: string
+		/**
+		 * 插​件​路​径
+		 */
+		flashPlugin: string
+		/**
+		 * 版​本
+		 */
+		flashVersion: string
+		/**
+		 * 通​道
+		 */
+		flashChannel: string
+		/**
+		 * 来​源
+		 */
+		flashSource: string
+		/**
+		 * 回​退​原​因
+		 */
+		flashFallback: string
+		/**
+		 * m​m​s​.​c​f​g
+		 */
+		flashMms: string
+		/**
+		 * U​s​e​r​-​A​g​e​n​t
+		 */
+		flashUa: string
+		/**
+		 * 页​面​ ​S​W​F
+		 */
+		flashSwf: string
+		/**
+		 * 视​口
+		 */
+		flashViewport: string
+		/**
+		 * 页​面​ ​f​r​a​m​e
+		 */
+		flashFrames: string
+		/**
+		 * 同​源
+		 */
+		sameOrigin: string
+		/**
+		 * 跨​域​，​内​容​不​可​见
+		 */
+		crossOrigin: string
+		/**
+		 * 更​早​的​ ​{​c​o​u​n​t​}​ ​条​已​折​叠​（​清​空​可​释​放​）
+		 * @param {unknown} count
+		 */
+		olderHidden: RequiredParams<'count'>
+	}
 	error: {
 		/**
 		 * 出​错​了
@@ -2599,13 +2738,13 @@ export type TranslationFunctions = {
 		 */
 		packageDeleted: (arg: { name: string }) => LocalizedString
 		/**
-		 *
+		 * 
 
 	这是当前主入口；删除后会自动切换到 Blockly 主流程或其他脚本。
 		 */
 		mainWarning: () => LocalizedString
 		/**
-		 *
+		 * 
 
 	尚未保存的修改也会丢失。
 		 */
@@ -2995,15 +3134,15 @@ export type TranslationFunctions = {
 		 */
 		callable: () => LocalizedString
 		/**
-		 * 相似度
+		 * 相似度 
 		 */
 		similarity: () => LocalizedString
 		/**
-		 * 坐标
+		 * 坐标 
 		 */
 		position: () => LocalizedString
 		/**
-		 * 原图
+		 * 原图 
 		 */
 		original: () => LocalizedString
 		/**
@@ -4291,7 +4430,7 @@ export type TranslationFunctions = {
 		 */
 		automationOcrWarmStart: () => LocalizedString
 		/**
-		 * 启动时后台加载 OCR 引擎,首次文字识别不再等待。常驻约占用 234 MB 内存;标准版不含 OCR 时自动失效。
+		 * 启动时后台加载 OCR 引擎,首次文字识别不再等待。常驻约占用 234 MB 内存;安装包不含 OCR 运行时则自动跳过。
 		 */
 		automationOcrWarmStartHint: () => LocalizedString
 		screenshot: {
@@ -4748,6 +4887,144 @@ export type TranslationFunctions = {
 			 */
 			restartAllHint: () => LocalizedString
 		}
+	}
+	devtools: {
+		/**
+		 * 开发者工具箱
+		 */
+		title: () => LocalizedString
+		/**
+		 * DevTools
+		 */
+		tabDevtools: () => LocalizedString
+		/**
+		 * 捕获
+		 */
+		tabCapture: () => LocalizedString
+		/**
+		 * Flash
+		 */
+		tabFlash: () => LocalizedString
+		/**
+		 * 主进程
+		 */
+		tabMain: () => LocalizedString
+		/**
+		 * 当前页面
+		 */
+		targetPage: () => LocalizedString
+		/**
+		 * 外壳界面
+		 */
+		targetShell: () => LocalizedString
+		/**
+		 * 没有可用的调试端口。用 --remote-debugging-port=<端口> 启动应用后，这里会加载真正的 DevTools。
+		 */
+		noDebugPort: () => LocalizedString
+		/**
+		 * 清空
+		 */
+		clear: () => LocalizedString
+		/**
+		 * 关闭
+		 */
+		close: () => LocalizedString
+		/**
+		 * 刷新
+		 */
+		refresh: () => LocalizedString
+		/**
+		 * 原生面板
+		 */
+		native: () => LocalizedString
+		/**
+		 * 打开页面的原生 DevTools（英文界面）
+		 */
+		nativePage: () => LocalizedString
+		/**
+		 * 打开外壳的原生 DevTools（英文界面）
+		 */
+		nativeShell: () => LocalizedString
+		/**
+		 * 输入 JavaScript 表达式，回车执行
+		 */
+		inputPlaceholder: () => LocalizedString
+		/**
+		 * 还没有捕获事件。登录一次并提交表单后能看到链路日志。
+		 */
+		emptyCapture: () => LocalizedString
+		/**
+		 * 当前页面没有检测到 SWF。
+		 */
+		emptyFlash: () => LocalizedString
+		/**
+		 * 主进程还没有日志。
+		 */
+		emptyMain: () => LocalizedString
+		/**
+		 * 未检测到 SWF（Ruffle 模式或游戏尚未加载）
+		 */
+		swfEmpty: () => LocalizedString
+		/**
+		 * 空闲
+		 */
+		cdpFree: () => LocalizedString
+		/**
+		 * 工具箱不占用 CDP，密码捕获与自动化照常工作
+		 */
+		cdpNote: () => LocalizedString
+		/**
+		 * 插件路径
+		 */
+		flashPlugin: () => LocalizedString
+		/**
+		 * 版本
+		 */
+		flashVersion: () => LocalizedString
+		/**
+		 * 通道
+		 */
+		flashChannel: () => LocalizedString
+		/**
+		 * 来源
+		 */
+		flashSource: () => LocalizedString
+		/**
+		 * 回退原因
+		 */
+		flashFallback: () => LocalizedString
+		/**
+		 * mms.cfg
+		 */
+		flashMms: () => LocalizedString
+		/**
+		 * User-Agent
+		 */
+		flashUa: () => LocalizedString
+		/**
+		 * 页面 SWF
+		 */
+		flashSwf: () => LocalizedString
+		/**
+		 * 视口
+		 */
+		flashViewport: () => LocalizedString
+		/**
+		 * 页面 frame
+		 */
+		flashFrames: () => LocalizedString
+		/**
+		 * 同源
+		 */
+		sameOrigin: () => LocalizedString
+		/**
+		 * 跨域，内容不可见
+		 */
+		crossOrigin: () => LocalizedString
+		/**
+		 * 更早的 {count} 条已折叠（清空可释放）
+		 */
+		olderHidden: (arg: { count: unknown }) => LocalizedString
 	}
 	error: {
 		/**

@@ -11,6 +11,7 @@ const ALLOWED_ON_CHANNELS = new Set([
   'password:captured', 'password:changed', 'password:filled',
   'userscripts:changed',
   'userscript:open-tab',
+  'devtoolbox:entries', 'devtoolbox:cleared',
 ]);
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
@@ -31,6 +32,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'password:reset', 'password:fill', 'password:retry-key', 'password:rebuild-vault',
   'password:set-view-password', 'password:reset-os-auth',
   'diagnostics:export',
+  'devtoolbox:snapshot', 'devtoolbox:clear', 'devtoolbox:devtools-url', 'devtoolbox:open-native', 'devtoolbox:probe-page',
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
   'win:minimize', 'win:maximize', 'win:unmaximize', 'win:close', 'win:setFullscreen', 'win:toggleFullscreen', 'win:isMaximized',
@@ -163,6 +165,24 @@ const electronAPI = {
 
   diagnostics: {
     export: () => safeInvoke('diagnostics:export'),
+  },
+
+  devtoolbox: {
+    snapshot: () => safeInvoke('devtoolbox:snapshot'),
+    clear: () => safeInvoke('devtoolbox:clear'),
+    devtoolsUrl: (target: 'page' | 'shell') => safeInvoke('devtoolbox:devtools-url', { target }),
+    openNative: (target: 'page' | 'shell') => safeInvoke('devtoolbox:open-native', { target }),
+    probePage: () => safeInvoke('devtoolbox:probe-page'),
+    onEntries: (callback: (entries: unknown[]) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, entries: unknown[]) => callback(entries);
+      ipcRenderer.on('devtoolbox:entries', listener);
+      return () => { ipcRenderer.removeListener('devtoolbox:entries', listener); };
+    },
+    onCleared: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('devtoolbox:cleared', listener);
+      return () => { ipcRenderer.removeListener('devtoolbox:cleared', listener); };
+    },
   },
 
   file: {

@@ -19,6 +19,7 @@ export type ShortcutAction =
   | 'focus-address'
   | 'fullscreen'
   | 'devtools'
+  | 'devtoolbox'
   | 'bookmark'
   | 'history-panel'
   | 'find-in-page'

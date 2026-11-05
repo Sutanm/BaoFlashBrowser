@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, ArrowLeft, ArrowRight, RotateCw, X, Star, PanelLeftOpen, PanelLeftClose, Camera, Volume2, VolumeX } from 'lucide-react';
+import { Plus, ArrowLeft, ArrowRight, RotateCw, X, Star, PanelLeftOpen, PanelLeftClose, Camera, Volume2, VolumeX, Terminal } from 'lucide-react';
 import TabItem from '../tabs/TabItem';
 import WindowControls from '../shell/WindowControls';
 import RuffleToggle from '../navigation/RuffleToggle';
@@ -10,6 +10,7 @@ import AddressToastHost from '../overlays/AddressToastHost';
 import LoadingProgress from '../overlays/LoadingProgress';
 import ThemeToggle from '../panels/ThemeToggle';
 import { useDataStore } from '@renderer/store/useDataStore';
+import { useDevToolStore } from '@renderer/store/useDevToolStore';
 
 interface TopBarProps {
   tabs: TabState[];
@@ -242,6 +243,16 @@ const TopBar: React.FC<TopBarProps> = ({
         </div>
         <span className="toolbar-divider toolbar-divider-mode" />
         <div className="toolbar-button-group">
+          <button
+            type="button"
+            data-devtoolbox-toggle
+            onClick={useDevToolStore.getState().toggle}
+            aria-pressed={useDevToolStore((s) => s.open)}
+            className="btn-icon"
+            title={`${LL.devtools.title()} (F12)`}
+          >
+            <Terminal className="w-4 h-4" />
+          </button>
           <button type="button" onClick={() => void handleScreenshot()} disabled={screenshotting} className="btn-icon" title={LL.settings.screenshot.capture()}>
             <Camera className="w-4 h-4" />
           </button>

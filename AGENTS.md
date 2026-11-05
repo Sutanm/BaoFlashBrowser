@@ -166,6 +166,7 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 
 - **BrowserView events must pass the current-WebContents guard** before updating a tab — engine switches destroy and replace the view while late events from the old renderer may still arrive.
 - **Inactive-tab suspension is opt-in** — never suspend the active, loading, audible, or React new-tab page; recreation must restore engine, zoom and mute state.
+- **The main window predates `app.on('web-contents-created')`** — it is created earlier in `whenReady`, so anything registered only through that event never reaches the shell. Keyboard shortcuts were hit by this: F12 worked on a page but did nothing while focus sat in the address bar or the devtoolbox input. Register explicitly with `registerShortcutHandler(mainWindow.webContents)`; the helper is idempotent because a double binding sends two `shortcut` events and a toggle action appears to do nothing.
 
 ### Data flow
 

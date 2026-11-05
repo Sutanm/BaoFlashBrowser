@@ -36,7 +36,7 @@ const SHORTCUTS: ShortcutEntry[] = [
   { key: 'd', alt: true, action: 'focus-address' },
   // Features
   { key: 'F11', action: 'fullscreen' },
-  { key: 'F12', action: 'devtools' },
+  { key: 'F12', action: 'devtoolbox' },
   { key: 'i', ctrl: true, shift: true, action: 'devtools' },
   { key: 'd', ctrl: true, action: 'bookmark' },
   { key: 'h', ctrl: true, action: 'history-panel' },
@@ -96,8 +96,23 @@ export function handleWebviewBeforeInputEvent(
   }
 }
 
+/**
+ * 逐 WebContents 绑定一次快捷键。
+ *
+ * 幂等是必须的：主窗口在 `app.on('web-contents-created')` 注册之前就已创建
+ * （见 index.ts），所以要显式补绑；若上层又对同一 WebContents 走了一次
+ * 事件注册，重复绑定会让一次 F12 发送两个 'shortcut'，表现为“按了没反应”
+ * （toggle 两次回到原状）。
+ */
+const boundShortcutContents = new Set<number>();
+
 export function registerShortcutHandler(wc: WebContents): void {
-  wc.on('before-input-event', handleWebviewBeforeInputEvent);
+  if (boundShortcutContents.has(wc.id)) return;
+  boundShortcutContents.add(wc.id);
+  wc.once('destroyed', () => boundShortcutContents.delete(wc.id));
+  wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
+    handleWebviewBeforeInputEvent(event, input);
+  });
 }
 
 const ZOOM_SHORTCUTS = [

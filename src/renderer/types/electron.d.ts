@@ -228,6 +228,16 @@ declare global {
         export(): Promise<{ saved: boolean; canceled: boolean }>;
       };
 
+      devtoolbox: {
+        snapshot(): Promise<import('@shared/types/devtoolbox').DevToolSnapshot>;
+        clear(): Promise<void>;
+        devtoolsUrl(target: 'page' | 'shell'): Promise<string | null>;
+        openNative(target: 'page' | 'shell'): Promise<boolean>;
+        probePage(): Promise<import('@shared/types/devtoolbox').DevToolPageProbe | null>;
+        onEntries(callback: (entries: import('@shared/types/devtoolbox').DevToolEntry[]) => void): () => void;
+        onCleared(callback: () => void): () => void;
+      };
+
       file: {
         openSwf(): Promise<string | null>;
       };

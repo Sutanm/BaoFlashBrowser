@@ -15,8 +15,11 @@ if (bundleOcr && !hasAutomation) {
 }
 
 function selectedResources() {
+  // 内置 DevTools 前端资源：三个平台都要，与模块裁剪无关（工具箱是核心能力）。
+  const devtoolsFrontend = { from: 'dist/devtools-frontend', to: 'devtools-frontend' };
   if (targetPlatform === 'win32' && targetArch === 'x64') {
     const resources = [
+      devtoolsFrontend,
       { from: 'plugins/win64', to: 'plugins/win64' },
       { from: 'plugins/experimental/win64', to: 'plugins/experimental/win64' },
       { from: 'native/mouse-hook.exe', to: 'native/mouse-hook.exe' },
@@ -28,6 +31,7 @@ function selectedResources() {
 
   if (targetPlatform === 'win32' && targetArch === 'ia32') {
     const resources = [
+      devtoolsFrontend,
       { from: 'plugins/win32', to: 'plugins/win32' },
       { from: 'native/mouse-hook.exe', to: 'native/mouse-hook.exe' },
     ];
@@ -38,6 +42,7 @@ function selectedResources() {
 
   if (targetPlatform === 'linux' && targetArch === 'x64') {
     const resources = [
+      devtoolsFrontend,
       { from: 'plugins/linux64', to: 'plugins/linux64' },
       { from: 'native/mouse-hook-linux', to: 'native/mouse-hook-linux' },
     ];
@@ -48,6 +53,7 @@ function selectedResources() {
 
   if (targetPlatform === 'darwin' && targetArch === 'x64') {
     return [
+      devtoolsFrontend,
       { from: 'plugins/experimental/mac', to: 'plugins/experimental/mac' },
     ];
   }

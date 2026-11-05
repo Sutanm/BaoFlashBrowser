@@ -11,12 +11,14 @@ import { configureOptionalSessionServices, initSession } from './modules/session
 import { initializeProxy } from './modules/proxy';
 import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow } from './modules/window';
-import { handleWebviewBeforeInputEvent, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
+import { registerShortcutHandler, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
 import { registerThemeIPC } from './ipc/theme.ipc';
 import { registerConfigIPC } from './ipc/config.ipc';
 import { registerTabsIPC } from './ipc/tabs.ipc';
 import { registerScreenshotIPC } from './ipc/screenshot.ipc';
+import { registerDevToolboxIPC } from './ipc/devtoolbox.ipc';
+import { initDevToolbox, shutdownDevToolsFrontendServer } from './modules/devtoolbox';
 import { configureOptionalTabServices, tabManager } from './modules/tabs';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, preventCleanShutdownMark } from './modules/session-recovery';
@@ -182,6 +184,9 @@ function bootstrap(): void {
     registerThemeIPC();
     registerConfigIPC({ applyUserscriptCapacityConfig: userscripts?.applyCapacityConfig });
     registerTabsIPC();
+    // 内置开发者工具箱：只读观察（console-message + electron-log），不占用 CDP 租约。
+    initDevToolbox();
+    registerDevToolboxIPC();
     registerAppUpdateIPC();
     if (MODULE_DOWNLOAD) {
       const { registerDownloadIPC } = require('./ipc/download.ipc') as typeof import('./ipc/download.ipc');
@@ -230,14 +235,15 @@ function bootstrap(): void {
      });
 
     app.on('web-contents-created', (_event, wc) => {
-      wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
-        handleWebviewBeforeInputEvent(event, input);
-      });
-
+      registerShortcutHandler(wc);
     });
+    // 主窗口早于上面的事件监听创建，必须显式补绑，否则焦点在外壳界面
+    // （地址栏、开发者工具箱输入框）时 F12 等快捷键全部失效。
+    registerShortcutHandler(mainWindow.webContents);
   });
 
   app.on('window-all-closed', () => {
+    shutdownDevToolsFrontendServer();
     if (MODULE_MEMORY_MONITOR) {
       const { stopMemoryMonitor } = require('./modules/memory-monitor') as typeof import('./modules/memory-monitor');
       stopMemoryMonitor();

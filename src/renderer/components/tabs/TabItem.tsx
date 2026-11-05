@@ -58,29 +58,33 @@ const TabItem: React.FC<TabItemProps> = ({
       className={`tab-item ${isActive ? 'active' : ''} ${isDragOver ? 'drag-over' : ''}`}
       title={tab.url || tab.title}
     >
-      <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-        {tab.isLoading ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
-        ) : tab.favicon ? (
-          <img src={tab.favicon} className="w-3.5 h-3.5" alt="" />
-        ) : (
-          <Globe className="w-3.5 h-3.5 text-gray-400" />
+      {/* 内容裁剪放在内层：外层 .tab-item 必须 overflow: visible，否则活动标签
+          底部用来与工具栏衔接的圆角（::before/::after）会被一起裁掉 */}
+      <div className="tab-inner">
+        <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+          {tab.isLoading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+          ) : tab.favicon ? (
+            <img src={tab.favicon} className="w-3.5 h-3.5" alt="" />
+          ) : (
+            <Globe className="w-3.5 h-3.5 text-gray-400" />
+          )}
+        </span>
+        <span className="truncate leading-none">{tab.title || LL.tab.newTab()}</span>
+        {tab.isAudible && (
+          <span className="text-[10px] flex-shrink-0">{tab.isMuted ? '🔇' : '🔊'}</span>
         )}
-      </span>
-      <span className="truncate leading-none">{tab.title || LL.tab.newTab()}</span>
-      {tab.isAudible && (
-        <span className="text-[10px] flex-shrink-0">{tab.isMuted ? '🔇' : '🔊'}</span>
-      )}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        className="tab-close"
-        title={LL.tab.closeTab()}
-      >
-        <X className="w-3.5 h-3.5" />
-      </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="tab-close"
+          title={LL.tab.closeTab()}
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   );
 };
