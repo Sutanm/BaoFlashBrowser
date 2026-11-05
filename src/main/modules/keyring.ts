@@ -1,5 +1,6 @@
 import log from 'electron-log';
 import { WinDpapiBackend } from './keyring-win-dpapi';
+import { LinuxSecretToolBackend } from './keyring-linux-secret-tool';
 
 /**
  * keyring.ts — 跨平台 OS 密钥后端抽象。
@@ -8,8 +9,8 @@ import { WinDpapiBackend } from './keyring-win-dpapi';
  * 秘密），不接触任何密码明文。顶层优先探测 Electron safeStorage（Electron
  * ≥15 才存在，未来升级自动命中），否则按平台选子进程后端：
  *   win32   → DPAPI（PowerShell + .NET ProtectedData）
- *   linux   → secret-tool（Task 3 接入）
- *   darwin  → security CLI（Task 4 接入，experimental）
+ *   linux   → secret-tool（Secret Service：GNOME Keyring / KWallet）
+ *   darwin  → security CLI（Task 4 接入，experimental，暂无环境验证）
  *
  * backend=null 不是错误：password-store 侧将其解释为"无 OS 密钥库"，
  * 自动落入档位 C′（本地弱保护）。
@@ -149,8 +150,9 @@ function createPlatformBackend(platform: NodeJS.Platform): KeyringBackend | null
     case 'win32':
       return new WinDpapiBackend();
     case 'linux':
-      // Task 3：linux-secret-service（secret-tool）接入处。
-      return null;
+      // Secret Service 经 `secret-tool` 子进程访问（GNOME Keyring / KWallet 兼容层）。
+      // 无会话总线 / 无守护进程 → probe 失败 → 落 C′，绝不假装成功。
+      return new LinuxSecretToolBackend();
     case 'darwin':
       // Task 4：darwin-keychain（security CLI，experimental）接入处。
       return null;
@@ -269,6 +271,11 @@ export async function resolveBackend(
     return { backend: null, status: { backend: null, reason: 'no-tool' } };
   }
   return { backend: null, status: { backend: null, reason: 'unsupported-platform' } };
+}
+
+/** 仅供单元测试：暴露平台开关本身（不探测、不 spawn），防"分支忘了接"回归。 */
+export function _createPlatformBackendForTest(platform: NodeJS.Platform): KeyringBackend | null {
+  return createPlatformBackend(platform);
 }
 
 /** 当前活跃后端 id（诊断/状态展示用；探测未跑时可能为 null）。 */

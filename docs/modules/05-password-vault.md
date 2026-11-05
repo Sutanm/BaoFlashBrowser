@@ -19,6 +19,7 @@
 | `src/main/modules/password-store.ts` | v2 保险库、DEK、wrap key、默认账号、站点排除、密钥状态机 |
 | `src/main/modules/keyring.ts` | OS 后端探测与包装接口；无后端时回落 C′ |
 | `src/main/modules/keyring-win-dpapi.ts` | Windows DPAPI 子进程后端 |
+| `src/main/modules/keyring-linux-secret-tool.ts` | Linux Secret Service 后端（`secret-tool`，blob 为条目指针） |
 | `src/main/modules/view-gate.ts` | 查看门禁：A 档 OS 验证 / C 档查看密码、失败计数与锁定 |
 | `src/main/modules/view-gate-win.ts` | Windows `CredUIPromptForWindowsCredentials` + `LogonUserW` + SID 比对 |
 | `src/main/modules/cdp-lease.ts` | 捕获与自动化的调试器租约互斥（`released` 标志区分"已释放但 debugger 仍附着"） |
@@ -74,10 +75,43 @@
 
 v2 无主密码、无锁定态。随机 DEK 用 AES-256-GCM 加密条目，再由设备 wrap key 包装：
 
-- **档位 A**：Windows 走 DPAPI；Linux/macOS 后端未实现（`createPlatformBackend` 返回
-  null），会落到 C 档。
+- **档位 A**：Windows 走 DPAPI（PowerShell + .NET `ProtectedData`，CurrentUser 范围）；
+  Linux 走 Secret Service（`secret-tool` 子进程 → GNOME Keyring / KWallet 兼容层）。
+  macOS 后端未实现（`createPlatformBackend` 返回 null），会落到 C 档。
 - **档位 C′**：本地可逆弱保护，保护级别近似 Chromium `basic_text`，只防文本直读。
 - 旧 v1 密码本与旧明文 key 只改名为 `.legacy.bak` 搁置，不读取、不迁移。
+
+**Linux 后端的形状差异**（`keyring-linux-secret-tool.ts`）：Secret Service 是条目库而不是
+就地加解密，所以 `wrap` 产出的是**条目指针**而不是密文——`blob = ss1:<32 位 hex id>`，
+密文实体留在 OS 密钥库里。把 key 文件拷到别的机器，拿到的只是一个查不到的 id。
+
+失败语义按 `secret-tool` 的实测行为二分（**与 DPAPI 不同**）：
+
+| 场景 | exit | stdout | stderr | 归类 |
+|---|---|---|---|---|
+| store 成功 | 0 | 空 | 空 | 成功 |
+| lookup 命中 | 0 | 密文（无尾换行） | 空 | 成功 |
+| lookup 未命中 | 1 | 空 | **空** | `decrypt-failed`（确定性） |
+| D-Bus 连不上 | 1 | 空 | `secret-tool: Could not connect: …` | `backend-unavailable`（瞬时） |
+| 守护未运行 / 集合锁定 | — | — | — | 挂起 → `timeout`（瞬时） |
+
+即"条目不存在"与"后端不可达"**退出码相同**，只能靠 stderr 是否为空区分。照搬 DPAPI 的
+"unwrap 失败即 decrypt-failed"会把一次 keyring 不可达误判成密文损坏，正是 2026-09-20 事故的
+放大器。另外守护进程不在时的表现是**挂住直到超时**（不是报错），所以 probe/wrap/unwrap 都
+强制超时（15s/10s/10s，`BFB_KEYRING_TIMEOUT_MS` 可覆盖），探针清理单独压到 3s。
+
+**本地验证（WSL 实测路径，Ubuntu 26.04 / libsecret 0.21.7）**：
+
+```bash
+sudo apt-get install -y libsecret-tools gnome-keyring
+rm -rf ~/.local/share/keyrings                  # 清掉锁定的 Default_keyring
+printf '\n' | gnome-keyring-daemon --unlock --components=secrets
+node tools/probe/host.cjs --only 21             # 契约探针
+```
+
+两个坑：**不要**用 `dbus-run-session` 起新总线（新总线上守护没有已解锁集合，`store` 会
+触发 `gcr-prompter` 图形提示，在无桌面环境里永久挂住）；探针 21 只验证 `secret-tool` 契约，
+`keyring.ts` 的平台开关由 `tests/password-keyring.test.ts` 的「平台后端开关」用例覆盖。
 
 **失败语义（D1–D8）**：
 

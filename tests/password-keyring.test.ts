@@ -7,6 +7,7 @@ import {
   getActiveBackendId,
   _setActiveBackendForTest,
   _setCandidateBackendsForTest,
+  _createPlatformBackendForTest,
   keyringWrap,
   keyringUnwrap,
   type KeyringBackend,
@@ -151,5 +152,19 @@ describe('探测失败缓存与重试（规格 D5）', () => {
     probeOk = true;
     invalidateKeyring();
     expect(await detectKeyring()).toEqual({ backend: 'win-dpapi' });
+  });
+});
+
+describe('平台后端开关（防"分支忘了接"回归）', () => {
+  it('win32 → win-dpapi', () => {
+    expect(_createPlatformBackendForTest('win32')?.id).toBe('win-dpapi');
+  });
+
+  it('linux → linux-secret-service（2026-11-05 前这里是 null，Linux 会静默落 C′）', () => {
+    expect(_createPlatformBackendForTest('linux')?.id).toBe('linux-secret-service');
+  });
+
+  it('darwin 仍为 null（security CLI 未实现，宁可落 C′ 也不假装有后端）', () => {
+    expect(_createPlatformBackendForTest('darwin')).toBeNull();
   });
 });

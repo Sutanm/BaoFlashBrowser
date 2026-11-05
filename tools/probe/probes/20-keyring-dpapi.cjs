@@ -78,7 +78,8 @@ module.exports = {
 
   async run() {
     if (process.platform !== 'win32') {
-      return { ok: false, summary: `skipped (platform=${process.platform}, win32 required)`, detail: { platform: process.platform } };
+      // 平台不符 = 不适用，不是失败（同 22/26 的约定；否则 Linux 跑探针会误报）。
+      return { ok: true, summary: `skipped (not win32, platform=${process.platform})`, detail: { platform: process.platform } };
     }
     const probePlain = 'keyring-probe-42';
     const probeB64 = Buffer.from(probePlain, 'utf8').toString('base64');
