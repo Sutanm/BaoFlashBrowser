@@ -19,6 +19,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `src/main/modules/flash.ts` | 插件路径解析、stable/experimental 通道、版本广告、`mms.cfg`/`mm.cfg` 写入 |
+| `src/main/modules/flash-version.ts` | 物理版本解析：文件名 → 内嵌 `WIN/LNX x,y,z,w` token → macOS `manifest.json`；按 path+size+mtime 缓存 |
 | `src/main/modules/ruffle-bundle.ts` | 读取 `dist/lib/ruffle/ruffle.js`，记录版本/大小/SHA-256 |
 | `src/main/modules/ruffle-session-protocol.ts` | `ruffle-resource://` 特权 scheme（只接受白名单文件名） |
 | `src/main/modules/session-manager.ts` | 每分区一次性配置：UA、权限、唯一 `onBeforeRequest` 分流、SWF 头、下载 |
@@ -84,10 +85,17 @@ Electron 11 重复注册会**互相替换**，因此所有重定向共享同一�
 | experimental mac x64 | 随包或系统的 `PepperFlashPlayer.plugin` | 读 `manifest.json` | 同上 |
 
 物理版本是明确的，可用 Windows 版本资源或 Linux 二进制内嵌串直接读出（上表为实测值，
-不是推断）。**但 `FlashPluginResolution.physicalVersion` 只从文件名提取**：
-`extractVersion()` 按 `_` 切段匹配 `x.y.z.w`，而当前 stable 三个文件名都不含版本号，
-因此该字段返回 `null`。这是**代码可观测性缺口，不代表插件版本未知**——排障时不要因为
-字段为 null 就认为版本不明。
+不是推断）。`flash-version.ts` 现在按三级来源解析 `physicalVersion`：
+
+1. 文件名（`pepflashplayer64_34_0_0_380.dll` → `34.0.0.380`），实验包自带，零成本；
+2. 二进制内嵌的 `WIN 29,0,0,171` / `LNX 32,0,0,371` token —— 这是插件向页面自报的
+   规范字符串，每个随包文件有且仅有一个，stable 包靠它才可观测；
+3. macOS `.plugin` 旁的 `manifest.json`。
+
+扫描结果按「路径 + 大小 + mtime」缓存，单文件上限 64 MiB；先按 latin1、再按 UTF-16LE 扫描，
+低主版本号（< 10）的 token 只作兜底，避免把二进制里的偶然数字当成版本。因此
+`physicalVersion` 为 `null` 现在只意味着**文件读不到**（缺失、无权限、无 token），
+不再代表「版本未知」——排障时不要据此判断插件缺失或版本不明。
 
 - `BAO_FLASH_PLUGIN_VARIANT` 可覆盖 Windows 实验插件文件名（必须匹配 `x.y.z.w`）。
 - experimental 请求找不到插件时回退 stable，并记 `fallbackReason:
@@ -168,9 +176,10 @@ Chromium 的插件文档不加载 preload，主进程在 `dom-ready` 对 `.swf` 
 2. **scheme 注册顺序**：`registerSchemesAsPrivileged` 必须在 `whenReady` 之前；两个
    session 都要注册 handler。
 3. **不 redirect `crossdomain.xml`**：PPAPI 会把 `data:` 当作 aborted。
-4. **`physicalVersion` 为 null 不等于版本未知**：它只按文件名解析。真实物理版本以插件
-   文件的版本资源为准（Win64 `29.0.0.171` / Win32 `34.0.0.330` / Linux `32.0.0.371`），
-   不要把 null 当成"未知"展示，也不要为了迎合解析器去重命名插件文件。
+4. **`physicalVersion` 为 null 只表示文件读不到**：解析顺序是文件名 → 内嵌
+   `WIN/LNX x,y,z,w` token → macOS `manifest.json`，stable 包靠第二级。真实物理版本为
+   Win64 `29.0.0.171` / Win32 `34.0.0.330` / Linux `32.0.0.371`；不要把 null 当成"版本未知"，
+   也不要为了迎合解析器去重命名插件文件。
 5. **js-patch 预检必须保持严格**：放宽正则会为每个普通 chunk 触发 esbuild，破坏
    "零开销"承诺。
 6. **GitHub import map 只在顶层 github.com 发布**：iframe 或非 github 源发布会让
@@ -181,8 +190,7 @@ Chromium 的插件文档不加载 preload，主进程在 `dom-ready` 对 `.swf` 
 
 - `WINDOWS_CN_VERSION` 与 `DEFAULT_FLASH_VERSION` 是两个独立常量（实验物理版本 /
   广告版本），建议在配置页同时展示，避免用户误判"版本没生效"。
-- `extractVersion()` 只读文件名，而 stable 插件文件名已不带版本号，导致
-  `physicalVersion` 恒为 null。可扩展为读取 PE 版本资源 / ELF 内嵌串（平台分支各一处），
-  或在构建时把版本写回文件名——否则任何依赖该字段的 UI 都只能显示"未知"。
+- 版本解析已改为读内嵌 token，但仍是**运行时扫描**（31 MB 文件，首次约几十毫秒并缓存）。
+  若将来构建脚本愿意把版本写进文件名或旁的 `version.json`，可省掉这次扫描。
 - js-patch 与 GitHub 模块各自维护缓存预算（64 MiB），极端页面可能叠加到 128 MiB；
   可考虑共享一个总预算（非阻塞）。

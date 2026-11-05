@@ -76,5 +76,6 @@ clean/abnormal 标志，不保存完整标签快照。
 - 不把密码、cookie、查询串或截图内容加入诊断。
 - `preventCleanShutdownMark()` 只影响当前进程的退出标记，不会被持久化，也不应被用来
   "伪造"异常退出。
-- 报告里的 `physicalVersion` 可能为 null（Flash 插件文件名不带版本号，见 02），这是
-  观测缺口而非数据缺失，报告消费者不要据此判定"未安装"。
+- 报告里的 `physicalVersion` 由 `flash-version.ts` 从插件二进制内嵌 token 解析（见 02），
+  正常应等于实测版本（Win64 `29.0.0.171` 等）。为 null 只说明文件读不到，报告消费者
+  不要据此判定"未安装"——可用性看同一分组的 `available` 字段。

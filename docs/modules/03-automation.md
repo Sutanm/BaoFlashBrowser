@@ -122,8 +122,9 @@ generation，旧结果不能继续用于输入。
 
 `ocr-provider.ts` 的 `auto` 顺序是 Tesseract → Paddle，但两者都有平台硬门槛：
 Tesseract 要求 `win32 + ia32`，Paddle 要求 `win32/linux + x64`，因此每个平台实际只会
-命中一个。都不可用时返回 `UnavailableOcrEngine`（错误文案仍写"标准版不包含 OCR"，
-属运行时兜底，不代表 1.1.2 的默认发布形态）。请求与启动超时各 30 秒。
+命中一个。都不可用时返回 `UnavailableOcrEngine`，报"当前安装包未包含 OCR 运行时"——
+这是运行时兜底（自定义构建、不支持的架构、被裁剪的运行时），不代表 1.1.2 的默认发布形态。
+请求与启动超时各 30 秒。
 
 OCR 语义分成三个**独立**操作，不要混用：
 

@@ -4,6 +4,7 @@ import os from 'os';
 import log from 'electron-log';
 import { App } from 'electron';
 import { DEFAULT_FLASH_VERSION } from './config';
+import { extractVersionFromFilename, readEmbeddedFlashVersion } from './flash-version';
 import type { FlashPluginChannel } from '@shared/types/flash';
 
 const FLASH_VARIANT_ENV = 'BAO_FLASH_PLUGIN_VARIANT';
@@ -49,16 +50,6 @@ function stablePluginPath(app: App): string | null {
   return null;
 }
 
-function extractVersion(pluginPath: string): string | null {
-  const name = path.basename(pluginPath, path.extname(pluginPath));
-  const parts = name.split('_');
-  for (let i = parts.length - 4; i >= 0; i--) {
-    const version = parts.slice(i, i + 4).join('.');
-    if (VERSION_PATTERN.test(version)) return version;
-  }
-  return null;
-}
-
 function readMacManifestVersion(pluginPath: string): string | null {
   const candidates = [
     path.join(pluginPath, 'Contents', 'Resources', 'manifest.json'),
@@ -71,6 +62,18 @@ function readMacManifestVersion(pluginPath: string): string | null {
     } catch { /* optional companion manifest */ }
   }
   return null;
+}
+
+/**
+ * Physical version of the plugin file on disk. Stable bundles have unversioned
+ * file names, so this falls back to the `WIN x,y,z,w` / `LNX x,y,z,w` token
+ * embedded in the binary. Returns null only when no source is readable — never
+ * a fabricated value.
+ */
+function resolvePhysicalVersion(pluginPath: string): string | null {
+  return extractVersionFromFilename(pluginPath)
+    ?? readEmbeddedFlashVersion(pluginPath)
+    ?? readMacManifestVersion(pluginPath);
 }
 
 function resolveExperimental(app: App, configuredVersion: string): FlashPluginResolution | null {
@@ -90,7 +93,7 @@ function resolveExperimental(app: App, configuredVersion: string): FlashPluginRe
       effectiveChannel: 'experimental',
       pluginPath,
       version: VERSION_PATTERN.test(configuredVersion) ? configuredVersion : variant,
-      physicalVersion: variant,
+      physicalVersion: resolvePhysicalVersion(pluginPath) ?? variant,
       source: 'bundled-experimental',
       experimental: true,
       untested: false,
@@ -132,14 +135,15 @@ export function resolveFlashPlugin(
 
   const stablePath = stablePluginPath(app);
   if (stablePath && fs.existsSync(stablePath)) {
+    const physicalVersion = resolvePhysicalVersion(stablePath);
     return {
       requestedChannel: channel,
       effectiveChannel: 'stable',
       pluginPath: stablePath,
       version: VERSION_PATTERN.test(configuredVersion)
         ? configuredVersion
-        : extractVersion(stablePath) || DEFAULT_FLASH_VERSION,
-      physicalVersion: extractVersion(stablePath),
+        : physicalVersion || DEFAULT_FLASH_VERSION,
+      physicalVersion,
       source: 'bundled-stable',
       experimental: false,
       untested: false,

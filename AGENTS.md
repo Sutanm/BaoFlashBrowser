@@ -23,6 +23,10 @@ npm run test:css-fixer        # built-in CSS fixer smoke (fixture page, both inj
 npm run probe       # tools/probe quick health probes (pure Node, seconds)
 npm run probe:deep  # tools/probe Electron probes (manager + BrowserView runtime health)
 npm run check      # i18n + typecheck + lint + unit tests + production build (CI runs test:integration separately)
+npm run test:smokes          # every Electron smoke in scripts/run-smokes.cjs (values/gm/menu/cookie/webrequest/background/csp)
+npm run build:win64 / build:win32 / build:linux   # packaged builds — each bundles OCR by default
+npm run build:automation-assistant                # rebuild the built-in page assistant bundle (@updateHash)
+npm run prepare:ocr:tesseract                     # Win32 (ia32) OCR runtime; needs an x86 MSVC toolchain
 ```
 
 **NOTE — `npm test` only runs the `unit` Vitest project.** Heavy suites
@@ -74,6 +78,12 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 | `src/main/modules/password-capture.ts` | CDP-based password capture (CAPTURE_SCRIPT is a large inline string) |
 | `src/main/modules/password-fill.ts` | Password autofill across the main frame and CDP execution contexts |
 | `src/main/modules/password-store.ts` | Encrypted vault plus device-local autofill key wrapping |
+| `src/main/modules/view-gate.ts` | View gate before decryption: CredUI (A tier) or view password (C′); 5 failures → 30 min lock in `password-view-guard` |
+| `src/main/modules/flash-version.ts` | Physical plugin version: filename → embedded `WIN/LNX x,y,z,w` token → macOS manifest |
+| `src/main/modules/proxy.ts` | Global proxy resolution (Electron 11 `setProxy` shape), applied before windows exist |
+| `src/main/modules/github-module-service.ts` | `bfb-github-module:` ES-module rewrite so GitHub works on Chromium 87 |
+| `src/main/modules/app-update.ts` | GitHub `releases/latest` check — notify only, never auto-installs or polls |
+| `src/main/modules/automation/service-v3.ts` | Automation v3 runtime: package load, workflow execution, JS sandbox lifecycle |
 | `src/main/modules/userscripts/` | Userscript runtime services: manager/parser/matcher/values/store/require-cache/request/download + singleton wiring |
 | `src/main/ipc/userscripts.ipc.ts` | Userscript IPC channels (zod-validated; `get-config` is sendSync, response bounded by snapshot budgets) |
 | `src/webview-preload/userscripts/` | Preload runtime: bootstrap/scheduler/sandbox/gm-api/page-bridge/unsafe-proxy |
@@ -114,8 +124,9 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 
 - **Taomee 61.com**: modded SWFObject blocks Flash 32 — network-level redirect of `swfobject.js` (see `session-manager.ts`).
 - **Never redirect `crossdomain.xml` to `data:`** — PPAPI reports it as `net::ERR_ABORTED`; games go white after a login switch. Serve native policy files; the permissive headers in `session-manager.ts` apply only to `.swf` requests for Ruffle, not PPAPI policy.
-- **PPAPI version differs by platform**: Win `29.0.0.171`, Linux `32.0.0.371`. DLL filename must contain the version or `extractVersion` returns `0.0.0.0` → sites detect wrong version.
-- **Advertised vs physical Flash versions are intentionally different on Windows**: bundled DLL 29.0.0.171, advertised default 34.0.0.330 for legacy site gates. Do not remove spoofing.
+- **PPAPI physical versions differ by platform** (measured from the binaries, not the file names): win64 stable `29.0.0.171`, win32 stable `34.0.0.330`, linux64 stable `32.0.0.371`, win64 experimental `34.0.0.380`. `flash-version.ts` resolves `physicalVersion` as file name → embedded `WIN x,y,z,w` / `LNX x,y,z,w` token → macOS `manifest.json`. A null now means the file was unreadable, **not** that the version is unknown — do not render "unknown" for it.
+- **Advertised vs physical Flash versions are intentionally different**: `ppapi-flash-version` comes from `config.flashVersion` (default `34.0.0.330`) so legacy site gates pass, while the DLL on disk is older. Do not "fix" the mismatch.
+- **Stable bundles ship unversioned file names** (`pepflashplayer64.dll`), so filename parsing alone yields null; the embedded token is what makes the version observable. Never reintroduce a hardcoded version table.
 - **Linux requires `--no-sandbox`**. WSLg requires all three GPU flags: `--ignore-gpu-blacklist`, `--enable-gpu-rasterization`, `--enable-zero-copy`.
 - **Never attempt to override or upgrade Electron version.** Everything depends on Chromium 87.
 
@@ -125,6 +136,13 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 - **GM_cookie is READ-ONLY by design** (list/get only, no set/delete); host access is gated by the script's @connect list. No set/delete without a dedicated security review.
 - **Screenshot debug HTTP endpoint** — the ONLY external way to capture a RUNNING instance. Enable: `BAO_SCREENSHOT_HTTP=1 npm start` (dev only; packaged builds never listen). Token in `%APPDATA%\bao-flash-browser\logs\main.log` (`X-BAO-Token: <hex>`); `curl.exe -X POST http://127.0.0.1:44123/screenshot -H "X-BAO-Token: <token>" -d '{"save":true}'`. Loopback + header token + POST-only; newtab/userscripts pages have no BrowserView → `NO_TAB`. Full design: `docs/archive/superpowers/specs/2026-08-07-screenshot-design.md` §调试 HTTP 口子.
 - **Value-store admin methods bypass the view gate BY DESIGN** — `listScriptValues`/`setScriptValue`/`deleteScriptValue` skip the registered-view check that `setValue` requires; serializable/size checks and `noteValueWrite` persist remain. `unregisterView` runs the injected `onViewRemoved` — keep it decoupled.
+
+### Password vault & keyring
+
+- **A failure path must never destroy key material.** `_loadWrapKey` once treated a transient DPAPI probe timeout as a backend mismatch, shelved the key file and cleared it — every vault entry became permanently unreadable (2026-09-21). Transient → keep file + backoff; deterministic → keep file + `blocked`; the only destructive path is `password:rebuild-vault` (confirm `REBUILD`).
+- **The view gate runs BEFORE decryption.** Order is "vault decryptable → entry exists → verify". Never call `getDecryptedPassword` first and check authorization after; plaintext leaves the main process in exactly one IPC reply.
+- **Windows keyring helpers are PowerShell subprocesses and their scripts must be pure ASCII.** PowerShell 5.1 decodes `-Command` and BOM-less `.ps1` as ANSI, so a non-ASCII literal breaks quote pairing into a whole-script syntax error. Ship text/credentials as base64 on stdin; unit tests assert the ASCII invariant.
+- **`debugger.attach('1.3')` must go through `cdp-lease`.** Attaching directly races password capture and fails with `CDP is already attached by an unmanaged client`; short inspections use `transient-cdp-inspection`. Capture re-arm must test `!lease.released`, because an autofill lease can be released while `isAttached()` is still true.
 
 ### Sessions & network interception
 
@@ -148,6 +166,11 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 
 - **BrowserView events must pass the current-WebContents guard** before updating a tab — engine switches destroy and replace the view while late events from the old renderer may still arrive.
 - **Inactive-tab suspension is opt-in** — never suspend the active, loading, audible, or React new-tab page; recreation must restore engine, zoom and mute state.
+
+### Data flow
+
+- **The main process is the only authority for any state it pushes live.** A renderer IndexedDB mirror plus `useLiveQuery` formed a feedback loop that rewrote `progressing`/`paused` downloads into `interrupted` every 0.5–1 s (2026-09-04); the mirror and `download:sync-records` were removed. The renderer stores Zustand only: one `download:list` at startup, then push events.
+- **Two language/theme sources exist on purpose** — renderer `settings.language` (typesafe-i18n) and main `config.uiLanguage` (`uiText()`), joined by `ui:set-language` → `ui:language-changed`. Theme must be pushed as a *mode* (`system`/`light`/`dark`) via `theme:set-source`; sending a resolved color pins `system` forever.
 
 ### Build & tests
 

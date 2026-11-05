@@ -66,10 +66,11 @@ electron-builder 打包**，因此大小与哈希代表 2026-11-02 的既有产�
 
 ## 5 已知瑕疵与噪声（不影响本轮判定）
 
-1. `renderer-csp` smoke 日志出现
-   `Error occurred in handler for 'theme:set-source': No handler registered`：
-   该 smoke 只加载渲染层文档，没有注册主题 IPC；CSP 用例本身仍 PASS。属于 **smoke
-   fixture 缺口**，不是产品缺陷。若要消除噪声，应在 fixture 中注册空 handler。
+1. `renderer-csp` smoke 曾报
+   `Error occurred in handler for 'theme:set-source': No handler registered`（fixture 只
+   加载渲染层文档却没注册主题 IPC）。**已修**：fixture 补上 `theme:set-source`、
+   `ui:set-language`、`app:version` 桩，并新增断言「渲染层启动期调用的每个通道都有桩」，
+   现为 9 项检查全 PASS。将来新增启动通道时该断言会直接失败，而不是只在日志里刷一行。
 2. unit 日志里的 `[password-store] wrap key unavailable … decrypt-failed` 来自使用
    假后端的单测，按 05 的说明属于**测试噪声**，不是真机密钥故障。
 3. 构建有 Vite 的 "chunks larger than 500 kB" 警告（Blockly 编辑器 768 kB），

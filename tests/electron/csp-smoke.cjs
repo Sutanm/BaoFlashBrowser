@@ -53,11 +53,20 @@ app.whenReady().then(async () => {
     'password:status': { enabled: false, initialized: false, tier: 'none', excludedSites: [] },
     'userscripts:list': { scripts: [] },
     'userscripts:background-status': [],
+    'app:version': '0.0.0-csp-smoke',
   };
   for (const [channel, response] of Object.entries(startupResponses)) {
     ipcMain.handle(channel, async () => response);
   }
-  for (const channel of ['tab:setBounds', 'tab:create', 'tab:activate', 'session:resolve-recovery']) {
+  for (const channel of [
+    'tab:setBounds',
+    'tab:create',
+    'tab:activate',
+    'session:resolve-recovery',
+    // App.tsx fires these on mount (theme mode + locale broadcast).
+    'theme:set-source',
+    'ui:set-language',
+  ]) {
     ipcMain.handle(channel, async () => undefined);
   }
   const repoRoot = path.join(__dirname, '..', '..');
@@ -120,6 +129,10 @@ app.whenReady().then(async () => {
   // which is itself expected to produce one refusal message.
   const violationMessages = messages.filter((m) => /Refused to execute inline script/.test(m.message));
   const securityWarnings = messages.filter((m) => /Insecure Content-Security-Policy/.test(m.message));
+  // A channel the renderer invokes at mount but this fixture never registered.
+  // Kept as a check so a newly added startup channel fails loudly instead of
+  // scrolling past as one more console line.
+  const missingHandlers = messages.filter((m) => /No handler registered for/.test(m.message));
 
   stage = 'CSP enforcement';
   const enforcement = await win.webContents.executeJavaScript(`(function () {
@@ -138,6 +151,8 @@ app.whenReady().then(async () => {
   check('no Content-Security-Policy violation on load', violationMessages.length === 0,
     violationMessages.map((m) => m.message.slice(0, 120)).join(' | '));
   check('Electron "Insecure Content-Security-Policy" warning is gone', securityWarnings.length === 0);
+  check('every startup IPC channel the renderer invokes has a stub handler', missingHandlers.length === 0,
+    missingHandlers.map((m) => m.message.slice(0, 160)).join(' | '));
   check('inline <script> is REFUSED (policy is enforced, not merely present)', enforcement.inlineRan === false);
   check('early error handlers installed before entry evaluation', probe.onerror && probe.onrejection);
   check('injected onerror observes errors', handlerProof.onerror > 0, JSON.stringify(handlerProof));

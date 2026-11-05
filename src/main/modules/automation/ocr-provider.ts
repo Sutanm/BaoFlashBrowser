@@ -4,7 +4,9 @@ import { bundledTesseractOcrAvailable, TesseractOcrSidecarEngine } from './tesse
 
 class UnavailableOcrEngine implements AutomationOcrEngine {
   readonly providerId = 'unavailable';
-  async recognize(): Promise<never> { throw new Error('当前安装的是标准版，不包含 OCR；请安装 BaoFlashBrowser OCR 版'); }
+  // Runtime fallback only: every official 1.1.2 package bundles an OCR engine.
+  // This fires for custom builds, unsupported architectures, or a stripped runtime.
+  async recognize(): Promise<never> { throw new Error('当前安装包未包含 OCR 运行时；请安装带 OCR 的完整安装包'); }
   async close(): Promise<void> { /* no process */ }
 }
 

@@ -523,7 +523,7 @@ const zhCN: BaseTranslation = {
     automationVisionWarmStart: '常驻图片识别引擎 (OpenCV)',
     automationVisionWarmStartHint: '启动时后台加载 OpenCV Worker,首次图片识别不再等待约 5 秒。常驻约占用 128 MB 内存。',
     automationOcrWarmStart: '常驻文字识别引擎 (OCR)',
-    automationOcrWarmStartHint: '启动时后台加载 OCR 引擎,首次文字识别不再等待。常驻约占用 234 MB 内存;标准版不含 OCR 时自动失效。',
+    automationOcrWarmStartHint: '启动时后台加载 OCR 引擎,首次文字识别不再等待。常驻约占用 234 MB 内存;安装包不含 OCR 运行时则自动跳过。',
   // 截图
   screenshot: {
     capture: '截图',

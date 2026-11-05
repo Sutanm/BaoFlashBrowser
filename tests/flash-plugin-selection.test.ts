@@ -18,6 +18,16 @@ describe.runIf(process.platform === 'win32' && process.arch === 'x64')('Flash pl
     expect(path.basename(getFlashPluginPath(app)!)).toBe('pepflashplayer64.dll');
   });
 
+  // Regression guard: the stable DLL name carries no version, so the physical
+  // version must come from the embedded `WIN x,y,z,w` token. It used to be null.
+  it('reports a physical version for the unversioned stable plugin', () => {
+    delete process.env.BAO_FLASH_PLUGIN_VARIANT;
+    const resolution = resolveFlashPlugin(app, 'stable');
+    expect(resolution.physicalVersion).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+    // The advertised version stays pinned to config for legacy site gates.
+    expect(resolution.version).toBe('34.0.0.330');
+  });
+
   it('selects the China-modified plugin only in the experimental channel', () => {
     process.env.BAO_FLASH_PLUGIN_VARIANT = '34.0.0.380';
     const resolution = resolveFlashPlugin(app, 'experimental');
