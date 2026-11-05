@@ -142,6 +142,16 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
 2. **语法版本**：esbuild `target: chrome87`，247 个 JS 全部通过。
 3. **运行时 API 与 CSS 属性**：`URL.canParse`、`Object.hasOwn`、`Array.prototype.at/toSorted` 等
    由 `bfb-polyfills.js` 前置补齐；`mask:` / `mask-image` 必须补 `-webkit-` 前缀，否则图标全是灰块。
+4. **CSS Custom Highlight API**（`Highlight` 构造器，Chrome 105+）：M97 的
+   `ui/components/highlighting` 用类字段 `#s = new Highlight()` 初始化，87 上直接
+   `ReferenceError` 炸断 Elements 树渲染（树空白、Styles 也空；元素抓取走后端
+   Overlay 不受影响）。polyfill 给出 Set 形状替身 + `CSS.highlights` no-op 注册表。
+5. **源级补丁**（`SOURCE_PATCHES`，按压缩原文精确字面量替换，未命中即构建失败）：
+   - `core/sdk/sdk.js`：87 的 `requestWillBeSentExtraInfo` 不带 `connectTiming`，
+     `setConnectTimingFromExtraInfo` 加空参守卫，否则 Network 请求流每个请求抛 TypeError。
+   - `ui/components/highlighting/highlighting.js`：87 的 `document.adoptedStyleSheets`
+     是冻结数组（push 抛 TypeError），改成整体赋值（赋值语义可用且样式真实生效，
+     探针 `tools/devtools-spike/adopted-probe.cjs`）。
 
 ### 8.3 端口与安全
 
@@ -156,6 +166,7 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
 | --- | --- |
 | **没有中文语言包** | 前端有本地化能力（首次打开会弹「DevTools is now available in Chinese」），但 chii 的构建裁掉了 `locales/`，官方 npm 只发源码。补 `locales/zh.json` 才生效 |
 | 部分新特性降级 | 后端是 87，前端会向它要 `Network.setAttachDebugStack`、`Overlay.setShowFlexOverlays` 等新方法，返回 `-32601`；主面板不受影响 |
+| 搜索命中无底色 | `CSS.highlights` 是 no-op（87 画不了 custom highlight），Elements 里搜索命中只有选中态没有高亮底色 |
 | Preloading 面板的 JSON 高亮常量 | 摘 `await` 后该常量到得晚，只有打开该面板看 JSON 时可能缺色 |
 
 ### 8.5 验证
@@ -164,4 +175,10 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
 npm run build                      # 内含 build:devtools-frontend
 node tools/devtools-spike/verify-in-app.cjs   # 起应用→点工具箱→截图 artifacts/devtools-in-app-2026-11-05.png
 env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devtools-spike/electron-frontend-check.cjs   # 单窗口验证前端能否在 87 上启动
+env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devtools-spike/adopted-probe.cjs   # 探 87 的 adoptedStyleSheets 语义
+node tools/devtools-spike/page-elements-repro.cjs   # 真实页面（默认 7k7k）上验证 Elements 树渲染
 ```
+
+2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、
+Styles 显示真实规则、前端异常 0（修复前 Highlight ReferenceError + 每请求
+requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。

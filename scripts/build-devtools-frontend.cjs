@@ -130,6 +130,35 @@ if (!URL.canParse) {
 if (!URL.parse) {
   URL.parse = function (input, base) { try { return new URL(input, base); } catch (e) { return null; } };
 }
+if (typeof globalThis.Highlight === 'undefined') {
+  // CSS Custom Highlight API 的构造器是 Chrome 105+ 才有；M97 前端在
+  // ui/components/highlighting 里用类字段 #s = new Highlight() 初始化，
+  // 87 上缺这个全局符号会直接炸掉 Elements 树渲染（树空白）。
+  // 替身给出 Set 的形状让调用面（add/delete）活着；底色渲染交给下面的
+  // CSS.highlights no-op（87 画不了 custom highlight，但面板不再空）。
+  globalThis.Highlight = class Highlight {
+    constructor() { this._ranges = new Set(); }
+    add(range) { return this._ranges.add(range); }
+    delete(range) { return this._ranges.delete(range); }
+    has(range) { return this._ranges.has(range); }
+    clear() { this._ranges.clear(); }
+    get size() { return this._ranges.size; }
+    [Symbol.iterator]() { return this._ranges[Symbol.iterator](); }
+  };
+}
+if (typeof globalThis.CSS !== 'undefined' && !globalThis.CSS.highlights) {
+  try {
+    Object.defineProperty(globalThis.CSS, 'highlights', {
+      configurable: true,
+      value: {
+        set() { /* 87 不渲染 custom highlight，只保证调用不抛 */ },
+        get() { return undefined; },
+        delete() { return true; },
+        clear() { /* no-op */ },
+      },
+    });
+  } catch (error) { /* CSS.highlights 不可写时不致命 */ }
+}
 `;
 
 /**
@@ -149,6 +178,49 @@ function walk(dir, acc = []) {
     else acc.push(full);
   }
   return acc;
+}
+
+/**
+ * 源级补丁：上游格式是压缩单行，运行时 polyfill 覆盖不了的场景按精确字面量改写。
+ * 命中失败会记入 failures 并让构建退出非零——上游资源一旦更新漂移，这里必须大声报。
+ */
+const SOURCE_PATCHES = [
+  {
+    file: 'core/sdk/sdk.js',
+    patches: [
+      // Chromium 87 的 Network.requestWillBeSentExtraInfo 不带 connectTiming，
+      // M97 前端拿 undefined 去 .requestTime → 每个请求都抛 TypeError。
+      [
+        'setConnectTimingFromExtraInfo(e){this.#Ei=e.requestTime',
+        'setConnectTimingFromExtraInfo(e){if(!e)return;this.#Ei=e.requestTime',
+      ],
+    ],
+  },
+  {
+    file: 'ui/components/highlighting/highlighting.js',
+    patches: [
+      // 87 的 document.adoptedStyleSheets 已是冻结数组（push 抛 TypeError），
+      // 整体赋值语义可用且样式真实生效（探针 tools/devtools-spike/adopted-probe.cjs）。
+      [
+        'constructor(){document.adoptedStyleSheets.push(t),',
+        'constructor(){document.adoptedStyleSheets=[...document.adoptedStyleSheets,t],',
+      ],
+    ],
+  },
+];
+
+function applySourcePatches(relative, source, failures) {
+  for (const entry of SOURCE_PATCHES) {
+    if (entry.file !== relative.replace(/\\/g, '/')) continue;
+    for (const [pattern, replacement] of entry.patches) {
+      if (source.indexOf(pattern) === -1) {
+        failures.push(`${relative}: 源补丁未命中: ${pattern.slice(0, 60)}`);
+        continue;
+      }
+      source = source.replace(pattern, replacement);
+    }
+  }
+  return source;
 }
 
 (async () => {
@@ -180,6 +252,7 @@ function walk(dir, acc = []) {
 
     let source = fs.readFileSync(file, 'utf-8');
     const before = source;
+    source = applySourcePatches(relative, source, failures);
     source = source.replace(/\bawait import\(/g, 'import(');
     source = prefixMask(source);
     if (source !== before) patchedTla += 1;
