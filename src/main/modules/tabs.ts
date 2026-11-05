@@ -640,6 +640,53 @@ class TabManager {
     return focused;
   }
 
+  /**
+   * Move the browser-level focused FRAME into the iframe that owns the plugin.
+   *
+   * Focusing the plugin element inside the subframe is not enough: keystrokes are
+   * delivered to the focused frame, which is still the outer page (measured on
+   * the real site: `activeElement=OBJECT`, ack `focused=true`, yet keys land on
+   * the top document). Focusing the owning iframe element in the top document
+   * pushes the focused frame down; the plugin is already activeElement there.
+   *
+   * The owning iframe is identified by matching the plugin's reported size,
+   * because the ack carries no frame routing id.
+   */
+  preparePluginFocus(wcId: number, size: string): boolean {
+    if (!this.isActiveViewFocused(wcId)) return false;
+    void this.focusPluginFrameHolder(wcId, size);
+    return true;
+  }
+
+  async focusPluginFrameHolder(wcId: number, size: string): Promise<void> {
+    if (!this.isActiveViewFocused(wcId)) return;
+    const tabId = this.wcToId.get(wcId);
+    const wc = tabId ? this.tabs.get(tabId)?.browserView?.webContents : null;
+    if (!wc || wc.isDestroyed()) return;
+    const [width, height] = size.split('x').map((part) => Number(part) || 0);
+    if (!width || !height) return;
+    const script = `(function(){
+      var w=${width},h=${height},best=null,bestScore=1e9;
+      var frames=document.querySelectorAll('iframe');
+      for(var i=0;i<frames.length;i++){
+        var r=frames[i].getBoundingClientRect();
+        if(r.width<40||r.height<40)continue;
+        var score=Math.abs(r.width-w)+Math.abs(r.height-h);
+        if(score<bestScore){bestScore=score;best=frames[i];}
+      }
+      if(!best)return null;
+      if(document.activeElement===best)return {w:0,h:0,score:-1};
+      best.focus();
+      var b=best.getBoundingClientRect();
+      return {w:Math.round(b.width),h:Math.round(b.height),score:Math.round(bestScore)};
+    })()`;
+    try {
+      const result = await wc.executeJavaScript(script, true) as { w: number; h: number; score: number } | null;
+      if (!result) log.info('[Tabs] focus-plugin frame-holder none');
+      else if (result.score >= 0) log.info(`[Tabs] focus-plugin frame-holder iframe=${result.w}x${result.h} match=${result.score}`);
+    } catch { /* page navigated away — the next load retries */ }
+  }
+
   close(tabId: string): void {
     const tab = this.tabs.get(tabId); if (!tab) return;
     this.automationTargets.delete(tabId);

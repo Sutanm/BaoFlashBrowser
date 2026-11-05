@@ -41,7 +41,7 @@ export interface PluginFocusResult {
 }
 
 interface IpcRendererLike {
-  sendSync: (channel: string) => unknown;
+  sendSync: (channel: string, ...args: unknown[]) => unknown;
   send: (channel: string, payload: unknown) => void;
 }
 
@@ -85,33 +85,44 @@ export function focusPluginInThisFrame(): PluginFocusResult {
   const match = findLargestPlugin();
   if (!match) return { found: false, tag: '', focused: false, size: '' };
   const { el, size } = match;
-  if (el.tabIndex < 0) el.tabIndex = 0;
-  el.focus();
+  // Skip a redundant focus() when it is already active: re-focusing mid-typing
+  // would cancel an in-progress IME composition inside the plugin.
+  if (document.activeElement !== el) {
+    if (el.tabIndex < 0) el.tabIndex = 0;
+    el.focus();
+  }
   return { found: true, tag: el.tagName, focused: document.activeElement === el, size };
 }
 
 /** true = stop retrying (focused, or nothing to focus in this frame). */
 function attemptFocus(bridge: IpcRendererLike): boolean {
-  if (!findLargestPlugin()) return false;
   // Never steal the caret from a real editable field the page focused itself
   // (login forms, in-page search). Only a "nobody is focused" state is ours.
   const active = document.activeElement as HTMLElement | null;
   const tag = active?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || active?.isContentEditable) return true;
+  const plugin = findLargestPlugin();
+  if (!plugin) return false;
   let allowed = false;
   try {
-    allowed = bridge.sendSync(QUESTION_CHANNEL) === true;
+    // The size lets the main process identify the owning iframe in the top
+    // document and move the browser's focused FRAME down first.
+    allowed = bridge.sendSync(QUESTION_CHANNEL, plugin.size) === true;
   } catch {
     return false;
   }
   // The view loses focus while the new document commits, so a "not now" answer
   // keeps retrying: the shell re-asserts focus once the page finished loading.
   if (!allowed) return false;
-  const result = focusPluginInThisFrame();
-  try {
-    bridge.send(ACK_CHANNEL, result);
-  } catch { /* focus already happened; diagnostics must never break the page */ }
-  return result.focused;
+  // Deferred: focusing the parent iframe resets this document's activeElement to
+  // <body>, so the embed must be focused AFTER the parent moved the focused frame.
+  setTimeout(() => {
+    try {
+      const result = focusPluginInThisFrame();
+      if (result.found) bridge.send(ACK_CHANNEL, result);
+    } catch { /* diagnostics must never break the page */ }
+  }, 150);
+  return false;
 }
 
 export function installPluginFocusRelay(): void {

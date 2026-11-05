@@ -120,10 +120,17 @@ BrowserView 是**独立渲染进程**，键盘焦点只能由两条路进入：�
 
 1. 每帧 `DOMContentLoaded` 起按 `0/400/1000/2000/3500/6000/10000ms` 重试：找本帧内
    `embed|object`（type 含 shockwave/flash，且 ≥80×80，多个取面积最大者）；
-2. 找到后 `ipcRenderer.sendSync('plugin-focus-allowed')` 问主进程——主进程用
-   `TabManager.isActiveViewFocused(wcId)` 判定"是该标签且视图仍持有焦点"；
-3. 允许 → `tabIndex=0` + `focus()`，再 `send('plugin-focus-ack', {tag,focused,size})`
-   供日志取证；未允许则继续下一轮重试（视图焦点在提交期会被丢弃，重试要跨越这个窗口）。
+2. 找到后 `ipcRenderer.sendSync('plugin-focus-allowed', size)` 问主进程——主进程用
+   `TabManager.preparePluginFocus` 判定"是该标签且视图仍持有焦点"，**并在返回前派发
+   `focusPluginFrameHolder`**：在顶层文档里按 `size` 找到持有插件的那层 iframe 并
+   `focus()`，把浏览器级的**焦点帧**推进子帧；
+3. 子帧收到允许后**延后 150ms** 才 `focus()` 自己的插件（顺序不能反，见下），随后
+   `send('plugin-focus-ack', {tag,focused,size})` 供日志取证。
+
+**为什么必须两段、且父先子后**（实测）：只做第 3 步时，子帧 `activeElement` 是插件、
+ack `focused=true`，但按键仍被投到顶层文档——浏览器级的焦点帧还停在外层。而父层
+`iframe.focus()` 又会把子帧的 `activeElement` 打回 `<body>`，若父层在子层之后执行就会
+形成 ping-pong，最终状态靠运气。因此顺序固定为：父层推焦点帧 → 子层 150ms 后聚焦插件。
 
 三条**实测**结论（跨域夹具 + 真实 SWF，探针见 `.git/bao-probe/`，未入库）：
 
@@ -131,10 +138,11 @@ BrowserView 是**独立渲染进程**，键盘焦点只能由两条路进入：�
 |---|---|
 | `embed.focus()` 足以让插件吃键盘 | ✅ 同源夹具：聚焦后合成按键 target = `EMBED` |
 | 父帧 `postMessage` 能唤醒子帧 isolated world 里的预加载监听 | ❌ 预加载确实在该帧运行（DOM 标记可证），但 message 事件没到 isolated world |
-| 跨域子帧预加载能自行聚焦 | ✅ 跨域夹具：ack `{tag:EMBED,focused:true}`，子页 `activeElement=EMBED`、`hasFocus=true` |
+| 跨域子帧预加载能自行聚焦插件 | ✅ ack `{tag:EMBED,focused:true}`，子页 `activeElement=EMBED`、`hasFocus=true` |
+| 仅聚焦插件元素即可收键盘 | ❌ 真机 ack `focused=true` 仍不收键；需再推焦点帧（见上） |
 
-安全阀：若本帧 `activeElement` 已是 `INPUT/TEXTAREA/contenteditable`（页面自己聚焦了登录框、
-站内搜索），直接放弃，不抢光标。
+安全阀两条：本帧 `activeElement` 已是 `INPUT/TEXTAREA/contenteditable` 时直接放弃，不抢
+光标；插件已是 `activeElement` 时不重复 `focus()`，避免打断输入法组合。
 
 ## 4 数据模型与接口
 
