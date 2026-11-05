@@ -164,7 +164,7 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
 
 | 缺口 | 说明 |
 | --- | --- |
-| **没有中文语言包** | 前端有本地化能力（首次打开会弹「DevTools is now available in Chinese」），但 chii 的构建裁掉了 `locales/`，官方 npm 只发源码。补 `locales/zh.json` 才生效 |
+| ~~没有中文语言包~~（更正） | **更正：中文语言包实际随 chii 打包**（`core/i18n/locales/zh.json`，4941 键含真实翻译；早前"裁掉了 locales/"的结论是查错对象——官方 npm 包没有，chii 的构建有）。首开横幅「Switch DevTools to Chinese」一键切换，或设置里 language 选 Chinese（切换需重载面板） |
 | 部分新特性降级 | 后端是 87，前端会向它要 `Network.setAttachDebugStack`、`Overlay.setShowFlexOverlays` 等新方法，返回 `-32601`；主面板不受影响 |
 | 搜索命中无底色 | `CSS.highlights` 是 no-op（87 画不了 custom highlight），Elements 里搜索命中只有选中态没有高亮底色 |
 | Preloading 面板的 JSON 高亮常量 | 摘 `await` 后该常量到得晚，只有打开该面板看 JSON 时可能缺色 |
