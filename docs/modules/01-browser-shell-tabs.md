@@ -110,39 +110,36 @@ BrowserView 是**独立渲染进程**，键盘焦点只能由两条路进入：�
 - 日志 `[Tabs] focus-active tab=… wc=… focused=…`。
 - 切标签（`activate()`）**不**抢焦点：Ctrl+Tab 切换时用户可能正在地址栏输入。
 
-#### 第二层：元素焦点（文档 → PPAPI 插件）
+#### 第二层：元素焦点（PPAPI 插件）—— 已知限制，不做
 
-文档拿到焦点**不等于**插件拿到键盘：PPAPI `<embed>` 必须成为所在文档的
+文档拿到焦点**不等于**插件拿到键盘：PPAPI `<embed>/<object>` 必须成为所在文档的
 `activeElement`，否则按键落在 `document.body`（真机实测 `first keydown tag=BODY`）。
 而游戏常在**跨域 iframe** 内（`news.7k7k.com` → `web.7k7k.com`），主 frame 的 JS 摸不到它。
 
-链路（`src/webview-preload/plugin-focus.ts`，**每个帧都会跑**）：
+曾经实现过一条"每帧预加载自行聚焦插件"的链路（`plugin-focus.ts` + 同步 IPC 握手 +
+顶层 iframe 焦点帧推进），能把状态做到：
 
-1. 每帧 `DOMContentLoaded` 起按 `0/400/1000/2000/3500/6000/10000ms` 重试：找本帧内
-   `embed|object`（type 含 shockwave/flash，且 ≥80×80，多个取面积最大者）；
-2. 找到后 `ipcRenderer.sendSync('plugin-focus-allowed', size)` 问主进程——主进程用
-   `TabManager.preparePluginFocus` 判定"是该标签且视图仍持有焦点"，**并在返回前派发
-   `focusPluginFrameHolder`**：在顶层文档里按 `size` 找到持有插件的那层 iframe 并
-   `focus()`，把浏览器级的**焦点帧**推进子帧；
-3. 子帧收到允许后**延后 150ms** 才 `focus()` 自己的插件（顺序不能反，见下），随后
-   `send('plugin-focus-ack', {tag,focused,size})` 供日志取证。
+```
+顶层 activeElement = IFRAME     子帧 activeElement = OBJECT/EMBED     子帧 hasFocus = true
+```
 
-**为什么必须两段、且父先子后**（实测）：只做第 3 步时，子帧 `activeElement` 是插件、
-ack `focused=true`，但按键仍被投到顶层文档——浏览器级的焦点帧还停在外层。而父层
-`iframe.focus()` 又会把子帧的 `activeElement` 打回 `<body>`，若父层在子层之后执行就会
-形成 ping-pong，最终状态靠运气。因此顺序固定为：父层推焦点帧 → 子层 150ms 后聚焦插件。
+**但按键仍然不进插件**。结论：Chromium 的 PPAPI 内容区焦点由**可信鼠标事件**授予，
+`element.focus()` 只能改变 `activeElement`，不能让它接管键盘——手动点一下游戏即可，
+程序化聚焦不行。需要真实手势这一点决定了唯一可行的替代是"往游戏里投一次合成点击"，
+而那是真的点在游戏画面上（MMO 里会触发寻路/选中），产品上不接受，故**整条链路已回退**。
 
-三条**实测**结论（跨域夹具 + 真实 SWF，探针见 `.git/bao-probe/`，未入库）：
+留档的四条实测（跨域夹具 + 真实 SWF，探针见 `.git/bao-probe/`，未入库）：
 
 | 假设 | 结果 |
 |---|---|
-| `embed.focus()` 足以让插件吃键盘 | ✅ 同源夹具：聚焦后合成按键 target = `EMBED` |
+| `embed.focus()` 能让插件成为 `activeElement` | ✅ 同源夹具：聚焦后合成按键 target = `EMBED` |
 | 父帧 `postMessage` 能唤醒子帧 isolated world 里的预加载监听 | ❌ 预加载确实在该帧运行（DOM 标记可证），但 message 事件没到 isolated world |
-| 跨域子帧预加载能自行聚焦插件 | ✅ ack `{tag:EMBED,focused:true}`，子页 `activeElement=EMBED`、`hasFocus=true` |
-| 仅聚焦插件元素即可收键盘 | ❌ 真机 ack `focused=true` 仍不收键；需再推焦点帧（见上） |
+| 元素焦点 + 焦点帧推进足以收键盘（真机） | ❌ ack `tag=OBJECT focused=true`、顶层 `activeElement=IFRAME`，按键仍落 `BODY` |
+| `webContents.sendInputEvent` 能投递到跨域子帧 | ❌ 键盘只到顶层文档；鼠标事件子帧完全收不到 |
+| CDP `Input.dispatchMouseEvent` 能投递到跨域子帧 | ✅ 子帧记录 `mousedown target=EMBED` |
 
-安全阀两条：本帧 `activeElement` 已是 `INPUT/TEXTAREA/contenteditable` 时直接放弃，不抢
-光标；插件已是 `activeElement` 时不重复 `focus()`，避免打断输入法组合。
+**若将来要捡回来**：`git show 3b63746` / `3cff69f` 含完整实现（含那个会误伤广告 iframe
+的尺寸匹配启发式；日志里见过 `frame-holder iframe=1140x150` 把焦点推进广告位）。
 
 ## 4 数据模型与接口
 

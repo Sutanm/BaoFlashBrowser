@@ -8,12 +8,6 @@ if (MODULE_AUTOMATION) installNativeAutomationAssistant();
 import { installPasswordFormObserver } from './password-form-observer';
 import coreApiPolyfills from './web-api-polyfills.generated';
 import { installGitHubImportMapBridge } from './github-import-map';
-import { installPluginFocusRelay } from './plugin-focus';
-
-// Every frame: a PPAPI plugin in a cross-origin iframe can only be focused by
-// code running inside that frame (see plugin-focus.ts).
-installPluginFocusRelay();
-
 
 if (MODULE_JS_PATCH) {
   try {

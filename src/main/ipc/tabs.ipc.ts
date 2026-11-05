@@ -10,25 +10,6 @@ export function registerTabsIPC(): void {
     tabManager.notifyPasswordFormDetected(event.sender.id);
   });
 
-  // Per-frame plugin focus handshake (webview-preload/plugin-focus.ts).
-  // Synchronous on purpose: the frame must know before it touches focus, and
-  // only the main process knows whether this tab is the one the user is on.
-  ipcMain.on('plugin-focus-allowed', (event, size: unknown) => {
-    event.returnValue = tabManager.preparePluginFocus(event.sender.id, typeof size === 'string' ? size : '');
-  });
-
-  // Per-frame outcome of the plugin focus handoff. Frames without a plugin stay
-  // silent, so a missing ack means "no plugin here", not "the handoff failed".
-  ipcMain.on('plugin-focus-ack', (event, payload) => {
-    const data = payload as { tag?: unknown; focused?: unknown; size?: unknown } | null;
-    if (!data || typeof data !== 'object') return;
-    const focused = data.focused === true;
-    log.info(`[Tabs] focus-plugin ack wc=${event.sender.id} tag=${String(data.tag)} size=${String(data.size)} focused=${focused}`);
-    // Element focus inside the iframe is not enough: the browser-level focused
-    // FRAME is still the outer page, so keystrokes are delivered there. Focus the
-    // owning iframe element in the top document to move the focused frame down.
-  });
-
   // Sync handler: preload uses sendSync to get ruffle config at document-start
   ipcMain.on('get-ruffle-mode', (e) => {
     const ruffle = tabManager.getRuffleForWC(e.sender.id);
