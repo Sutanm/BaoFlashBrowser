@@ -648,7 +648,7 @@ const en: Translation = {
     tabMain: 'Main',
     targetPage: 'This page',
     targetShell: 'Shell UI',
-    noDebugPort: 'No debug port available. Start the app with --remote-debugging-port=<port> to load real DevTools here.',
+    noDebugPort: 'No debug port available. Start the app with --remote-debugging-port=<port> (or npm run start:debug) to load real DevTools here.',
     clear: 'Clear',
     close: 'Close',
     refresh: 'Refresh',

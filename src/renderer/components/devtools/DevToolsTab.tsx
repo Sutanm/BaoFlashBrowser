@@ -7,9 +7,11 @@ type Target = 'page' | 'shell';
 /**
  * 真 DevTools 宿主。
  *
- * 里面是官方前端（`assets/devtools-frontend`，取自 chii 的构建产物），通过
- * 自定义协议 `bfb-devtools://` 加载，再用 `?ws=` 连本应用自己的 CDP 端口。
- * 前端只认 WebSocket，那个端口是它的传输层——不是我们在应用和浏览器之间加的转接。
+ * 里面是官方前端（`assets/devtools-frontend`，取自 chii 的构建产物，经
+ * `scripts/build-devtools-frontend.cjs` 降级到 Chromium 87），由主进程的本地
+ * HTTP 服务（127.0.0.1 + 系统分配端口）托管，再用 `?ws=` 连本应用自己的
+ * CDP 端口。前端只认 WebSocket，那个端口是它的传输层——不是我们在应用和
+ * 浏览器之间加的转接。
  *
  * 已知降级：前端约 M97，后端是 Chromium 87，新版才有的可选 CDP 方法
  * （Overlay 的 flex/scroll-snap 高亮、Network.setAttachDebugStack 等）会 404，

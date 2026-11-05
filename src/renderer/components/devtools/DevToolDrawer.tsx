@@ -142,15 +142,8 @@ const DevToolDrawer: React.FC = () => {
         >
           {LL.devtools.clear()}
         </button>
-        <button
-          type="button"
-          className="text-[11px] px-2 py-[2px] rounded"
-          style={{ color: 'var(--text-secondary)' }}
-          title={LL.devtools.nativePage()}
-          onClick={() => { void window.electronAPI.devtoolbox.openNative('page'); }}
-        >
-          {LL.devtools.native()}
-        </button>
+        {/* 原生面板入口只在 DevToolsTab 的子标签行（带目标上下文），
+            顶栏不再放一份，避免出现两个"原生面板" */}
         <button
           type="button"
           className="px-[5px] py-[2px] rounded"
