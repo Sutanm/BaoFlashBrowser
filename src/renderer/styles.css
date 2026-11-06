@@ -676,7 +676,17 @@ body.keyboard-navigation .address-input:focus {
   position: relative;
   z-index: 2;
   will-change: width, flex-basis, opacity;
-  animation: sidebar-panel-enter 240ms cubic-bezier(.2,.82,.25,1) both;
+  /*
+   * 宽度用 transition 而不是 keyframes。
+   *
+   * keyframes 每次都是"从 0/340 重新开始"，中途反向必然跳一下；transition 从
+   * 当前计算值出发，开合互相打断也不会跳。而且侧边栏现在是**常驻挂载**的
+   * （收起只是 0 宽），再没有"挂载即播动画"这个需求了。
+   */
+  transition:
+    width 240ms cubic-bezier(.2,.82,.25,1),
+    flex-basis 240ms cubic-bezier(.2,.82,.25,1),
+    opacity 240ms cubic-bezier(.2,.82,.25,1);
 }
 
 .library-sidebar-inner {
@@ -686,17 +696,36 @@ body.keyboard-navigation .address-input:focus {
   overflow: hidden;
   background: var(--bg-primary);
   border-radius: 0 12px 12px 0;
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+/* 收起态：0 宽（内容由 overflow:hidden 裁掉），侧栏外壳留在 DOM 里 */
+.library-sidebar.closing,
+.library-sidebar.collapsed {
+  width: 0;
+  flex-basis: 0;
+  pointer-events: none;
 }
 
 .library-sidebar.closing {
-  pointer-events: none;
-  animation-name: sidebar-panel-exit;
-  animation-timing-function: cubic-bezier(.55,0,.82,.18);
+  transition-timing-function: cubic-bezier(.55,0,.82,.18);
 }
 
 .library-sidebar.closing .library-sidebar-inner {
-  animation: sidebar-inner-exit 180ms ease-in both;
+  opacity: .45;
+  transform: translateX(-10px);
+  transition: opacity 180ms ease-in, transform 180ms ease-in;
 }
+
+/*
+ * 完全收起：不再参与 Tab 顺序，也不再被绘制。
+ * 只在 `collapsed` 用，`closing` 期间必须保持可见才能播完收起动画。
+ */
+.library-sidebar.collapsed {
+  visibility: hidden;
+  transition: none;
+}
+
 
 .library-sidebar-header {
   height: 50px;
@@ -854,20 +883,8 @@ body.keyboard-navigation .address-input:focus {
   background: var(--bg-hover);
 }
 
-@keyframes sidebar-panel-enter {
-  from { width: 0; flex-basis: 0; opacity: .9; }
-  to { width: 340px; flex-basis: 340px; opacity: 1; }
-}
-
-@keyframes sidebar-panel-exit {
-  from { width: 340px; flex-basis: 340px; opacity: 1; }
-  to { width: 0; flex-basis: 0; opacity: .88; }
-}
-
-@keyframes sidebar-inner-exit {
-  from { opacity: 1; transform: translateX(0); }
-  to { opacity: .45; transform: translateX(-10px); }
-}
+/* 侧边栏开合改由 .library-sidebar 的 transition 承担（见上方注释），
+   原来的 sidebar-panel-enter/exit 与 sidebar-inner-exit 关键帧已删除。 */
 
 /* ===== 设置面板 ===== */
 .settings-panel {

@@ -51,18 +51,34 @@ const AppInner: React.FC = () => {
   const lastSidebarPanelRef = useRef<'favorites' | 'history' | 'downloads'>('favorites');
   const sidebarOpen = isSidebarPanel(activePanel);
   const devToolDock = useDevToolStore((s) => s.dock);
-  const [sidebarMounted, setSidebarMounted] = useState(sidebarOpen);
-  const sidebarClosing = sidebarMounted && !sidebarOpen;
-
+  /**
+   * 侧边栏**常驻挂载**：关着的时候只是 0 宽（`collapsed`），不卸载。
+   *
+   * 卸载后再打开要重新挂载 + 首帧绘制，实测打开动画开头恒定有 75ms 一帧都出不来
+   * （宽度序列 `0,48,72,297…`，时间驱动的动画直接从 72 跳到 297，看上去"没有过渡"）。
+   * 对照实验：关闭动画期间立刻重开（组件还没卸载）最大帧间隔只有 21ms，完全流畅。
+   * 所以成本在"挂载 + 首帧"，常驻就能根治。
+   *
+   * 三态：open（打开）/ closing（播收起动画，组件仍可见）/ collapsed（0 宽 + visibility:hidden）。
+   */
+  const [sidebarPhase, setSidebarPhase] = useState<'open' | 'closing' | 'collapsed'>(
+    sidebarOpen ? 'open' : 'collapsed',
+  );
   useEffect(() => {
     if (sidebarOpen) {
-      setSidebarMounted(true);
-      return;
+      setSidebarPhase('open');
+      return undefined;
     }
-    if (!sidebarMounted) return;
-    const timer = window.setTimeout(() => setSidebarMounted(false), 240);
+    // 只有"刚从打开状态收起"才播收起动画；本来就没开过就保持 collapsed
+    setSidebarPhase((prev) => (prev === 'open' ? 'closing' : prev));
+    return undefined;
+  }, [sidebarOpen]);
+  useEffect(() => {
+    if (sidebarPhase !== 'closing') return undefined;
+    const timer = window.setTimeout(() => setSidebarPhase('collapsed'), 240);
     return () => window.clearTimeout(timer);
-  }, [sidebarOpen, sidebarMounted]);
+  }, [sidebarPhase]);
+  const sidebarState = sidebarPhase;
 
   useEffect(() => {
     const enableKeyboardFocus = (event: KeyboardEvent) => {
@@ -115,12 +131,13 @@ const AppInner: React.FC = () => {
     // 侧边栏的"向右扩展、由窗口裁剪"补偿只在底部/独立窗口时成立：
     // 左右停靠时 drawer 就在页面右侧，扩展出来的部分会直接盖住它。
     // 左侧停靠还会让 r.x 含上 drawer 宽度，按 r.x 反推会算错，故一并归零。
-    const sidebarCompensation = (devToolDock === 'bottom' || devToolDock === 'undocked') && sidebarMounted
+    // 侧边栏常驻后 r.x 在收起时是 0，补偿自然为 0，不需要额外判断。
+    const sidebarCompensation = (devToolDock === 'bottom' || devToolDock === 'undocked')
       ? Math.min(SIDEBAR_WIDTH, Math.max(0, r.x))
       : 0;
     const bounds = computeBrowserViewBounds(r, sidebarCompensation);
     window.electronAPI.tab.setBounds(bounds.x, bounds.y, bounds.width, bounds.height);
-  }, [sidebarMounted, devToolDock]);
+  }, [devToolDock]);
 
   const calcBoundsRef = useRef(calcBounds);
   useEffect(() => { calcBoundsRef.current = calcBounds; });
@@ -270,8 +287,8 @@ const AppInner: React.FC = () => {
       />
 
       <div className="app-workspace">
-        {sidebarMounted && <DrawerSidebar
-          isClosing={sidebarClosing}
+        <DrawerSidebar
+          state={sidebarState}
           activeTabId={activeTabId}
           currentUrl={activeTab?.url || ''}
           currentTitle={activeTab?.title || ''}
@@ -289,7 +306,7 @@ const AppInner: React.FC = () => {
           onZoomOut={zoomOut}
           onZoomReset={zoomReset}
           downloadCount={activeDownloadCount}
-        />}
+        />
 
         <div className="workspace-main" data-dock={devToolDock}>
           <div className="workspace-view" style={{ display: isOnNewTab ? 'flex' : 'none' }}>

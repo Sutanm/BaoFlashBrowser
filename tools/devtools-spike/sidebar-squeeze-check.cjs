@@ -284,6 +284,35 @@ function report(hostSteps, frontSteps, label) {
   const sideSteps = steps(shellClose, 'sw');
   console.log(`[sidebar] 侧边栏自身宽度台阶: ${sideSteps.map((s) => s.v).join(',')}`);
 
+  // 第二次打开（收起动画早已结束、进入 collapsed）：用来区分"首绘成本只付一次"还是每次都付
+  await evaluate(client, SHELL_SAMPLER);
+  await sleep(2000);
+  await evaluate(client, `(() => { document.querySelector('.sidebar-toggle-button').click(); return 'reopen'; })()`);
+  await sleep(1200);
+  const shellRapid = JSON.parse(await evaluate(client, 'JSON.stringify(window.__bs || [])'));
+  const rapidSteps = steps(shellRapid, 'sw').filter((s) => s.v > 0);
+  console.log('[sidebar] 第二次打开（collapsed→open）宽度台阶: ' + rapidSteps.map((s) => s.v + '@' + s.t + 'ms').join(','));
+  let maxGapRapid = 0;
+  for (let i = 1; i < rapidSteps.length; i += 1) maxGapRapid = Math.max(maxGapRapid, rapidSteps[i].t - rapidSteps[i - 1].t);
+  console.log('[sidebar] 第二次打开最大相邻台阶间隔: ' + maxGapRapid + 'ms（对比首次打开 ~75ms）');
+
+  // 最终状态快照（DOM 侧，原生视图不在里面但侧边栏是 DOM）
+  await client.send('Page.enable').catch(() => null);
+  const rects = await evaluate(client, `(() => {
+    const side = document.querySelector('.library-sidebar');
+    const inner = document.querySelector('.library-sidebar-inner');
+    const r = (el) => (el ? { w: Math.round(el.getBoundingClientRect().width), h: Math.round(el.getBoundingClientRect().height), vis: getComputedStyle(el).visibility } : null);
+    return JSON.stringify({ side: r(side), inner: r(inner), text: side ? String(side.innerText || '').slice(0, 40) : null });
+  })()`);
+  console.log('[sidebar] 打开后侧栏几何:', rects);
+  const shot = await client.send('Page.captureScreenshot', { format: 'png' }).catch(() => null);
+  if (shot && shot.result) {
+    const out = path.join(APP_ROOT, 'artifacts', 'sidebar-open.png');
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, Buffer.from(shot.result.data, 'base64'));
+    console.log('[sidebar] 截图:', out);
+  }
+
   client.close();
   fc.close();
   child.kill();

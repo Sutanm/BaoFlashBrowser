@@ -28,7 +28,13 @@ type PrimarySidebarPanel = Extract<ActivePanel, 'favorites' | 'history' | 'downl
 type SidebarPanel = Exclude<ActivePanel, null>;
 
 interface DrawerSidebarProps {
-  isClosing: boolean;
+  /**
+   * 开合状态。侧边栏常驻挂载，关着时只是 0 宽：
+   * - `open`：入场动画 + 正常宽度
+   * - `closing`：收起动画（组件保留，下次打开只播动画、不重挂载）
+   * - `collapsed`：从未打开过（或不播动画的静止收起态）
+   */
+  state: 'open' | 'closing' | 'collapsed';
   currentUrl: string;
   activeTabId: string | null;
   currentTitle: string;
@@ -59,7 +65,7 @@ export function isSidebarPanel(panel: ActivePanel): panel is SidebarPanel {
 }
 
 const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
-  isClosing,
+  state,
   currentUrl,
   activeTabId,
   currentTitle,
@@ -109,7 +115,17 @@ const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   ];
 
   return (
-    <aside className={`library-sidebar${isClosing ? ' closing' : ''}`} style={{ width: SIDEBAR_WIDTH }} aria-hidden={isClosing}>
+    <aside
+      className={`library-sidebar${state === 'closing' ? ' closing' : ''}${state === 'collapsed' ? ' collapsed' : ''}`}
+      aria-hidden={state !== 'open'}
+      // 宽度完全由 CSS 类 + transition 控制（收起 0 宽、打开 340）。收起时内容
+      // 虽被裁掉但仍可被 Tab 聚焦，直接拦掉，别让焦点掉进看不见的面板里
+      // （Chromium 87 没有 inert；collapsed 另有 visibility:hidden 兜底）。
+      onFocusCapture={state === 'open' ? undefined : (event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement) target.blur();
+      }}
+    >
       <div className="library-sidebar-inner" style={{ width: SIDEBAR_WIDTH }}>
       <div className="library-sidebar-header">
         <strong>{activeTitle}</strong>

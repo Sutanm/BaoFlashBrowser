@@ -74,6 +74,28 @@ close    ──► 释放自动化句柄 + teardownCapture + 移除并销毁视�
 `ResizeObserver` + `window.resize` + `findBarVisible` 触发；面积 ≤0 时发
 `setBounds(-9999,-9999,1,1)`。主进程只对活动标签应用 rect，其余保持 `HIDDEN_BOUNDS`。
 
+**侧边栏常驻挂载**（`App.tsx` 的 `sidebarPhase`）。三态：
+
+| 状态 | 表现 |
+| --- | --- |
+| `open` | 340px，`width` 走 240ms transition |
+| `closing` | 0 宽 + 内部淡出/左移，组件仍可见，播完才进 collapsed |
+| `collapsed` | 0 宽 + `visibility: hidden`（退出 Tab 顺序与绘制），**不卸载** |
+
+为什么常驻：卸载后再打开要重新挂载 + 首次布局/栅格，实测打开动画开头恒定有 ~75ms
+一帧都出不来（宽度序列 `0,48,72,297…`，时间驱动的动画直接从 72 跳到 297）。常驻后
+第二次及以后的打开最大帧间隔只有 **17ms**。
+
+已知残留：**每次启动后的第一次**打开仍有 ~75ms 停顿——那是侧栏内容（收藏列表）的
+首次布局+栅格，0 宽或 `visibility:hidden` 时浏览器根本不做，所以挪不到启动时。
+试过三条路都无效（已回退）：挂载后延迟起动画（2 rAF / requestIdleCallback）、
+启动时用 `opacity:0` + `position:absolute` 预热一帧、把收藏图标换成占位图。
+判断依据见 `tools/devtools-spike/sidebar-squeeze-check.cjs`（首次 vs 第二次打开对比）。
+
+宽度动画用 `transition` 而不是 `@keyframes`：keyframes 每次都从 0/340 重来，开合互相
+打断必然跳一下；transition 从当前计算值出发。键帧 `sidebar-panel-enter/exit` 与
+`sidebar-inner-exit` 已删除。
+
 ### 3.4 引擎切换 = 销毁重建
 
 `setRuffleMode` 销毁旧视图 → 改 `isRuffle/source` → 按当前 URL 重建。所有回调都过
