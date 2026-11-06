@@ -395,7 +395,9 @@ const STYLES_PROBE = `(() => {
     }
     const flow = await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) {
       var list = (s.flow || []).filter(function (f) { return String(f.m).indexOf('DOM.') === 0 || String(f.m).indexOf('CSS.') === 0; });
-      return JSON.stringify({ flow: list.slice(-10), lastDoc: s.lastDoc, docEvents: (s.trace || []).filter(function (t) { return String(t.m).indexOf('documentUpdated') >= 0 || String(t.m).indexOf('frameNavigated') >= 0; }).slice(-10) });
+      var keep = { 'DOM.getDocument': 1, 'DOM.documentUpdated': 1, 'Page.frameNavigated': 1, 'CSS.getMatchedStylesForNode': 1, 'CSS.enable': 1, 'DOM.enable': 1 };
+      var seq = (s.flow || []).filter(function (f) { return keep[f.m]; }).map(function (f) { return f.d + ' ' + f.m + (f.x ? ' [' + f.x + ']' : ''); });
+      return JSON.stringify({ seq: seq, total: seq.length, lastDoc: s.lastDoc });
     })`);
     console.log('[spin] 刷新后的 DOM/CSS 流水:', flow);
     const after = JSON.parse(await evaluate(fc, selection));

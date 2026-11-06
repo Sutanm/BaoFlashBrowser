@@ -398,14 +398,31 @@ requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 同时 no-target 的重试从 3×500ms 收到 1 次：`about:` 开头的标签页根本不可能有 target，
 占位出现耗时 3s+ → **420ms**。独立窗口按钮在无 target 时直接禁用（点了原来毫无反应）。
 
-同一标签刷新后，Styles 曾停在「找不到匹配的选择器或样式」。在 7k7k《皮卡堂》页，
-刷新前选中 `html`，刷新后前端已选中新文档的节点。同一个新节点 ID 的样式请求先成功，
-随后 Chromium 87 返回 `Could not find node with given id`。
+同一标签刷新后，Styles 曾停在「找不到匹配的选择器或样式」。7k7k《皮卡堂》实测：
+刷新后 Elements 已经重建树并选中**新文档**的节点，同一个新 nodeId 的样式请求
+**先成功一次**，随后 Chromium 87 返回 `Could not find node with given id`。
 
-构建时为前端 CSSModel 加了兼容处理。当前文档的节点收到这个错误时，合并短时间内的失败，
-重新获取 DOM，由 Elements 按原有逻辑恢复选中节点。每个主框架加载周期最多恢复一次。
-用 `BFB_RELOAD=1 BFB_CLICK=1 BFB_URL=https://news.7k7k.com/pkt/` 运行
-`tools/devtools-spike/styles-spin-check.cjs` 可验证刷新后选区和规则自动恢复。
+**这是兼容垫片，不是根因修复**——作废发生在 Chromium 87 的 DOM agent 里，应用层看不见：
+
+| 观测 | 结果 |
+| --- | --- |
+| 桥的完整流水（`stats().flow`） | `frameNavigated → documentUpdated → DOM.getDocument`（拿到新文档）`→ CSS 成功一次 → CSS 报 Could not find node`，**中间没有任何 DOM 命令** |
+| 纯 fixture 刷新 | 不复现 |
+| fixture + 跨域 iframe 刷新 | 不复现 |
+| 《皮卡堂》（Flash 插件 + 子帧导航）刷新 | 稳定复现 |
+
+也就是说没有"可预防的那一步"：新 id 在被用过之后才被后端作废，且不伴随任何会话内可见的
+DOM 调用。所以只能事后自愈：CSSModel.getMatchedStyles 命中该错误且针对当前文档时，
+150ms 合并、每个 `mainFrame.loaderId` 最多恢复一次，调 `domModel.documentUpdated()`
+重取 DOM，由 Elements 原有逻辑恢复选中与规则。实测刷新后 +1.5s 仍是占位、**+4s 自动恢复**
+（规则齐全，不需要点节点）。
+
+试过但**无效、已回退**的"根因候选"：把 `DOMModel.documentUpdated()` 里
+`this.parentModel() && …` 改成无条件重取（主文档模型也重取）。加上它之后流水变成
+`documentUpdated → DOM.getDocument → CSS 成功 → CSS 仍报 stale id`，问题不变——
+证明"没重取文档"不是根因，作废发生在重取之后。
+
+判据：`BFB_RELOAD=1 BFB_URL=https://news.7k7k.com/pkt/ node tools/devtools-spike/styles-spin-check.cjs`。
 
 ### 8.7 拖拽跟手（同步 bounds）
 

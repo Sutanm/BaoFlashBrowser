@@ -194,9 +194,14 @@ const SOURCE_PATCHES = [
         'setConnectTimingFromExtraInfo(e){this.#Ei=e.requestTime',
         'setConnectTimingFromExtraInfo(e){if(!e)return;this.#Ei=e.requestTime',
       ],
-      // 87 在刷新含 iframe 的页面时，可能让刚返回的 DOM 节点 ID 再次失效。
-      // 只在后端拒绝当前文档的节点时重取 DOM，走 Elements 原有的路径恢复。
-      // 合并同一批失败，每个主帧 loader 最多恢复一次，避免持续报错时循环。
+      // 【兼容垫片，不是根因修复】87 在刷新《皮卡堂》这类"Flash 插件 + 子帧导航"的页面时，
+      // 会让**刚成功用过一次**的 DOM 节点 ID 再次失效；而且这次失效对 CDP 会话完全不可见——
+      // 抓桥的流水是：frameNavigated → documentUpdated → DOM.getDocument（拿到新文档）→
+      // CSS 成功一次 → CSS 报 Could not find node with given id，中间没有任何 DOM 命令。
+      // 对照：同一套刷新在纯 fixture、以及带跨域 iframe 的 fixture 上都不复现。
+      // 结论：作废发生在 Chromium 87 的 DOM agent 里，应用层看不到也拦不住，只能事后自愈。
+      // 做法：命中该错误且针对当前文档时，150ms 合并、每个主帧 loader 最多恢复一次，
+      // 重取 DOM 后由 Elements 原有逻辑恢复选中与规则。
       [
         'async getMatchedStyles(e){const t=await this.agent.invoke_getMatchedStylesForNode({nodeId:e});if(t.getError())return null;',
         `async getMatchedStyles(e){
