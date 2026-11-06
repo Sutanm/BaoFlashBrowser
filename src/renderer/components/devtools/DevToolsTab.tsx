@@ -27,25 +27,40 @@ const DevToolsTab: React.FC = () => {
   const [target, setTarget] = useState<Target>('page');
   const [url, setUrl] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
+  const [noTarget, setNoTarget] = useState(false);
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     let alive = true;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let attempts = 0;
+    let portAttempts = 0;
+    let targetAttempts = 0;
     setMissing(false);
+    setNoTarget(false);
     const resolveUrl = () => {
-      window.electronAPI.devtoolbox.devtoolsUrl(target).then((next) => {
+      window.electronAPI.devtoolbox.devtoolsUrl(target).then((result) => {
         if (!alive) return;
-        if (next) {
-          setUrl(next);
+        if (result && result.url) {
+          setUrl(result.url);
           setMissing(false);
+          setNoTarget(false);
           return;
         }
-        // 绑不上（标签还在 about:newtab / 页面 target 还没出现）时短暂重试，
-        // 超过后明确显示占位，避免 fallback 静默连到别的标签。
-        attempts += 1;
-        if (attempts <= 12) {
+        // no-target：当前标签根本没有 page target（about:newtab 不创建 BrowserView）。
+        // 少量重试覆盖导航过渡态，仍无则给明确文案，不伪装成"端口故障"。
+        if (result && result.reason === 'no-target') {
+          targetAttempts += 1;
+          if (targetAttempts <= 3) {
+            retryTimer = setTimeout(resolveUrl, 500);
+          } else {
+            setUrl(null);
+            setNoTarget(true);
+          }
+          return;
+        }
+        // no-port：端口/前端服务还没就绪，长一点的重试窗口。
+        portAttempts += 1;
+        if (portAttempts <= 12) {
           retryTimer = setTimeout(resolveUrl, 750);
         } else {
           setUrl(null);
@@ -106,7 +121,11 @@ const DevToolsTab: React.FC = () => {
         </span>
       </div>
 
-      {missing ? (
+      {noTarget ? (
+        <div className="flex-1 flex items-center justify-center px-6 text-center">
+          <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.noTarget()}</div>
+        </div>
+      ) : missing ? (
         <div className="flex-1 flex items-center justify-center px-6 text-center">
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.noDebugPort()}</div>
         </div>

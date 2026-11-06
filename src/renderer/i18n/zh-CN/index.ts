@@ -673,6 +673,7 @@ const zhCN: BaseTranslation = {
     targetPage: "当前页面",
     targetShell: "外壳界面",
     noDebugPort: "DevTools 的调试通道未能启动（本应随应用自动开启）。查看 logs/main.log 里 [DevToolbox] 的输出定位原因。",
+    noTarget: "当前标签没有可调试的页面。新标签页、用户脚本页不创建独立视图，打开一个网页后即可调试。",
     clear: "清空",
     close: "关闭",
     refresh: "刷新",

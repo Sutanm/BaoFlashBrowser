@@ -231,7 +231,7 @@ declare global {
       devtoolbox: {
         snapshot(): Promise<import('@shared/types/devtoolbox').DevToolSnapshot>;
         clear(): Promise<void>;
-        devtoolsUrl(target: 'page' | 'shell'): Promise<string | null>;
+        devtoolsUrl(target: 'page' | 'shell'): Promise<import('@shared/types/devtoolbox').DevToolsTargetResult>;
         openNative(target: 'page' | 'shell'): Promise<boolean>;
         probePage(): Promise<import('@shared/types/devtoolbox').DevToolPageProbe | null>;
         onEntries(callback: (entries: import('@shared/types/devtoolbox').DevToolEntry[]) => void): () => void;

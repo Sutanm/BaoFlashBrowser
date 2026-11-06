@@ -159,7 +159,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(4000);
 
   const r5 = await ev(`window.electronAPI.devtoolbox.devtoolsUrl('page')
-    .then(function (v) { return 'url=' + String(v).slice(0, 90); })
+    .then(function (v) { return 'reason=' + v.reason + ' url=' + String(v.url).slice(0, 90); })
     .catch(function (e) { return 'err=' + (e && e.message); })`, true);
   console.log('ipc devtoolsUrl after nav:', r5 && r5.result && r5.result.value);
 

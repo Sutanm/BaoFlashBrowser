@@ -11,6 +11,7 @@ import type {
   DevToolPageProbe,
   DevToolSnapshot,
   DevToolTargetInfo,
+  DevToolsTargetResult,
 } from '@shared/types/devtoolbox';
 import { getCdpLeaseOwner } from './cdp-lease';
 import { loadConfig } from './config';
@@ -447,20 +448,30 @@ async function pickTargetForTab(tabId: string, port: number): Promise<string | n
 }
 
 /**
+ * 解析结果带原因，供渲染层区分三种状态：
+ * - `ok`：拿到可加载的前端 URL（含 ws + can_dock 参数）
+ * - `no-port`：调试端口或前端静态服务不可用（可重试，短暂等待后仍失败才提示）
+ * - `no-target`：通道正常，但当前标签没有可调试的 page target——about:newtab /
+ *   about:userscripts 等页面不创建 BrowserView（见 tabs.ts 的 needsBrowserView），
+ *   CDP 侧根本没有对应 target。这是正常语义，不该重试到超时、也不该提示"端口故障"。
+ */
+
+/**
  * 给前端一个可以直接连的 target 的 ws 地址。
  *
  * 页面目标走 tabId → targetId 绑定表（见 pickTargetForTab），不再按 URL
  * 实时匹配——URL 匹配在 about:blank 中间态会静默撞回旧标签的 target，
  * 且同标签内导航永远触发不了重连。外壳目标按 URL 匹配（外壳 target 唯一，
- * 无歧义；匹配不到就返回 null，不再退回第一个 page）。
+ * 无歧义；匹配不到就返回 no-target）。
  */
-export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<string | null> {
+export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<DevToolsTargetResult> {
   const port = resolveDebugPort();
-  if (!port) return null;
+  if (!port) return { url: null, reason: 'no-port' };
   const frontend = await ensureFrontendServer();
-  if (!frontend) return null;
+  if (!frontend) return { url: null, reason: 'no-port' };
   const targets = await fetchTargets(port);
-  if (targets.length === 0) return null;
+  // 端口在但列表为空：多半是刚启动还没注册 target，按可重试处理。
+  if (targets.length === 0) return { url: null, reason: 'no-port' };
 
   let pickedId: string | null = null;
   if (target === 'shell') {
@@ -470,11 +481,14 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<st
     const tabId = tabManager.getActiveId();
     pickedId = tabId ? await pickTargetForTab(tabId, port) : null;
   }
-  if (!pickedId) return null;
+  if (!pickedId) return { url: null, reason: 'no-target' };
   // 入口用 devtools_app.html（只挂 AdvancedApp 停靠壳），can_dock=true 是它的启用
   // 条件；showBoth → hideMain 的占位修正见 scripts/build-devtools-frontend.cjs 的
   // SOURCE_PATCHES 与 docs/modules/12-devtoolbox.md §8.1。
-  return `http://127.0.0.1:${frontend}/devtools_app.html?ws=127.0.0.1:${port}/devtools/page/${pickedId}&can_dock=true`;
+  return {
+    url: `http://127.0.0.1:${frontend}/devtools_app.html?ws=127.0.0.1:${port}/devtools/page/${pickedId}&can_dock=true`,
+    reason: 'ok',
+  };
 }
 
 const PROBE_SCRIPT = `(function () {

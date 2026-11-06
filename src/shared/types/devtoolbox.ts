@@ -60,6 +60,18 @@ export interface DevToolDevToolsUrlRequest {
   target: 'page' | 'shell';
 }
 
+/**
+ * `devtoolbox:devtools-url` 的返回。带 reason 是为了让渲染层区分三种状态：
+ * - `ok`：url 可用
+ * - `no-port`：调试端口或前端静态服务不可用（可重试）
+ * - `no-target`：通道正常但当前标签没有可调试的 page target（about:newtab 等
+ *   页面不创建 BrowserView）——正常语义，不该重试到超时
+ */
+export interface DevToolsTargetResult {
+  url: string | null;
+  reason: 'ok' | 'no-port' | 'no-target';
+}
+
 export interface DevToolPageProbe {
   swf: Array<{ url: string; kind: 'embed' | 'object' | 'param' | 'resource'; width?: number; height?: number }>;
   frames: Array<{ url: string; sameOrigin: boolean }>;

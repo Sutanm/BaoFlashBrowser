@@ -649,6 +649,7 @@ const en: Translation = {
     targetPage: 'This page',
     targetShell: 'Shell UI',
     noDebugPort: 'The DevTools debug channel failed to start (it should be enabled automatically with the app). Check [DevToolbox] lines in logs/main.log.',
+    noTarget: 'This tab has no inspectable page. New-tab and userscript pages have no separate view — open a web page to inspect it.',
     clear: 'Clear',
     close: 'Close',
     refresh: 'Refresh',

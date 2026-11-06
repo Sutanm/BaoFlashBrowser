@@ -2435,6 +2435,10 @@ type RootTranslation = {
 		 */
 		noDebugPort: string
 		/**
+		 * 当​前​标​签​没​有​可​调​试​的​页​面​。​新​标​签​页​、​用​户​脚​本​页​不​创​建​独​立​视​图​，​打​开​一​个​网​页​后​即​可​调​试​。
+		 */
+		noTarget: string
+		/**
 		 * 清​空
 		 */
 		clear: string
@@ -4921,6 +4925,10 @@ export type TranslationFunctions = {
 		 * DevTools 的调试通道未能启动（本应随应用自动开启）。查看 logs/main.log 里 [DevToolbox] 的输出定位原因。
 		 */
 		noDebugPort: () => LocalizedString
+		/**
+		 * 当前标签没有可调试的页面。新标签页、用户脚本页不创建独立视图，打开一个网页后即可调试。
+		 */
+		noTarget: () => LocalizedString
 		/**
 		 * 清空
 		 */
