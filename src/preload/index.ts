@@ -11,7 +11,7 @@ const ALLOWED_ON_CHANNELS = new Set([
   'password:captured', 'password:changed', 'password:filled',
   'userscripts:changed',
   'userscript:open-tab',
-  'devtoolbox:entries', 'devtoolbox:cleared', 'devtoolbox:bridge-event',
+  'devtoolbox:entries', 'devtoolbox:cleared', 'devtoolbox:bridge-event', 'devtoolbox:devtools-window-closed',
 ]);
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
@@ -33,6 +33,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'password:set-view-password', 'password:reset-os-auth',
   'diagnostics:export',
   'devtoolbox:snapshot', 'devtoolbox:clear', 'devtoolbox:devtools-url', 'devtoolbox:open-native', 'devtoolbox:probe-page',
+  'devtoolbox:open-devtools-window', 'devtoolbox:close-devtools-window',
   'devtoolbox:bridge-attach', 'devtoolbox:bridge-detach', 'devtoolbox:bridge-send', 'devtoolbox:bridge-stats',
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
@@ -174,6 +175,14 @@ const electronAPI = {
     devtoolsUrl: (target: 'page' | 'shell') => safeInvoke('devtoolbox:devtools-url', { target }),
     openNative: (target: 'page' | 'shell') => safeInvoke('devtoolbox:open-native', { target }),
     probePage: () => safeInvoke('devtoolbox:probe-page'),
+    /** 独立窗口模式：把前端整页放进一个独立 BrowserWindow。 */
+    openDevToolsWindow: (target?: 'page' | 'shell') => safeInvoke('devtoolbox:open-devtools-window', target ? { target } : {}),
+    closeDevToolsWindow: () => safeInvoke('devtoolbox:close-devtools-window'),
+    onDevToolsWindowClosed: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('devtoolbox:devtools-window-closed', listener);
+      return () => { ipcRenderer.removeListener('devtoolbox:devtools-window-closed', listener); };
+    },
     onEntries: (callback: (entries: unknown[]) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, entries: unknown[]) => callback(entries);
       ipcRenderer.on('devtoolbox:entries', listener);

@@ -234,6 +234,10 @@ declare global {
         devtoolsUrl(target: 'page' | 'shell'): Promise<import('@shared/types/devtoolbox').DevToolsTargetResult>;
         openNative(target: 'page' | 'shell'): Promise<boolean>;
         probePage(): Promise<import('@shared/types/devtoolbox').DevToolPageProbe | null>;
+        /** 独立窗口模式：把前端整页放进独立 BrowserWindow。 */
+        openDevToolsWindow(target?: 'page' | 'shell'): Promise<{ ok: boolean; error?: string }>;
+        closeDevToolsWindow(): Promise<void>;
+        onDevToolsWindowClosed(callback: () => void): () => void;
         onEntries(callback: (entries: import('@shared/types/devtoolbox').DevToolEntry[]) => void): () => void;
         onCleared(callback: () => void): () => void;
         /** CDP 桥（桥 v2）：把当前活动标签挂到桥，再经桥收发 CDP 消息。 */

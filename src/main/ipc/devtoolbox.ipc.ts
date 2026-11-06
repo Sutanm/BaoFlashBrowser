@@ -3,8 +3,10 @@ import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
 import {
   clearDevToolEntries,
+  closeDevToolsWindow,
   getDevToolSnapshot,
   getDevToolsTargetUrl,
+  openDevToolsWindow,
   openNativeDevTools,
   probeActivePage,
   resolveActivePageTargetId,
@@ -36,6 +38,17 @@ export function registerDevToolboxIPC(): void {
 
   createHandler<void, void>('devtoolbox:clear', () => {
     clearDevToolEntries();
+  });
+
+  // 独立窗口：停靠位置设为 undocked 时由渲染层拉起；关窗后主进程回发事件
+  createValidatedHandler(
+    'devtoolbox:open-devtools-window',
+    z.object({ target: target.optional() }).strict(),
+    (args: { target?: 'page' | 'shell' }) => openDevToolsWindow(args.target ?? 'page'),
+  );
+
+  createHandler<void, void>('devtoolbox:close-devtools-window', () => {
+    closeDevToolsWindow();
   });
 
   // DevTools 前端只认 WebSocket，这里给出可直接喂给 iframe 的 ws 地址。

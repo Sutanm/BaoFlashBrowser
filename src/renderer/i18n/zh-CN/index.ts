@@ -666,6 +666,10 @@ const zhCN: BaseTranslation = {
   // 开发者工具箱
   devtools: {
     title: "开发者工具箱",
+    dockBottom: "停靠到底部",
+    dockLeft: "停靠到左侧",
+    dockRight: "停靠到右侧",
+    dockUndocked: "在独立窗口中打开",
     tabDevtools: "DevTools",
     tabCapture: "捕获",
     tabFlash: "Flash",

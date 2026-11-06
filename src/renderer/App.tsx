@@ -50,6 +50,7 @@ const AppInner: React.FC = () => {
   const [findBarVisible, setFindBarVisible] = useState(false);
   const lastSidebarPanelRef = useRef<'favorites' | 'history' | 'downloads'>('favorites');
   const sidebarOpen = isSidebarPanel(activePanel);
+  const devToolDock = useDevToolStore((s) => s.dock);
   const [sidebarMounted, setSidebarMounted] = useState(sidebarOpen);
   const sidebarClosing = sidebarMounted && !sidebarOpen;
 
@@ -85,6 +86,22 @@ const AppInner: React.FC = () => {
     }
   }, [activePanel]);
 
+  // 左侧停靠与自带侧边栏互斥：切到左侧时收起侧边栏，离开左侧时恢复原状
+  const sidebarBeforeLeftDockRef = useRef<typeof activePanel>(null);
+  useEffect(() => {
+    if (devToolDock === 'left') {
+      if (activePanel && isSidebarPanel(activePanel)) {
+        sidebarBeforeLeftDockRef.current = activePanel;
+        setActivePanel(null);
+      }
+      return;
+    }
+    if (sidebarBeforeLeftDockRef.current) {
+      setActivePanel(sidebarBeforeLeftDockRef.current);
+      sidebarBeforeLeftDockRef.current = null;
+    }
+  }, [devToolDock, activePanel, setActivePanel]);
+
   // --- BrowserView bounds ---
   const bvAreaRef = useRef<HTMLDivElement>(null);
 
@@ -95,12 +112,15 @@ const AppInner: React.FC = () => {
       window.electronAPI.tab.setBounds(-9999, -9999, 1, 1);
       return;
     }
-    const animatedSidebarWidth = sidebarMounted
+    // 侧边栏的"向右扩展、由窗口裁剪"补偿只在底部/独立窗口时成立：
+    // 左右停靠时 drawer 就在页面右侧，扩展出来的部分会直接盖住它。
+    // 左侧停靠还会让 r.x 含上 drawer 宽度，按 r.x 反推会算错，故一并归零。
+    const sidebarCompensation = (devToolDock === 'bottom' || devToolDock === 'undocked') && sidebarMounted
       ? Math.min(SIDEBAR_WIDTH, Math.max(0, r.x))
       : 0;
-    const bounds = computeBrowserViewBounds(r, animatedSidebarWidth);
+    const bounds = computeBrowserViewBounds(r, sidebarCompensation);
     window.electronAPI.tab.setBounds(bounds.x, bounds.y, bounds.width, bounds.height);
-  }, [sidebarMounted]);
+  }, [sidebarMounted, devToolDock]);
 
   const calcBoundsRef = useRef(calcBounds);
   useEffect(() => { calcBoundsRef.current = calcBounds; });
@@ -271,7 +291,7 @@ const AppInner: React.FC = () => {
           downloadCount={activeDownloadCount}
         />}
 
-        <div className="workspace-main">
+        <div className="workspace-main" data-dock={devToolDock}>
           <div className="workspace-view" style={{ display: isOnNewTab ? 'flex' : 'none' }}>
             <NewTabPage onNavigate={handleNavigate} bookmarks={favorites} />
           </div>

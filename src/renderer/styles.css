@@ -470,7 +470,9 @@ body {
 
 .topbar-toolbar {
   background: var(--bg-toolbar);
-  border-bottom: 1px solid var(--border-light);
+  /* 不再画下边框：活动标签已经"开口"连进工具栏，再压一条线会把这层连续感切断；
+     与页面内容的分界交给内容自己的边缘（新标签页则有收藏栏那条发丝线）。
+     若以后发现白色页头网站与工具栏糊在一起，在这里补 rgba(0,0,0,.06) 的发丝线即可。 */
 }
 
 .topbar-tabbar {
@@ -520,6 +522,12 @@ body.dark #loading-progress {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* 左右停靠：主工作区改成横向，抽屉作为 flex 子项按 order 排在页面区之前/之后 */
+.workspace-main[data-dock="left"],
+.workspace-main[data-dock="right"] {
+  flex-direction: row;
 }
 
 .workspace-view {

@@ -642,6 +642,10 @@ const en: Translation = {
 
   devtools: {
     title: 'Developer Toolbox',
+    dockBottom: 'Dock to bottom',
+    dockLeft: 'Dock to left',
+    dockRight: 'Dock to right',
+    dockUndocked: 'Open in separate window',
     tabDevtools: 'DevTools',
     tabCapture: 'Capture',
     tabFlash: 'Flash',

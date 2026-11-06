@@ -2407,6 +2407,22 @@ type RootTranslation = {
 		 */
 		title: string
 		/**
+		 * 停​靠​到​底​部
+		 */
+		dockBottom: string
+		/**
+		 * 停​靠​到​左​侧
+		 */
+		dockLeft: string
+		/**
+		 * 停​靠​到​右​侧
+		 */
+		dockRight: string
+		/**
+		 * 在​独​立​窗​口​中​打​开
+		 */
+		dockUndocked: string
+		/**
 		 * D​e​v​T​o​o​l​s
 		 */
 		tabDevtools: string
@@ -4897,6 +4913,22 @@ export type TranslationFunctions = {
 		 * 开发者工具箱
 		 */
 		title: () => LocalizedString
+		/**
+		 * 停靠到底部
+		 */
+		dockBottom: () => LocalizedString
+		/**
+		 * 停靠到左侧
+		 */
+		dockLeft: () => LocalizedString
+		/**
+		 * 停靠到右侧
+		 */
+		dockRight: () => LocalizedString
+		/**
+		 * 在独立窗口中打开
+		 */
+		dockUndocked: () => LocalizedString
 		/**
 		 * DevTools
 		 */

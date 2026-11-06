@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { ExternalLink, PanelBottom, PanelLeft, PanelRight, X } from 'lucide-react';
 import type { DevToolEntry, DevToolFlashInfo, DevToolPageProbe } from '@shared/types/devtoolbox';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
 import {
   defaultDrawerHeight,
+  defaultDrawerWidth,
   DEVTOOL_MIN_HEIGHT,
+  DEVTOOL_MIN_WIDTH,
   clampDrawerHeight,
+  clampDrawerWidth,
   useDevToolStore,
+  type DevToolDock,
   type DevToolTab,
 } from '@renderer/store/useDevToolStore';
 import LogPanel from './LogPanel';
@@ -19,10 +23,14 @@ const DevToolDrawer: React.FC = () => {
   const { LL } = useI18nContext();
   const open = useDevToolStore((s) => s.open);
   const height = useDevToolStore((s) => s.height);
+  const width = useDevToolStore((s) => s.width);
+  const dock = useDevToolStore((s) => s.dock);
   const tab = useDevToolStore((s) => s.tab);
   const entries = useDevToolStore((s) => s.entries);
   const setOpen = useDevToolStore((s) => s.setOpen);
   const setHeight = useDevToolStore((s) => s.setHeight);
+  const setWidth = useDevToolStore((s) => s.setWidth);
+  const setDock = useDevToolStore((s) => s.setDock);
   const setTab = useDevToolStore((s) => s.setTab);
   const ingest = useDevToolStore((s) => s.ingest);
   const replaceEntries = useDevToolStore((s) => s.replaceEntries);
@@ -57,16 +65,28 @@ const DevToolDrawer: React.FC = () => {
 
   const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
+    const vertical = dock === 'left' || dock === 'right';
+    const startX = event.clientX;
     const startY = event.clientY;
-    const startHeight = useDevToolStore.getState().height;
-    let latest = startHeight;
+    const startSize = vertical ? useDevToolStore.getState().width : useDevToolStore.getState().height;
+    let latest = startSize;
     let frame = 0;
+    const apply = (size: number): void => {
+      if (vertical) setWidth(size);
+      else setHeight(size);
+    };
     const onMove = (moveEvent: PointerEvent): void => {
-      latest = clampDrawerHeight(startHeight + (startY - moveEvent.clientY));
+      if (!vertical) {
+        latest = clampDrawerHeight(startSize + (startY - moveEvent.clientY));
+      } else if (dock === 'right') {
+        latest = clampDrawerWidth(startSize + (startX - moveEvent.clientX));
+      } else {
+        latest = clampDrawerWidth(startSize + (moveEvent.clientX - startX));
+      }
       if (frame) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
-        setHeight(latest);
+        apply(latest);
       });
     };
     const onUp = (): void => {
@@ -76,11 +96,11 @@ const DevToolDrawer: React.FC = () => {
         window.cancelAnimationFrame(frame);
         frame = 0;
       }
-      setHeight(latest);
+      apply(latest);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-  }, [setHeight]);
+  }, [dock, setHeight, setWidth]);
 
   const tabs: Array<{ key: DevToolTab; label: string }> = useMemo(() => ([
     { key: 'devtools', label: LL.devtools.tabDevtools() },
@@ -91,21 +111,82 @@ const DevToolDrawer: React.FC = () => {
 
   const byIssue = (issue: DevToolEntry['issue']): DevToolEntry[] => entries.filter((entry) => entry.issue === issue);
 
-  if (!open) return null;
+  // 独立窗口：抽屉打开且停靠为 undocked 时建窗；建窗失败则退回上次的内嵌位置
+  useEffect(() => {
+    if (dock !== 'undocked' || !open) return;
+    let alive = true;
+    void window.electronAPI.devtoolbox.openDevToolsWindow().then((result) => {
+      if (!alive) return;
+      if (!result.ok) setDock(useDevToolStore.getState().lastEmbeddedDock);
+    }).catch(() => {
+      if (alive) setDock(useDevToolStore.getState().lastEmbeddedDock);
+    });
+    return () => { alive = false; };
+  }, [dock, open, setDock]);
+
+  // 窗口被关掉 = 回到内嵌位置（抽屉保持打开），与"关窗=收起"区分开
+  useEffect(() => {
+    const off = window.electronAPI.devtoolbox.onDevToolsWindowClosed(() => {
+      const state = useDevToolStore.getState();
+      if (state.dock === 'undocked') setDock(state.lastEmbeddedDock);
+    });
+    return off;
+  }, [setDock]);
+
+  // 收起抽屉（F12 再次按下）时把独立窗口一起关掉
+  useEffect(() => {
+    if (dock === 'undocked' && !open) void window.electronAPI.devtoolbox.closeDevToolsWindow();
+  }, [dock, open]);
+
+  if (!open || dock === 'undocked') return null;
+
+  const vertical = dock === 'left' || dock === 'right';
+  const dockOptions: Array<{ key: DevToolDock; Icon: typeof PanelBottom; label: string }> = [
+    { key: 'bottom', Icon: PanelBottom, label: LL.devtools.dockBottom() },
+    { key: 'left', Icon: PanelLeft, label: LL.devtools.dockLeft() },
+    { key: 'right', Icon: PanelRight, label: LL.devtools.dockRight() },
+    { key: 'undocked', Icon: ExternalLink, label: LL.devtools.dockUndocked() },
+  ];
+  const resizeHandle = (
+    <div
+      role="separator"
+      aria-orientation={vertical ? 'vertical' : 'horizontal'}
+      onPointerDown={startResize}
+      onDoubleClick={() => (vertical ? setWidth(defaultDrawerWidth()) : setHeight(defaultDrawerHeight()))}
+      style={vertical
+        ? {
+          width: 6,
+          marginLeft: dock === 'right' ? -3 : 0,
+          marginRight: dock === 'left' ? -3 : 0,
+          cursor: 'col-resize',
+          flex: '0 0 auto',
+        }
+        : { height: 6, marginTop: -3, cursor: 'row-resize', flex: '0 0 auto' }}
+    />
+  );
 
   return (
     <div
-      className="flex flex-col shrink-0"
-      style={{ height, minHeight: DEVTOOL_MIN_HEIGHT, borderTop: '0.5px solid var(--border)', background: 'var(--bg-panel)' }}
+      className="flex shrink-0"
+      style={{
+        flexDirection: vertical ? 'row' : 'column',
+        // 左侧停靠要排在页面区之前；底部/右侧排在之后
+        order: dock === 'left' ? -1 : 1,
+        background: 'var(--bg-panel)',
+        ...(vertical
+          ? {
+            width,
+            minWidth: DEVTOOL_MIN_WIDTH,
+            ...(dock === 'right'
+              ? { borderLeft: '0.5px solid var(--border)' }
+              : { borderRight: '0.5px solid var(--border)' }),
+          }
+          : { height, minHeight: DEVTOOL_MIN_HEIGHT, borderTop: '0.5px solid var(--border)' }),
+      }}
     >
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        onPointerDown={startResize}
-        onDoubleClick={() => setHeight(defaultDrawerHeight())}
-        style={{ height: 6, marginTop: -3, cursor: 'row-resize', flex: '0 0 auto' }}
-      />
+      {dock !== 'left' && resizeHandle}
 
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
       <div className="flex items-center gap-1 px-2" style={{ height: 30, borderBottom: '0.5px solid var(--border)', background: 'var(--bg-secondary)' }}>
         {tabs.map((item) => {
           const active = item.key === tab;
@@ -133,6 +214,27 @@ const DevToolDrawer: React.FC = () => {
         })}
 
         <span className="ml-auto" />
+
+        {dockOptions.map(({ key, Icon, label }) => {
+          const active = dock === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              className="px-[5px] py-[2px] rounded"
+              title={label}
+              aria-label={label}
+              aria-pressed={active}
+              onClick={() => setDock(key)}
+              style={{
+                color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                background: active ? 'var(--bg-panel)' : 'transparent',
+              }}
+            >
+              <Icon className="w-3.5 h-3.5" />
+            </button>
+          );
+        })}
 
         <button
           type="button"
@@ -175,6 +277,9 @@ const DevToolDrawer: React.FC = () => {
           />
         )}
       </div>
+      </div>
+
+      {dock === 'left' && resizeHandle}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import { app, webContents as allWebContents, type WebContents } from 'electron';
+import { app, BrowserWindow, webContents as allWebContents, type WebContents } from 'electron';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -352,6 +352,72 @@ export function shutdownDevToolsFrontendServer(): void {
   frontendServer?.close();
   frontendServer = null;
   frontendPort = null;
+}
+
+/**
+ * 独立窗口模式（dockSide = 'undocked'）：把前端整页放进一个独立 BrowserWindow。
+ *
+ * 与内嵌模式的差别：这里没有父页 frame 树，前端拿不到外壳的 window；窗口被用户关掉时
+ * 通知外壳把停靠位置退回上一次的内嵌位置（关窗 = 回到内嵌，而非收起抽屉）。
+ */
+const DEVTOOLS_WINDOW_CLOSED = 'devtoolbox:devtools-window-closed';
+let devToolsWindow: BrowserWindow | null = null;
+let devToolsWindowClosingByCode = false;
+let mainWindowCloseHooked = false;
+
+export async function openDevToolsWindow(target: 'page' | 'shell' = 'page'): Promise<{ ok: boolean; error?: string }> {
+  if (devToolsWindow && !devToolsWindow.isDestroyed()) {
+    if (devToolsWindow.isMinimized()) devToolsWindow.restore();
+    devToolsWindow.focus();
+    return { ok: true };
+  }
+
+  const resolved = await getDevToolsTargetUrl(target);
+  if (!resolved.url) return { ok: false, error: resolved.reason };
+
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    minWidth: 480,
+    minHeight: 360,
+    title: 'DevTools',
+    backgroundColor: '#202124',
+    autoHideMenuBar: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, spellcheck: false },
+  });
+  devToolsWindow = win;
+  win.on('closed', () => {
+    devToolsWindow = null;
+    if (devToolsWindowClosingByCode) {
+      devToolsWindowClosingByCode = false;
+      return;
+    }
+    const main = getMainWindow();
+    if (main && !main.isDestroyed()) main.webContents.send(DEVTOOLS_WINDOW_CLOSED);
+  });
+
+  const main = getMainWindow();
+  if (main && !mainWindowCloseHooked) {
+    mainWindowCloseHooked = true;
+    // 主窗口关掉时不能让独立窗口把应用吊住
+    main.once('closed', () => closeDevToolsWindow());
+  }
+
+  await win.loadURL(resolved.url).catch((error: unknown) => {
+    log.warn('[DevToolbox] 独立窗口加载失败:', error instanceof Error ? error.message : String(error));
+  });
+  return { ok: true };
+}
+
+export function closeDevToolsWindow(): void {
+  const win = devToolsWindow;
+  if (!win || win.isDestroyed()) {
+    devToolsWindow = null;
+    return;
+  }
+  devToolsWindowClosingByCode = true;
+  devToolsWindow = null;
+  win.close();
 }
 
 /** Chromium 把实际端口写进 userData 下的 DevToolsActivePort（第一行端口）。 */
