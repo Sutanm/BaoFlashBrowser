@@ -604,7 +604,7 @@ export function setDevToolsViewBounds(rect: { x: number; y: number; width: numbe
     if (devToolsBoundsMissLog++ < 3) log.info('[DevToolbox] bounds 上报但视图不存在');
     return;
   }
-  if (devToolsBoundsLog++ < 3) {
+  if (devToolsBoundsLog++ < (process.env.BAO_DEVTOOLS_BOUNDS_LOG === '1' ? 400 : 3)) {
     log.info('[DevToolbox] bounds → x=%s y=%s w=%s h=%s', Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height));
   }
   view.setBounds({

@@ -50,6 +50,18 @@ interface RawCommand {
 
 let messageListener: ((message: string) => void) | null = null;
 let disconnectListener: ((reason: string) => void) | null = null;
+/**
+ * 外壳当前的停靠位置（bottom/left/right/undocked）。
+ *
+ * 原生 DevTools 自带一套停靠菜单，勾选状态读的是它自己的 `dockSide()`；我们的抽屉
+ * 由外壳摆位，前端一直以为自己是初始值（实测永远勾着「停靠至底部」）。前端补丁
+ * 让 `dockSide()` 优先返回这里，菜单勾选才和外壳一致。
+ */
+let shellDockSide = '';
+
+ipcRenderer.on('devtoolbox:dock-side', (_event, side: unknown) => {
+  if (typeof side === 'string' && side.length > 0 && side.length < 20) shellDockSide = side;
+});
 
 ipcRenderer.on(EVENT_CHANNEL, (_event, payload: EventPayload | undefined) => {
   if (!payload) return;
@@ -152,6 +164,14 @@ const bfbBridge = {
     if (intent.close === true) payload.close = true;
     if (payload.dock === undefined && payload.close === undefined) return;
     ipcRenderer.send('devtoolbox:frontend-intent', payload);
+  },
+
+  /**
+   * 外壳当前的停靠位置，供前端补丁里的 `dockSide()` 优先采用。
+   * 没收到过就返回空串，前端退回自己的值。
+   */
+  dockSide(): string {
+    return shellDockSide;
   },
 };
 

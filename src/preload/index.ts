@@ -33,7 +33,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'password:set-view-password', 'password:reset-os-auth',
   'diagnostics:export',
   'devtoolbox:snapshot', 'devtoolbox:clear', 'devtoolbox:devtools-url', 'devtoolbox:open-native', 'devtoolbox:probe-page',
-  'devtoolbox:open-devtools-window', 'devtoolbox:close-devtools-window',
+  'devtoolbox:open-devtools-window', 'devtoolbox:close-devtools-window', 'devtoolbox:set-dock',
   'devtoolbox:attach-devtools-view', 'devtoolbox:set-devtools-bounds', 'devtoolbox:detach-devtools-view',
   'devtoolbox:bridge-attach', 'devtoolbox:bridge-detach', 'devtoolbox:bridge-send', 'devtoolbox:bridge-stats',
   'file:open-swf',
@@ -206,6 +206,8 @@ const electronAPI = {
       ipcRenderer.on('devtoolbox:devtools-window-closed', listener);
       return () => { ipcRenderer.removeListener('devtoolbox:devtools-window-closed', listener); };
     },
+    /** 把外壳的停靠位置推给前端（原生「停靠侧」菜单勾选要跟它一致）。 */
+    setDockSide: (dock: 'bottom' | 'left' | 'right' | 'undocked') => safeInvoke('devtoolbox:set-dock', { dock }),
     /** 原生 DevTools 界面里的「停靠 / 关闭」意图（前端只发信号，外壳落地）。 */
     onFrontendIntent: (callback: (intent: { dock?: 'bottom' | 'left' | 'right' | 'undocked'; close?: boolean }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: { dock?: 'bottom' | 'left' | 'right' | 'undocked'; close?: boolean }) => callback(payload ?? {});

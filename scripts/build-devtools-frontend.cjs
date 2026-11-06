@@ -270,6 +270,35 @@ const SOURCE_PATCHES = [
     ],
   },
   {
+    file: 'ui/legacy/legacy.js',
+    patches: [
+      // 原生「停靠侧」菜单的勾选读的是前端自己的 dockSide()，而停靠由外壳决定
+      // （我们刻意不让前端改 dockSide，否则它会在 BrowserView 里画出错的布局）。
+      // 让 dockSide() 优先返回外壳推过来的值：右侧停靠时菜单就勾在右侧，
+      // 而不是永远勾在初始的「底部」。
+      [
+        'dockSide(){return this.dockSideInternal}',
+        'dockSide(){try{if(window.bfbBridge&&window.bfbBridge.dockSide){const s=window.bfbBridge.dockSide();if(s)return s}}catch(bfbErr){}return this.dockSideInternal}',
+      ],
+    ],
+  },
+  {
+    file: 'panels/elements/elements.js',
+    patches: [
+      // DOMNodeRevealer.reveal() 一进来就把 pendingNodeReveal 置 true，但**只有成功
+      // 分支 l() 会复位**；三条失败分支（DeferredDOMNode 解析为空、远端对象推不回
+      // 节点、找不到所属模型）都是直接 reject，标志位永远停在 true。之后
+      // ElementsPanel.setDefaultSelectedNode() 里的
+      //   if (!node || this.hasNonDefaultSelectedNode || this.pendingNodeReveal) return;
+      // 就永久早退，面板再也选不上节点 → Styles 停在「找不到匹配的选择器或样式」。
+      // 这里把 reject 包一层：任何失败先复位再交给原 reject。
+      [
+        'return s.pendingNodeReveal=!0,new Promise((function(e,o){if(t instanceof n.DOMModel.DOMNode)l(t);',
+        'return s.pendingNodeReveal=!0,new Promise((function(e,o0){const o=function(bfbErr){s.pendingNodeReveal=!1,o0(bfbErr)};if(t instanceof n.DOMModel.DOMNode)l(t);',
+      ],
+    ],
+  },
+  {
     file: 'panels/emulation/emulation.js',
     patches: [
       // 抽屉以 `can_dock=true` 起 AdvancedApp（唯一停靠壳），DockController 的默认

@@ -90,6 +90,17 @@ export function registerDevToolboxIPC(): void {
   );
 
   // 拖拽专用同步通道：渲染层在 ResizeObserver 回调里等这一步，跨进程多走一次
+  // 外壳把当前停靠位置推给前端：原生「停靠侧」菜单的勾选状态读的是前端自己的
+  // dockSide()，不推的话永远勾在初始值上（实测在右侧停靠时勾着「底部」）。
+  createValidatedHandler(
+    'devtoolbox:set-dock',
+    z.object({ dock: z.enum(['bottom', 'left', 'right', 'undocked']) }).strict(),
+    (args: { dock: 'bottom' | 'left' | 'right' | 'undocked' }) => {
+      const frontend = getDevToolsFrontendContents();
+      if (frontend && !frontend.isDestroyed()) frontend.send('devtoolbox:dock-side', args.dock);
+    },
+  );
+
   // 原生 DevTools 界面里的「停靠 / 关闭」：前端只发意图，由外壳的 store 落地。
   // 前端自己不改 dockSide —— 它跑在 BrowserView 里，改自己的停靠只会画出错的布局。
   ipcMain.on('devtoolbox:frontend-intent', (event, args: unknown) => {

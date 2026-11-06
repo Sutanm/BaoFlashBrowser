@@ -373,6 +373,44 @@ const STYLES_PROBE = `(() => {
     console.log('[spin] 刷新后的 DOM/CSS 流水:', flow);
   }
 
+  // 新标签页（没有 BrowserView）→ 占位出现要快；再切回来要能出样式
+  if (process.env.BFB_NEWTAB === '1') {
+    const startAt = Date.now();
+    await evaluate(client, `(() => { const b = document.querySelector('.btn-tab.no-drag'); if (b) b.click(); return 'ok'; })()`, false);
+    const placeholderAt = await waitUntil(async () => {
+      const text = await evaluate(client, `(() => {
+        const drawer = document.querySelector('[data-devtools-drawer]');
+        return drawer ? String(drawer.innerText || '') : '';
+      })()`, false);
+      return typeof text === 'string' && text.indexOf('没有可调试的页面') !== -1 ? Date.now() - startAt : null;
+    }, 20000, 'no-target placeholder');
+    console.log('[spin] 新标签页占位耗时:', placeholderAt === null ? '未出现' : `${placeholderAt}ms`);
+
+    await sleep(800);
+    await evaluate(client, `(() => {
+      const items = document.querySelectorAll('.tab-inner');
+      if (!items[0]) return 'no-tab';
+      const r = items[0].getBoundingClientRect();
+      const opts = { bubbles: true, clientX: Math.round(r.x + r.width / 2), clientY: Math.round(r.y + r.height / 2) };
+      items[0].dispatchEvent(new MouseEvent('mousedown', opts));
+      items[0].dispatchEvent(new MouseEvent('mouseup', opts));
+      items[0].dispatchEvent(new MouseEvent('click', opts));
+      return 'clicked';
+    })()`, false);
+    for (const at of [1200, 4000, 9000]) {
+      await sleep(at === 1200 ? 1200 : 2800);
+      // 容器是新建的：旧的前端 target 已销毁，重新取一个
+      const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
+      const front = (list || []).find((t) => /devtools_app\.html/.test(t.url || ''));
+      if (!front) { console.log(`[spin] 切回后 +${at}ms: 没有前端 target`); continue; }
+      const fc2 = cdp(front.webSocketDebuggerUrl);
+      await fc2.ready;
+      console.log(`[spin] 切回后 +${at}ms:`, await evaluate(fc2, STYLES_PROBE));
+      console.log(`[spin] 切回后 +${at}ms 树:`, await evaluate(fc2, TREE_PROBE));
+      fc2.close();
+    }
+  }
+
   // 切标签：桥会 detach/attach 换 session，这正是「请求发出去了、响应再也没回来」的窗口。
   if (process.env.BFB_SWITCH === '1') {
     await evaluate(client, `(() => { const b = document.querySelector('.btn-tab.no-drag'); if (b) b.click(); return 'ok'; })()`, false);

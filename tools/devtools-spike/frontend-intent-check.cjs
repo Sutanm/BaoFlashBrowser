@@ -160,6 +160,11 @@ const DRAWER = `(() => {
   await sleep(1800);
   console.log('[intent] dock=right 后:', await evaluate(client, DRAWER, false));
 
+  console.log('[intent] 回读 dockSide:', await evaluate(fc, "window.bfbBridge.dockSide()"));
+  console.log('[intent] 发 dock=left:', await evaluate(fc, `window.bfbBridge.shell({dock:'left'})||'sent'`));
+  await sleep(1800);
+  console.log('[intent] dock=left 后:', await evaluate(client, DRAWER, false));
+
   console.log('[intent] 发 dock=bottom:', await evaluate(fc, `window.bfbBridge.shell({dock:'bottom'})||'sent'`));
   await sleep(1800);
   console.log('[intent] dock=bottom 后:', await evaluate(client, DRAWER, false));

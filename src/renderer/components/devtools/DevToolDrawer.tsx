@@ -156,8 +156,13 @@ const DevToolDrawer: React.FC = () => {
 
   const byIssue = (issue: DevToolEntry['issue']): DevToolEntry[] => entries.filter((entry) => entry.issue === issue);
 
-  // 原生 DevTools 界面自带的「停靠侧」菜单与关闭按钮：前端只发意图，这里落地。
-  // 不接的话它们改的是前端自己的 dockSide（在 BrowserView 里只会画出错的布局），
+  // 把外壳的停靠位置推给前端：原生「停靠侧」菜单的勾选读的是前端的 dockSide()，
+  // 不推的话它永远勾在初始值上（实测在右侧停靠时勾着「底部」）。
+  useEffect(() => {
+    void window.electronAPI.devtoolbox.setDockSide(dock).catch(() => { /* 前端还没就绪，下次变化再推 */ });
+  }, [dock]);
+
+  // 原生 DevTools 界面自带的「停靠侧」菜单与关闭按钮：前端只发意图，这里落地。  // 不接的话它们改的是前端自己的 dockSide（在 BrowserView 里只会画出错的布局），
   // 或者干脆没反应——看起来就是"没和外壳对齐"。
   useEffect(() => {
     const off = window.electronAPI.devtoolbox.onFrontendIntent((intent) => {
@@ -345,18 +350,25 @@ const DevToolDrawer: React.FC = () => {
 
         {dockOptions.map(({ key, Icon, label }) => {
           const active = dock === key;
+          // 新标签页/用户脚本页没有 BrowserView，独立窗口拿不到 target——点了会
+          // 静默退回内嵌位置，看起来就是"没反应"。直接禁用并说明原因。
+          const blocked = key === 'undocked' && (!activeTabUrl || /^(about|chrome|userscript)/i.test(activeTabUrl));
           return (
             <button
               key={key}
               type="button"
               className="px-[5px] py-[2px] rounded shrink-0"
-              title={label}
+              title={blocked ? LL.devtools.noTarget() : label}
               aria-label={label}
               aria-pressed={active}
-              onClick={() => setDock(key)}
+              aria-disabled={blocked}
+              disabled={blocked}
+              onClick={() => { if (!blocked) setDock(key); }}
               style={{
                 color: active ? 'var(--accent)' : 'var(--text-secondary)',
                 background: active ? 'var(--bg-panel)' : 'transparent',
+                opacity: blocked ? 0.4 : 1,
+                cursor: blocked ? 'not-allowed' : 'pointer',
               }}
             >
               <Icon className="w-3.5 h-3.5" />

@@ -65,6 +65,11 @@ const DevToolsTab: React.FC = () => {
   const [noTarget, setNoTarget] = useState(false);
   // 「刷新」按钮在抽屉顶栏（与页签同一行），所以计数器放在 store。
   const nonce = useDevToolStore((s) => s.devtoolsReloadToken);
+  // 停靠位置：右侧→左侧这种切换**尺寸不变、只有 x 变**，ResizeObserver 不会触发，
+  // 必须显式再报一次 bounds（见下面 reportLayout）。
+  const dock = useDevToolStore((s) => s.dock);
+  /** 容器 effect 里注册的"重新上报矩形"，供停靠切换时调用。 */
+  const reportLayoutRef = useRef<(() => void) | null>(null);
   /** 桥模式下 URL 恒定（不含 target id），切标签只换绑定、不换 URL → iframe 不重载。 */
   const [mode, setMode] = useState<'ws' | 'bridge'>('ws');
   const hostRef = useRef<HTMLDivElement>(null);
@@ -96,14 +101,20 @@ const DevToolsTab: React.FC = () => {
           setNoTarget(false);
           return;
         }
-        // no-target：当前标签根本没有 page target（about:newtab 不创建 BrowserView）。
-        // 少量重试覆盖导航过渡态，仍无则给明确文案，不伪装成"端口故障"。
+        // no-target：当前标签根本没有 page target（about:newtab / 用户脚本页不创建
+        // BrowserView）。**这类页面不可能有 target，立刻给占位**——原来一律重试 3 次
+        // × 500ms，用户在新标签页里要等 3 秒才看到"没有可调试的页面"。
+        // 真实页面（可能正在导航）才值得重试一次。
         if (result && result.reason === 'no-target') {
+          const expectTarget = Boolean(activeTabUrl) && !/^(about|chrome|userscript)/i.test(activeTabUrl ?? '');
           targetAttempts += 1;
-          if (targetAttempts <= 3) {
-            retryTimer = setTimeout(resolveUrl, 500);
+          if (expectTarget && targetAttempts <= 1) {
+            retryTimer = setTimeout(resolveUrl, 400);
           } else {
-            setUrl(null);
+            // **不要清 url**：清了容器 effect 就会跑清理，把已经挂好的原生视图销毁，
+            // 切回来时又得重建前端——新实例会丢掉选中节点，Styles 空白/转圈
+            // （用户实测：从新标签页切回正常页面后样式不出来，得手动切一次 target）。
+            // 保留容器，只把视图藏起来（占位矩形为 0 → report() 会挪走原生视图）。
             setNoTarget(true);
           }
           return;
@@ -215,6 +226,7 @@ const DevToolsTab: React.FC = () => {
     void window.electronAPI.devtoolbox.attachDevToolsView(targetRef.current, tabIdRef.current).then((result) => {
       if (!alive || !result.ok) return;
       report();
+      reportLayoutRef.current = report;
       observer = new ResizeObserver(report);
       observer.observe(host);
       window.addEventListener('resize', report);
@@ -224,6 +236,7 @@ const DevToolsTab: React.FC = () => {
 
     return () => {
       alive = false;
+      reportLayoutRef.current = null;
       observer?.disconnect();
       if (settleTimer) window.clearInterval(settleTimer);
       window.removeEventListener('resize', report);
@@ -231,11 +244,40 @@ const DevToolsTab: React.FC = () => {
     };
   }, [mode, url, nonce]);
 
+  // 停靠切换（右→左、下→右…）时抽屉换了位置：**尺寸常常一模一样，只有 x/y 变**，
+  // ResizeObserver 不会触发，原生视图就会留在原处（现象：抽屉在左、画面还在右）。
+  // 同理，切到没有 target 的标签页 / 切回来时占位 div 的显隐也会让它变 0 或变回来。
+  // 等一帧让 flex 布局落定，再按新矩形上报一次。
+  useEffect(() => {
+    let frame = 0;
+    const run = (): void => {
+      frame = window.requestAnimationFrame(() => {
+        frame = window.requestAnimationFrame(() => reportLayoutRef.current?.());
+      });
+    };
+    run();
+    return () => { if (frame) window.cancelAnimationFrame(frame); };
+  }, [dock, noTarget]);
+
   // 桥模式下 URL 恒定，切标签只重绑 session：前端不重载，面板状态保留。
   useDevToolsBridgeAttach(mode === 'bridge', target, activeTabId, activeTabUrl);
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {/*
+       * 占位 div **始终挂载**（只要解析出过 url）：切到没有 page target 的标签页时
+       * 只是把它藏起来，绝不卸载——卸载会触发容器 effect 的清理，把原生视图销毁，
+       * 切回来重建的前端实例没有选中节点（Styles 就是空的）。
+       */}
+      {url ? (
+        <div
+          ref={hostRef}
+          data-devtools-host=""
+          className="flex-1 min-h-0 w-full"
+          style={{ background: 'var(--bg-panel)', display: noTarget ? 'none' : 'block' }}
+        />
+      ) : null}
+
       {noTarget ? (
         <div className="flex-1 flex items-center justify-center px-6 text-center">
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.noTarget()}</div>
@@ -244,15 +286,7 @@ const DevToolsTab: React.FC = () => {
         <div className="flex-1 flex items-center justify-center px-6 text-center">
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.noDebugPort()}</div>
         </div>
-      ) : url ? (
-        // 占位：真正的画面来自主进程的 BrowserView，这里只负责占位与上报矩形
-        <div
-          ref={hostRef}
-          data-devtools-host=""
-          className="flex-1 min-h-0 w-full"
-          style={{ background: 'var(--bg-panel)' }}
-        />
-      ) : (
+      ) : url ? null : (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>…</div>
         </div>

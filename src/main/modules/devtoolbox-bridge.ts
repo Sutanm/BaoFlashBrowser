@@ -130,6 +130,7 @@ class DevToolsBridge {
    * 所以换实例时静默丢弃旧请求，绝不再往回发信封。
    */
   private frontendEpoch = 0;
+
   private sessionId: string | null = null;
   private targetId: string | null = null;
   private sink: ((events: CdpMessage[]) => void) | null = null;
@@ -240,7 +241,7 @@ class DevToolsBridge {
       // 或一次短延迟再放行（attached 事件通常先于本次响应到达，这里兜底 60ms）。
       await new Promise((resolve) => setTimeout(resolve, 60));
 
-      // 切标签（换 target 而不是首次绑定）：前端没有重新连过，它只发过一次
+      // 切标签（换 target）或换了新前端实例：前端没有重新连过，它只发过一次
       // 初始化命令，新 session 上这些域一个都没开。把前端此前发过的「开关类」
       // 命令按最新参数重放一遍，再宣告文档已换，前端就会重建 Elements/Console。
       if (previousTarget && previousTarget !== targetId) {

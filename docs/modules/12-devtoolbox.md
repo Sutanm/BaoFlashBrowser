@@ -358,6 +358,19 @@ requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 - 「刷新」的重建计数从组件内 `useState` 挪到 store（`devtoolsReloadToken`），
   因为按钮和消费者已经不在一棵子树里了。
 
+**停靠状态是双向同步的**（2026-11-06 第二轮）：
+
+- 外壳 → 前端：抽屉停靠变化时推 `devtoolbox:set-dock`，devtools preload 记下，
+  前端补丁让 `DockController.dockSide()` **优先返回这个值**——原生「停靠侧」菜单的
+  勾选读的就是它，不推的话永远勾在初始的「底部」（实测在右侧停靠时勾着底部）。
+- 前端 → 外壳：菜单点击与 ✕ 改发意图（见下表），前端**不**自己改 dockSide
+  （否则会在 BrowserView 里画出错布局）。
+
+**切停靠后原生视图不跟随**（右→左最典型）：抽屉从右换到左时宽高完全一样、只有 x 变，
+`ResizeObserver` 不触发，视图就留在原处（现象：抽屉在左、画面还在右）。修法：
+`DevToolsTab` 在 `dock` 变化后等两帧再 `report()` 一次。判据
+`frontend-intent-check.cjs` + `BAO_DEVTOOLS_BOUNDS_LOG=1`：右 x=746 → 左 x=0，尺寸不变。
+
 **原生 DevTools 自带的停靠菜单与 ✕ 已接进外壳**。它们原来各走各的：
 
 | 原生控件 | 原行为 | 现在 |
@@ -376,6 +389,14 @@ requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 或样式」（page-ws 路径同样如此，所以不是桥的锅）。隐藏时占位矩形为 0，`report()`
 把原生视图挪到 `(-8,-8,1,1)`，否则这层原生视图会盖住其它页签的内容。
 关抽屉时整棵树卸载，视图照常销毁，不留后台开销。
+
+**没有 page target 的标签页（新标签页 / 用户脚本页）不销毁容器**：只把占位 div
+`display:none`、原生视图挪到 `(-8,-8,1,1)`，并把「没有可调试的页面」文案显示出来。
+以前这里会 `setUrl(null)` → 容器 effect 清理 → 原生视图销毁，切回来要重建前端，
+而**新实例不会自动选中节点**，Styles 就空着/转圈（实测必须手动切一次
+「外壳界面 → 当前页面」）。容器常驻后，切回 1.2s 内样式就在（实测 textLen 50）。
+同时 no-target 的重试从 3×500ms 收到 1 次：`about:` 开头的标签页根本不可能有 target，
+占位出现耗时 3s+ → **420ms**。独立窗口按钮在无 target 时直接禁用（点了原来毫无反应）。
 
 **已知未解**：**同一个标签里刷新页面**（不切标签）之后，Styles 面板会停在
 「找不到匹配的选择器或样式」，点一下任意节点才恢复。已确认：
