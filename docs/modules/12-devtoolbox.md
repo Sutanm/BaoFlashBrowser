@@ -297,6 +297,9 @@ node tools/devtools-spike/frontend-bounds-lag.cjs            # 拖拽跟手：�
 node tools/devtools-spike/newtab-squeeze-check.cjs           # 挤压布局：内容区 711→120，搜索框可见高度恒为 44
 node tools/devtools-spike/drawer-geometry-check.cjs          # 切标签几何：抽屉 y 恒等、占位矩形贴合、新标签页显示 no-target 占位
 node tools/devtools-spike/sidebar-squeeze-check.cjs          # 侧边栏开合：前端宽度应「一步到位」（动画期间不重排），BFB_NO_DEVTOOLS=1 测页面视图
+node tools/devtools-spike/devtools-target-memory-check.cjs   # 「当前页面/外壳界面」按标签记：选外壳 → 新标签页回默认 → 切回恢复
+node tools/devtools-spike/flash-probe-debug.cjs              # dump 游戏页结构 + 读 Flash 页实际显示（BFB_URL 指定站点）
+node tools/devtools-spike/issues-drawer-check.cjs            # 静态核对 issues-pane 是否仍是 drawer-view（升级前端后复核）
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、
