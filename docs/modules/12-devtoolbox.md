@@ -165,10 +165,20 @@ npm run build && npm start
 2. 有跨域 iframe → 「游戏很可能在下面这些跨域 iframe 里」——跨域 frame 的 DOM 读不到
    （Electron 11 没有 `mainFrame`，`executeJavaScript` 只作用于主 frame）。
    同源 iframe 会递归进去扫两层，所以同源套壳的站点照样能列出 SWF。
-3. 都没有 → 原来的「未检测到 SWF（Ruffle 模式或游戏尚未加载）」。
+3. 都没有 → 「未检测到 SWF：主文档和同源 iframe 都扫过了。有的游戏要登录或进入游戏后
+   才创建 Flash 插件」。
 
-4399 这类**顶层直接放 `<object>`** 的页面属于正常路径（实测 `embed 755×567` + 3 个 SWF）；
-7k7k 的 pkt 把游戏放在跨域 iframe 里，落在第 2 种。
+4399 这类**顶层直接放 `<object>`** 的页面属于正常路径（实测 `embed 755×567` + 3 个 SWF）。
+7k7k 的《皮卡堂》是第 3 种的真实案例：**登录进服之后才会往页面插 `<embed>`**，
+所以进服前看到"没有 SWF"是正确结论，不是探测失败。为此 Flash 页停留在前台且
+没拿到 SWF 时，会每隔 2s 自动补探一次（最多 6 次）；换标签或换页面会重置计数。
+
+**探测必须带 tabId**：`devtoolbox:probe-page` / `devtoolbox:snapshot` 都接受 `tabId`，
+由渲染层传入。主进程的"活动标签"比渲染层晚一拍，自己取会探到上一个页面——表现是
+切完标签 Flash 页还显示上一页的 SWF（或者新建标签页那次探到 `about:newtab` 的空结果），
+得重开面板才更正。**同一标签内的导航也要重新探**：新建标签页从 `about:newtab` 走到真实
+页面时 `tabId` 不变，只看 `tabId` 会一直停在空结果上（`DevToolDrawer` 的探测 effect
+因此同时依赖 `activeTabId` 与 `activeTabUrl`）。
 
 Electron 11 的 webRequest 监听是「后者覆盖前者」。要做必须先把观察者挂进现有监听链
 （参考 `js-patch-service.ts` 的既有模式），不能自行注册。
@@ -287,7 +297,7 @@ node tools/devtools-spike/cdp-embedded-coexist.cjs  # CDP 共存性：embedded d
 node tools/devtools-spike/page-ws-baseline-capture.cjs      # page-ws 基线录流（ws 代理夹在前端与真实端点之间）
 node tools/devtools-spike/bridge-mode-check.cjs              # 桥模式端到端：树与目标页一致、bfbBridge 就位、0 异常
 BFB_PAGE_WS=1 node tools/devtools-spike/bridge-mode-check.cjs # page-ws 回退对照（同一 fixture、同一探针）
-node tools/devtools-spike/bridge-tab-switch-check.cjs        # 桥模式：切标签容器不重建、面板状态保留、树跟随
+node tools/devtools-spike/bridge-tab-switch-check.cjs        # 桥模式：切标签容器不重建、面板状态保留、树跟随；并量「切回」的跟随耗时（实测 ~520ms）
 BFB_RESET_LOCALE=1 node tools/devtools-spike/bridge-mode-check.cjs # 清掉持久化 language，确认"没存过就跟随系统"
 node tools/devtools-spike/bridge-realsite-check.cjs          # 桥模式真站（7k7k）：树/求值/密码捕获 embedded 并发
 BFB_HEAVY=1 node tools/devtools-spike/bridge-load-baseline.cjs               # 三模式 CPU 与消息量对比（受控页面）
@@ -299,6 +309,7 @@ node tools/devtools-spike/drawer-geometry-check.cjs          # 切标签几何�
 node tools/devtools-spike/sidebar-squeeze-check.cjs          # 侧边栏开合：前端宽度应「一步到位」（动画期间不重排），BFB_NO_DEVTOOLS=1 测页面视图
 node tools/devtools-spike/devtools-target-memory-check.cjs   # 「当前页面/外壳界面」按标签记：选外壳 → 新标签页回默认 → 切回恢复
 node tools/devtools-spike/flash-probe-debug.cjs              # dump 游戏页结构 + 读 Flash 页实际显示（BFB_URL 指定站点）
+node tools/devtools-spike/flash-tab-follow-check.cjs         # Flash 页跟随标签：两标签各挂一个 SWF，切过去 1.2s 内必须换成当前页的
 node tools/devtools-spike/issues-drawer-check.cjs            # 静态核对 issues-pane 是否仍是 drawer-view（升级前端后复核）
 ```
 
@@ -381,8 +392,10 @@ preload 后这条中继整个删了（`useDevToolsBridgeRelay.ts` 已移除）�
    仍指向上一个标签。桥模式 URL 恒定 → 解析到旧 target 既不会触发重渲染也不会再解析，
    面板就永远停在上一个页面上（现象：切到新标签页后 Elements 里还是上一个页面的 DOM）。
    现在 `devtoolsUrl` / `attach-devtools-view` / `bridge.attach` / `open-devtools-window`
-   都接受 `tabId`，由渲染层把"用户看到的是哪个标签"传下去；渲染层另外丢弃迟到的
-   响应（`useTabsStore.getState().activeTabId !== 请求时的 tabId` 就丢）。
+   / `probe-page` / `snapshot` 都接受 `tabId`，由渲染层把"用户看到的是哪个标签"传下去；
+   渲染层另外丢弃迟到的响应（`useTabsStore.getState().activeTabId !== 请求时的 tabId` 就丢）。
+   除 `tabId` 外，**同一标签内的导航也要能重探**：新建标签页从 `about:newtab` 走到真实页面
+   时 `tabId` 不变，只看 `tabId` 会一直停在空结果上（现象：Flash 页空着，按 F12 才刷新）。
 6. **换 target 时必须把在途请求判失败**。`detach()` 会清掉 session，但旧 session 上
    已经发出去的请求永远不会有响应；桥不主动失败，前端那边就是一个永远 pending 的
    Promise——**表现是 Styles/Computed 一直转圈，只能重新点一次节点才恢复**。

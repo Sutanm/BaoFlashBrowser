@@ -244,8 +244,46 @@ const TREE_PROBE = `(() => {
     fc2.close();
   }
 
-  const shot = await client.send('Page.captureScreenshot', { format: 'png' }).catch(() => null);
-  if (shot && shot.result && shot.result.data) {
+  // ---- 切回标签 1（用户路径：点标签项）----
+  // 这是「慢了一步」最容易出现的地方：只有切回去，才能看出面板有没有一直停在上一份文档。
+  const clickTab = (i) => evaluate(client, `(() => {
+    const items = document.querySelectorAll('.tab-inner');
+    if (!items[${i}]) return 'no-tab';
+    const r = items[${i}].getBoundingClientRect();
+    const opts = { bubbles: true, clientX: Math.round(r.x + r.width / 2), clientY: Math.round(r.y + r.height / 2) };
+    items[${i}].dispatchEvent(new MouseEvent('mousedown', opts));
+    items[${i}].dispatchEvent(new MouseEvent('mouseup', opts));
+    items[${i}].dispatchEvent(new MouseEvent('click', opts));
+    return 'clicked';
+  })()`);
+
+  const frontNow = () => getJson(`http://127.0.0.1:${port}/json/list`)
+    .catch(() => []).then((list) => (list || []).find((t) => frontUrl(t)) || null);
+
+  console.log('[btab] switch back → tab0:', await clickTab(0));
+  const t0 = Date.now();
+  let followed = null;
+  for (let i = 0; i < 30; i += 1) {
+    const f = await frontNow();
+    if (f) {
+      const fc = cdp(f.webSocketDebuggerUrl);
+      await fc.ready;
+      const tree = await evaluate(fc, TREE_PROBE);
+      fc.close();
+      let parsed = null;
+      try { parsed = JSON.parse(String(tree)); } catch { /* ignore */ }
+      if (parsed && parsed.hasOne && !parsed.hasTwo) { followed = Date.now() - t0; break; }
+    }
+    await sleep(500);
+  }
+  console.log('[btab] 切回后面板跟随耗时:', followed === null ? `未跟随（>${Date.now() - t0}ms，需要重开面板）` : `${followed}ms`);
+
+  const stats = await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) {
+    return JSON.stringify({ state: s.state, sent: s.sent, failed: s.failed, target: s.targetId });
+  })`).catch(() => 'n/a');
+  console.log('[btab] bridge stats:', stats);
+
+  const shot = await client.send('Page.captureScreenshot', { format: 'png' }).catch(() => null);  if (shot && shot.result && shot.result.data) {
     fs.mkdirSync(path.dirname(SHOT_PATH), { recursive: true });
     fs.writeFileSync(SHOT_PATH, Buffer.from(shot.result.data, 'base64'));
     console.log('[btab] screenshot:', SHOT_PATH);

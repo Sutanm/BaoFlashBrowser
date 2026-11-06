@@ -689,7 +689,7 @@ const zhCN: BaseTranslation = {
     emptyCapture: "还没有捕获事件。登录一次并提交表单后能看到链路日志。",
     emptyFlash: "当前页面没有检测到 SWF。",
     emptyMain: "主进程还没有日志。",
-    swfEmpty: "未检测到 SWF（Ruffle 模式或游戏尚未加载）",
+    swfEmpty: "未检测到 SWF：主文档和同源 iframe 都扫过了。有的游戏要登录或进入游戏后才创建 Flash 插件，可以稍后点「刷新」再看",
     swfPluginOnly: "检测到 {n} 个 Flash 插件实例，但没解析出 SWF 地址（地址可能藏在脚本里）",
     swfInFrames: "首页里没有 SWF。游戏很可能在下面这些跨域 iframe 里——跨域 frame 的内容读不到，可以点「原生面板」在对应 frame 上查看",
     cdpFree: "空闲",

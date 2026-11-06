@@ -51,8 +51,13 @@ const bridgeSendSchema = z.object({
 }).strict();
 
 export function registerDevToolboxIPC(): void {
-  createHandler<void, ReturnType<typeof getDevToolSnapshot>>('devtoolbox:snapshot', () =>
-    getDevToolSnapshot());
+  // 两个只读探测都收 tabId：主进程的"活动标签"比渲染层晚一拍，靠它会读到上一个页面。
+  const tabIdArg = z.object({ tabId: z.string().min(1).max(120).nullable().optional() }).strict();
+
+  createHandler<unknown, ReturnType<typeof getDevToolSnapshot>>('devtoolbox:snapshot', (args) => {
+    const parsed = tabIdArg.safeParse(args ?? {});
+    return getDevToolSnapshot(parsed.success ? parsed.data.tabId : undefined);
+  });
 
   createHandler<void, void>('devtoolbox:clear', () => {
     clearDevToolEntries();
@@ -112,8 +117,10 @@ export function registerDevToolboxIPC(): void {
     (args: { target: 'page' | 'shell' }) => openNativeDevTools(args.target),
   );
 
-  createHandler<void, Awaited<ReturnType<typeof probeActivePage>>>('devtoolbox:probe-page', () =>
-    probeActivePage());
+  createHandler<unknown, Awaited<ReturnType<typeof probeActivePage>>>('devtoolbox:probe-page', (args) => {
+    const parsed = tabIdArg.safeParse(args ?? {});
+    return probeActivePage(parsed.success ? parsed.data.tabId : undefined);
+  });
 
   // ---- CDP 桥（桥 v2） ----
   // 这几个通道不走 createHandler：需要 sender 校验（规格 §2 铁律 B5），

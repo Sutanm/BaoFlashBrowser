@@ -25,17 +25,22 @@ export function useDevToolsBridgeAttach(
     if (!enabled || !activeTabId) return;
     let cancelled = false;
 
-    const hotAttach = async (attempt: number): Promise<void> => {
+    // 重试窗口要给得足够长：游戏站那种页面几十秒才建出可调试 target，
+    // 早先只重试 4 次（~2.4s）就收手，后面的加载没人接——面板于是永远停在
+    // 上一份文档上，用户只能按 F12 重开。这里退避到 ~20s，切标签即取消。
+    const RETRY_DELAYS = [0, 400, 600, 800, 1200, 1600, 2000, 2500, 3000, 3000, 3000, 3000];
+
+    const hotAttach = async (step: number): Promise<void> => {
+      if (cancelled) return;
       // tabId 显式传：主进程的"活动标签"比渲染层晚一拍，靠它会绑到上一个页面。
       const result = await window.electronAPI.devtoolbox.bridge.attach(target, activeTabId).catch(() => null);
       if (cancelled || (result && result.ok)) return;
-      if (attempt < 4) {
-        setTimeout(() => {
-          if (!cancelled) void hotAttach(attempt + 1);
-        }, 600);
-      }
+      const next = RETRY_DELAYS[step + 1];
+      if (next === undefined) return;
+      setTimeout(() => { if (!cancelled) void hotAttach(step + 1); }, next);
     };
 
+    // 首个 300ms 防抖吸收导航抖动
     const timer = setTimeout(() => { void hotAttach(0); }, 300);
     return () => {
       cancelled = true;

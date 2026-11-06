@@ -230,11 +230,11 @@ declare global {
       };
 
       devtoolbox: {
-        snapshot(): Promise<import('@shared/types/devtoolbox').DevToolSnapshot>;
+        snapshot(tabId?: string | null): Promise<import('@shared/types/devtoolbox').DevToolSnapshot>;
         clear(): Promise<void>;
         devtoolsUrl(target: 'page' | 'shell', tabId?: string | null): Promise<import('@shared/types/devtoolbox').DevToolsTargetResult>;
         openNative(target: 'page' | 'shell'): Promise<boolean>;
-        probePage(): Promise<import('@shared/types/devtoolbox').DevToolPageProbe | null>;
+        probePage(tabId?: string | null): Promise<import('@shared/types/devtoolbox').DevToolPageProbe | null>;
         /** 独立窗口模式：把前端整页放进独立 BrowserWindow。 */
         openDevToolsWindow(target?: 'page' | 'shell', tabId?: string | null): Promise<{ ok: boolean; error?: string }>;
         closeDevToolsWindow(): Promise<void>;

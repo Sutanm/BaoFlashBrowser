@@ -248,15 +248,16 @@ function collectTargets(): DevToolTargetInfo[] {
   return targets;
 }
 
-export function getDevToolSnapshot(): DevToolSnapshot {
-  const activeTabId = tabManager.getActiveId();
-  const activeWc = activeTabId ? tabManager.getWebContents(activeTabId) : null;
+/** `tabId` 由渲染层给（理由同 `probeActivePage`）：主进程的活动标签比渲染层晚一拍。 */
+export function getDevToolSnapshot(tabId?: string | null): DevToolSnapshot {
+  const resolvedId = tabId ?? tabManager.getActiveId();
+  const activeWc = resolvedId ? tabManager.getWebContents(resolvedId) : null;
   return {
     entries: buffer.snapshot(),
     targets: collectTargets(),
     flash: buildFlashInfo(),
     cdpOwner: activeWc ? getCdpLeaseOwner(activeWc.id) : null,
-    activeTabId,
+    activeTabId: resolvedId,
   };
 }
 
@@ -896,14 +897,25 @@ const PROBE_SCRIPT = `(function () {
   };
 })()`;
 
-export async function probeActivePage(): Promise<DevToolPageProbe | null> {
-  const tabId = tabManager.getActiveId();
-  const wc = tabId ? tabManager.getWebContents(tabId) : null;
+/**
+ * 探测某个标签页的 Flash 情况。
+ *
+ * **必须由渲染层传 tabId**：切标签是渲染层先变、主进程后跟上的，这里读
+ * `tabManager.getActiveId()` 会在这段窗口里探到上一个标签——表现是切到新标签后
+ * 工具箱 Flash 页显示的还是上一页的数据，得重新按一次 F12 才更正。这与
+ * `devtoolsUrl` / `bridge.attach` 是同一类错误（见 §9.4）。
+ */
+export async function probeActivePage(tabId?: string | null): Promise<DevToolPageProbe | null> {
+  const resolvedId = tabId ?? tabManager.getActiveId();
+  const wc = resolvedId ? tabManager.getWebContents(resolvedId) : null;
   if (!wc || wc.isDestroyed()) return null;
   try {
     const raw = await wc.executeJavaScript(PROBE_SCRIPT, false);
     if (!raw || typeof raw !== 'object') return null;
-    return raw as DevToolPageProbe;
+    const probe = raw as DevToolPageProbe;
+    log.debug('[DevToolbox] probe tab=%s url=%s swf=%d frames=%d',
+      resolvedId?.slice(-6), clip(wc.getURL(), 40), probe.swf?.length ?? 0, probe.frameCount ?? 0);
+    return probe;
   } catch (error) {
     log.debug('[DevToolbox] page probe failed:', error instanceof Error ? error.message : String(error));
     return null;

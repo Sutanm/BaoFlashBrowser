@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, PanelBottom, PanelLeft, PanelRight, X } from 'lucide-react';
 import type { DevToolEntry, DevToolFlashInfo, DevToolPageProbe } from '@shared/types/devtoolbox';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
@@ -37,32 +37,68 @@ const DevToolDrawer: React.FC = () => {
   const replaceEntries = useDevToolStore((s) => s.replaceEntries);
   const clearEntries = useDevToolStore((s) => s.clearEntries);
   const activeTabId = useTabsStore((s) => s.activeTabId);
+  const activeTabUrl = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.url ?? null);
 
   const [flash, setFlash] = useState<DevToolFlashInfo | null>(null);
   const [probe, setProbe] = useState<DevToolPageProbe | null>(null);
   const [cdpOwner, setCdpOwner] = useState<string | null>(null);
+  /** 当前 (标签, URL) 已经自动补探过几次；换标签或换页面就归零。 */
+  const probeKeyRef = useRef('');
+  const probeAttemptRef = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (tabId?: string | null) => {
+    // 探哪一页由调用方指定（正常是 activeTabId）。主进程的"活动标签"比渲染层晚一拍，
+    // 它自己取会探到上一个标签——切完标签 Flash 页显示上一页的 SWF 就是这么来的。
+    const requested = tabId ?? useTabsStore.getState().activeTabId;
     try {
-      const snapshot = await window.electronAPI.devtoolbox.snapshot();
+      const snapshot = await window.electronAPI.devtoolbox.snapshot(requested);
+      // 迟到响应直接丢：等它回来时用户可能已经切走了
+      if (useTabsStore.getState().activeTabId !== requested) return;
       replaceEntries(snapshot.entries);
       setFlash(snapshot.flash);
       setCdpOwner(snapshot.cdpOwner);
-      const pageProbe = await window.electronAPI.devtoolbox.probePage();
-      setProbe(pageProbe);
     } catch {
-      // 工具箱是只读观察者：快照失败不应打断浏览器
+      return;
     }
+    const pageProbe = await window.electronAPI.devtoolbox.probePage(requested).catch(() => null);
+    if (useTabsStore.getState().activeTabId !== requested) return;
+    setProbe(pageProbe);
   }, [replaceEntries]);
 
   useEffect(() => {
     if (!open) return;
     const offEntries = window.electronAPI.devtoolbox.onEntries((incoming) => ingest(incoming));
     const offCleared = window.electronAPI.devtoolbox.onCleared(() => clearEntries());
-    // 打开时补历史，切标签时刷新 CDP 占用者（快照是主进程的权威状态）
-    void refresh();
     return () => { offEntries(); offCleared(); };
-  }, [open, activeTabId, ingest, clearEntries, refresh]);
+  }, [open, ingest, clearEntries]);
+
+  // 重新探测的触发条件：打开面板、切标签、**同一个标签内的导航**。
+  //
+  // 最后一条不能漏：新建标签页先落在 about:newtab（没有 BrowserView，探测拿不到东西），
+  // 用户随后在同一个标签里导航到真实页面时 tabId 没变——只看 tabId 的话这次导航
+  // 永远不会重新探测，Flash 页就停在空结果上，非得按 F12 重开面板才刷新。
+  useEffect(() => {
+    if (!open) return undefined;
+    const key = `${activeTabId ?? ''}|${activeTabUrl ?? ''}`;
+    if (probeKeyRef.current !== key) {
+      probeKeyRef.current = key;
+      probeAttemptRef.current = 0;
+    }
+    const timer = setTimeout(() => { void refresh(activeTabId); }, 400);
+    return () => clearTimeout(timer);
+  }, [open, activeTabId, activeTabUrl, refresh]);
+
+  // 自动补探：停在 Flash 页且当前没拿到 SWF 时隔 2s 再探（最多 6 次 ≈ 12s）。
+  // 游戏站常常是登录/进服之后才创建插件，页面 load 完了也还没 SWF——不是探测坏了。
+  useEffect(() => {
+    if (!open || tab !== 'flash' || !activeTabId) return undefined;
+    if (probeKeyRef.current !== `${activeTabId}|${activeTabUrl ?? ''}`) return undefined;
+    if ((probe?.swf?.length ?? 0) > 0) return undefined;
+    if (probeAttemptRef.current >= 6) return undefined;
+    probeAttemptRef.current += 1;
+    const timer = setTimeout(() => { void refresh(activeTabId); }, 2000);
+    return () => clearTimeout(timer);
+  }, [open, tab, activeTabId, activeTabUrl, probe, refresh]);
 
   const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -286,13 +322,13 @@ const DevToolDrawer: React.FC = () => {
       <div className="flex-1 min-h-0">
         {tab === 'devtools' && <DevToolsTab />}
         {tab === 'capture' && (
-          <CaptureTab entries={byIssue('capture')} cdpOwner={cdpOwner} onRefresh={() => void refresh()} />
+          <CaptureTab entries={byIssue('capture')} cdpOwner={cdpOwner} onRefresh={() => void refresh(activeTabId)} />
         )}
         {tab === 'flash' && (
           <FlashTab
             flash={flash}
             probe={probe}
-            onRefresh={() => void refresh()}
+            onRefresh={() => void refresh(activeTabId)}
             onOpenNative={() => { void window.electronAPI.devtoolbox.openNative('page'); }}
           />
         )}

@@ -191,13 +191,13 @@ const electronAPI = {
   },
 
   devtoolbox: {
-    snapshot: () => safeInvoke('devtoolbox:snapshot'),
+    snapshot: (tabId?: string | null) => safeInvoke('devtoolbox:snapshot', { tabId: tabId ?? null }),
     clear: () => safeInvoke('devtoolbox:clear'),
     // tabId 决定给哪个标签解析 target：切标签是渲染层先变、主进程后跟上的，
     // 不传就会在这段窗口里解析到上一个页面。
     devtoolsUrl: (target: 'page' | 'shell', tabId?: string | null) => safeInvoke('devtoolbox:devtools-url', { target, tabId: tabId ?? null }),
     openNative: (target: 'page' | 'shell') => safeInvoke('devtoolbox:open-native', { target }),
-    probePage: () => safeInvoke('devtoolbox:probe-page'),
+    probePage: (tabId?: string | null) => safeInvoke('devtoolbox:probe-page', { tabId: tabId ?? null }),
     /** 独立窗口模式：把前端整页放进一个独立 BrowserWindow。 */
     openDevToolsWindow: (target?: 'page' | 'shell', tabId?: string | null) => safeInvoke('devtoolbox:open-devtools-window', { target, tabId: tabId ?? null }),
     closeDevToolsWindow: () => safeInvoke('devtoolbox:close-devtools-window'),

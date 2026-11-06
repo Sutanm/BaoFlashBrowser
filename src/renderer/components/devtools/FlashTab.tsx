@@ -19,7 +19,17 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
 const FlashTab: React.FC<FlashTabProps> = ({ flash, probe, onRefresh, onOpenNative }) => {
   const { LL } = useI18nContext();
   const swf = probe?.swf ?? [];
-  const frames = probe?.frames ?? [];
+  // 同一 URL 的 frame 会重复出现（7k7k 那种动态建一堆 about:blank），
+  // 直接 map 既刷屏又会让 React 报重复 key，去重后只留第一条。
+  const frames = React.useMemo(() => {
+    const seen = new Set<string>();
+    return (probe?.frames ?? []).filter((frame) => {
+      const key = `${frame.sameOrigin ? 'same' : 'cross'}|${frame.url}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [probe]);
   const flashPlugins = probe?.flashPlugins ?? 0;
 
   return (
@@ -65,8 +75,8 @@ const FlashTab: React.FC<FlashTabProps> = ({ flash, probe, onRefresh, onOpenNati
           <>
             <div className="mt-3 mb-1 text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.flashFrames()}</div>
             <div className="flex flex-col gap-1">
-              {frames.map((frame) => (
-                <div key={frame.url} className="flex items-start gap-2 text-[12px]">
+              {frames.map((frame, index) => (
+                <div key={`${frame.url}:${index}`} className="flex items-start gap-2 text-[12px]">
                   <span className="shrink-0 px-[5px] rounded text-[11px]" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
                     {frame.sameOrigin ? LL.devtools.sameOrigin() : LL.devtools.crossOrigin()}
                   </span>
