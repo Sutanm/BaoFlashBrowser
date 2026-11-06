@@ -203,10 +203,23 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
 
 ### 8.3 端口与安全
 
-- 静态服务：只监听 `127.0.0.1`，端口系统分配，随应用退出关闭。
-- CDP 端口：`--remote-debugging-port`（`npm run start:debug` 用 19222）。**不能在运行时开关**，
-  所以要么常开，要么按需重启应用。注意 Windows 保留端口段（实测 9182–9281、9282–9381 会 EACCES），
-  选端口前先 `netsh interface ipv4 show excludedportrange protocol=tcp`。
+- **全应用零固定端口**（2026-11-06 收敛）：所有监听都是系统临时分配、随应用
+  生命周期生灭。逐项盘点：
+  | 监听器 | 端口 | 发现方式 |
+  | --- | --- | --- |
+  | CDP（remote-debugging-port） | `0` → Chromium 自选 | `userData/DevToolsActivePort` 文件（`resolveDebugPort()` 读第一行） |
+  | DevTools 前端静态服务 | `listen(0)` 随机 | 主进程内存（写进 iframe src） |
+  | aria2 RPC | bind(0) 探测空闲口 | 主进程内存（`aria2-rpc.ts`） |
+  | screenshot HTTP（仅开发态 opt-in） | `0` 随机（env 可钉死） | electron-log（与 token 一起打印） |
+- **CDP 全版本常开**：主进程 `bootstrap()` 里 `appendSwitch('remote-debugging-port', '0')`，
+  打包版与开发版一致，抽屉 DevTools 无需任何启动参数。`start:debug` 与普通启动
+  唯一区别只剩构建产物新鲜度。安全面：只绑 `127.0.0.1`，等于本机进程可调试本
+  应用——与抽屉 iframe 的既有暴露一致；外部 ws 客户端与 embedded debugger
+  实测共存（§1 共存性），开端口不影响密码捕获/填充。
+- 运行时**不可关闭**——Chromium 的 DevToolsHttpHandler 在进程启动时决定。 选端口
+  不再需要查 Windows 保留端口段（`netsh interface ipv4 show excludedportrange
+  protocol=tcp`）：系统分配的临时端口不会落在保留段，历史教训仅供外部脚本
+  自己钉端口时参考。
 
 ### 8.4 已知缺口
 

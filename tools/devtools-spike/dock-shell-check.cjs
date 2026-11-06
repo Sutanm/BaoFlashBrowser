@@ -25,8 +25,28 @@ const WebSocket = require('ws');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 const ELECTRON = path.join(APP_ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
-const DEBUG_PORT = Number(process.env.BFB_SPIKE_DEBUG_PORT || 19222);
+
 const SHOT_PATH = path.join(APP_ROOT, 'artifacts', 'devtools-dock-shell.png');
+// 应用现在自己 appendSwitch('remote-debugging-port', '0')（随机端口），从这里发现实际端口。
+const ACTIVE_PORT_FILE = path.join(process.env.APPDATA || '', 'bao-flash-browser', 'DevToolsActivePort');
+let debugPort = 0;
+
+async function discoverDebugPort(startedAt, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if (fs.statSync(ACTIVE_PORT_FILE).mtimeMs > startedAt) {
+        const port = Number(String(fs.readFileSync(ACTIVE_PORT_FILE, 'utf8')).split('\n')[0]);
+        if (Number.isFinite(port) && port > 0) {
+          const ready = await getJson(`http://127.0.0.1:${port}/json/version`).then(() => true).catch(() => false);
+          if (ready) return port;
+        }
+      }
+    } catch { /* not yet */ }
+    await sleep(500);
+  }
+  return null;
+}
 
 const FIXTURE = `<!doctype html><html><head><meta charset="utf-8"><title>dock-shell fixture</title></head>
 <body><div id="a">alpha</div><div id="b"><span>beta</span><span>gamma</span></div><button id="c">delta</button></body></html>`;
@@ -101,7 +121,7 @@ async function evaluate(client, expression) {
 async function waitForTarget(predicate, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const list = await getJson(`http://127.0.0.1:${DEBUG_PORT}/json/list`).catch(() => []);
+    const list = await getJson(`http://127.0.0.1:${debugPort}/json/list`).catch(() => []);
     const hit = (list || []).find(predicate);
     if (hit) return hit;
     await sleep(500);
@@ -154,10 +174,14 @@ const PROBE = `(() => {
   const out = fs.openSync(logPath, 'w');
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(ELECTRON, [`--remote-debugging-port=${DEBUG_PORT}`, '.'], {
+  const child = spawn(ELECTRON, ['.'], {
     cwd: APP_ROOT, stdio: ['ignore', out, out], env,
   });
   console.log('[dock] electron pid', child.pid, '| log:', logPath);
+
+  debugPort = await discoverDebugPort(Date.now(), 40000);
+  if (!debugPort) { console.error('[dock] DevToolsActivePort 没出现'); process.exit(2); }
+  console.log('[dock] debug port (discovered):', debugPort);
 
   const shell = await waitForTarget((t) => /\/dist\/renderer\/index\.html$/.test(t.url || ''), 40000, 'shell');
   if (!shell) process.exit(2);

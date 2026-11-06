@@ -58,6 +58,13 @@ function bootstrap(): void {
   app.commandLine.appendSwitch('ignore-gpu-blacklist');
   app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
+  // 抽屉 DevTools 的传输层（全版本常开）。端口必须 0（系统临时分配）：
+  // Chromium 会把实际端口写进 userData/DevToolsActivePort，devtoolbox 的
+  // resolveDebugPort() 从那里发现它。固定端口既占着不放（还要躲 Windows
+  // 保留端口段），也没有必要——消费者全在应用内部。安全面：只绑 127.0.0.1，
+  // 等于本机进程可调试本应用，与 DevTools 前端 iframe 的既有暴露一致。
+  app.commandLine.appendSwitch('remote-debugging-port', '0');
   app.commandLine.appendSwitch('disable-flash-sandbox');
 
   if (config.lowEndMode) {

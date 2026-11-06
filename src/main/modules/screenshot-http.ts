@@ -100,12 +100,16 @@ export function createScreenshotHttpHandler(token: string) {
 
 export function startScreenshotHttpServer(): void {
   const token = process.env.BAO_SCREENSHOT_TOKEN || randomToken();
-  const port = Number(process.env.BAO_SCREENSHOT_PORT) || 44123;
+  // 默认随机端口（消费者从 electron-log 里一并拿端口与 token，发现成本不变）；
+  // env 仍可显式钉死端口给外部工具用。
+  const port = Number(process.env.BAO_SCREENSHOT_PORT) || 0;
   const server = http.createServer(createScreenshotHttpHandler(token));
   server.on('error', (e) => {
     log.warn('[Screenshot HTTP] failed to start debug server:', e instanceof Error ? e.message : String(e));
   });
   server.listen(port, '127.0.0.1', () => {
-    log.info(`[Screenshot HTTP] debug server ready: http://127.0.0.1:${port}/screenshot (X-BAO-Token: ${token})`);
+    const address = server.address();
+    const actual = typeof address === 'object' && address ? address.port : port;
+    log.info(`[Screenshot HTTP] debug server ready: http://127.0.0.1:${actual}/screenshot (X-BAO-Token: ${token})`);
   });
 }

@@ -2431,7 +2431,7 @@ type RootTranslation = {
 		 */
 		targetShell: string
 		/**
-		 * 没​有​可​用​的​调​试​端​口​。​用​ ​-​-​r​e​m​o​t​e​-​d​e​b​u​g​g​i​n​g​-​p​o​r​t​=​<​端​口​>​ ​启​动​应​用​后​，​这​里​会​加​载​真​正​的​ ​D​e​v​T​o​o​l​s​。
+		 * D​e​v​T​o​o​l​s​ ​的​调​试​通​道​未​能​启​动​（​本​应​随​应​用​自​动​开​启​）​。​查​看​ ​l​o​g​s​/​m​a​i​n​.​l​o​g​ ​里​ ​[​D​e​v​T​o​o​l​b​o​x​]​ ​的​输​出​定​位​原​因​。
 		 */
 		noDebugPort: string
 		/**
@@ -4918,7 +4918,7 @@ export type TranslationFunctions = {
 		 */
 		targetShell: () => LocalizedString
 		/**
-		 * 没有可用的调试端口。用 --remote-debugging-port=<端口> 启动应用后，这里会加载真正的 DevTools。
+		 * DevTools 的调试通道未能启动（本应随应用自动开启）。查看 logs/main.log 里 [DevToolbox] 的输出定位原因。
 		 */
 		noDebugPort: () => LocalizedString
 		/**

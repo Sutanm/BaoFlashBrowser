@@ -19,8 +19,27 @@ const WebSocket = require('ws');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 const ELECTRON = path.join(APP_ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
-const DEBUG_PORT = Number(process.env.BFB_SPIKE_DEBUG_PORT || 19222);
 const SHOT_PATH = path.join(APP_ROOT, 'artifacts', 'devtools-tab-switch.png');
+// 应用现在自己 appendSwitch('remote-debugging-port', '0')（随机端口），从这里发现实际端口。
+const ACTIVE_PORT_FILE = path.join(process.env.APPDATA || '', 'bao-flash-browser', 'DevToolsActivePort');
+let debugPort = 0;
+
+async function discoverDebugPort(startedAt, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if (fs.statSync(ACTIVE_PORT_FILE).mtimeMs > startedAt) {
+        const port = Number(String(fs.readFileSync(ACTIVE_PORT_FILE, 'utf8')).split('\n')[0]);
+        if (Number.isFinite(port) && port > 0) {
+          const ready = await getJson(`http://127.0.0.1:${port}/json/version`).then(() => true).catch(() => false);
+          if (ready) return port;
+        }
+      }
+    } catch { /* not yet */ }
+    await sleep(500);
+  }
+  return null;
+}
 
 function page(title, body) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`;
@@ -108,7 +127,8 @@ async function waitUntil(fn, timeoutMs, label) {
 }
 
 function frontendWsPageId() {
-  return getJson(`http://127.0.0.1:${DEBUG_PORT}/json/list`).then((list) => {
+  return getJson(`http://127.0.0.1:${debugPort}/json/list`).then((list) => {
+
     const front = (list || []).find((t) => /devtools_app\.html\?ws=/.test(t.url || ''));
     if (!front) return null;
     const match = /\/devtools\/page\/([0-9A-F]+)/i.exec(front.url);
@@ -128,13 +148,17 @@ function frontendWsPageId() {
   const out = fs.openSync(logPath, 'w');
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(ELECTRON, [`--remote-debugging-port=${DEBUG_PORT}`, '.'], {
+  const child = spawn(ELECTRON, ['.'], {
     cwd: APP_ROOT, stdio: ['ignore', out, out], env,
   });
   console.log('[switch] electron pid', child.pid, '| log:', logPath);
 
+  debugPort = await discoverDebugPort(Date.now(), 40000);
+  if (!debugPort) { console.error('[switch] DevToolsActivePort 没出现'); process.exit(2); }
+  console.log('[switch] debug port (discovered):', debugPort);
+
   const shell = await waitUntil(async () => {
-    const list = await getJson(`http://127.0.0.1:${DEBUG_PORT}/json/list`).catch(() => []);
+    const list = await getJson(`http://127.0.0.1:${debugPort}/json/list`).catch(() => []);
     return (list || []).find((t) => /\/dist\/renderer\/index\.html$/.test(t.url || '')) || null;
   }, 40000, 'shell');
   if (!shell) process.exit(2);
@@ -161,7 +185,7 @@ function frontendWsPageId() {
     await sleep(500);
   }
   const oneTarget = await waitUntil(async () => {
-    const list = await getJson(`http://127.0.0.1:${DEBUG_PORT}/json/list`).catch(() => []);
+    const list = await getJson(`http://127.0.0.1:${debugPort}/json/list`).catch(() => []);
     return (list || []).find((t) => t.type === 'page' && /\/one$/.test((t.url || '').split('?')[0])) || null;
   }, 30000, '/one target');
   console.log('[switch] tab1 target:', oneTarget && oneTarget.id, oneTarget && oneTarget.url);
@@ -197,7 +221,7 @@ function frontendWsPageId() {
     await sleep(500);
   }
   const twoTarget = await waitUntil(async () => {
-    const list = await getJson(`http://127.0.0.1:${DEBUG_PORT}/json/list`).catch(() => []);
+    const list = await getJson(`http://127.0.0.1:${debugPort}/json/list`).catch(() => []);
     return (list || []).find((t) => t.type === 'page' && /\/two$/.test((t.url || '').split('?')[0])) || null;
   }, 30000, '/two target');
   console.log('[switch] tab2 target:', twoTarget && twoTarget.id, twoTarget && twoTarget.url);
@@ -219,7 +243,7 @@ function frontendWsPageId() {
 
   // iframe 内部证据：当前连接的 target 标题（/one 或 /two）
   let innerTitle = null;
-  const frontList = await getJson(`http://127.0.0.1:${DEBUG_PORT}/json/list`).catch(() => []);
+  const frontList = await getJson(`http://127.0.0.1:${debugPort}/json/list`).catch(() => []);
   const frontT = (frontList || []).find((t) => /devtools_app\.html\?ws=/.test(t.url || ''));
   if (frontT) {
     const frontClient = cdp(frontT.webSocketDebuggerUrl);

@@ -46,7 +46,7 @@
     "benchmark:vision:structure": "node tools/vision-benchmark/build.mjs && node .cache/vision-benchmark/structure-poc.cjs",
     "prepare:electron:win64": "cross-env BAO_TARGET_PLATFORM=win32 BAO_TARGET_ARCH=x64 node build/prepare-electron-runtime.cjs",
     "start": "npm run i18n && npm run build && electron .",
-    "start:debug": "npm run i18n && npm run build && electron --remote-debugging-port=19222 .",
+    "start:debug": "npm run i18n && npm run build && electron .",
     "icon": "node build/make-icon.js",
     "build:win": "npm run build:win64",
     "build:win64": "npm run build:win64:ocr",

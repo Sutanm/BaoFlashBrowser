@@ -672,7 +672,7 @@ const zhCN: BaseTranslation = {
     tabMain: "主进程",
     targetPage: "当前页面",
     targetShell: "外壳界面",
-    noDebugPort: "没有可用的调试端口。用 --remote-debugging-port=<端口> 启动应用（开发时可用 npm run start:debug）后，这里会加载真正的 DevTools。",
+    noDebugPort: "DevTools 的调试通道未能启动（本应随应用自动开启）。查看 logs/main.log 里 [DevToolbox] 的输出定位原因。",
     clear: "清空",
     close: "关闭",
     refresh: "刷新",

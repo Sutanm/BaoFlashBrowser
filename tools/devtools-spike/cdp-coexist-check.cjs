@@ -25,7 +25,27 @@ const WebSocket = require('ws');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 const ELECTRON = path.join(APP_ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
-const DEBUG_PORT = Number(process.env.BFB_SPIKE_DEBUG_PORT || 19222);
+// 应用现在自己 appendSwitch('remote-debugging-port', '0')（随机端口），从这里发现实际端口。
+const ACTIVE_PORT_FILE = path.join(process.env.APPDATA || '', 'bao-flash-browser', 'DevToolsActivePort');
+let debugPort = 0;
+
+async function discoverDebugPort(startedAt, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if (fs.statSync(ACTIVE_PORT_FILE).mtimeMs > startedAt) {
+        const port = Number(String(fs.readFileSync(ACTIVE_PORT_FILE, 'utf8')).split('\n')[0]);
+        if (Number.isFinite(port) && port > 0) {
+          const ready = await getJson(`http://127.0.0.1:${port}/json/version`).then(() => true).catch(() => false);
+          if (ready) return port;
+        }
+      }
+    } catch { /* not yet */ }
+    await sleep(500);
+  }
+  return null;
+}
+
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -103,17 +123,21 @@ async function evaluate(c, expr, sessionId) {
   const out = fs.openSync(logPath, 'w');
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(ELECTRON, [`--remote-debugging-port=${DEBUG_PORT}`, '.'], {
+  const child = spawn(ELECTRON, ['.'], {
     cwd: APP_ROOT, stdio: ['ignore', out, out], env,
   });
   console.log('[coexist] electron pid', child.pid, '| log:', logPath);
 
+  debugPort = await discoverDebugPort(Date.now(), 40000);
+  if (!debugPort) { console.error('[coexist] DevToolsActivePort 没出现'); process.exit(2); }
+  console.log('[coexist] debug port (discovered):', debugPort);
+
   let shell = null;
   let version = null;
   for (let i = 0; i < 80 && (!shell || !version); i += 1) {
-    const list = await getJson(`http://127.0.0.1:${DEBUG_PORT}/json/list`).catch(() => []);
+    const list = await getJson(`http://127.0.0.1:${debugPort}/json/list`).catch(() => []);
     shell = shell || (list || []).find((t) => /\/dist\/renderer\/index\.html$/.test(t.url || ''));
-    version = version || await getJson(`http://127.0.0.1:${DEBUG_PORT}/json/version`).catch(() => null);
+    version = version || await getJson(`http://127.0.0.1:${debugPort}/json/version`).catch(() => null);
     if (!shell || !version) await sleep(500);
   }
   if (!shell || !version) { console.error('[coexist] 目标没出现'); process.exit(2); }
