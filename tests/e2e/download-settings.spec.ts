@@ -25,7 +25,9 @@ test('save folders are centralized in settings and show full paths', async () =>
     await expect(page.getByText(chosen, { exact: true })).toBeVisible();
     await page.screenshot({ path: test.info().outputPath('save-folders.png') });
     await page.locator('.sidebar-toggle-button').click();
-    await expect(page.locator('.library-sidebar')).toHaveCount(0);
+    // 侧边栏是**常驻挂载**的：关闭 = 0 宽 + visibility:hidden，不从 DOM 移除
+    //（见 docs/modules/01-browser-shell-tabs.md §3.3），所以断言"不可见"而不是计数为 0。
+    await expect(page.locator('.library-sidebar')).toBeHidden();
     await page.locator('.sidebar-toggle-button').click();
     await page.getByRole('tab', { name: '下载', exact: true }).click();
     await expect(page.getByRole('button', { name: '打开下载文件夹', exact: true })).toHaveAttribute('title', chosen);
