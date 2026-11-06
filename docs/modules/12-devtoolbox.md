@@ -251,8 +251,50 @@ node tools/devtools-spike/dock-shell-check.cjs      # 验证停靠壳：devtools
 node tools/devtools-spike/tab-switch-check.cjs      # 双标签验证：切标签 iframe 跟随新 target、同标签导航 targetId 不变
 node tools/devtools-spike/cdp-coexist-check.cjs     # CDP 共存性：page-ws × 2、page-ws + flatten session
 node tools/devtools-spike/cdp-embedded-coexist.cjs  # CDP 共存性：embedded debugger 与远程 ws 客户端
+node tools/devtools-spike/page-ws-baseline-capture.cjs      # page-ws 基线录流（ws 代理夹在前端与真实端点之间）
+BAO_DEVTOOLS_BRIDGE=1 node tools/devtools-spike/bridge-mode-check.cjs        # 桥模式：树与目标页一致、0 异常
+BAO_DEVTOOLS_BRIDGE=1 node tools/devtools-spike/bridge-tab-switch-check.cjs  # 桥模式：切标签不重载 iframe、面板跟随
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、
 Styles 显示真实规则、前端异常 0（修复前 Highlight ReferenceError + 每请求
 requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
+
+## 9 CDP 桥（桥 v2，`BAO_DEVTOOLS_BRIDGE=1`）
+
+规格：`docs/archive/superpowers/specs/2026-11-06-devtools-cdp-bridge-design.md`。
+默认关闭，`BAO_DEVTOOLS_BRIDGE=1` 启用；关闭时行为与本轮改造前完全一致。
+
+### 9.1 形态
+
+```
+M97 前端（iframe）──postMessage──外壳 relay──IPC──主进程桥──browser ws/flatten session──→ 目标 agent
+密码 capture/fill ──────────────── embedded（wc.debugger）────────────────────────────→ 同一 agent（互不干扰）
+```
+
+前端 patch（`scripts/build-devtools-frontend.cjs`）：`core/sdk/sdk.js` 的 Connection
+工厂在「无 `ws`/`wss`/`embedded` 参数 + 处于 iframe」时返回 `BfbBridgeConnection`，
+自带 postMessage 客户端与 hello，不依赖外部注入时序（contextBridge 不注入 iframe，S8）。
+
+### 9.2 三条硬约束（都是踩出来的）
+
+1. **响应与事件必须走同一条有序流**。响应经 IPC promise、事件走合批队列会让
+   `DOM.setChildNodes` 先于所属请求的响应到达，前端把子节点挂到不存在的父节点上
+   丢弃 → Elements 树残缺、闪回旧文档。桥内统一队列 + 16ms 合批；响应信封用前端的
+   请求 id（不是桥内部 messageId）。
+2. **Target 域按 page-ws 语义模拟**（S14 基线为准）：`setAutoAttach` 不转发到
+   browser 级（否则 attach 无关 target 并回 `attachedToTarget`，前端拿到别人的
+   sessionId）；`setDiscoverTargets` 补发全部 page target 的 `targetCreated`
+   （`attached:true`）；主 target 不发 `attachedToTarget`。
+3. **热切换要重放域状态**。桥模式 URL 恒定 → 切标签 iframe 不重载，但前端不知道
+   连接换了页面、不会重发初始化命令；桥必须把前端发过的开关类命令（enable/setXxx/
+   trackXxx/startXxx，按方法去重保留最新参数）重放到新 session，再发
+   `DOM.documentUpdated` + `Runtime.executionContextsCleared`。过渡态
+   （新标签 `about:blank`）静默重试，**不能回 `detached`**（前端会显示断开横幅并停请求）。
+
+### 9.3 已知限制
+
+- 桥目前需环境变量开启；默认关闭。
+- `BridgeStats` 里的 `flow` / `trace` / `lastMethods` / `lastDoc` 是调试字段（只记
+  方法名与条数，不落 CDP 流量），上游排查时可直接读 `bridge.stats()`。
+
