@@ -393,44 +393,84 @@ function fetchTargets(port: number): Promise<DebugTarget[]> {
 }
 
 /**
- * 给前端一个可以直接连的 page target 的 ws 地址。
+ * tabId → CDP page targetId 绑定表。
  *
- * 匹配策略：外壳按 `file://…/dist/renderer/` 前缀；页面按当前标签 URL 精确匹配，
- * 匹配不到时退回第一个非外壳的 page（换标签时 URL 可能刚好在跳转中）。
+ * Chromium 的 page target id 在同一 WebContents 生命周期内**恒定**（跨导航不变），
+ * 所以绑一次就能一直用：切标签换 targetId（iframe 重连）、同标签内导航 targetId
+ * 不变（iframe 不重载，前端经 CDP 事件自动跟随新页面，面板状态保留——与真
+ * Chrome DevTools 行为一致）。
  *
- * 入口与参数（2026-11-06）：
- * - 用 `devtools_app.html` 而不是 `inspector.html`。后者额外注册了
- *   `ScreencastAppProvider`（order 1 兜底壳），在 iframe 里只能跑出"左侧实时画面 +
- *   右侧面板"的 undocked 布局；前者只挂 `AdvancedApp`，停靠语义完整。
- * - `can_dock=true` 是 `AdvancedApp` 的启用条件（`Runtime.ConditionName.CAN_DOCK`
- *   就是查这个 query 参数）。不带它时 `getRegisteredAppProviders()` 会把
- *   AdvancedApp 过滤掉，退回 screencast 壳。
- * - 但 can_dock=true 的 `DockController` 默认 dockSide 是 `right`，`updateForDocked()`
- *   末尾会 `showBoth()` 显示主区占位（真 DevTools 里那块由宿主窗口绘制页面）。
- *   我们这里是 iframe，占位只会变成一块空白，故构建期把该行改成 `hideMain()`
- *   （见 `scripts/build-devtools-frontend.cjs` 的 SOURCE_PATCHES）。
+ * 绑定只能在 tab 创建/首次需要时按 URL 匹配建立（Electron 11 没有暴露
+ * webContents ↔ targetId 的映射 API，`webContents.debugger.attach` 又会抢
+ * password-fill 的 CDP 租约）。读绑定时校验 targetId 仍在 /json/list 里，
+ * 失效（tab 关闭、webContents 崩溃重建）就重新绑定——绑定表完全自愈。
+ */
+const tabTargetBindings = new Map<string, string>();
+
+/** 外壳 renderer 在 CDP 里也是 page target（file://…/dist/renderer/index.html）。 */
+function isShell(item: DebugTarget): boolean {
+  return /\/dist\/renderer\/index\.html$/.test(item.url);
+}
+
+/** DevTools 前端自身在 CDP 里也是 page target，绑定/选择时必须排除。 */
+function isFrontendTarget(item: DebugTarget): boolean {
+  return /\/(devtools_app|inspector|chii_app)\.html\?ws=/.test(item.url);
+}
+
+function isBindableTarget(item: DebugTarget): boolean {
+  return item.type === 'page' && !isShell(item) && !isFrontendTarget(item);
+}
+
+async function pickTargetForTab(tabId: string, port: number): Promise<string | null> {
+  const wc = tabManager.getWebContents(tabId);
+  const bound = tabTargetBindings.get(tabId);
+  const targets = (await fetchTargets(port)).filter(isBindableTarget);
+
+  // 1) 已绑定且还活着 → 直接用
+  if (bound && targets.some((item) => item.id === bound)) return bound;
+  if (bound) tabTargetBindings.delete(tabId);
+
+  // 2) 现场绑定：URL 精确匹配 + 不占用别的 tab 已绑定的 target
+  const currentUrl = wc ? wc.getURL() : '';
+  const taken = new Set(tabTargetBindings.values());
+  const candidate =
+    (currentUrl ? targets.find((item) => item.url === currentUrl && !taken.has(item.id)) : undefined)
+    // about:blank / newtab 等中间态匹配不到时，退而取第一个无人占用的
+    ?? targets.find((item) => !taken.has(item.id));
+  if (!candidate) return null;
+  tabTargetBindings.set(tabId, candidate.id);
+  return candidate.id;
+}
+
+/**
+ * 给前端一个可以直接连的 target 的 ws 地址。
+ *
+ * 页面目标走 tabId → targetId 绑定表（见 pickTargetForTab），不再按 URL
+ * 实时匹配——URL 匹配在 about:blank 中间态会静默撞回旧标签的 target，
+ * 且同标签内导航永远触发不了重连。外壳目标按 URL 匹配（外壳 target 唯一，
+ * 无歧义；匹配不到就返回 null，不再退回第一个 page）。
  */
 export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<string | null> {
   const port = resolveDebugPort();
   if (!port) return null;
   const frontend = await ensureFrontendServer();
   if (!frontend) return null;
-  const targets = (await fetchTargets(port)).filter((item) => item.type === 'page');
+  const targets = await fetchTargets(port);
   if (targets.length === 0) return null;
 
-  const isShell = (item: DebugTarget): boolean => /\/dist\/renderer\/index\.html$/.test(item.url);
-  let picked: DebugTarget | undefined;
+  let pickedId: string | null = null;
   if (target === 'shell') {
-    picked = targets.find(isShell);
+    // 外壳 target 按 URL 匹配（唯一），匹配不到就明示失败，不静默撞别的 target。
+    pickedId = targets.find(isShell)?.id ?? null;
   } else {
     const tabId = tabManager.getActiveId();
-    const wc = tabId ? tabManager.getWebContents(tabId) : null;
-    const currentUrl = wc ? wc.getURL() : '';
-    picked = currentUrl ? targets.find((item) => item.url === currentUrl && !isShell(item)) : undefined;
-    if (!picked) picked = targets.find((item) => !isShell(item)) ?? targets[0];
+    pickedId = tabId ? await pickTargetForTab(tabId, port) : null;
   }
-  if (!picked) return null;
-  return `http://127.0.0.1:${frontend}/devtools_app.html?ws=127.0.0.1:${port}/devtools/page/${picked.id}&can_dock=true`;
+  if (!pickedId) return null;
+  // 入口用 devtools_app.html（只挂 AdvancedApp 停靠壳），can_dock=true 是它的启用
+  // 条件；showBoth → hideMain 的占位修正见 scripts/build-devtools-frontend.cjs 的
+  // SOURCE_PATCHES 与 docs/modules/12-devtoolbox.md §8.1。
+  return `http://127.0.0.1:${frontend}/devtools_app.html?ws=127.0.0.1:${port}/devtools/page/${pickedId}&can_dock=true`;
 }
 
 const PROBE_SCRIPT = `(function () {

@@ -20,6 +20,10 @@ type Target = 'page' | 'shell';
 const DevToolsTab: React.FC = () => {
   const { LL } = useI18nContext();
   const activeTabId = useTabsStore((s) => s.activeTabId);
+  // 活动标签的 URL 只用于触发重新解析（比如绑定时标签还停在 about:newtab，
+  // 导航完成后需要再试一次）；page target 的 id 跨导航恒定，同标签内导航
+  // 拿回的是同一个 URL，iframe 不会重载，面板状态照常保留。
+  const activeTabUrl = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.url ?? null);
   const [target, setTarget] = useState<Target>('page');
   const [url, setUrl] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
@@ -27,18 +31,38 @@ const DevToolsTab: React.FC = () => {
 
   useEffect(() => {
     let alive = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
     setMissing(false);
-    window.electronAPI.devtoolbox.devtoolsUrl(target).then((next) => {
-      if (!alive) return;
-      setUrl(next);
-      setMissing(!next);
-    }).catch(() => {
-      if (!alive) return;
-      setUrl(null);
-      setMissing(true);
-    });
-    return () => { alive = false; };
-  }, [target, activeTabId, nonce]);
+    const resolveUrl = () => {
+      window.electronAPI.devtoolbox.devtoolsUrl(target).then((next) => {
+        if (!alive) return;
+        if (next) {
+          setUrl(next);
+          setMissing(false);
+          return;
+        }
+        // 绑不上（标签还在 about:newtab / 页面 target 还没出现）时短暂重试，
+        // 超过后明确显示占位，避免 fallback 静默连到别的标签。
+        attempts += 1;
+        if (attempts <= 12) {
+          retryTimer = setTimeout(resolveUrl, 750);
+        } else {
+          setUrl(null);
+          setMissing(true);
+        }
+      }).catch(() => {
+        if (!alive) return;
+        setUrl(null);
+        setMissing(true);
+      });
+    };
+    resolveUrl();
+    return () => {
+      alive = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [target, activeTabId, activeTabUrl, nonce]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 

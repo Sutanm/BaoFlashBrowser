@@ -144,6 +144,18 @@ docked 语义（默认 `right`），构建期把 `updateForDocked()` 末尾的 `
 改成 `hideMain()`（见 8.2 源级补丁），让 Elements/Styles 分栏铺满抽屉，
 没有空白占位也没有 screencast。
 
+**目标跟随（2026-11-06）**：页面目标走主进程的 `tabId → targetId` 绑定表
+（`devtoolbox.ts` 的 `pickTargetForTab`），不再按 URL 实时匹配。page target id
+在同一 WebContents 生命周期内跨导航恒定，因此：
+- 切标签 → 绑定表换 targetId → iframe 重连新标签的 target；
+- 同标签内导航 → targetId 不变 → iframe 不重载，前端经 CDP 事件自动跟随
+  新页面，Elements/Console 状态保留（与真 Chrome DevTools 一致）。
+绑定在标签还停在 about:newtab 等中间态时可能失败，renderer 会重试（~9 秒）
+后才显示"未开启调试端口"占位。已知局限：Electron 11 没有暴露
+webContents ↔ targetId 映射（`webContents.debugger.attach` 会抢 password-fill
+的 CDP 租约），首次绑定按"URL 匹配 + 未被其他 tab 占用"建立——两个标签
+停在完全相同 URL 的时刻绑反是理论上的残余歧义。
+
 ### 8.2 为什么要降级
 
 Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东西，三类：
@@ -196,6 +208,7 @@ env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devt
 env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devtools-spike/adopted-probe.cjs   # 探 87 的 adoptedStyleSheets 语义
 node tools/devtools-spike/page-elements-repro.cjs   # 真实页面（默认 7k7k）上验证 Elements 树渲染
 node tools/devtools-spike/dock-shell-check.cjs      # 验证停靠壳：devtools_app.html + can_dock、无 screencast、Elements 渲染
+node tools/devtools-spike/tab-switch-check.cjs      # 双标签验证：切标签 iframe 跟随新 target、同标签导航 targetId 不变
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、
