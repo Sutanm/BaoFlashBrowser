@@ -219,16 +219,19 @@ const SOURCE_PATCHES = [
   {
     file: 'ui/legacy/legacy.js',
     patches: [
-      // 语言横幅（"DevTools is now available in Chinese!"）的触发条件是
-      // `language` 设置等于默认 "en-US" + 系统语言不是英文（横幅本体就是灰色的
-      // "can switch to X" 提示）。"不再显示"标记也存 localStorage → origin 每次变
-      // （随机端口）→ 每次都重新弹。
+      // 语言横幅（"DevTools is now available in Chinese!"）的触发条件原来只看
+      // **原始设置值** 是否等于默认 "en-US"：设置是 en-US、浏览器是中文 → 就弹。
+      // 但 i18n.js 的补丁让"默认（没存过）"时实际生效的 locale 已经跟随浏览器，
+      // 于是界面明明是中文、横幅还在喊"可以切换成中文" —— 自相矛盾。
       //
-      // 补一句：只要用户显式存过 language，就永不再提示。配合上面的 i18n 补丁，
-      // 默认（没存过）跟随浏览器语言，也不再出现"建议切换"的横幅。
+      // 所以这里改成看**实际生效的 locale**：
+      //   1) 设置被显式改过（≠ en-US）→ 不提示
+      //   2) 用户显式存过 language → 不提示（"不再显示"标记存不住，只能看这个）
+      //   3) 生效 locale 与 navigator.language 同语言 → 不提示（这才是本次修的点）
+      // 三条都不成立才提示，即"设置是默认英文、但浏览器语言是 DevTools 支持的非英文"。
       [
         'if("en-US"!==i)return!1;return!t.DevToolsLocale.localeLanguagesMatch(navigator.language,i)',
-        'if("en-US"!==i||(()=>{try{return localStorage.getItem("language")}catch{return null}})())return!1;return!t.DevToolsLocale.localeLanguagesMatch(navigator.language,i)',
+        'if("en-US"!==i)return!1;if((()=>{try{return localStorage.getItem("language")}catch{return null}})())return!1;if(t.DevToolsLocale.localeLanguagesMatch(navigator.language,t.DevToolsLocale.DevToolsLocale.instance().locale))return!1;return!t.DevToolsLocale.localeLanguagesMatch(navigator.language,i)',
       ],
     ],
   },

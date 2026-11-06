@@ -162,6 +162,13 @@ async function waitUntil(fn, timeoutMs, label) {
     htmlLang: document.documentElement.lang,
     text: (document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 70),
     hasChinese: /[\\u4e00-\\u9fa5]/.test(document.body.innerText || ''),
+    // 语言横幅是否还在（三类关键词：标题 / "不再显示" / 切换按钮）
+    bannerVisible: /现已支持中文|available in Chinese|Switch DevTools|切换为中文|始终以 Chrome/.test(document.body.innerText || ''),
+    bannerSnippet: (function () {
+      var t = (document.body.innerText || '').replace(/\\s+/g, ' ');
+      var i = t.search(/现已支持中文|available in Chinese|切换为中文|始终以 Chrome/);
+      return i < 0 ? '' : t.slice(Math.max(0, i - 10), i + 60);
+    })(),
   })`));
 
   // 谁注册了 language 设置？看运行时到底加载了哪些 *-meta.js
