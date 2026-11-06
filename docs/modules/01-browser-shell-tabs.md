@@ -86,12 +86,12 @@ close    ──► 释放自动化句柄 + teardownCapture + 移除并销毁视�
 一帧都出不来（宽度序列 `0,48,72,297…`，时间驱动的动画直接从 72 跳到 297）。常驻后
 第二次及以后的打开最大帧间隔只有 **17ms**。
 
-已知残留：**每次启动后的第一次**打开仍有 ~75ms 停顿——那是侧栏内容（收藏列表）的
-首次布局+栅格，0 宽或 `visibility:hidden` 时浏览器根本不做，所以挪不到启动时。
+已知残留：**每次启动后的第一次**打开仍有 ~35ms 停顿（原来 76ms，去掉模糊投影后降下来）。
+那是侧栏内容的首次栅格，0 宽或 `visibility:hidden` 时浏览器根本不做，所以挪不到启动时。
 试过三条路都无效（已回退）：挂载后延迟起动画（2 rAF / requestIdleCallback）、
 启动时用 `opacity:0` + `position:absolute` 预热一帧、把收藏图标换成占位图。
 
-用 CDP tracing 拆开过这 75ms（工具 `tools/devtools-spike/sidebar-jank-trace.cjs`，
+用 CDP tracing 拆开过这 76ms（工具 `tools/devtools-spike/sidebar-jank-trace.cjs`，
 原始 trace 落 `artifacts/sidebar-jank-trace.json`）：
 
 - **主线程最长 slice 只有 4.3ms** —— 卡的不是 JS，也不是布局；
@@ -104,12 +104,13 @@ close    ──► 释放自动化句柄 + teardownCapture + 移除并销毁视�
 | 条件 | 首开最大间隔 |
 | --- | --- |
 | 原样（12px 圆角 + `3px 0 9px` 模糊投影） | 76ms |
-| 去掉模糊投影 | 31ms（投影 ≈ 45ms） |
-| 再去掉圆角 | 17ms（圆角 ≈ 14ms） |
+| **去掉模糊投影（已落地）** | **~35ms（投影 ≈ 45ms）** |
+| 再去掉圆角（未做） | 17ms（圆角 ≈ 14ms） |
 
 圆角 + `overflow:hidden` 会强制一层遮罩；模糊投影在 DPI 150% 下按 1.5 倍半径重算。
-注意投影那 3~9px 落在 `x ≥ 340` 的区域，**页面标签下被原生视图盖住**，只有新建标签页
-看得到——所以换掉它视觉损失很小。
+投影那 3~9px 落在 `x ≥ 340` 的区域，**页面标签下被原生视图盖住**，只有新建标签页
+看得到——所以换成 `1px 0 0 var(--border-light)` 的视觉损失很小。圆角保留（方角与现有
+GNOME 风格不符），剩下那 ~14ms 就不追了。
 
 宽度动画用 `transition` 而不是 `@keyframes`：keyframes 每次都从 0/340 重来，开合互相
 打断必然跳一下；transition 从当前计算值出发。键帧 `sidebar-panel-enter/exit` 与

@@ -672,7 +672,12 @@ body.keyboard-navigation .address-input:focus {
   background: transparent;
   border: 0;
   border-radius: 0 12px 12px 0;
-  box-shadow: 1px 0 0 var(--border-light), 3px 0 9px rgba(35,48,70,.055);
+  /* 只保留 1px 边线，去掉了原来的 `3px 0 9px rgba(...)` 模糊投影。
+     实测（CDP tracing）：这块模糊要在 GPU 侧做一次三遍模糊，DPI 150% 下占掉
+     侧边栏首次打开 76ms 里的 ~45ms（DoEndRasterCHROMIUM）。而它的可见范围本来
+     就有限——投影落在 x ≥ 340，页面标签下被原生 BrowserView 整个盖住，只有
+     新建标签页能看见。换成 1px 边线后首开 76ms → 31ms。 */
+  box-shadow: 1px 0 0 var(--border-light);
   position: relative;
   z-index: 2;
   will-change: width, flex-basis, opacity;
