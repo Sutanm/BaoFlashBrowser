@@ -197,6 +197,41 @@ const SOURCE_PATCHES = [
     ],
   },
   {
+    file: 'core/i18n/i18n.js',
+    patches: [
+      // 语言默认值：`language` 设置的 defaultValue 是 "en-US"，而 DevToolsLocale 只在
+      // 值为 "browserLanguage" 时才用 navigator.language。结果就是**无视系统语言永远是英文**
+      // （实测：iframe 里 navigator.language 已是 zh-CN，界面却是英文 + 弹"切换到中文"横幅）。
+      //
+      // 我们也没有别的持久化手段：静态服务每个启动都换随机端口 → origin 变 →
+      // localStorage 隔离，设置每次回到默认（settings-persistence-check.cjs 实测）。
+      // 自定义 scheme 也没救（Electron 11 上完全没有 DOM storage，scheme-feasibility.cjs）。
+      //
+      // 所以把「默认值」等价于「跟随浏览器」：settingLanguage 为空/默认 en-US 时都走
+      // navigator.language。中文系统直接中文，不再每次弹横幅。
+      [
+        '"browserLanguage"===e.settingLanguage?this.locale=e.navigatorLanguage||"en-US":this.locale=e.settingLanguage',
+        '("browserLanguage"===e.settingLanguage||!e.settingLanguage||"en-US"===e.settingLanguage)?this.locale=e.navigatorLanguage||"en-US":this.locale=e.settingLanguage',
+      ],
+    ],
+  },
+  {
+    file: 'ui/legacy/legacy.js',
+    patches: [
+      // 语言横幅（"DevTools is now available in Chinese!"）的唯一条件就是
+      // `language` 设置的值等于默认的 "en-US" + 系统语言不是英文。而"不再显示"
+      // 标记也存在 localStorage → origin 每次变（随机端口）→ 每次都重新弹。
+      //
+      // 配上上面 i18n.js 的补丁后，默认语言已经等于 navigator.language，
+      // 横幅的前提不再成立，这里补一句"解析出的 locale 已与浏览器语言一致就不再提示"。
+      // 若用户显式选了英文而系统是中文，仍会提示（这才是它该出现的场景）。
+      [
+        'if("en-US"!==i)return!1;return!t.DevToolsLocale.localeLanguagesMatch(navigator.language,i)',
+        'if("en-US"!==i||t.DevToolsLocale.localeLanguagesMatch(navigator.language,t.DevToolsLocale.DevToolsLocale.instance().locale))return!1;return!t.DevToolsLocale.localeLanguagesMatch(navigator.language,i)',
+      ],
+    ],
+  },
+  {
     file: 'ui/components/highlighting/highlighting.js',
     patches: [
       // 87 的 document.adoptedStyleSheets 已是冻结数组（push 抛 TypeError），
