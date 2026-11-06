@@ -326,6 +326,10 @@ preload 后这条中继整个删了（`useDevToolsBridgeRelay.ts` 已移除）�
 
 - `BridgeStats` 里的 `flow` / `trace` / `lastMethods` / `lastDoc` 是调试字段（只记
   方法名与条数，不落 CDP 流量），上游排查时可直接读 `bridge.stats()`。
-- 单实例语义：抽屉与独立窗口共用同一个桥 session，事件优先投给内嵌视图；
-  两者同时打开时独立窗口不会收到事件流。
+- **单实例语义**：桥只有一个 session，事件投给 `getDevToolsFrontendContents()` 选中的那个
+  容器（内嵌视图优先，其次独立窗口）。**正常操作下两个容器不会并存**：抽屉在
+  `dock === 'undocked'` 时直接返回 null（`DevToolDrawer.tsx:141`），`DevToolsTab` 卸载即
+  `detachDevToolsView()` 销毁内嵌视图；反向的三条出口（关窗 → `setDock` 回内嵌、F12 收起 →
+  `closeDevToolsWindow`、建窗失败 → 退回）也都在建/拆之前完成。那句话原来写成"两者同时
+  打开时独立窗口收不到事件"，描述的是一个构造不出来的状态，已更正。
 
