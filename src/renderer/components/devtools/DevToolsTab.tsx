@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
 import { useDevToolsBridgeRelay } from './useDevToolsBridgeRelay';
@@ -9,10 +9,16 @@ type Target = 'page' | 'shell';
  * 真 DevTools 宿主。
  *
  * 里面是官方前端（`assets/devtools-frontend`，取自 chii 的构建产物，经
- * `scripts/build-devtools-frontend.cjs` 降级到 Chromium 87），由主进程的本地
- * HTTP 服务（127.0.0.1 + 系统分配端口）托管，再用 `?ws=` 连本应用自己的
- * CDP 端口。前端只认 WebSocket，那个端口是它的传输层——不是我们在应用和
- * 浏览器之间加的转接。
+ * `scripts/build-devtools-frontend.cjs` 降级到 Chromium 87）。
+ *
+ * 承载方式有两种：
+ * - **ws 模式（默认）**：前端跑在**独立 WebContents**（主进程 BrowserView）里，
+ *   这里只放一个占位 div 负责上报矩形。这样前端不落在外壳的 frame 树里，
+ *   拿不到 shell 的 `electronAPI`/IndexedDB/DOM —— 是后续切 file:// 的前提。
+ * - **bridge 模式（`BAO_DEVTOOLS_BRIDGE=1`）**：仍用 iframe + postMessage 中继，
+ *   等桥的传输迁到 preload 后再统一（见 specs/2026-11-06-devtools-endpoint-removal.md B3）。
+ *
+ * 前端只认 WebSocket，`?ws=` 指向本应用自己的 CDP 端口——那个端口是它的传输层。
  *
  * 已知降级：前端约 M97，后端是 Chromium 87，新版才有的可选 CDP 方法
  * （Overlay 的 flex/scroll-snap 高亮、Network.setAttachDebugStack 等）会 404，
@@ -23,7 +29,7 @@ const DevToolsTab: React.FC = () => {
   const activeTabId = useTabsStore((s) => s.activeTabId);
   // 活动标签的 URL 只用于触发重新解析（比如绑定时标签还停在 about:newtab，
   // 导航完成后需要再试一次）；page target 的 id 跨导航恒定，同标签内导航
-  // 拿回的是同一个 URL，iframe 不会重载，面板状态照常保留。
+  // 拿回的是同一个 URL，视图不会重载，面板状态照常保留。
   const activeTabUrl = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.url ?? null);
   const [target, setTarget] = useState<Target>('page');
   const [url, setUrl] = useState<string | null>(null);
@@ -32,6 +38,7 @@ const DevToolsTab: React.FC = () => {
   const [nonce, setNonce] = useState(0);
   /** 桥模式下 URL 恒定（不含 target id），切标签只换绑定、不换 URL → iframe 不重载。 */
   const [mode, setMode] = useState<'ws' | 'bridge'>('ws');
+  const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -84,6 +91,43 @@ const DevToolsTab: React.FC = () => {
   }, [target, activeTabId, activeTabUrl, nonce]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
+
+  // ws 模式：把前端挂成独立 WebContents，并持续把占位 div 的矩形同步给主进程。
+  // 切换停靠 / 拖拽抽屉 / 窗口缩放都会让矩形变化，ResizeObserver 会逐帧上报。
+  useEffect(() => {
+    if (mode === 'bridge' || !url) return undefined;
+    const host = hostRef.current;
+    if (!host) return undefined;
+
+    let alive = true;
+    let observer: ResizeObserver | null = null;
+    const report = (): void => {
+      const rect = host.getBoundingClientRect();
+      void window.electronAPI.devtoolbox.setDevToolsBounds({
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+
+    void window.electronAPI.devtoolbox.attachDevToolsView(target).then((result) => {
+      if (!alive || !result.ok) return;
+      report();
+      observer = new ResizeObserver(report);
+      observer.observe(host);
+      window.addEventListener('resize', report);
+    }).catch(() => {
+      // 失败由 missing/noTarget 占位兜底，这里不额外弹错
+    });
+
+    return () => {
+      alive = false;
+      observer?.disconnect();
+      window.removeEventListener('resize', report);
+      void window.electronAPI.devtoolbox.detachDevToolsView();
+    };
+  }, [mode, url, target, nonce]);
 
   // 桥模式（URL 不带 ws）下由这个中继把 iframe 的 postMessage 接到 IPC。
   // 非桥模式下前端走 WebSocketConnection、不发 hello，此 hook 静默无作用。
@@ -138,15 +182,24 @@ const DevToolsTab: React.FC = () => {
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.noDebugPort()}</div>
         </div>
       ) : url ? (
-        <iframe
-          // 桥模式 URL 恒定 → key 恒定 → 切标签不重载（面板状态保留）。
-          // ws 模式 URL 含 target id，key 变化即重载（等价于重新连接）。
-          key={mode === 'bridge' ? 'bridge' : url}
-          title="DevTools"
-          src={url}
-          className="flex-1 min-h-0 w-full"
-          style={{ border: 0, background: 'var(--bg-panel)' }}
-        />
+        mode === 'bridge' ? (
+          <iframe
+            // 桥模式 URL 恒定 → key 恒定 → 切标签不重载（面板状态保留）。
+            // ws 模式已改为独立 WebContents 承载（见上面的 effect），不再走 iframe。
+            key="bridge"
+            title="DevTools"
+            src={url}
+            className="flex-1 min-h-0 w-full"
+            style={{ border: 0, background: 'var(--bg-panel)' }}
+          />
+        ) : (
+          // 占位：真正的画面来自主进程的 BrowserView，这里只负责占位与上报矩形
+          <div
+            ref={hostRef}
+            className="flex-1 min-h-0 w-full"
+            style={{ background: 'var(--bg-panel)' }}
+          />
+        )
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>…</div>

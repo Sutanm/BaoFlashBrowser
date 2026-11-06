@@ -133,9 +133,42 @@ const SNAPSHOT = `(() => {
 
   const pageSize = async () => (pg ? ev(pg, 'JSON.stringify({ w: window.innerWidth, h: window.innerHeight })') : 'no-page');
 
-  // 打开抽屉
+  /** 前端视图自己的尺寸与内容（CDP 截图不包含原生视图，只能这样验）。 */
+  const frontendMetrics = async () => {
+    const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
+    const front = (list || []).find((t) => /devtools_app\.html/.test(t.url || ''));
+    if (!front) return 'no-frontend-target';
+    const c = cdp(front.webSocketDebuggerUrl);
+    await c.ready;
+    await c.send('Runtime.enable');
+    await sleep(2200);
+    const out = await ev(c, `JSON.stringify({
+      w: window.innerWidth, h: window.innerHeight,
+      nodes: document.getElementsByTagName('*').length,
+      text: (document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 40),
+      hasPanel: Boolean(document.querySelector('.panel, .vbox, [class*="panel"]')),
+      tags: document.querySelectorAll('.webkit-html-tag, [class*="webkit-html"]').length,
+    })`);
+    c.close();
+    return out;
+  };
+
+  // 打开抽屉。若上次运行把 dock 存成了 undocked，这里会弹独立窗口而不是抽屉——
+  // 关掉它即回到内嵌位置，然后从已知状态继续。
   await ev(sh, `(() => { const b = document.querySelector('[data-devtoolbox-toggle]'); if (b) b.click(); return 1; })()`);
   await sleep(3000);
+  const initialDock = JSON.parse(await ev(sh, SNAPSHOT) || '{}').dock;
+  if (initialDock === 'undocked') {
+    const l = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
+    const wins = (l || []).filter((t) => /devtools_app\.html/.test(t.url || ''));
+    if (wins.length) {
+      const bc = cdp((await getJson(`http://127.0.0.1:${port}/json/version`)).webSocketDebuggerUrl);
+      await bc.ready;
+      for (const t of wins) await bc.send('Target.closeTarget', { targetId: t.id });
+      bc.close();
+      await sleep(2800);
+    }
+  }
 
   const click = async (title) => {
     const r = await ev(sh, `(() => {
@@ -151,22 +184,27 @@ const SNAPSHOT = `(() => {
   console.log('\n=== 初始（底部） ===');
   console.log('   外壳:', await ev(sh, SNAPSHOT));
   console.log('   页面:', await pageSize());
+  console.log('   前端:', await frontendMetrics());
+  console.log('   前端:', await frontendMetrics());
 
   console.log('\n=== 切到左侧 ===');
   console.log('   点击:', await click('停靠到左侧'));
   console.log('   外壳:', await ev(sh, SNAPSHOT));
   console.log('   页面:', await pageSize());
+  console.log('   前端:', await frontendMetrics());
 
   console.log('\n=== 切到右侧 ===');
   console.log('   点击:', await click('停靠到右侧'));
   console.log('   外壳:', await ev(sh, SNAPSHOT));
   console.log('   页面:', await pageSize());
+  console.log('   前端:', await frontendMetrics());
 
   console.log('\n=== 切到独立窗口 ===');
   console.log('   点击:', await click('在独立窗口中打开'));
   await sleep(2500);
   console.log('   外壳:', await ev(sh, SNAPSHOT));
   console.log('   页面:', await pageSize());
+  console.log('   前端:', await frontendMetrics());
   const list2 = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
   const devWin = (list2 || []).find((t) => t.type === 'page' && /devtools_app\.html/.test(t.url || '') && !/ws=/.test(t.url || '') === false);
   const devWinTargets = (list2 || []).filter((t) => /devtools_app\.html/.test(t.url || ''));

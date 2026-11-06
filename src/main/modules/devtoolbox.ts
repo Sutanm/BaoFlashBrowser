@@ -1,4 +1,4 @@
-import { app, BrowserWindow, webContents as allWebContents, type WebContents } from 'electron';
+import { app, BrowserView, BrowserWindow, webContents as allWebContents, type WebContents } from 'electron';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -418,6 +418,90 @@ export function closeDevToolsWindow(): void {
   devToolsWindowClosingByCode = true;
   devToolsWindow = null;
   win.close();
+}
+
+/**
+ * 内嵌前端视图（去端口改造 B1：容器换代）。
+ *
+ * 用 BrowserView 承载前端而不是 iframe：前端因此成为**独立 WebContents**，
+ * 不落在外壳的 frame 树里 —— 这是下一步切 file:// 时"无 parent + 独立分区 +
+ * 分区级白名单"成立的前提（同源子帧能绕过 contextIsolation，规格铁律 B2）。
+ *
+ * bounds 由渲染层逐帧上报（与 tab 的 setBounds 同一形状），实测拖拽零延迟。
+ */
+let devToolsView: BrowserView | null = null;
+let devToolsViewCloseHooked = false;
+let devToolsBoundsLog = 0;
+let devToolsBoundsMissLog = 0;
+
+export async function attachDevToolsView(target: 'page' | 'shell' = 'page'): Promise<{ ok: boolean; error?: string }> {
+  const main = getMainWindow();
+  if (!main || main.isDestroyed()) return { ok: false, error: 'no-window' };
+
+  const resolved = await getDevToolsTargetUrl(target);
+  if (!resolved.url) return { ok: false, error: resolved.reason };
+  log.info('[DevToolbox] attach embedded view target=%s url=%s', target, resolved.url.slice(0, 60));
+  devToolsBoundsLog = 0;
+  devToolsBoundsMissLog = 0;
+
+  destroyDevToolsView();
+  const view = new BrowserView({
+    webPreferences: {
+      partition: 'persist:devtools',
+      contextIsolation: true,
+      nodeIntegration: false,
+      spellcheck: false,
+    },
+  });
+  devToolsView = view;
+  main.addBrowserView(view);
+  // 先给 1×1：等渲染层第一次上报矩形再对齐，避免首帧闪一下满屏
+  view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+  if (!devToolsViewCloseHooked) {
+    devToolsViewCloseHooked = true;
+    main.once('closed', () => destroyDevToolsView());
+  }
+  await view.webContents.loadURL(resolved.url).catch((error: unknown) => {
+    log.warn('[DevToolbox] 内嵌前端视图加载失败:', error instanceof Error ? error.message : String(error));
+  });
+  return { ok: true };
+}
+
+export function setDevToolsViewBounds(rect: { x: number; y: number; width: number; height: number }): void {
+  const view = devToolsView;
+  if (!view) {
+    if (devToolsBoundsMissLog++ < 3) log.info('[DevToolbox] bounds 上报但视图不存在');
+    return;
+  }
+  if (devToolsBoundsLog++ < 3) {
+    log.info('[DevToolbox] bounds → x=%s y=%s w=%s h=%s', Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height));
+  }
+  view.setBounds({
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    width: Math.max(1, Math.round(rect.width)),
+    height: Math.max(1, Math.round(rect.height)),
+  });
+}
+
+export function destroyDevToolsView(): void {
+  const view = devToolsView;
+  devToolsView = null;
+  if (!view) return;
+  const main = getMainWindow();
+  try {
+    main?.removeBrowserView(view);
+  } catch {
+    // 窗口可能已经销毁
+  }
+  try {
+    // Electron 11 的 d.ts 没有声明 destroy，但运行时存在（isDestroyed/destroy 都在），
+    // 实测 typeof wc.destroy === 'function'。不用它的话 BrowserView 的 WebContents 会滞留。
+    const disposable = view.webContents as unknown as { destroy?: () => void; isDestroyed?: () => boolean };
+    if (!disposable.isDestroyed?.()) disposable.destroy?.();
+  } catch {
+    // 已销毁
+  }
 }
 
 /** Chromium 把实际端口写进 userData 下的 DevToolsActivePort（第一行端口）。 */

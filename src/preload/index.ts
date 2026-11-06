@@ -34,6 +34,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'diagnostics:export',
   'devtoolbox:snapshot', 'devtoolbox:clear', 'devtoolbox:devtools-url', 'devtoolbox:open-native', 'devtoolbox:probe-page',
   'devtoolbox:open-devtools-window', 'devtoolbox:close-devtools-window',
+  'devtoolbox:attach-devtools-view', 'devtoolbox:set-devtools-bounds', 'devtoolbox:detach-devtools-view',
   'devtoolbox:bridge-attach', 'devtoolbox:bridge-detach', 'devtoolbox:bridge-send', 'devtoolbox:bridge-stats',
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
@@ -183,6 +184,11 @@ const electronAPI = {
       ipcRenderer.on('devtoolbox:devtools-window-closed', listener);
       return () => { ipcRenderer.removeListener('devtoolbox:devtools-window-closed', listener); };
     },
+    /** 内嵌前端视图：用独立 WebContents（BrowserView）承载前端，而不是 iframe。 */
+    attachDevToolsView: (target: 'page' | 'shell') => safeInvoke('devtoolbox:attach-devtools-view', { target }),
+    setDevToolsBounds: (rect: { x: number; y: number; width: number; height: number }) =>
+      safeInvoke('devtoolbox:set-devtools-bounds', rect),
+    detachDevToolsView: () => safeInvoke('devtoolbox:detach-devtools-view'),
     onEntries: (callback: (entries: unknown[]) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, entries: unknown[]) => callback(entries);
       ipcRenderer.on('devtoolbox:entries', listener);

@@ -238,6 +238,10 @@ declare global {
         openDevToolsWindow(target?: 'page' | 'shell'): Promise<{ ok: boolean; error?: string }>;
         closeDevToolsWindow(): Promise<void>;
         onDevToolsWindowClosed(callback: () => void): () => void;
+        /** 内嵌前端视图：用独立 WebContents（BrowserView）承载前端，而不是 iframe。 */
+        attachDevToolsView(target: 'page' | 'shell'): Promise<{ ok: boolean; error?: string }>;
+        setDevToolsBounds(rect: { x: number; y: number; width: number; height: number }): Promise<void>;
+        detachDevToolsView(): Promise<void>;
         onEntries(callback: (entries: import('@shared/types/devtoolbox').DevToolEntry[]) => void): () => void;
         onCleared(callback: () => void): () => void;
         /** CDP 桥（桥 v2）：把当前活动标签挂到桥，再经桥收发 CDP 消息。 */

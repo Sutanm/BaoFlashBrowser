@@ -2,8 +2,10 @@ import { z } from 'zod';
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
 import {
+  attachDevToolsView,
   clearDevToolEntries,
   closeDevToolsWindow,
+  destroyDevToolsView,
   getDevToolSnapshot,
   getDevToolsTargetUrl,
   openDevToolsWindow,
@@ -11,6 +13,7 @@ import {
   probeActivePage,
   resolveActivePageTargetId,
   resolveDebugPort,
+  setDevToolsViewBounds,
 } from '../modules/devtoolbox';
 import { devToolsBridge } from '../modules/devtoolbox-bridge';
 import { getMainWindow } from '../modules/window';
@@ -49,6 +52,30 @@ export function registerDevToolboxIPC(): void {
 
   createHandler<void, void>('devtoolbox:close-devtools-window', () => {
     closeDevToolsWindow();
+  });
+
+  // 内嵌前端视图（B1 容器换代）：BrowserView 承载前端，bounds 由渲染层上报
+  createValidatedHandler(
+    'devtoolbox:attach-devtools-view',
+    z.object({ target }).strict(),
+    (args: { target: 'page' | 'shell' }) => attachDevToolsView(args.target),
+  );
+
+  createValidatedHandler(
+    'devtoolbox:set-devtools-bounds',
+    z.object({
+      x: z.number().finite(),
+      y: z.number().finite(),
+      width: z.number().finite(),
+      height: z.number().finite(),
+    }).strict(),
+    (args: { x: number; y: number; width: number; height: number }) => {
+      setDevToolsViewBounds(args);
+    },
+  );
+
+  createHandler<void, void>('devtoolbox:detach-devtools-view', () => {
+    destroyDevToolsView();
   });
 
   // DevTools 前端只认 WebSocket，这里给出可直接喂给 iframe 的 ws 地址。
