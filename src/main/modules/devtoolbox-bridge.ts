@@ -113,6 +113,8 @@ class DevToolsBridge {
   private recentAttach: Array<{ targetId: string; sessionId?: string; error?: string }> = [];
   private trace: Array<{ d: 'cmd' | 'evt'; m: string; s?: string }> = [];
   private flow: Array<{ d: '>' | '<'; m: string; s?: string; x?: string }> = [];
+  /** 前端发过的开关类命令（切标签时重放到新 session）。 */
+  private frontendState = new Map<string, Record<string, unknown>>();
 
   /**
    * 与 page-ws-baseline-capture 的 proxy summarise() 保持同一口径，
@@ -190,6 +192,7 @@ class DevToolsBridge {
     if (this.targetId === targetId && this.sessionId) return { sessionId: this.sessionId };
     const run = async (): Promise<{ sessionId: string }> => {
       await this.ensureSocket(port);
+      const previousTarget = this.targetId;
       if (this.sessionId) await this.detach();
 
       this.targetId = targetId;
@@ -204,6 +207,15 @@ class DevToolsBridge {
       // S9：session 建立后域尚未就绪，立即发包会得到 "… wasn't found"。等 attached 事件
       // 或一次短延迟再放行（attached 事件通常先于本次响应到达，这里兜底 60ms）。
       await new Promise((resolve) => setTimeout(resolve, 60));
+
+      // 切标签（换 target 而不是首次绑定）：前端没有重新连过，它只发过一次
+      // 初始化命令，新 session 上这些域一个都没开。把前端此前发过的「开关类」
+      // 命令按最新参数重放一遍，再宣告文档已换，前端就会重建 Elements/Console。
+      if (previousTarget && previousTarget !== targetId) {
+        await this.replayFrontendState(sessionId);
+        this.enqueue({ method: 'DOM.documentUpdated' });
+        this.enqueue({ method: 'Runtime.executionContextsCleared' });
+      }
       log.info(`[DevToolsBridge] attached target=${targetId.slice(0, 12)}… session=${sessionId.slice(0, 12)}…`);
       return { sessionId };
     };
@@ -215,8 +227,33 @@ class DevToolsBridge {
     }
   }
 
-  async detach(): Promise<void> {
-    if (!this.sessionId) return;
+  /**
+   * 记录前端发过的「开关类」命令（enable / setXxx / trackXxx / startXxx）。
+   *
+   * 切标签时桥换了 target，前端并不知道自己连的已经换了一页，它不会重发初始化
+   * 命令；新 session 上 DOM/Runtime/CSS 等域一个都没开，前端就再也收不到事件。
+   * 把这份记录按方法去重（保留最新参数）后重放，前端就能在新 session 上续上。
+   * 只记开关类，不记 getDocument 这类一次性查询。
+   */
+  private rememberFrontendState(method: string, params: Record<string, unknown> | undefined): void {
+    if (!/\.(enable|disable|set[A-Z]|track[A-Z]|start[A-Z])/.test(method)) return;
+    this.frontendState.set(method, params ?? {});
+  }
+
+  private async replayFrontendState(sessionId: string): Promise<void> {
+    let replayed = 0;
+    for (const [method, params] of this.frontendState) {
+      // 单条命令卡住不能拖死切标签流程：400ms 上限，超时只记日志。
+      await Promise.race([
+        this.sendRaw(method, params, sessionId),
+        new Promise((resolve) => setTimeout(resolve, 400)),
+      ]);
+      replayed += 1;
+    }
+    log.info(`[DevToolsBridge] replayed ${replayed} stateful commands onto new session`);
+  }
+
+  async detach(): Promise<void> {    if (!this.sessionId) return;
     const sessionId = this.sessionId;
     this.sessionId = null;
     this.targetId = null;
@@ -266,6 +303,7 @@ class DevToolsBridge {
       return finish({ ok: false, error: { message: 'bridge-no-session' } });
     }
     const response = await this.sendRaw(method, params, resolved, !deliver, deliver ? requestId : undefined);
+    if (deliver) this.rememberFrontendState(method, params);
     if (method === 'DOM.getDocument') {
       const root = (response.result as { root?: { nodeId?: number; childNodeCount?: number } } | undefined)?.root;
       this.lastDoc = response.error

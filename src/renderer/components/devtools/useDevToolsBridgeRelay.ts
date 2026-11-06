@@ -29,7 +29,12 @@ interface FrameMessage {
   payload?: unknown;
 }
 
-export function useDevToolsBridgeRelay(frameUrl: string | null): void {
+export function useDevToolsBridgeRelay(
+  frameUrl: string | null,
+  activeTabId: string | null,
+  activeTabUrl: string | null,
+  enabled: boolean,
+): void {
   useEffect(() => {
     if (!frameUrl) return;
     let frameOrigin = '';
@@ -38,6 +43,7 @@ export function useDevToolsBridgeRelay(frameUrl: string | null): void {
 
     let alive = true;
     let source: Window | null = null;
+    let hasHello = false;
 
     const post = (kind: string, extra: Record<string, unknown>): void => {
       if (!source) return;
@@ -47,12 +53,21 @@ export function useDevToolsBridgeRelay(frameUrl: string | null): void {
     const attach = async (): Promise<void> => {
       const result = await window.electronAPI.devtoolbox.bridge.attach().catch(() => null);
       if (!alive) return;
-      if (result && result.ok) {
-        post('ready', {});
+      // 只有首次（前端 hello 之后）才回 ready/detached——后续 switch 是"热切换"，
+      // 前端不该被当成重新连接（那会让它丢掉面板状态）。
+      if (!hasHello) {
+        if (result && result.ok) {
+          hasHello = true;
+          post('ready', {});
+          return;
+        }
+        const reason = (result && result.error && result.error.message) || 'attach-failed';
+        post('detached', { reason });
         return;
       }
-      const reason = (result && result.error && result.error.message) || 'attach-failed';
-      post('detached', { reason });
+      if (!(result && result.ok)) {
+        post('detached', { reason: (result && result.error && result.error.message) || 'attach-failed' });
+      }
     };
 
     const onMessage = (event: MessageEvent): void => {
@@ -103,4 +118,25 @@ export function useDevToolsBridgeRelay(frameUrl: string | null): void {
       offEvents();
     };
   }, [frameUrl]);
+
+  // 切标签 / 换页面：iframe 不重载（URL 恒定），只让主进程把桥重新绑到新标签。
+  // 桥内部对「target 没变」是幂等早退，所以同标签内导航只是多一次轻量 IPC；
+  // 真换了 target 时桥会重放前端的域开关并发 DOM.documentUpdated，前端据此重建面板。
+  //
+  // 注意依赖里有 activeTabUrl：新建标签时 tab id 不变、只有它的 URL 变，
+  // 只看 activeTabId 会漏掉这类切换（实测）。加 300ms 防抖吸收导航抖动。
+  useEffect(() => {
+    if (!enabled || !frameUrl || !activeTabId) return;
+    let cancelled = false;
+    // 新标签会先经历 about:blank（此时没有 page target，attach 必然失败）。
+    // 这是过渡态，不能当成「断开」——前端一旦收到 detached 就会显示断开横幅并
+    // 停止一切请求。所以热切换只静默重试，绝不发 detached。
+    const hotAttach = async (attempt: number): Promise<void> => {
+      const result = await window.electronAPI.devtoolbox.bridge.attach().catch(() => null);
+      if (cancelled || (result && result.ok)) return;
+      if (attempt < 4) setTimeout(() => { if (!cancelled) void hotAttach(attempt + 1); }, 600);
+    };
+    const timer = setTimeout(() => { void hotAttach(0); }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [enabled, frameUrl, activeTabId, activeTabUrl]);
 }

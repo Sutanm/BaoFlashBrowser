@@ -70,6 +70,12 @@ export interface DevToolDevToolsUrlRequest {
 export interface DevToolsTargetResult {
   url: string | null;
   reason: 'ok' | 'no-port' | 'no-target';
+  /**
+   * 传输模式：
+   * - `ws`：前端直连 CDP 端口（默认，URL 带 ws 参数，切标签会重载 iframe）
+   * - `bridge`：前端走 CDP 桥（URL 稳定，切标签只需重新 attach，iframe 不重载）
+   */
+  mode?: 'ws' | 'bridge';
 }
 
 export interface DevToolPageProbe {

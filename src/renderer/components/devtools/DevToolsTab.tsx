@@ -30,6 +30,8 @@ const DevToolsTab: React.FC = () => {
   const [missing, setMissing] = useState(false);
   const [noTarget, setNoTarget] = useState(false);
   const [nonce, setNonce] = useState(0);
+  /** 桥模式下 URL 恒定（不含 target id），切标签只换绑定、不换 URL → iframe 不重载。 */
+  const [mode, setMode] = useState<'ws' | 'bridge'>('ws');
 
   useEffect(() => {
     let alive = true;
@@ -43,6 +45,7 @@ const DevToolsTab: React.FC = () => {
         if (!alive) return;
         if (result && result.url) {
           setUrl(result.url);
+          setMode(result.mode === 'bridge' ? 'bridge' : 'ws');
           setMissing(false);
           setNoTarget(false);
           return;
@@ -84,7 +87,7 @@ const DevToolsTab: React.FC = () => {
 
   // 桥模式（URL 不带 ws）下由这个中继把 iframe 的 postMessage 接到 IPC。
   // 非桥模式下前端走 WebSocketConnection、不发 hello，此 hook 静默无作用。
-  useDevToolsBridgeRelay(url);
+  useDevToolsBridgeRelay(url, activeTabId, activeTabUrl, mode === 'bridge');
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -136,7 +139,9 @@ const DevToolsTab: React.FC = () => {
         </div>
       ) : url ? (
         <iframe
-          key={url}
+          // 桥模式 URL 恒定 → key 恒定 → 切标签不重载（面板状态保留）。
+          // ws 模式 URL 含 target id，key 变化即重载（等价于重新连接）。
+          key={mode === 'bridge' ? 'bridge' : url}
           title="DevTools"
           src={url}
           className="flex-1 min-h-0 w-full"

@@ -481,7 +481,11 @@ export async function resolveActivePageTargetId(): Promise<string | null> {
   if (!port) return null;
   const tabId = tabManager.getActiveId();
   if (!tabId) return null;
-  return pickTargetForTab(tabId, port);
+  const resolved = await pickTargetForTab(tabId, port);
+  const wc = tabManager.getWebContents(tabId);
+  log.info('[DevToolsBridge] resolve active: tab=%s url=%s → target=%s',
+    tabId.slice(0, 6), (wc ? wc.getURL() : '-'), (resolved ? resolved.slice(0, 6) : 'null'));
+  return resolved;
 }
 
 /**
@@ -512,12 +516,14 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<De
   if (!pickedId) return { url: null, reason: 'no-target' };
   // 桥模式（enabled via BAO_DEVTOOLS_BRIDGE=1）：URL 不带 ws，前端会走
   // BfbBridgeConnection（postMessage → 外壳中继 → IPC → 主进程桥 → flatten）。
-  // bfb_target 只作为 iframe key 的重载触发参数（切标签时仍重载一次，
-  // "不重载"是 B4 的目标）。
+  // **URL 里刻意不带 target id**：切标签时 iframe 的 key 不变就不会重载，
+  // 面板状态（Elements 选中、Console 历史）得以保留；跟随新标签由渲染层
+  // 重新调用 bridge.attach() 完成（桥重放域状态 + 发 DOM.documentUpdated）。
   if (process.env.BAO_DEVTOOLS_BRIDGE === '1') {
     return {
-      url: `http://127.0.0.1:${frontend}/devtools_app.html?can_dock=true&bfb_target=${pickedId}`,
+      url: `http://127.0.0.1:${frontend}/devtools_app.html?can_dock=true`,
       reason: 'ok',
+      mode: 'bridge',
     };
   }
   // 默认（page-ws 直连）。入口用 devtools_app.html（只挂 AdvancedApp 停靠壳），
@@ -526,6 +532,7 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<De
   return {
     url: `http://127.0.0.1:${frontend}/devtools_app.html?ws=127.0.0.1:${port}/devtools/page/${pickedId}&can_dock=true`,
     reason: 'ok',
+    mode: 'ws',
   };
 }
 
