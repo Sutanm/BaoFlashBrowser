@@ -27,12 +27,21 @@ Electron 的 `webContents.debugger` 一个 WebContents 只能挂一个（`cdp-le
 | page-ws + browser 级 `Target.attachToTarget(flatten)` | 共存，事件互通 |
 | embedded（`webContents.debugger`）+ page-ws × 2 | 共存，attach/evaluate 全通 |
 | embedded + flatten | attach 成功；flatten 的 `Runtime.evaluate` 报"域未找到"（细节异常，attach 本身不互斥） |
+| embedded + `openDevTools({mode:'detach'})` / `mode:'bottom'` | 共存（两种 attach 顺序均通过，探针 `cdp-opendevtools-coexist.cjs`） |
+| embedded + `setDevToolsWebContents` 容器（BrowserView 承载内置前端） | 共存，容器内 URL 为 `devtools://devtools/bundled/...`；注意 `isDevToolsOpened()` 在该组合下返回 false（quirk，探针 `cdp-container-check.cjs`） |
 
-推论：抽屉 DevTools 前端（page-ws）开着**不影响**密码捕获/填充；"CDP 总线"
-（browser flatten 多路复用）要解决的多客户端问题 Chromium 87 的端点已经免费
-提供，没有必要实现。唯一真实的互斥仍是 embedded × embedded——若未来出现
-第三个 embedded 消费者，做一个约百行的 embedded 引用计数复用器即可，
-同样不需要总线。
+推论：抽屉 DevTools 前端（page-ws）开着**不影响**密码捕获/填充；openDevTools 系
+也不影响。"CDP 总线"（browser flatten 多路复用）要解决的多客户端问题 Chromium 87
+的端点已经免费提供，没有必要实现。唯一真实的互斥仍是 embedded × embedded
+（`webContents.debugger` × 2，即 2026-09-22 事故与 cdp-lease 的存在理由）——若未来
+出现第三个 embedded 消费者，做一个约百行的 embedded 引用计数复用器即可，不需要总线。
+
+**容器方案 vs iframe 方案（2026-11-06 评审结论）**：`setDevToolsWebContents` +
+BrowserView 容器（"可感知容积包裹"）技术上成立——bounds 全控、免端口、免 iframe
+降级工程、与密码模块共存。但它承载的是**87 内置前端**（`devtools://devtools/bundled`，
+无中文、2020 年代 UI），且前端不可替换（该 API 无法指定自定义页面）；另有
+`isDevToolsOpened` 等 quirk 需要额外工程验证。现行 iframe 方案换来的是 M97 前端 +
+中文包 + 停靠壳，代价（回环随机端口 + polyfill）已付清且稳定，维持不换。
 
 **结论**：首版只做非 CDP 观察，能力换稳定性。
 
