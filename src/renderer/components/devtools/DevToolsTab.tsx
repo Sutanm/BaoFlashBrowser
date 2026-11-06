@@ -245,18 +245,23 @@ const DevToolsTab: React.FC = () => {
   }, [mode, url, nonce]);
 
   // 停靠切换（右→左、下→右…）时抽屉换了位置：**尺寸常常一模一样，只有 x/y 变**，
-  // ResizeObserver 不会触发，原生视图就会留在原处（现象：抽屉在左、画面还在右）。
+  // ResizeObserver 不会触发，原生视图就会留在原处（现象：抽屉在右、画面还在左）。
   // 同理，切到没有 target 的标签页 / 切回来时占位 div 的显隐也会让它变 0 或变回来。
-  // 等一帧让 flex 布局落定，再按新矩形上报一次。
+  // 只用两帧不够稳：切停靠常常伴随侧边栏/抽屉的过渡，布局可能晚一两拍才最终定格，
+  // 所以补三次（下一帧、+120ms、+350ms），每次都取当下的真实矩形。
   useEffect(() => {
     let frame = 0;
-    const run = (): void => {
-      frame = window.requestAnimationFrame(() => {
-        frame = window.requestAnimationFrame(() => reportLayoutRef.current?.());
-      });
+    const timers: number[] = [];
+    const fire = (): void => { reportLayoutRef.current?.(); };
+    frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(fire);
+    });
+    timers.push(window.setTimeout(fire, 120));
+    timers.push(window.setTimeout(fire, 350));
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      for (const timer of timers) window.clearTimeout(timer);
     };
-    run();
-    return () => { if (frame) window.cancelAnimationFrame(frame); };
   }, [dock, noTarget]);
 
   // 桥模式下 URL 恒定，切标签只重绑 session：前端不重载，面板状态保留。

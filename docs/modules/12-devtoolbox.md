@@ -316,6 +316,7 @@ node tools/devtools-spike/bridge-mode-check.cjs              # 桥模式端到�
 BFB_PAGE_WS=1 node tools/devtools-spike/bridge-mode-check.cjs # page-ws 回退对照（同一 fixture、同一探针）
 node tools/devtools-spike/toolbar-merge-check.cjs            # 顶栏只有一行、窄抽屉不横向溢出；顺带截 artifacts/devtools-toolbar-merged.png
 node tools/devtools-spike/frontend-intent-check.cjs          # 原生停靠菜单/✕ 经 bfbBridge.shell 落到外壳：right→竖向、bottom→横向、close→收起
+node tools/devtools-spike/dock-sequence-check.cjs            # 底→左→右（真实按钮，可 BFB_STEP_MS=250 连点）：抽屉矩形与上报矩形必须一致
 node tools/devtools-spike/styles-spin-check.cjs              # Styles 是否加载：BFB_REOPEN=1 切页签回来、BFB_CLICK=1 点节点、BFB_URL 打真站
 node tools/devtools-spike/bridge-tab-switch-check.cjs        # 桥模式：切标签容器不重建、面板状态保留、树跟随；并量「切回」的跟随耗时（实测 ~520ms）
 BFB_RESET_LOCALE=1 node tools/devtools-spike/bridge-mode-check.cjs # 清掉持久化 language，确认"没存过就跟随系统"
@@ -368,8 +369,10 @@ requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 
 **切停靠后原生视图不跟随**（右→左最典型）：抽屉从右换到左时宽高完全一样、只有 x 变，
 `ResizeObserver` 不触发，视图就留在原处（现象：抽屉在左、画面还在右）。修法：
-`DevToolsTab` 在 `dock` 变化后等两帧再 `report()` 一次。判据
-`frontend-intent-check.cjs` + `BAO_DEVTOOLS_BOUNDS_LOG=1`：右 x=746 → 左 x=0，尺寸不变。
+`DevToolsTab` 在 `dock` 变化后补报三次（下一帧、+120ms、+350ms，每次取当下真实矩形）：
+只报一次不够稳，切停靠常伴随侧边栏/抽屉过渡，布局可能晚一两拍才定格。
+判据 `dock-sequence-check.cjs`（按真实按钮点 底→左→右，也可用 `BFB_STEP_MS=250` 快速连点）
++ `BAO_DEVTOOLS_BOUNDS_LOG=1`：抽屉 x=742 时必须上报 x=746，切换侧必须 x=0。
 
 **原生 DevTools 自带的停靠菜单与 ✕ 已接进外壳**。它们原来各走各的：
 

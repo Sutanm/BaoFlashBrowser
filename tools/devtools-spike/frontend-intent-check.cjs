@@ -156,15 +156,16 @@ const DRAWER = `(() => {
 
   console.log('[intent] 前端有 bfbBridge.shell:', await evaluate(fc, 'typeof (window.bfbBridge && window.bfbBridge.shell)'));
 
-  console.log('[intent] 发 dock=right:', await evaluate(fc, `window.bfbBridge.shell({dock:'right'})||'sent'`));
-  await sleep(1800);
-  console.log('[intent] dock=right 后:', await evaluate(client, DRAWER, false));
-
-  console.log('[intent] 回读 dockSide:', await evaluate(fc, "window.bfbBridge.dockSide()"));
+  // 复现用户顺序：底 → 左 → 右
   console.log('[intent] 发 dock=left:', await evaluate(fc, `window.bfbBridge.shell({dock:'left'})||'sent'`));
   await sleep(1800);
   console.log('[intent] dock=left 后:', await evaluate(client, DRAWER, false));
 
+  console.log('[intent] 发 dock=right:', await evaluate(fc, `window.bfbBridge.shell({dock:'right'})||'sent'`));
+  await sleep(1800);
+  console.log('[intent] dock=right 后（底→左→右）:', await evaluate(client, DRAWER, false));
+
+  console.log('[intent] 回读 dockSide:', await evaluate(fc, "window.bfbBridge.dockSide()"));
   console.log('[intent] 发 dock=bottom:', await evaluate(fc, `window.bfbBridge.shell({dock:'bottom'})||'sent'`));
   await sleep(1800);
   console.log('[intent] dock=bottom 后:', await evaluate(client, DRAWER, false));
