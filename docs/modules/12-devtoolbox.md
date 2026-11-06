@@ -130,8 +130,19 @@ Electron 11 的 webRequest 监听是「后者覆盖前者」。要做必须先�
 | `src/main/modules/devtoolbox.ts` | `ensureFrontendServer()`（127.0.0.1 + 系统分配端口）、`getDevToolsTargetUrl()` |
 | `src/renderer/components/devtools/DevToolsTab.tsx` | iframe 宿主 + 「当前页面 / 外壳界面」目标切换 |
 
-传输链：`iframe(http://127.0.0.1:<static>/inspector.html?ws=127.0.0.1:<cdp>/devtools/page/<id>)`
+传输链：`iframe(http://127.0.0.1:<static>/devtools_app.html?ws=127.0.0.1:<cdp>/devtools/page/<id>&can_dock=true)`
 → Chromium 的 CDP 端口 → 目标 WebContents。**前端只会说 WebSocket，端口是它的传输层。**
+
+**壳的选择（2026-11-06）**：入口用 `devtools_app.html` + `can_dock=true`，而不是
+`inspector.html`。M97 前端按 `getRegisteredAppProviders()` 的 order 选壳：
+`AdvancedApp`（order 0，condition = `can_dock` query 参数）> `ScreencastApp`
+（order 1，无条件兜底）。`inspector.html` 会额外注册 ScreencastApp，且不带
+`can_dock` 时 AdvancedApp 被 condition 过滤掉 → 只能跑出"左侧实时画面 +
+右侧面板"的 undocked 布局（iframe 里没有宿主窗口，那块预览纯属浪费）。
+`devtools_app.html` 只挂 AdvancedApp；`can_dock=true` 让 DockController 走
+docked 语义（默认 `right`），构建期把 `updateForDocked()` 末尾的 `showBoth()`
+改成 `hideMain()`（见 8.2 源级补丁），让 Elements/Styles 分栏铺满抽屉，
+没有空白占位也没有 screencast。
 
 ### 8.2 为什么要降级
 
@@ -152,6 +163,13 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
    - `ui/components/highlighting/highlighting.js`：87 的 `document.adoptedStyleSheets`
      是冻结数组（push 抛 TypeError），改成整体赋值（赋值语义可用且样式真实生效，
      探针 `tools/devtools-spike/adopted-probe.cjs`）。
+   - `panels/emulation/emulation.js`：`updateForDocked()` 末尾 `showBoth()` →
+     `hideMain()`。can_dock 下 DockController 默认 dockSide 是 `right`，showBoth
+     会显示"被检查页面占位"（真 DevTools 里由宿主窗口绘制，iframe 里只是一块空白）；
+     保留 `right` 而不是改默认值为 `undocked`，因为 undocked 会在首次 setDockSide
+     时触发 `openToolboxWindow()` 的 `window.open`（设备模式 frame，会弹窗）。
+   - polyfill 注入覆盖 `inspector.html` 与 `devtools_app.html` 两个入口
+     （前者保留给探针脚本对拍）。
 
 ### 8.3 端口与安全
 
@@ -177,6 +195,7 @@ node tools/devtools-spike/verify-in-app.cjs   # 起应用→点工具箱→截�
 env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devtools-spike/electron-frontend-check.cjs   # 单窗口验证前端能否在 87 上启动
 env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devtools-spike/adopted-probe.cjs   # 探 87 的 adoptedStyleSheets 语义
 node tools/devtools-spike/page-elements-repro.cjs   # 真实页面（默认 7k7k）上验证 Elements 树渲染
+node tools/devtools-spike/dock-shell-check.cjs      # 验证停靠壳：devtools_app.html + can_dock、无 screencast、Elements 渲染
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、

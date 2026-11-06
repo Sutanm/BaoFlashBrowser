@@ -397,6 +397,18 @@ function fetchTargets(port: number): Promise<DebugTarget[]> {
  *
  * 匹配策略：外壳按 `file://…/dist/renderer/` 前缀；页面按当前标签 URL 精确匹配，
  * 匹配不到时退回第一个非外壳的 page（换标签时 URL 可能刚好在跳转中）。
+ *
+ * 入口与参数（2026-11-06）：
+ * - 用 `devtools_app.html` 而不是 `inspector.html`。后者额外注册了
+ *   `ScreencastAppProvider`（order 1 兜底壳），在 iframe 里只能跑出"左侧实时画面 +
+ *   右侧面板"的 undocked 布局；前者只挂 `AdvancedApp`，停靠语义完整。
+ * - `can_dock=true` 是 `AdvancedApp` 的启用条件（`Runtime.ConditionName.CAN_DOCK`
+ *   就是查这个 query 参数）。不带它时 `getRegisteredAppProviders()` 会把
+ *   AdvancedApp 过滤掉，退回 screencast 壳。
+ * - 但 can_dock=true 的 `DockController` 默认 dockSide 是 `right`，`updateForDocked()`
+ *   末尾会 `showBoth()` 显示主区占位（真 DevTools 里那块由宿主窗口绘制页面）。
+ *   我们这里是 iframe，占位只会变成一块空白，故构建期把该行改成 `hideMain()`
+ *   （见 `scripts/build-devtools-frontend.cjs` 的 SOURCE_PATCHES）。
  */
 export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<string | null> {
   const port = resolveDebugPort();
@@ -418,7 +430,7 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<st
     if (!picked) picked = targets.find((item) => !isShell(item)) ?? targets[0];
   }
   if (!picked) return null;
-  return `http://127.0.0.1:${frontend}/inspector.html?ws=127.0.0.1:${port}/devtools/page/${picked.id}`;
+  return `http://127.0.0.1:${frontend}/devtools_app.html?ws=127.0.0.1:${port}/devtools/page/${picked.id}&can_dock=true`;
 }
 
 const PROBE_SCRIPT = `(function () {

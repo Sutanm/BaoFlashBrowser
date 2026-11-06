@@ -207,6 +207,21 @@ const SOURCE_PATCHES = [
       ],
     ],
   },
+  {
+    file: 'panels/emulation/emulation.js',
+    patches: [
+      // 抽屉以 `can_dock=true` 起 AdvancedApp（唯一停靠壳），DockController 的默认
+      // dockSide 是 "right"，`updateForDocked()` 末尾 `showBoth()` 会把主区显示出来。
+      // 真 DevTools 里主区由宿主窗口绘制被检查页面，我们跑在 iframe 里没有宿主，
+      // showBoth 只会得到一块空白占位；改成 hideMain 让 InspectorView 独占整宽。
+      // 保留 "right" 而不是切 "undocked"：后者会在首次 setDockSide 时触发
+      // AdvancedApp.openToolboxWindow() 的 window.open(设备模式 frame)。
+      [
+        'this.rootSplitWidget.showBoth()}updateForUndocked(){',
+        'this.rootSplitWidget.hideMain()}updateForUndocked(){',
+      ],
+    ],
+  },
 ];
 
 function applySourcePatches(relative, source, failures) {
@@ -295,9 +310,13 @@ function applySourcePatches(relative, source, failures) {
   }
 
   fs.writeFileSync(path.join(OUT, 'bfb-polyfills.js'), POLYFILL);
-  const indexHtml = path.join(OUT, 'inspector.html');
-  const html = fs.readFileSync(indexHtml, 'utf-8').replace('<body', '<script src="./bfb-polyfills.js"></script>\n<body');
-  fs.writeFileSync(indexHtml, html);
+  // 两个入口都要前置 polyfill：inspector.html 是 screencast 壳（保留给探针脚本对拍），
+  // devtools_app.html 是应用实际加载的停靠壳入口。
+  for (const name of ['inspector.html', 'devtools_app.html']) {
+    const entryHtml = path.join(OUT, name);
+    const html = fs.readFileSync(entryHtml, 'utf-8').replace('<body', '<script src="./bfb-polyfills.js"></script>\n<body');
+    fs.writeFileSync(entryHtml, html);
+  }
 
   console.log(`[devtools-frontend] ${transformed} js downgraded, ${patchedTla} files patched, ${failures.length} failed → ${OUT}`);
   if (failures.length) {
