@@ -119,6 +119,12 @@ export interface DevToolState {
   /** 独立窗口关闭后要回到的内嵌位置（不持久化）。 */
   lastEmbeddedDock: Exclude<DevToolDock, 'undocked'>;
   tab: DevToolTab;
+  /**
+   * 每个标签页各自记住"当前页面 / 外壳界面"的选择。
+   * 面板只有一份（前端容器共用），但"想看哪个 target"是跟标签走的：
+   * 在游戏页选了「当前页面」，切到新标签页再切回来应该还是「当前页面」。
+   */
+  tabTarget: Record<string, 'page' | 'shell'>;
   entries: DevToolEntry[];
   loaded: boolean;
 
@@ -128,6 +134,7 @@ export interface DevToolState {
   setWidth: (width: number) => void;
   setDock: (dock: DevToolDock) => void;
   setTab: (tab: DevToolTab) => void;
+  setTabTarget: (tabId: string, target: 'page' | 'shell') => void;
   ingest: (entries: DevToolEntry[]) => void;
   replaceEntries: (entries: DevToolEntry[]) => void;
   clearEntries: () => void;
@@ -143,6 +150,7 @@ export const useDevToolStore = create<DevToolState>((set) => ({
   dock: initialDock,
   lastEmbeddedDock: initialDock === 'undocked' ? 'bottom' : initialDock,
   tab: 'devtools',
+  tabTarget: {},
   entries: [],
   loaded: false,
 
@@ -169,6 +177,7 @@ export const useDevToolStore = create<DevToolState>((set) => ({
       : { dock, lastEmbeddedDock: dock }));
   },
   setTab: (tab) => set({ tab }),
+  setTabTarget: (tabId, target) => set((state) => ({ tabTarget: { ...state.tabTarget, [tabId]: target } })),
   ingest: (incoming) => set((state) => {
     if (incoming.length === 0) return state;
     const merged = state.entries.concat(incoming);

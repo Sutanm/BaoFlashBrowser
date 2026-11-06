@@ -152,15 +152,28 @@ npm run build && npm start
 | --- | --- | --- |
 | 看不到网络响应体 | `session.webRequest` 只有头与状态；响应体必须 CDP `Network.getResponseBody` 或 mitm 代理 | 阶段二引入 `cdp-hub`（共享会话 + 引用计数）后补 |
 | 没有 Elements/CSS 面板 | 需要 `DOM.*` / `CSS.*` 域 | 已提供只读选择器（选择器/尺寸/outerHTML/常用计算样式）；改样式与实时 DOM 树仍需 CDP |
-| 选择器进不了跨域 iframe | `executeJavaScript` 只作用于主 frame | Flash 站点的游戏页多在 iframe 内：Flash 标签会列出 iframe 地址并标注同源/跨域 |
+| 选择器进不了跨域 iframe | `executeJavaScript` 只作用于主 frame，Electron 11 也没有 `mainFrame`/`WebFrameMain` | Flash 标签的做法：**同源 iframe 递归扫两层**（能读到就照常列 SWF），跨域 frame 只列地址并标注；三种"没 SWF"分开说（见下） |
 | 没有断点调试 | 无 CDP 就没有 Debugger 域 | 原生 DevTools 兜底 |
 | `console-message` 无对象参数 | Electron 11 限制 | 升级 Electron 不可行（Flash PPAPI → 见 02） |
-| 内置面板永远是英文 | Chromium 87 的 DevTools 前端只打包 `locales/en-US.json`，多语言从 Chrome 94 才有 | 无法修改；工具箱即中文替代品 |
+| 内置面板的语言跟随系统 | chii 的构建产物自带 `locales/zh.json`（官方 npm 包没有），首开横幅可一键切换 | 已支持中文，见 §8.1 的 i18n patch |
 
-**网络面板尚未实现**：`onBeforeRequest` / `onHeadersReceived` 已被 `session-manager.ts`
-占用、`onCompleted` / `onErrorOccurred` 已被 `userscript-web-request.ts` 占用，
+**Flash 标签的三种"没 SWF"**（`PROBE_SCRIPT` + `FlashTab`）：
+
+1. `flashPlugins > 0` → 「检测到 N 个 Flash 插件实例，但没解析出 SWF 地址」——
+   按 `<embed/object type="application/x-shockwave-flash">` 数实例，不看 URL。
+   有的站点把地址藏进脚本，光看 `.swf` 字符串会误报"没有 Flash"。
+2. 有跨域 iframe → 「游戏很可能在下面这些跨域 iframe 里」——跨域 frame 的 DOM 读不到
+   （Electron 11 没有 `mainFrame`，`executeJavaScript` 只作用于主 frame）。
+   同源 iframe 会递归进去扫两层，所以同源套壳的站点照样能列出 SWF。
+3. 都没有 → 原来的「未检测到 SWF（Ruffle 模式或游戏尚未加载）」。
+
+4399 这类**顶层直接放 `<object>`** 的页面属于正常路径（实测 `embed 755×567` + 3 个 SWF）；
+7k7k 的 pkt 把游戏放在跨域 iframe 里，落在第 2 种。
+
 Electron 11 的 webRequest 监听是「后者覆盖前者」。要做必须先把观察者挂进现有监听链
 （参考 `js-patch-service.ts` 的既有模式），不能自行注册。
+（补：`onBeforeRequest` / `onHeadersReceived` 已被 `session-manager.ts` 占用、
+`onCompleted` / `onErrorOccurred` 已被 `userscript-web-request.ts` 占用，四个槽位已满。）
 
 ## 8 DevTools 宿主（2026-11-05 第二轮）
 
@@ -174,7 +187,7 @@ Electron 11 的 webRequest 监听是「后者覆盖前者」。要做必须先�
 | `scripts/build-devtools-frontend.cjs` | 降级到 Chromium 87：摘 top-level await、esbuild 语法降级、注入 polyfill、补 `-webkit-mask` 前缀 |
 | `dist/devtools-frontend/` | 构建产物；开发时由主进程静态托管，打包时进 `resources/devtools-frontend` |
 | `src/main/modules/devtoolbox.ts` | `ensureFrontendServer()`（127.0.0.1 + 系统分配端口）、`getDevToolsTargetUrl()` |
-| `src/renderer/components/devtools/DevToolsTab.tsx` | iframe 宿主 + 「当前页面 / 外壳界面」目标切换 |
+| `src/renderer/components/devtools/DevToolsTab.tsx` | iframe 宿主 + 「当前页面 / 外壳界面」目标切换（**选择按标签记**，见 `useDevToolStore.tabTarget`） |
 
 传输链：`iframe(http://127.0.0.1:<static>/devtools_app.html?ws=127.0.0.1:<cdp>/devtools/page/<id>&can_dock=true)`
 → Chromium 的 CDP 端口 → 目标 WebContents。**前端只会说 WebSocket，端口是它的传输层。**
@@ -367,6 +380,11 @@ preload 后这条中继整个删了（`useDevToolsBridgeRelay.ts` 已移除）�
    现在 `devtoolsUrl` / `attach-devtools-view` / `bridge.attach` / `open-devtools-window`
    都接受 `tabId`，由渲染层把"用户看到的是哪个标签"传下去；渲染层另外丢弃迟到的
    响应（`useTabsStore.getState().activeTabId !== 请求时的 tabId` 就丢）。
+6. **换 target 时必须把在途请求判失败**。`detach()` 会清掉 session，但旧 session 上
+   已经发出去的请求永远不会有响应；桥不主动失败，前端那边就是一个永远 pending 的
+   Promise——**表现是 Styles/Computed 一直转圈，只能重新点一次节点才恢复**。
+   现在 `detach()` / `shutdown()` / `Target.detachedFromTarget` 都会 `failPending()`，
+   另加 15s 兜底超时（target 卡死时也能收尾）。`bridge.stats().failed` 是被判失败的条数。
 
 ### 9.3 开关与限制
 

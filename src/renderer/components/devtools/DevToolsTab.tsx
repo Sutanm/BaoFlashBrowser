@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
+import { useDevToolStore } from '@renderer/store/useDevToolStore';
 import { useDevToolsBridgeAttach } from './useDevToolsBridgeAttach';
 import { isDevtoolsDragging } from './dragState';
 
@@ -54,7 +55,15 @@ const DevToolsTab: React.FC = () => {
   // 导航完成后需要再试一次）；page target 的 id 跨导航恒定，同标签内导航
   // 拿回的是同一个 URL，视图不会重载，面板状态照常保留。
   const activeTabUrl = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.url ?? null);
-  const [target, setTarget] = useState<Target>('page');
+  // 选择跟标签走：面板只有一份，但"看哪个 target"是每个标签各自的偏好。
+  // 之前这里是组件内的 useState，等于全局——在游戏页选了「当前页面」，
+  // 切到新标签页再切回来就变回「外壳」了。
+  const tabTarget = useDevToolStore((s) => (activeTabId ? s.tabTarget[activeTabId] : undefined));
+  const setTabTarget = useDevToolStore((s) => s.setTabTarget);
+  const target: Target = tabTarget ?? 'page';
+  const setTarget = useCallback((next: Target) => {
+    if (activeTabId) setTabTarget(activeTabId, next);
+  }, [activeTabId, setTabTarget]);
   const [url, setUrl] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
   const [noTarget, setNoTarget] = useState(false);
@@ -232,6 +241,8 @@ const DevToolsTab: React.FC = () => {
               key={item}
               type="button"
               onClick={() => setTarget(item)}
+              aria-pressed={target === item}
+              data-devtarget={item}
               className="text-[12px] px-2 py-[2px]"
               style={{
                 background: target === item ? 'var(--bg-panel)' : 'transparent',

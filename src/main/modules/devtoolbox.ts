@@ -804,8 +804,8 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell', tabId?: str
 }
 
 const PROBE_SCRIPT = `(function () {
-  function abs(value) {
-    try { return new URL(value, location.href).href; } catch (e) { return String(value || ''); }
+  function abs(value, base) {
+    try { return new URL(value, base || location.href).href; } catch (e) { return String(value || ''); }
   }
   function isSwf(url) {
     var text = String(url || '').toLowerCase();
@@ -814,37 +814,70 @@ const PROBE_SCRIPT = `(function () {
     var next = text.charAt(at + 4);
     return next === '' || next === '?' || next === '#';
   }
+  function isFlashType(node) {
+    var t = String(node.getAttribute('type') || '').toLowerCase();
+    return t.indexOf('shockwave-flash') !== -1 || t.indexOf('shockwave') !== -1;
+  }
   var found = [];
   var seen = Object.create(null);
-  function push(url, kind, width, height) {
-    var full = abs(url);
+  var flashPlugins = 0;
+  var sameOriginFrames = 0;
+  // 尺寸归一：0×0 的加载器插件不该在 UI 里显示成 NaN×NaN
+  function dim(value) {
+    var n = Number(value);
+    return isFinite(n) && n > 0 ? Math.round(n) : undefined;
+  }
+  function push(url, kind, base, width, height) {
+    var full = abs(url, base);
     if (!full || !isSwf(full)) return;
     var key = kind + '|' + full;
     if (seen[key]) return;
     seen[key] = true;
     found.push({ url: full, kind: kind, width: width, height: height });
   }
-  var nodes = document.querySelectorAll('embed, object, param');
-  for (var i = 0; i < nodes.length; i++) {
-    var node = nodes[i];
-    var tag = node.tagName.toLowerCase();
-    if (tag === 'param') {
-      if ((node.getAttribute('name') || '').toLowerCase() === 'movie') push(node.value || node.getAttribute('value'), 'param');
-      continue;
+  // 递归扫同源 frame：很多站把游戏塞在同源 iframe 里，只扫顶层会漏。
+  // 跨域 frame 的 document 访问会抛异常，只能跳过（Electron 11 没有 mainFrame API）。
+  function scan(doc, depth) {
+    if (!doc) return;
+    var base = doc.baseURI || location.href;
+    var nodes;
+    try { nodes = doc.querySelectorAll('embed, object, param'); } catch (e) { return; }
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var tag = node.tagName.toLowerCase();
+      if (tag === 'param') {
+        if ((node.getAttribute('name') || '').toLowerCase() === 'movie') {
+          push(node.value || node.getAttribute('value'), 'param', base);
+        }
+        continue;
+      }
+      if (isFlashType(node)) flashPlugins += 1;
+      var box = [dim(node.clientWidth) || dim(node.width), dim(node.clientHeight) || dim(node.height)];
+      push(node.getAttribute('src'), tag, base, box[0], box[1]);
+      push(node.getAttribute('data'), tag, base, box[0], box[1]);
     }
-    push(node.getAttribute('src'), tag, node.clientWidth || node.width, node.clientHeight || node.height);
-    push(node.getAttribute('data'), tag, node.clientWidth || node.width, node.clientHeight || node.height);
+    try {
+      var win = doc.defaultView;
+      var list = win && win.performance ? win.performance.getEntriesByType('resource') : [];
+      for (var j = 0; j < list.length; j++) push(list[j].name, 'resource', base);
+    } catch (e) { /* performance unavailable */ }
+    if (depth <= 0) return;
+    var frames;
+    try { frames = doc.querySelectorAll('iframe, frame'); } catch (e) { return; }
+    for (var k = 0; k < frames.length; k++) {
+      try {
+        var sub = frames[k].contentDocument;
+        if (sub) { sameOriginFrames += 1; scan(sub, depth - 1); }
+      } catch (e) { /* 跨域，跳过 */ }
+    }
   }
-  try {
-    var list = performance.getEntriesByType('resource');
-    for (var j = 0; j < list.length; j++) if (isSwf(list[j].name)) push(list[j].name, 'resource');
-  } catch (e) { /* performance unavailable */ }
-  // 主文档探测不到跨域 iframe 内部：7k7k 这类站的游戏页面本身就在 iframe 里，
-  // 这里至少把 iframe 的地址与是否同源暴露出来，避免"未检测到 SWF"被误读成没有 Flash。
+  scan(document, 2);
+  // 主文档探测不到跨域 iframe 内部：把 iframe 的地址与是否同源暴露出来，
+  // 避免"未检测到 SWF"被误读成"这页没有 Flash"。
   var frameList = [];
   var frameNodes = document.querySelectorAll('iframe, frame');
-  for (var k = 0; k < frameNodes.length; k++) {
-    var frameNode = frameNodes[k];
+  for (var k2 = 0; k2 < frameNodes.length; k2++) {
+    var frameNode = frameNodes[k2];
     var frameUrl = frameNode.getAttribute('src') || '';
     var sameOrigin = false;
     try { sameOrigin = !!frameNode.contentWindow && !!frameNode.contentDocument; } catch (e) { sameOrigin = false; }
@@ -855,6 +888,8 @@ const PROBE_SCRIPT = `(function () {
   return {
     swf: found,
     frames: frameList,
+    flashPlugins: flashPlugins,
+    sameOriginFrames: sameOriginFrames,
     ua: navigator.userAgent,
     viewport: { width: window.innerWidth, height: window.innerHeight },
     frameCount: frames

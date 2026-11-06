@@ -2499,6 +2499,15 @@ type RootTranslation = {
 		 */
 		swfEmpty: string
 		/**
+		 * 检​测​到​ ​{​n​}​ ​个​ ​F​l​a​s​h​ ​插​件​实​例​，​但​没​解​析​出​ ​S​W​F​ ​地​址​（​地​址​可​能​藏​在​脚​本​里​）
+		 * @param {unknown} n
+		 */
+		swfPluginOnly: RequiredParams<'n'>
+		/**
+		 * 首​页​里​没​有​ ​S​W​F​。​游​戏​很​可​能​在​下​面​这​些​跨​域​ ​i​f​r​a​m​e​ ​里​—​—​跨​域​ ​f​r​a​m​e​ ​的​内​容​读​不​到​，​可​以​点​「​原​生​面​板​」​在​对​应​ ​f​r​a​m​e​ ​上​查​看
+		 */
+		swfInFrames: string
+		/**
 		 * 空​闲
 		 */
 		cdpFree: string
@@ -5005,6 +5014,14 @@ export type TranslationFunctions = {
 		 * 未检测到 SWF（Ruffle 模式或游戏尚未加载）
 		 */
 		swfEmpty: () => LocalizedString
+		/**
+		 * 检测到 {n} 个 Flash 插件实例，但没解析出 SWF 地址（地址可能藏在脚本里）
+		 */
+		swfPluginOnly: (arg: { n: unknown }) => LocalizedString
+		/**
+		 * 首页里没有 SWF。游戏很可能在下面这些跨域 iframe 里——跨域 frame 的内容读不到，可以点「原生面板」在对应 frame 上查看
+		 */
+		swfInFrames: () => LocalizedString
 		/**
 		 * 空闲
 		 */

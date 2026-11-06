@@ -20,6 +20,7 @@ const FlashTab: React.FC<FlashTabProps> = ({ flash, probe, onRefresh, onOpenNati
   const { LL } = useI18nContext();
   const swf = probe?.swf ?? [];
   const frames = probe?.frames ?? [];
+  const flashPlugins = probe?.flashPlugins ?? 0;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -40,7 +41,14 @@ const FlashTab: React.FC<FlashTabProps> = ({ flash, probe, onRefresh, onOpenNati
 
         <div className="mt-2 mb-1 text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.flashSwf()}</div>
         {swf.length === 0 ? (
-          <div className="text-[12px]" style={{ color: 'var(--text-primary)' }}>{LL.devtools.swfEmpty()}</div>
+          <div className="text-[12px]" style={{ color: 'var(--text-primary)' }}>
+            {/* 三种"没 SWF"要分清：插件在跑只是地址没解析出来 / 游戏在跨域 iframe 里读不到 / 真没有 */}
+            {flashPlugins > 0
+              ? LL.devtools.swfPluginOnly({ n: flashPlugins })
+              : frames.some((frame) => !frame.sameOrigin)
+                ? LL.devtools.swfInFrames()
+                : LL.devtools.swfEmpty()}
+          </div>
         ) : (
           <div className="flex flex-col gap-1">
             {swf.map((item) => (

@@ -88,6 +88,14 @@ export interface DevToolsTargetResult {
 export interface DevToolPageProbe {
   swf: Array<{ url: string; kind: 'embed' | 'object' | 'param' | 'resource'; width?: number; height?: number }>;
   frames: Array<{ url: string; sameOrigin: boolean }>;
+  /**
+   * 找到的 Flash 插件实例数（`<embed type="application/x-shockwave-flash">` 之类），
+   * 不看 URL。有的站点把 SWF 地址藏进 JS 或相对路径解析不出来，但插件是真的在跑；
+   * 这个数比"有没有 .swf 字符串"更接近"这页到底有没有 Flash"。
+   */
+  flashPlugins?: number;
+  /** 能读到 DOM 的同源 frame 数（跨域 frame 读不到，只能列出 URL）。 */
+  sameOriginFrames?: number;
   ua: string;
   viewport: { width: number; height: number };
   frameCount: number;

@@ -34,6 +34,11 @@ export interface BridgeStats {
   sent: number;
   events: number;
   eventsDropped: number;
+  /**
+   * 被桥主动判失败的前端请求数（换 target / 断链 / 超时）。
+   * 这些请求本来会永远 pending，前端表现为面板一直转圈。
+   */
+  failed?: number;
   /** sink 被调用的次数（调试用：区分"桥没发"与"renderer 没收到"）。 */
   sinkCalls?: number;
   /** 最近 60 条命令的方法名（调试用，独立于环形缓冲）。 */
@@ -72,6 +77,8 @@ const BROWSER_LEVEL_METHODS = new Set([
 
 /** 事件合批窗口：Network/Elements 的事件风暴逐条跨 IPC 会压垮主进程。 */
 const EVENT_FLUSH_MS = 16;
+/** 前端请求的兜底超时（见 sendRaw 注释）。正常命令都是毫秒级，15s 只兜异常。 */
+const FRONTEND_REQUEST_TIMEOUT_MS = 15000;
 
 /**
  * raw 模式（BAO_DEVTOOLS_BRIDGE_RAW=1）：完全不做 Target 重写，按 page-ws 的真实
@@ -97,6 +104,8 @@ class DevToolsBridge {
     internal?: boolean;
     /** 入队给前端时用这个 id（前端自己的请求 id），不是桥内部的 messageId。 */
     frontendId?: number;
+    /** 前端请求的兜底超时（换 session / socket 断开都靠它或 failPending 收尾）。 */
+    timer?: NodeJS.Timeout;
   }>();
   private sessionId: string | null = null;
   private targetId: string | null = null;
@@ -105,7 +114,7 @@ class DevToolsBridge {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private port: number | null = null;
   private state: BridgeStats['state'] = 'idle';
-  private counters = { sent: 0, events: 0, eventsDropped: 0, bytesOut: 0, bytesIn: 0 };
+  private counters = { sent: 0, events: 0, eventsDropped: 0, bytesOut: 0, bytesIn: 0, failed: 0 };
   private sinkCalls = 0;
   private lastDoc: string | null = null;
   private lastMethods: string[] = [];
@@ -255,12 +264,36 @@ class DevToolsBridge {
 
   async detach(): Promise<void> {    if (!this.sessionId) return;
     const sessionId = this.sessionId;
+    // 换 target 前先把在途的前端请求失败掉：旧 session 上的响应永远不会回来，
+    // 不主动失败的话前端那边就是一个永远 pending 的 Promise——「样式一直转圈」
+    // 就是这么来的（CSS.getMatchedStylesForNode 发在旧 session 上）。
+    this.failPending('bridge-detached');
     this.sessionId = null;
     this.targetId = null;
     try {
       await this.sendRaw('Target.detachFromTarget', { sessionId });
     } catch (error) {
       log.warn('[DevToolsBridge] detach 失败（忽略）:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * 把所有「前端发起、还在等响应」的请求立刻判失败并告诉前端。
+   *
+   * 换 target / socket 断开 / 关闭时，旧 session 上在途的请求不可能再有响应。
+   * 桥自己不失败它们，前端就永远等（它的 Promise 没有超时）——用户看到的是
+   * Styles/Computed 一直转圈、只能重新点一次节点才恢复。
+   */
+  private failPending(reason: string): void {
+    if (this.pending.size === 0) return;
+    for (const [id, entry] of this.pending) {
+      if (entry.timer) clearTimeout(entry.timer);
+      if (!entry.internal && typeof entry.frontendId === 'number') {
+        this.enqueue({ id: entry.frontendId, error: { message: reason } });
+        this.counters.failed += 1;
+      }
+      entry.resolve({ error: { message: reason } });
+      this.pending.delete(id);
     }
   }
 
@@ -412,9 +445,14 @@ class DevToolsBridge {
   shutdown(): void {
     this.state = 'closed';
     if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
+    // 先把在途的前端请求判失败（会入队错误响应），再同步投递一次——
+    // 不然这些错误信封跟着 buffer 一起被清掉，等于没通知前端。
+    this.failPending('bridge-shutdown');
+    const pendingErrors = this.buffer;
     this.buffer = [];
-    for (const entry of this.pending.values()) entry.resolve({ error: { message: 'bridge-shutdown' } });
-    this.pending.clear();
+    if (pendingErrors.length && this.sink) {
+      try { this.sink(pendingErrors); } catch { /* sink 已失效，忽略 */ }
+    }
     const socket = this.socket;
     this.socket = null;
     this.sessionId = null;
@@ -501,6 +539,22 @@ class DevToolsBridge {
       this.counters.bytesOut += payload.length;
       this.recordFlow('>', method, sessionId, DevToolsBridge.summarise(method, params));
       this.pending.set(id, { resolve, method, params, internal, frontendId });
+      // 前端请求的兜底超时：正常路径靠 detach/断链的 failPending 收尾，
+      // 但 target 卡死、session 半死不活时响应可能永远不来；不兜底前端就一直转圈。
+      if (!internal && typeof frontendId === 'number') {
+        const timeout = setTimeout(() => {
+          const entry = this.pending.get(id);
+          if (!entry) return;
+          this.pending.delete(id);
+          this.counters.failed += 1;
+          log.warn('[DevToolsBridge] 请求超时:', method);
+          this.enqueue({ id: frontendId, error: { message: 'bridge-timeout' } });
+          resolve({ error: { message: 'bridge-timeout' } });
+        }, FRONTEND_REQUEST_TIMEOUT_MS);
+        timeout.unref?.();
+        const entry = this.pending.get(id);
+        if (entry) entry.timer = timeout;
+      }
       socket.send(payload, (error) => {
         if (!error) return;
         this.pending.delete(id);
@@ -518,6 +572,7 @@ class DevToolsBridge {
       const entry = this.pending.get(message.id);
       this.pending.delete(message.id);
       if (entry) {
+        if (entry.timer) clearTimeout(entry.timer);
         this.recordFlow('<', entry.method, message.sessionId,
           DevToolsBridge.summarise(entry.method, entry.params, message.result, message.error));
         // 前端的命令：响应入有序队列（与事件同一条流水），前端按 id 自行关联。
@@ -540,6 +595,8 @@ class DevToolsBridge {
     if (message.method === 'Target.detachedFromTarget') {
       const detached = (message.params as { sessionId?: string } | undefined)?.sessionId;
       if (detached && detached === this.sessionId) {
+        // 目标自己没了（页面崩了/进程退出）：在途请求同样不可能有响应，先失败掉
+        this.failPending('bridge-detached');
         this.sessionId = null;
         this.targetId = null;
       }

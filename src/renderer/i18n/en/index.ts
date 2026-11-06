@@ -665,6 +665,8 @@ const en: Translation = {
     emptyFlash: 'No SWF detected on this page.',
     emptyMain: 'No main-process log yet.',
     swfEmpty: 'No SWF detected (Ruffle mode or the game has not loaded)',
+    swfPluginOnly: 'Found {n} Flash plugin instance(s) but no SWF URL (the URL may be built in script)',
+    swfInFrames: 'No SWF in the top document. The game is probably inside one of the cross-origin iframes below — their content is not readable; use "Native panel" on that frame instead',
     cdpFree: 'idle',
     cdpNote: 'The toolbox does not hold a CDP lease, so capture and automation keep working',
     flashPlugin: 'Plugin path',
