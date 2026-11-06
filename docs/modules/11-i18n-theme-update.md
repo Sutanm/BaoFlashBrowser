@@ -20,7 +20,7 @@
 | `src/main/modules/ui-language.ts` | `getUiLanguage` / `uiText` / `ui:get-language` / `ui:set-language` 与广播 |
 | `src/main/ipc/theme.ipc.ts` | `theme:set-source` → `nativeTheme.themeSource` |
 | `src/main/modules/app-update.ts` | GitHub `releases/latest` 查询、版本比较、15s 超时 |
-| `src/main/ipc/app-update.ipc.ts` | `app:version` / `app:check-update` / `app:open-release` |
+| `src/main/ipc/app-update.ipc.ts` | `app:version` / `app:check-update` / `app:open-release`；启动自动检查 + 桌面通知 |
 | `src/shared/types/app-update.ts` | `AppUpdateResult` |
 | `src/renderer/i18n/` | typesafe-i18n 生成代码 + `zh-CN`（baseLocale）/ `en` 词典 |
 | `src/renderer/hooks/useTheme.ts` | 主题解析、`matchMedia` 监听、`body.dark` |
@@ -87,6 +87,15 @@ IPC 层：
   回退 `RELEASES_URL`；
 - `app:version` 供设置页显示当前版本。
 
+启动自动检查：
+
+- `config.updateCheckMode`（`auto` 默认 / `manual`）决定是否在启动时自动查询；设置页
+  「启动时自动检查更新」开关写入该字段（随主配置保存）；
+- `runStartupUpdateCheck()` 在 `app.whenReady` 的延迟区块内调用，**每次启动只查询一次**
+  （与手动检查共用同一个并发合并 Promise），网络请求不阻塞首屏；`manual` 模式直接返回；
+- 结果为 `available` 且系统支持通知时弹一次桌面通知（`Notification`），点击打开该版本
+  Release 页；`current` / `error` 静默，不弹通知。
+
 UI 三态：`current` 显示"已是最新"，`available` 显示新版本号 + "下载"按钮，
 `error` 显示失败提示。**没有自动下载、没有静默更新、没有轮询**。
 
@@ -98,7 +107,7 @@ UI 三态：`current` 显示"已是最新"，`available` 显示新版本号 + "�
 3. **`ui:set-language` 校验 sender**：允许任意 webContents 调用会让网页篡改应用语言。
 4. 更新检查只读 GitHub API，不上传任何本地信息；不要加入设备标识或使用统计。
 5. 保持"只提示、不自动安装"：无签名校验与增量更新机制，自动安装风险不可控。
-6. 不要轮询 GitHub API；仅用户点击时查询，避免限流与无谓网络请求。
+6. 不要轮询 GitHub API；仅**启动时查询一次** + 用户点击时查询，避免限流与无谓网络请求。
 7. 预发布版本永不提示；`tag_name` 校验失败一律按 error 处理，不要"猜"版本。
 
 ## 7 验证

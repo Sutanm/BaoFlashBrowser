@@ -26,6 +26,7 @@ interface MainConfigForm {
   lowEndMode: boolean;
   downloadEngine: DownloadEngine;
   screenshotDir: string;
+  updateCheckMode: 'auto' | 'manual';
   userscriptMaxResponseMB: number;
   userscriptTimeoutSeconds: number;
   userscriptMaxConcurrentPerScript: number;
@@ -43,6 +44,7 @@ const DEFAULT_MAIN_CONFIG = {
   flashPluginChannel: 'stable',
   lowEndMode: false,
   screenshotDir: '',
+  updateCheckMode: 'auto',
   ...(MODULE_DOWNLOAD ? { downloadEngine: 'aria2' as DownloadEngine } : {}),
   ...(MODULE_USERSCRIPTS ? {
     userscriptMaxResponseMB: 2,
@@ -118,6 +120,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           flashPluginChannel: cfg.flashPluginChannel,
           lowEndMode: cfg.lowEndMode,
           screenshotDir: cfg.screenshotDir ?? '',
+          updateCheckMode: cfg.updateCheckMode ?? DEFAULT_MAIN_CONFIG.updateCheckMode,
           ...(MODULE_DOWNLOAD ? {
             downloadEngine: cfg.downloadEngine ?? DEFAULT_MAIN_CONFIG.downloadEngine,
           } : {}),
@@ -227,6 +230,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         flashPluginChannel: mainForm.flashPluginChannel,
         lowEndMode: mainForm.lowEndMode,
         screenshotDir: mainForm.screenshotDir,
+        updateCheckMode: mainForm.updateCheckMode,
         ...(MODULE_DOWNLOAD ? { downloadEngine: mainForm.downloadEngine } : {}),
         ...(MODULE_USERSCRIPTS ? {
           userscriptMaxResponseMB: mainForm.userscriptMaxResponseMB,
@@ -780,6 +784,17 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
         <div className="panel-card settings-section-card">
           <div className="panel-card-title">{LL.settings.updateTitle()}</div>
           <div className="field-hint">{LL.settings.updateCurrent({ version: appVersion || '…' })}</div>
+          <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>
+              <span className="field-label" style={{ display: 'block' }}>{LL.settings.updateAutoCheck()}</span>
+              <span className="field-hint">{LL.settings.updateAutoCheckHint()}</span>
+            </span>
+            <ToggleSwitch
+              checked={mainForm.updateCheckMode === 'auto'}
+              label={LL.settings.updateAutoCheck()}
+              onChange={(checked) => handleMainChange('updateCheckMode', checked ? 'auto' : 'manual')}
+            />
+          </div>
           <button type="button" className="btn-secondary" disabled={checkingUpdate} onClick={() => void handleCheckUpdate()}>
             {checkingUpdate ? LL.settings.updateChecking() : LL.settings.updateCheck()}
           </button>

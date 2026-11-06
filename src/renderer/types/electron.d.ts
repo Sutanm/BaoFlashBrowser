@@ -20,6 +20,7 @@ interface MainConfig {
   downloadEngine?: DownloadEngine;
   downloadDir?: string;
   screenshotDir: string;
+  updateCheckMode?: 'auto' | 'manual';
   userscriptMaxResponseMB?: number;
   userscriptTimeoutSeconds?: number;
   userscriptMaxConcurrentPerScript?: number;

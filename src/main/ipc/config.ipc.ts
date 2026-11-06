@@ -26,6 +26,7 @@ export function registerConfigIPC(options: {
     flashVersion: z.string().regex(/^\d+\.\d+\.\d+\.\d+$/).optional(),
     flashPluginChannel: z.enum(['stable', 'experimental']).optional(),
     lowEndMode: z.boolean().optional(),
+    updateCheckMode: z.enum(['auto', 'manual']).optional(),
     screenshotDir: pathField('screenshotDir'),
     ...(MODULE_DOWNLOAD ? {
       downloadEngine: z.enum(['chromium', 'aria2']).optional(),

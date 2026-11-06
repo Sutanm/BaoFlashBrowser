@@ -13,6 +13,7 @@ export interface Config {
   flashPluginChannel: FlashPluginChannel;
   lowEndMode: boolean;
   screenshotDir: string;
+  updateCheckMode: 'auto' | 'manual';
   downloadEngine?: DownloadEngine;
   downloadDir?: string;
   userscriptMaxResponseMB?: number;
@@ -33,6 +34,7 @@ export const DEFAULT_CONFIG: Config = {
   flashPluginChannel: 'stable',
   lowEndMode: false,
   screenshotDir: '',
+  updateCheckMode: 'auto',
   ...(MODULE_DOWNLOAD ? {
     downloadEngine: 'aria2' as DownloadEngine,
     downloadDir: '',
@@ -83,6 +85,10 @@ export const CONFIG_SCHEMA: Store.Schema<Config> = {
   },
   screenshotDir: {
     type: 'string',
+  },
+  updateCheckMode: {
+    type: 'string',
+    enum: ['auto', 'manual'],
   },
   ...(MODULE_DOWNLOAD ? {
     downloadEngine: { type: 'string', enum: ['chromium', 'aria2'] },

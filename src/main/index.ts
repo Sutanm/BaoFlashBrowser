@@ -1,4 +1,4 @@
-import { registerAppUpdateIPC } from './ipc/app-update.ipc';
+import { registerAppUpdateIPC, runStartupUpdateCheck } from './ipc/app-update.ipc';
 /*! BaoFlashBrowser · crafted by Sutanm */
 /* eslint-disable @typescript-eslint/no-require-imports -- compile-time guarded CommonJS loads let esbuild physically omit disabled modules */
 import path from 'path';
@@ -240,7 +240,9 @@ function bootstrap(): void {
      setImmediate(() => {
       if (MODULE_DOWNLOAD) downloads?.initDownloadManager();
       if (MODULE_AUTOMATION) startAutomationWarmStart();
-     });
+      // 启动自动检查更新（auto 模式下有新版本弹桌面通知）；网络请求不阻塞首屏。
+      void runStartupUpdateCheck();
+    });
 
     app.on('web-contents-created', (_event, wc) => {
       registerShortcutHandler(wc);

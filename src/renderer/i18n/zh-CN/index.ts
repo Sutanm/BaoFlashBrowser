@@ -410,6 +410,8 @@ const zhCN: BaseTranslation = {
     updateAvailable: '发现新版本：{version}',
     updateFailed: '检查失败，请检查网络或稍后重试',
     updateDownload: '前往发布页下载',
+    updateAutoCheck: '启动时自动检查更新',
+    updateAutoCheckHint: '打开浏览器时自动检查一次，发现新版本会弹出桌面通知；关闭后仅手动检查。',
 
     proxy: {
       testLimit: '检测次数已达本次启动的上限（32 次），请重启浏览器后重试。',
