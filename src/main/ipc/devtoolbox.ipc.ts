@@ -24,6 +24,8 @@ function isTrustedSender(event: IpcMainInvokeEvent): boolean {
 const bridgeSendSchema = z.object({
   method: z.string().min(1).max(120),
   params: z.record(z.unknown()).optional(),
+  // M97 前端会自己 attach 出 sessionId，必须透传（桥不做 session 裁剪）。
+  sessionId: z.string().min(1).max(120).optional(),
 }).strict();
 
 export function registerDevToolboxIPC(): void {
@@ -82,7 +84,7 @@ export function registerDevToolboxIPC(): void {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
     const parsed = bridgeSendSchema.safeParse(args);
     if (!parsed.success) return { ok: false, error: { message: 'invalid-arguments' } };
-    return devToolsBridge.send(parsed.data.method, parsed.data.params);
+    return devToolsBridge.send(parsed.data.method, parsed.data.params, parsed.data.sessionId);
   });
 
   ipcMain.handle('devtoolbox:bridge-stats', (event) => {

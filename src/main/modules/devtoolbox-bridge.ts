@@ -33,8 +33,16 @@ export interface BridgeStats {
   sent: number;
   events: number;
   eventsDropped: number;
+  /** sink 被调用的次数（调试用：区分"桥没发"与"renderer 没收到"）。 */
+  sinkCalls?: number;
   bytesOut: number;
   bytesIn: number;
+  /** 最近 40 条命令的方法名（调试用；只记名字，不含参数/结果）。 */
+  recentMethods?: string[];
+  /** 前端自己发起的 attach 记录（调试用：targetId 前缀 + 结果）。 */
+  recentAttach?: Array<{ targetId: string; sessionId?: string; error?: string }>;
+  /** 前 80 条命令/事件的方法名轨迹（调试用；只记方法名与 sessionId 前缀）。 */
+  trace?: Array<{ d: 'cmd' | 'evt'; m: string; s?: string }>;
 }
 
 /** 必须发到 browser session（不带 sessionId）的方法；其余默认补当前 sessionId。 */
@@ -73,6 +81,17 @@ class DevToolsBridge {
   private port: number | null = null;
   private state: BridgeStats['state'] = 'idle';
   private counters = { sent: 0, events: 0, eventsDropped: 0, bytesOut: 0, bytesIn: 0 };
+  private sinkCalls = 0;
+  private recent: string[] = [];
+  private recentAttach: Array<{ targetId: string; sessionId?: string; error?: string }> = [];
+  private trace: Array<{ d: 'cmd' | 'evt'; m: string; s?: string }> = [];
+
+  private record(d: 'cmd' | 'evt', method: string, sessionId?: string): void {
+    // 调试轨迹：过滤高频噪音，保住初始化序列（CSS/Network 事件会瞬间冲掉环形缓冲）。
+    if (d === 'evt' && !/^(DOM|Target|Inspector|Page|CSS.document|Emulation.)/.test(method)) return; // 只留关键事件+全部命令
+    this.trace.push({ d, m: method, s: sessionId ? sessionId.slice(0, 6) : undefined });
+    if (this.trace.length > 120) this.trace.shift();
+  }
 
   setEventSink(sink: ((events: CdpMessage[]) => void) | null): void {
     this.sink = sink;
@@ -84,28 +103,41 @@ class DevToolsBridge {
       targetId: this.targetId,
       sessionId: this.sessionId,
       ...this.counters,
+      recentMethods: this.recent.slice(),
+      recentAttach: this.recentAttach.slice(),
+      trace: this.trace.slice(),
+      sinkCalls: this.sinkCalls,
     };
   }
 
   /** 把当前活动标签的 target 挂到桥上（切标签时重新调用）。 */
   async attach(targetId: string, port: number): Promise<{ sessionId: string }> {
-    await this.ensureSocket(port);
     if (this.targetId === targetId && this.sessionId) return { sessionId: this.sessionId };
-    if (this.sessionId) await this.detach();
+    const run = async (): Promise<{ sessionId: string }> => {
+      await this.ensureSocket(port);
+      if (this.sessionId) await this.detach();
 
-    this.targetId = targetId;
-    const response = await this.sendRaw('Target.attachToTarget', { targetId, flatten: true });
-    const sessionId = (response.result as { sessionId?: string } | undefined)?.sessionId;
-    if (!sessionId) {
-      this.targetId = null;
-      throw new Error(`attachToTarget 未返回 sessionId：${JSON.stringify(response.error ?? response.result)}`);
+      this.targetId = targetId;
+      this.targetInfo = null;
+      const response = await this.sendRaw('Target.attachToTarget', { targetId, flatten: true });
+      const sessionId = (response.result as { sessionId?: string } | undefined)?.sessionId;
+      if (!sessionId) {
+        this.targetId = null;
+        throw new Error(`attachToTarget 未返回 sessionId：${JSON.stringify(response.error ?? response.result)}`);
+      }
+      this.sessionId = sessionId;
+      // S9：session 建立后域尚未就绪，立即发包会得到 "… wasn't found"。等 attached 事件
+      // 或一次短延迟再放行（attached 事件通常先于本次响应到达，这里兜底 60ms）。
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      log.info(`[DevToolsBridge] attached target=${targetId.slice(0, 12)}… session=${sessionId.slice(0, 12)}…`);
+      return { sessionId };
+    };
+    this.attaching = run();
+    try {
+      return await this.attaching;
+    } finally {
+      this.attaching = null;
     }
-    this.sessionId = sessionId;
-    // S9：session 建立后域尚未就绪，立即发包会得到 "… wasn't found"。等 attached 事件
-    // 或一次短延迟再放行（attached 事件通常先于本次响应到达，这里兜底 60ms）。
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    log.info(`[DevToolsBridge] attached target=${targetId.slice(0, 12)}… session=${sessionId.slice(0, 12)}…`);
-    return { sessionId };
   }
 
   async detach(): Promise<void> {
@@ -120,17 +152,84 @@ class DevToolsBridge {
     }
   }
 
-  /** 前端的一条 CDP 命令。browser 级方法直接走 browser session，其余补当前 sessionId。 */
-  async send(method: string, params: Record<string, unknown> | undefined): Promise<SendResult> {
+  /**
+   * 前端的一条 CDP 命令。
+   *
+   * 语义：桥给前端一个**只有当前标签 target** 的世界（page-ws 等价）。
+   * M97 前端会自动 `Target.setAutoAttach` 把看得到的 target 全挂上，若放行它
+   * 会 attach 到 DevTools 自己/外壳等 target，命令与事件落到不同 session、
+   * nodeId 空间错乱 —— 实测表现就是 Elements 只有空 html/head/body +
+   * Styles 无限刷 CSS.getMatchedStylesForNode。所以 Target 发现类方法在此被
+   * 拦截成"只有一个 target"的假象。
+   */
+  async send(method: string, params: Record<string, unknown> | undefined, _sessionId?: string): Promise<SendResult> {
     if (!this.socket || this.state !== 'ready') {
       return { ok: false, error: { message: 'bridge-not-connected' } };
     }
-    if (!BROWSER_LEVEL_METHODS.has(method) && !this.sessionId) {
+    const intercepted = await this.interceptTargetMethod(method);
+    if (intercepted) return intercepted;
+
+    // 前端自己带 sessionId 时忽略它（参数保留以对齐 IPC 契约）——桥只认自己的 session（单 target 世界）。
+    const resolved = BROWSER_LEVEL_METHODS.has(method) ? undefined : this.sessionId ?? undefined;
+    if (!resolved && !BROWSER_LEVEL_METHODS.has(method)) {
       return { ok: false, error: { message: 'bridge-no-session' } };
     }
-    const response = await this.sendRaw(method, params, BROWSER_LEVEL_METHODS.has(method) ? undefined : this.sessionId ?? undefined);
+    const response = await this.sendRaw(method, params, resolved);
     if (response.error) return { ok: false, error: { message: response.error.message ?? 'cdp-error', code: response.error.code } };
     return { ok: true, result: response.result ?? null };
+  }
+
+  /** 把 Target 发现/attach 类方法伪造成"只有一个 target"（见 send 的注释）。 */
+  private async interceptTargetMethod(method: string): Promise<SendResult | null> {
+    switch (method) {
+      case 'Target.setDiscoverTargets':
+      case 'Target.setAutoAttach':
+      case 'Target.detachFromTarget':
+        return { ok: true, result: {} };
+      case 'Target.attachToTarget': {
+        // 前端在 `hello` 之后立刻就会发这条，可能早于桥自己的 attach 完成；
+        // 必须等它（否则前端 fallback 到真 Chromium 分配 session，命令与事件
+        // 分属两个 session，nodeId 空间错乱）。
+        const sessionId = await this.currentOrPendingSession();
+        return sessionId
+          ? { ok: true, result: { sessionId } }
+          : { ok: false, error: { message: 'bridge-no-session' } };
+      }
+      case 'Target.getTargets': {
+        const info = await this.readTargetInfo();
+        return { ok: true, result: { targetInfos: info ? [info] : [] } };
+      }
+      case 'Target.getTargetInfo': {
+        const info = await this.readTargetInfo();
+        return info
+          ? { ok: true, result: { targetInfo: info } }
+          : { ok: false, error: { message: 'bridge-no-target' } };
+      }
+      default:
+        return null;
+    }
+  }
+
+  private async currentOrPendingSession(): Promise<string | null> {
+    if (this.sessionId) return this.sessionId;
+    if (this.attaching) {
+      try { await this.attaching; } catch { /* attach 失败时按无 session 处理 */ }
+      return this.sessionId;
+    }
+    return null;
+  }
+
+  private targetInfo: { targetId: string; type: string; title: string; url: string; attached: boolean } | null = null;
+  private attaching: Promise<{ sessionId: string }> | null = null;
+
+  private async readTargetInfo(): Promise<{ targetId: string; type: string; title: string; url: string; attached: boolean } | null> {
+    if (this.targetInfo) return this.targetInfo;
+    if (!this.targetId) return null;
+    const response = await this.sendRaw('Target.getTargetInfo', { targetId: this.targetId });
+    const info = (response.result as { targetInfo?: { targetId: string; type: string; title: string; url: string; attached: boolean } } | undefined)?.targetInfo;
+    if (!info) return null;
+    this.targetInfo = { targetId: info.targetId, type: info.type ?? 'page', title: info.title ?? '', url: info.url ?? '', attached: true };
+    return this.targetInfo;
   }
 
   shutdown(): void {
@@ -208,6 +307,9 @@ class DevToolsBridge {
     return new Promise((resolve) => {
       const socket = this.socket;
       if (!socket) { resolve({ error: { message: 'bridge-not-connected' } }); return; }
+      this.recent.push(method);
+      this.record('cmd', method, 'in:' + (sessionId ? sessionId.slice(0, 6) : '-'));
+      if (this.recent.length > 40) this.recent.shift();
       const id = ++this.messageId;
       const message: CdpMessage = { id, method, params: params ?? {} };
       if (sessionId) message.sessionId = sessionId;
@@ -246,17 +348,16 @@ class DevToolsBridge {
       return;
     }
 
-    // page-ws 等价语义：只把当前 session 的事件转给前端（browser 级事件前端在
-    // page-ws 模式下本来就看不到，转发会造成行为差异）。
-    if (message.sessionId && message.sessionId !== this.sessionId) {
-      this.counters.eventsDropped += 1;
-      return;
-    }
-    if (!message.sessionId) {
+    // 事件只转发桥自己的 session（单个 target 世界），并剥掉 sessionId：
+    // page-ws 连接天生绑定单一 target，Chromium 下发的事件不带 sessionId，
+    // M97 前端只认这种形态（带 sessionId 会被丢弃）。前端世界是单 target，
+    // 所以不需要关心其他 session 的事件。
+    if (!message.sessionId || message.sessionId !== this.sessionId) {
       this.counters.eventsDropped += 1;
       return;
     }
     this.counters.events += 1;
+    this.record('evt', message.method, message.sessionId);
     const forwarded: CdpMessage = { method: message.method, params: message.params };
     this.buffer.push(forwarded);
     if (!this.flushTimer) {
@@ -264,7 +365,7 @@ class DevToolsBridge {
         this.flushTimer = null;
         const batch = this.buffer;
         this.buffer = [];
-        if (batch.length && this.sink) this.sink(batch);
+        if (batch.length && this.sink) { this.sinkCalls += 1; this.sink(batch); }
       }, EVENT_FLUSH_MS);
       this.flushTimer.unref?.();
     }

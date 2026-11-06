@@ -240,7 +240,7 @@ declare global {
         bridge: {
           attach(): Promise<{ ok: boolean; targetId?: string; sessionId?: string; error?: { message: string } }>;
           detach(): Promise<{ ok: boolean; error?: { message: string } }>;
-          send(method: string, params?: Record<string, unknown>): Promise<{ ok: boolean; result?: unknown; error?: { message: string; code?: number } }>;
+          send(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<{ ok: boolean; result?: unknown; error?: { message: string; code?: number } }>;
           stats(): Promise<{
             state: 'idle' | 'connecting' | 'ready' | 'closed';
             targetId: string | null;

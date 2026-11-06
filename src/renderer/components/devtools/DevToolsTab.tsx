@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
+import { useDevToolsBridgeRelay } from './useDevToolsBridgeRelay';
 
 type Target = 'page' | 'shell';
 
@@ -80,6 +81,10 @@ const DevToolsTab: React.FC = () => {
   }, [target, activeTabId, activeTabUrl, nonce]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
+
+  // 桥模式（URL 不带 ws）下由这个中继把 iframe 的 postMessage 接到 IPC。
+  // 非桥模式下前端走 WebSocketConnection、不发 hello，此 hook 静默无作用。
+  useDevToolsBridgeRelay(url);
 
   return (
     <div className="flex flex-col h-full min-h-0">

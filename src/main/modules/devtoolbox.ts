@@ -494,9 +494,19 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<De
     pickedId = tabId ? await pickTargetForTab(tabId, port) : null;
   }
   if (!pickedId) return { url: null, reason: 'no-target' };
-  // 入口用 devtools_app.html（只挂 AdvancedApp 停靠壳），can_dock=true 是它的启用
-  // 条件；showBoth → hideMain 的占位修正见 scripts/build-devtools-frontend.cjs 的
-  // SOURCE_PATCHES 与 docs/modules/12-devtoolbox.md §8.1。
+  // 桥模式（enabled via BAO_DEVTOOLS_BRIDGE=1）：URL 不带 ws，前端会走
+  // BfbBridgeConnection（postMessage → 外壳中继 → IPC → 主进程桥 → flatten）。
+  // bfb_target 只作为 iframe key 的重载触发参数（切标签时仍重载一次，
+  // "不重载"是 B4 的目标）。
+  if (process.env.BAO_DEVTOOLS_BRIDGE === '1') {
+    return {
+      url: `http://127.0.0.1:${frontend}/devtools_app.html?can_dock=true&bfb_target=${pickedId}`,
+      reason: 'ok',
+    };
+  }
+  // 默认（page-ws 直连）。入口用 devtools_app.html（只挂 AdvancedApp 停靠壳），
+  // can_dock=true 是它的启用条件；showBoth → hideMain 的占位修正见
+  // scripts/build-devtools-frontend.cjs 的 SOURCE_PATCHES 与文档 §8.1。
   return {
     url: `http://127.0.0.1:${frontend}/devtools_app.html?ws=127.0.0.1:${port}/devtools/page/${pickedId}&can_dock=true`,
     reason: 'ok',
