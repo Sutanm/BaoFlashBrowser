@@ -74,8 +74,20 @@ function readStoredDock(): DevToolDock {
   return 'bottom';
 }
 
+/** 抽屉所在容器的高度。真实容器拿不到时退回窗口高度（首帧/HMR 期间）。 */
+function workspaceHeight(): number {
+  const el = document.querySelector('.workspace-main');
+  if (el instanceof HTMLElement && el.clientHeight > 0) return el.clientHeight;
+  return window.innerHeight;
+}
+
+/** 允许抽屉顶到只留这一条页面（把 6px 拖拽把手留在可视区内，随时能拖回去）。 */
+const RESIZE_HANDLE_STRIP = 24;
+
 export function maxDrawerHeight(): number {
-  return Math.max(MIN_HEIGHT, Math.floor(window.innerHeight * 0.8));
+  // 以前是 window.innerHeight * 0.8：拿整窗高度算上限，但抽屉活在顶栏之下的工作区里，
+  // 真到上限时抽屉会超出可视区；而且 80% 这个硬比例跟内容无关，用户会觉得"拖不动了"。
+  return Math.max(MIN_HEIGHT, Math.floor(workspaceHeight() - RESIZE_HANDLE_STRIP));
 }
 
 export function defaultDrawerHeight(): number {

@@ -61,8 +61,8 @@ export function registerDevToolboxIPC(): void {
   // 独立窗口：停靠位置设为 undocked 时由渲染层拉起；关窗后主进程回发事件
   createValidatedHandler(
     'devtoolbox:open-devtools-window',
-    z.object({ target: target.optional() }).strict(),
-    (args: { target?: 'page' | 'shell' }) => openDevToolsWindow(args.target ?? 'page'),
+    z.object({ target: target.optional(), tabId: z.string().min(1).max(120).nullable().optional() }).strict(),
+    (args: { target?: 'page' | 'shell'; tabId?: string | null }) => openDevToolsWindow(args.target ?? 'page', args.tabId),
   );
 
   createHandler<void, void>('devtoolbox:close-devtools-window', () => {
@@ -72,8 +72,8 @@ export function registerDevToolboxIPC(): void {
   // 内嵌前端视图（B1 容器换代）：BrowserView 承载前端，bounds 由渲染层上报
   createValidatedHandler(
     'devtoolbox:attach-devtools-view',
-    z.object({ target }).strict(),
-    (args: { target: 'page' | 'shell' }) => attachDevToolsView(args.target),
+    z.object({ target, tabId: z.string().min(1).max(120).nullable().optional() }).strict(),
+    (args: { target: 'page' | 'shell'; tabId?: string | null }) => attachDevToolsView(args.target, args.tabId),
   );
 
   createValidatedHandler(
@@ -102,8 +102,8 @@ export function registerDevToolboxIPC(): void {
   // DevTools 前端只认 WebSocket，这里给出可直接喂给 iframe 的 ws 地址。
   createValidatedHandler(
     'devtoolbox:devtools-url',
-    z.object({ target }).strict(),
-    (args: { target: 'page' | 'shell' }) => getDevToolsTargetUrl(args.target),
+    z.object({ target, tabId: z.string().min(1).max(120).nullable().optional() }).strict(),
+    (args: { target: 'page' | 'shell'; tabId?: string | null }) => getDevToolsTargetUrl(args.target, args.tabId),
   );
 
   createValidatedHandler(
@@ -132,13 +132,16 @@ export function registerDevToolboxIPC(): void {
     if (win && !win.isDestroyed()) win.webContents.send('devtoolbox:bridge-event', { events });
   });
 
-  ipcMain.handle('devtoolbox:bridge-attach', async (event, args?: { target?: 'page' | 'shell' }) => {
+  ipcMain.handle('devtoolbox:bridge-attach', async (event, args?: { target?: 'page' | 'shell'; tabId?: string | null }) => {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
     const port = resolveDebugPort();
     if (!port) return { ok: false, error: { message: 'no-port' } };
     // 目标由渲染层指定：桥模式 URL 恒定，切 page/shell 不会重建容器，
-    // 只能靠这一次 attach 换 target（page 跟活动标签，shell 按 URL 唯一匹配）。
-    const targetId = await resolveTargetId(args?.target === 'shell' ? 'shell' : 'page');
+    // 只能靠这一次 attach 换 target。
+    // **tabId 必须由渲染层给**：切标签是渲染层先更新、主进程后跟上的，
+    // 用主进程的"活动标签"会在这段窗口里绑到上一个页面（实测：切到新标签页
+    // 后仍显示旧页面的 Elements，且因为 URL 恒定再也不会重解析）。
+    const targetId = await resolveTargetId(args?.target === 'shell' ? 'shell' : 'page', args?.tabId);
     if (!targetId) return { ok: false, error: { message: 'no-target' } };
     try {
       const { sessionId } = await devToolsBridge.attach(targetId, port);

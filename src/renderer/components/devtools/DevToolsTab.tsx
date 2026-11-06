@@ -44,6 +44,9 @@ const DevToolsTab: React.FC = () => {
   /** 容器挂载时用的目标。不进 effect 依赖，理由见下面容器 effect 的注释。 */
   const targetRef = useRef<Target>(target);
   targetRef.current = target;
+  /** 同上：挂载那一刻的标签，只用于"给哪个标签解析 target"，不进依赖。 */
+  const tabIdRef = useRef<string | null>(activeTabId);
+  tabIdRef.current = activeTabId;
 
   useEffect(() => {
     let alive = true;
@@ -53,8 +56,12 @@ const DevToolsTab: React.FC = () => {
     setMissing(false);
     setNoTarget(false);
     const resolveUrl = () => {
-      window.electronAPI.devtoolbox.devtoolsUrl(target).then((result) => {
+      // tabId 必须显式传：切标签时渲染层先变、主进程的"活动标签"后跟上，
+      // 不传就会在这段窗口里解析到上一个页面（表现为切到新标签页后仍显示旧页面）。
+      window.electronAPI.devtoolbox.devtoolsUrl(target, activeTabId).then((result) => {
         if (!alive) return;
+        // 迟到的响应：期间用户又切了标签，丢弃它，别把旧页面的 URL 写回来。
+        if (useTabsStore.getState().activeTabId !== activeTabId) return;
         if (result && result.url) {
           setUrl(result.url);
           setMode(result.mode === 'bridge' ? 'bridge' : 'ws');
@@ -116,14 +123,20 @@ const DevToolsTab: React.FC = () => {
       const payload = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
       // 拖拽期间走同步 IPC：异步通道会让原生视图的更新落到下一帧，快速拖拽时
       // 每帧位移几十像素，视觉上就是"内容慢半拍、松手再跳一下"。
+      // 同步通道不可用时（旧 preload / 主进程未注册 handler）必须退回异步——
+      // 否则一次 TypeError 就会让 ResizeObserver 回调整个失效，表现为拖拽完全不动。
       if (isDevtoolsDragging()) {
-        window.electronAPI.devtoolbox.setDevToolsBoundsSync(payload);
-        return;
+        try {
+          window.electronAPI.devtoolbox.setDevToolsBoundsSync(payload);
+          return;
+        } catch {
+          // fall through
+        }
       }
       void window.electronAPI.devtoolbox.setDevToolsBounds(payload);
     };
 
-    void window.electronAPI.devtoolbox.attachDevToolsView(targetRef.current).then((result) => {
+    void window.electronAPI.devtoolbox.attachDevToolsView(targetRef.current, tabIdRef.current).then((result) => {
       if (!alive || !result.ok) return;
       report();
       observer = new ResizeObserver(report);

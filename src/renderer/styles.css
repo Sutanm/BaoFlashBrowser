@@ -534,6 +534,10 @@ body.dark #loading-progress {
   flex: 1 1 0%;
   flex-direction: column;
   min-width: 0;
+  /* 关键：列向 flex 子项默认 min-height:auto，会被内部内容（新标签页的搜索框+图标）
+     顶住不让缩。抽屉在它之后（order:1），于是被推出可视区下方——切到新标签页时
+     抽屉看起来"矮了一截"，切回页面又"凭空长高"，其实是同一个高度被顶出去/放回来。 */
+  min-height: 0;
 }
 
 .workspace-view-center {
@@ -1225,6 +1229,8 @@ body.keyboard-navigation .address-input:focus {
   flex: 1 1 0%;
   position: relative;
   overflow-y: auto;
+  /* 同上：允许被压缩到比内容更矮，此时靠 overflow-y 滚动而不是把抽屉顶出窗口 */
+  min-height: 0;
   background: var(--bg-primary);
   color: var(--text-primary);
 }

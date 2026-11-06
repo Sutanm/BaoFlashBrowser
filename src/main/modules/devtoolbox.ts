@@ -445,14 +445,14 @@ let devToolsWindow: BrowserWindow | null = null;
 let devToolsWindowClosingByCode = false;
 let mainWindowCloseHooked = false;
 
-export async function openDevToolsWindow(target: 'page' | 'shell' = 'page'): Promise<{ ok: boolean; error?: string }> {
+export async function openDevToolsWindow(target: 'page' | 'shell' = 'page', tabId?: string | null): Promise<{ ok: boolean; error?: string }> {
   if (devToolsWindow && !devToolsWindow.isDestroyed()) {
     if (devToolsWindow.isMinimized()) devToolsWindow.restore();
     devToolsWindow.focus();
     return { ok: true };
   }
 
-  const resolved = await getDevToolsTargetUrl(target);
+  const resolved = await getDevToolsTargetUrl(target, tabId);
   if (!resolved.url) return { ok: false, error: resolved.reason };
 
   // 与内嵌视图同一套时序：桥没挂上就不要把前端放出来（理由见 attachDevToolsView）。
@@ -537,11 +537,11 @@ let devToolsViewCloseHooked = false;
 let devToolsBoundsLog = 0;
 let devToolsBoundsMissLog = 0;
 
-export async function attachDevToolsView(target: 'page' | 'shell' = 'page'): Promise<{ ok: boolean; error?: string }> {
+export async function attachDevToolsView(target: 'page' | 'shell' = 'page', tabId?: string | null): Promise<{ ok: boolean; error?: string }> {
   const main = getMainWindow();
   if (!main || main.isDestroyed()) return { ok: false, error: 'no-window' };
 
-  const resolved = await getDevToolsTargetUrl(target);
+  const resolved = await getDevToolsTargetUrl(target, tabId);
   if (!resolved.url) return { ok: false, error: resolved.reason };
   log.info('[DevToolbox] attach embedded view target=%s url=%s', target, resolved.url.slice(0, 60));
   devToolsBoundsLog = 0;
@@ -711,13 +711,13 @@ async function pickTargetForTab(tabId: string, port: number): Promise<string | n
  * 唯一匹配。放在这里而不是让 IPC 层自己拼，是为了和 `getDevToolsTargetUrl`
  * 共用同一套解析（两套逻辑漂移过一次，about:blank 中间态会静默撞旧 target）。
  */
-export async function resolveTargetId(target: 'page' | 'shell'): Promise<string | null> {
+export async function resolveTargetId(target: 'page' | 'shell', tabId?: string | null): Promise<string | null> {
   if (target === 'shell') {
     const port = resolveDebugPort();
     if (!port) return null;
     return (await fetchTargets(port)).find(isShell)?.id ?? null;
   }
-  return resolveActivePageTargetId();
+  return resolveActivePageTargetId(tabId);
 }
 
 /**
@@ -726,15 +726,15 @@ export async function resolveTargetId(target: 'page' | 'shell'): Promise<string 
  * 绑定表逻辑与 `getDevToolsTargetUrl` 共用（`pickTargetForTab`），避免两套
  * 解析漂移。
  */
-export async function resolveActivePageTargetId(): Promise<string | null> {
+export async function resolveActivePageTargetId(tabId?: string | null): Promise<string | null> {
   const port = resolveDebugPort();
   if (!port) return null;
-  const tabId = tabManager.getActiveId();
-  if (!tabId) return null;
-  const resolved = await pickTargetForTab(tabId, port);
-  const wc = tabManager.getWebContents(tabId);
-  log.info('[DevToolsBridge] resolve active: tab=%s url=%s → target=%s',
-    tabId.slice(0, 6), (wc ? wc.getURL() : '-'), (resolved ? resolved.slice(0, 6) : 'null'));
+  const wanted = tabId ?? tabManager.getActiveId();
+  if (!wanted) return null;
+  const resolved = await pickTargetForTab(wanted, port);
+  const wc = tabManager.getWebContents(wanted);
+  log.info('[DevToolsBridge] resolve tab=%s url=%s → target=%s',
+    wanted.slice(-6), (wc ? wc.getURL() : '-'), (resolved ? resolved.slice(0, 6) : 'null'));
   return resolved;
 }
 
@@ -746,7 +746,7 @@ export async function resolveActivePageTargetId(): Promise<string | null> {
  * 且同标签内导航永远触发不了重连。外壳目标按 URL 匹配（外壳 target 唯一，
  * 无歧义；匹配不到就返回 no-target）。
  */
-export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<DevToolsTargetResult> {
+export async function getDevToolsTargetUrl(target: 'page' | 'shell', tabId?: string | null): Promise<DevToolsTargetResult> {
   const port = resolveDebugPort();
   if (!port) return { url: null, reason: 'no-port' };
 
@@ -771,10 +771,14 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<De
     // 外壳 target 按 URL 匹配（唯一），匹配不到就明示失败，不静默撞别的 target。
     pickedId = targets.find(isShell)?.id ?? null;
   } else {
-    const tabId = tabManager.getActiveId();
-    pickedId = tabId ? await pickTargetForTab(tabId, port) : null;
+    // tabId 由渲染层传入：它就是"用户现在看到的是哪个标签"的权威。
+    // 不传时退回主进程的活动标签（容器首次挂载等场景）。
+    const wanted = tabId ?? tabManager.getActiveId();
+    pickedId = wanted ? await pickTargetForTab(wanted, port) : null;
   }
-  if (!pickedId) return { url: null, reason: 'no-target' };
+  if (!pickedId) {
+    return { url: null, reason: 'no-target' };
+  }
   // 桥模式（B3 起为默认）：URL 不带 ws，前端用 preload 暴露的 `bfbBridge`
   //   → IPC → 主进程桥 → browser ws + flatten session。
   // **URL 里刻意不带 target id**：切标签时容器不重载，面板状态（Elements 选中、

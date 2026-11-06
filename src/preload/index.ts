@@ -193,11 +193,13 @@ const electronAPI = {
   devtoolbox: {
     snapshot: () => safeInvoke('devtoolbox:snapshot'),
     clear: () => safeInvoke('devtoolbox:clear'),
-    devtoolsUrl: (target: 'page' | 'shell') => safeInvoke('devtoolbox:devtools-url', { target }),
+    // tabId 决定给哪个标签解析 target：切标签是渲染层先变、主进程后跟上的，
+    // 不传就会在这段窗口里解析到上一个页面。
+    devtoolsUrl: (target: 'page' | 'shell', tabId?: string | null) => safeInvoke('devtoolbox:devtools-url', { target, tabId: tabId ?? null }),
     openNative: (target: 'page' | 'shell') => safeInvoke('devtoolbox:open-native', { target }),
     probePage: () => safeInvoke('devtoolbox:probe-page'),
     /** 独立窗口模式：把前端整页放进一个独立 BrowserWindow。 */
-    openDevToolsWindow: (target?: 'page' | 'shell') => safeInvoke('devtoolbox:open-devtools-window', target ? { target } : {}),
+    openDevToolsWindow: (target?: 'page' | 'shell', tabId?: string | null) => safeInvoke('devtoolbox:open-devtools-window', { target, tabId: tabId ?? null }),
     closeDevToolsWindow: () => safeInvoke('devtoolbox:close-devtools-window'),
     onDevToolsWindowClosed: (callback: () => void) => {
       const listener = () => callback();
@@ -205,7 +207,7 @@ const electronAPI = {
       return () => { ipcRenderer.removeListener('devtoolbox:devtools-window-closed', listener); };
     },
     /** 内嵌前端视图：用独立 WebContents（BrowserView）承载前端，而不是 iframe。 */
-    attachDevToolsView: (target: 'page' | 'shell') => safeInvoke('devtoolbox:attach-devtools-view', { target }),
+    attachDevToolsView: (target: 'page' | 'shell', tabId?: string | null) => safeInvoke('devtoolbox:attach-devtools-view', { target, tabId: tabId ?? null }),
     setDevToolsBounds: (rect: { x: number; y: number; width: number; height: number }) =>
       safeInvoke('devtoolbox:set-devtools-bounds', rect),
     /** 拖拽专用：同步更新，避免原生视图落后布局一帧（见 ALLOWED_SYNC_CHANNELS）。 */
@@ -232,7 +234,7 @@ const electronAPI = {
      * preload（`src/preload/devtools.ts` 的 `bfbBridge`），不再经过这里。
      */
     bridge: {
-      attach: (target?: 'page' | 'shell') => safeInvoke('devtoolbox:bridge-attach', target ? { target } : {}),
+      attach: (target?: 'page' | 'shell', tabId?: string | null) => safeInvoke('devtoolbox:bridge-attach', { target, tabId: tabId ?? null }),
       detach: () => safeInvoke('devtoolbox:bridge-detach'),
       send: (method: string, params?: Record<string, unknown>, sessionId?: string, id?: number) => safeInvoke('devtoolbox:bridge-send', { method, params, sessionId, id }),
       stats: () => safeInvoke('devtoolbox:bridge-stats'),

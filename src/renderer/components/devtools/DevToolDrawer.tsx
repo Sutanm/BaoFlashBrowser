@@ -142,6 +142,26 @@ const DevToolDrawer: React.FC = () => {
     if (dock === 'undocked' && !open) void window.electronAPI.devtoolbox.closeDevToolsWindow();
   }, [dock, open]);
 
+  // 窗口尺寸变了以后，存下来的高度/宽度可能超出新的可用空间：夹回来。
+  // 不夹的话抽屉会顶出可视区下半截（表现为"面板明明开着，底部却是窗口外"）。
+  useEffect(() => {
+    if (!open || dock === 'undocked') return undefined;
+    const fit = (): void => {
+      const state = useDevToolStore.getState();
+      if (state.dock === 'undocked') return;
+      if (state.dock === 'bottom') {
+        const next = clampDrawerHeight(state.height);
+        if (next !== state.height) state.setHeight(next);
+      } else {
+        const next = clampDrawerWidth(state.width);
+        if (next !== state.width) state.setWidth(next);
+      }
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [open, dock]);
+
   if (!open || dock === 'undocked') return null;
 
   const vertical = dock === 'left' || dock === 'right';
@@ -173,6 +193,7 @@ const DevToolDrawer: React.FC = () => {
   return (
     <div
       className="flex shrink-0"
+      data-devtools-drawer=""
       style={{
         flexDirection: vertical ? 'row' : 'column',
         // 左侧停靠要排在页面区之前；底部/右侧排在之后

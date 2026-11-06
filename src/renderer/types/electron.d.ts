@@ -231,15 +231,15 @@ declare global {
       devtoolbox: {
         snapshot(): Promise<import('@shared/types/devtoolbox').DevToolSnapshot>;
         clear(): Promise<void>;
-        devtoolsUrl(target: 'page' | 'shell'): Promise<import('@shared/types/devtoolbox').DevToolsTargetResult>;
+        devtoolsUrl(target: 'page' | 'shell', tabId?: string | null): Promise<import('@shared/types/devtoolbox').DevToolsTargetResult>;
         openNative(target: 'page' | 'shell'): Promise<boolean>;
         probePage(): Promise<import('@shared/types/devtoolbox').DevToolPageProbe | null>;
         /** 独立窗口模式：把前端整页放进独立 BrowserWindow。 */
-        openDevToolsWindow(target?: 'page' | 'shell'): Promise<{ ok: boolean; error?: string }>;
+        openDevToolsWindow(target?: 'page' | 'shell', tabId?: string | null): Promise<{ ok: boolean; error?: string }>;
         closeDevToolsWindow(): Promise<void>;
         onDevToolsWindowClosed(callback: () => void): () => void;
         /** 内嵌前端视图：用独立 WebContents（BrowserView）承载前端，而不是 iframe。 */
-        attachDevToolsView(target: 'page' | 'shell'): Promise<{ ok: boolean; error?: string }>;
+        attachDevToolsView(target: 'page' | 'shell', tabId?: string | null): Promise<{ ok: boolean; error?: string }>;
         setDevToolsBounds(rect: { x: number; y: number; width: number; height: number }): Promise<void>;
         /** 拖拽专用：同步更新（阻塞渲染线程直到主进程 setBounds 完成）。 */
         setDevToolsBoundsSync(rect: { x: number; y: number; width: number; height: number }): void;
@@ -251,7 +251,7 @@ declare global {
          * 不传 target 时按 page（活动标签）处理。
          */
         bridge: {
-          attach(target?: 'page' | 'shell'): Promise<{ ok: boolean; targetId?: string; sessionId?: string; error?: { message: string } }>;
+          attach(target?: 'page' | 'shell', tabId?: string | null): Promise<{ ok: boolean; targetId?: string; sessionId?: string; error?: { message: string } }>;
           detach(): Promise<{ ok: boolean; error?: { message: string } }>;
           send(method: string, params?: Record<string, unknown>, sessionId?: string, id?: number): Promise<{ ok: boolean; result?: unknown; error?: { message: string; code?: number } }>;
           stats(): Promise<{

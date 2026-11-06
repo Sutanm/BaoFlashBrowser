@@ -99,12 +99,21 @@ devtoolbox.ts emit()  ──►  EntryBuffer(2000)  ──►  80ms 批量 ─�
   曾经因此从没挂上 `before-input-event`——焦点在页面时 F12 可用、焦点在地址栏或工具箱
   输入框时失效。现在 `registerShortcutHandler(mainWindow.webContents)` 显式补绑，
   且幂等（重复绑定会一次发送两个 `shortcut`，toggle 类动作表现为“按了没反应”）。
-- 抽屉上沿 6px 可拖拽：`160px` ~ 窗口 80%，双击恢复窗口高度 34%。
+- 抽屉上沿 6px 可拖拽：`160px` ~ **工作区高度 − 24px**，双击恢复窗口高度 34%。
+  上限以前是 `window.innerHeight * 0.8`，两个问题：① 抽屉活在顶栏之下的工作区里，
+  按整窗算出来的上限比可用高度大，拖到头会超出可视区下半截；② 80% 是与内容无关的
+  硬比例，用户会觉得"拖不动"。现在量 `.workspace-main` 的 `clientHeight`，只留 24px
+  让拖拽把手始终可抓。窗口尺寸变化时（`resize`）存量高度会被重新夹回。
 - 高度存放在 `localStorage['devtoolbox.height']`（**不进** electron-store 配置：
   高频 UI 状态不该污染需要迁移与校验的 schema）。
 - 抽屉是 `.workspace-main` 的最后一个 flex 子项，开合直接压缩 `#browserview-area`，
   由 `App.tsx` 既有的 `ResizeObserver → tab:setBounds` 带动 BrowserView 缩放，
   没有新增边界计算逻辑。拖拽期间用 `requestAnimationFrame` 合帧，避免原生层拖影。
+- **`.workspace-view` 必须有 `min-height: 0`**：列向 flex 子项默认 `min-height: auto`，
+  会被新标签页内容（搜索框 + 快捷图标约 331px）顶住不让缩；抽屉排在它之后，
+  于是被推出可视区下方。现象就是"切到新标签页面板矮了一截、切回页面又凭空长高"，
+  其实高度值一直没变，只是被顶出去又放回来。探针 `drawer-geometry-check.cjs` 盯这个：
+  两种标签页下 `drawer.y` 必须相同。
 
 ## 6 验证
 
@@ -263,6 +272,7 @@ node tools/devtools-spike/bridge-load-baseline.cjs bridge                    # �
 node tools/devtools-spike/dock-switch-check.cjs              # 四模式停靠：底/左/右/独立窗口 + 关闭回内嵌
 node tools/devtools-spike/frontend-bounds-lag.cjs            # 拖拽跟手：前端视图 vs 占位 div 的台阶滞后（BFB_DOCK=right 测横向）
 node tools/devtools-spike/newtab-squeeze-check.cjs           # 挤压布局：内容区 711→120，搜索框可见高度恒为 44
+node tools/devtools-spike/drawer-geometry-check.cjs          # 切标签几何：抽屉 y 恒等、占位矩形贴合、新标签页显示 no-target 占位
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、
@@ -339,6 +349,13 @@ preload 后这条中继整个删了（`useDevToolsBridgeRelay.ts` 已移除）�
    `?ws=`，桥模式的 `?can_dock=true` 漏网，切标签时新标签还是 about:blank，绑定
    走 fallback 就把前端容器掳了过来 → 热切换看到 targetId 相同直接早退，面板永远
    停在错误文档上。同一条 fallback 也只接受 `about:` 的无人占用 target，不再"随便挑一个"。
+5. **解析 target 必须带 tabId，不能读主进程的"活动标签"**。切标签是渲染层先更新、
+   主进程后跟上的（`tab:switch` IPC 还没落地），这段窗口里 `tabManager.getActiveId()`
+   仍指向上一个标签。桥模式 URL 恒定 → 解析到旧 target 既不会触发重渲染也不会再解析，
+   面板就永远停在上一个页面上（现象：切到新标签页后 Elements 里还是上一个页面的 DOM）。
+   现在 `devtoolsUrl` / `attach-devtools-view` / `bridge.attach` / `open-devtools-window`
+   都接受 `tabId`，由渲染层把"用户看到的是哪个标签"传下去；渲染层另外丢弃迟到的
+   响应（`useTabsStore.getState().activeTabId !== 请求时的 tabId` 就丢）。
 
 ### 9.3 开关与限制
 

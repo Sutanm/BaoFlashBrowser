@@ -26,7 +26,8 @@ export function useDevToolsBridgeAttach(
     let cancelled = false;
 
     const hotAttach = async (attempt: number): Promise<void> => {
-      const result = await window.electronAPI.devtoolbox.bridge.attach(target).catch(() => null);
+      // tabId 显式传：主进程的"活动标签"比渲染层晚一拍，靠它会绑到上一个页面。
+      const result = await window.electronAPI.devtoolbox.bridge.attach(target, activeTabId).catch(() => null);
       if (cancelled || (result && result.ok)) return;
       if (attempt < 4) {
         setTimeout(() => {
