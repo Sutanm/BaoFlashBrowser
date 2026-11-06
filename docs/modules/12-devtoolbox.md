@@ -10,11 +10,29 @@
 密码捕获链路、Flash 插件状态、主进程日志」在应用内直接可见，不需要外接浏览器或翻
 `logs/main.log`。
 
-**硬边界**：工具箱**不 attach CDP**。Electron 的每个 `WebContents` 只允许一个 debugger
-客户端（`cdp-lease.ts` 的排他租约就是这条事实的落地），而密码捕获长期持有、
-自动化按短租约排队、`password-fill` 还会几十毫秒裸 attach。工具箱一旦抢租约，
-捕获链路会拿到 `CDP is already attached by an unmanaged client`，即 2026-09-22 那次
-7k7k 捕获失效的同一类故障。
+**硬边界**：工具箱**不 attach CDP**。互斥只发生在 embedded client 之间——
+Electron 的 `webContents.debugger` 一个 WebContents 只能挂一个（`cdp-lease.ts`
+的排他租约就是这条事实的落地），而密码捕获长期持有、自动化按短租约排队、
+`password-fill` 还会几十毫秒裸 attach。工具箱一旦抢租约，捕获链路会拿到
+`CDP is already attached by an unmanaged client`，即 2026-09-22 那次 7k7k
+捕获失效的同一类故障。
+
+**共存性实测更正（2026-11-06）**：embedded client 与**远程 ws 客户端**并不互斥。
+`tools/devtools-spike/cdp-coexist-check.cjs` 与 `cdp-embedded-coexist.cjs` 实证
+（Electron 11 / Chromium 87）：
+
+| 组合 | 结果 |
+| --- | --- |
+| page-ws × 2 | 共存，双方 evaluate 全通 |
+| page-ws + browser 级 `Target.attachToTarget(flatten)` | 共存，事件互通 |
+| embedded（`webContents.debugger`）+ page-ws × 2 | 共存，attach/evaluate 全通 |
+| embedded + flatten | attach 成功；flatten 的 `Runtime.evaluate` 报"域未找到"（细节异常，attach 本身不互斥） |
+
+推论：抽屉 DevTools 前端（page-ws）开着**不影响**密码捕获/填充；"CDP 总线"
+（browser flatten 多路复用）要解决的多客户端问题 Chromium 87 的端点已经免费
+提供，没有必要实现。唯一真实的互斥仍是 embedded × embedded——若未来出现
+第三个 embedded 消费者，做一个约百行的 embedded 引用计数复用器即可，
+同样不需要总线。
 
 **结论**：首版只做非 CDP 观察，能力换稳定性。
 
@@ -209,6 +227,8 @@ env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devt
 node tools/devtools-spike/page-elements-repro.cjs   # 真实页面（默认 7k7k）上验证 Elements 树渲染
 node tools/devtools-spike/dock-shell-check.cjs      # 验证停靠壳：devtools_app.html + can_dock、无 screencast、Elements 渲染
 node tools/devtools-spike/tab-switch-check.cjs      # 双标签验证：切标签 iframe 跟随新 target、同标签导航 targetId 不变
+node tools/devtools-spike/cdp-coexist-check.cjs     # CDP 共存性：page-ws × 2、page-ws + flatten session
+node tools/devtools-spike/cdp-embedded-coexist.cjs  # CDP 共存性：embedded debugger 与远程 ws 客户端
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、

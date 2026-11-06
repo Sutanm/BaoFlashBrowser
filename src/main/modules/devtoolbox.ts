@@ -27,15 +27,19 @@ import { tabManager } from './tabs';
 /**
  * 内置开发者工具箱的主进程采集管道。
  *
- * 刻意**不 attach CDP**：Electron 的 WebContents 只允许一个 debugger 客户端，
- * 而密码捕获（长期持有）与自动化（短租约）已经在用。工具箱一旦抢租约，
- * 捕获链路就会拿到 "already attached by an unmanaged client"。
+ * 刻意**不 attach CDP**：互斥只发生在 embedded client 之间——Electron 的
+ * `webContents.debugger` 一个 WebContents 只能挂一个，密码捕获长期持有、
+ * 自动化按短租约排队、password-fill 会几十毫秒裸 attach，工具箱再挤进去
+ * 就会撞出 "already attached by an unmanaged client"（2026-09-22 事故）。
+ * 注意：**远程 ws 客户端（抽屉 DevTools 前端的 page-ws）与 embedded 实测
+ * 共存**（tools/devtools-spike/cdp-coexist-check.cjs + cdp-embedded-coexist.cjs，
+ * 2026-11-06），面板开着不影响密码捕获/填充。
  *
  * 能拿到的能力：
  *  - 页面 + 外壳的控制台：`webContents.on('console-message')`（无 DevTools 也触发）
  *  - 主进程日志：electron-log 的 hooks（含 [PasswordCapture] / [Flash] / [Keyring]）
  *  - 求值与页面探测：`executeJavaScript`
- * 拿不到的：网络响应体、DOM/CSS 树、断点调试 → 仍由原生 DevTools 兜底。
+ * 拿不到的：网络响应体、DOM/CSS 树、断点调试 → 由抽屉里的真 DevTools 前端兜底。
  */
 
 const MAX_ENTRIES = 2000;
