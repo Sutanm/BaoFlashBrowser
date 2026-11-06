@@ -315,6 +315,7 @@ node tools/devtools-spike/page-ws-baseline-capture.cjs      # page-ws 基线录�
 node tools/devtools-spike/bridge-mode-check.cjs              # 桥模式端到端：树与目标页一致、bfbBridge 就位、0 异常
 BFB_PAGE_WS=1 node tools/devtools-spike/bridge-mode-check.cjs # page-ws 回退对照（同一 fixture、同一探针）
 node tools/devtools-spike/toolbar-merge-check.cjs            # 顶栏只有一行、窄抽屉不横向溢出；顺带截 artifacts/devtools-toolbar-merged.png
+node tools/devtools-spike/frontend-intent-check.cjs          # 原生停靠菜单/✕ 经 bfbBridge.shell 落到外壳：right→竖向、bottom→横向、close→收起
 node tools/devtools-spike/styles-spin-check.cjs              # Styles 是否加载：BFB_REOPEN=1 切页签回来、BFB_CLICK=1 点节点、BFB_URL 打真站
 node tools/devtools-spike/bridge-tab-switch-check.cjs        # 桥模式：切标签容器不重建、面板状态保留、树跟随；并量「切回」的跟随耗时（实测 ~520ms）
 BFB_RESET_LOCALE=1 node tools/devtools-spike/bridge-mode-check.cjs # 清掉持久化 language，确认"没存过就跟随系统"
@@ -343,16 +344,31 @@ requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 白吃掉 30px 面板高度。现在合并成一行：
 
 ```
-[DevTools] [捕获 N] [Flash] [主进程 N] | [当前页面][外壳界面] [↻] [↗] | …… [停靠] [✕]
-└──────────── 可横向滚动（窄抽屉）────────────┘   └──── 固定 ────┘
+[DevTools] [捕获 N] [Flash] [主进程 N] │ [当前页面][外壳界面] [↻] [🪟] │ …… [停靠] [✕]
+└──────────── 可横向滚动（窄抽屉）────────────┘          └──── 固定 ────┘
 ```
 
 - 左侧（页签 + DevTools 控件）放在 `.devtools-header-tabs` 里，`overflow-x:auto`
   且隐藏滚动条：右侧停靠常见 340~460px，放不下时滚动，而不是把「捕获」压成「获」。
+- 两组之间有一条竖分隔线：页签是「看哪个面板」，右边是「看哪个 target + 两个动作」。
+- **图标要能区分**：`↻` 用 `RotateCw`（重建容器），原生面板用 `AppWindow`（窗口轮廓）。
+  之前原生面板借了 `ExternalLink`，与右侧「独立窗口」停靠按钮同一个图标，分不出来。
 - 右侧（停靠切换、关闭）固定，任何时候都能点到。
 - 「清空」只在捕获/主进程页签出现（它清的是采集缓冲，在 DevTools 页签上没意义）。
 - 「刷新」的重建计数从组件内 `useState` 挪到 store（`devtoolsReloadToken`），
   因为按钮和消费者已经不在一棵子树里了。
+
+**原生 DevTools 自带的停靠菜单与 ✕ 已接进外壳**。它们原来各走各的：
+
+| 原生控件 | 原行为 | 现在 |
+| --- | --- | --- |
+| `⋮ → 停靠侧 → 底部/左侧/右侧/独立窗口` | 改前端自己的 `dockSide`：在 BrowserView 里只会画出错的布局（主区空白、标签条换边） | 补丁改成发意图 `bfbBridge.shell({dock})` 并**跳过** `setDockSide`，由外壳 store 落地 |
+| 工具栏 `✕` | `InspectorFrontendHost.closeWindow()` 在这套壳里是空实现，点了没反应 | 改成 `bfbBridge.shell({close:true})` → 外壳收起抽屉（undocked 时连带关独立窗口） |
+
+链路：前端 → `bfbBridge.shell`（devtools preload）→ IPC `devtoolbox:frontend-intent`
+（只接受前端 WebContents 这个 sender，参数走 zod 白名单）→ 主窗口 renderer →
+`useDevToolStore.setDock/setOpen`。判据 `frontend-intent-check.cjs`：
+`dock=right` → 抽屉变 538×711 竖向；`dock=bottom` → 回到 1280×479；`close` → 抽屉消失。
 
 **DevTools 容器在抽屉内常驻挂载**：切到「捕获/Flash/主进程」只把它 `display:none`，
 不卸载。不这么做的话每次切回来都要销毁原生视图、重启前端，代价有两层：
@@ -360,6 +376,19 @@ requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 或样式」（page-ws 路径同样如此，所以不是桥的锅）。隐藏时占位矩形为 0，`report()`
 把原生视图挪到 `(-8,-8,1,1)`，否则这层原生视图会盖住其它页签的内容。
 关抽屉时整棵树卸载，视图照常销毁，不留后台开销。
+
+**已知未解**：**同一个标签里刷新页面**（不切标签）之后，Styles 面板会停在
+「找不到匹配的选择器或样式」，点一下任意节点才恢复。已确认：
+
+- 后端确实发了 `DOM.documentUpdated`（抓事件实测 2 次），桥也原样转发了；
+- 前端 `ElementsPanel.documentUpdated` 确实被调用，甚至能选到新文档的 body；
+- 但 `StylesSidebarPane` 仍在用**旧节点的 nodeId** 反复请求
+  （`CSS.getMatchedStylesForNode` → `Could not find node with given id`）；
+- `BAO_DEVTOOLS_PAGE_WS=1` 对照**完全一样**，所以不是桥的问题，是 M97 前端在 87
+  后端上的行为。
+- 试过并已回退：在 `documentUpdated` 里强制选根节点、导航后补发
+  `Runtime.executionContextsCleared` —— 都不改变现象（前者把空白变成一条错误文案）。
+  下一步要往 `StylesSidebarPane.setNode` / `NodeSelected` 那条线上查。
 
 ### 8.7 拖拽跟手（同步 bounds）
 

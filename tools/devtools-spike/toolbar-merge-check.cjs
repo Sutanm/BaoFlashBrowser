@@ -189,6 +189,16 @@ const MEASURE = `(() => {
   await sleep(2500);
   console.log('[toolbar] 右侧停靠:', await evaluate(client, MEASURE));
 
+  // 先切回底部停靠再截图：底部是最常用的形态
+  await evaluate(client, `(() => {
+    const drawer = document.querySelector('[data-devtools-drawer]');
+    const all = [].slice.call(drawer.querySelectorAll('button'));
+    const t = all.find((b) => (b.getAttribute('aria-label') || '').indexOf('底部') !== -1);
+    if (t) t.click();
+    return 'ok';
+  })()`);
+  await sleep(2200);
+  console.log('[toolbar] 回到底部:', await evaluate(client, MEASURE));
   const shot = await client.send('Page.captureScreenshot', { format: 'png' });
   if (shot && shot.result && shot.result.data) {
     fs.mkdirSync(path.dirname(SHOT), { recursive: true });

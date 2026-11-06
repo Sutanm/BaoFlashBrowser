@@ -90,6 +90,20 @@ export function registerDevToolboxIPC(): void {
   );
 
   // 拖拽专用同步通道：渲染层在 ResizeObserver 回调里等这一步，跨进程多走一次
+  // 原生 DevTools 界面里的「停靠 / 关闭」：前端只发意图，由外壳的 store 落地。
+  // 前端自己不改 dockSide —— 它跑在 BrowserView 里，改自己的停靠只会画出错的布局。
+  ipcMain.on('devtoolbox:frontend-intent', (event, args: unknown) => {
+    const frontend = getDevToolsFrontendContents();
+    if (!frontend || event.sender !== frontend) return;
+    const parsed = z.object({
+      dock: z.enum(['bottom', 'left', 'right', 'undocked']).optional(),
+      close: z.boolean().optional(),
+    }).strict().safeParse(args);
+    if (!parsed.success) return;
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send('devtoolbox:frontend-intent', parsed.data);
+  });
+
   // 异步投递就会晚一帧，快速拖拽时"布局到位、画面还停在上一帧"非常刺眼。
   // **必须先写 returnValue**：不写的话渲染线程会一直被挂住（不是超时，是卡死）。
   ipcMain.on('devtoolbox:set-devtools-bounds-sync', (event, args: unknown) => {

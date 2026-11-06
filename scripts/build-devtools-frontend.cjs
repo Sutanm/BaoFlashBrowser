@@ -247,6 +247,29 @@ const SOURCE_PATCHES = [
     ],
   },
   {
+    // 原生 DevTools 自带的「停靠侧」菜单与关闭按钮，改成把意图交给外壳。
+    // 前端跑在 BrowserView 里，自己 setDockSide 只会画出错的布局（主区空白 /
+    // 标签条换边），关闭更是完全没有宿主可关。外壳的 store 才是唯一事实源。
+    file: 'entrypoints/main/main.js',
+    patches: [
+      [
+        'function i(e){E.DockController.DockController.instance().once("AfterDockSideChanged").then((()=>{o.focus()})),E.DockController.DockController.instance().setDockSide(e),t.discard()}',
+        'function i(e){if(window.bfbBridge){try{window.bfbBridge.shell({dock:e})}catch(bfbErr){}t.discard();return}E.DockController.DockController.instance().once("AfterDockSideChanged").then((()=>{o.focus()})),E.DockController.DockController.instance().setDockSide(e),t.discard()}',
+      ],
+    ],
+  },
+  {
+    file: 'core/host/host.js',
+    patches: [
+      // 前端工具栏的 ✕ 走 InspectorFrontendHost.closeWindow()，原生宿主里是
+      // 真的关窗口；我们这套壳里它是空实现，点了没反应。改成交给外壳收起抽屉。
+      [
+        'closeWindow(){}setIsDocked(e,o){window.setTimeout(o,0)}',
+        'closeWindow(){try{window.bfbBridge&&window.bfbBridge.shell({close:!0})}catch(bfbErr){}}setIsDocked(e,o){window.setTimeout(o,0)}',
+      ],
+    ],
+  },
+  {
     file: 'panels/emulation/emulation.js',
     patches: [
       // 抽屉以 `can_dock=true` 起 AdvancedApp（唯一停靠壳），DockController 的默认

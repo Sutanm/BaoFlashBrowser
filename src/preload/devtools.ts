@@ -136,6 +136,23 @@ const bfbBridge = {
       // 同上
     });
   },
+
+  /**
+   * 把「原生 DevTools 界面里的框架级操作」转给外壳。
+   *
+   * 原生前端自己带一套停靠菜单和一个关闭按钮，但停靠/关闭是**外壳**的事：
+   * 抽屉在四边怎么摆、关掉是收起抽屉还是关窗口，前端都不知道。所以这两处被
+   * 补丁改成只发意图（`{ dock }` / `{ close }`），由外壳的 store 落地，
+   * 前端自己不再改 dockSide（否则它会在 BrowserView 里画出错的布局）。
+   */
+  shell(intent: { dock?: string; close?: boolean }): void {
+    if (!intent || typeof intent !== 'object') return;
+    const payload: { dock?: string; close?: boolean } = {};
+    if (typeof intent.dock === 'string' && intent.dock.length > 0 && intent.dock.length < 20) payload.dock = intent.dock;
+    if (intent.close === true) payload.close = true;
+    if (payload.dock === undefined && payload.close === undefined) return;
+    ipcRenderer.send('devtoolbox:frontend-intent', payload);
+  },
 };
 
 contextBridge.exposeInMainWorld('bfbBridge', bfbBridge);

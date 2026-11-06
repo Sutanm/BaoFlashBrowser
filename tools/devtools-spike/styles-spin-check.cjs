@@ -40,13 +40,16 @@ function cdp(wsUrl) {
   const socket = new WebSocket(wsUrl);
   let id = 0;
   const pending = new Map();
+  const listeners = [];
   socket.on('message', (raw) => {
     let msg; try { msg = JSON.parse(raw.toString()); } catch { return; }
-    if (msg.id && pending.has(msg.id)) { const e = pending.get(msg.id); pending.delete(msg.id); e(msg); }
+    if (msg.id && pending.has(msg.id)) { const e = pending.get(msg.id); pending.delete(msg.id); e(msg); return; }
+    for (const listener of listeners) listener(msg);
   });
   const ready = new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
   return {
     ready,
+    onEvent(listener) { listeners.push(listener); },
     send(method, params = {}) {
       const i = ++id;
       socket.send(JSON.stringify({ id: i, method, params }));
@@ -209,6 +212,19 @@ const STYLES_PROBE = `(() => {
   if (!front) { client.close(); fixture.close(); process.exit(2); }
   const fc = cdp(front.webSocketDebuggerUrl);
   await fc.ready;
+  // 收集前端 console（含我们临时埋的 BFB 标记）
+  const frontLogs = [];
+  const frontEvents = [];
+  fc.onEvent((m) => {
+    if (m.method === 'Runtime.consoleAPICalled') {
+      const text = (m.params.args || []).map((a) => String(a.value === undefined ? a.description : a.value)).join(' ');
+      frontLogs.push(text.slice(0, 160));
+    } else if (m.method === 'Runtime.exceptionThrown') {
+      const d = m.params && m.params.exceptionDetails;
+      frontEvents.push(String((d && d.text) || '').slice(0, 160));
+    }
+  });
+  await fc.send('Runtime.enable');
 
   for (const at of [2000, 6000, 12000, 20000]) {
     await sleep(at === 2000 ? 2000 : 4000);
@@ -280,6 +296,83 @@ const STYLES_PROBE = `(() => {
     }
   }
 
+  // 探后端是否支持 DOM.pushNodeByPathToFrontend（前端刷新后靠它恢复选中）
+  if (process.env.BFB_CDP_PROBE === '1') {
+    const pageTarget = await waitUntil(async () => {
+      const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
+      return (list || []).find((t) => t.type === 'page' && !/devtools_app|dist\/renderer/.test(t.url || '')) || null;
+    }, 20000, 'page target');
+    if (pageTarget) {
+      const pc = cdp(pageTarget.webSocketDebuggerUrl);
+      await pc.ready;
+      console.log('[spin] DOM.enable:', JSON.stringify(await pc.send('DOM.enable')));
+      console.log('[spin] pushNodeByPathToFrontend:', JSON.stringify(await pc.send('DOM.pushNodeByPathToFrontend', { path: 'html,body' })));
+      console.log('[spin] pushNodesByBackendIdsToFrontend:', JSON.stringify(await pc.send('DOM.pushNodesByBackendIdsToFrontend', { backendNodeIds: [1] })));
+      pc.close();
+    }
+  }
+
+  // 抓后端在导航时发出的 DOM 事件：87 是否真的会发 DOM.documentUpdated？
+  if (process.env.BFB_DOM_EVENTS === '1') {
+    const pageTarget = await waitUntil(async () => {
+      const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
+      return (list || []).find((t) => t.type === 'page' && !/devtools_app|dist\/renderer/.test(t.url || '')) || null;
+    }, 20000, 'page target');
+    if (pageTarget) {
+      const events = [];
+      const socket = new WebSocket(pageTarget.webSocketDebuggerUrl);
+      const pendingSends = new Map();
+      let seq = 0;
+      socket.on('message', (raw) => {
+        let m; try { m = JSON.parse(raw.toString()); } catch { return; }
+        if (m.id && pendingSends.has(m.id)) { pendingSends.get(m.id)(m); pendingSends.delete(m.id); return; }
+        if (m.method) events.push(m.method);
+      });
+      await new Promise((res) => socket.once('open', res));
+      const send = (method, params = {}) => new Promise((res) => {
+        const id = ++seq;
+        pendingSends.set(id, res);
+        socket.send(JSON.stringify({ id, method, params }));
+      });
+      await send('Page.enable');
+      await send('DOM.enable');
+      await send('Runtime.enable');
+      events.length = 0;
+      await send('Page.reload', { ignoreCache: false });
+      await sleep(6000);
+      const counts = {};
+      for (const name of events) counts[name] = (counts[name] || 0) + 1;
+      console.log('[spin] 导航期间后端事件:', JSON.stringify(counts));
+      try { socket.close(); } catch { /* ignore */ }
+    }
+  }
+
+  // 刷新当前页面（不切标签）：前端会收到 documentUpdated 并重建树，
+  // 选中节点在新文档里已不存在——这正是"刷新一下样式就空了"的场景。
+  if (process.env.BFB_RELOAD === '1') {
+    const pageTarget = await waitUntil(async () => {
+      const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
+      return (list || []).find((t) => t.type === 'page' && !/devtools_app|dist\/renderer/.test(t.url || '')) || null;
+    }, 20000, 'page target');
+    if (pageTarget) {
+      const pc = cdp(pageTarget.webSocketDebuggerUrl);
+      await pc.ready;
+      await pc.send('Page.reload', { ignoreCache: false });
+      pc.close();
+      console.log('[spin] 已触发页面刷新:', String(pageTarget.url).slice(0, 60));
+    }
+    for (const at of [1500, 4000, 8000]) {
+      await sleep(at === 1500 ? 1500 : 2500);
+      console.log(`[spin] 刷新后 +${at}ms:`, await evaluate(fc, STYLES_PROBE));
+      console.log(`[spin] 刷新后 +${at}ms 树:`, await evaluate(fc, TREE_PROBE));
+    }
+    const flow = await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) {
+      var list = (s.flow || []).filter(function (f) { return String(f.m).indexOf('DOM.') === 0 || String(f.m).indexOf('CSS.') === 0; });
+      return JSON.stringify({ flow: list.slice(-10), lastDoc: s.lastDoc, docEvents: (s.trace || []).filter(function (t) { return String(t.m).indexOf('documentUpdated') >= 0 || String(t.m).indexOf('frameNavigated') >= 0; }).slice(-10) });
+    })`);
+    console.log('[spin] 刷新后的 DOM/CSS 流水:', flow);
+  }
+
   // 切标签：桥会 detach/attach 换 session，这正是「请求发出去了、响应再也没回来」的窗口。
   if (process.env.BFB_SWITCH === '1') {
     await evaluate(client, `(() => { const b = document.querySelector('.btn-tab.no-drag'); if (b) b.click(); return 'ok'; })()`, false);
@@ -320,6 +413,9 @@ const STYLES_PROBE = `(() => {
   })`);
   console.log('[spin] bridge CSS 流水:', stats);
 
+  console.log('[spin] 前端 console:', frontLogs.length, JSON.stringify(frontLogs.slice(-8)));
+  console.log('[spin] BFB 标记:', JSON.stringify(frontLogs.filter((line) => line.indexOf('BFB') === 0).slice(-10)));
+  console.log('[spin] 前端异常:', frontEvents.length, JSON.stringify(frontEvents.slice(-4)));
   fc.close();
   client.close();
   fixture.close();

@@ -239,6 +239,8 @@ declare global {
         openDevToolsWindow(target?: 'page' | 'shell', tabId?: string | null): Promise<{ ok: boolean; error?: string }>;
         closeDevToolsWindow(): Promise<void>;
         onDevToolsWindowClosed(callback: () => void): () => void;
+        /** 原生 DevTools 界面里的「停靠 / 关闭」意图。 */
+        onFrontendIntent(callback: (intent: { dock?: 'bottom' | 'left' | 'right' | 'undocked'; close?: boolean }) => void): () => void;
         /** 内嵌前端视图：用独立 WebContents（BrowserView）承载前端，而不是 iframe。 */
         attachDevToolsView(target: 'page' | 'shell', tabId?: string | null): Promise<{ ok: boolean; error?: string }>;
         setDevToolsBounds(rect: { x: number; y: number; width: number; height: number }): Promise<void>;

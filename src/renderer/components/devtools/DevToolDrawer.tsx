@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, PanelBottom, PanelLeft, PanelRight, RefreshCw, X } from 'lucide-react';
+import { AppWindow, ExternalLink, PanelBottom, PanelLeft, PanelRight, RotateCw, X } from 'lucide-react';
 import type { DevToolEntry, DevToolFlashInfo, DevToolPageProbe } from '@shared/types/devtoolbox';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
@@ -156,6 +156,17 @@ const DevToolDrawer: React.FC = () => {
 
   const byIssue = (issue: DevToolEntry['issue']): DevToolEntry[] => entries.filter((entry) => entry.issue === issue);
 
+  // 原生 DevTools 界面自带的「停靠侧」菜单与关闭按钮：前端只发意图，这里落地。
+  // 不接的话它们改的是前端自己的 dockSide（在 BrowserView 里只会画出错的布局），
+  // 或者干脆没反应——看起来就是"没和外壳对齐"。
+  useEffect(() => {
+    const off = window.electronAPI.devtoolbox.onFrontendIntent((intent) => {
+      if (intent.close) { setOpen(false); return; }
+      if (intent.dock) setDock(intent.dock);
+    });
+    return off;
+  }, [setDock, setOpen]);
+
   // 独立窗口：抽屉打开且停靠为 undocked 时建窗；建窗失败则退回上次的内嵌位置
   useEffect(() => {
     if (dock !== 'undocked' || !open) return;
@@ -288,6 +299,8 @@ const DevToolDrawer: React.FC = () => {
             （抽屉里出现两条工具条），把面板高度白吃掉 30px。 */}
         {tab === 'devtools' && (
           <>
+            {/* 与页签之间加一条分隔线：这两组含义完全不同（页签切换 vs 目标/操作） */}
+            <span className="mx-[2px] h-[14px] w-px shrink-0" style={{ background: 'var(--border)' }} />
             <div className="flex items-center rounded shrink-0" style={{ border: '0.5px solid var(--border)' }}>
               {(['page', 'shell'] as const).map((item) => (
                 <button
@@ -314,7 +327,7 @@ const DevToolDrawer: React.FC = () => {
               onClick={bumpDevtoolsReload}
               style={{ color: 'var(--text-secondary)' }}
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RotateCw className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -324,7 +337,7 @@ const DevToolDrawer: React.FC = () => {
               onClick={() => { void window.electronAPI.devtoolbox.openNative(devTarget); }}
               style={{ color: 'var(--text-secondary)' }}
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <AppWindow className="w-3.5 h-3.5" />
             </button>
           </>
         )}

@@ -206,6 +206,12 @@ const electronAPI = {
       ipcRenderer.on('devtoolbox:devtools-window-closed', listener);
       return () => { ipcRenderer.removeListener('devtoolbox:devtools-window-closed', listener); };
     },
+    /** 原生 DevTools 界面里的「停靠 / 关闭」意图（前端只发信号，外壳落地）。 */
+    onFrontendIntent: (callback: (intent: { dock?: 'bottom' | 'left' | 'right' | 'undocked'; close?: boolean }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { dock?: 'bottom' | 'left' | 'right' | 'undocked'; close?: boolean }) => callback(payload ?? {});
+      ipcRenderer.on('devtoolbox:frontend-intent', listener);
+      return () => { ipcRenderer.removeListener('devtoolbox:frontend-intent', listener); };
+    },
     /** 内嵌前端视图：用独立 WebContents（BrowserView）承载前端，而不是 iframe。 */
     attachDevToolsView: (target: 'page' | 'shell', tabId?: string | null) => safeInvoke('devtoolbox:attach-devtools-view', { target, tabId: tabId ?? null }),
     setDevToolsBounds: (rect: { x: number; y: number; width: number; height: number }) =>
