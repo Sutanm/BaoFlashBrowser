@@ -254,6 +254,9 @@ node tools/devtools-spike/cdp-embedded-coexist.cjs  # CDP 共存性：embedded d
 node tools/devtools-spike/page-ws-baseline-capture.cjs      # page-ws 基线录流（ws 代理夹在前端与真实端点之间）
 BAO_DEVTOOLS_BRIDGE=1 node tools/devtools-spike/bridge-mode-check.cjs        # 桥模式：树与目标页一致、0 异常
 BAO_DEVTOOLS_BRIDGE=1 node tools/devtools-spike/bridge-tab-switch-check.cjs  # 桥模式：切标签不重载 iframe、面板跟随
+node tools/devtools-spike/bridge-realsite-check.cjs          # 桥模式真站（7k7k）：树/求值/密码捕获 embedded 并发
+BFB_HEAVY=1 node tools/devtools-spike/bridge-load-baseline.cjs               # 三模式 CPU 与消息量对比（受控页面）
+node tools/devtools-spike/bridge-load-baseline.cjs bridge                    # 只跑桥模式（可配 BFB_WINDOW_MS 拉长窗口）
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、

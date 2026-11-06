@@ -126,9 +126,8 @@ M97 前端（iframe, http://127.0.0.1:<static>）
    下全部正常（`flat:2`）。S3 当时的"域未找到"是瞬时竞态（attach 后立即 evaluate，域尚未  
    就绪），不是结构性冲突——桥实现里 attach 后需等 `Target.attachedToTarget` 或首条  
    事件再放行前端流量。**不再作为风险项。**
-2. **7k7k 真站定级**：抽屉（桥模式）开着 + 密码捕获 + automation 输入，三线并行是否互相  
-   影响（S6 只证了本地 JSONP）。
-3. **IPC 负载基线**：Network 面板重站点（如 7k7k）下桥的 IPC 消息速率与主进程 CPU。
+2. ~~**7k7k 真站定级**~~ **已通过（2026-11-06）**，见下方「B1.2 真站定级」。
+3. ~~**IPC 负载基线**~~ **已通过（2026-11-06）**，见下方「B1.3 IPC 负载基线」。
 
 ### B2 主进程桥
 
@@ -177,6 +176,39 @@ DevToolsTab 内 postMessage 中继（origin 校验）+ 切标签热切换。
   **待做（B1.3）**。
 - **回退**：`BAO_DEVTOOLS_BRIDGE=0` 立即可用 page-ws 模式，行为与 925ceb7 一致。**已达成**。
 - **质量门**：typecheck 0 错、lint 0 警、865 单测全过、S1–S8 探针可复跑。**已达成**。
+
+### B1.2 真站定级（2026-11-06 完成）
+
+`tools/devtools-spike/bridge-realsite-check.cjs`，7k7k 真站 + 桥模式抽屉打开：
+
+| 项 | 结果 |
+| --- | --- |
+| Elements 树 | 236 个 span，含真实结构 `<body id="theme-blue">`、`<div class="header" id="header">`、`<div class="main">`、`<div class="footer">` 与真实脚本 `www.7k7kjs.cn/...` |
+| 经桥求值 | title「小游戏,7k7k小游戏…」、url `https://www.7k7k.com/`、`readyState=interactive`、4680 节点 |
+| 桥 stats | sent 167、events 1743、dropped 1、bytesIn 2.30 MB、bytesOut 22.0 KB |
+| 密码捕获（embedded） | `[PasswordCapture] attached` ×1、`attach failed` ×0、`already attached by an unmanaged client` ×0 |
+
+结论：真站上桥的数据通路与 fixture 一致；**桥 session 存活期间密码捕获的 embedded attach 正常，零冲突**。
+
+**未覆盖**：automation 输入线没有驱动（需要一份完整 v3 工作流文档 + 包 + 授权）。它的底层与捕获是同一个 embedded 通道（`acquireAutomationCdpLease`），桥完全不碰 embedded，故由捕获那条覆盖；**如果要一条真机证据，需另做一次带 workflow 的自动化回放**。
+
+### B1.3 IPC 负载基线（2026-11-06 完成）
+
+`tools/devtools-spike/bridge-load-baseline.cjs`。受控页面（1500 节点 + 500 条 CSS 规则）+ 每 200ms 一次
+DOM 变更与 fetch，三种模式跑同一份负载：
+
+| 模式 | **主进程 CPU** | 总 CPU（不可靠） | events/s | bytesIn/s |
+| --- | --- | --- | --- | --- |
+| page-ws | 2.3% | 103.4% | — | — |
+| 桥 | 4.0% / 6.0% / 3.7% | 95.8% / 152.2% / 101.0% | 33.9–34.7 | ≈25 KB |
+| 不开抽屉 | 0.9% | 59.9% | — | — |
+
+- **主进程增量：桥相对 page-ws +1.7~3.7pp，相对不开抽屉 +2.8~5.1pp —— 满足「< 10pp」。**
+- **总 CPU 在本机不可分辨**：同一模式重复跑波动达 ±30pp（不开抽屉 21%~61%），应用自身后台
+  （OpenCV/OCR 预热、视觉检测）的抖动远大于桥相关差异。要测总量必须先把这些后台压掉，
+  或改用"同实例内开关抽屉"的对照法。
+- **2 分钟长窗口**：events/s 34.7 与 24s 窗口的 33.9 一致，`dropped` 恒为 1（启动期 browser
+  级事件），无漂移、无丢事件。规格要求 5 分钟，此处只跑到 2 分钟。
 
 ## 7. 风险与缓解
 
