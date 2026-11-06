@@ -4,6 +4,7 @@
  *
  *   node tools/devtools-spike/styles-spin-check.cjs
  *   BFB_CROSS=1 node tools/devtools-spike/styles-spin-check.cjs   # 页面带跨域 iframe（会触发 CDP 深探）
+ *   BFB_RELOAD=1 BFB_CLICK=1 BFB_URL=https://news.7k7k.com/pkt/ node tools/devtools-spike/styles-spin-check.cjs
  *
  * 判据：
  * - Styles 面板是否出现规则内容（`element.style` / `body {` / `color`）；
@@ -21,7 +22,8 @@ const WebSocket = require('ws');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 const ELECTRON = path.join(APP_ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
-const PORT_FILE = path.join(process.env.APPDATA || '', 'bao-flash-browser', 'DevToolsActivePort');
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'bfb-styles-'));
+const PORT_FILE = path.join(profile, 'DevToolsActivePort');
 const CROSS = process.env.BFB_CROSS === '1';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -80,6 +82,7 @@ async function waitUntil(fn, timeoutMs, label) {
 }
 
 function startFixture() {
+  let documentNumber = 0;
   const server = http.createServer((req, res) => {
     const url = req.url || '/';
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -88,12 +91,14 @@ function startFixture() {
       return;
     }
     const port = server.address().port;
+    if (url === '/page') documentNumber += 1;
     res.end(`<!doctype html><html><head><title>spin</title>
       <style>
         body { margin: 0; font: 16px system-ui; }
         #target { color: rgb(220, 30, 60); padding: 12px; border: 2px solid #36c; }
+        .document-${documentNumber} { background-color: white; }
       </style></head><body>
-      <div id="target">STYLED-NODE</div>
+      <div id="target" class="document-${documentNumber}">STYLED-NODE</div>
       ${CROSS ? `<iframe src="http://localhost:${port}/game" width="420" height="260"></iframe>` : ''}
     </body></html>`);
   });
@@ -145,27 +150,21 @@ const STYLES_PROBE = `(() => {
 })()`;
 
 (async () => {
-  try { spawn('taskkill', ['/F', '/IM', 'electron.exe'], { stdio: 'ignore' }); } catch { /* none */ }
-  await sleep(1000);
-
   const { server: fixture, port: fixturePort } = await startFixture();
   const pageUrl = process.env.BFB_URL || `http://127.0.0.1:${fixturePort}/page`;
   console.log('[spin] page:', pageUrl, '| 跨域 iframe:', CROSS);
 
-  const logPath = path.join(os.tmpdir(), 'bfb-stylespin.log');
+  const logPath = path.join(profile, 'styles-spin.log');
   const out = fs.openSync(logPath, 'w');
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  delete env.BAO_DEVTOOLS_PAGE_WS;
-  const child = spawn(ELECTRON, ['.'], { cwd: APP_ROOT, stdio: ['ignore', out, out], env });
+  const child = spawn(ELECTRON, ['.', `--user-data-dir=${profile}`], { cwd: APP_ROOT, stdio: ['ignore', out, out], env });
+  process.once('exit', () => child.kill());
 
-  const startedAt = Date.now();
   const port = await waitUntil(async () => {
     try {
-      if (fs.statSync(PORT_FILE).mtimeMs > startedAt) {
-        const p = Number(String(fs.readFileSync(PORT_FILE, 'utf8')).split('\n')[0]);
-        if (p > 0 && await getJson(`http://127.0.0.1:${p}/json/version`).then(() => true).catch(() => false)) return p;
-      }
+      const p = Number(String(fs.readFileSync(PORT_FILE, 'utf8')).split('\n')[0]);
+      if (p > 0 && await getJson(`http://127.0.0.1:${p}/json/version`).then(() => true).catch(() => false)) return p;
     } catch { /* not yet */ }
     return null;
   }, 40000, 'debug port');
@@ -178,6 +177,14 @@ const STYLES_PROBE = `(() => {
   if (!shell) { fixture.close(); process.exit(2); }
   const client = cdp(shell.webSocketDebuggerUrl);
   await client.ready;
+  const shellReady = await waitUntil(() => evaluate(client, `(() => {
+    if (document.querySelector('.address-input')) return true;
+    const button = document.querySelector('.first-run-dialog button[type="submit"]:enabled');
+    if (button) button.click();
+    return false;
+  })()`, false), 20000, 'first-run language and address bar');
+  if (!shellReady) throw new Error('Browser shell unavailable after language selection');
+  console.log('[spin] 浏览器外壳已就绪');
 
   const navigate = (url) => evaluate(client, `(() => {
     const input = document.querySelector('.address-input');
@@ -226,7 +233,7 @@ const STYLES_PROBE = `(() => {
   });
   await fc.send('Runtime.enable');
 
-  for (const at of [2000, 6000, 12000, 20000]) {
+  for (const at of process.env.BFB_RELOAD === '1' ? [2000] : [2000, 6000, 12000, 20000]) {
     await sleep(at === 2000 ? 2000 : 4000);
     console.log(`[spin] T+${at}ms:`, await evaluate(fc, STYLES_PROBE));
   }
@@ -350,27 +357,53 @@ const STYLES_PROBE = `(() => {
   // 刷新当前页面（不切标签）：前端会收到 documentUpdated 并重建树，
   // 选中节点在新文档里已不存在——这正是"刷新一下样式就空了"的场景。
   if (process.env.BFB_RELOAD === '1') {
-    const pageTarget = await waitUntil(async () => {
-      const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
-      return (list || []).find((t) => t.type === 'page' && !/devtools_app|dist\/renderer/.test(t.url || '')) || null;
-    }, 20000, 'page target');
-    if (pageTarget) {
-      const pc = cdp(pageTarget.webSocketDebuggerUrl);
-      await pc.ready;
-      await pc.send('Page.reload', { ignoreCache: false });
-      pc.close();
-      console.log('[spin] 已触发页面刷新:', String(pageTarget.url).slice(0, 60));
+    const selection = `(async () => {
+      const [sdk, ui] = await Promise.all([import('./core/sdk/sdk.js'), import('./ui/legacy/legacy.js')]);
+      const node = ui.Context.Context.instance().flavor(sdk.DOMModel.DOMNode);
+      const model = node && node.domModel();
+      return JSON.stringify({
+        node: node && node.id,
+        name: node && node.nodeName(),
+        document: model && model.existingDocument()?.id,
+        loader: model && model.target().model(sdk.ResourceTreeModel.ResourceTreeModel)?.mainFrame?.loaderId,
+        current: !!node && model.nodeForId(node.id) === node,
+      });
+    })()`;
+    if (!process.env.BFB_URL) {
+      await evaluate(fc, CLICK_NODE('<div'));
+      const before = await waitUntil(async () => {
+        const styles = JSON.parse(await evaluate(fc, STYLES_PROBE));
+        return styles.head.includes('.document-1');
+      }, 5000, 'initial fixture selector');
+      if (!before) throw new Error('Styles did not show the selected fixture node');
     }
+    const before = JSON.parse(await evaluate(fc, selection));
+    console.log('[spin] 刷新前选中节点:', before);
+    if (!before.current || !before.loader) throw new Error('No selected node before reload');
+    const refreshed = await evaluate(client, `(() => {
+      const button = document.querySelector('button[title$="(F5)"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })()`, false);
+    if (!refreshed) throw new Error('Page reload button unavailable');
     for (const at of [1500, 4000, 8000]) {
-      await sleep(at === 1500 ? 1500 : 2500);
+      await sleep(at === 1500 ? 1500 : at === 4000 ? 2500 : 4000);
       console.log(`[spin] 刷新后 +${at}ms:`, await evaluate(fc, STYLES_PROBE));
       console.log(`[spin] 刷新后 +${at}ms 树:`, await evaluate(fc, TREE_PROBE));
+      console.log(`[spin] 刷新后 +${at}ms 选中节点:`, await evaluate(fc, selection));
     }
     const flow = await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) {
       var list = (s.flow || []).filter(function (f) { return String(f.m).indexOf('DOM.') === 0 || String(f.m).indexOf('CSS.') === 0; });
       return JSON.stringify({ flow: list.slice(-10), lastDoc: s.lastDoc, docEvents: (s.trace || []).filter(function (t) { return String(t.m).indexOf('documentUpdated') >= 0 || String(t.m).indexOf('frameNavigated') >= 0; }).slice(-10) });
     })`);
     console.log('[spin] 刷新后的 DOM/CSS 流水:', flow);
+    const after = JSON.parse(await evaluate(fc, selection));
+    const styles = JSON.parse(await evaluate(fc, STYLES_PROBE));
+    if (!after.current || !after.loader || after.loader === before.loader) throw new Error('Selection did not reach the reloaded document');
+    if (!styles.hasRules || (!process.env.BFB_URL && !styles.head.includes('.document-2'))) {
+      throw new Error('Styles did not show rules for the reloaded document');
+    }
   }
 
   // 新标签页（没有 BrowserView）→ 占位出现要快；再切回来要能出样式

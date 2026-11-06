@@ -194,6 +194,30 @@ const SOURCE_PATCHES = [
         'setConnectTimingFromExtraInfo(e){this.#Ei=e.requestTime',
         'setConnectTimingFromExtraInfo(e){if(!e)return;this.#Ei=e.requestTime',
       ],
+      // 87 在刷新含 iframe 的页面时，可能让刚返回的 DOM 节点 ID 再次失效。
+      // 只在后端拒绝当前文档的节点时重取 DOM，走 Elements 原有的路径恢复。
+      // 合并同一批失败，每个主帧 loader 最多恢复一次，避免持续报错时循环。
+      [
+        'async getMatchedStyles(e){const t=await this.agent.invoke_getMatchedStylesForNode({nodeId:e});if(t.getError())return null;',
+        `async getMatchedStyles(e){
+          const doc=this.#an.existingDocument();
+          const node=this.#an.nodeForId(e);
+          const resourceTree=this.target().model(Pr);
+          const loader=resourceTree?.mainFrame?.loaderId;
+          const t=await this.agent.invoke_getMatchedStylesForNode({nodeId:e});
+          if(t.getError()){
+            if(t.getError()==="Could not find node with given id"&&doc&&node&&loader&&
+               this.bfbRecoveredLoader!==loader&&this.#an.existingDocument()===doc){
+              clearTimeout(this.bfbDocumentRecoveryTimer);
+              this.bfbDocumentRecoveryTimer=setTimeout(()=>{
+                if(resourceTree.mainFrame?.loaderId!==loader||this.#an.existingDocument()!==doc)return;
+                this.bfbRecoveredLoader=loader;
+                this.#an.documentUpdated();
+              },150);
+            }
+            return null;
+          }`,
+      ],
     ],
   },
   {

@@ -398,18 +398,14 @@ requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 同时 no-target 的重试从 3×500ms 收到 1 次：`about:` 开头的标签页根本不可能有 target，
 占位出现耗时 3s+ → **420ms**。独立窗口按钮在无 target 时直接禁用（点了原来毫无反应）。
 
-**已知未解**：**同一个标签里刷新页面**（不切标签）之后，Styles 面板会停在
-「找不到匹配的选择器或样式」，点一下任意节点才恢复。已确认：
+同一标签刷新后，Styles 曾停在「找不到匹配的选择器或样式」。在 7k7k《皮卡堂》页，
+刷新前选中 `html`，刷新后前端已选中新文档的节点。同一个新节点 ID 的样式请求先成功，
+随后 Chromium 87 返回 `Could not find node with given id`。
 
-- 后端确实发了 `DOM.documentUpdated`（抓事件实测 2 次），桥也原样转发了；
-- 前端 `ElementsPanel.documentUpdated` 确实被调用，甚至能选到新文档的 body；
-- 但 `StylesSidebarPane` 仍在用**旧节点的 nodeId** 反复请求
-  （`CSS.getMatchedStylesForNode` → `Could not find node with given id`）；
-- `BAO_DEVTOOLS_PAGE_WS=1` 对照**完全一样**，所以不是桥的问题，是 M97 前端在 87
-  后端上的行为。
-- 试过并已回退：在 `documentUpdated` 里强制选根节点、导航后补发
-  `Runtime.executionContextsCleared` —— 都不改变现象（前者把空白变成一条错误文案）。
-  下一步要往 `StylesSidebarPane.setNode` / `NodeSelected` 那条线上查。
+构建时为前端 CSSModel 加了兼容处理。当前文档的节点收到这个错误时，合并短时间内的失败，
+重新获取 DOM，由 Elements 按原有逻辑恢复选中节点。每个主框架加载周期最多恢复一次。
+用 `BFB_RELOAD=1 BFB_CLICK=1 BFB_URL=https://news.7k7k.com/pkt/` 运行
+`tools/devtools-spike/styles-spin-check.cjs` 可验证刷新后选区和规则自动恢复。
 
 ### 8.7 拖拽跟手（同步 bounds）
 
