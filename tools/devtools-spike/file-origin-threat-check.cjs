@@ -182,6 +182,36 @@ const ASYNC_TESTS = `(async () => {
     console.log('\n=== http-ifram: 没找到独立 target（异常） ===');
   }
 
+  // 决定性一组：从 file:// 子帧读真实的敏感文件（密码库/密钥/Cookie/应用源码）
+  const SECRET_PATHS = [
+    path.join(process.env.APPDATA || '', 'bao-flash-browser', 'password-store.json'),
+    path.join(process.env.APPDATA || '', 'bao-flash-browser', 'password-autofill-key.json'),
+    path.join(process.env.APPDATA || '', 'bao-flash-browser', 'Cookies'),
+    path.join(process.env.APPDATA || '', 'bao-flash-browser', 'userscripts.json'),
+    path.join(APP_ROOT, 'package.json'),
+  ];
+  const fileFrame = frames.find((x) => !x.isShell && /^file:/.test(String(x.origin)));
+  if (fileFrame) {
+    console.log('\n=== 从 file:// 子帧读真实敏感文件 ===');
+    const expr = `(async () => {
+      const paths = ${JSON.stringify(SECRET_PATHS)};
+      const out = [];
+      for (const p of paths) {
+        const label = p.split(/[\\\\/]/).pop();
+        try {
+          const r = await fetch('file:///' + p.replace(/\\\\/g, '/'));
+          const t = await r.text();
+          out.push(label + '  → 读到 ' + t.length + ' 字符 | ' + t.replace(/\\s+/g, ' ').slice(0, 46));
+        } catch (e) {
+          out.push(label + '  → BLOCKED:' + String(e.message).slice(0, 40));
+        }
+      }
+      return out.join('\\n');
+    })()`;
+    const r = await evalIn(client, fileFrame.id, expr, true);
+    console.log(String(r).split('\n').map((l) => '   ' + l).join('\n'));
+  }
+
   child.kill();
   process.exit(0);
 })().catch((e) => { console.error('[threat] failed:', e.message); process.exit(1); });
