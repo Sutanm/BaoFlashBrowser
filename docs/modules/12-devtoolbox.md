@@ -26,7 +26,7 @@ Electron 的 `webContents.debugger` 一个 WebContents 只能挂一个（`cdp-le
 | page-ws × 2 | 共存，双方 evaluate 全通 |
 | page-ws + browser 级 `Target.attachToTarget(flatten)` | 共存，事件互通 |
 | embedded（`webContents.debugger`）+ page-ws × 2 | 共存，attach/evaluate 全通 |
-| embedded + flatten | attach 成功；flatten 的 `Runtime.evaluate` 报"域未找到"（细节异常，attach 本身不互斥） |
+| embedded + flatten | attach 成功；flatten 的 `Runtime.evaluate` 报"域未找到"（**已查明：瞬时竞态**——attach 后立即 evaluate、域尚未就绪；应用本体上按"flatten only / +1 page-ws / +2 page-ws / 重连"四组合复跑全部正常，探针 `flatten-app-mystery.cjs`） |
 | embedded + `openDevTools({mode:'detach'})` / `mode:'bottom'` | 共存（两种 attach 顺序均通过，探针 `cdp-opendevtools-coexist.cjs`） |
 | embedded + `setDevToolsWebContents` 容器（BrowserView 承载内置前端） | 共存，容器内 URL 为 `devtools://devtools/bundled/...`；注意 `isDevToolsOpened()` 在该组合下返回 false（quirk，探针 `cdp-container-check.cjs`） |
 
