@@ -236,6 +236,23 @@ declare global {
         probePage(): Promise<import('@shared/types/devtoolbox').DevToolPageProbe | null>;
         onEntries(callback: (entries: import('@shared/types/devtoolbox').DevToolEntry[]) => void): () => void;
         onCleared(callback: () => void): () => void;
+        /** CDP 桥（桥 v2）：把当前活动标签挂到桥，再经桥收发 CDP 消息。 */
+        bridge: {
+          attach(): Promise<{ ok: boolean; targetId?: string; sessionId?: string; error?: { message: string } }>;
+          detach(): Promise<{ ok: boolean; error?: { message: string } }>;
+          send(method: string, params?: Record<string, unknown>): Promise<{ ok: boolean; result?: unknown; error?: { message: string; code?: number } }>;
+          stats(): Promise<{
+            state: 'idle' | 'connecting' | 'ready' | 'closed';
+            targetId: string | null;
+            sessionId: string | null;
+            sent: number;
+            events: number;
+            eventsDropped: number;
+            bytesOut: number;
+            bytesIn: number;
+          } | null>;
+          onEvents(callback: (events: Array<{ method: string; params?: unknown }>) => void): () => void;
+        };
       };
 
       file: {

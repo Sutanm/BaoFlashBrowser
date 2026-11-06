@@ -19,6 +19,7 @@ import { registerTabsIPC } from './ipc/tabs.ipc';
 import { registerScreenshotIPC } from './ipc/screenshot.ipc';
 import { registerDevToolboxIPC } from './ipc/devtoolbox.ipc';
 import { initDevToolbox, shutdownDevToolsFrontendServer } from './modules/devtoolbox';
+import { devToolsBridge } from './modules/devtoolbox-bridge';
 import { configureOptionalTabServices, tabManager } from './modules/tabs';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, preventCleanShutdownMark } from './modules/session-recovery';
@@ -251,6 +252,8 @@ function bootstrap(): void {
 
   app.on('window-all-closed', () => {
     shutdownDevToolsFrontendServer();
+    // 桥的 browser ws 是长连接，退出前必须显式关闭（否则进程退出要多等一个超时）。
+    devToolsBridge.shutdown();
     if (MODULE_MEMORY_MONITOR) {
       const { stopMemoryMonitor } = require('./modules/memory-monitor') as typeof import('./modules/memory-monitor');
       stopMemoryMonitor();

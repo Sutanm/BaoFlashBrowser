@@ -355,7 +355,7 @@ export function shutdownDevToolsFrontendServer(): void {
 }
 
 /** Chromium 把实际端口写进 userData 下的 DevToolsActivePort（第一行端口）。 */
-function resolveDebugPort(): number | null {
+export function resolveDebugPort(): number | null {
   const fromSwitch = app.commandLine.getSwitchValue('remote-debugging-port');
   const parsed = Number.parseInt(fromSwitch, 10);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
@@ -455,6 +455,18 @@ async function pickTargetForTab(tabId: string, port: number): Promise<string | n
  *   about:userscripts 等页面不创建 BrowserView（见 tabs.ts 的 needsBrowserView），
  *   CDP 侧根本没有对应 target。这是正常语义，不该重试到超时、也不该提示"端口故障"。
  */
+
+/**
+ * 活动标签当前可调试的 page target id（桥的 attach 入口）。
+ * 与 getDevToolsTargetUrl 共用同一套绑定表逻辑，避免两套解析漂移。
+ */
+export async function resolveActivePageTargetId(): Promise<string | null> {
+  const port = resolveDebugPort();
+  if (!port) return null;
+  const tabId = tabManager.getActiveId();
+  if (!tabId) return null;
+  return pickTargetForTab(tabId, port);
+}
 
 /**
  * 给前端一个可以直接连的 target 的 ws 地址。

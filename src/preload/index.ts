@@ -11,7 +11,7 @@ const ALLOWED_ON_CHANNELS = new Set([
   'password:captured', 'password:changed', 'password:filled',
   'userscripts:changed',
   'userscript:open-tab',
-  'devtoolbox:entries', 'devtoolbox:cleared',
+  'devtoolbox:entries', 'devtoolbox:cleared', 'devtoolbox:bridge-event',
 ]);
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
@@ -33,6 +33,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'password:set-view-password', 'password:reset-os-auth',
   'diagnostics:export',
   'devtoolbox:snapshot', 'devtoolbox:clear', 'devtoolbox:devtools-url', 'devtoolbox:open-native', 'devtoolbox:probe-page',
+  'devtoolbox:bridge-attach', 'devtoolbox:bridge-detach', 'devtoolbox:bridge-send', 'devtoolbox:bridge-stats',
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
   'win:minimize', 'win:maximize', 'win:unmaximize', 'win:close', 'win:setFullscreen', 'win:toggleFullscreen', 'win:isMaximized',
@@ -182,6 +183,22 @@ const electronAPI = {
       const listener = () => callback();
       ipcRenderer.on('devtoolbox:cleared', listener);
       return () => { ipcRenderer.removeListener('devtoolbox:cleared', listener); };
+    },
+    /**
+     * CDP 桥（桥 v2）：把当前活动标签的 target 挂到桥、然后经桥收发 CDP 消息。
+     * 规格 docs/archive/superpowers/specs/2026-11-06-devtools-cdp-bridge-design.md。
+     * 事件按 16ms 合批下发（主进程侧完成），这里只做解包。
+     */
+    bridge: {
+      attach: () => safeInvoke('devtoolbox:bridge-attach'),
+      detach: () => safeInvoke('devtoolbox:bridge-detach'),
+      send: (method: string, params?: Record<string, unknown>) => safeInvoke('devtoolbox:bridge-send', { method, params }),
+      stats: () => safeInvoke('devtoolbox:bridge-stats'),
+      onEvents: (callback: (events: unknown[]) => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, payload: { events?: unknown[] }) => callback(payload?.events ?? []);
+        ipcRenderer.on('devtoolbox:bridge-event', listener);
+        return () => { ipcRenderer.removeListener('devtoolbox:bridge-event', listener); };
+      },
     },
   },
 

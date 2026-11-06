@@ -102,6 +102,7 @@
     "ipaddr.js": "^2.5.0",
     "nanoid": "^3.3.7",
     "typesafe-i18n": "^5.27.1",
+    "ws": "^8.21.3",
     "zod": "^3.22.4"
   },
   "devDependencies": {
@@ -111,6 +112,7 @@
     "@types/codemirror": "^5.60.18",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^4.3.0",
     "@vitest/coverage-v8": "^4.1.11",
     "acorn": "^8.18.0",
