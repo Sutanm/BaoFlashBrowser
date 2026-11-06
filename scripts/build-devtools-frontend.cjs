@@ -207,27 +207,28 @@ const SOURCE_PATCHES = [
       // localStorage 隔离，设置每次回到默认（settings-persistence-check.cjs 实测）。
       // 自定义 scheme 也没救（Electron 11 上完全没有 DOM storage，scheme-feasibility.cjs）。
       //
-      // 所以把「默认值」等价于「跟随浏览器」：settingLanguage 为空/默认 en-US 时都走
-      // navigator.language。中文系统直接中文，不再每次弹横幅。
+      // 所以把「没存过设置」等价于「跟随浏览器」：只有 localStorage 里没有 language 键
+      // 时才用 navigator.language。**必须判"有没有存过"，不能只看值等于 "en-US"**——
+      // 用户显式选英文时存的就是 "en-US"，与默认值同值，误判会让用户选了英文还是中文。
       [
         '"browserLanguage"===e.settingLanguage?this.locale=e.navigatorLanguage||"en-US":this.locale=e.settingLanguage',
-        '("browserLanguage"===e.settingLanguage||!e.settingLanguage||"en-US"===e.settingLanguage)?this.locale=e.navigatorLanguage||"en-US":this.locale=e.settingLanguage',
+        '("browserLanguage"===e.settingLanguage||("en-US"===e.settingLanguage&&!(()=>{try{return localStorage.getItem("language")}catch{return null}})()))?this.locale=e.navigatorLanguage||"en-US":this.locale=e.settingLanguage',
       ],
     ],
   },
   {
     file: 'ui/legacy/legacy.js',
     patches: [
-      // 语言横幅（"DevTools is now available in Chinese!"）的唯一条件就是
-      // `language` 设置的值等于默认的 "en-US" + 系统语言不是英文。而"不再显示"
-      // 标记也存在 localStorage → origin 每次变（随机端口）→ 每次都重新弹。
+      // 语言横幅（"DevTools is now available in Chinese!"）的触发条件是
+      // `language` 设置等于默认 "en-US" + 系统语言不是英文（横幅本体就是灰色的
+      // "can switch to X" 提示）。"不再显示"标记也存 localStorage → origin 每次变
+      // （随机端口）→ 每次都重新弹。
       //
-      // 配上上面 i18n.js 的补丁后，默认语言已经等于 navigator.language，
-      // 横幅的前提不再成立，这里补一句"解析出的 locale 已与浏览器语言一致就不再提示"。
-      // 若用户显式选了英文而系统是中文，仍会提示（这才是它该出现的场景）。
+      // 补一句：只要用户显式存过 language，就永不再提示。配合上面的 i18n 补丁，
+      // 默认（没存过）跟随浏览器语言，也不再出现"建议切换"的横幅。
       [
         'if("en-US"!==i)return!1;return!t.DevToolsLocale.localeLanguagesMatch(navigator.language,i)',
-        'if("en-US"!==i||t.DevToolsLocale.localeLanguagesMatch(navigator.language,t.DevToolsLocale.DevToolsLocale.instance().locale))return!1;return!t.DevToolsLocale.localeLanguagesMatch(navigator.language,i)',
+        'if("en-US"!==i||(()=>{try{return localStorage.getItem("language")}catch{return null}})())return!1;return!t.DevToolsLocale.localeLanguagesMatch(navigator.language,i)',
       ],
     ],
   },

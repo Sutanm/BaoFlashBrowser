@@ -145,6 +145,15 @@ async function waitUntil(fn, timeoutMs, label) {
   await fc.ready;
   await sleep(8000);
 
+  // BFB_FORCE_LANG=en-US：模拟"用户在设置里显式选了英文"（写 localStorage 后重载），
+  // 用来验证「显式选择」不会被"默认跟随浏览器"的补丁吃掉。
+  const forceLang = process.env.BFB_FORCE_LANG;
+  if (forceLang) {
+    await evaluate(fc, `localStorage.setItem('language', JSON.stringify(${JSON.stringify(forceLang)}))`);
+    await evaluate(fc, `location.reload()`);
+    await sleep(10000);
+  }
+
   console.log('[locale] frontend:', await evaluate(fc, `JSON.stringify({
     origin: location.origin,
     language: navigator.language,
@@ -154,6 +163,14 @@ async function waitUntil(fn, timeoutMs, label) {
     text: (document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 70),
     hasChinese: /[\\u4e00-\\u9fa5]/.test(document.body.innerText || ''),
   })`));
+
+  // 谁注册了 language 设置？看运行时到底加载了哪些 *-meta.js
+  console.log('[locale] loaded meta:', await evaluate(fc, `JSON.stringify(
+    performance.getEntriesByType('resource')
+      .map((e) => e.name)
+      .filter((n) => n.indexOf('-meta') !== -1)
+      .map((n) => n.slice(n.lastIndexOf('/') + 1))
+  )`));
 
   fc.close();
   shell.close();
