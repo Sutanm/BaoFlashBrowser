@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
 import { useDevToolsBridgeAttach } from './useDevToolsBridgeAttach';
+import { isDevtoolsDragging } from './dragState';
 
 type Target = 'page' | 'shell';
 
@@ -112,12 +113,14 @@ const DevToolsTab: React.FC = () => {
     let observer: ResizeObserver | null = null;
     const report = (): void => {
       const rect = host.getBoundingClientRect();
-      void window.electronAPI.devtoolbox.setDevToolsBounds({
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-      });
+      const payload = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      // 拖拽期间走同步 IPC：异步通道会让原生视图的更新落到下一帧，快速拖拽时
+      // 每帧位移几十像素，视觉上就是"内容慢半拍、松手再跳一下"。
+      if (isDevtoolsDragging()) {
+        window.electronAPI.devtoolbox.setDevToolsBoundsSync(payload);
+        return;
+      }
+      void window.electronAPI.devtoolbox.setDevToolsBounds(payload);
     };
 
     void window.electronAPI.devtoolbox.attachDevToolsView(targetRef.current).then((result) => {
@@ -193,6 +196,7 @@ const DevToolsTab: React.FC = () => {
         // 占位：真正的画面来自主进程的 BrowserView，这里只负责占位与上报矩形
         <div
           ref={hostRef}
+          data-devtools-host=""
           className="flex-1 min-h-0 w-full"
           style={{ background: 'var(--bg-panel)' }}
         />

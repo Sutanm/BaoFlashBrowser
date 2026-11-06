@@ -14,6 +14,7 @@ import {
   type DevToolDock,
   type DevToolTab,
 } from '@renderer/store/useDevToolStore';
+import { setDevtoolsDragActive } from './dragState';
 import LogPanel from './LogPanel';
 import CaptureTab from './CaptureTab';
 import DevToolsTab from './DevToolsTab';
@@ -92,12 +93,15 @@ const DevToolDrawer: React.FC = () => {
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      setDevtoolsDragActive(false);
       if (frame) {
         window.cancelAnimationFrame(frame);
         frame = 0;
       }
       apply(latest);
     };
+    // 拖拽期间 DevTools 视图改走同步 bounds 更新（见 dragState.ts）
+    setDevtoolsDragActive(true);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }, [dock, setHeight, setWidth]);
@@ -151,6 +155,7 @@ const DevToolDrawer: React.FC = () => {
     <div
       role="separator"
       aria-orientation={vertical ? 'vertical' : 'horizontal'}
+      data-devtools-resize=""
       onPointerDown={startResize}
       onDoubleClick={() => (vertical ? setWidth(defaultDrawerWidth()) : setHeight(defaultDrawerHeight()))}
       style={vertical

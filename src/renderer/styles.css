@@ -1219,11 +1219,29 @@ body.keyboard-navigation .address-input:focus {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* 居中交给 .newtab-inner 的 margin:auto：flex 的 justify-content:center 在内容
+     比容器高时会把上下两端各裁一半（Chromium 87 还不支持 safe center），抽屉一拉高，
+     搜索框就有一半被裁到可视区外——"挤压搜索框"就是这么来的。 */
   flex: 1 1 0%;
   position: relative;
+  overflow-y: auto;
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/*
+ * 新标签页内容容器。
+ * `margin: auto` 是 flex 里"空间够就居中、不够就贴顶"的标准做法；配合外层
+ * overflow-y:auto，空间不足时用户可以滚动看到搜索框，而不是被抽屉吃掉。
+ */
+.newtab-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin: auto;
+  flex: 0 0 auto;
+  padding: 16px 0;
 }
 
 .newtab-bookmarks-bar {
@@ -1291,6 +1309,7 @@ body.dark .newtab-bookmarks-bar { border-bottom-color: rgba(255, 255, 255, 0.12)
   width: 560px;
   max-width: 90vw;
   margin-bottom: 40px;
+  flex-shrink: 0;
 }
 
 .newtab-search-input,

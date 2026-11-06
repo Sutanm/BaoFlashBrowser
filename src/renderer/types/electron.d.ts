@@ -241,6 +241,8 @@ declare global {
         /** 内嵌前端视图：用独立 WebContents（BrowserView）承载前端，而不是 iframe。 */
         attachDevToolsView(target: 'page' | 'shell'): Promise<{ ok: boolean; error?: string }>;
         setDevToolsBounds(rect: { x: number; y: number; width: number; height: number }): Promise<void>;
+        /** 拖拽专用：同步更新（阻塞渲染线程直到主进程 setBounds 完成）。 */
+        setDevToolsBoundsSync(rect: { x: number; y: number; width: number; height: number }): void;
         detachDevToolsView(): Promise<void>;
         onEntries(callback: (entries: import('@shared/types/devtoolbox').DevToolEntry[]) => void): () => void;
         onCleared(callback: () => void): () => void;

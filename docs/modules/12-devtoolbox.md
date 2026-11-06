@@ -261,11 +261,38 @@ node tools/devtools-spike/bridge-realsite-check.cjs          # 桥模式真站�
 BFB_HEAVY=1 node tools/devtools-spike/bridge-load-baseline.cjs               # 三模式 CPU 与消息量对比（受控页面）
 node tools/devtools-spike/bridge-load-baseline.cjs bridge                    # 只跑桥模式（可配 BFB_WINDOW_MS 拉长窗口）
 node tools/devtools-spike/dock-switch-check.cjs              # 四模式停靠：底/左/右/独立窗口 + 关闭回内嵌
+node tools/devtools-spike/frontend-bounds-lag.cjs            # 拖拽跟手：前端视图 vs 占位 div 的台阶滞后（BFB_DOCK=right 测横向）
+node tools/devtools-spike/newtab-squeeze-check.cjs           # 挤压布局：内容区 711→120，搜索框可见高度恒为 44
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、
 Styles 显示真实规则、前端异常 0（修复前 Highlight ReferenceError + 每请求
 requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
+
+### 8.6 拖拽跟手（同步 bounds）
+
+抽屉拖拽时，前端视图的矩形走**同步 IPC**（`devtoolbox:set-devtools-bounds-sync`），
+其它场景（窗口缩放、停靠切换）仍走异步。原因：异步通道会把原生视图的更新推到下一帧，
+而快速拖拽每帧位移几十像素，表现就是"内容慢半拍、松手再跳一下"。
+
+实测（`frontend-bounds-lag.cjs`，往返拖拽 47 个尺寸台阶，两端 rAF 自采样后按时间轴对齐）：
+
+| | 台阶滞后中位 | p90 | 最大 |
+| --- | --- | --- | --- |
+| 异步 IPC | 8ms | 13ms | 72ms |
+| 同步 IPC | 2ms | 3ms | 4ms |
+
+同步通道的约定：主进程**必须先写 `event.returnValue`**，否则渲染线程会一直被挂住
+（不是超时，是卡死）；只放行 `devtoolbox:set-devtools-bounds-sync` 这一条，
+preload 侧有独立白名单 `ALLOWED_SYNC_CHANNELS`。
+
+### 8.7 抽屉挤压时的页面布局
+
+新标签页 `.newtab-shell` 原来是 `justify-content: center`：内容比容器高时（抽屉拉高到
+内容区 < 331px），Chromium 87 会把上下两端各裁一半（`safe center` 要 93+ 才支持），
+搜索框直接被裁到可视区外。改成外层 `overflow-y: auto` + 内层 `.newtab-inner { margin: auto }`：
+空间够就居中、不够就贴顶且可滚动。判据 `newtab-squeeze-check.cjs`——把内容区从 711
+压到 120，`inputVisible` 恒为 44、`canScroll` 从 320 起为 true。
 
 ## 9 CDP 桥（桥 v2，**B3 起为默认传输**）
 

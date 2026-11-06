@@ -58,34 +58,36 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
         </div>
       )}
 
-      {/* Search box */}
-      <div className="newtab-search-wrap">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={handleSearch}
-          placeholder={LL.newtab.searchPlaceholder()}
-          className="no-drag newtab-search-input"
-          autoFocus
-          spellCheck={false}
-        />
-      </div>
+      <div className="newtab-inner">
+        {/* Search box */}
+        <div className="newtab-search-wrap">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={handleSearch}
+            placeholder={LL.newtab.searchPlaceholder()}
+            className="no-drag newtab-search-input"
+            autoFocus
+            spellCheck={false}
+          />
+        </div>
 
-      {/* Quick links */}
-      <div className="newtab-links">
-        {QUICK_LINKS.map((link) => (
-          <div
-            key={link.url}
-            className="no-drag newtab-link"
-            onClick={() => onNavigate(link.url)}
-          >
-            <div className="newtab-link-icon" style={{ background: link.bg }}>{link.icon}</div>
-            <div className="newtab-link-title">
-              {locale === 'en' ? (link.title === '百度' ? 'Baidu' : link.title === 'B站' ? 'Bilibili' : link.title) : link.title}
+        {/* Quick links */}
+        <div className="newtab-links">
+          {QUICK_LINKS.map((link) => (
+            <div
+              key={link.url}
+              className="no-drag newtab-link"
+              onClick={() => onNavigate(link.url)}
+            >
+              <div className="newtab-link-icon" style={{ background: link.bg }}>{link.icon}</div>
+              <div className="newtab-link-title">
+                {locale === 'en' ? (link.title === '百度' ? 'Baidu' : link.title === 'B站' ? 'Bilibili' : link.title) : link.title}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <div

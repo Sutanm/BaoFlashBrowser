@@ -64,6 +64,17 @@ const ALLOWED_SEND_CHANNELS = new Set([
   'download:open', 'download:openDir',
 ]);
 
+/**
+ * 同步通道白名单。
+ *
+ * 目前只有一条：拖拽抽屉时更新 DevTools 视图矩形。异步 IPC 会把原生视图的
+ * 更新推到下一帧，快速拖拽时「布局已经到位、画面还停在上一帧」非常明显。
+ * 主进程侧只是 `view.setBounds()`，微秒级，阻塞渲染线程的代价可以接受。
+ */
+const ALLOWED_SYNC_CHANNELS = new Set([
+  'devtoolbox:set-devtools-bounds-sync',
+]);
+
 function safeInvoke(channel: string, ...args: unknown[]): Promise<unknown> {
   if (!ALLOWED_INVOKE_CHANNELS.has(channel)) {
     console.warn('[Preload] invoke() rejected: unauthorized channel', channel);
@@ -78,6 +89,15 @@ function safeSend(channel: string, ...args: unknown[]): void {
     return;
   }
   ipcRenderer.send(channel, ...args);
+}
+
+function safeSendSync(channel: string, ...args: unknown[]): void {
+  if (!ALLOWED_SYNC_CHANNELS.has(channel)) {
+    console.warn('[Preload] sendSync() rejected: unauthorized channel', channel);
+    return;
+  }
+  // 不把返回值交给渲染层：这条通道只做"通知"，没有语义上的回包。
+  ipcRenderer.sendSync(channel, ...args);
 }
 
 const electronAPI = {
@@ -188,6 +208,9 @@ const electronAPI = {
     attachDevToolsView: (target: 'page' | 'shell') => safeInvoke('devtoolbox:attach-devtools-view', { target }),
     setDevToolsBounds: (rect: { x: number; y: number; width: number; height: number }) =>
       safeInvoke('devtoolbox:set-devtools-bounds', rect),
+    /** 拖拽专用：同步更新，避免原生视图落后布局一帧（见 ALLOWED_SYNC_CHANNELS）。 */
+    setDevToolsBoundsSync: (rect: { x: number; y: number; width: number; height: number }) =>
+      safeSendSync('devtoolbox:set-devtools-bounds-sync', rect),
     detachDevToolsView: () => safeInvoke('devtoolbox:detach-devtools-view'),
     onEntries: (callback: (entries: unknown[]) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, entries: unknown[]) => callback(entries);

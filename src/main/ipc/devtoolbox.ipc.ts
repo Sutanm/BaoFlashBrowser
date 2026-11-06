@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain } from 'electron';
 import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
 import {
   attachDevToolsView,
@@ -27,12 +27,19 @@ const target = z.enum(['page', 'shell']);
  * - **前端容器自己的 WebContents**：`send` / `detach`。B3 之前它经 iframe
  *   postMessage 中继、sender 仍是外壳；迁到 preload 后前端直接说话，校验对象变了。
  */
-function isTrustedSender(event: IpcMainInvokeEvent): boolean {
+function isTrustedSender(event: { sender: Electron.WebContents }): boolean {
   const win = getMainWindow();
   if (win && !win.isDestroyed() && event.sender === win.webContents) return true;
   const frontend = getDevToolsFrontendContents();
   return Boolean(frontend && event.sender === frontend);
 }
+
+const boundsSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite(),
+  height: z.number().finite(),
+}).strict();
 
 const bridgeSendSchema = z.object({
   method: z.string().min(1).max(120),
@@ -71,16 +78,22 @@ export function registerDevToolboxIPC(): void {
 
   createValidatedHandler(
     'devtoolbox:set-devtools-bounds',
-    z.object({
-      x: z.number().finite(),
-      y: z.number().finite(),
-      width: z.number().finite(),
-      height: z.number().finite(),
-    }).strict(),
+    boundsSchema,
     (args: { x: number; y: number; width: number; height: number }) => {
       setDevToolsViewBounds(args);
     },
   );
+
+  // 拖拽专用同步通道：渲染层在 ResizeObserver 回调里等这一步，跨进程多走一次
+  // 异步投递就会晚一帧，快速拖拽时"布局到位、画面还停在上一帧"非常刺眼。
+  // **必须先写 returnValue**：不写的话渲染线程会一直被挂住（不是超时，是卡死）。
+  ipcMain.on('devtoolbox:set-devtools-bounds-sync', (event, args: unknown) => {
+    event.returnValue = true;
+    if (!isTrustedSender(event)) return;
+    const parsed = boundsSchema.safeParse(args);
+    if (!parsed.success) return;
+    setDevToolsViewBounds(parsed.data);
+  });
 
   createHandler<void, void>('devtoolbox:detach-devtools-view', () => {
     destroyDevToolsView();
