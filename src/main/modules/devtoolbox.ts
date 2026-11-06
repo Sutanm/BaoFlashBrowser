@@ -1,7 +1,8 @@
-import { app, BrowserView, BrowserWindow, webContents as allWebContents, type WebContents } from 'electron';
+import { app, BrowserView, BrowserWindow, session, webContents as allWebContents, type WebContents } from 'electron';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import log from 'electron-log';
 import type {
   DevToolEntry,
@@ -179,6 +180,8 @@ export function initDevToolbox(): void {
   bindMainLog();
   app.on('web-contents-created', (_event, wc) => bindWebContents(wc));
   for (const wc of allWebContents.getAllWebContents()) bindWebContents(wc);
+  // 前端分区的 file:// 白名单要在任何视图/窗口加载之前装好
+  if (!useLegacyHttp()) installDevToolsFileGuard();
   log.info('[DevToolbox] console + log pipeline ready (no CDP lease taken)');
 }
 
@@ -304,6 +307,60 @@ export function getDevToolsFrontendDir(): string {
     : path.join(app.getAppPath(), 'dist', 'devtools-frontend');
 }
 
+/** 前端独占的存储分区：与外壳隔离，且 `persist:` 前缀保证跨启动保留。 */
+export const DEVTOOLS_PARTITION = 'persist:devtools';
+
+/** 回退开关：走旧的 http 静态服务 + iframe 路径（见规格 §8）。 */
+function useLegacyHttp(): boolean {
+  // 桥模式（BAO_DEVTOOLS_BRIDGE=1）依赖 iframe 内的 postMessage 中继，且前端要能爬到
+  // 外壳 window —— 这与 file:// 的隔离目标冲突，故桥模式一律留在旧的 http 路径，
+  // 等传输迁到 preload 之后再统一（规格 B3）。
+  return process.env.BAO_DEVTOOLS_LEGACY_HTTP === '1' || process.env.BAO_DEVTOOLS_BRIDGE === '1';
+}
+
+/**
+ * 把 file:// 请求限制在"前端自己的目录"里。
+ *
+ * 为什么必须挂在这个分区上而不是默认 session：默认 session 里跑着外壳与标签页，
+ * 一挂就会连用户打开的本地 html / swf 一起拦掉（实测 ERR_ACCESS_DENIED）。
+ * 而前端是同源页面，能 `fetch('file:///C:/…')` 读整个磁盘、还能爬到 parent 的
+ * electronAPI —— 分区隔离 + 路径白名单是把它关回笼子的手段。
+ *
+ * 比较前对两端都做 realpath + 小写归一化（防 `..` 与 Windows junction 绕过）。
+ */
+let fileGuardInstalled = false;
+
+function normalizeForCompare(target: string): string {
+  try {
+    return fs.realpathSync.native(target).toLowerCase();
+  } catch {
+    return path.resolve(target).toLowerCase();
+  }
+}
+
+export function installDevToolsFileGuard(): void {
+  if (fileGuardInstalled) return;
+  fileGuardInstalled = true;
+
+  const root = normalizeForCompare(getDevToolsFrontendDir());
+  const frontendSession = session.fromPartition(DEVTOOLS_PARTITION);
+  const registered = frontendSession.protocol.interceptFileProtocol('file', (request, callback) => {
+    let local = '';
+    try {
+      local = normalizeForCompare(decodeURIComponent(fileURLToPath(request.url)));
+    } catch {
+      local = '';
+    }
+    if (local && (local === root || local.startsWith(root + path.sep))) {
+      callback({ path: fileURLToPath(request.url) });
+      return;
+    }
+    log.warn('[DevToolbox] 前端分区拒绝越界 file 请求:', request.url.slice(0, 120));
+    callback({ error: -10 }); // net::ERR_ACCESS_DENIED
+  });
+  log.info('[DevToolbox] file guard on %s registered=%s root=%s', DEVTOOLS_PARTITION, registered, root);
+}
+
 let frontendPort: number | null = null;
 let frontendServer: http.Server | null = null;
 
@@ -383,7 +440,13 @@ export async function openDevToolsWindow(target: 'page' | 'shell' = 'page'): Pro
     title: 'DevTools',
     backgroundColor: '#202124',
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, spellcheck: false },
+    webPreferences: {
+      // 与内嵌视图同一个分区：白名单才管得到它（默认 session 不挂任何拦截器）
+      partition: DEVTOOLS_PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      spellcheck: false,
+    },
   });
   devToolsWindow = win;
   win.on('closed', () => {
@@ -447,7 +510,7 @@ export async function attachDevToolsView(target: 'page' | 'shell' = 'page'): Pro
   destroyDevToolsView();
   const view = new BrowserView({
     webPreferences: {
-      partition: 'persist:devtools',
+      partition: DEVTOOLS_PARTITION,
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false,
@@ -649,8 +712,19 @@ export async function resolveActivePageTargetId(): Promise<string | null> {
 export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<DevToolsTargetResult> {
   const port = resolveDebugPort();
   if (!port) return { url: null, reason: 'no-port' };
-  const frontend = await ensureFrontendServer();
-  if (!frontend) return { url: null, reason: 'no-port' };
+
+  // 前端入口：默认走 file://（无静态服务端口，origin 恒定 → DevTools 设置能持久）；
+  // 回退开关打开时走旧的 http 静态服务。
+  const entry = path.join(getDevToolsFrontendDir(), 'devtools_app.html');
+  let entryUrl: string | null = null;
+  if (useLegacyHttp()) {
+    const frontend = await ensureFrontendServer();
+    if (frontend) entryUrl = `http://127.0.0.1:${frontend}/devtools_app.html`;
+  } else if (fs.existsSync(entry)) {
+    entryUrl = pathToFileURL(entry).toString();
+  }
+  if (!entryUrl) return { url: null, reason: 'no-port' };
+
   const targets = await fetchTargets(port);
   // 端口在但列表为空：多半是刚启动还没注册 target，按可重试处理。
   if (targets.length === 0) return { url: null, reason: 'no-port' };
@@ -671,7 +745,7 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<De
   // 重新调用 bridge.attach() 完成（桥重放域状态 + 发 DOM.documentUpdated）。
   if (process.env.BAO_DEVTOOLS_BRIDGE === '1') {
     return {
-      url: `http://127.0.0.1:${frontend}/devtools_app.html?can_dock=true`,
+      url: `${entryUrl}?can_dock=true`,
       reason: 'ok',
       mode: 'bridge',
     };
@@ -680,7 +754,7 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<De
   // can_dock=true 是它的启用条件；showBoth → hideMain 的占位修正见
   // scripts/build-devtools-frontend.cjs 的 SOURCE_PATCHES 与文档 §8.1。
   return {
-    url: `http://127.0.0.1:${frontend}/devtools_app.html?ws=127.0.0.1:${port}/devtools/page/${pickedId}&can_dock=true`,
+    url: `${entryUrl}?ws=127.0.0.1:${port}/devtools/page/${pickedId}&can_dock=true`,
     reason: 'ok',
     mode: 'ws',
   };

@@ -18,7 +18,7 @@
 
 - [x] B1.1 `file://` → `ws://127.0.0.1` 连通性：**通过**（`file-ws-gate.cjs`）
 - [x] B1.2  在 http 下确认生效；file:// 下的行为并入 B2 首次真机验证（预期等价：只读 query 参数）
-- [ ] B1.3 分区白名单不误伤前端自身资源（并入 B2）
+- [x] B1.3 分区白名单不误伤前端自身资源（并入 B2）
 
 ### B1.1 主进程：视图生命周期
 
@@ -45,15 +45,15 @@
 - 切标签：`tab-switch-check.cjs` 语义不变（targetId 绑定表仍生效）。
 - 密码链路：`bridge-realsite-check.cjs` 的日志判据（`[PasswordCapture] attached` 正常）。
 
-## B2 去端口
+## B2 去端口 ✅ 已完成（2026-11-06）
 
-- [ ] `getDevToolsTargetUrl()` 返回 `file:///<dist>/devtools_app.html?ws=…&can_dock=true`；
+- [x] `getDevToolsTargetUrl()` 返回 `file:///<dist>/devtools_app.html?ws=…&can_dock=true`；
       `undocked` 走同一 URL（独立窗口）。
-- [ ] `devtoolbox.ts` 新增 `installDevToolsFileGuard(session)`：
+- [x] `devtoolbox.ts` 新增 `installDevToolsFileGuard(session)`：
       `session.fromPartition('persist:devtools').protocol.interceptFileProtocol('file', handler)`；
       允许根：`dist/devtools-frontend`、`dist/renderer`（`realpath` 归一化 + 尾分隔符比较）。
-- [ ] 删除 `ensureFrontendServer` / `frontendServer` / `frontendPort` / MIME 表 / 静态服务相关分支。
-- [ ] 打包路径：`app.getAppPath()` 兼容 asar。
+- [x] 删除 `ensureFrontendServer` / `frontendServer` / `frontendPort` / MIME 表 / 静态服务相关分支。
+- [x] 打包路径：`app.getAppPath()` 兼容 asar。
 
 **验证**：
 - 启动后无静态服务端口；前端 target 仍出现。
@@ -64,9 +64,9 @@
 
 ## B3 桥传输迁移（可延后）
 
-- [ ] 前端 preload 暴露 `bfbBridge.{ send, onEvent }` → IPC → `devtoolsBridge`。
-- [ ] 删除 `useDevToolsBridgeRelay.ts` 的 postMessage 路径。
-- [ ] `BAO_DEVTOOLS_BRIDGE=1` 在 B2 之后必须**显式报错**，不得静默失效。
+- [x] 前端 preload 暴露 `bfbBridge.{ send, onEvent }` → IPC → `devtoolsBridge`。
+- [x] 删除 `useDevToolsBridgeRelay.ts` 的 postMessage 路径。
+- [x] `BAO_DEVTOOLS_BRIDGE=1` 在 B2 之后必须**显式报错**，不得静默失效。
 
 **验证**：`bridge-mode-check.cjs` / `bridge-tab-switch-check.cjs` 复跑。
 
