@@ -31,6 +31,9 @@ const FlashTab: React.FC<FlashTabProps> = ({ flash, probe, onRefresh, onOpenNati
     });
   }, [probe]);
   const flashPlugins = probe?.flashPlugins ?? 0;
+  // CDP 深探会用隔离世界把跨域 frame 也读一遍；只有"真的没读到"的跨域帧
+  // 才该提示用户改用原生面板。
+  const unreadableCrossFrames = frames.filter((frame) => !frame.sameOrigin && frame.readable !== true);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -52,12 +55,14 @@ const FlashTab: React.FC<FlashTabProps> = ({ flash, probe, onRefresh, onOpenNati
         <div className="mt-2 mb-1 text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.flashSwf()}</div>
         {swf.length === 0 ? (
           <div className="text-[12px]" style={{ color: 'var(--text-primary)' }}>
-            {/* 三种"没 SWF"要分清：插件在跑只是地址没解析出来 / 游戏在跨域 iframe 里读不到 / 真没有 */}
+            {/* 三种"没 SWF"要分清：插件在跑只是地址没解析出来 / 跨域 frame 真的没读到 / 全扫过了 */}
             {flashPlugins > 0
               ? LL.devtools.swfPluginOnly({ n: flashPlugins })
-              : frames.some((frame) => !frame.sameOrigin)
+              : unreadableCrossFrames.length > 0
                 ? LL.devtools.swfInFrames()
-                : LL.devtools.swfEmpty()}
+                : probe?.deep
+                  ? LL.devtools.swfDeepEmpty()
+                  : LL.devtools.swfEmpty()}
           </div>
         ) : (
           <div className="flex flex-col gap-1">
@@ -78,9 +83,16 @@ const FlashTab: React.FC<FlashTabProps> = ({ flash, probe, onRefresh, onOpenNati
               {frames.map((frame, index) => (
                 <div key={`${frame.url}:${index}`} className="flex items-start gap-2 text-[12px]">
                   <span className="shrink-0 px-[5px] rounded text-[11px]" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
-                    {frame.sameOrigin ? LL.devtools.sameOrigin() : LL.devtools.crossOrigin()}
+                    {frame.sameOrigin
+                      ? LL.devtools.sameOrigin()
+                      : frame.readable === false
+                        ? LL.devtools.crossOrigin()
+                        : LL.devtools.crossOriginRead()}
                   </span>
                   <span className="min-w-0 flex-1 break-all" style={{ color: 'var(--text-primary)' }}>{frame.url || '(about:blank)'}</span>
+                  {frame.depth ? (
+                    <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.frameDepth({ n: frame.depth })}</span>
+                  ) : null}
                 </div>
               ))}
             </div>

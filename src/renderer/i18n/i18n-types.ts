@@ -2499,16 +2499,20 @@ type RootTranslation = {
 		 */
 		emptyMain: string
 		/**
-		 * 未​检​测​到​ ​S​W​F​（​R​u​f​f​l​e​ ​模​式​或​游​戏​尚​未​加​载​）
+		 * 未​检​测​到​ ​S​W​F​：​主​文​档​和​同​源​ ​i​f​r​a​m​e​ ​都​扫​过​了​。​有​的​游​戏​要​登​录​或​进​入​游​戏​后​才​创​建​ ​F​l​a​s​h​ ​插​件​，​可​以​稍​后​点​「​刷​新​」​再​看
 		 */
 		swfEmpty: string
+		/**
+		 * 未​检​测​到​ ​S​W​F​：​主​文​档​与​各​层​ ​f​r​a​m​e​（​含​跨​域​）​都​扫​过​了​。​有​的​游​戏​要​登​录​或​进​入​游​戏​后​才​创​建​ ​F​l​a​s​h​ ​插​件​，​可​以​稍​后​点​「​刷​新​」​再​看
+		 */
+		swfDeepEmpty: string
 		/**
 		 * 检​测​到​ ​{​n​}​ ​个​ ​F​l​a​s​h​ ​插​件​实​例​，​但​没​解​析​出​ ​S​W​F​ ​地​址​（​地​址​可​能​藏​在​脚​本​里​）
 		 * @param {unknown} n
 		 */
 		swfPluginOnly: RequiredParams<'n'>
 		/**
-		 * 首​页​里​没​有​ ​S​W​F​。​游​戏​很​可​能​在​下​面​这​些​跨​域​ ​i​f​r​a​m​e​ ​里​—​—​跨​域​ ​f​r​a​m​e​ ​的​内​容​读​不​到​，​可​以​点​「​原​生​面​板​」​在​对​应​ ​f​r​a​m​e​ ​上​查​看
+		 * 首​页​里​没​有​ ​S​W​F​。​游​戏​很​可​能​在​下​面​这​些​跨​域​ ​i​f​r​a​m​e​ ​里​—​—​这​些​ ​f​r​a​m​e​ ​的​内​容​这​次​没​读​到​，​可​以​点​「​原​生​面​板​」​在​对​应​ ​f​r​a​m​e​ ​上​查​看
 		 */
 		swfInFrames: string
 		/**
@@ -2567,6 +2571,15 @@ type RootTranslation = {
 		 * 跨​域​，​内​容​不​可​见
 		 */
 		crossOrigin: string
+		/**
+		 * 跨​域​（​已​读​取​）
+		 */
+		crossOriginRead: string
+		/**
+		 * 第​ ​{​n​}​ ​层
+		 * @param {unknown} n
+		 */
+		frameDepth: RequiredParams<'n'>
 		/**
 		 * 更​早​的​ ​{​c​o​u​n​t​}​ ​条​已​折​叠​（​清​空​可​释​放​）
 		 * @param {unknown} count
@@ -5019,15 +5032,19 @@ export type TranslationFunctions = {
 		 */
 		emptyMain: () => LocalizedString
 		/**
-		 * 未检测到 SWF（Ruffle 模式或游戏尚未加载）
+		 * 未检测到 SWF：主文档和同源 iframe 都扫过了。有的游戏要登录或进入游戏后才创建 Flash 插件，可以稍后点「刷新」再看
 		 */
 		swfEmpty: () => LocalizedString
+		/**
+		 * 未检测到 SWF：主文档与各层 frame（含跨域）都扫过了。有的游戏要登录或进入游戏后才创建 Flash 插件，可以稍后点「刷新」再看
+		 */
+		swfDeepEmpty: () => LocalizedString
 		/**
 		 * 检测到 {n} 个 Flash 插件实例，但没解析出 SWF 地址（地址可能藏在脚本里）
 		 */
 		swfPluginOnly: (arg: { n: unknown }) => LocalizedString
 		/**
-		 * 首页里没有 SWF。游戏很可能在下面这些跨域 iframe 里——跨域 frame 的内容读不到，可以点「原生面板」在对应 frame 上查看
+		 * 首页里没有 SWF。游戏很可能在下面这些跨域 iframe 里——这些 frame 的内容这次没读到，可以点「原生面板」在对应 frame 上查看
 		 */
 		swfInFrames: () => LocalizedString
 		/**
@@ -5086,6 +5103,14 @@ export type TranslationFunctions = {
 		 * 跨域，内容不可见
 		 */
 		crossOrigin: () => LocalizedString
+		/**
+		 * 跨域（已读取）
+		 */
+		crossOriginRead: () => LocalizedString
+		/**
+		 * 第 {n} 层
+		 */
+		frameDepth: (arg: { n: unknown }) => LocalizedString
 		/**
 		 * 更早的 {count} 条已折叠（清空可释放）
 		 */

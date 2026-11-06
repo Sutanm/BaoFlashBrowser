@@ -23,6 +23,7 @@ import {
   mapConsoleLevel,
 } from './devtoolbox-buffer';
 import { devToolsBridge } from './devtoolbox-bridge';
+import { probeFramesDeep, type DeepProbe } from './devtoolbox-probe';
 import {
   fetchTargets,
   resolveDebugPort,
@@ -898,6 +899,42 @@ const PROBE_SCRIPT = `(function () {
 })()`;
 
 /**
+ * 浅探（主文档 + 同源 iframe）与 CDP 深探（跨域 / OOPIF / 无 JS 上下文）合并。
+ * 深探为 null 时原样返回浅探——深探只是增强，不能让探测退化成"必须能连 CDP"。
+ */
+function mergeProbe(base: DevToolPageProbe | null, deep: DeepProbe | null, ua: string): DevToolPageProbe | null {
+  if (!deep) return base;
+  const swf = [...(base?.swf ?? [])];
+  const seen = new Set(swf.map((item) => `${item.kind}|${item.url}`));
+  for (const item of deep.swf) {
+    const key = `${item.kind}|${item.url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    swf.push({ url: item.url, kind: item.kind, width: item.width, height: item.height });
+  }
+  // frame 列表以深探为准：它给的是真实 frame 树，带 depth 与「有没有真跑过探测」。
+  // 深探没结果时退回浅探（同源 iframe 的 src 列表）。
+  const frames = deep.frames.length
+    ? deep.frames
+    : (base?.frames ?? []).map((frame) => ({
+      url: frame.url,
+      sameOrigin: frame.sameOrigin,
+      depth: 1,
+      readable: frame.sameOrigin,
+    }));
+  return {
+    swf,
+    frames,
+    flashPlugins: Math.max(base?.flashPlugins ?? 0, deep.plugins),
+    sameOriginFrames: frames.filter((frame) => frame.sameOrigin).length,
+    deep: true,
+    ua: base?.ua || ua,
+    viewport: base?.viewport ?? { width: 0, height: 0 },
+    frameCount: frames.length || base?.frameCount || 1,
+  };
+}
+
+/**
  * 探测某个标签页的 Flash 情况。
  *
  * **必须由渲染层传 tabId**：切标签是渲染层先变、主进程后跟上的，这里读
@@ -909,15 +946,34 @@ export async function probeActivePage(tabId?: string | null): Promise<DevToolPag
   const resolvedId = tabId ?? tabManager.getActiveId();
   const wc = resolvedId ? tabManager.getWebContents(resolvedId) : null;
   if (!wc || wc.isDestroyed()) return null;
+
+  let base: DevToolPageProbe | null = null;
   try {
     const raw = await wc.executeJavaScript(PROBE_SCRIPT, false);
-    if (!raw || typeof raw !== 'object') return null;
-    const probe = raw as DevToolPageProbe;
-    log.debug('[DevToolbox] probe tab=%s url=%s swf=%d frames=%d',
-      resolvedId?.slice(-6), clip(wc.getURL(), 40), probe.swf?.length ?? 0, probe.frameCount ?? 0);
-    return probe;
+    if (raw && typeof raw === 'object') base = raw as DevToolPageProbe;
   } catch (error) {
     log.debug('[DevToolbox] page probe failed:', error instanceof Error ? error.message : String(error));
-    return null;
   }
+
+  // 什么时候值得上 CDP 深探：主文档没扫到 SWF，或者存在读不到的跨域 frame。
+  // 两个条件都不成立时走快路径（4399 这种顶层 object 的页面完全不需要连 CDP）。
+  const needsDeep = !base || (base.swf?.length ?? 0) === 0 || (base.frames ?? []).some((frame) => !frame.sameOrigin);
+  let deep: DeepProbe | null = null;
+  if (needsDeep && resolvedId) {
+    const port = resolveDebugPort();
+    if (port) {
+      const targetId = await pickTargetForTab(resolvedId, port).catch(() => null);
+      if (targetId) {
+        deep = await probeFramesDeep(`ws://127.0.0.1:${port}/devtools/page/${targetId}`).catch(() => null);
+      }
+    }
+  }
+
+  const probe = mergeProbe(base, deep, (() => { try { return wc.getUserAgent(); } catch { return ''; } })());
+  if (!probe) return null;
+  log.debug('[DevToolbox] probe tab=%s url=%s swf=%d frames=%d deep=%s%s',
+    resolvedId?.slice(-6), clip(wc.getURL(), 40), probe.swf?.length ?? 0, probe.frameCount ?? 0,
+    probe.deep ? 'yes' : 'no',
+    deep ? ` via=${JSON.stringify(deep.via)} ${deep.elapsedMs}ms` : '');
+  return probe;
 }

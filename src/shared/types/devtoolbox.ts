@@ -86,16 +86,28 @@ export interface DevToolsTargetResult {
 }
 
 export interface DevToolPageProbe {
-  swf: Array<{ url: string; kind: 'embed' | 'object' | 'param' | 'resource'; width?: number; height?: number }>;
-  frames: Array<{ url: string; sameOrigin: boolean }>;
+  swf: Array<{
+    url: string;
+    /** `frame`：SWF 本身就是某个 iframe 的地址（很多站直接把 .swf 当 frame URL）。 */
+    kind: 'embed' | 'object' | 'param' | 'resource' | 'frame';
+    width?: number;
+    height?: number;
+  }>;
+  /**
+   * frame 列表。CDP 深探能用时，`depth`/`readable` 才有值：
+   * `readable` 表示真的在这个 frame 里跑过探测（跨域、OOPIF 也能跑）。
+   */
+  frames: Array<{ url: string; sameOrigin: boolean; depth?: number; readable?: boolean }>;
   /**
    * 找到的 Flash 插件实例数（`<embed type="application/x-shockwave-flash">` 之类），
    * 不看 URL。有的站点把 SWF 地址藏进 JS 或相对路径解析不出来，但插件是真的在跑；
    * 这个数比"有没有 .swf 字符串"更接近"这页到底有没有 Flash"。
    */
   flashPlugins?: number;
-  /** 能读到 DOM 的同源 frame 数（跨域 frame 读不到，只能列出 URL）。 */
+  /** 能读到 DOM 的同源 frame 数（跨域 frame 只能靠 CDP 深探）。 */
   sameOriginFrames?: number;
+  /** 是否走了 CDP 深探（跨域 / OOPIF / 无 JS 上下文的 frame 都能扫）。 */
+  deep?: boolean;
   ua: string;
   viewport: { width: number; height: number };
   frameCount: number;

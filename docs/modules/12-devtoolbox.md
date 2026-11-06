@@ -51,6 +51,7 @@ BrowserView 容器（"可感知容积包裹"）技术上成立——bounds 全�
 | --- | --- |
 | `src/main/modules/devtoolbox.ts` | 采集管道：`console-message` 订阅、electron-log hook、快照、求值、页面探测、打开原生面板 |
 | `src/main/modules/devtoolbox-buffer.ts` | 纯逻辑：文本截断、等级映射、日志分类、双队列缓冲（可单测，不依赖 Electron） |
+| `src/main/modules/devtoolbox-probe.ts` | Flash 探测的 CDP 深探：跨域 / OOPIF / 无 JS 上下文的 frame 逐个求值（走独立 page 连接，不碰 `wc.debugger`） |
 | `src/main/ipc/devtoolbox.ipc.ts` | `snapshot` / `clear` / `evaluate` / `open-native` / `probe-page` |
 | `src/shared/types/devtoolbox.ts` | 共享类型 |
 | `src/renderer/components/devtools/DevToolDrawer.tsx` | 抽屉骨架、标签条、可拖拽高度 |
@@ -152,21 +153,37 @@ npm run build && npm start
 | --- | --- | --- |
 | 看不到网络响应体 | `session.webRequest` 只有头与状态；响应体必须 CDP `Network.getResponseBody` 或 mitm 代理 | 阶段二引入 `cdp-hub`（共享会话 + 引用计数）后补 |
 | 没有 Elements/CSS 面板 | 需要 `DOM.*` / `CSS.*` 域 | 已提供只读选择器（选择器/尺寸/outerHTML/常用计算样式）；改样式与实时 DOM 树仍需 CDP |
-| 选择器进不了跨域 iframe | `executeJavaScript` 只作用于主 frame，Electron 11 也没有 `mainFrame`/`WebFrameMain` | Flash 标签的做法：**同源 iframe 递归扫两层**（能读到就照常列 SWF），跨域 frame 只列地址并标注；三种"没 SWF"分开说（见下） |
+| 选择器进不了跨域 iframe | `executeJavaScript` 只作用于主 frame，Electron 11 也没有 `mainFrame`/`WebFrameMain` | 面板里的只读选择器仍然只能看主 frame；**Flash 标签已用 CDP 深探绕开**（`Page.createIsolatedWorld` + OOPIF session，见下） |
 | 没有断点调试 | 无 CDP 就没有 Debugger 域 | 原生 DevTools 兜底 |
 | `console-message` 无对象参数 | Electron 11 限制 | 升级 Electron 不可行（Flash PPAPI → 见 02） |
 | 内置面板的语言跟随系统 | chii 的构建产物自带 `locales/zh.json`（官方 npm 包没有），首开横幅可一键切换 | 已支持中文，见 §8.1 的 i18n patch |
 
-**Flash 标签的三种"没 SWF"**（`PROBE_SCRIPT` + `FlashTab`）：
+**Flash 标签的三种"没 SWF"**（`PROBE_SCRIPT` + CDP 深探 + `FlashTab`）：
 
 1. `flashPlugins > 0` → 「检测到 N 个 Flash 插件实例，但没解析出 SWF 地址」——
    按 `<embed/object type="application/x-shockwave-flash">` 数实例，不看 URL。
    有的站点把地址藏进脚本，光看 `.swf` 字符串会误报"没有 Flash"。
-2. 有跨域 iframe → 「游戏很可能在下面这些跨域 iframe 里」——跨域 frame 的 DOM 读不到
-   （Electron 11 没有 `mainFrame`，`executeJavaScript` 只作用于主 frame）。
-   同源 iframe 会递归进去扫两层，所以同源套壳的站点照样能列出 SWF。
-3. 都没有 → 「未检测到 SWF：主文档和同源 iframe 都扫过了。有的游戏要登录或进入游戏后
-   才创建 Flash 插件」。
+2. 有跨域 iframe **且这次没读到** → 「游戏很可能在下面这些跨域 iframe 里」。
+   只在 CDP 深探也失败时才会出现（`frame.readable === false`）。
+3. 都没有 → 「所有 frame 都扫过了。有的游戏要登录或进入游戏后才创建 Flash 插件」。
+
+**CDP 深探（`devtoolbox-probe.ts`）**：跨域 / OOPIF / 无 JS 上下文的 frame 也能扫。
+这套做法直接借自 `automation/game-surface-detector.ts`（相框助手找游戏画面用的同一套）：
+
+| 手段 | 解决什么 |
+| --- | --- |
+| `Page.getFrameTree`（根 + 每个 session） | 拿到全部 frame，含 OOPIF 的根 frame 与深度 |
+| `Page.createIsolatedWorld` → `Runtime.evaluate` | 每个 frame 建**独立世界**，跨域也能在里面跑探测脚本；不依赖 `executionContextCreated` 回放（老 XHTML / 插件文档不给默认上下文） |
+| `Target.setAutoAttach`（flatten）+ 逐 session `Runtime.evaluate` | 跨域 iframe 若是独立进程（OOPIF），根会话压根没有它的上下文，只能在它自己的 session 里求值 |
+| `DOM.getFlattenedDocument` / `DOM.getDocument(pierce)` | PPAPI 插件文档（frame URL 直接是 `.swf`）没有可用上下文，但仍是 DOM 节点 |
+| frame URL 本身匹配 `.swf` | 兜底产出 `kind: 'frame'` 的条目 |
+
+触发是有条件的：**主文档已经扫到 SWF 且没有跨域 frame 时不深探**（4399 这种走快路径）；
+否则深探一次约 250ms（实测 `via={"isolation":9,"session":0,"dom":6}` @4399）。
+
+**传输走端口上的独立 page 连接，不用 `wc.debugger`**：embedded 调试器被密码捕获/填充
+占着（`cdp-lease`），工具箱插进去会让捕获拿到 `already attached by an unmanaged client`
+（§1 的铁律）。page target 允许多客户端并存，实测深探与桥、密码捕获三线共存无冲突。
 
 4399 这类**顶层直接放 `<object>`** 的页面属于正常路径（实测 `embed 755×567` + 3 个 SWF）。
 7k7k 的《皮卡堂》是第 3 种的真实案例：**登录进服之后才会往页面插 `<embed>`**，
@@ -310,6 +327,7 @@ node tools/devtools-spike/sidebar-squeeze-check.cjs          # 侧边栏开合�
 node tools/devtools-spike/devtools-target-memory-check.cjs   # 「当前页面/外壳界面」按标签记：选外壳 → 新标签页回默认 → 切回恢复
 node tools/devtools-spike/flash-probe-debug.cjs              # dump 游戏页结构 + 读 Flash 页实际显示（BFB_URL 指定站点）
 node tools/devtools-spike/flash-tab-follow-check.cjs         # Flash 页跟随标签：两标签各挂一个 SWF，切过去 1.2s 内必须换成当前页的
+node tools/devtools-spike/probe-deep-check.cjs               # CDP 深探：跨域 iframe（127.0.0.1 → localhost）+ 直载 .swf 的 iframe 都要列出来
 node tools/devtools-spike/issues-drawer-check.cjs            # 静态核对 issues-pane 是否仍是 drawer-view（升级前端后复核）
 ```
 
