@@ -286,8 +286,12 @@ async function measure(windowMs, mainPid) {
     results.push(row);
   };
 
-  // A：大页面，不开负载
-  await runCase('A big-idle', heavyPage);
+  // A：大页面，不开负载——连跑三段，判定「成本是否随时间自然增长」
+  // （若三段持平，说明 panel-cost-probe 里那组单调上升是我自己的负载发生器
+  //   在累积 Network/DOM 记录造成的，不是 DevTools 的固有问题）
+  await runCase('A1 big-idle', heavyPage);
+  await runCase('A2 big-idle', heavyPage);
+  await runCase('A3 big-idle', heavyPage);
 
   // B：大页面 + 负载
   await evaluate(heavyPage, loadScript(ping, LOAD_INTERVAL_MS));
