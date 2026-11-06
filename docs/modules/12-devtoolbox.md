@@ -114,6 +114,16 @@ devtoolbox.ts emit()  ──►  EntryBuffer(2000)  ──►  80ms 批量 ─�
   于是被推出可视区下方。现象就是"切到新标签页面板矮了一截、切回页面又凭空长高"，
   其实高度值一直没变，只是被顶出去又放回来。探针 `drawer-geometry-check.cjs` 盯这个：
   两种标签页下 `drawer.y` 必须相同。
+- **侧边栏开合动画期间，前端视图只移动、不改尺寸**。侧边栏用 width/flex-basis 做
+  240ms 动画，工作区宽度每帧都在变；原生视图如果跟着改宽度，DevTools 前端每帧整页重排，
+  240ms 内最多跟上 13/18 个台阶、中间一跳 206px（关闭时 48 个台阶只跟 10 个，最大 154px）。
+  现在的做法（`DevToolsTab` 的 `report()`）：动画期间 `width/height` 沿用上次的值、
+  `x` 跟着布局右移（`max(上次, 本次)`，所以关闭时原地不动、不会盖住滑出的侧边栏），
+  等 `getAnimations()` 报的动画跑完再按真实矩形重排一次。
+  实测同一条序列变成「前端宽度 1280 → 940 一步到位」，中间零重排
+  （探针 `sidebar-squeeze-check.cjs`）。
+  注意页面那侧本来就有同类机制（`computeBrowserViewBounds` 的 sidebarCompensation），
+  但那是**永久**裁剪；DevTools 必须保留正确布局，所以只在动画期间临时裁剪。
 
 ## 6 验证
 
@@ -273,6 +283,7 @@ node tools/devtools-spike/dock-switch-check.cjs              # 四模式停靠�
 node tools/devtools-spike/frontend-bounds-lag.cjs            # 拖拽跟手：前端视图 vs 占位 div 的台阶滞后（BFB_DOCK=right 测横向）
 node tools/devtools-spike/newtab-squeeze-check.cjs           # 挤压布局：内容区 711→120，搜索框可见高度恒为 44
 node tools/devtools-spike/drawer-geometry-check.cjs          # 切标签几何：抽屉 y 恒等、占位矩形贴合、新标签页显示 no-target 占位
+node tools/devtools-spike/sidebar-squeeze-check.cjs          # 侧边栏开合：前端宽度应「一步到位」（动画期间不重排），BFB_NO_DEVTOOLS=1 测页面视图
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、

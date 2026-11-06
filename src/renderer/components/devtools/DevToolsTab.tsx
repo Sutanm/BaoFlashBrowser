@@ -6,6 +6,27 @@ import { isDevtoolsDragging } from './dragState';
 
 type Target = 'page' | 'shell';
 
+interface Bounds { x: number; y: number; width: number; height: number }
+
+/**
+ * 侧边栏是否正在做开合动画。
+ *
+ * 侧边栏的 `.library-sidebar` 用 width/flex-basis 做 240ms 动画（styles.css 的
+ * sidebar-panel-enter/exit），期间工作区宽度每帧都在变。直接问 DOM 的动画状态，
+ * 比在 App 里传标志位可靠：关闭动画还挂着 `.library-sidebar-inner` 的第二段动画，
+ * 组件随后才卸载，靠事件容易漏。
+ */
+function isSidebarAnimating(): boolean {
+  const el = document.querySelector('.library-sidebar');
+  if (!el) return false;
+  try {
+    const animations = el.getAnimations();
+    return animations.some((item) => item.playState === 'running');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 真 DevTools 宿主。
  *
@@ -118,22 +139,66 @@ const DevToolsTab: React.FC = () => {
 
     let alive = true;
     let observer: ResizeObserver | null = null;
-    const report = (): void => {
-      const rect = host.getBoundingClientRect();
-      const payload = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-      // 拖拽期间走同步 IPC：异步通道会让原生视图的更新落到下一帧，快速拖拽时
-      // 每帧位移几十像素，视觉上就是"内容慢半拍、松手再跳一下"。
-      // 同步通道不可用时（旧 preload / 主进程未注册 handler）必须退回异步——
-      // 否则一次 TypeError 就会让 ResizeObserver 回调整个失效，表现为拖拽完全不动。
-      if (isDevtoolsDragging()) {
+    let settleTimer = 0;
+    /** 上一次真正发给主进程的矩形（侧边栏动画期间要沿用它，见下面的注释）。 */
+    let applied: Bounds | null = null;
+
+    const push = (rect: Bounds, sync: boolean): void => {
+      applied = rect;
+      if (sync) {
         try {
-          window.electronAPI.devtoolbox.setDevToolsBoundsSync(payload);
+          window.electronAPI.devtoolbox.setDevToolsBoundsSync(rect);
           return;
         } catch {
-          // fall through
+          // 同步通道不可用（旧 preload / 主进程没注册 handler）→ 退回异步，
+          // 否则一次 TypeError 就让 ResizeObserver 回调整个失效，表现为拖拽完全不动。
         }
       }
-      void window.electronAPI.devtoolbox.setDevToolsBounds(payload);
+      void window.electronAPI.devtoolbox.setDevToolsBounds(rect);
+    };
+
+    const hostRect = (): Bounds => {
+      const rect = host.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    };
+
+    /**
+     * 侧边栏动画结束后按真实矩形重排一次。
+     *
+     * 动画期间只让视图"让位"（改 x）、不改尺寸，所以收尾必须补这一下；
+     * 轮询而不是监听 animationend，是因为关闭动画挂在 `.library-sidebar-inner`
+     * 上、且组件随后卸载，事件会漏。
+     */
+    const settleAfterSidebar = (): void => {
+      if (settleTimer) return;
+      settleTimer = window.setInterval(() => {
+        if (isSidebarAnimating()) return;
+        window.clearInterval(settleTimer);
+        settleTimer = 0;
+        push(hostRect(), false);
+      }, 40);
+    };
+
+    const report = (): void => {
+      const rect = hostRect();
+      // 拖拽期间走同步 IPC：异步通道会让原生视图的更新落到下一帧，快速拖拽时
+      // 每帧位移几十像素，视觉上就是"内容慢半拍、松手再跳一下"。
+      if (isDevtoolsDragging()) {
+        push(rect, true);
+        return;
+      }
+      // 侧边栏开合（width/flex-basis 240ms 动画）期间：**只移动、不改尺寸**。
+      // 实测每帧改宽度会让 DevTools 前端整页重排，240ms 内只跟得上 13/18 个台阶，
+      // 中间一跳 206px（关闭时 48 个台阶只跟 10 个，最大跳 154px）——就是"直接跳变"。
+      // 保持旧尺寸 + 跟着右移，视觉上等同于页面那边既有的"向右扩展、由窗口裁剪"，
+      // 动画结束后再一次性重排到最终宽度。
+      if (applied && isSidebarAnimating()) {
+        // x 只增不减：开的时候跟着侧边栏让位，关的时候原地不动（否则会盖住滑出的侧边栏）。
+        push({ x: Math.max(applied.x, rect.x), y: rect.y, width: applied.width, height: applied.height }, false);
+        settleAfterSidebar();
+        return;
+      }
+      push(rect, false);
     };
 
     void window.electronAPI.devtoolbox.attachDevToolsView(targetRef.current, tabIdRef.current).then((result) => {
@@ -149,6 +214,7 @@ const DevToolsTab: React.FC = () => {
     return () => {
       alive = false;
       observer?.disconnect();
+      if (settleTimer) window.clearInterval(settleTimer);
       window.removeEventListener('resize', report);
       void window.electronAPI.devtoolbox.detachDevToolsView();
     };
