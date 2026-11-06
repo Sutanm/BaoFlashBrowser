@@ -125,6 +125,12 @@ export interface DevToolState {
    * 在游戏页选了「当前页面」，切到新标签页再切回来应该还是「当前页面」。
    */
   tabTarget: Record<string, 'page' | 'shell'>;
+  /**
+   * 「刷新」用的计数器：自增即让 DevToolsTab 重新解析 target 并重建容器。
+   * 放在 store 里是因为按钮已经挪到抽屉顶栏（和页签同一行），
+   * 状态必须两个组件都能读写。
+   */
+  devtoolsReloadToken: number;
   entries: DevToolEntry[];
   loaded: boolean;
 
@@ -135,6 +141,7 @@ export interface DevToolState {
   setDock: (dock: DevToolDock) => void;
   setTab: (tab: DevToolTab) => void;
   setTabTarget: (tabId: string, target: 'page' | 'shell') => void;
+  bumpDevtoolsReload: () => void;
   ingest: (entries: DevToolEntry[]) => void;
   replaceEntries: (entries: DevToolEntry[]) => void;
   clearEntries: () => void;
@@ -151,6 +158,7 @@ export const useDevToolStore = create<DevToolState>((set) => ({
   lastEmbeddedDock: initialDock === 'undocked' ? 'bottom' : initialDock,
   tab: 'devtools',
   tabTarget: {},
+  devtoolsReloadToken: 0,
   entries: [],
   loaded: false,
 
@@ -178,6 +186,7 @@ export const useDevToolStore = create<DevToolState>((set) => ({
   },
   setTab: (tab) => set({ tab }),
   setTabTarget: (tabId, target) => set((state) => ({ tabTarget: { ...state.tabTarget, [tabId]: target } })),
+  bumpDevtoolsReload: () => set((state) => ({ devtoolsReloadToken: state.devtoolsReloadToken + 1 })),
   ingest: (incoming) => set((state) => {
     if (incoming.length === 0) return state;
     const merged = state.entries.concat(incoming);

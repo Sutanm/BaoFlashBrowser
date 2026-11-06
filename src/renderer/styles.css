@@ -107,6 +107,9 @@ body.dark {
     height: 32px;
     color: var(--text-secondary);
     flex-shrink: 0;
+    /* 标签条是 items-end（36px 标签贴底、上方留 9px），加号若不补偿会整个贴到底缝上；
+       抬 2px 后加号的中心与 36px 标签的中心对齐（都在距底 18px 处） */
+    margin-bottom: 2px;
   }
   .btn-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
   body.dark .btn-tab { color: var(--text-secondary); }
@@ -1705,4 +1708,19 @@ body.dark .browser-toolbar .btn-icon:hover {
 @media (prefers-reduced-motion: reduce) {
   .sidebar-toggle-button,
   .library-sidebar { animation: none !important; }
+}
+
+/*
+ * 抽屉顶栏的左侧区（页签 + DevTools 目标切换）。
+ * 窄抽屉（右侧停靠常见 340~420px）放不下时横向滚动，而不是把页签文字压成
+ * "获""程"。Chromium 87 没有 `scrollbar-width`，所以用 webkit 伪元素隐藏滚动条。
+ */
+.devtools-header-tabs {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+}
+
+.devtools-header-tabs::-webkit-scrollbar {
+  height: 0;
 }

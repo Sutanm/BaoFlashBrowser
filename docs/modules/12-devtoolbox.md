@@ -314,6 +314,8 @@ node tools/devtools-spike/cdp-embedded-coexist.cjs  # CDP 共存性：embedded d
 node tools/devtools-spike/page-ws-baseline-capture.cjs      # page-ws 基线录流（ws 代理夹在前端与真实端点之间）
 node tools/devtools-spike/bridge-mode-check.cjs              # 桥模式端到端：树与目标页一致、bfbBridge 就位、0 异常
 BFB_PAGE_WS=1 node tools/devtools-spike/bridge-mode-check.cjs # page-ws 回退对照（同一 fixture、同一探针）
+node tools/devtools-spike/toolbar-merge-check.cjs            # 顶栏只有一行、窄抽屉不横向溢出；顺带截 artifacts/devtools-toolbar-merged.png
+node tools/devtools-spike/styles-spin-check.cjs              # Styles 是否加载：BFB_REOPEN=1 切页签回来、BFB_CLICK=1 点节点、BFB_URL 打真站
 node tools/devtools-spike/bridge-tab-switch-check.cjs        # 桥模式：切标签容器不重建、面板状态保留、树跟随；并量「切回」的跟随耗时（实测 ~520ms）
 BFB_RESET_LOCALE=1 node tools/devtools-spike/bridge-mode-check.cjs # 清掉持久化 language，确认"没存过就跟随系统"
 node tools/devtools-spike/bridge-realsite-check.cjs          # 桥模式真站（7k7k）：树/求值/密码捕获 embedded 并发
@@ -335,7 +337,31 @@ node tools/devtools-spike/issues-drawer-check.cjs            # 静态核对 issu
 Styles 显示真实规则、前端异常 0（修复前 Highlight ReferenceError + 每请求
 requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 
-### 8.6 拖拽跟手（同步 bounds）
+### 8.6 顶栏只有一行 + DevTools 容器常驻
+
+顶栏原来有两条：工具箱页签一行、`当前页面 / 外壳界面 / 刷新 / 原生面板` 又一行，
+白吃掉 30px 面板高度。现在合并成一行：
+
+```
+[DevTools] [捕获 N] [Flash] [主进程 N] | [当前页面][外壳界面] [↻] [↗] | …… [停靠] [✕]
+└──────────── 可横向滚动（窄抽屉）────────────┘   └──── 固定 ────┘
+```
+
+- 左侧（页签 + DevTools 控件）放在 `.devtools-header-tabs` 里，`overflow-x:auto`
+  且隐藏滚动条：右侧停靠常见 340~460px，放不下时滚动，而不是把「捕获」压成「获」。
+- 右侧（停靠切换、关闭）固定，任何时候都能点到。
+- 「清空」只在捕获/主进程页签出现（它清的是采集缓冲，在 DevTools 页签上没意义）。
+- 「刷新」的重建计数从组件内 `useState` 挪到 store（`devtoolsReloadToken`），
+  因为按钮和消费者已经不在一棵子树里了。
+
+**DevTools 容器在抽屉内常驻挂载**：切到「捕获/Flash/主进程」只把它 `display:none`，
+不卸载。不这么做的话每次切回来都要销毁原生视图、重启前端，代价有两层：
+面板状态全丢；**新前端会拿旧 nodeId 去要样式**，Styles 面板显示「找不到匹配的选择器
+或样式」（page-ws 路径同样如此，所以不是桥的锅）。隐藏时占位矩形为 0，`report()`
+把原生视图挪到 `(-8,-8,1,1)`，否则这层原生视图会盖住其它页签的内容。
+关抽屉时整棵树卸载，视图照常销毁，不留后台开销。
+
+### 8.7 拖拽跟手（同步 bounds）
 
 抽屉拖拽时，前端视图的矩形走**同步 IPC**（`devtoolbox:set-devtools-bounds-sync`），
 其它场景（窗口缩放、停靠切换）仍走异步。原因：异步通道会把原生视图的更新推到下一帧，
@@ -352,7 +378,7 @@ requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 （不是超时，是卡死）；只放行 `devtoolbox:set-devtools-bounds-sync` 这一条，
 preload 侧有独立白名单 `ALLOWED_SYNC_CHANNELS`。
 
-### 8.7 抽屉挤压时的页面布局
+### 8.8 抽屉挤压时的页面布局
 
 新标签页 `.newtab-shell` 原来是 `justify-content: center`：内容比容器高时（抽屉拉高到
 内容区 < 331px），Chromium 87 会把上下两端各裁一半（`safe center` 要 93+ 才支持），
@@ -419,6 +445,14 @@ preload 后这条中继整个删了（`useDevToolsBridgeRelay.ts` 已移除）�
    Promise——**表现是 Styles/Computed 一直转圈，只能重新点一次节点才恢复**。
    现在 `detach()` / `shutdown()` / `Target.detachedFromTarget` 都会 `failPending()`，
    另加 15s 兜底超时（target 卡死时也能收尾）。`bridge.stats().failed` 是被判失败的条数。
+7. **失败信封必须只发给同一个前端实例**（`frontendEpoch`）。前端的请求 id 是**每条连接
+   各自从 1 开始**的：旧前端留下的长轮询请求如果在新前端起来之后才超时，那条
+   `{id, error}` 会命中新前端里同号的请求，它的 CSS 模型就此失效——**Styles 面板永久
+   空白，点节点也没用**。所以 `beginFrontendSession()` 在新建容器时 +1 代号并**静默**
+   丢弃旧请求；超时/failPending 只对同代号的条目回信封。
+8. **长轮询方法不能套超时**。`CSS.takeComputedStyleUpdates`（Chrome 88+ 引入，87 后端
+   可能一直不回）语义是"有变化才回包"，15s 超时只会在 CSS 模型里塞一个错误响应。
+   它被列进 `LONG_POLL_METHODS` 白名单，靠 detach/断开收尾。
 
 ### 9.3 开关与限制
 

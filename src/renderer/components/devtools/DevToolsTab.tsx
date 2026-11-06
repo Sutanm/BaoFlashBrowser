@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
 import { useDevToolStore } from '@renderer/store/useDevToolStore';
@@ -59,15 +59,12 @@ const DevToolsTab: React.FC = () => {
   // 之前这里是组件内的 useState，等于全局——在游戏页选了「当前页面」，
   // 切到新标签页再切回来就变回「外壳」了。
   const tabTarget = useDevToolStore((s) => (activeTabId ? s.tabTarget[activeTabId] : undefined));
-  const setTabTarget = useDevToolStore((s) => s.setTabTarget);
   const target: Target = tabTarget ?? 'page';
-  const setTarget = useCallback((next: Target) => {
-    if (activeTabId) setTabTarget(activeTabId, next);
-  }, [activeTabId, setTabTarget]);
   const [url, setUrl] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
   const [noTarget, setNoTarget] = useState(false);
-  const [nonce, setNonce] = useState(0);
+  // 「刷新」按钮在抽屉顶栏（与页签同一行），所以计数器放在 store。
+  const nonce = useDevToolStore((s) => s.devtoolsReloadToken);
   /** 桥模式下 URL 恒定（不含 target id），切标签只换绑定、不换 URL → iframe 不重载。 */
   const [mode, setMode] = useState<'ws' | 'bridge'>('ws');
   const hostRef = useRef<HTMLDivElement>(null);
@@ -132,8 +129,6 @@ const DevToolsTab: React.FC = () => {
     };
   }, [target, activeTabId, activeTabUrl, nonce]);
 
-  const reload = useCallback(() => setNonce((value) => value + 1), []);
-
   // 容器挂载：把前端挂成独立 WebContents，并持续把占位 div 的矩形同步给主进程。
   // 切换停靠 / 拖拽抽屉 / 窗口缩放都会让矩形变化，ResizeObserver 会逐帧上报。
   //
@@ -190,6 +185,13 @@ const DevToolsTab: React.FC = () => {
 
     const report = (): void => {
       const rect = hostRect();
+      // 抽屉切到别的页签时容器是 display:none（组件不卸载，前端继续活着），
+      // 这时占位矩形是 0——必须把原生视图挪出可视区，否则它作为原生层会一直
+      // 盖在「捕获 / Flash / 主进程」的内容上面。
+      if (rect.width < 2 || rect.height < 2) {
+        push({ x: -8, y: -8, width: 1, height: 1 }, false);
+        return;
+      }
       // 拖拽期间走同步 IPC：异步通道会让原生视图的更新落到下一帧，快速拖拽时
       // 每帧位移几十像素，视觉上就是"内容慢半拍、松手再跳一下"。
       if (isDevtoolsDragging()) {
@@ -234,46 +236,6 @@ const DevToolsTab: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center gap-2 px-3 py-1.5" style={{ borderBottom: '0.5px solid var(--border)', background: 'var(--bg-secondary)' }}>
-        <div className="flex items-center rounded" style={{ border: '0.5px solid var(--border)' }}>
-          {(['page', 'shell'] as Target[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setTarget(item)}
-              aria-pressed={target === item}
-              data-devtarget={item}
-              className="text-[12px] px-2 py-[2px]"
-              style={{
-                background: target === item ? 'var(--bg-panel)' : 'transparent',
-                color: target === item ? 'var(--accent)' : 'var(--text-secondary)',
-              }}
-            >
-              {item === 'page' ? LL.devtools.targetPage() : LL.devtools.targetShell()}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="text-[12px] px-2 py-[2px] rounded"
-          style={{ border: '0.5px solid var(--border)', color: 'var(--text-primary)' }}
-          onClick={reload}
-        >
-          {LL.devtools.refresh()}
-        </button>
-        <button
-          type="button"
-          className="text-[12px] px-2 py-[2px] rounded"
-          style={{ border: '0.5px solid var(--border)', color: 'var(--text-primary)' }}
-          onClick={() => { void window.electronAPI.devtoolbox.openNative(target); }}
-        >
-          {LL.devtools.native()}
-        </button>
-        <span className="ml-auto text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>
-          {missing ? '' : 'DevTools'}
-        </span>
-      </div>
-
       {noTarget ? (
         <div className="flex-1 flex items-center justify-center px-6 text-center">
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.noTarget()}</div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, PanelBottom, PanelLeft, PanelRight, X } from 'lucide-react';
+import { ExternalLink, PanelBottom, PanelLeft, PanelRight, RefreshCw, X } from 'lucide-react';
 import type { DevToolEntry, DevToolFlashInfo, DevToolPageProbe } from '@shared/types/devtoolbox';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
@@ -37,6 +37,11 @@ const DevToolDrawer: React.FC = () => {
   const replaceEntries = useDevToolStore((s) => s.replaceEntries);
   const clearEntries = useDevToolStore((s) => s.clearEntries);
   const activeTabId = useTabsStore((s) => s.activeTabId);
+  // DevTools 的目标选择：面板只有一份，但「看哪个 target」跟标签走。
+  const tabTarget = useDevToolStore((s) => (activeTabId ? s.tabTarget[activeTabId] : undefined));
+  const setTabTarget = useDevToolStore((s) => s.setTabTarget);
+  const bumpDevtoolsReload = useDevToolStore((s) => s.bumpDevtoolsReload);
+  const devTarget: 'page' | 'shell' = tabTarget ?? 'page';
   const activeTabUrl = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.url ?? null);
 
   const [flash, setFlash] = useState<DevToolFlashInfo | null>(null);
@@ -250,6 +255,10 @@ const DevToolDrawer: React.FC = () => {
 
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
       <div className="flex items-center gap-1 px-2" style={{ height: 30, borderBottom: '0.5px solid var(--border)', background: 'var(--bg-secondary)' }}>
+        {/* 左侧（页签 + DevTools 控件）可以横向滚动：窄抽屉（右侧停靠约 340px）
+            放不下时不会把文字压成"获""程"，也不会把关闭按钮挤出去。
+            右侧的停靠切换与关闭固定在尾部。 */}
+        <div className="devtools-header-tabs flex items-center gap-1 min-w-0 flex-1">
         {tabs.map((item) => {
           const active = item.key === tab;
           const count = item.key === 'capture'
@@ -262,7 +271,7 @@ const DevToolDrawer: React.FC = () => {
               key={item.key}
               type="button"
               onClick={() => setTab(item.key)}
-              className="text-[12px] px-2 py-[2px] rounded"
+              className="text-[12px] px-2 py-[2px] rounded shrink-0 whitespace-nowrap"
               style={{
                 color: active ? 'var(--accent)' : 'var(--text-secondary)',
                 background: active ? 'var(--bg-panel)' : 'transparent',
@@ -275,7 +284,51 @@ const DevToolDrawer: React.FC = () => {
           );
         })}
 
-        <span className="ml-auto" />
+        {/* DevTools 专用的目标切换与操作，和页签共用一行：原来它们占单独一行
+            （抽屉里出现两条工具条），把面板高度白吃掉 30px。 */}
+        {tab === 'devtools' && (
+          <>
+            <div className="flex items-center rounded shrink-0" style={{ border: '0.5px solid var(--border)' }}>
+              {(['page', 'shell'] as const).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => { if (activeTabId) setTabTarget(activeTabId, item); }}
+                  aria-pressed={devTarget === item}
+                  data-devtarget={item}
+                  className="text-[11px] px-1.5 py-[1px]"
+                  style={{
+                    background: devTarget === item ? 'var(--bg-panel)' : 'transparent',
+                    color: devTarget === item ? 'var(--accent)' : 'var(--text-secondary)',
+                  }}
+                >
+                  {item === 'page' ? LL.devtools.targetPage() : LL.devtools.targetShell()}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="px-[5px] py-[2px] rounded shrink-0"
+              title={LL.devtools.refresh()}
+              aria-label={LL.devtools.refresh()}
+              onClick={bumpDevtoolsReload}
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              className="px-[5px] py-[2px] rounded shrink-0"
+              title={LL.devtools.native()}
+              aria-label={LL.devtools.native()}
+              onClick={() => { void window.electronAPI.devtoolbox.openNative(devTarget); }}
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
+        </div>
 
         {dockOptions.map(({ key, Icon, label }) => {
           const active = dock === key;
@@ -283,7 +336,7 @@ const DevToolDrawer: React.FC = () => {
             <button
               key={key}
               type="button"
-              className="px-[5px] py-[2px] rounded"
+              className="px-[5px] py-[2px] rounded shrink-0"
               title={label}
               aria-label={label}
               aria-pressed={active}
@@ -298,16 +351,18 @@ const DevToolDrawer: React.FC = () => {
           );
         })}
 
-        <button
-          type="button"
-          className="text-[11px] px-2 py-[2px] rounded"
-          style={{ color: 'var(--text-secondary)' }}
-          onClick={() => void window.electronAPI.devtoolbox.clear()}
-        >
-          {LL.devtools.clear()}
-        </button>
-        {/* 原生面板入口只在 DevToolsTab 的子标签行（带目标上下文），
-            顶栏不再放一份，避免出现两个"原生面板" */}
+        {/* 「清空」只清采集缓冲（捕获/主进程页签在用），DevTools 页签上没意义，
+            省下的宽度留给目标切换 */}
+        {tab !== 'devtools' && (
+          <button
+            type="button"
+            className="text-[11px] px-2 py-[2px] rounded shrink-0"
+            style={{ color: 'var(--text-secondary)' }}
+            onClick={() => void window.electronAPI.devtoolbox.clear()}
+          >
+            {LL.devtools.clear()}
+          </button>
+        )}
         <button
           type="button"
           className="px-[5px] py-[2px] rounded"
@@ -320,7 +375,18 @@ const DevToolDrawer: React.FC = () => {
       </div>
 
       <div className="flex-1 min-h-0">
-        {tab === 'devtools' && <DevToolsTab />}
+        {/*
+          * DevTools 容器**常驻挂载**（抽屉开着时）：切到「捕获/Flash/主进程」只把
+          * 它 `display:none`，不卸载。卸载 = 销毁原生视图 + 前端重新启动，代价是
+          * 丢了面板状态，而且新前端会拿旧 nodeId 去要样式（面板显示"找不到匹配的
+          * 选择器或样式"）。关抽屉时整棵树卸载，仍然会销毁，不留后台开销。
+          */}
+        <div
+          className="h-full min-h-0"
+          style={{ display: tab === 'devtools' ? 'block' : 'none' }}
+        >
+          <DevToolsTab />
+        </div>
         {tab === 'capture' && (
           <CaptureTab entries={byIssue('capture')} cdpOwner={cdpOwner} onRefresh={() => void refresh(activeTabId)} />
         )}

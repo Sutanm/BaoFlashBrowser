@@ -81,6 +81,16 @@ const EVENT_FLUSH_MS = 16;
 const FRONTEND_REQUEST_TIMEOUT_MS = 15000;
 
 /**
+ * 设计上就是长轮询的方法：不能套兜底超时。
+ *
+ * `CSS.takeComputedStyleUpdates` 在 Chrome 88+ 引入，语义是"有变化才回包"，
+ * 可能长时间不回；87 的后端即使实现了也不会主动结束。给它 15s 超时会在
+ * CSS 模型里制造一个错误响应，前端随后就画不出样式（实测：重开容器后
+ * Styles 面板永久空白）。
+ */
+const LONG_POLL_METHODS = new Set(['CSS.takeComputedStyleUpdates']);
+
+/**
  * raw 模式（BAO_DEVTOOLS_BRIDGE_RAW=1）：完全不做 Target 重写，按 page-ws 的真实
  * 语义转发——这正是 S14 基线抓出来的形态：
  *   page-ws 下前端自己发 setDiscoverTargets/setAutoAttach，Chromium 回 targetCreated
@@ -106,7 +116,20 @@ class DevToolsBridge {
     frontendId?: number;
     /** 前端请求的兜底超时（换 session / socket 断开都靠它或 failPending 收尾）。 */
     timer?: NodeJS.Timeout;
+    /** 发起这条请求时的前端实例代号（见 frontendEpoch）。 */
+    epoch?: number;
   }>();
+
+  /**
+   * 前端实例代号。每次新建 DevTools 容器（切工具箱页签、重开抽屉、开独立窗口）都 +1。
+   *
+   * 为什么必须有：前端的请求 id 是**每条连接各自从 1 开始**的。旧前端留下的请求
+   * （典型是 `CSS.takeComputedStyleUpdates` 这种长轮询）如果在新前端起来之后才被
+   * 兜底超时判失败，那条错误信封带的是旧 id，会正好命中新前端某个正在进行的请求；
+   * 新前端把错误当成自己的，CSS 模型就此失效——**样式面板永久空白**。
+   * 所以换实例时静默丢弃旧请求，绝不再往回发信封。
+   */
+  private frontendEpoch = 0;
   private sessionId: string | null = null;
   private targetId: string | null = null;
   private sink: ((events: CdpMessage[]) => void) | null = null;
@@ -278,6 +301,22 @@ class DevToolsBridge {
   }
 
   /**
+   * 新的前端实例接管连接（新建 / 重建 DevTools 容器时调用）。
+   *
+   * 旧实例的请求 id 空间随之作废：**静默**丢弃它们的在途请求，绝不回发信封——
+   * 否则那条迟到错误会命中新实例里同号的请求（表现：Styles 永久空白）。
+   */
+  beginFrontendSession(): void {
+    this.frontendEpoch += 1;
+    if (this.pending.size === 0) return;
+    for (const [id, entry] of this.pending) {
+      if (entry.timer) clearTimeout(entry.timer);
+      entry.resolve({ error: { message: 'frontend-replaced' } });
+      this.pending.delete(id);
+    }
+  }
+
+  /**
    * 把所有「前端发起、还在等响应」的请求立刻判失败并告诉前端。
    *
    * 换 target / socket 断开 / 关闭时，旧 session 上在途的请求不可能再有响应。
@@ -288,7 +327,8 @@ class DevToolsBridge {
     if (this.pending.size === 0) return;
     for (const [id, entry] of this.pending) {
       if (entry.timer) clearTimeout(entry.timer);
-      if (!entry.internal && typeof entry.frontendId === 'number') {
+      // 只有同一个前端实例才通知：旧实例的请求号在新实例里是别人的
+      if (!entry.internal && typeof entry.frontendId === 'number' && entry.epoch === this.frontendEpoch) {
         this.enqueue({ id: entry.frontendId, error: { message: reason } });
         this.counters.failed += 1;
       }
@@ -538,17 +578,22 @@ class DevToolsBridge {
       this.counters.sent += 1;
       this.counters.bytesOut += payload.length;
       this.recordFlow('>', method, sessionId, DevToolsBridge.summarise(method, params));
-      this.pending.set(id, { resolve, method, params, internal, frontendId });
+      this.pending.set(id, { resolve, method, params, internal, frontendId, epoch: this.frontendEpoch });
       // 前端请求的兜底超时：正常路径靠 detach/断链的 failPending 收尾，
       // 但 target 卡死、session 半死不活时响应可能永远不来；不兜底前端就一直转圈。
-      if (!internal && typeof frontendId === 'number') {
+      // 例外：`CSS.takeComputedStyleUpdates` 是**设计上的长轮询**（Chrome 88+ 才有，
+      // 87 后端可能永远不回），给它套超时只会在 15s 后往 CSS 模型里塞一个错误。
+      if (!internal && typeof frontendId === 'number' && !LONG_POLL_METHODS.has(method)) {
         const timeout = setTimeout(() => {
           const entry = this.pending.get(id);
           if (!entry) return;
           this.pending.delete(id);
           this.counters.failed += 1;
           log.warn('[DevToolsBridge] 请求超时:', method);
-          this.enqueue({ id: frontendId, error: { message: 'bridge-timeout' } });
+          // 只有同一个前端实例才通知：旧实例的 id 在新实例里是别人的请求号
+          if (entry.epoch === this.frontendEpoch) {
+            this.enqueue({ id: frontendId, error: { message: 'bridge-timeout' } });
+          }
           resolve({ error: { message: 'bridge-timeout' } });
         }, FRONTEND_REQUEST_TIMEOUT_MS);
         timeout.unref?.();

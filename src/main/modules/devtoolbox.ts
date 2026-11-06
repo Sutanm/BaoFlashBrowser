@@ -457,6 +457,9 @@ export async function openDevToolsWindow(target: 'page' | 'shell' = 'page', tabI
   const resolved = await getDevToolsTargetUrl(target, tabId);
   if (!resolved.url) return { ok: false, error: resolved.reason };
 
+  // 新的前端实例接管：旧实例的在途请求必须静默作废（理由见 beginFrontendSession）。
+  devToolsBridge.beginFrontendSession();
+
   // 与内嵌视图同一套时序：桥没挂上就不要把前端放出来（理由见 attachDevToolsView）。
   const bridge = resolved.mode === 'bridge';
   if (bridge) {
@@ -548,6 +551,10 @@ export async function attachDevToolsView(target: 'page' | 'shell' = 'page', tabI
   log.info('[DevToolbox] attach embedded view target=%s url=%s', target, resolved.url.slice(0, 60));
   devToolsBoundsLog = 0;
   devToolsBoundsMissLog = 0;
+
+  // 新容器 = 新前端实例：先把旧实例的在途请求静默作废，再挂桥、建视图。
+  // 顺序不能反：旧请求的 id 空间作废之后，它们才不会在新实例里"认领"别人的请求。
+  devToolsBridge.beginFrontendSession();
 
   // 桥模式必须**先挂桥再放前端出来**：preload 里的 onOpen 是立即回调的
   // （见 src/preload/devtools.ts），前端一起来就会连发十几条 enable/getDocument。
