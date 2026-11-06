@@ -109,6 +109,21 @@ route, run `node scripts/ensure-build.cjs` first — or just check `npm run prob
 5. **Demo passes → port to main project**
 6. **Site-specific failures** — compare a minimal control probe with a probe that adds project policies one at a time. Record network failures, SWF requests and screenshots without logging tokens/query strings.
 
+## IPC & port policy（2026-11-06 收敛约定）
+
+**全应用零固定端口**：所有监听 = 127.0.0.1 回环 + 系统临时端口（`listen(0)` / `--remote-debugging-port=0`）+ 随应用生命周期生灭。新功能**默认不开端口**，按这个决策树选通道：
+
+| 通信双方 | 通道 | 现存实例 |
+| --- | --- | --- |
+| renderer ↔ main | Electron IPC（永远优先） | 全部 IPC |
+| main ↔ 自 spawn 的子进程 | **stdio 管道** | OCR sidecar（`bao1-ocr-sidecar-engine.ts`） |
+| main ↔ 只支持 TCP RPC 的三方进程 | 回环临时端口，主进程先 bind(0) 探测再传入 | aria2 RPC（`aria2-rpc.ts`） |
+| main ↔ 本机外部进程（开发态） | 回环临时端口 + token 鉴权 + opt-in | screenshot HTTP |
+| DevTools 前端 ↔ Chromium | CDP 端口（Chromium 自管，`appendSwitch('remote-debugging-port','0')`） | 不可消除，非业务端口 |
+| 抽屉 iframe 前端资源 | 回环 HTTP 静态服务 | `file://` 下 ES module 被 CORS 拦、私有 scheme iframe 是 chrome-error（均已实测），HTTP 是唯一通路 |
+
+开新端口的门槛：先证明 stdio/IPC 不可行，并在对应模块文档里记录"为什么必须是端口"。监听器数量只应随**需要跨进程的第三方组件**增长，不随业务功能增长。回环临时端口的内核开销与任意 WebSocket 连接同级，数量为个位数时无需优化。
+
 ## Landmines
 
 ### Navigation & page lifecycle
