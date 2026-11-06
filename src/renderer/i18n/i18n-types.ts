@@ -1518,10 +1518,6 @@ type RootTranslation = {
 		 * 启​动​时​自​动​检​查​更​新
 		 */
 		updateAutoCheck: string
-		/**
-		 * 打​开​浏​览​器​时​自​动​检​查​一​次​，​发​现​新​版​本​会​弹​出​桌​面​通​知​；​关​闭​后​仅​手​动​检​查​。
-		 */
-		updateAutoCheckHint: string
 		proxy: {
 			/**
 			 * 检​测​次​数​已​达​本​次​启​动​的​上​限​（​3​2​ ​次​）​，​请​重​启​浏​览​器​后​重​试​。
@@ -4062,10 +4058,6 @@ export type TranslationFunctions = {
 		 * 启动时自动检查更新
 		 */
 		updateAutoCheck: () => LocalizedString
-		/**
-		 * 打开浏览器时自动检查一次，发现新版本会弹出桌面通知；关闭后仅手动检查。
-		 */
-		updateAutoCheckHint: () => LocalizedString
 		proxy: {
 			/**
 			 * 检测次数已达本次启动的上限（32 次），请重启浏览器后重试。

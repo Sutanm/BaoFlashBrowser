@@ -787,7 +787,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onOpenUrl }) => {
           <div className="field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>
               <span className="field-label" style={{ display: 'block' }}>{LL.settings.updateAutoCheck()}</span>
-              <span className="field-hint">{LL.settings.updateAutoCheckHint()}</span>
             </span>
             <ToggleSwitch
               checked={mainForm.updateCheckMode === 'auto'}

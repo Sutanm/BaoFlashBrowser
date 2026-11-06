@@ -398,7 +398,6 @@ const en: Translation = {
     updateFailed: 'Update check failed. Check your connection or try again later.',
     updateDownload: 'Download from releases',
     updateAutoCheck: 'Check for updates on startup',
-    updateAutoCheckHint: 'Checks once each time the browser opens and shows a desktop notification when a new version is found. When off, updates are only checked manually.',
 
     proxy: {
       testLimit: 'The limit of 32 tests per launch has been reached. Restart the browser to test again.',
