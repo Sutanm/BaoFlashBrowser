@@ -35,6 +35,10 @@ export interface BridgeStats {
   eventsDropped: number;
   /** sink 被调用的次数（调试用：区分"桥没发"与"renderer 没收到"）。 */
   sinkCalls?: number;
+  /** 最近 60 条命令的方法名（调试用，独立于环形缓冲）。 */
+  lastMethods?: string[];
+  /** 最近一次 DOM.getDocument 响应摘要（调试用：rootId/子节点数）。 */
+  lastDoc?: string | null;
   bytesOut: number;
   bytesIn: number;
   /** 最近 40 条命令的方法名（调试用；只记名字，不含参数/结果）。 */
@@ -82,13 +86,20 @@ class DevToolsBridge {
   private state: BridgeStats['state'] = 'idle';
   private counters = { sent: 0, events: 0, eventsDropped: 0, bytesOut: 0, bytesIn: 0 };
   private sinkCalls = 0;
+  private lastDoc: string | null = null;
+  private lastMethods: string[] = [];
   private recent: string[] = [];
   private recentAttach: Array<{ targetId: string; sessionId?: string; error?: string }> = [];
   private trace: Array<{ d: 'cmd' | 'evt'; m: string; s?: string }> = [];
 
   private record(d: 'cmd' | 'evt', method: string, sessionId?: string): void {
+    // 独立命令流：不受 120 条环形缓冲影响，能看到前端最近发的命令。
+    if (d === 'cmd') {
+      this.lastMethods.push(method);
+      if (this.lastMethods.length > 60) this.lastMethods.shift();
+    }
     // 调试轨迹：过滤高频噪音，保住初始化序列（CSS/Network 事件会瞬间冲掉环形缓冲）。
-    if (d === 'evt' && !/^(DOM|Target|Inspector|Page|CSS.document|Emulation.)/.test(method)) return; // 只留关键事件+全部命令
+    if (d === 'evt' && !/^(DOM|Target|Inspector|Page|CSS\.document|Emulation\.)/.test(method)) return;
     this.trace.push({ d, m: method, s: sessionId ? sessionId.slice(0, 6) : undefined });
     if (this.trace.length > 120) this.trace.shift();
   }
@@ -107,6 +118,8 @@ class DevToolsBridge {
       recentAttach: this.recentAttach.slice(),
       trace: this.trace.slice(),
       sinkCalls: this.sinkCalls,
+      lastDoc: this.lastDoc,
+      lastMethods: this.lastMethods.slice(),
     };
   }
 
@@ -175,6 +188,12 @@ class DevToolsBridge {
       return { ok: false, error: { message: 'bridge-no-session' } };
     }
     const response = await this.sendRaw(method, params, resolved);
+    if (method === 'DOM.getDocument') {
+      const root = (response.result as { root?: { nodeId?: number; childNodeCount?: number } } | undefined)?.root;
+      this.lastDoc = response.error
+        ? 'ERR ' + (response.error.message ?? '?') + ' (in=' + String(_sessionId ?? '-').slice(0, 6) + ')'
+        : 'root=' + String(root?.nodeId) + ' kids=' + String(root?.childNodeCount) + ' (in=' + String(_sessionId ?? '-').slice(0, 6) + ')';
+    }
     if (response.error) return { ok: false, error: { message: response.error.message ?? 'cdp-error', code: response.error.code } };
     return { ok: true, result: response.result ?? null };
   }
@@ -182,7 +201,14 @@ class DevToolsBridge {
   /** 把 Target 发现/attach 类方法伪造成"只有一个 target"（见 send 的注释）。 */
   private async interceptTargetMethod(method: string): Promise<SendResult | null> {
     switch (method) {
-      case 'Target.setDiscoverTargets':
+      case 'Target.setDiscoverTargets': {
+        // page-ws 模式下由 Chromium 的 host 注入 targetCreated；桥必须自己扮演。
+        // 少了这条事件，M97 的 TargetManager 没有 target 记录，DOM model 建到
+        // root+html 就停下（不发 requestChildNodes），Elements 树停在两层。
+        const info = await this.readTargetInfo();
+        if (info) this.pushEvent({ method: 'Target.targetCreated', params: { targetInfo: { ...info, attached: false } } });
+        return { ok: true, result: {} };
+      }
       case 'Target.setAutoAttach':
       case 'Target.detachFromTarget':
         return { ok: true, result: {} };
@@ -191,9 +217,16 @@ class DevToolsBridge {
         // 必须等它（否则前端 fallback 到真 Chromium 分配 session，命令与事件
         // 分属两个 session，nodeId 空间错乱）。
         const sessionId = await this.currentOrPendingSession();
-        return sessionId
-          ? { ok: true, result: { sessionId } }
-          : { ok: false, error: { message: 'bridge-no-session' } };
+        if (!sessionId) return { ok: false, error: { message: 'bridge-no-session' } };
+        const info = await this.readTargetInfo();
+        if (info) {
+          // 与 targetCreated 配对：让前端把 session 认领到该 target 上。
+          this.pushEvent({
+            method: 'Target.attachedToTarget',
+            params: { sessionId, targetInfo: { ...info, attached: true }, waitingForDebugger: false },
+          });
+        }
+        return { ok: true, result: { sessionId } };
       }
       case 'Target.getTargets': {
         const info = await this.readTargetInfo();
@@ -208,6 +241,19 @@ class DevToolsBridge {
       default:
         return null;
     }
+  }
+
+  /** 把一条合成事件放进合批队列（与真实事件同一条下发路径）。 */
+  private pushEvent(event: CdpMessage): void {
+    this.buffer.push({ method: event.method, params: event.params });
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      const batch = this.buffer;
+      this.buffer = [];
+      if (batch.length && this.sink) { this.sinkCalls += 1; this.sink(batch); }
+    }, EVENT_FLUSH_MS);
+    this.flushTimer.unref?.();
   }
 
   private async currentOrPendingSession(): Promise<string | null> {

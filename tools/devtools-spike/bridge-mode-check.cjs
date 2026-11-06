@@ -268,7 +268,7 @@ const DEEP_PROBE = `(() => {
       const dom = await pc.send('Runtime.evaluate', { expression: 'document.body.innerHTML.replace(/s+/g, " ").slice(0, 300)', returnByValue: true });
       console.log('[s11] real page body (external CDP):', JSON.stringify(dom && dom.result && dom.result.result && dom.result.result.value));
       pc.close();
-      const shellT = (list2 || []).find((t) => /dist/renderer/index.html/.test(t.url || ''));
+      const shellT = (list2 || []).find((t) => (t.url || '').indexOf('dist/renderer/index.html') !== -1);
       if (shellT) {
         const sc = wsClient(shellT.webSocketDebuggerUrl);
         await sc.ready;
