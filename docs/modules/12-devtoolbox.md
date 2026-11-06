@@ -317,6 +317,7 @@ BFB_PAGE_WS=1 node tools/devtools-spike/bridge-mode-check.cjs # page-ws 回退�
 node tools/devtools-spike/toolbar-merge-check.cjs            # 顶栏只有一行、窄抽屉不横向溢出；顺带截 artifacts/devtools-toolbar-merged.png
 node tools/devtools-spike/frontend-intent-check.cjs          # 原生停靠菜单/✕ 经 bfbBridge.shell 落到外壳：right→竖向、bottom→横向、close→收起
 node tools/devtools-spike/dock-sequence-check.cjs            # 底→左→右（真实按钮，可 BFB_STEP_MS=250 连点）：抽屉矩形与上报矩形必须一致
+node tools/devtools-spike/devtools-menu-check.cjs            # ⋮ →「更多工具」子菜单：悬浮出现、移过去是否还在（当前会消失，见 §8.6.1）
 node tools/devtools-spike/styles-spin-check.cjs              # Styles 是否加载：BFB_REOPEN=1 切页签回来、BFB_CLICK=1 点节点、BFB_URL 打真站
 node tools/devtools-spike/bridge-tab-switch-check.cjs        # 桥模式：切标签容器不重建、面板状态保留、树跟随；并量「切回」的跟随耗时（实测 ~520ms）
 BFB_RESET_LOCALE=1 node tools/devtools-spike/bridge-mode-check.cjs # 清掉持久化 language，确认"没存过就跟随系统"
@@ -426,6 +427,35 @@ DOM 调用。所以只能事后自愈：CSSModel.getMatchedStyles 命中该错�
 证明"没重取文档"不是根因，作废发生在重取之后。
 
 判据：`BFB_RELOAD=1 BFB_URL=https://news.7k7k.com/pkt/ node tools/devtools-spike/styles-spin-check.cjs`。
+
+### 8.6.1 已知问题：⋮ →「更多工具」子菜单一移就消失（未修）
+
+现象：悬浮「更多工具」子菜单能弹出，指针往子菜单移动的过程中它就关闭，够不到里面的项。
+
+已复现（`devtools-menu-check.cjs`，用 CDP `Input.dispatchMouseEvent` 走真实指针轨迹）：
+
+| 观测 | 右停靠 | 底停靠 |
+| --- | --- | --- |
+| 父菜单 | x=332 w=202 h=244 | x=1078 w=202 h=244 |
+| 子菜单（悬浮后出现） | x=176 w=160 **h=530** | x=905 w=160 h=290（贴满视口） |
+| 两者位置关系 | 左侧、与父菜单重叠 4px | 左侧、**留 13px 缝** |
+| 移过去之后 | 子菜单消失（count 2→1） | 同样消失 |
+
+已排除（各自打了补丁实测，均**无效**，已回退）：
+
+1. 「高亮项变成 null 时不要关子菜单」：`highlightMenuItem` 里
+   `this.subMenu && this.subMenu.discard()` 加 `e &&` 守卫 —— 现象不变；
+2. 「子菜单开着时，离开菜单项不清高亮」：`menuItemMouseLeave` 开头 `if (this.subMenu) return`
+   —— 现象不变。
+
+说明关闭它的调用不在这两条路径上。目前的障碍是**取证**：在页面主上下文里挂
+`mouseover/mouseleave` capture 监听，指针移动期间一条事件都没收到（子菜单却真的
+按 150ms 定时器弹出来了），所以还看不到真实的关闭者是谁。下一步要在正确的执行上下文里
+（`Runtime.executionContextCreated` 挑主世界）装监听，或给 `SoftContextMenu.discard()`
+打一条带调用栈的临时标记再复现。
+
+临时绕过：用命令菜单（`Ctrl+Shift+P`）搜索面板名，能打开「渲染 / 动画 / 覆盖率 / 记录器」
+这些同属「更多工具」的面板。
 
 ### 8.7 拖拽跟手（同步 bounds）
 
