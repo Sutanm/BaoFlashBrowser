@@ -354,6 +354,11 @@ class DevToolsBridge {
     // 所以不需要关心其他 session 的事件。
     if (!message.sessionId || message.sessionId !== this.sessionId) {
       this.counters.eventsDropped += 1;
+      // 调试：记录被丢弃的关键域事件（看 sessionId 是否与桥 session 不一致）
+      if (/^(DOM|Page|Inspector)./.test(message.method)) {
+        this.trace.push({ d: 'evt', m: 'DROP:' + message.method, s: (message.sessionId || 'none').slice(0, 6) });
+        if (this.trace.length > 120) this.trace.shift();
+      }
       return;
     }
     this.counters.events += 1;
