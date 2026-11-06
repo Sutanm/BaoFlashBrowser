@@ -207,6 +207,10 @@ const DEEP_PROBE = `(() => {
   // 桥 stats（经外壳）
   const statsRaw = baseline ? JSON.stringify({ baseline: true }) : await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) { return JSON.stringify(s); })`, true);
   console.log('[s11] bridge stats:', statsRaw);
+  try {
+    fs.mkdirSync(path.join(APP_ROOT, 'artifacts'), { recursive: true });
+    fs.writeFileSync(path.join(APP_ROOT, 'artifacts', 'bridge-stats.json'), statsRaw);
+  } catch { /* ignore */ }
 
   // 一锤定音：桥 attach 的 targetId 对应哪个 URL？当前活动标签是谁？
   try {
@@ -265,7 +269,7 @@ const DEEP_PROBE = `(() => {
     if (pageT) {
       const pc = wsClient(pageT.webSocketDebuggerUrl);
       await pc.ready;
-      const dom = await pc.send('Runtime.evaluate', { expression: 'document.body.innerHTML.replace(/s+/g, " ").slice(0, 300)', returnByValue: true });
+      const dom = await pc.send('Runtime.evaluate', { expression: 'document.body.innerHTML.replace(/s+/g, " ").slice(0, 200) + " ||CHILDREN=" + [].map.call(document.body.children, function(e){return e.tagName+"#"+e.id}).join(",") + " ||TOTAL=" + document.body.children.length', returnByValue: true });
       console.log('[s11] real page body (external CDP):', JSON.stringify(dom && dom.result && dom.result.result && dom.result.result.value));
       pc.close();
       const shellT = (list2 || []).find((t) => (t.url || '').indexOf('dist/renderer/index.html') !== -1);

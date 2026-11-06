@@ -16,6 +16,7 @@
 import http from 'http';
 import log from 'electron-log';
 import WebSocket from 'ws';
+import { listDebugTargets } from './devtoolbox';
 
 export interface CdpMessage {
   id?: number;
@@ -47,6 +48,8 @@ export interface BridgeStats {
   recentAttach?: Array<{ targetId: string; sessionId?: string; error?: string }>;
   /** 前 80 条命令/事件的方法名轨迹（调试用；只记方法名与 sessionId 前缀）。 */
   trace?: Array<{ d: 'cmd' | 'evt'; m: string; s?: string }>;
+  /** 双向消息流水（调试用，与 tools/devtools-spike/page-ws-baseline-capture.cjs 的代理格式一致）。 */
+  flow?: Array<{ d: '>' | '<'; m: string; s?: string; x?: string }>;
 }
 
 /** 必须发到 browser session（不带 sessionId）的方法；其余默认补当前 sessionId。 */
@@ -70,13 +73,31 @@ const BROWSER_LEVEL_METHODS = new Set([
 /** 事件合批窗口：Network/Elements 的事件风暴逐条跨 IPC 会压垮主进程。 */
 const EVENT_FLUSH_MS = 16;
 
+/**
+ * raw 模式（BAO_DEVTOOLS_BRIDGE_RAW=1）：完全不做 Target 重写，按 page-ws 的真实
+ * 语义转发——这正是 S14 基线抓出来的形态：
+ *   page-ws 下前端自己发 setDiscoverTargets/setAutoAttach，Chromium 回 targetCreated
+ *   事件（**带 browser 级 scope，无 sessionId**，且所有 target 都 attached:true），
+ *   前端据此正常工作。桥此前把 browser 级事件一律丢弃、再伪造一条 targetCreated，
+ *   等于替前端编了个残缺的世界。
+ * raw 模式保留命令侧的 sessionId 适配（前端不带 sessionId，桥补自己的），其余全透传。
+ */
+const RAW_MODE = process.env.BAO_DEVTOOLS_BRIDGE_RAW === '1';
+
 type SendResult = { ok: true; result: unknown } | { ok: false; error: { message: string; code?: number } };
 
 class DevToolsBridge {
   private socket: WebSocket | null = null;
   private connecting: Promise<void> | null = null;
   private messageId = 0;
-  private pending = new Map<number, (msg: CdpMessage) => void>();
+  private pending = new Map<number, {
+    resolve: (msg: CdpMessage) => void;
+    method: string;
+    params?: Record<string, unknown>;
+    internal?: boolean;
+    /** 入队给前端时用这个 id（前端自己的请求 id），不是桥内部的 messageId。 */
+    frontendId?: number;
+  }>();
   private sessionId: string | null = null;
   private targetId: string | null = null;
   private sink: ((events: CdpMessage[]) => void) | null = null;
@@ -91,6 +112,46 @@ class DevToolsBridge {
   private recent: string[] = [];
   private recentAttach: Array<{ targetId: string; sessionId?: string; error?: string }> = [];
   private trace: Array<{ d: 'cmd' | 'evt'; m: string; s?: string }> = [];
+  private flow: Array<{ d: '>' | '<'; m: string; s?: string; x?: string }> = [];
+
+  /**
+   * 与 page-ws-baseline-capture 的 proxy summarise() 保持同一口径，
+   * 这样两边的流水可以直接 diff（这是定位「树为什么不同」的唯一硬手段）。
+   */
+  private static summarise(method: string, params?: Record<string, unknown>, result?: unknown, error?: { message?: string }): string | undefined {
+    // 响应优先（同一 method 的请求/响应摘要不同，必须先判别）。
+    if (error) return `ERR=${String(error.message || 'err').slice(0, 50)}`;
+    if (result !== undefined) {
+      const r = result as Record<string, unknown>;
+      const root = r.root as { nodeName?: string; childNodeCount?: number; children?: unknown[]; documentURL?: string } | undefined;
+      if (root) return `root=${root.nodeName} kids=${root.childNodeCount} inline=${(root.children || []).length} url=${String(root.documentURL || '').slice(0, 30)}`;
+      const ti = r.targetInfo as { type?: string; attached?: boolean; url?: string } | undefined;
+      if (ti) return `type=${ti.type} attached=${ti.attached} url=${String(ti.url || '').slice(0, 30)}`;
+      return undefined;
+    }
+    const p = params ?? {};
+    if (method === 'DOM.getDocument') return `depth=${p.depth} pierce=${p.pierce}`;
+    if (method === 'DOM.requestChildNodes') return `nodeId=${p.nodeId} depth=${p.depth}`;
+    if (method === 'DOM.setChildNodes') {
+      const nodes = (p.nodes as Array<{ nodeName?: string; nodeId?: number; childNodeCount?: number; attributes?: string[] }> | undefined) ?? [];
+      const names = nodes.slice(0, 8).map((n) => `${n.nodeName}${n.childNodeCount ? '(' + n.childNodeCount + ')' : ''}`);
+      return `parentId=${p.parentId} n=${nodes.length} [${names.join(',')}]`;
+    }
+    if (method === 'Target.setAutoAttach') return `autoAttach=${p.autoAttach} flatten=${p.flatten} wait=${p.waitForDebuggerOnStart}`;
+    if (method === 'Target.setDiscoverTargets') return `discover=${p.discover}`;
+    if (method === 'Target.targetCreated' || method === 'Target.attachedToTarget') {
+      const info = p.targetInfo as { type?: string; attached?: boolean; url?: string } | undefined;
+      return `type=${info?.type} attached=${info?.attached} url=${String(info?.url || '').slice(0, 30)}`;
+    }
+    return undefined;
+  }
+
+  private recordFlow(d: '>' | '<', method: string, sessionId?: string, extra?: string): void {
+    // 事件噪音（脚本列表/控制台输出）会把环形缓冲瞬间冲掉，初始化的关键序列就没了。
+    if (method === 'Debugger.scriptParsed' || method === 'Runtime.consoleAPICalled' || method === 'CSS.styleSheetAdded') return;
+    this.flow.push({ d, m: method, s: sessionId ? sessionId.slice(0, 6) : undefined, x: extra });
+    if (this.flow.length > 600) this.flow.shift();
+  }
 
   private record(d: 'cmd' | 'evt', method: string, sessionId?: string): void {
     // 独立命令流：不受 120 条环形缓冲影响，能看到前端最近发的命令。
@@ -120,6 +181,7 @@ class DevToolsBridge {
       sinkCalls: this.sinkCalls,
       lastDoc: this.lastDoc,
       lastMethods: this.lastMethods.slice(),
+      flow: this.flow.slice(),
     };
   }
 
@@ -168,84 +230,115 @@ class DevToolsBridge {
   /**
    * 前端的一条 CDP 命令。
    *
-   * 语义：桥给前端一个**只有当前标签 target** 的世界（page-ws 等价）。
-   * M97 前端会自动 `Target.setAutoAttach` 把看得到的 target 全挂上，若放行它
-   * 会 attach 到 DevTools 自己/外壳等 target，命令与事件落到不同 session、
-   * nodeId 空间错乱 —— 实测表现就是 Elements 只有空 html/head/body +
-   * Styles 无限刷 CSS.getMatchedStylesForNode。所以 Target 发现类方法在此被
-   * 拦截成"只有一个 target"的假象。
+   * `requestId` 由前端给出时（BfbBridgeConnection 一定给），**响应走有序流**：
+   * 与事件同一条队列、同一个 16ms 合批窗口，模拟 WebSocket 的严格串行语义。
+   * 这一点是 S15 的核心结论——早先响应走 IPC promise 快车道、事件走合批队列，
+   * 两者顺序被打乱（`DOM.setChildNodes` 可能先于它所属请求的响应到达），前端
+   * 把子节点挂到还没建立的父节点上直接丢弃，表现就是「Elements 树残缺/闪回旧文档」。
+   *
+   * 不给 `requestId` 时（命令行探针）保持同步返回结果，便于脚本直接断言。
    */
-  async send(method: string, params: Record<string, unknown> | undefined, _sessionId?: string): Promise<SendResult> {
-    if (!this.socket || this.state !== 'ready') {
-      return { ok: false, error: { message: 'bridge-not-connected' } };
-    }
-    const intercepted = await this.interceptTargetMethod(method);
-    if (intercepted) return intercepted;
+  async send(
+    method: string,
+    params: Record<string, unknown> | undefined,
+    _sessionId?: string,
+    requestId?: number,
+  ): Promise<SendResult> {
+    const deliver = typeof requestId === 'number';
+    const finish = (result: SendResult): SendResult => {
+      if (!deliver) return result;
+      if (result.ok) this.enqueue({ id: requestId, result: result.result });
+      else this.enqueue({ id: requestId, error: { message: result.error.message, code: result.error.code } });
+      return { ok: true, result: null };
+    };
 
-    // 前端自己带 sessionId 时忽略它（参数保留以对齐 IPC 契约）——桥只认自己的 session（单 target 世界）。
+    if (!this.socket || this.state !== 'ready') {
+      return finish({ ok: false, error: { message: 'bridge-not-connected' } });
+    }
+    if (!RAW_MODE) {
+      const intercepted = await this.interceptTargetMethod(method);
+      if (intercepted) return finish(intercepted);
+    }
+
+    // 前端带 sessionId 时忽略（桥只认自己的 session，单 target 世界）。
     const resolved = BROWSER_LEVEL_METHODS.has(method) ? undefined : this.sessionId ?? undefined;
     if (!resolved && !BROWSER_LEVEL_METHODS.has(method)) {
-      return { ok: false, error: { message: 'bridge-no-session' } };
+      return finish({ ok: false, error: { message: 'bridge-no-session' } });
     }
-    const response = await this.sendRaw(method, params, resolved);
+    const response = await this.sendRaw(method, params, resolved, !deliver, deliver ? requestId : undefined);
     if (method === 'DOM.getDocument') {
       const root = (response.result as { root?: { nodeId?: number; childNodeCount?: number } } | undefined)?.root;
       this.lastDoc = response.error
-        ? 'ERR ' + (response.error.message ?? '?') + ' (in=' + String(_sessionId ?? '-').slice(0, 6) + ')'
-        : 'root=' + String(root?.nodeId) + ' kids=' + String(root?.childNodeCount) + ' (in=' + String(_sessionId ?? '-').slice(0, 6) + ')';
+        ? 'ERR ' + (response.error.message ?? '?')
+        : 'root=' + String(root?.nodeId) + ' kids=' + String(root?.childNodeCount);
+    }
+    if (deliver) {
+      // 响应已在 handleMessage 里按到达顺序入队（sendRaw 的 internal=false 分支）。
+      return { ok: true, result: null };
     }
     if (response.error) return { ok: false, error: { message: response.error.message ?? 'cdp-error', code: response.error.code } };
     return { ok: true, result: response.result ?? null };
   }
 
-  /** 把 Target 发现/attach 类方法伪造成"只有一个 target"（见 send 的注释）。 */
+  /**
+   * 把 Target 域**按 page-ws 的真实语义**模拟（S14 基线逐条对齐）。
+   *
+   * page-ws 的连接天生绑一个 target，Target 域在它上面表现为：
+   *  - `setAutoAttach` 只作用于“该页面的子 target”（本页无 iframe/worker → 无事件）；
+   *  - `setDiscoverTargets(true)` 会收到**全应用所有 page target** 的 `targetCreated`，
+   *    且都是 `attached: true`（前端据此建 TargetManager 记录，不做二次 attach）；
+   *  - `getTargets/getTargetInfo` 正常返回；
+   *  - `attachToTarget` 前端根本不会发（主 target 由连接隐含）。
+   */
   private async interceptTargetMethod(method: string): Promise<SendResult | null> {
     switch (method) {
+      case 'Target.setAutoAttach':
+        // 绝不能转发到 browser 级：那会把无关 target（外壳、前端自身）attach 到本连接
+        // 并回 Target.attachedToTarget，前端拿到别人的 sessionId，随后命令与事件分属
+        // 两个 session（S15 实测两条 attachedToTarget → nodeId 空间错乱）。
+        return { ok: true, result: {} };
       case 'Target.setDiscoverTargets': {
-        // page-ws 模式下由 Chromium 的 host 注入 targetCreated；桥必须自己扮演。
-        // 少了这条事件，M97 的 TargetManager 没有 target 记录，DOM model 建到
-        // root+html 就停下（不发 requestChildNodes），Elements 树停在两层。
-        const info = await this.readTargetInfo();
-        if (info) this.pushEvent({ method: 'Target.targetCreated', params: { targetInfo: { ...info, attached: false } } });
+        const targets = await listDebugTargets();
+        for (const item of targets) {
+          if (item.type !== 'page') continue;
+          this.enqueue({
+            method: 'Target.targetCreated',
+            params: {
+              targetInfo: {
+                targetId: item.id,
+                type: item.type,
+                title: item.title,
+                url: item.url,
+                attached: true,
+                canAccessOpener: false,
+              },
+            },
+          });
+        }
         return { ok: true, result: {} };
       }
-      case 'Target.setAutoAttach':
       case 'Target.detachFromTarget':
         return { ok: true, result: {} };
       case 'Target.attachToTarget': {
-        // 前端在 `hello` 之后立刻就会发这条，可能早于桥自己的 attach 完成；
-        // 必须等它（否则前端 fallback 到真 Chromium 分配 session，命令与事件
-        // 分属两个 session，nodeId 空间错乱）。
+        // 前端正常不会发；发了就给桥自己的 session（前端世界只有一个 target）。
         const sessionId = await this.currentOrPendingSession();
-        if (!sessionId) return { ok: false, error: { message: 'bridge-no-session' } };
-        const info = await this.readTargetInfo();
-        if (info) {
-          // 与 targetCreated 配对：让前端把 session 认领到该 target 上。
-          this.pushEvent({
-            method: 'Target.attachedToTarget',
-            params: { sessionId, targetInfo: { ...info, attached: true }, waitingForDebugger: false },
-          });
-        }
-        return { ok: true, result: { sessionId } };
-      }
-      case 'Target.getTargets': {
-        const info = await this.readTargetInfo();
-        return { ok: true, result: { targetInfos: info ? [info] : [] } };
-      }
-      case 'Target.getTargetInfo': {
-        const info = await this.readTargetInfo();
-        return info
-          ? { ok: true, result: { targetInfo: info } }
-          : { ok: false, error: { message: 'bridge-no-target' } };
+        return sessionId
+          ? { ok: true, result: { sessionId } }
+          : { ok: false, error: { message: 'bridge-no-session' } };
       }
       default:
         return null;
     }
   }
 
-  /** 把一条合成事件放进合批队列（与真实事件同一条下发路径）。 */
-  private pushEvent(event: CdpMessage): void {
-    this.buffer.push({ method: event.method, params: event.params });
+  /** 一条消息进有序队列（响应与事件共用，保证与 WebSocket 同样的串行语义）。 */
+  private enqueue(message: CdpMessage): void {
+    this.buffer.push(message);
+    this.scheduleFlush();
+  }
+
+  /** 把合批队列排空到 sink（16ms 窗口，顺序即入队顺序）。 */
+  private scheduleFlush(): void {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
@@ -282,7 +375,7 @@ class DevToolsBridge {
     this.state = 'closed';
     if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
     this.buffer = [];
-    for (const resolve of this.pending.values()) resolve({ error: { message: 'bridge-shutdown' } });
+    for (const entry of this.pending.values()) entry.resolve({ error: { message: 'bridge-shutdown' } });
     this.pending.clear();
     const socket = this.socket;
     this.socket = null;
@@ -349,7 +442,13 @@ class DevToolsBridge {
     });
   }
 
-  private sendRaw(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<CdpMessage> {
+  private sendRaw(
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+    internal = true,
+    frontendId?: number,
+  ): Promise<CdpMessage> {
     return new Promise((resolve) => {
       const socket = this.socket;
       if (!socket) { resolve({ error: { message: 'bridge-not-connected' } }); return; }
@@ -362,7 +461,8 @@ class DevToolsBridge {
       const payload = JSON.stringify(message);
       this.counters.sent += 1;
       this.counters.bytesOut += payload.length;
-      this.pending.set(id, resolve);
+      this.recordFlow('>', method, sessionId, DevToolsBridge.summarise(method, params));
+      this.pending.set(id, { resolve, method, params, internal, frontendId });
       socket.send(payload, (error) => {
         if (!error) return;
         this.pending.delete(id);
@@ -377,12 +477,26 @@ class DevToolsBridge {
     try { message = JSON.parse(raw) as CdpMessage; } catch { return; }
 
     if (typeof message.id === 'number' && this.pending.has(message.id)) {
-      const resolve = this.pending.get(message.id);
+      const entry = this.pending.get(message.id);
       this.pending.delete(message.id);
-      if (resolve) resolve(message);
+      if (entry) {
+        this.recordFlow('<', entry.method, message.sessionId,
+          DevToolsBridge.summarise(entry.method, entry.params, message.result, message.error));
+        // 前端的命令：响应入有序队列（与事件同一条流水），前端按 id 自行关联。
+        // id 必须是**前端的请求 id**——桥内部的 messageId 前端不认识。
+        if (!entry.internal && typeof entry.frontendId === 'number') {
+          const envelope: CdpMessage = { id: entry.frontendId };
+          if (message.error) envelope.error = message.error;
+          else envelope.result = message.result ?? null;
+          this.enqueue(envelope);
+        }
+        entry.resolve(message);
+      }
       return;
     }
     if (!message.method) return;
+    this.recordFlow('<', message.method, message.sessionId,
+      DevToolsBridge.summarise(message.method, message.params as Record<string, unknown> | undefined));
 
     // Target 生命周期：session 失效时桥自己知道，不必依赖前端。
     if (message.method === 'Target.detachedFromTarget') {
@@ -391,6 +505,24 @@ class DevToolsBridge {
         this.sessionId = null;
         this.targetId = null;
       }
+      return;
+    }
+
+    // raw 模式：按 page-ws 真实语义转发。
+    //  - 桥 session 的事件：剥掉 sessionId（page-ws 下不带）
+    //  - browser 级 Target.* 事件（无 sessionId）：照转（page-ws 下前端能看到全部 target）
+    //  - 其余无 sessionId 的事件（其他 session 的噪声）：丢弃
+    if (RAW_MODE) {
+      const ownSession = Boolean(message.sessionId) && message.sessionId === this.sessionId;
+      const browserTargetEvent = !message.sessionId && message.method.startsWith('Target.');
+      if (!ownSession && !browserTargetEvent) {
+        this.counters.eventsDropped += 1;
+        return;
+      }
+      this.counters.events += 1;
+      this.record('evt', message.method, message.sessionId);
+      this.buffer.push({ method: message.method, params: message.params });
+      this.scheduleFlush();
       return;
     }
 
@@ -411,15 +543,7 @@ class DevToolsBridge {
     this.record('evt', message.method, message.sessionId);
     const forwarded: CdpMessage = { method: message.method, params: message.params };
     this.buffer.push(forwarded);
-    if (!this.flushTimer) {
-      this.flushTimer = setTimeout(() => {
-        this.flushTimer = null;
-        const batch = this.buffer;
-        this.buffer = [];
-        if (batch.length && this.sink) { this.sinkCalls += 1; this.sink(batch); }
-      }, EVENT_FLUSH_MS);
-      this.flushTimer.unref?.();
-    }
+    this.scheduleFlush();
   }
 }
 

@@ -71,10 +71,11 @@ export function useDevToolsBridgeRelay(frameUrl: string | null): void {
       try { parsed = JSON.parse(data.payload) as CdpPayload; } catch { return; }
       if (!parsed.method) return;
 
-      void window.electronAPI.devtoolbox.bridge.send(parsed.method, parsed.params, parsed.sessionId).then((result) => {
-        if (!alive) return;
-        if (result.ok) post('response', { id: parsed.id, result: result.result });
-        else post('response', { id: parsed.id, error: result.error });
+      void window.electronAPI.devtoolbox.bridge.send(parsed.method, parsed.params, parsed.sessionId, parsed.id).then((result) => {
+        // 正常路径下响应由「有序流」统一投递（bridge-event 里的 {id} 信封），这里
+        // 只兜底桥自身的失败（未连接 / 参数非法）：那种情况不会有后端消息回来。
+        if (!alive || result.ok) return;
+        post('response', { id: parsed.id, error: result.error });
       }).catch((error: unknown) => {
         if (!alive) return;
         post('response', { id: parsed.id, error: { message: error instanceof Error ? error.message : 'bridge-error' } });
@@ -84,7 +85,14 @@ export function useDevToolsBridgeRelay(frameUrl: string | null): void {
     window.addEventListener('message', onMessage);
     const offEvents = window.electronAPI.devtoolbox.bridge.onEvents((events) => {
       if (!alive) return;
-      for (const item of events as Array<{ method: string; params?: unknown }>) {
+      for (const item of events as Array<{ id?: number; method?: string; params?: unknown; result?: unknown; error?: unknown }>) {
+        // 有序流：响应（带 id）与事件（带 method）走同一条通道，顺序与后端一致。
+        if (typeof item.id === 'number') {
+          if (item.error) post('response', { id: item.id, error: item.error });
+          else post('response', { id: item.id, result: item.result });
+          continue;
+        }
+        if (!item.method) continue;
         post('event', { method: item.method, params: item.params });
       }
     });

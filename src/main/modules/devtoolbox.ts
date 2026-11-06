@@ -377,6 +377,22 @@ interface DebugTarget {
   title: string;
 }
 
+/**
+ * 给桥用的 target 枚举（`/json/list`）。
+ *
+ * 桥需要它来伪造 `Target.targetCreated`：S14 基线证明 page-ws 下前端自己
+ * `setDiscoverTargets(true)` 后会收到**全部 target** 的创建事件（iframe/外壳/页面，
+ * 都是 `attached: true`），前端据此建立 TargetManager 记录。桥走 browser 端点时
+ * 这条事件不会自动补，必须由桥扮演 host。
+ */
+export function listDebugTargets(): Promise<Array<{ id: string; type: string; url: string; title: string }>> {
+  const port = resolveDebugPort();
+  if (!port) return Promise.resolve([]);
+  return fetchTargets(port).then((items) => items.map((item) => ({
+    id: item.id, type: item.type, url: item.url, title: item.title,
+  })));
+}
+
 function fetchTargets(port: number): Promise<DebugTarget[]> {
   return new Promise((resolve) => {
     const request = http.get({ host: '127.0.0.1', port, path: '/json/list', timeout: 2000 }, (response) => {

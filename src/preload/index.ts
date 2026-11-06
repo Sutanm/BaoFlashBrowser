@@ -192,7 +192,7 @@ const electronAPI = {
     bridge: {
       attach: () => safeInvoke('devtoolbox:bridge-attach'),
       detach: () => safeInvoke('devtoolbox:bridge-detach'),
-      send: (method: string, params?: Record<string, unknown>, sessionId?: string) => safeInvoke('devtoolbox:bridge-send', { method, params, sessionId }),
+      send: (method: string, params?: Record<string, unknown>, sessionId?: string, id?: number) => safeInvoke('devtoolbox:bridge-send', { method, params, sessionId, id }),
       stats: () => safeInvoke('devtoolbox:bridge-stats'),
       onEvents: (callback: (events: unknown[]) => void) => {
         const listener = (_event: Electron.IpcRendererEvent, payload: { events?: unknown[] }) => callback(payload?.events ?? []);
