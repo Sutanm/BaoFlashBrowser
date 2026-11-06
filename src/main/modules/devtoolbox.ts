@@ -22,9 +22,19 @@ import {
   EntryBuffer,
   mapConsoleLevel,
 } from './devtoolbox-buffer';
+import { devToolsBridge } from './devtoolbox-bridge';
+import {
+  fetchTargets,
+  resolveDebugPort,
+  type DebugTarget,
+} from './devtoolbox-targets';
 import { resolveFlashPlugin } from './flash';
 import { getMainWindow } from './window';
 import { tabManager } from './tabs';
+
+// 端点查询已抽到 devtoolbox-targets（打断与 devtoolbox-bridge 的循环依赖），
+// 这里保留同名导出，外部引用（ipc / 探针风格调用）不用跟着改。
+export { listDebugTargets, resolveDebugPort } from './devtoolbox-targets';
 
 /**
  * 内置开发者工具箱的主进程采集管道。
@@ -312,10 +322,23 @@ export const DEVTOOLS_PARTITION = 'persist:devtools';
 
 /** 回退开关：走旧的 http 静态服务 + iframe 路径（见规格 §8）。 */
 function useLegacyHttp(): boolean {
-  // 桥模式（BAO_DEVTOOLS_BRIDGE=1）依赖 iframe 内的 postMessage 中继，且前端要能爬到
-  // 外壳 window —— 这与 file:// 的隔离目标冲突，故桥模式一律留在旧的 http 路径，
-  // 等传输迁到 preload 之后再统一（规格 B3）。
-  return process.env.BAO_DEVTOOLS_LEGACY_HTTP === '1' || process.env.BAO_DEVTOOLS_BRIDGE === '1';
+  // B3 之后容器统一为 BrowserView，http 静态服务只在排障时用。
+  // 注意：这条路径没有 devtools-preload，所以必然落到 page-ws（见 useBridge）。
+  return process.env.BAO_DEVTOOLS_LEGACY_HTTP === '1';
+}
+
+/**
+ * 传输模式：默认走 CDP 桥（B3）。
+ *
+ * 桥的价值只有一个，但足够：**URL 恒定**。切标签只换桥的 flatten session，
+ * 前端不重载，Elements 选中、Console 历史、Network 记录都留在原地；page-ws
+ * 的 URL 必须带 target id，切标签就等于整页刷新。
+ *
+ * 回退：`BAO_DEVTOOLS_PAGE_WS=1` 回到前端直连 CDP 端口（URL 带 ws）。
+ * 旧 http 容器没有 preload，无法提供 `bfbBridge`，故一律 page-ws。
+ */
+function useBridge(): boolean {
+  return process.env.BAO_DEVTOOLS_PAGE_WS !== '1' && !useLegacyHttp();
 }
 
 /**
@@ -432,6 +455,20 @@ export async function openDevToolsWindow(target: 'page' | 'shell' = 'page'): Pro
   const resolved = await getDevToolsTargetUrl(target);
   if (!resolved.url) return { ok: false, error: resolved.reason };
 
+  // 与内嵌视图同一套时序：桥没挂上就不要把前端放出来（理由见 attachDevToolsView）。
+  const bridge = resolved.mode === 'bridge';
+  if (bridge) {
+    const port = resolveDebugPort();
+    if (!port || !resolved.targetId) return { ok: false, error: 'no-port' };
+    try {
+      await devToolsBridge.attach(resolved.targetId, port);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn('[DevToolbox] 独立窗口桥 attach 失败:', message);
+      return { ok: false, error: 'bridge-attach-failed' };
+    }
+  }
+
   const win = new BrowserWindow({
     width: 1100,
     height: 760,
@@ -446,6 +483,7 @@ export async function openDevToolsWindow(target: 'page' | 'shell' = 'page'): Pro
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false,
+      ...(bridge ? { preload: path.join(__dirname, 'devtools-preload.js') } : {}),
     },
   });
   devToolsWindow = win;
@@ -493,6 +531,8 @@ export function closeDevToolsWindow(): void {
  * bounds 由渲染层逐帧上报（与 tab 的 setBounds 同一形状），实测拖拽零延迟。
  */
 let devToolsView: BrowserView | null = null;
+/** 前端 WebContents 的旁路引用：IPC 层要做 sender 校验与事件投递，销毁后必须置空。 */
+let devToolsViewContents: WebContents | null = null;
 let devToolsViewCloseHooked = false;
 let devToolsBoundsLog = 0;
 let devToolsBoundsMissLog = 0;
@@ -507,6 +547,22 @@ export async function attachDevToolsView(target: 'page' | 'shell' = 'page'): Pro
   devToolsBoundsLog = 0;
   devToolsBoundsMissLog = 0;
 
+  // 桥模式必须**先挂桥再放前端出来**：preload 里的 onOpen 是立即回调的
+  // （见 src/preload/devtools.ts），前端一起来就会连发十几条 enable/getDocument。
+  // 若此时桥还没 session，这些命令全部落空，Elements 会空白且不会自愈。
+  const bridge = resolved.mode === 'bridge';
+  if (bridge) {
+    const port = resolveDebugPort();
+    if (!port || !resolved.targetId) return { ok: false, error: 'no-port' };
+    try {
+      await devToolsBridge.attach(resolved.targetId, port);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn('[DevToolbox] 桥 attach 失败，前端不启动:', message);
+      return { ok: false, error: 'bridge-attach-failed' };
+    }
+  }
+
   destroyDevToolsView();
   const view = new BrowserView({
     webPreferences: {
@@ -514,9 +570,12 @@ export async function attachDevToolsView(target: 'page' | 'shell' = 'page'): Pro
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false,
+      // 只有桥模式需要这个 preload（它只暴露 bfbBridge，不含 electronAPI）。
+      ...(bridge ? { preload: path.join(__dirname, 'devtools-preload.js') } : {}),
     },
   });
   devToolsView = view;
+  devToolsViewContents = view.webContents;
   main.addBrowserView(view);
   // 先给 1×1：等渲染层第一次上报矩形再对齐，避免首帧闪一下满屏
   view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
@@ -547,9 +606,26 @@ export function setDevToolsViewBounds(rect: { x: number; y: number; width: numbe
   });
 }
 
+/**
+ * 前端容器的 WebContents（内嵌视图优先，其次独立窗口）。
+ *
+ * 桥的 IPC 需要它做两件事：校验消息来源（只认前端自己），以及把 CDP 事件
+ * 投递到正确的窗口（B3 之前是发给外壳 renderer，再由 postMessage 转进 iframe；
+ * 现在前端自己就是终点）。
+ */
+export function getDevToolsFrontendContents(): WebContents | null {
+  if (devToolsViewContents && !devToolsViewContents.isDestroyed()) return devToolsViewContents;
+  if (devToolsWindow && !devToolsWindow.isDestroyed()) {
+    const contents = devToolsWindow.webContents;
+    if (contents && !contents.isDestroyed()) return contents;
+  }
+  return null;
+}
+
 export function destroyDevToolsView(): void {
   const view = devToolsView;
   devToolsView = null;
+  devToolsViewContents = null;
   if (!view) return;
   const main = getMainWindow();
   try {
@@ -565,65 +641,6 @@ export function destroyDevToolsView(): void {
   } catch {
     // 已销毁
   }
-}
-
-/** Chromium 把实际端口写进 userData 下的 DevToolsActivePort（第一行端口）。 */
-export function resolveDebugPort(): number | null {
-  const fromSwitch = app.commandLine.getSwitchValue('remote-debugging-port');
-  const parsed = Number.parseInt(fromSwitch, 10);
-  if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  try {
-    const file = path.join(app.getPath('userData'), 'DevToolsActivePort');
-    const first = fs.readFileSync(file, 'utf-8').split('\n')[0];
-    const fromFile = Number.parseInt(first, 10);
-    if (Number.isFinite(fromFile) && fromFile > 0) return fromFile;
-  } catch {
-    // 没有调试端口：返回 null，UI 显示"未开启调试端口"
-  }
-  return null;
-}
-
-interface DebugTarget {
-  id: string;
-  type: string;
-  url: string;
-  title: string;
-}
-
-/**
- * 给桥用的 target 枚举（`/json/list`）。
- *
- * 桥需要它来伪造 `Target.targetCreated`：S14 基线证明 page-ws 下前端自己
- * `setDiscoverTargets(true)` 后会收到**全部 target** 的创建事件（iframe/外壳/页面，
- * 都是 `attached: true`），前端据此建立 TargetManager 记录。桥走 browser 端点时
- * 这条事件不会自动补，必须由桥扮演 host。
- */
-export function listDebugTargets(): Promise<Array<{ id: string; type: string; url: string; title: string }>> {
-  const port = resolveDebugPort();
-  if (!port) return Promise.resolve([]);
-  return fetchTargets(port).then((items) => items.map((item) => ({
-    id: item.id, type: item.type, url: item.url, title: item.title,
-  })));
-}
-
-function fetchTargets(port: number): Promise<DebugTarget[]> {
-  return new Promise((resolve) => {
-    const request = http.get({ host: '127.0.0.1', port, path: '/json/list', timeout: 2000 }, (response) => {
-      let body = '';
-      response.setEncoding('utf-8');
-      response.on('data', (chunk) => { body += chunk; });
-      response.on('end', () => {
-        try {
-          const parsed = JSON.parse(body);
-          resolve(Array.isArray(parsed) ? parsed as DebugTarget[] : []);
-        } catch {
-          resolve([]);
-        }
-      });
-    });
-    request.on('error', () => resolve([]));
-    request.on('timeout', () => { request.destroy(); resolve([]); });
-  });
 }
 
 /**
@@ -646,9 +663,17 @@ function isShell(item: DebugTarget): boolean {
   return /\/dist\/renderer\/index\.html$/.test(item.url);
 }
 
-/** DevTools 前端自身在 CDP 里也是 page target，绑定/选择时必须排除。 */
+/**
+ * DevTools 前端自身在 CDP 里也是 page target，绑定/选择时必须排除。
+ *
+ * 桥模式的 URL 是 `file://…/devtools_app.html?can_dock=true`，**没有 ws 参数**。
+ * 早先只认 `?ws=`，于是前端自己被当成可绑定目标：切标签时新标签还是
+ * about:blank，绑定走 fallback 就把前端容器掳了过来，热切换随后因 targetId
+ * 相同早退，面板永远停在错误文档上。
+ */
 function isFrontendTarget(item: DebugTarget): boolean {
-  return /\/(devtools_app|inspector|chii_app)\.html\?ws=/.test(item.url);
+  return /\/devtools-frontend\//.test(item.url)
+    || /\/(devtools_app|inspector|chii_app)\.html(\?|$)/.test(item.url);
 }
 
 function isBindableTarget(item: DebugTarget): boolean {
@@ -669,25 +694,37 @@ async function pickTargetForTab(tabId: string, port: number): Promise<string | n
   const taken = new Set(tabTargetBindings.values());
   const candidate =
     (currentUrl ? targets.find((item) => item.url === currentUrl && !taken.has(item.id)) : undefined)
-    // about:blank / newtab 等中间态匹配不到时，退而取第一个无人占用的
-    ?? targets.find((item) => !taken.has(item.id));
+    // 新标签还没导航（getURL() 为空）时，只接受 about: 的无人占用 target。
+    // 早先这里退回"任意未占用"，实测会把别的页面甚至前端容器掳过来；一旦绑错，
+    // 热切换看到 targetId 相同就早退，面板永远停在那份文档上。宁可返回 null
+    // 让调用方等下一次（导航完成后 URL 就能精确匹配），也不要猜。
+    ?? targets.find((item) => !taken.has(item.id) && /^about:/.test(item.url));
   if (!candidate) return null;
   tabTargetBindings.set(tabId, candidate.id);
   return candidate.id;
 }
 
 /**
- * 解析结果带原因，供渲染层区分三种状态：
- * - `ok`：拿到可加载的前端 URL（含 ws + can_dock 参数）
- * - `no-port`：调试端口或前端静态服务不可用（可重试，短暂等待后仍失败才提示）
- * - `no-target`：通道正常，但当前标签没有可调试的 page target——about:newtab /
- *   about:userscripts 等页面不创建 BrowserView（见 tabs.ts 的 needsBrowserView），
- *   CDP 侧根本没有对应 target。这是正常语义，不该重试到超时、也不该提示"端口故障"。
+ * 解析指定目标的 CDP target id。
+ *
+ * 桥的热切换要用它：切 page 时跟随活动标签（走绑定表），切 shell 时按 URL
+ * 唯一匹配。放在这里而不是让 IPC 层自己拼，是为了和 `getDevToolsTargetUrl`
+ * 共用同一套解析（两套逻辑漂移过一次，about:blank 中间态会静默撞旧 target）。
  */
+export async function resolveTargetId(target: 'page' | 'shell'): Promise<string | null> {
+  if (target === 'shell') {
+    const port = resolveDebugPort();
+    if (!port) return null;
+    return (await fetchTargets(port)).find(isShell)?.id ?? null;
+  }
+  return resolveActivePageTargetId();
+}
 
 /**
- * 活动标签当前可调试的 page target id（桥的 attach 入口）。
- * 与 getDevToolsTargetUrl 共用同一套绑定表逻辑，避免两套解析漂移。
+ * 活动标签当前可调试的 page target id（桥的 page 分支入口）。
+ *
+ * 绑定表逻辑与 `getDevToolsTargetUrl` 共用（`pickTargetForTab`），避免两套
+ * 解析漂移。
  */
 export async function resolveActivePageTargetId(): Promise<string | null> {
   const port = resolveDebugPort();
@@ -738,16 +775,18 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell'): Promise<De
     pickedId = tabId ? await pickTargetForTab(tabId, port) : null;
   }
   if (!pickedId) return { url: null, reason: 'no-target' };
-  // 桥模式（enabled via BAO_DEVTOOLS_BRIDGE=1）：URL 不带 ws，前端会走
-  // BfbBridgeConnection（postMessage → 外壳中继 → IPC → 主进程桥 → flatten）。
-  // **URL 里刻意不带 target id**：切标签时 iframe 的 key 不变就不会重载，
-  // 面板状态（Elements 选中、Console 历史）得以保留；跟随新标签由渲染层
-  // 重新调用 bridge.attach() 完成（桥重放域状态 + 发 DOM.documentUpdated）。
-  if (process.env.BAO_DEVTOOLS_BRIDGE === '1') {
+  // 桥模式（B3 起为默认）：URL 不带 ws，前端用 preload 暴露的 `bfbBridge`
+  //   → IPC → 主进程桥 → browser ws + flatten session。
+  // **URL 里刻意不带 target id**：切标签时容器不重载，面板状态（Elements 选中、
+  // Console 历史）得以保留；跟随新标签由渲染层重新调 bridge.attach() 完成
+  // （桥重放域状态 + 发 DOM.documentUpdated）。
+  if (useBridge()) {
     return {
       url: `${entryUrl}?can_dock=true`,
       reason: 'ok',
       mode: 'bridge',
+      // 主进程要在 loadURL 之前拿它挂桥，见 attachDevToolsView。
+      targetId: pickedId,
     };
   }
   // 默认（page-ws 直连）。入口用 devtools_app.html（只挂 AdvancedApp 停靠壳），

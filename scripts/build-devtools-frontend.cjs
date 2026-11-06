@@ -264,21 +264,22 @@ const SOURCE_PATCHES = [
   {
     file: 'core/sdk/sdk.js',
     patches: [
-      // 桥 v2（规格 2026-11-06-devtools-cdp-bridge-design.md）：无 ws/wss/embedded
-      // 参数且处在 iframe 里时，用 postMessage 桥代替 WebSocketConnection。
-      // 前端只认 WebSocket 是"必须开端口"的唯一原因；这条分支让前端改走
-      // 外壳中继 → IPC → 主进程桥（flatten session），端口退化为桥的内部后端。
+      // 桥（规格 2026-11-06-devtools-cdp-bridge-design.md，B3 迁到 preload）：
+      // 无 ws/wss/embedded 参数且页面里存在 `window.bfbBridge` 时，用它代替
+      // WebSocketConnection。前端只认 WebSocket 是"必须开端口"的唯一原因；
+      // 这条分支让前端改走 preload → IPC → 主进程桥（flatten session），
+      // 端口退化为桥的内部后端。
       //
-      // 说明：contextBridge 不注入 iframe（nodeIntegrationInSubFrames 默认 false，
-      // 探针 s8-debug-targets.cjs 实测），所以前端自带 postMessage 客户端，
-      // 不依赖外部注入时序。
+      // 判据从「在 iframe 里」换成「bfbBridge 存在」：B3 之后前端跑在独立
+      // BrowserView（file://），既不是 iframe 也没有 parent，但 preload 一定会
+      // 把它暴露出来；旧的 http+iframe 排障路径没有 preload，自然落到 page-ws。
       [
         'function vs(e){const t=a.Runtime.Runtime.queryParam("ws")',
-        'class BfbBridgeConnection{onMessage;#lo;#uo;#bo;#go;#listener;constructor(e,t){this.onMessage=null,this.#lo=null,this.#uo=t,this.#bo=!1,this.#go=[],this.#listener=(ev)=>{const d=ev&&ev.data;if(!d||"bfb-devtools-bridge"!==d.source)return;if("ready"===d.kind)this.onOpen();else if("response"===d.kind){const m={id:d.id};d.error?m.error=d.error:m.result=d.result,this.onMessage&&this.onMessage.call(null,JSON.stringify(m))}else if("event"===d.kind){this.onMessage&&this.onMessage.call(null,JSON.stringify({method:d.method,params:d.params}))}else if("detached"===d.kind){this.#lo&&this.#lo.call(null,d.reason||"bridge detached")}},window.addEventListener("message",this.#listener),window.parent!==window&&window.parent.postMessage({source:"bfb-devtools-bridge",kind:"hello"},"*")}setOnMessage(e){this.onMessage=e}setOnDisconnect(e){this.#lo=e}onOpen(){this.#bo=!0;const q=this.#go;this.#go=[],q.forEach((m)=>this.#send(m)),this.#uo&&this.#uo.call(null)}sendRawMessage(m){this.#bo?this.#send(m):this.#go.push(m)}#send(m){window.parent.postMessage({source:"bfb-devtools-bridge",kind:"cdp",payload:m},"*")}disconnect(){return window.removeEventListener("message",this.#listener),Promise.resolve()}}function vs(e){const t=a.Runtime.Runtime.queryParam("ws")',
+        'class BfbBridgeConnection{onMessage;#lo;#uo;#bo;#go;constructor(e,t){this.onMessage=null,this.#lo=null,this.#uo=t,this.#bo=!1,this.#go=[],window.bfbBridge.onOpen(()=>this.onOpen()),window.bfbBridge.onMessage((m)=>{this.onMessage&&this.onMessage.call(null,m)}),window.bfbBridge.onDisconnect((r)=>{this.#lo&&this.#lo.call(null,r||"bridge detached")})}setOnMessage(e){this.onMessage=e}setOnDisconnect(e){this.#lo=e}onOpen(){this.#bo=!0;const q=this.#go;this.#go=[],q.forEach((m)=>this.#send(m)),this.#uo&&this.#uo.call(null)}sendRawMessage(m){this.#bo?this.#send(m):this.#go.push(m)}#send(m){window.bfbBridge.send(m)}disconnect(){return Promise.resolve()}}function vs(e){const t=a.Runtime.Runtime.queryParam("ws")',
       ],
       [
         'if(r)return new ms(r);if(t||n){',
-        'if(r)return new ms(r);if(!t&&!n&&window.parent!==window)return new BfbBridgeConnection(e);if(t||n){',
+        'if(r)return new ms(r);if(!t&&!n&&window.bfbBridge)return new BfbBridgeConnection(e);if(t||n){',
       ],
     ],
   },

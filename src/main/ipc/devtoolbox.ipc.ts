@@ -7,12 +7,13 @@ import {
   closeDevToolsWindow,
   destroyDevToolsView,
   getDevToolSnapshot,
+  getDevToolsFrontendContents,
   getDevToolsTargetUrl,
   openDevToolsWindow,
   openNativeDevTools,
   probeActivePage,
-  resolveActivePageTargetId,
   resolveDebugPort,
+  resolveTargetId,
   setDevToolsViewBounds,
 } from '../modules/devtoolbox';
 import { devToolsBridge } from '../modules/devtoolbox-bridge';
@@ -20,10 +21,17 @@ import { getMainWindow } from '../modules/window';
 
 const target = z.enum(['page', 'shell']);
 
-/** 桥的 IPC 只接受外壳 renderer（iframe 在外壳 renderer 内，sender 仍是它）。 */
+/**
+ * 桥的 IPC 有两个来源，都必须精确校验：
+ * - **外壳 renderer**：只调 `attach`（切标签热切换）与 `stats`（探针/诊断）；
+ * - **前端容器自己的 WebContents**：`send` / `detach`。B3 之前它经 iframe
+ *   postMessage 中继、sender 仍是外壳；迁到 preload 后前端直接说话，校验对象变了。
+ */
 function isTrustedSender(event: IpcMainInvokeEvent): boolean {
   const win = getMainWindow();
-  return Boolean(win && !win.isDestroyed() && event.sender === win.webContents);
+  if (win && !win.isDestroyed() && event.sender === win.webContents) return true;
+  const frontend = getDevToolsFrontendContents();
+  return Boolean(frontend && event.sender === frontend);
 }
 
 const bridgeSendSchema = z.object({
@@ -97,16 +105,27 @@ export function registerDevToolboxIPC(): void {
   // ---- CDP 桥（桥 v2） ----
   // 这几个通道不走 createHandler：需要 sender 校验（规格 §2 铁律 B5），
   // 而公共 wrapper 不接收 event。
+  // B3 之后前端就是事件终点：直接投给前端容器的 WebContents，由它的 preload
+  // 逐条回调给页面。**不再经外壳 renderer 中转**——那是 iframe 时代的形状。
   devToolsBridge.setEventSink((events) => {
+    const frontend = getDevToolsFrontendContents();
+    if (frontend) {
+      frontend.send('devtoolbox:bridge-event', { events });
+      return;
+    }
+    // 前端容器不在（page-ws 路径，或桥被探针单独驱动）时退回外壳 renderer，
+    // 让 `bridge.onEvents` 至少还有观察窗口。
     const win = getMainWindow();
     if (win && !win.isDestroyed()) win.webContents.send('devtoolbox:bridge-event', { events });
   });
 
-  ipcMain.handle('devtoolbox:bridge-attach', async (event) => {
+  ipcMain.handle('devtoolbox:bridge-attach', async (event, args?: { target?: 'page' | 'shell' }) => {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
     const port = resolveDebugPort();
     if (!port) return { ok: false, error: { message: 'no-port' } };
-    const targetId = await resolveActivePageTargetId();
+    // 目标由渲染层指定：桥模式 URL 恒定，切 page/shell 不会重建容器，
+    // 只能靠这一次 attach 换 target（page 跟活动标签，shell 按 URL 唯一匹配）。
+    const targetId = await resolveTargetId(args?.target === 'shell' ? 'shell' : 'page');
     if (!targetId) return { ok: false, error: { message: 'no-target' } };
     try {
       const { sessionId } = await devToolsBridge.attach(targetId, port);

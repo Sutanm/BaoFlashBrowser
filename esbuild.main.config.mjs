@@ -76,6 +76,12 @@ const builds = [
     outfile: 'dist/preload.js',
   },
   {
+    // DevTools 前端专用：只暴露 CDP 桥（不含 electronAPI）。见 src/preload/devtools.ts。
+    ...shared,
+    entryPoints: ['src/preload/devtools.ts'],
+    outfile: 'dist/devtools-preload.js',
+  },
+  {
     ...shared,
     entryPoints: ['src/webview-preload/index.ts'],
     outfile: 'dist/webview-preload.js',

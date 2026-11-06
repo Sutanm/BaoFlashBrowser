@@ -1,0 +1,141 @@
+import { contextBridge, ipcRenderer } from 'electron';
+
+/**
+ * DevTools 前端专用 preload（B3：桥传输从 iframe postMessage 迁到 preload）。
+ *
+ * **为什么不复用 `src/preload/index.ts`**：那份暴露的是整付 `electronAPI`
+ * （`pwd.*` 能读密码库、`tab.*` 能开任意页面）。DevTools 前端跑在独立分区
+ * 的 BrowserView 里，把全量 API 给它等于把 B2 的隔离目标当场作废。这里只暴露
+ * 一条 CDP 管道，别的什么都没有。
+ *
+ * 桥本身（browser ws + flatten session、Target 域模拟、有序队列）在主进程
+ * `modules/devtoolbox-bridge.ts`，本文件只做「页面 ⇄ 主进程」的搬运：
+ *
+ *   前端 M97 代码 ──window.bfbBridge── preload ──IPC── 主进程桥 ──ws── 目标页面
+ *
+ * 两条硬约束：
+ * 1. **响应与事件必须逐条、按序回调**。桥把它们合进同一条有序流（16ms 合批），
+ *    这里只按数组顺序照发；一旦改成 Promise 或分通道投递，Elements 树就会空洞
+ *    （S15 的结论：`DOM.setChildNodes` 先于其响应到达时子节点会被丢弃）。
+ * 2. **send 不返回 Promise 给页面**。M97 的 `sendRawMessage` 是同步接口，响应
+ *    一律走有序流；把 Promise 漏到页面只会让前端多一条并行的完成路径。
+ */
+
+/** 与主进程 `devtoolbox:bridge-event` 同名，复用既有通道与白名单。 */
+const EVENT_CHANNEL = 'devtoolbox:bridge-event';
+const SEND_CHANNEL = 'devtoolbox:bridge-send';
+const DETACH_CHANNEL = 'devtoolbox:bridge-detach';
+
+interface CdpMessage {
+  id?: number;
+  method?: string;
+  params?: unknown;
+  result?: unknown;
+  error?: unknown;
+}
+
+interface EventPayload {
+  events?: CdpMessage[];
+  /** 主进程主动宣告断开（桥 socket 关闭 / target 消失）。 */
+  disconnect?: string;
+}
+
+/** 前端发来的原始命令（还没校验过形状）。 */
+interface RawCommand {
+  id?: unknown;
+  method?: unknown;
+  params?: unknown;
+  sessionId?: unknown;
+}
+
+let messageListener: ((message: string) => void) | null = null;
+let disconnectListener: ((reason: string) => void) | null = null;
+
+ipcRenderer.on(EVENT_CHANNEL, (_event, payload: EventPayload | undefined) => {
+  if (!payload) return;
+  if (payload.disconnect) {
+    disconnectListener?.(payload.disconnect);
+    return;
+  }
+  const events = payload.events;
+  if (!events || events.length === 0) return;
+  const listener = messageListener;
+  if (!listener) return;
+  for (const item of events) {
+    // 逐条 JSON 化后立刻回调：同一批内的相对顺序 = 主进程入队顺序。
+    try {
+      listener(JSON.stringify(item));
+    } catch {
+      // 前端监听器自己抛错时不能拖死后续消息
+    }
+  }
+});
+
+/**
+ * 页面可用的唯一接口。
+ *
+ * `onOpen` 直接回调是成立的：主进程只有在 `bridge.attach()` 成功之后才创建
+ * 承载前端的 WebContents（见 `devtoolbox.ts:attachDevToolsView`），所以本
+ * preload 能跑起来时桥一定已就绪，不存在「连上了但没 target」的中间态。
+ */
+const bfbBridge = {
+  onOpen(callback: () => void): void {
+    setTimeout(() => {
+      try {
+        callback();
+      } catch {
+        // 前端回调异常不影响桥
+      }
+    }, 0);
+  },
+
+  onMessage(callback: (message: string) => void): void {
+    messageListener = callback;
+  },
+
+  onDisconnect(callback: (reason: string) => void): void {
+    disconnectListener = callback;
+  },
+
+  /**
+   * 发送一条前端原始 CDP 命令（JSON 字符串）。
+   *
+   * `id` 必须原样带上：桥据此把响应塞进有序流而不是走返回值；丢了 id 就等于
+   * 退回「响应与事件分两路」的旧形态。
+   */
+  send(raw: string): void {
+    let parsed: RawCommand | null = null;
+    try {
+      parsed = JSON.parse(raw) as RawCommand;
+      // eslint 的空 catch 更糟：这里静默丢弃非法 JSON 是有意的（前端不该发这种）
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed.method !== 'string' || parsed.method.length === 0) return;
+    const id = typeof parsed.id === 'number' && parsed.id > 0 ? parsed.id : undefined;
+    void ipcRenderer
+      .invoke(SEND_CHANNEL, {
+        method: parsed.method,
+        params: parsed.params as Record<string, unknown> | undefined,
+        sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+        id,
+      })
+      .then((result: { ok?: boolean; error?: { message?: string } } | null) => {
+        // 正常情况下响应走有序流，这里只接桥自身的失败（未连接 / 参数非法）。
+        if (result && result.ok === false) {
+          disconnectListener?.(result.error?.message || 'bridge-error');
+        }
+      })
+      .catch(() => {
+        // 主进程已退出或通道被销毁：静默，前端靠 did-close 收尾
+      });
+  },
+
+  disconnect(): void {
+    void ipcRenderer.invoke(DETACH_CHANNEL).catch(() => {
+      // 同上
+    });
+  },
+};
+
+contextBridge.exposeInMainWorld('bfbBridge', bfbBridge);

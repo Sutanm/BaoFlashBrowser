@@ -204,7 +204,7 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
      探针 `tools/devtools-spike/adopted-probe.cjs`）。
    - `panels/emulation/emulation.js`：`updateForDocked()` 末尾 `showBoth()` →
      `hideMain()`。can_dock 下 DockController 默认 dockSide 是 `right`，showBoth
-     会显示"被检查页面占位"（真 DevTools 里由宿主窗口绘制，iframe 里只是一块空白）；
+     会显示"被检查页面占位"（真 DevTools 里由宿主窗口绘制，我们这里只是一块空白）；
      保留 `right` 而不是改默认值为 `undocked`，因为 undocked 会在首次 setDockSide
      时触发 `openToolboxWindow()` 的 `window.open`（设备模式 frame，会弹窗）。
    - polyfill 注入覆盖 `inspector.html` 与 `devtools_app.html` 两个入口
@@ -216,15 +216,16 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
   生命周期生灭。逐项盘点：
   | 监听器 | 端口 | 发现方式 |
   | --- | --- | --- |
-  | CDP（remote-debugging-port） | `0` → Chromium 自选 | `userData/DevToolsActivePort` 文件（`resolveDebugPort()` 读第一行） |
-  | DevTools 前端静态服务 | `listen(0)` 随机 | 主进程内存（写进 iframe src） |
+| CDP（remote-debugging-port） | `0` → Chromium 自选 | `userData/DevToolsActivePort` 文件（`resolveDebugPort()` 读第一行） |
+| DevTools 前端静态服务 | 仅 `BAO_DEVTOOLS_LEGACY_HTTP=1` 时 `listen(0)` | 主进程内存（写进前端 URL） |
   | aria2 RPC | bind(0) 探测空闲口 | 主进程内存（`aria2-rpc.ts`） |
   | screenshot HTTP（仅开发态 opt-in） | `0` 随机（env 可钉死） | electron-log（与 token 一起打印） |
 - **CDP 全版本常开**：主进程 `bootstrap()` 里 `appendSwitch('remote-debugging-port', '0')`，
   打包版与开发版一致，抽屉 DevTools 无需任何启动参数。`start:debug` 与普通启动
   唯一区别只剩构建产物新鲜度。安全面：只绑 `127.0.0.1`，等于本机进程可调试本
-  应用——与抽屉 iframe 的既有暴露一致；外部 ws 客户端与 embedded debugger
-  实测共存（§1 共存性），开端口不影响密码捕获/填充。
+  应用；外部 ws 客户端与 embedded debugger 实测共存（§1 共存性），开端口不影响
+  密码捕获/填充。B3 之后前端不再自己拿端口（URL 里没有 `ws`），端口只出现在
+  主进程的桥里——但**威胁模型没变**：端口本身仍在、仍无鉴权。
 - 运行时**不可关闭**——Chromium 的 DevToolsHttpHandler 在进程启动时决定。 选端口
   不再需要查 Windows 保留端口段（`netsh interface ipv4 show excludedportrange
   protocol=tcp`）：系统分配的临时端口不会落在保留段，历史教训仅供外部脚本
@@ -248,36 +249,49 @@ env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devt
 env -u ELECTRON_RUN_AS_NODE node_modules/electron/dist/electron.exe   tools/devtools-spike/adopted-probe.cjs   # 探 87 的 adoptedStyleSheets 语义
 node tools/devtools-spike/page-elements-repro.cjs   # 真实页面（默认 7k7k）上验证 Elements 树渲染
 node tools/devtools-spike/dock-shell-check.cjs      # 验证停靠壳：devtools_app.html + can_dock、无 screencast、Elements 渲染
-node tools/devtools-spike/tab-switch-check.cjs      # 双标签验证：切标签 iframe 跟随新 target、同标签导航 targetId 不变
+node tools/devtools-spike/tab-switch-check.cjs      # 双标签验证（page-ws）：切标签容器跟随新 target、同标签导航 targetId 不变
 node tools/devtools-spike/cdp-coexist-check.cjs     # CDP 共存性：page-ws × 2、page-ws + flatten session
 node tools/devtools-spike/cdp-embedded-coexist.cjs  # CDP 共存性：embedded debugger 与远程 ws 客户端
 node tools/devtools-spike/page-ws-baseline-capture.cjs      # page-ws 基线录流（ws 代理夹在前端与真实端点之间）
-BAO_DEVTOOLS_BRIDGE=1 node tools/devtools-spike/bridge-mode-check.cjs        # 桥模式：树与目标页一致、0 异常
-BAO_DEVTOOLS_BRIDGE=1 node tools/devtools-spike/bridge-tab-switch-check.cjs  # 桥模式：切标签不重载 iframe、面板跟随
+node tools/devtools-spike/bridge-mode-check.cjs              # 桥模式端到端：树与目标页一致、bfbBridge 就位、0 异常
+BFB_PAGE_WS=1 node tools/devtools-spike/bridge-mode-check.cjs # page-ws 回退对照（同一 fixture、同一探针）
+node tools/devtools-spike/bridge-tab-switch-check.cjs        # 桥模式：切标签容器不重建、面板状态保留、树跟随
+BFB_RESET_LOCALE=1 node tools/devtools-spike/bridge-mode-check.cjs # 清掉持久化 language，确认"没存过就跟随系统"
 node tools/devtools-spike/bridge-realsite-check.cjs          # 桥模式真站（7k7k）：树/求值/密码捕获 embedded 并发
 BFB_HEAVY=1 node tools/devtools-spike/bridge-load-baseline.cjs               # 三模式 CPU 与消息量对比（受控页面）
 node tools/devtools-spike/bridge-load-baseline.cjs bridge                    # 只跑桥模式（可配 BFB_WINDOW_MS 拉长窗口）
+node tools/devtools-spike/dock-switch-check.cjs              # 四模式停靠：底/左/右/独立窗口 + 关闭回内嵌
 ```
 
 2026-11-05 实测：7k7k（4680 节点）上 Elements 树渲染 `html`/`body` 层级、
 Styles 显示真实规则、前端异常 0（修复前 Highlight ReferenceError + 每请求
 requestTime TypeError + adoptedStyleSheets push TypeError 三层连环）。
 
-## 9 CDP 桥（桥 v2，`BAO_DEVTOOLS_BRIDGE=1`）
+## 9 CDP 桥（桥 v2，**B3 起为默认传输**）
 
 规格：`docs/archive/superpowers/specs/2026-11-06-devtools-cdp-bridge-design.md`。
-默认关闭，`BAO_DEVTOOLS_BRIDGE=1` 启用；关闭时行为与本轮改造前完全一致。
+默认走桥；`BAO_DEVTOOLS_PAGE_WS=1` 回退到前端直连 CDP 端口（切标签会重载容器）。
 
 ### 9.1 形态
 
 ```
-M97 前端（iframe）──postMessage──外壳 relay──IPC──主进程桥──browser ws/flatten session──→ 目标 agent
-密码 capture/fill ──────────────── embedded（wc.debugger）────────────────────────────→ 同一 agent（互不干扰）
+M97 前端（BrowserView，file://）──window.bfbBridge（preload）──IPC──主进程桥──browser ws/flatten session──→ 目标 agent
+密码 capture/fill ─────────────────── embedded（wc.debugger）──────────────────────────────────────────→ 同一 agent（互不干扰）
 ```
 
+B3 之前前端跑在外壳的 iframe 里，靠 postMessage → 外壳 relay → IPC 中继；迁到
+preload 后这条中继整个删了（`useDevToolsBridgeRelay.ts` 已移除），少一次跨 frame
+序列化，也让桥和 `file://` 分区隔离得以共存（原来桥模式必须回退 http 才有 parent）。
+
 前端 patch（`scripts/build-devtools-frontend.cjs`）：`core/sdk/sdk.js` 的 Connection
-工厂在「无 `ws`/`wss`/`embedded` 参数 + 处于 iframe」时返回 `BfbBridgeConnection`，
-自带 postMessage 客户端与 hello，不依赖外部注入时序（contextBridge 不注入 iframe，S8）。
+工厂在「无 `ws`/`wss`/`embedded` 参数 + `window.bfbBridge` 存在」时返回
+`BfbBridgeConnection`（包装 preload API 的薄壳）。判据从「在 iframe 里」换成
+「bfbBridge 存在」：容器换成 BrowserView 后没有 parent，但 preload 一定注入；
+旧 http 容器没有 preload，自然落到 page-ws。
+
+**preload 是独立的一份**（`src/preload/devtools.ts` → `dist/devtools-preload.js`），
+只暴露 `bfbBridge`，**不暴露 `electronAPI`**。把主 preload 挂给前端等于让它拿到
+`pwd.*`（密码库）与 `tab.*`，B2 的隔离目标当场作废。
 
 ### 9.2 三条硬约束（都是踩出来的）
 
@@ -289,15 +303,29 @@ M97 前端（iframe）──postMessage──外壳 relay──IPC──主进�
    browser 级（否则 attach 无关 target 并回 `attachedToTarget`，前端拿到别人的
    sessionId）；`setDiscoverTargets` 补发全部 page target 的 `targetCreated`
    （`attached:true`）；主 target 不发 `attachedToTarget`。
-3. **热切换要重放域状态**。桥模式 URL 恒定 → 切标签 iframe 不重载，但前端不知道
+3. **热切换要重放域状态**。桥模式 URL 恒定 → 切标签容器不重建，但前端不知道
    连接换了页面、不会重发初始化命令；桥必须把前端发过的开关类命令（enable/setXxx/
    trackXxx/startXxx，按方法去重保留最新参数）重放到新 session，再发
    `DOM.documentUpdated` + `Runtime.executionContextsCleared`。过渡态
    （新标签 `about:blank`）静默重试，**不能回 `detached`**（前端会显示断开横幅并停请求）。
+4. **绑定候选必须排除前端自己**。前端也是 page target；`isFrontendTarget` 早先只认
+   `?ws=`，桥模式的 `?can_dock=true` 漏网，切标签时新标签还是 about:blank，绑定
+   走 fallback 就把前端容器掳了过来 → 热切换看到 targetId 相同直接早退，面板永远
+   停在错误文档上。同一条 fallback 也只接受 `about:` 的无人占用 target，不再"随便挑一个"。
 
-### 9.3 已知限制
+### 9.3 开关与限制
 
-- 桥目前需环境变量开启；默认关闭。
+| 开关 | 作用 |
+| --- | --- |
+| （默认） | 桥 + BrowserView + `file://` |
+| `BAO_DEVTOOLS_PAGE_WS=1` | 前端直连 CDP 端口（URL 带 `ws`），切标签重建容器、面板状态丢失 |
+| `BAO_DEVTOOLS_LEGACY_HTTP=1` | 旧的 http 静态服务 + iframe 容器（排障用；没有 preload，必然是 page-ws） |
+| `BAO_DEVTOOLS_BRIDGE_RAW=1` | 桥内不做 Target 域重写，全透传（对拍 S14 基线用） |
+
+`BAO_DEVTOOLS_BRIDGE=1` 自 B3 起**不再有效**（桥已是默认），保留该值不会有副作用。
+
 - `BridgeStats` 里的 `flow` / `trace` / `lastMethods` / `lastDoc` 是调试字段（只记
   方法名与条数，不落 CDP 流量），上游排查时可直接读 `bridge.stats()`。
+- 单实例语义：抽屉与独立窗口共用同一个桥 session，事件优先投给内嵌视图；
+  两者同时打开时独立窗口不会收到事件流。
 

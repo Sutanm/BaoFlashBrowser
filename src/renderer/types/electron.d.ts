@@ -244,9 +244,12 @@ declare global {
         detachDevToolsView(): Promise<void>;
         onEntries(callback: (entries: import('@shared/types/devtoolbox').DevToolEntry[]) => void): () => void;
         onCleared(callback: () => void): () => void;
-        /** CDP 桥（桥 v2）：把当前活动标签挂到桥，再经桥收发 CDP 消息。 */
+        /**
+         * CDP 桥（桥 v2）：把指定目标挂到桥，再经桥收发 CDP 消息。
+         * 不传 target 时按 page（活动标签）处理。
+         */
         bridge: {
-          attach(): Promise<{ ok: boolean; targetId?: string; sessionId?: string; error?: { message: string } }>;
+          attach(target?: 'page' | 'shell'): Promise<{ ok: boolean; targetId?: string; sessionId?: string; error?: { message: string } }>;
           detach(): Promise<{ ok: boolean; error?: { message: string } }>;
           send(method: string, params?: Record<string, unknown>, sessionId?: string, id?: number): Promise<{ ok: boolean; result?: unknown; error?: { message: string; code?: number } }>;
           stats(): Promise<{

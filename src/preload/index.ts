@@ -203,9 +203,13 @@ const electronAPI = {
      * CDP 桥（桥 v2）：把当前活动标签的 target 挂到桥、然后经桥收发 CDP 消息。
      * 规格 docs/archive/superpowers/specs/2026-11-06-devtools-cdp-bridge-design.md。
      * 事件按 16ms 合批下发（主进程侧完成），这里只做解包。
+     *
+     * B3 之后这条 IPC 只剩两个用途：外壳 renderer 调 `attach`（切标签热切换，
+     * 前端容器不重建）、探针调 `stats`。真正的 CDP 收发已迁到前端自己的
+     * preload（`src/preload/devtools.ts` 的 `bfbBridge`），不再经过这里。
      */
     bridge: {
-      attach: () => safeInvoke('devtoolbox:bridge-attach'),
+      attach: (target?: 'page' | 'shell') => safeInvoke('devtoolbox:bridge-attach', target ? { target } : {}),
       detach: () => safeInvoke('devtoolbox:bridge-detach'),
       send: (method: string, params?: Record<string, unknown>, sessionId?: string, id?: number) => safeInvoke('devtoolbox:bridge-send', { method, params, sessionId, id }),
       stats: () => safeInvoke('devtoolbox:bridge-stats'),

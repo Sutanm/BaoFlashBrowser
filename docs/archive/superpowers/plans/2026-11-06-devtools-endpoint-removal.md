@@ -62,13 +62,34 @@
 - **设置持久**：DevTools 里把语言改成英文 → 重启 → 仍英文。
 - 本地 `.swf` / 本地 html（同级 + 跨目录引用）全部正常。
 
-## B3 桥传输迁移（可延后）
+## B3 桥传输迁移 ✅ 已完成（2026-11-06）
 
 - [x] 前端 preload 暴露 `bfbBridge.{ send, onEvent }` → IPC → `devtoolsBridge`。
 - [x] 删除 `useDevToolsBridgeRelay.ts` 的 postMessage 路径。
 - [x] `BAO_DEVTOOLS_BRIDGE=1` 在 B2 之后必须**显式报错**，不得静默失效。
 
-**验证**：`bridge-mode-check.cjs` / `bridge-tab-switch-check.cjs` 复跑。
+实际实现与计划的两处偏离，都是现场撞出来的：
+
+1. **preload 另起一份**（`src/preload/devtools.ts` → `dist/devtools-preload.js`），
+   不在主 preload 上加 API。原计划"`src/preload/index.ts` +1 API"会把整付
+   `electronAPI`（含 `pwd.*`）送给前端，等于把 B2 的隔离目标作废。
+2. **不做"显式报错"**。桥变成默认传输后 `BAO_DEVTOOLS_BRIDGE=1` 只是空开关，
+   报错反而会让老的启动脚本失败；文档标注"不再有效、无副作用"。
+   回退改为 `BAO_DEVTOOLS_PAGE_WS=1`。
+
+顺带修掉两个会长期埋雷的问题：
+
+- `devtoolbox.ts` ↔ `devtoolbox-bridge.ts` 循环依赖（桥要 `listDebugTargets`，
+  容器又要桥来前置 attach）→ 端点查询抽到 `devtoolbox-targets.ts`。
+- **绑定候选把前端自己当成了可绑定 target**：`isFrontendTarget` 只认 `?ws=`，
+  桥模式 URL 是 `?can_dock=true` 漏网。切标签时新标签还是 about:blank，绑定走
+  fallback 就把前端容器掳走，热切换随后因 targetId 相同早退 → 面板永远停在
+  错误文档上。同时把 fallback 收紧成"只接受 `about:` 的无人占用 target"。
+
+**验证**（2026-11-06 实跑）：`bridge-mode-check` 树命中 `#mark`、`bfbBridge=object`、
+`electronAPI=undefined`、异常 0；`bridge-tab-switch-check` 容器未重建、URL 未变、
+面板时间戳保留、树切到 TWO 且不再含 ONE；`BFB_PAGE_WS=1` 回退路径同样渲染正常；
+`dock-switch-check` 四模式与独立窗口关回归内嵌正常。
 
 ## 质量门（每批都要过）
 

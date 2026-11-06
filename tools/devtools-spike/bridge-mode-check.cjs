@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
- * S11：桥模式端到端验证（B3）——前端走 BfbBridgeConnection → 外壳中继 → IPC → 桥。
- *   BAO_DEVTOOLS_BRIDGE=1 node tools/devtools-spike/bridge-mode-check.cjs
+ * S11（B3 形态）：桥模式端到端验证——前端走 preload 的 `bfbBridge` → IPC → 主进程桥。
  *
- * 判定：
- *   1 iframe URL 不带 ws、带 bfb_target
- *   2 iframe 内 Elements 树渲染出 fixture 的 #mark 节点（说明 CDP 消息经桥往返成功）
- *   3 桥 stats：sent / events 增长
- *   4 前端无未捕获异常
+ *   node tools/devtools-spike/bridge-mode-check.cjs              # 桥模式（默认）
+ *   BFB_PAGE_WS=1 node tools/devtools-spike/bridge-mode-check.cjs # page-ws 对照基线
+ *
+ * 与 B3 之前的差别：前端不再跑在 iframe 里，`window.parent` / postMessage 探针
+ * 全部失效，改判：
+ *   1 前端 target 是 file:// 的 `devtools_app.html?can_dock=true`，**不带 ws**
+ *   2 前端内 `typeof window.bfbBridge === 'object'`，且 `window.electronAPI` 不存在
+ *     （隔离成立：前端拿不到密码/tab 特权）
+ *   3 Elements 树渲染出 fixture 的 #mark 节点（CDP 消息经桥往返成功）
+ *   4 桥 stats：目标 url 与活动标签一致
  */
 'use strict';
 
@@ -93,13 +97,17 @@ const DEEP_PROBE = `(() => {
     return acc;
   };
   const texts = deep('span[class*="webkit-html"]').map((el) => (el.textContent || '').slice(0, 40));
-  const tags = [].slice.call(document.querySelectorAll('.elements-tree-outline *[class*="webkit-html"]')).map((el) => (el.textContent || '').trim()).filter(Boolean).slice(0, 40);
   return JSON.stringify({
     htmlSpans: texts.length,
     hasMark: texts.some((t) => t.indexOf('mark') !== -1),
     hasBridgeText: texts.some((t) => t.indexOf('BRIDGE') !== -1),
     sample: texts.slice(0, 10),
-    tagList: tags,
+    bridgeApi: typeof window.bfbBridge,
+    hasElectronAPI: typeof window.electronAPI !== 'undefined',
+    hasParent: window.parent !== window,
+    localeSaved: (() => { try { return localStorage.getItem('language'); } catch (e) { return 'ERR'; } })(),
+    localeNav: navigator.language,
+    localeActive: (() => { try { return window.localStorage.getItem('language') || '(unset)'; } catch (e) { return 'ERR'; } })(),
     bodyText: (document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 120),
   });
 })()`;
@@ -111,13 +119,15 @@ const DEEP_PROBE = `(() => {
   const { server: fixtureServer, port: fixturePort } = await startFixture();
   const fixtureUrl = `http://127.0.0.1:${fixturePort}/`;
 
-  // BFB_NO_BRIDGE=1 → 走 page-ws 基线，用于对照（同一 fixture、同一探针）
-  const baseline = process.env.BFB_NO_BRIDGE === '1';
+  // BFB_PAGE_WS=1 → 走 page-ws 回退路径做对照（同一 fixture、同一探针）
+  const baseline = process.env.BFB_PAGE_WS === '1';
   const logPath = path.join(os.tmpdir(), 'bfb-s11.log');
   const out = fs.openSync(logPath, 'w');
   const env = { ...process.env };
-  if (!baseline) env.BAO_DEVTOOLS_BRIDGE = '1';
-  else delete env.BAO_DEVTOOLS_BRIDGE;
+  if (baseline) env.BAO_DEVTOOLS_PAGE_WS = '1';
+  else delete env.BAO_DEVTOOLS_PAGE_WS;
+  delete env.BAO_DEVTOOLS_BRIDGE;
+  delete env.BAO_DEVTOOLS_LEGACY_HTTP;
   delete env.ELECTRON_RUN_AS_NODE;
   const child = spawn(ELECTRON, ['.'], { cwd: APP_ROOT, stdio: ['ignore', out, out], env });
 
@@ -178,15 +188,17 @@ const DEEP_PROBE = `(() => {
   }
   console.log('[s11] drawer toggled');
 
-  // 等前端 iframe target
+  // 等前端 target。B3 之后它是独立 WebContents（file://），不再是 iframe。
+  // 查询串两种形态：桥模式 `?can_dock=true`，page-ws 回退 `?ws=…&can_dock=true`。
   let front = null;
   for (let i = 0; i < 60 && !front; i += 1) {
     const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
-    front = (list || []).find((t) => /devtools_app\.html\?can_dock=true/.test(t.url || ''));
+    front = (list || []).find((t) => /devtools_app\.html\?/.test(t.url || ''));
     if (!front) await sleep(500);
   }
-  console.log('[s11] frontend url:', front ? front.url.slice(0, 110) : 'NOT FOUND');
-  if (!front) { console.log('[s11] 桥模式 URL 没出现'); client.close(); fixtureServer.close(); child.kill(); process.exit(2); }
+  console.log('[s11] frontend url:', front ? front.url.slice(0, 130) : 'NOT FOUND');
+  if (!front) { console.log('[s11] 前端 target 没出现'); client.close(); fixtureServer.close(); child.kill(); process.exit(2); }
+  console.log('[s11] frontend url has ws param:', /\bws=/.test(front.url));
 
   const fc = wsClient(front.webSocketDebuggerUrl);
   await fc.ready;
@@ -194,7 +206,7 @@ const DEEP_PROBE = `(() => {
   await sleep(12000);
 
   const probe = await evaluate(fc, DEEP_PROBE);
-  console.log('[s11] iframe probe:', probe);
+  console.log('[s11] frontend probe:', probe);
 
   const exceptions = fc.events
     .filter((m) => m.method === 'Runtime.exceptionThrown')
@@ -202,122 +214,57 @@ const DEEP_PROBE = `(() => {
       const d = m.params && m.params.exceptionDetails;
       return String((d && d.exception && (d.exception.description || d.exception.value)) || (d && d.text) || '').slice(0, 200);
     });
-  console.log('[s11] iframe exceptions:', exceptions.length, JSON.stringify(exceptions.slice(0, 4)));
+  console.log('[s11] frontend exceptions:', exceptions.length, JSON.stringify(exceptions.slice(0, 4)));
 
-  // 桥 stats（经外壳）
+  // BFB_RESET_LOCALE=1：清掉持久化的 language，确认"没存过就跟随系统"仍然成立
+  // （B2 的 file:// 让 origin 恒定、设置得以持久，副作用是曾经选过的英文会留下）
+  if (process.env.BFB_RESET_LOCALE === '1') {
+    await evaluate(fc, `(() => { try { localStorage.removeItem('language'); } catch (e) {} location.reload(); return 'reloaded'; })()`);
+    await sleep(10000);
+    const after = await evaluate(fc, `JSON.stringify({
+      saved: (() => { try { return localStorage.getItem('language'); } catch (e) { return 'ERR'; } })(),
+      nav: navigator.language,
+      tabText: (document.querySelector('.tabbed-pane-header-tab') || {}).textContent,
+      body: (document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 80),
+    })`);
+    console.log('[s11] locale after reset:', after);
+  }
+
+  // 桥 stats（经外壳渲染层；这条 API 在 B3 后保留，用于诊断与探针）
   const statsRaw = baseline ? JSON.stringify({ baseline: true }) : await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) { return JSON.stringify(s); })`, true);
-  console.log('[s11] bridge stats:', statsRaw);
+  console.log('[s11] bridge stats:', String(statsRaw).slice(0, 400));
   try {
     fs.mkdirSync(path.join(APP_ROOT, 'artifacts'), { recursive: true });
-    fs.writeFileSync(path.join(APP_ROOT, 'artifacts', 'bridge-stats.json'), statsRaw);
+    fs.writeFileSync(path.join(APP_ROOT, 'artifacts', 'bridge-stats.json'), String(statsRaw));
   } catch { /* ignore */ }
 
-  // 一锤定音：桥 attach 的 targetId 对应哪个 URL？当前活动标签是谁？
   try {
-    const statsObj = JSON.parse(statsRaw);
-    const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
-    const bound = (list || []).find((t) => t.id === statsObj.targetId);
-    console.log('[s11] bridge target url:', bound ? bound.url : 'NOT FOUND', '| type:', bound ? bound.type : '-');
-    const pages = (list || []).filter((t) => t.type === 'page').map((t) => `${t.id.slice(0, 6)} ${t.url}`);
-    console.log('[s11] all page targets:', JSON.stringify(pages, null, 0));
-    const activeUrl = await evaluate(client, `(() => { const el = document.querySelector('.address-input'); return el ? el.value : null; })()`);
-    console.log('[s11] address bar:', activeUrl);
+    const statsObj = JSON.parse(String(statsRaw));
+    if (statsObj && statsObj.targetId) {
+      const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
+      const bound = (list || []).find((t) => t.id === statsObj.targetId);
+      console.log('[s11] bridge target url:', bound ? bound.url : 'NOT FOUND', '| type:', bound ? bound.type : '-');
+    }
+    const pages = ((await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => [])) || [])
+      .filter((t) => t.type === 'page')
+      .map((t) => `${t.id.slice(0, 6)} ${String(t.url).slice(0, 90)}`);
+    console.log('[s11] all page targets:', JSON.stringify(pages));
   } catch (e) { console.log('[s11] target 对照失败:', e.message); }
-
-  // 诊断：桥命令落到哪个文档
-  const docInfo = await evaluate(client, `window.electronAPI.devtoolbox.bridge.send('DOM.getDocument', { depth: 2 }).then(function (r) {
-    if (!r.ok) return 'err=' + JSON.stringify(r.error);
-    var root = r.result && r.result.root;
-    return JSON.stringify({
-      nodeName: root && root.nodeName,
-      childCount: root && root.childNodeCount,
-      docUrl: root && root.documentURL,
-      kids: root && (root.children || []).map(function (c) { return c.nodeName + '#' + c.childNodeCount; }),
-    });
-  })`, true);
-  console.log('[s11] bridge DOM.getDocument:', docInfo);
-
-  // 从 iframe 内部直接经中继发一条命令，验证"链路数据"本身是否正确
-  await evaluate(fc, `(() => {
-    window.__rawProbe = null;
-    window.__rawEvents = [];
-    if (!window.__rawHooked) {
-      window.__rawHooked = true;
-      window.addEventListener('message', function (e) {
-        var d = e.data;
-        if (!d || d.source !== 'bfb-devtools-bridge') return;
-        if (d.kind === 'response' && d.id === 999) window.__rawProbe = JSON.stringify({ result: d.result, error: d.error }).slice(0, 260);
-        if (d.kind === 'event') window.__rawEvents.push(d.method);
-      });
-    }
-    window.parent.postMessage({ source: 'bfb-devtools-bridge', kind: 'cdp', payload: JSON.stringify({ id: 999, method: 'DOM.getDocument', params: { depth: 1 } }) }, '*');
-    setTimeout(function () {
-      var doc = window.__rawProbe ? JSON.parse(window.__rawProbe) : null;
-      var rootId = doc && doc.result && doc.result.root && doc.result.root.nodeId;
-      window.__rootId = rootId;
-      if (rootId) window.parent.postMessage({ source: 'bfb-devtools-bridge', kind: 'cdp', payload: JSON.stringify({ id: 998, method: 'DOM.requestChildNodes', params: { nodeId: rootId, depth: 2 } }) }, '*');
-    }, 400);
-    return 'sent';
-  })()`);
-  await sleep(2500);
-  const rawProbe = await evaluate(fc, `JSON.stringify({ probe: window.__rawProbe, events: window.__rawEvents.slice(0, 10), eventCount: window.__rawEvents.length })`);
-  console.log('[s11] iframe raw probe:', rawProbe);
-  // 外部直查 fixture 页面的真实 DOM（绕过桥，判断是页面本身还是桥数据的问题）
-  try {
-    const list2 = await getJson('http://127.0.0.1:' + port + '/json/list').catch(() => []);
-    const pageT = (list2 || []).find((t) => t.type === 'page' && /127.0.0.1/.test(t.url || ''));
-    if (pageT) {
-      const pc = wsClient(pageT.webSocketDebuggerUrl);
-      await pc.ready;
-      const dom = await pc.send('Runtime.evaluate', { expression: 'document.body.innerHTML.replace(/s+/g, " ").slice(0, 200) + " ||CHILDREN=" + [].map.call(document.body.children, function(e){return e.tagName+"#"+e.id}).join(",") + " ||TOTAL=" + document.body.children.length', returnByValue: true });
-      console.log('[s11] real page body (external CDP):', JSON.stringify(dom && dom.result && dom.result.result && dom.result.result.value));
-      pc.close();
-      const shellT = (list2 || []).find((t) => (t.url || '').indexOf('dist/renderer/index.html') !== -1);
-      if (shellT) {
-        const sc = wsClient(shellT.webSocketDebuggerUrl);
-        await sc.ready;
-        const sdom = await sc.send('Runtime.evaluate', { expression: '(document.body.innerHTML.replace(/s+/g, " ")).slice(0, 300)', returnByValue: true });
-        console.log('[s11] shell body (external CDP):', JSON.stringify(sdom && sdom.result && sdom.result.result && sdom.result.result.value));
-        sc.close();
-      }
-    }
-  } catch (e) { console.log('[s11] external dom check failed:', e.message); }
-  const relayCount = await evaluate(client, 'String(window.__bfbRelayEvents || 0)');
-  console.log('[s11] relay events (renderer):', relayCount);
-  const postStats = await evaluate(client, 'JSON.stringify({ ok: window.__bfbPostOk || 0, noSource: window.__bfbPostNoSource || 0, err: window.__bfbPostErr || 0 })');
-  console.log('[s11] relay post stats:', postStats);
-
-  // 抓前端实际收发：hook parent.postMessage 与 message 事件
-  await evaluate(fc, `(() => {
-    window.__sent = [];
-    window.__recv = [];
-    if (!window.__origPost) {
-      window.__origPost = window.parent.postMessage.bind(window.parent);
-      window.parent.postMessage = function (msg, origin) {
-        try { window.__sent.push(msg.kind + (msg.kind === 'cdp' ? ':' + JSON.parse(msg.payload).method : '')); } catch (e) { window.__sent.push('?'); }
-        return window.__origPost(msg, origin);
-      };
-      window.addEventListener('message', function (e) {
-        var d = e.data;
-        if (d && d.source === 'bfb-devtools-bridge') window.__recv.push(d.kind + (d.method ? ':' + d.method : '') + (d.error ? ':ERR' : ''));
-      });
-    }
-    return 'hooked';
-  })()`);
-  await sleep(4000);
-  const flow = await evaluate(fc, `JSON.stringify({
-    sent: window.__sent.slice(-14),
-    recv: window.__recv.slice(-14),
-    sentCount: window.__sent.length,
-    recvCount: window.__recv.length,
-  })`);
-  console.log('[s11] iframe flow:', flow);
 
   const shot = await client.send('Page.captureScreenshot', { format: 'png' }).catch(() => null);
   if (shot) {
     fs.mkdirSync(path.dirname(SHOT_PATH), { recursive: true });
     fs.writeFileSync(SHOT_PATH, Buffer.from(shot.result.data, 'base64'));
     console.log('[s11] screenshot:', SHOT_PATH);
+  }
+
+  // 前端自己的画面：BrowserView 是原生视图，外壳截图里永远是空白，
+  // 必须连前端 target 单独截图才能看到面板实际长什么样。
+  const frontShot = await fc.send('Page.captureScreenshot', { format: 'png' }).catch(() => null);
+  if (frontShot) {
+    const frontPath = path.join(APP_ROOT, 'artifacts', 'devtools-bridge-frontend.png');
+    fs.writeFileSync(frontPath, Buffer.from(frontShot.result.data, 'base64'));
+    console.log('[s11] frontend screenshot:', frontPath);
   }
 
   fc.close();

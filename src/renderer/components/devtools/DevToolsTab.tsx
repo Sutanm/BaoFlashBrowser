@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useTabsStore } from '@renderer/store/useTabsStore';
-import { useDevToolsBridgeRelay } from './useDevToolsBridgeRelay';
+import { useDevToolsBridgeAttach } from './useDevToolsBridgeAttach';
 
 type Target = 'page' | 'shell';
 
@@ -11,14 +11,15 @@ type Target = 'page' | 'shell';
  * 里面是官方前端（`assets/devtools-frontend`，取自 chii 的构建产物，经
  * `scripts/build-devtools-frontend.cjs` 降级到 Chromium 87）。
  *
- * 承载方式有两种：
- * - **ws 模式（默认）**：前端跑在**独立 WebContents**（主进程 BrowserView）里，
- *   这里只放一个占位 div 负责上报矩形。这样前端不落在外壳的 frame 树里，
- *   拿不到 shell 的 `electronAPI`/IndexedDB/DOM —— 是后续切 file:// 的前提。
- * - **bridge 模式（`BAO_DEVTOOLS_BRIDGE=1`）**：仍用 iframe + postMessage 中继，
- *   等桥的传输迁到 preload 后再统一（见 specs/2026-11-06-devtools-endpoint-removal.md B3）。
+ * 承载方式：**统一由主进程 BrowserView 承载**（这里是占位 div，只上报矩形）。
  *
- * 前端只认 WebSocket，`?ws=` 指向本应用自己的 CDP 端口——那个端口是它的传输层。
+ * - **桥模式（默认）**：URL 恒定，切标签只重绑桥的 session，前端不重载。
+ *   传输是 preload 暴露的 `bfbBridge` → IPC → 主进程桥（B3 之前是 iframe +
+ *   postMessage 中继，已删除）。
+ * - **page-ws（`BAO_DEVTOOLS_PAGE_WS=1` 回退）**：URL 带 target id，切标签
+ *   会重建容器，面板状态丢失。
+ *
+ * 前端只认 WebSocket 或桥；`?ws=` 是它的传输层参数，桥模式刻意不带。
  *
  * 已知降级：前端约 M97，后端是 Chromium 87，新版才有的可选 CDP 方法
  * （Overlay 的 flex/scroll-snap 高亮、Network.setAttachDebugStack 等）会 404，
@@ -39,6 +40,9 @@ const DevToolsTab: React.FC = () => {
   /** 桥模式下 URL 恒定（不含 target id），切标签只换绑定、不换 URL → iframe 不重载。 */
   const [mode, setMode] = useState<'ws' | 'bridge'>('ws');
   const hostRef = useRef<HTMLDivElement>(null);
+  /** 容器挂载时用的目标。不进 effect 依赖，理由见下面容器 effect 的注释。 */
+  const targetRef = useRef<Target>(target);
+  targetRef.current = target;
 
   useEffect(() => {
     let alive = true;
@@ -92,10 +96,15 @@ const DevToolsTab: React.FC = () => {
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 
-  // ws 模式：把前端挂成独立 WebContents，并持续把占位 div 的矩形同步给主进程。
+  // 容器挂载：把前端挂成独立 WebContents，并持续把占位 div 的矩形同步给主进程。
   // 切换停靠 / 拖拽抽屉 / 窗口缩放都会让矩形变化，ResizeObserver 会逐帧上报。
+  //
+  // 依赖里**故意没有 target**：
+  // - ws 模式切 target 时 URL 会跟着变（带 target id），靠 url 触发重建；
+  // - 桥模式切 target 时 URL 恒定，容器不该重建——重绑由 useDevToolsBridgeAttach
+  //   完成。首挂目标从 ref 取，避免把 target 写进依赖而破坏这条语义。
   useEffect(() => {
-    if (mode === 'bridge' || !url) return undefined;
+    if (!url) return undefined;
     const host = hostRef.current;
     if (!host) return undefined;
 
@@ -111,7 +120,7 @@ const DevToolsTab: React.FC = () => {
       });
     };
 
-    void window.electronAPI.devtoolbox.attachDevToolsView(target).then((result) => {
+    void window.electronAPI.devtoolbox.attachDevToolsView(targetRef.current).then((result) => {
       if (!alive || !result.ok) return;
       report();
       observer = new ResizeObserver(report);
@@ -127,11 +136,10 @@ const DevToolsTab: React.FC = () => {
       window.removeEventListener('resize', report);
       void window.electronAPI.devtoolbox.detachDevToolsView();
     };
-  }, [mode, url, target, nonce]);
+  }, [mode, url, nonce]);
 
-  // 桥模式（URL 不带 ws）下由这个中继把 iframe 的 postMessage 接到 IPC。
-  // 非桥模式下前端走 WebSocketConnection、不发 hello，此 hook 静默无作用。
-  useDevToolsBridgeRelay(url, activeTabId, activeTabUrl, mode === 'bridge');
+  // 桥模式下 URL 恒定，切标签只重绑 session：前端不重载，面板状态保留。
+  useDevToolsBridgeAttach(mode === 'bridge', target, activeTabId, activeTabUrl);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -182,24 +190,12 @@ const DevToolsTab: React.FC = () => {
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>{LL.devtools.noDebugPort()}</div>
         </div>
       ) : url ? (
-        mode === 'bridge' ? (
-          <iframe
-            // 桥模式 URL 恒定 → key 恒定 → 切标签不重载（面板状态保留）。
-            // ws 模式已改为独立 WebContents 承载（见上面的 effect），不再走 iframe。
-            key="bridge"
-            title="DevTools"
-            src={url}
-            className="flex-1 min-h-0 w-full"
-            style={{ border: 0, background: 'var(--bg-panel)' }}
-          />
-        ) : (
-          // 占位：真正的画面来自主进程的 BrowserView，这里只负责占位与上报矩形
-          <div
-            ref={hostRef}
-            className="flex-1 min-h-0 w-full"
-            style={{ background: 'var(--bg-panel)' }}
-          />
-        )
+        // 占位：真正的画面来自主进程的 BrowserView，这里只负责占位与上报矩形
+        <div
+          ref={hostRef}
+          className="flex-1 min-h-0 w-full"
+          style={{ background: 'var(--bg-panel)' }}
+        />
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>…</div>

@@ -16,7 +16,7 @@
 import http from 'http';
 import log from 'electron-log';
 import WebSocket from 'ws';
-import { listDebugTargets } from './devtoolbox';
+import { listDebugTargets } from './devtoolbox-targets';
 
 export interface CdpMessage {
   id?: number;

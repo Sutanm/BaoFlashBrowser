@@ -72,10 +72,17 @@ export interface DevToolsTargetResult {
   reason: 'ok' | 'no-port' | 'no-target';
   /**
    * 传输模式：
-   * - `ws`：前端直连 CDP 端口（默认，URL 带 ws 参数，切标签会重载 iframe）
-   * - `bridge`：前端走 CDP 桥（URL 稳定，切标签只需重新 attach，iframe 不重载）
+   * - `bridge`：前端走 CDP 桥（默认，URL 稳定，切标签只需重新 attach，容器不重载）
+   * - `ws`：前端直连 CDP 端口（回退路径，URL 带 ws 参数，切标签会重载容器）
    */
   mode?: 'ws' | 'bridge';
+  /**
+   * 桥模式解析出的 page target id。
+   *
+   * 主进程要在 `loadURL` 之前把桥挂到这个 target 上，否则前端一起来就发命令
+   * 会撞到「桥还没 session」。渲染层不消费这个字段，只是随结果一起带出来。
+   */
+  targetId?: string;
 }
 
 export interface DevToolPageProbe {

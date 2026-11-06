@@ -132,7 +132,11 @@ const TREE_PROBE = `(() => {
 
   const logPath = path.join(os.tmpdir(), 'bfb-s16.log');
   const out = fs.openSync(logPath, 'w');
-  const env = { ...process.env, BAO_DEVTOOLS_BRIDGE: '1' };
+  // B3 之后桥是默认传输，不需要再注入 BAO_DEVTOOLS_BRIDGE。
+  const env = { ...process.env };
+  delete env.BAO_DEVTOOLS_BRIDGE;
+  delete env.BAO_DEVTOOLS_PAGE_WS;
+  delete env.BAO_DEVTOOLS_LEGACY_HTTP;
   delete env.ELECTRON_RUN_AS_NODE;
   const child = spawn(ELECTRON, ['.'], { cwd: APP_ROOT, stdio: ['ignore', out, out], env });
 
@@ -193,14 +197,17 @@ const TREE_PROBE = `(() => {
   const front1 = await waitUntil(async () => {
     const list = await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
     return (list || []).find((t) => frontUrl(t)) || null;
-  }, 30000, 'frontend iframe');
-  console.log('[btab] iframe url:', front1 && front1.url.slice(0, 120));
+  }, 30000, 'frontend view');
+  console.log('[btab] frontend url:', front1 && front1.url.slice(0, 120));
   await sleep(9000);
 
   const fc1 = cdp(front1.webSocketDebuggerUrl);
   await fc1.ready;
   const tree1 = await evaluate(fc1, TREE_PROBE);
   console.log('[btab] tab1 tree:', tree1);
+  // 埋一个时间戳：只要容器没重建，切完标签它还在。
+  const stamp1 = await evaluate(fc1, 'window.__bfbStamp = String(Date.now())');
+  console.log('[btab] stamp written:', stamp1);
   fc1.close();
 
   // 新标签 → /two
@@ -225,13 +232,15 @@ const TREE_PROBE = `(() => {
 
   const front2 = (await getJson(`http://127.0.0.1:${port}/json/list`).catch(() => []))
     .find((t) => frontUrl(t));
-  console.log('[btab] iframe reloaded:', front2 && front2.id !== front1.id, '| url changed:',
+  console.log('[btab] container rebuilt:', front2 && front2.id !== front1.id, '| url changed:',
     Boolean(front2 && front1 && front2.url !== front1.url));
   if (front2) {
     const fc2 = cdp(front2.webSocketDebuggerUrl);
     await fc2.ready;
     const tree2 = await evaluate(fc2, TREE_PROBE);
     console.log('[btab] tab2 tree:', tree2);
+    const stamp2 = await evaluate(fc2, 'String(window.__bfbStamp || "LOST")');
+    console.log('[btab] stamp after switch:', stamp2, '| same:', stamp2 === stamp1);
     fc2.close();
   }
 
