@@ -43,12 +43,17 @@ describe('optional module boundaries', () => {
 
   it('guards optional settings UI and save fields with build capabilities', () => {
     const panel = source('src/renderer/components/panels/SettingsPanel.tsx');
-    expect(panel).toContain('if (!MODULE_PASSWORDS) return;');
+    const state = source('src/renderer/components/panels/settings/useSettingsPanel.ts');
+    const downloads = source('src/renderer/components/panels/settings/SettingsDownloadsSection.tsx');
+    const advanced = source('src/renderer/components/panels/settings/SettingsAdvancedSection.tsx');
+    expect(state).toContain('if (!MODULE_PASSWORDS) return;');
     expect(panel).toContain("activeSection === 'privacy' && MODULE_PASSWORDS");
     expect(panel).toContain("activeSection === 'automation' && MODULE_AUTOMATION");
-    expect(panel).toContain("activeSection === 'downloads' && MODULE_DOWNLOAD");
-    expect(panel).toContain("activeSection === 'advanced' && MODULE_USERSCRIPTS");
-    expect(panel).toContain('{MODULE_DIAGNOSTICS && (');
+    expect(panel).toContain("activeSection === 'downloads'");
+    expect(downloads).toContain('{MODULE_DOWNLOAD && (');
+    expect(panel).toContain("activeSection === 'advanced'");
+    expect(advanced).toContain('{MODULE_USERSCRIPTS && (');
+    expect(advanced).toContain('{MODULE_DIAGNOSTICS && (');
   });
 
   it('limits config defaults and validation to enabled modules', () => {
