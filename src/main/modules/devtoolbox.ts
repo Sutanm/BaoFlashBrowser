@@ -402,7 +402,9 @@ function ensureFrontendServer(): Promise<number | null> {
         const url = new URL(request.url ?? '/', 'http://127.0.0.1');
         const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'inspector.html';
         const target = path.resolve(root, relative);
-        if (!target.startsWith(root) || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
+        // 必须带 path.sep：只写 startsWith(root) 时，devtools-frontend-x 这类
+        // 兄弟目录也会被判定为在 root 内（与 installDevToolsFileGuard 的写法保持一致）。
+        if (!target.startsWith(root + path.sep) || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
           response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
           return;
         }

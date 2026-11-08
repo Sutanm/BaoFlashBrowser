@@ -506,11 +506,6 @@ export function isDekReady(): boolean {
   return !!_dek;
 }
 
-/** 当前 DEK（只读引用，调用方禁止长期持有；主要为内部与门禁使用）。 */
-export function getDek(): Buffer | null {
-  return _dek;
-}
-
 function _getDekForWrite(): Buffer {
   if (!_dek) throw new Error('Password store not ready');
   return _dek;
@@ -531,18 +526,27 @@ export async function init(): Promise<void> {
 
 async function _loadDekFromStore(): Promise<'ok' | 'transient' | 'deterministic'> {
   const startedAt = Date.now();
-  _clearDek();
   if (!isInitialized()) {
+    _clearDek();
     _keyLoadState = { outcome: 'ok', attempts: 0 };
     return 'ok';
   }
   const blob = store.get('dekAutoFillEnc');
   if (!blob) {
+    _clearDek();
     _keyLoadState = { outcome: 'ok', attempts: 0 };
     return 'ok';
   }
   const loaded = await _loadWrapKey();
   if (!loaded.key) {
+    // 读路径的瞬时失败不得清掉已经可用的 DEK（2026-09-21 事故的同一类教训）：
+    // 内存里的 DEK 仍然能解开所有条目，清掉它只会让填充/查看无谓中断。
+    // 只有确定性失败才需要丢弃它（密钥材料已不匹配当前库）。
+    if (loaded.outcome === 'transient' && _dek) {
+      log.warn('[password-store] wrap key transiently unavailable; keeping in-memory DEK');
+      return 'ok';
+    }
+    _clearDek();
     if (loaded.outcome === 'ok') {
       // 库已建但 keyEnc / keyLocal 皆空 —— 密钥材料缺失（例如被历史版本的破坏性
       // 失败处理搁置过）。确定性失败：绝不静默装作正常，也不自行重建。
@@ -568,6 +572,7 @@ async function _loadDekFromStore(): Promise<'ok' | 'transient' | 'deterministic'
   const dek = decryptBuf(loaded.key, blob);
   loaded.key.fill(0);
   if (!dek) {
+    _clearDek();
     // 有 wrap key 却解不开 dekAutoFillEnc ⇒ 密钥与密文不匹配。保留文件，不轮换。
     log.warn('[password-store] DEK unwrap failed with the stored wrap key (key file kept, no rotation)');
     _keyLoadState = {
@@ -579,6 +584,7 @@ async function _loadDekFromStore(): Promise<'ok' | 'transient' | 'deterministic'
     };
     return 'deterministic';
   }
+  _clearDek();
   _dek = dek;
   _keyLoadState = { outcome: 'ok', attempts: 0 };
   // 成功路径也要留痕（规格 D7）：否则"重建成功/加载成功"在日志里完全不可见，
@@ -680,26 +686,6 @@ export function addEntry(opts: {
   return entry.id;
 }
 
-export function updateEntry(
-  id: string,
-  fields: { title?: string; username?: string; password?: string },
-): boolean {
-  const entries = store.get('entries') || [];
-  const idx = _findEntryIndex(id);
-  if (idx < 0) return false;
-  const entry = entries[idx];
-  if (fields.title !== undefined) entry.title = fields.title;
-  if (fields.username !== undefined) entry.username = fields.username;
-  if (fields.password !== undefined) {
-    const dek = _getDekForWrite();
-    entry.passwordEnc = encryptStr(dek, fields.password);
-  }
-  entry.updatedAt = Date.now();
-  entries[idx] = entry;
-  store.set('entries', entries);
-  return true;
-}
-
 export function deleteEntry(id: string): boolean {
   const current = store.get('entries') || [];
   const entries = current.filter((entry) => entry.id !== id);
@@ -763,20 +749,6 @@ export function getFillCredentialForUrl(
     username: entry.username,
     password,
   };
-}
-
-export function getEntriesForHost(host: string): { username: string; password: string }[] {
-  if (!_dek) return [];
-  const entries = store.get('entries') || [];
-  const normalizedHost = _normalizeHost(host);
-  const out: { username: string; password: string }[] = [];
-  for (const entry of entries) {
-    if (_normalizeHost(entry.host) === normalizedHost) {
-      const password = decryptStr(_dek, entry.passwordEnc);
-      if (password !== null) out.push({ username: entry.username, password });
-    }
-  }
-  return out;
 }
 
 function _normalizeHost(host: string): string {

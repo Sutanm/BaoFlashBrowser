@@ -47,6 +47,7 @@ const keyringState = vi.hoisted(() => ({
   available: ['win-dpapi', 'electron-safestorage'] as string[],
   canUnwrap: new Set<string>(),
   attemptOrder: [] as string[],
+  failKind: 'decrypt-failed' as string,
 }));
 
 vi.mock('../src/main/modules/keyring', () => ({
@@ -72,11 +73,11 @@ vi.mock('../src/main/modules/keyring', () => ({
         return { ok: true, secret: blob.startsWith('blob:') ? blob.slice(5) : blob, backend: id };
       }
     }
-    return { ok: false, kind: 'decrypt-failed', reason: 'unwrap-failed' };
+    return { ok: false, kind: keyringState.failKind, reason: 'unwrap-failed' };
   }),
 }));
 
-import { init, isDekReady, dispose, getKeyLoadState } from '../src/main/modules/password-store';
+import { init, initVault, isDekReady, dispose, getKeyLoadState } from '../src/main/modules/password-store';
 
 const KEY_LEN = 32;
 
@@ -123,6 +124,7 @@ describe('keyEnc 后端亲和标签（规格 D4）', () => {
     keyringState.available = ['win-dpapi', 'electron-safestorage'];
     keyringState.canUnwrap = new Set();
     keyringState.attemptOrder = [];
+    keyringState.failKind = 'decrypt-failed';
     dispose();
   });
 
@@ -169,6 +171,36 @@ describe('keyEnc 后端亲和标签（规格 D4）', () => {
     expect(keyStore.get('keyEnc')).toBe(blobBefore);
     expect(keyStore.get('keyEncBackend')).toBe('win-dpapi');
     expect(storeState.writes).toEqual([]);
+    expect(getKeyLoadState()).toMatchObject({ outcome: 'deterministic', kind: 'decrypt-failed' });
+  });
+
+  // 2026-11-08 审计修复：读路径的瞬时失败（后端不可用 / 超时）不得清掉内存中
+  // 已经可用的 DEK，否则自动填充与查看会在一次抖动后全部中断。
+  it('瞬时失败时保留已就绪的 DEK，状态仍为 ok', async () => {
+    seedVault({ tag: 'win-dpapi', wrapKeyBackendReadable: true });
+    await init();
+    expect(isDekReady()).toBe(true);
+
+    keyringState.canUnwrap = new Set();
+    keyringState.failKind = 'backend-unavailable';
+    const result = await initVault();
+
+    expect(result).toEqual({ success: true, tier: 'A' });
+    expect(isDekReady()).toBe(true);
+    expect(getKeyLoadState().outcome).toBe('ok');
+  });
+
+  it('确定性失败时仍会丢弃内存中的 DEK', async () => {
+    seedVault({ tag: 'win-dpapi', wrapKeyBackendReadable: true });
+    await init();
+    expect(isDekReady()).toBe(true);
+
+    keyringState.canUnwrap = new Set();
+    keyringState.failKind = 'decrypt-failed';
+    const result = await initVault();
+
+    expect(result.success).toBe(false);
+    expect(isDekReady()).toBe(false);
     expect(getKeyLoadState()).toMatchObject({ outcome: 'deterministic', kind: 'decrypt-failed' });
   });
 });

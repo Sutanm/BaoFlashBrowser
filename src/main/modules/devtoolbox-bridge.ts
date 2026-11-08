@@ -223,7 +223,14 @@ class DevToolsBridge {
   /** 把当前活动标签的 target 挂到桥上（切标签时重新调用）。 */
   async attach(targetId: string, port: number): Promise<{ sessionId: string }> {
     if (this.targetId === targetId && this.sessionId) return { sessionId: this.sessionId };
-    const run = async (): Promise<{ sessionId: string }> => {
+    // 已有 attach 在飞：先等它落地，再判断是否已经挂到同一个 target。
+    // 直接覆盖 this.attaching 会让两次 attach 并发改 sessionId，先完成者的
+    // finally 还会把后者的 promise 清空（currentOrPendingSession 落空）。
+    if (this.attaching) {
+      try { await this.attaching; } catch { /* 失败由本次调用重新尝试 */ }
+      if (this.targetId === targetId && this.sessionId) return { sessionId: this.sessionId };
+    }
+    const task = (async (): Promise<{ sessionId: string }> => {
       await this.ensureSocket(port);
       const previousTarget = this.targetId;
       if (this.sessionId) await this.detach();
@@ -251,12 +258,13 @@ class DevToolsBridge {
       }
       log.info(`[DevToolsBridge] attached target=${targetId.slice(0, 12)}… session=${sessionId.slice(0, 12)}…`);
       return { sessionId };
-    };
-    this.attaching = run();
+    })();
+    this.attaching = task;
     try {
-      return await this.attaching;
+      return await task;
     } finally {
-      this.attaching = null;
+      // 只清理自己那一次，避免把后来者的 promise 也置空。
+      if (this.attaching === task) this.attaching = null;
     }
   }
 

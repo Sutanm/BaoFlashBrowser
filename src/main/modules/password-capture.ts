@@ -635,6 +635,7 @@ export function setupCapture(wc: WebContents): void {
     }
   };
   wc.debugger.on('message', state.messageListener);
+  captures.set(wc.id, state);
 
   wc.debugger.sendCommand('Runtime.addBinding', { name: '__baopReport' }).then(() =>
     wc.debugger.sendCommand('Runtime.enable')).then(() => {
@@ -644,9 +645,13 @@ export function setupCapture(wc: WebContents): void {
     });
   }).catch((e: unknown) => {
     log.warn('[PasswordCapture] Runtime.enable failed:', (e instanceof Error ? e.message : 'Unknown error'));
+    // 已经拿到 lease 却把失败 state 留在 captures 里，后续 setupCapture 会认为
+    // “已 attach 且未释放”而永久跳过本标签页。这里主动释放并按 attach 失败的
+    // 节奏重试；重试计数由 scheduleAttachRetry 保留，避免确定性失败无限循环。
+    if (captures.get(wc.id) !== state) return;
+    disposeCaptureState(state);
+    scheduleAttachRetry(wc);
   });
-
-  captures.set(wc.id, state);
 }
 
 export function teardownCapture(wc: WebContents): void {
@@ -654,7 +659,12 @@ export function teardownCapture(wc: WebContents): void {
   // 即使当前没有捕获状态，也要清掉挂起中的附着重试（自动化占位/标签页关闭都走这里）。
   clearAttachRetry(wc.id);
   const state = captures.get(wc.id); if (!state) return;
-  captures.delete(wc.id);
+  disposeCaptureState(state);
+}
+
+/** 只回收单个 capture 状态，不动 attach 重试表（重试路径需要保留计数）。 */
+function disposeCaptureState(state: CaptureState): void {
+  captures.delete(state.wc.id);
   state.destroyed = true;
   if (state.injectTimer) {
     clearTimeout(state.injectTimer);

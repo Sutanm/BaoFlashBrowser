@@ -18,14 +18,14 @@ import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFall
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import { automationError, automationErrorMessage } from '../../../shared/automation/error-format';
 import { OpenCvWorkerMatcher } from './vision-worker-matcher';
-import { registerAutomationAssetSource, sharedAutomaticVisionMatcher, sharedAutomationColorMatcher, sharedAutomationOcrEngine, sharedAutomationVisionMatcher, shutdownAutomationVision } from './automation-warm-start';
+import { registerAutomationAssetSource, unregisterAutomationAssetSource, sharedAutomaticVisionMatcher, sharedAutomationColorMatcher, sharedAutomationOcrEngine, sharedAutomationVisionMatcher, shutdownAutomationVision } from './automation-warm-start';
 import { keyOutAssetBackground } from './asset-keyout';
+import { getJsCompiler } from '../js-compiler';
 import { loadConfig } from '../config';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import type { AutomationCapturedFrame } from './capability-contracts';
 import { evaluateStructuredColorMatch } from './color-structure-policy';
-import ts from 'typescript';
 
 export type AutomationPackageV3Detail = {
   readonly packageId: string;
@@ -67,6 +67,8 @@ export type AutomationRunStatus = {
 };
 
 const AUTHORING_VISION_IDLE_MS = 30_000;
+/** 常驻 Worker 模式下 authoringVision 只做 LRU 缓存，避免按打开过的包无界增长。 */
+const AUTHORING_VISION_MAX_SESSIONS = 8;
 
 function shortAutomationText(value: string, maxLength = 28): string {
   const clean = value.trim().replace(/\s+/gu, ' ');
@@ -176,16 +178,42 @@ function clonePackage(source: AutomationPackageV3, patch: Partial<AutomationPack
   return { ...source, ...patch };
 }
 
+/**
+ * 转译 TS 前端脚本。
+ *
+ * 以前直接用 typescript 包的 transpileModule，会把整个编译器（约 8 MB）
+ * 打进主进程 bundle；esbuild 已是运行时依赖（js-compiler 负责 ASAR 路径），
+ * 转译能力等价，且只做语法剥离、不做类型检查。
+ */
+function transpileTypeScript(input: string): string {
+  try {
+    const result = getJsCompiler().transformSync(input, {
+      loader: 'ts',
+      target: 'es2019',
+      // 对齐 TypeScript 在 target < ES2022 时的默认值，避免 class field
+      // 从赋值语义变成 defineProperty 语义。
+      tsconfigRaw: { compilerOptions: { useDefineForClassFields: false } },
+    });
+    // transpileModule 会为脚本补 "use strict"，esbuild 不会；严格模式影响
+    // 顶层 this 与隐式全局赋值，必须保持原有语义。
+    return /^\s*['"]use strict['"]/u.test(result.code) ? result.code : `'use strict';\n${result.code}`;
+  } catch (error) {
+    const details = (error as { errors?: Array<{ text?: string; location?: { line: number; column: number } | null }> }).errors;
+    if (!details?.length) throw error;
+    const message = details
+      .map((item) => `${item.location ? `${item.location.line}:${item.location.column} ` : ''}${item.text ?? 'unknown error'}`)
+      .join('\n');
+    throw new Error(`TypeScript 编译失败：${message}`);
+  }
+}
+
 function runtimePackage(source: AutomationPackageV3): AutomationPackageV3 {
   const typescriptEntries = source.manifest.frontends.scripts.filter((entry) => entry.language === 'typescript' || entry.path.endsWith('.ts'));
   if (!typescriptEntries.length) return source;
   const scripts = new Map(source.scripts);
   for (const entry of typescriptEntries) {
     const input = scripts.get(entry.path); if (input === undefined) continue;
-    const result = ts.transpileModule(input, { compilerOptions: { target: ts.ScriptTarget.ES2019, module: ts.ModuleKind.None, strict: true }, reportDiagnostics: true });
-    const errors = result.diagnostics?.filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error) ?? [];
-    if (errors.length) throw new Error(`TypeScript 编译失败：${errors.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')).join('\n')}`);
-    scripts.set(entry.path, result.outputText);
+    scripts.set(entry.path, transpileTypeScript(input));
   }
   return clonePackage(source, { scripts });
 }
@@ -193,6 +221,8 @@ function runtimePackage(source: AutomationPackageV3): AutomationPackageV3 {
 export class AutomationV3Service {
   readonly ready: Promise<void>;
   private active: { session: BrowserViewAutomationCoreSession; handle: WorkflowRunHandle | JavaScriptSandboxRunHandle; packageId: string; frontendId: string } | null = null;
+  /** start() 的异步准备阶段占位，避免并发调用同时通过 this.active 检查。 */
+  private starting = false;
   private runStatus: AutomationRunStatus = { state: 'idle', executedSteps: 0, logs: [] };
   private readonly captures = new Map<string, { image: NativeImage; referenceKind: 'viewport' | 'region' | 'surface'; viewportTransform: { scaleX: number; scaleY: number }; createdAt: number; timer: NodeJS.Timeout }>();
   private readonly authoringVision = new Map<string, AuthoringVisionSession>();
@@ -321,18 +351,23 @@ export class AutomationV3Service {
     await this.closeAuthoringVision(packageId);
     await this.repository.remove(packageId);
     await this.grants.remove(packageId);
+    // 包已删除：从共享素材注册表移除，避免同名素材继续解析到已删包的字节。
+    unregisterAutomationAssetSource(packageId);
   }
   async export(packageId: string): Promise<Uint8Array> { await this.ready; return this.repository.export(packageId); }
 
   async start(packageId: string, frontendId: string, tabId: string, profilePath?: string): Promise<{ runId: string }> {
     await this.ready;
-    if (this.active) throw new Error('another Automation 2.0 run is active');
+    // starting 覆盖从校验通过到 this.active 赋值之间的整个异步准备阶段；
+    // 只检查 this.active 会让两个并发 start() 都通过检查并各建一个会话。
+    if (this.active || this.starting) throw new Error('another Automation 2.0 run is active');
     const source = this.repository.get(packageId);
     const validFrontends = new Set([...(source.workflow ? ['workflow'] : []), ...source.manifest.frontends.scripts.map((entry) => entry.id)]);
     if (!validFrontends.has(frontendId)) throw new Error(`automation frontend is missing: ${frontendId}`);
     const profile = profilePath ? source.profiles.get(profilePath) : undefined;
     if (profilePath && !profile) throw new Error(`automation profile is missing: ${profilePath}`);
     if (profile && profile.entryId !== frontendId) throw new Error(`profile ${profile.id} belongs to frontend ${profile.entryId}`);
+    this.starting = true;
     this.runStatus = { state: 'preparing', packageId, frontendId, workflowName: source.manifest.name, currentStep: '正在准备目标页面', executedSteps: 0, startedAt: Date.now(), logs: [] };
     this.appendRunLog('info', `开始运行「${source.manifest.name}」· ${frontendId === 'workflow' ? 'Blockly 主流程' : frontendId}`);
     let tab: ReturnType<typeof tabManager.beginAutomation> | undefined;
@@ -342,8 +377,10 @@ export class AutomationV3Service {
       await tab.ready;
       this.updateRunStatus({ currentStep: '正在初始化 Automation Core' });
       // 运行会话复用常驻 Worker/Sidecar,避免每次运行重新支付 OpenCV/OCR 冷启动。
-      registerAutomationAssetSource(packageId, runtimePackage(source));
-      session = new BrowserViewAutomationCoreSession(tab, runtimePackage(source), profile, (message, level) => this.appendRunLog(level === 'error' ? 'error' : 'info', message, false), (entryId) => this.grants.get(packageId, entryId), { matcher: sharedAutomationVisionMatcher(), colorMatcher: sharedAutomationColorMatcher(), automaticMatcher: sharedAutomaticVisionMatcher(), ocrEngine: sharedAutomationOcrEngine() });
+      // 只转译一次：esbuild.transformSync 每次都会拉起子进程，重复调用没有意义。
+      const runtime = runtimePackage(source);
+      registerAutomationAssetSource(packageId, runtime);
+      session = new BrowserViewAutomationCoreSession(tab, runtime, profile, (message, level) => this.appendRunLog(level === 'error' ? 'error' : 'info', message, false), (entryId) => this.grants.get(packageId, entryId), { matcher: sharedAutomationVisionMatcher(), colorMatcher: sharedAutomationColorMatcher(), automaticMatcher: sharedAutomaticVisionMatcher(), ocrEngine: sharedAutomationOcrEngine() });
       const handle = frontendId === 'workflow' ? session.startWorkflow() : session.startJavaScript(frontendId, this.grants.get(packageId, frontendId));
       this.active = { session, handle, packageId, frontendId };
       this.updateRunStatus({ state: 'running', runId: handle.runId, currentStep: frontendId === 'workflow' ? '正在执行主流程' : `正在执行脚本 ${frontendId}` });
@@ -394,6 +431,8 @@ export class AutomationV3Service {
       this.appendRunLog('error', message);
       this.updateRunStatus({ state: 'failed', currentStep: '启动失败', message, finishedAt: Date.now() });
       throw error;
+    } finally {
+      this.starting = false;
     }
   }
 
@@ -674,7 +713,12 @@ export class AutomationV3Service {
     // 素材源交给常驻 Worker 的注册表解析,模板按内容 SHA-256 缓存,跨包共享。
     registerAutomationAssetSource(packageId, source);
     const existing = this.authoringVision.get(packageId);
-    if (existing) return existing;
+    if (existing) {
+      // 刷新 LRU 顺序：最近使用的包移到队尾，淘汰时优先丢最久未用的。
+      this.authoringVision.delete(packageId);
+      this.authoringVision.set(packageId, existing);
+      return existing;
+    }
     const cached: AuthoringVisionSession = {
       matcher: sharedAutomationVisionMatcher(),
       colorMatcher: sharedAutomationColorMatcher(),
@@ -685,7 +729,22 @@ export class AutomationV3Service {
     clearTimeout(cached.closeTimer);
     cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached);
     this.authoringVision.set(packageId, cached);
+    this.evictAuthoringVisionSessions();
     return cached;
+  }
+
+  /**
+   * 常驻 Worker 下条目不会自行过期，必须设上限。淘汰只清缓存引用，
+   * 不 shutdown Worker —— 预热模块仍持有它，重新打开包只是重新建 map 条目。
+   */
+  private evictAuthoringVisionSessions(): void {
+    while (this.authoringVision.size > AUTHORING_VISION_MAX_SESSIONS) {
+      const oldest = this.authoringVision.keys().next().value as string | undefined;
+      if (oldest === undefined) return;
+      const evicted = this.authoringVision.get(oldest);
+      this.authoringVision.delete(oldest);
+      if (evicted) clearTimeout(evicted.closeTimer);
+    }
   }
 
   private scheduleAuthoringVisionClose(packageId: string, cached: AuthoringVisionSession): NodeJS.Timeout {

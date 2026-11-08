@@ -570,8 +570,4 @@ export async function resumeDownload(id: string): Promise<boolean> {
   return false;
 }
 
-export function isAria2Ready(): boolean {
-  return aria2Ready;
-}
-
 export { killAria2 };

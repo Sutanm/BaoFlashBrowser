@@ -502,15 +502,20 @@ export class UserscriptManager {
     if (!commandId || commandId.length > 200 || !commandId.startsWith(expectedPrefix)) return false;
     const localId = Number(commandId.slice(expectedPrefix.length));
     if (!Number.isInteger(localId) || localId < 1) return false;
-    for (const existing of this.commands.values()) {
-      if (existing.scriptId !== scriptId || existing.title !== title) continue;
-      if (existing.isMainFrame || !isMainFrame) return true;
-      this.commands.delete(existing.commandId);
-      this.commandsByWc.get(wcId)?.delete(existing.commandId);
-      break;
+    // 去重范围必须限制在当前 view：同一个脚本会在每个标签页各注册一次，
+    // 按全局 commands 去重会让第二个标签页的同名命令被直接吞掉（菜单里看不到）。
+    let bucket = this.commandsByWc.get(wcId);
+    if (bucket) {
+      for (const existingId of bucket) {
+        const existing = this.commands.get(existingId);
+        if (!existing || existing.scriptId !== scriptId || existing.title !== title) continue;
+        if (existing.isMainFrame || !isMainFrame) return true;
+        this.commands.delete(existingId);
+        bucket.delete(existingId);
+        break;
+      }
     }
     this.commands.set(commandId, { commandId, scriptId, documentId, title, isMainFrame });
-    let bucket = this.commandsByWc.get(wcId);
     if (!bucket) {
       bucket = new Set();
       this.commandsByWc.set(wcId, bucket);

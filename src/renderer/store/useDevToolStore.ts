@@ -132,7 +132,6 @@ export interface DevToolState {
    */
   devtoolsReloadToken: number;
   entries: DevToolEntry[];
-  loaded: boolean;
 
   setOpen: (open: boolean) => void;
   toggle: () => void;
@@ -145,7 +144,6 @@ export interface DevToolState {
   ingest: (entries: DevToolEntry[]) => void;
   replaceEntries: (entries: DevToolEntry[]) => void;
   clearEntries: () => void;
-  setLoaded: (loaded: boolean) => void;
 }
 
 const initialDock = readStoredDock();
@@ -160,7 +158,6 @@ export const useDevToolStore = create<DevToolState>((set) => ({
   tabTarget: {},
   devtoolsReloadToken: 0,
   entries: [],
-  loaded: false,
 
   setOpen: (open) => set({ open }),
   toggle: () => set((state) => ({ open: !state.open })),
@@ -196,7 +193,6 @@ export const useDevToolStore = create<DevToolState>((set) => ({
     entries: entries.length > MAX_ENTRIES ? entries.slice(entries.length - MAX_ENTRIES) : entries,
   }),
   clearEntries: () => set({ entries: [] }),
-  setLoaded: (loaded) => set({ loaded }),
 }));
 
 export const DEVTOOL_MIN_HEIGHT = MIN_HEIGHT;

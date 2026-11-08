@@ -21,13 +21,3 @@ export const useTabsStore = create<TabsState>((set) => ({
     set((state) => ({ tabs: typeof t === 'function' ? t(state.tabs) : t })),
   setActiveTabId: (id) => set({ activeTabId: id }),
 }));
-
-export const useActiveTab = (): TabState | null => {
-  const tabs = useTabsStore((s) => s.tabs);
-  const activeTabId = useTabsStore((s) => s.activeTabId);
-  return tabs.find((t) => t.id === activeTabId) ?? null;
-};
-
-export const useTabCount = (): number => {
-  return useTabsStore((s) => s.tabs.length);
-};

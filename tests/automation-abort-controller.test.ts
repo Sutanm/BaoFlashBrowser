@@ -27,7 +27,6 @@ describe('automation AbortController compatibility', () => {
     const files = [
       'main/modules/automation/browserview-core-session.ts',
       'main/modules/automation/javascript-capability-broker.ts',
-      'main/modules/automation/ocr-benchmark.ts',
       'shared/automation/core/workflow-runtime.ts',
     ];
     for (const file of files) expect(fs.readFileSync(path.join(root, file), 'utf8')).not.toMatch(/new\s+AbortController\s*\(/u);

@@ -644,7 +644,6 @@ class TabManager {
     this.wcToId.delete(wc.id);
     try { getMainWindow()?.removeBrowserView(view); } catch { /* gone */ }
     try { if (!wc.isDestroyed()) (wc as unknown as { destroy(): void }).destroy(); } catch { /* gone */ }
-    try { (view as unknown as { destroy(): void }).destroy(); } catch { /* Electron 11 BrowserView */ }
   }
 
   destroyAll(): void {

@@ -270,8 +270,3 @@ export class LinuxSecretToolBackend implements KeyringBackend {
     } catch { /* 清理是 best-effort */ }
   }
 }
-
-/** 供 keyring.ts 平台链引用（与 createWinDpapiBackend 对称）。 */
-export function createLinuxSecretToolBackend(): LinuxSecretToolBackend {
-  return new LinuxSecretToolBackend();
-}

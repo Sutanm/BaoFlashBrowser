@@ -106,18 +106,3 @@ export function scheduleScripts(scripts: SnapshotScript[], host: SchedulerHost):
     }
   }
 }
-
-export function runAtPriority(runAt: RunAt): number {
-  switch (runAt) {
-    case 'document-start':
-      return 0;
-    case 'document-body':
-      return 1;
-    case 'document-end':
-      return 2;
-    case 'document-idle':
-      return 3;
-    default:
-      return 3;
-  }
-}
