@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CAPTURE_SCRIPT } from '../src/main/modules/password-capture';
+import { CAPTURE_SCRIPT } from '../src/main/modules/password-capture-script';
 
 vi.mock('../src/main/modules/password-store', () => ({
   getMetaForHost: () => [], isAutoCaptureEnabled: () => true, isCaptureExcluded: () => false,
