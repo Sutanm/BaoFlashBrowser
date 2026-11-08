@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { performance } from 'perf_hooks';
 import { nativeImage, type NativeImage } from 'electron';
-import type { TargetRef, ValueExpression, WorkflowDocumentV3, WorkflowNode } from '../../../shared/automation/core';
+import type { WorkflowDocumentV3, WorkflowNode } from '../../../shared/automation/core';
 import { validateWorkflowDocument } from '../../../shared/automation/core';
 import type { JavaScriptAutomationCapability } from '../../../shared/automation/javascript-api';
 import type { AutomationPackageV3, AutomationProfileV3 } from '../../../shared/automation/package-v3';
@@ -17,11 +17,11 @@ import { decodeAutomationImageGroup } from '../../../shared/automation/image-gro
 import { DEFAULT_IMAGE_MATCH_MASK, DEFAULT_IMAGE_MATCH_THRESHOLD, imageMatchFallbackScales, imageMatchScales } from '../../../shared/automation/vision-policy';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import { automationError, automationErrorMessage } from '../../../shared/automation/error-format';
-import { OpenCvWorkerMatcher } from './vision-worker-matcher';
-import { registerAutomationAssetSource, unregisterAutomationAssetSource, sharedAutomaticVisionMatcher, sharedAutomationColorMatcher, sharedAutomationOcrEngine, sharedAutomationVisionMatcher, shutdownAutomationVision } from './automation-warm-start';
+import { registerAutomationAssetSource, unregisterAutomationAssetSource, sharedAutomaticVisionMatcher, sharedAutomationColorMatcher, sharedAutomationOcrEngine, sharedAutomationVisionMatcher } from './automation-warm-start';
 import { keyOutAssetBackground } from './asset-keyout';
-import { getJsCompiler } from '../js-compiler';
-import { loadConfig } from '../config';
+import { clonePackage, runtimePackage } from './automation-transpile';
+import { describeWorkflowNode, indexWorkflowNodes, shouldReportWorkflowNode, workflowReferencesScript } from './automation-run-description';
+import { AuthoringVisionPool } from './authoring-vision-pool';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import type { AutomationCapturedFrame } from './capability-contracts';
@@ -35,14 +35,6 @@ export type AutomationPackageV3Detail = {
   readonly scripts: readonly { readonly id: string; readonly name: string; readonly path: string; readonly language: 'javascript' | 'typescript'; readonly permissions: readonly JavaScriptAutomationCapability[]; readonly source: string }[];
   readonly assets: readonly string[];
   readonly profiles: readonly { readonly path: string; readonly profile: AutomationProfileV3 }[];
-};
-
-type AuthoringVisionSession = {
-  readonly matcher: OpenCvWorkerMatcher;
-  readonly colorMatcher: ReturnType<typeof sharedAutomationColorMatcher>;
-  readonly automaticMatcher: ReturnType<typeof sharedAutomaticVisionMatcher>;
-  queue: Promise<void>;
-  closeTimer: NodeJS.Timeout;
 };
 
 export type AutomationRunLog = {
@@ -66,105 +58,6 @@ export type AutomationRunStatus = {
   readonly logs: readonly AutomationRunLog[];
 };
 
-const AUTHORING_VISION_IDLE_MS = 30_000;
-/** 常驻 Worker 模式下 authoringVision 只做 LRU 缓存，避免按打开过的包无界增长。 */
-const AUTHORING_VISION_MAX_SESSIONS = 8;
-
-function shortAutomationText(value: string, maxLength = 28): string {
-  const clean = value.trim().replace(/\s+/gu, ' ');
-  return clean.length > maxLength ? `${clean.slice(0, maxLength)}…` : clean;
-}
-
-function literalExpression(value: ValueExpression): null | boolean | number | string | undefined {
-  return value.kind === 'literal' ? value.value : undefined;
-}
-
-function describeTarget(target: TargetRef): string {
-  const locator = target.locator;
-  if (locator.kind === 'coordinate') {
-    const x = locator.point.unit === 'ratio' ? Math.round(locator.point.x * 10_000) : Math.round(locator.point.x);
-    const y = locator.point.unit === 'ratio' ? Math.round(locator.point.y * 10_000) : Math.round(locator.point.y);
-    return `坐标 ${x},${y}`;
-  }
-  if (locator.kind === 'image') {
-    const names = [locator.asset, ...(locator.alternatives ?? [])];
-    if (names.length > 1) return `图片组（${names.length} 张）`;
-    return `图片「${shortAutomationText(locator.asset.replace(/^assets\//u, ''))}」`;
-  }
-  if (locator.kind === 'text') return `文字「${shortAutomationText(locator.text)}」`;
-  return `多个目标（${locator.locators.length} 项）`;
-}
-
-function describeWorkflowNode(node: WorkflowNode): string {
-  if (node.kind === 'with') {
-    if (node.surface?.kind === 'visual') return '进入指定游戏画面';
-    if (node.surface?.kind === 'region' || node.region) return '进入指定坐标范围';
-    if (node.surface?.kind === 'viewport') return '使用整个页面范围';
-    return '切换执行范围';
-  }
-  if (node.kind === 'action') {
-    const action = node.action;
-    if (action.kind === 'click') return `点击${describeTarget(action.target)}`;
-    if (action.kind === 'move') return `移动到${describeTarget(action.target)}`;
-    if (action.kind === 'drag') return `拖拽：${describeTarget(action.from)} → ${describeTarget(action.to)}`;
-    if (action.kind === 'keyPress') return `按键「${action.key}」`;
-    if (action.kind === 'typeText') return `输入文字「${shortAutomationText(action.text)}」`;
-    if (action.kind === 'scroll') return '滚动页面';
-    if (action.kind === 'navigate') return `打开网址「${shortAutomationText(action.url)}」`;
-    if (action.kind === 'reload') return '刷新页面';
-    if (action.kind === 'log') return `记录日志「${shortAutomationText(action.message)}」`;
-    return `发送通知「${shortAutomationText(action.title)}」`;
-  }
-  if (node.kind === 'wait') {
-    if ('durationMs' in node) {
-      const duration = literalExpression(node.durationMs);
-      return typeof duration === 'number' ? `等待 ${duration} 毫秒` : '等待指定时间';
-    }
-    return '等待识别条件满足';
-  }
-  if (node.kind === 'loop') {
-    const count = node.mode === 'repeat' ? literalExpression(node.count) : undefined;
-    return typeof count === 'number' ? `重复执行 ${count} 次` : node.mode === 'while' ? '按条件重复执行' : '一直循环';
-  }
-  if (node.kind === 'if') return '判断条件';
-  if (node.kind === 'query') {
-    if (node.query.kind === 'readText') return `读取文字 → ${node.assignTo}`;
-    if (node.query.kind === 'readNumber') return `读取数字 → ${node.assignTo}`;
-    if (node.query.kind === 'find') return `查找目标 → ${node.assignTo}`;
-    return `判断目标是否存在 → ${node.assignTo}`;
-  }
-  if (node.kind === 'let') return `设置变量「${node.name}」`;
-  if (node.kind === 'set') return `更新变量「${node.name}」`;
-  if (node.kind === 'callScript') return `运行脚本「${node.scriptId}」`;
-  if (node.kind === 'break') return '跳出循环';
-  if (node.kind === 'continue') return '继续下一次循环';
-  return '执行流程';
-}
-
-function indexWorkflowNodes(root: WorkflowNode): ReadonlyMap<string, WorkflowNode> {
-  const nodes = new Map<string, WorkflowNode>();
-  const visit = (node: WorkflowNode): void => {
-    nodes.set(node.id, node);
-    if (node.kind === 'sequence') node.nodes.forEach(visit);
-    else if (node.kind === 'with' || node.kind === 'loop') visit(node.body);
-    else if (node.kind === 'if') { visit(node.then); if (node.else) visit(node.else); }
-  };
-  visit(root);
-  return nodes;
-}
-
-function workflowReferencesScript(root: WorkflowNode, scriptId: string): boolean {
-  if (root.kind === 'callScript' && root.scriptId === scriptId) return true;
-  if (root.kind === 'sequence') return root.nodes.some((node) => workflowReferencesScript(node, scriptId));
-  if (root.kind === 'with' || root.kind === 'loop') return workflowReferencesScript(root.body, scriptId);
-  if (root.kind === 'if') return workflowReferencesScript(root.then, scriptId) || Boolean(root.else && workflowReferencesScript(root.else, scriptId));
-  return false;
-}
-
-function shouldReportWorkflowNode(node: WorkflowNode): boolean {
-  return node.kind !== 'sequence';
-}
-
 function cropPreview(image: NativeImage, region: { x: number; y: number; width: number; height: number } | undefined): { image: NativeImage; origin: { x: number; y: number } } {
   if (!region) return { image, origin: { x: 0, y: 0 } };
   const size = image.getSize();
@@ -174,50 +67,6 @@ function cropPreview(image: NativeImage, region: { x: number; y: number; width: 
   return { image: image.crop({ x, y, width: right - x, height: bottom - y }), origin: { x, y } };
 }
 
-function clonePackage(source: AutomationPackageV3, patch: Partial<AutomationPackageV3>): AutomationPackageV3 {
-  return { ...source, ...patch };
-}
-
-/**
- * 转译 TS 前端脚本。
- *
- * 以前直接用 typescript 包的 transpileModule，会把整个编译器（约 8 MB）
- * 打进主进程 bundle；esbuild 已是运行时依赖（js-compiler 负责 ASAR 路径），
- * 转译能力等价，且只做语法剥离、不做类型检查。
- */
-function transpileTypeScript(input: string): string {
-  try {
-    const result = getJsCompiler().transformSync(input, {
-      loader: 'ts',
-      target: 'es2019',
-      // 对齐 TypeScript 在 target < ES2022 时的默认值，避免 class field
-      // 从赋值语义变成 defineProperty 语义。
-      tsconfigRaw: { compilerOptions: { useDefineForClassFields: false } },
-    });
-    // transpileModule 会为脚本补 "use strict"，esbuild 不会；严格模式影响
-    // 顶层 this 与隐式全局赋值，必须保持原有语义。
-    return /^\s*['"]use strict['"]/u.test(result.code) ? result.code : `'use strict';\n${result.code}`;
-  } catch (error) {
-    const details = (error as { errors?: Array<{ text?: string; location?: { line: number; column: number } | null }> }).errors;
-    if (!details?.length) throw error;
-    const message = details
-      .map((item) => `${item.location ? `${item.location.line}:${item.location.column} ` : ''}${item.text ?? 'unknown error'}`)
-      .join('\n');
-    throw new Error(`TypeScript 编译失败：${message}`);
-  }
-}
-
-function runtimePackage(source: AutomationPackageV3): AutomationPackageV3 {
-  const typescriptEntries = source.manifest.frontends.scripts.filter((entry) => entry.language === 'typescript' || entry.path.endsWith('.ts'));
-  if (!typescriptEntries.length) return source;
-  const scripts = new Map(source.scripts);
-  for (const entry of typescriptEntries) {
-    const input = scripts.get(entry.path); if (input === undefined) continue;
-    scripts.set(entry.path, transpileTypeScript(input));
-  }
-  return clonePackage(source, { scripts });
-}
-
 export class AutomationV3Service {
   readonly ready: Promise<void>;
   private active: { session: BrowserViewAutomationCoreSession; handle: WorkflowRunHandle | JavaScriptSandboxRunHandle; packageId: string; frontendId: string } | null = null;
@@ -225,7 +74,7 @@ export class AutomationV3Service {
   private starting = false;
   private runStatus: AutomationRunStatus = { state: 'idle', executedSteps: 0, logs: [] };
   private readonly captures = new Map<string, { image: NativeImage; referenceKind: 'viewport' | 'region' | 'surface'; viewportTransform: { scaleX: number; scaleY: number }; createdAt: number; timer: NodeJS.Timeout }>();
-  private readonly authoringVision = new Map<string, AuthoringVisionSession>();
+  private readonly authoringVision = new AuthoringVisionPool();
   /** 与预热模块共享同一 Sidecar,避免工作台再建一个 OCR 进程。 */
   private readonly authoringOcr = sharedAutomationOcrEngine();
   constructor(private readonly repository: AutomationPackageV3Repository, private readonly grants: JavaScriptAutomationGrantStore) {
@@ -340,7 +189,7 @@ export class AutomationV3Service {
       if ((approvals[entry.id] ?? []).some((permission) => !requested.has(permission))) throw new Error(`install grant exceeds requested permissions: ${entry.id}`);
     }
     const installed = await this.repository.install(bytes, replace);
-    await this.closeAuthoringVision(installed.packageId);
+    await this.authoringVision.close(installed.packageId);
     const source = this.repository.get(installed.packageId);
     for (const entry of source.manifest.frontends.scripts) await this.grants.approve(installed.packageId, entry.id, entry.permissions, approvals[entry.id] ?? []);
     return installed;
@@ -348,7 +197,7 @@ export class AutomationV3Service {
   async remove(packageId: string): Promise<void> {
     await this.ready;
     if (this.active?.packageId === packageId) throw new Error('自动化正在运行，请先停止后再删除自动化包');
-    await this.closeAuthoringVision(packageId);
+    await this.authoringVision.close(packageId);
     await this.repository.remove(packageId);
     await this.grants.remove(packageId);
     // 包已删除：从共享素材注册表移除，避免同名素材继续解析到已删包的字节。
@@ -471,7 +320,7 @@ export class AutomationV3Service {
       delete assetMetadata[assetPath];
     }
     await this.repository.save(clonePackage(current, { assets, manifest: { ...current.manifest, assetMetadata } }));
-    await this.closeAuthoringVision(packageId);
+    await this.authoringVision.close(packageId);
     return this.getPackage(packageId);
   }
 
@@ -481,7 +330,7 @@ export class AutomationV3Service {
     const assets = new Map(current.assets); assets.delete(normalized);
     const assetMetadata = { ...(current.manifest.assetMetadata ?? {}) }; delete assetMetadata[normalized];
     await this.repository.save(clonePackage(current, { assets, manifest: { ...current.manifest, assetMetadata } }));
-    await this.closeAuthoringVision(packageId);
+    await this.authoringVision.close(packageId);
     return this.getPackage(packageId);
   }
 
@@ -531,7 +380,7 @@ export class AutomationV3Service {
       [asset]: { source: 'capture' as const, reference: { kind: capture.referenceKind, width: size.width, height: size.height, viewportTransform: capture.viewportTransform } },
     };
     await this.repository.save(clonePackage(source, { assets, manifest: { ...source.manifest, assetMetadata } }));
-    await this.closeAuthoringVision(packageId);
+    await this.authoringVision.close(packageId);
     clearTimeout(capture.timer); this.captures.delete(token);
     return { asset };
   }
@@ -543,7 +392,7 @@ export class AutomationV3Service {
   async testAssetOnImage(packageId: string, asset: string, image: NativeImage, _threshold = DEFAULT_IMAGE_MATCH_THRESHOLD, scales: readonly number[] = imageMatchScales(), mask: 'auto' | 'none' | 'alpha' = DEFAULT_IMAGE_MATCH_MASK) {
     await this.ready;
     const source = this.repository.get(packageId);
-    const cached = this.getAuthoringVision(packageId, source);
+    const cached = this.authoringVision.get(packageId, source);
     const previous = cached.queue;
     let release!: () => void;
     cached.queue = new Promise<void>((resolve) => { release = resolve; });
@@ -581,7 +430,7 @@ export class AutomationV3Service {
       return { candidate: match, matched, rejectionReason };
     } finally {
       release();
-      cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached);
+      this.authoringVision.rearm(packageId, cached);
     }
   }
 
@@ -675,21 +524,21 @@ export class AutomationV3Service {
   async warmAuthoring(packageId: string): Promise<void> {
     await this.ready;
     const source = this.repository.get(packageId);
-    const cached = this.getAuthoringVision(packageId, source);
+    const cached = this.authoringVision.get(packageId, source);
     const previous = cached.queue;
     let release!: () => void;
     cached.queue = new Promise<void>((resolve) => { release = resolve; });
     clearTimeout(cached.closeTimer);
     await previous;
     try { await cached.matcher.warmup(createAutomationAbortController().signal); }
-    finally { release(); cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached); }
+    finally { release(); this.authoringVision.rearm(packageId, cached); }
   }
 
   private async withAuthoring<T>(packageId: string, tabId: string, task: (session: BrowserViewAutomationCoreSession) => Promise<T>): Promise<T> {
     await this.ready;
     if (this.active) throw new Error('cannot author assets while automation is running');
     const source = this.repository.get(packageId);
-    const cached = this.getAuthoringVision(packageId, source);
+    const cached = this.authoringVision.get(packageId, source);
     const previous = cached.queue;
     let release!: () => void;
     cached.queue = new Promise<void>((resolve) => { release = resolve; });
@@ -698,85 +547,20 @@ export class AutomationV3Service {
     const handle = tabManager.beginAutomation(tabId, { mode: 'fixed', width: 1280, height: 720 });
     try { await handle.ready; }
     catch (error) {
-      handle.release(); release(); cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached); throw error;
+      handle.release(); release(); this.authoringVision.rearm(packageId, cached); throw error;
     }
     const session = new BrowserViewAutomationCoreSession(handle, source, undefined, undefined, undefined, { matcher: cached.matcher, colorMatcher: cached.colorMatcher, automaticMatcher: cached.automaticMatcher, ocrEngine: this.authoringOcr });
     try { return await task(session); }
     finally {
       await session.close();
       release();
-      cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached);
+      this.authoringVision.rearm(packageId, cached);
     }
-  }
-
-  private getAuthoringVision(packageId: string, source: AutomationPackageV3): AuthoringVisionSession {
-    // 素材源交给常驻 Worker 的注册表解析,模板按内容 SHA-256 缓存,跨包共享。
-    registerAutomationAssetSource(packageId, source);
-    const existing = this.authoringVision.get(packageId);
-    if (existing) {
-      // 刷新 LRU 顺序：最近使用的包移到队尾，淘汰时优先丢最久未用的。
-      this.authoringVision.delete(packageId);
-      this.authoringVision.set(packageId, existing);
-      return existing;
-    }
-    const cached: AuthoringVisionSession = {
-      matcher: sharedAutomationVisionMatcher(),
-      colorMatcher: sharedAutomationColorMatcher(),
-      automaticMatcher: sharedAutomaticVisionMatcher(),
-      queue: Promise.resolve(),
-      closeTimer: setTimeout(() => undefined, 0),
-    };
-    clearTimeout(cached.closeTimer);
-    cached.closeTimer = this.scheduleAuthoringVisionClose(packageId, cached);
-    this.authoringVision.set(packageId, cached);
-    this.evictAuthoringVisionSessions();
-    return cached;
-  }
-
-  /**
-   * 常驻 Worker 下条目不会自行过期，必须设上限。淘汰只清缓存引用，
-   * 不 shutdown Worker —— 预热模块仍持有它，重新打开包只是重新建 map 条目。
-   */
-  private evictAuthoringVisionSessions(): void {
-    while (this.authoringVision.size > AUTHORING_VISION_MAX_SESSIONS) {
-      const oldest = this.authoringVision.keys().next().value as string | undefined;
-      if (oldest === undefined) return;
-      const evicted = this.authoringVision.get(oldest);
-      this.authoringVision.delete(oldest);
-      if (evicted) clearTimeout(evicted.closeTimer);
-    }
-  }
-
-  private scheduleAuthoringVisionClose(packageId: string, cached: AuthoringVisionSession): NodeJS.Timeout {
-    // 常驻开启时 Worker 归预热模块所有。这里关闭它等于把下次识别打回冷启动,
-    // 因此只保留记录、不做实际回收。
-    if (loadConfig().automationVisionWarmStart ?? true) {
-      const idle = setTimeout(() => undefined, 0);
-      idle.unref();
-      return idle;
-    }
-    const timer = setTimeout(() => {
-      if (this.authoringVision.get(packageId) !== cached) return;
-      this.authoringVision.delete(packageId);
-      void cached.queue.then(() => shutdownAutomationVision());
-    }, AUTHORING_VISION_IDLE_MS);
-    timer.unref();
-    return timer;
-  }
-
-  private async closeAuthoringVision(packageId: string): Promise<void> {
-    const cached = this.authoringVision.get(packageId);
-    if (!cached) return;
-    this.authoringVision.delete(packageId);
-    clearTimeout(cached.closeTimer);
-    await cached.queue;
-    // 常驻开启时保留 Worker;非常驻时释放,恢复"用完即回收"的旧行为。
-    if (!(loadConfig().automationVisionWarmStart ?? true)) await shutdownAutomationVision();
   }
 
   async shutdown(): Promise<void> {
     await this.cancel();
-    await Promise.all([...this.authoringVision.keys()].map((packageId) => this.closeAuthoringVision(packageId)));
+    await this.authoringVision.closeAll();
     // OCR Sidecar 与 OpenCV Worker 由预热模块统一持有,退出时在那里释放。
   }
 }
