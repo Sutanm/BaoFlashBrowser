@@ -475,7 +475,7 @@ describe('Automation image recognition policy', () => {
   it('keeps assistant, workbench and Blockly wired to the shared policy', () => {    const read = (file: string): string => fs.readFileSync(path.resolve(file), 'utf8');
     const assistant = read('src/main/modules/userscripts/bundled-scripts/automation-frame-assistant.user.js');
     const assistantIpc = read('src/main/ipc/automation-assistant-bridge.ts');
-    const workbench = read('src/renderer/components/automation/AutomationPage.tsx');
+    const workbench = read('src/renderer/components/automation/useAutomationWorkbench.ts');
     const blockly = read('src/renderer/components/automation/automation-blockly-v2-schema.ts');
 
     expect(assistant).not.toContain('scales: [0.75, 1, 1.25]');
