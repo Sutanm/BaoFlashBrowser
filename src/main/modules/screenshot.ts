@@ -4,8 +4,7 @@ import { accessSync, constants as fsConstants, existsSync } from 'fs';
 import path from 'path';
 import { app } from 'electron';
 import log from 'electron-log';
-import { getMainWindow } from './window';
-import { tabManager } from './tabs';
+import { findTabManagerByTabId, getTabOwnerWindow } from './tabs';
 import { loadConfig } from './config';
 import { isPathWithinDirectory, sanitizeDownloadFilename } from '../utils/download-path';
 
@@ -110,9 +109,11 @@ async function captureWebContents(
 }
 
 export async function captureTab(tabId: string, opts: ScreenshotOptions): Promise<ScreenshotResult> {
-  const win = getMainWindow();
-  const wc = tabManager.getWebContents(tabId);
-  const isActive = tabManager.isTabActive(tabId);
+  // 风控输入必须来自该标签的宿主窗口/所属实例，不能读全局"最近聚焦窗口"。
+  const win = getTabOwnerWindow(tabId);
+  const manager = findTabManagerByTabId(tabId);
+  const wc = manager?.getWebContents(tabId) ?? null;
+  const isActive = manager?.isTabActive(tabId) ?? false;
   const decision = decideCapture({
     hasWindow: Boolean(win && !win.isDestroyed()),
     minimized: Boolean(win?.isMinimized()),
@@ -124,7 +125,7 @@ export async function captureTab(tabId: string, opts: ScreenshotOptions): Promis
 
   const capturerOpts: CapturerOptions = { rect: opts.rect };
   if (!isActive && HIDDEN_CAPTURE_ENABLED) {
-    const rect = tabManager.getContainerRect();
+    const rect = manager?.getContainerRect() ?? { x: 0, y: 0, width: 0, height: 0 };
     capturerOpts.size = { width: rect.width, height: rect.height };
     capturerOpts.stayHidden = HIDDEN_CAPTURE_STAY_HIDDEN;
   }

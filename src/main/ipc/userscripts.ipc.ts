@@ -4,8 +4,9 @@
 // can be set; async channels that need the sender id use ipcMain.handle with
 // safeParse directly, mirroring tabs.ipc.ts's ruffleDiagnostic pattern).
 
-import { BrowserWindow, clipboard, ipcMain } from 'electron';
+import { clipboard, ipcMain } from 'electron';
 import { createDesktopNotification } from '../modules/desktop-notification';
+import { getWindowForWebContents } from '../modules/window';
 import log from 'electron-log';
 import { z } from 'zod';
 import { registerValidatedListener, createValidatedHandler } from '../utils/ipc-wrapper';
@@ -123,9 +124,9 @@ export function registerUserscriptsIPC(): void {
       try { target = new URL(payload.url); } catch { return; }
       if (!['http:', 'https:'].includes(target.protocol) && target.toString() !== 'about:blank') return;
       if (!manager()?.openInTab(event.sender.id, payload.scriptId, target.toString())) return;
-      const host = event.sender.hostWebContents
-        ?? BrowserWindow.getAllWindows().find((win) => win.isVisible() && !win.isDestroyed())?.webContents;
-      host?.send('userscript:open-tab', { url: target.toString() });
+      // P4a：打开到脚本所在窗口，不再挑"第一个可见窗口"。
+      const host = getWindowForWebContents(event.sender);
+      host?.webContents.send('userscript:open-tab', { url: target.toString() });
     },
   );
 

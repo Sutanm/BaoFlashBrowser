@@ -73,7 +73,8 @@ export interface OsVerifyBackend {
   /** `win-hello`=Windows Hello 对话框；`win-credui`=凭据对话框；`win-os`=Hello 优先 + CredUI 兜底。 */
   readonly id: 'win-credui' | 'win-hello' | 'win-os';
   available(): Promise<boolean>;
-  verify(): Promise<OsVerifyResult>;
+  /** `ownerHwnd` 为发起请求窗口的 HWND；缺省时由后端回退到自己配置的 provider。 */
+  verify(ownerHwnd?: string | null): Promise<OsVerifyResult>;
 }
 
 interface ViewGuardSchema {
@@ -355,7 +356,7 @@ export async function resetOsAuthUnavailable(): Promise<void> {
 // 授权（每次查看都调用，规格 G12）
 // ---------------------------------------------------------------------------
 
-export async function authorizeView(secret?: string): Promise<ViewAuthResult> {
+export async function authorizeView(secret?: string, ownerHwnd?: string | null): Promise<ViewAuthResult> {
   const lock = isViewLocked();
   if (lock.locked) return { ok: false, code: 'locked', lockedForMs: lock.lockedForMs, remainingAttempts: 0 };
 
@@ -383,7 +384,7 @@ export async function authorizeView(secret?: string): Promise<ViewAuthResult> {
   const backend = osBackendFor(_platformOverride ?? process.platform);
   if (!backend) return { ok: false, code: 'unavailable', reason: 'no-os-auth-backend' };
 
-  const result = await backend.verify();
+  const result = await backend.verify(ownerHwnd);
   if (result.ok) {
     _clearFailures();
     log.info(`[view-gate] os identity verified backend=${backend.id}`);

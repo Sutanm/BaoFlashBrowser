@@ -539,7 +539,7 @@ export class WinCredUiBackend implements OsVerifyBackend {
   }
 
   /** 弹系统对话框验证当前用户身份。 */
-  async verify(): Promise<OsVerifyResult> {
+  async verify(ownerOverride?: string | null): Promise<OsVerifyResult> {
     // 对话框由系统宿主进程渲染，抢前台要由我们主动发起（见 PS_RAISE）。
     // 尽力而为：抢不到也必须继续弹对话框，绝不能把验证本身卡死。
     try { this.raisePrompt(); } catch { /* ignore */ }
@@ -547,7 +547,7 @@ export class WinCredUiBackend implements OsVerifyBackend {
     // 里的非 ASCII，中文会直接破坏脚本语法（2026-09-22 本机实跑发现）。脚本本体保持纯 ASCII。
     // 第 2 行（可选）= 属主窗口 HWND，缺省时对话框退回无属主。
     const lines = [VIEW_PROMPT_TEXT];
-    const owner = ownerHwnd();
+    const owner = ownerOverride ?? ownerHwnd();
     if (owner) lines.push(owner);
     const payloadB64 = Buffer.from(lines.join('\n'), 'utf8').toString('base64');
     const outcome = await this.exec(payloadB64, verifyBudgetMs());
@@ -629,11 +629,11 @@ export class WinViewVerifyBackend implements OsVerifyBackend {
     return process.platform === 'win32';
   }
 
-  async verify(): Promise<OsVerifyResult> {
+  async verify(ownerHwnd?: string | null): Promise<OsVerifyResult> {
     const hello = await this.hello.verify();
     if (!hello.ok && hello.kind === 'unavailable' && (hello.reason ?? '').startsWith('hello-unavailable')) {
       log.info(`[view-gate] Windows Hello unavailable (${hello.reason}); falling back to CredUI`);
-      return this.credUi.verify();
+      return this.credUi.verify(ownerHwnd);
     }
     return hello;
   }

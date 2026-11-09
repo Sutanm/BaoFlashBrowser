@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, shell, session, dialog } from 'electron';
+import { ipcMain, shell, session, dialog } from 'electron';
 import log from 'electron-log';
 import { redactUrlForLog } from '@shared/utils/url-privacy';
 import fs from 'fs';
@@ -6,8 +6,7 @@ import path from 'path';
 import { z } from 'zod';
 import { cancelDownload, pauseDownload, resumeDownload, getAria2Status, getDownloadDir } from '../modules/download';
 import { saveConfig } from '../modules/config';
-import { getMainWindow } from '../modules/window';
-import { createValidatedHandler, registerValidatedListener } from '../utils/ipc-wrapper';
+import { createValidatedHandler, createValidatedEventHandler, registerValidatedListener } from '../utils/ipc-wrapper';
 import { isPathWithinDirectory } from '../utils/download-path';
 import {
   clearFinishedDownloadRecords, getDownloadRecords, removeDownloadRecord,
@@ -42,22 +41,24 @@ export function registerDownloadIPC(): void {
 
   createValidatedHandler('download:list', z.undefined(), () => getDownloadRecords());
 
-  ipcMain.handle('download:set-dir', async (_event, payload?: { title?: string }) => {
-    const win = BrowserWindow.getFocusedWindow() || getMainWindow();
-    if (!win) return null;
-    const result = await dialog.showOpenDialog(win!, {
-      properties: ['openDirectory', 'createDirectory'],
-      defaultPath: getDownloadDir(),
-      title: payload?.title ?? 'Select Download Directory',
+  // 目录选择框挂在发起请求的窗口上（P4a；不再用 getFocusedWindow 猜）。
+  createValidatedEventHandler('download:set-dir',
+    z.object({ title: z.string().max(200).optional() }).strict().optional(),
+    async ({ window, args }) => {
+      if (!window || window.isDestroyed()) return null;
+      const result = await dialog.showOpenDialog(window, {
+        properties: ['openDirectory', 'createDirectory'],
+        defaultPath: getDownloadDir(),
+        title: args?.title ?? 'Select Download Directory',
+      });
+      if (!result.canceled && result.filePaths[0]) {
+        const dir = result.filePaths[0];
+        saveConfig({ downloadDir: dir });
+        log.info('[Download] directory changed to:', dir);
+        return dir;
+      }
+      return null;
     });
-    if (!result.canceled && result.filePaths[0]) {
-      const dir = result.filePaths[0];
-      saveConfig({ downloadDir: dir });
-      log.info('[Download] directory changed to:', dir);
-      return dir;
-    }
-    return null;
-  });
 
   const pathArg = z.object({ savePath: z.string().min(1).max(32767) }).strict();
   const idArg = z.object({ id: z.string().min(1).max(128) }).strict();

@@ -455,16 +455,18 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 
 ### P4a 横切模块适配（不含工具箱）
 
-- [ ] 截图链路按 tab 归属窗口（未指定时 sender 窗口）
-- [ ] 自动化链路走全局索引
-- [ ] view-gate 属主窗口参数化；明确全局锁
-- [ ] 下载事件广播 + 目录弹窗宿主按 sender
-- [ ] 内存监控聚合（不加预算）
-- [ ] 快捷键按来源窗口路由；zoom 全局热键按窗口 focus 注册
-- [ ] `ui:toast` / 诊断对话框 / `userscript:open-in-tab` 按 sender
-- 改动：`modules/screenshot*.ts`、`ipc/automation-v3.ipc.ts`、`modules/automation/service-v3.ts`、`ipc/password.ipc.ts`、`modules/view-gate*.ts`、`modules/download*.ts`、`ipc/download.ipc.ts`、`modules/memory-monitor.ts`、`ipc/shortcut.ipc.ts`、`ipc/diagnostics.ipc.ts`、`ipc/automation-assistant-bridge.ts`、`ipc/userscripts.ipc.ts`
+- [x] 截图链路按 tab 归属窗口（未指定时 sender 窗口）
+- [x] 自动化链路走全局索引（facade 的 `getTabIdForWebContents` / tabId 转发）
+- [x] view-gate 属主窗口参数化；明确全局锁
+- [x] 下载事件广播 + 目录弹窗宿主按 sender
+- [x] 内存监控聚合（不加预算）
+- [x] 快捷键按来源窗口路由；zoom 全局热键按窗口 focus 注册
+- [x] `ui:toast` / 诊断对话框 / `userscript:open-in-tab` 按 sender
+- 改动：`modules/screenshot.ts`、`ipc/screenshot.ipc.ts`、`ipc/password.ipc.ts`、`modules/view-gate.ts`、`modules/view-gate-win.ts`、`modules/window.ts`（HWND / 广播辅助）、`modules/download.ts`、`ipc/download.ipc.ts`、`ipc/shortcut.ipc.ts`、`ipc/diagnostics.ipc.ts`、`ipc/automation-assistant-bridge.ts`、`ipc/userscripts.ipc.ts`、`index.ts`
 - 判据：R7 手工验收通过
 - 验证：`npm run typecheck:main`、`npm run probe:deep`
+- **状态：已完成**。新增/更新单测 8 个文件：`screenshot-ipc-routing`（4）、`screenshot-owner`（4）、`shortcut-routing`（4）、`download-routing`（2）、`diagnostics-ipc-routing`（3）、`assistant-toast-routing`（2）、`userscripts-open-in-tab`（2）、`password-view-gate`（+2）；全量 `npm test -- --run` 150 文件 / 1019 例、`npm run typecheck`、`npm run build:main`、`npm run test:electron` 全绿。
+- 说明：`automation-v3.ipc.ts` 的导入/导出/素材选择对话框仍走既有 `getWin()` provider（按聚焦窗口），其 tabId 解析已走全局索引；若后续要求对话框严格按 sender，可在 P6 一并改。`view-gate` 的 5 次失败 30 分钟锁保持**全局**（同一 profile 的安全策略），已在 §6.6 注明。
 
 ### P4b 开发者工具箱每窗口独立桥（L）
 

@@ -11,7 +11,7 @@ import { configureOptionalSessionServices, initSession } from './modules/session
 import { initializeProxy } from './modules/proxy';
 import { loadConfig } from './modules/config';
 import { createWindow, getMainWindow, getWindowForWebContents, getWindowKey, onWindowCreated } from './modules/window';
-import { registerShortcutHandler, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
+import { registerShortcutHandler, registerZoomShortcutsForWindow, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
 import { registerThemeIPC } from './ipc/theme.ipc';
 import { registerConfigIPC } from './ipc/config.ipc';
@@ -149,6 +149,8 @@ function bootstrap(): void {
       const manager = createTabManager(win, webviewPreloadPath);
       win.on('restore', () => manager.refreshActiveViewAfterHostRestore());
       win.on('maximize', () => manager.refreshActiveViewAfterHostRestore());
+      // zoom 的 globalShortcut 是进程级的：每个窗口聚焦时注册自己的那一份。
+      registerZoomShortcutsForWindow(win);
       win.on('closed', () => {
         shellCrashStates.delete(win.id);
         disposeTabManager(win);
@@ -205,7 +207,6 @@ function bootstrap(): void {
     });
 
     initSession();
-    registerZoomShortcuts();
     startMouseHook();
     registerWindowIPC();
     registerThemeIPC();
@@ -219,7 +220,7 @@ function bootstrap(): void {
       const { registerDownloadIPC } = require('./ipc/download.ipc') as typeof import('./ipc/download.ipc');
       registerDownloadIPC();
     }
-    registerScreenshotIPC(() => getMainWindow());
+    registerScreenshotIPC();
     if (MODULE_PASSWORDS) {
       const { registerPasswordIPC } = require('./ipc/password.ipc') as typeof import('./ipc/password.ipc');
       const { setViewGateOwnerWindow } = require('./modules/view-gate-win') as typeof import('./modules/view-gate-win');

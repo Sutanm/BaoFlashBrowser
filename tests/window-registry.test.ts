@@ -108,6 +108,7 @@ const harness = vi.hoisted(() => {
     readonly focus = vi.fn();
     readonly restore = vi.fn();
     readonly getBounds = vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 }));
+    readonly getNativeWindowHandle = vi.fn(() => Buffer.from([0x21, 0x43, 0, 0, 0, 0, 0, 0]));
     destroyed = false;
     private visible = false;
 
@@ -258,5 +259,31 @@ describe('window registry (P1)', () => {
     windows.createWindow();
 
     expect(seen).toEqual([first]);
+  });
+
+  it('exposes a decimal HWND string for view-gate owner binding', async () => {
+    const windows = await loadWindowModule();
+    const win = windows.createWindow();
+
+    // 0x4321 小端 → '17207'
+    expect(windows.getNativeWindowHandle(win)).toBe(String(0x4321));
+    expect(windows.getNativeWindowHandle({ ...win, isDestroyed: () => true } as never)).toBeNull();
+  });
+
+  it('broadcasts to every registered window and skips destroyed ones', async () => {
+    const windows = await loadWindowModule();
+    const first = windows.createWindow();
+    const second = windows.createWindow();
+    const hidden = new harness.FakeBrowserWindow({});
+
+    windows.broadcastToRegisteredWindows('download:progress', { id: 'x' });
+
+    expect(first.webContents.send).toHaveBeenCalledWith('download:progress', { id: 'x' });
+    expect(second.webContents.send).toHaveBeenCalledWith('download:progress', { id: 'x' });
+    expect(hidden.webContents.send).not.toHaveBeenCalled();
+
+    first.destroyed = true;
+    windows.broadcastToRegisteredWindows('download:progress', { id: 'y' });
+    expect(second.webContents.send).toHaveBeenCalledWith('download:progress', { id: 'y' });
   });
 });

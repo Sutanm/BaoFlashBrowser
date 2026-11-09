@@ -2,8 +2,8 @@ import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { getAutomationV3Service } from '../modules/automation/service-v3';
 import { detectGameSurfaces } from '../modules/automation/game-surface-detector';
-import { tabManager } from '../modules/tabs';
-import { getMainWindow } from '../modules/window';
+import { getTabOwnerWindow, tabManager } from '../modules/tabs';
+import log from 'electron-log';
 import { DEFAULT_IMAGE_MATCH_MASK } from '../../shared/automation/vision-policy';
 
 /** Shared narrow authoring endpoints; each transport supplies its own caller gate. */
@@ -17,8 +17,14 @@ export function registerAutomationAssistantBridge(prefix: string, allowed: (wcId
       type: z.enum(['info', 'success', 'warning', 'error']).optional(),
     }).strict().safeParse(raw);
     if (!parsed.success || !allowed(event.sender.id, parsed.data.scriptId)) return { success: false };
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) win.webContents.send('ui:toast', { message: parsed.data.message, type: parsed.data.type ?? 'info' });
+    // P4a：提示回到"调用脚本所在标签的窗口"，而不是最近聚焦窗口。
+    const tabId = tabManager.getTabIdForWebContents(event.sender.id);
+    const host = tabId ? getTabOwnerWindow(tabId) : null;
+    if (!host || host.isDestroyed()) {
+      log.warn(`[AutomationAssistant] toast target window missing wc=${event.sender.id}`);
+      return { success: false };
+    }
+    host.webContents.send('ui:toast', { message: parsed.data.message, type: parsed.data.type ?? 'info' });
     return { success: true };
   });
   ipcMain.handle(`${prefix}list`, async (event, raw: unknown) => {

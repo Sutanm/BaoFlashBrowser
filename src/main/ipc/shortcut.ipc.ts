@@ -1,9 +1,10 @@
 import type { WebContents } from 'electron';
 import { globalShortcut, app } from 'electron';
+import type { BrowserWindow } from 'electron';
 import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import log from 'electron-log';
-import { getMainWindow } from '../modules/window';
+import { getFocusedRegisteredWindow, getWindowForWebContents } from '../modules/window';
 import type { ShortcutAction } from '@shared/types/ipc';
 
 type ShortcutEntry = {
@@ -70,16 +71,19 @@ function matchShortcut(input: Electron.Input): ShortcutEntry | null {
 export function handleWebviewBeforeInputEvent(
   event: Electron.Event,
   input: Electron.Input,
+  sender?: WebContents,
 ): void {
+  // 多窗口：动作必须回到"产生这次输入的窗口"，不能发给最近聚焦窗口。
+  const target = sender ? getWindowForWebContents(sender) : null;
+  const sendToOwner = (action: ShortcutAction | 'zoom-in' | 'zoom-out' | 'zoom-reset'): void => {
+    if (target && !target.isDestroyed()) target.webContents.send('shortcut', action);
+  };
   // Handle keyboard shortcuts
   if (input.type === 'keyDown') {
     const matched = matchShortcut(input);
     if (matched) {
       event.preventDefault();
-      const win = getMainWindow();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('shortcut', matched.action);
-      }
+      sendToOwner(matched.action);
       return;
     }
   }
@@ -88,11 +92,7 @@ export function handleWebviewBeforeInputEvent(
   if (input.type === 'mouseWheel' && (input.control || input.meta)) {
     event.preventDefault();
     const deltaY = (input as Electron.Input & { deltaY: number }).deltaY;
-    const action = deltaY < 0 ? 'zoom-in' : 'zoom-out';
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('shortcut', action);
-    }
+    sendToOwner(deltaY < 0 ? 'zoom-in' : 'zoom-out');
   }
 }
 
@@ -111,7 +111,7 @@ export function registerShortcutHandler(wc: WebContents): void {
   boundShortcutContents.add(wc.id);
   wc.once('destroyed', () => boundShortcutContents.delete(wc.id));
   wc.on('before-input-event', (event: Electron.Event, input: Electron.Input) => {
-    handleWebviewBeforeInputEvent(event, input);
+    handleWebviewBeforeInputEvent(event, input, wc);
   });
 }
 
@@ -129,7 +129,7 @@ function registerGlobalZoom(): void {
     try {
       if (!globalShortcut.isRegistered(accel)) {
         globalShortcut.register(accel, () => {
-          const win = getMainWindow();
+          const win = getFocusedRegisteredWindow();
           if (win && !win.isDestroyed()) {
             win.webContents.send('shortcut', action);
           }
@@ -147,9 +147,16 @@ function unregisterGlobalZoom(): void {
   }
 }
 
-export function registerZoomShortcuts(): void {
-  const win = getMainWindow();
-  if (!win) return;
+const zoomBoundWindows = new Set<number>();
+let zoomWillQuitRegistered = false;
+
+/**
+ * 多窗口 P4a：globalShortcut 是进程级的，必须按窗口 focus 注册/注销。
+ * 旧实现只绑定唯一主窗口，窗口 B 聚焦时 Ctrl+= 完全失效。
+ */
+export function registerZoomShortcutsForWindow(win: BrowserWindow): void {
+  if (zoomBoundWindows.has(win.id)) return;
+  zoomBoundWindows.add(win.id);
 
   win.on('focus', registerGlobalZoom);
   win.on('blur', unregisterGlobalZoom);
@@ -158,7 +165,10 @@ export function registerZoomShortcuts(): void {
     registerGlobalZoom();
   }
 
-  app.on('will-quit', unregisterGlobalZoom);
+  if (!zoomWillQuitRegistered) {
+    zoomWillQuitRegistered = true;
+    app.on('will-quit', unregisterGlobalZoom);
+  }
 }
 
 let mouseHookProcess: ChildProcess | null = null;
@@ -194,7 +204,7 @@ export function startMouseHook(): void {
       for (const line of lines) {
         const trimmed = line.trim();
         const action = trimmed === 'ZOOM_IN' ? 'zoom-in' : trimmed === 'ZOOM_OUT' ? 'zoom-out' : null;
-        const win = getMainWindow();
+        const win = getFocusedRegisteredWindow();
         if (action && win && !win.isDestroyed()) {
           win.webContents.send('shortcut', action);
         }

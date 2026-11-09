@@ -1,6 +1,6 @@
 import log from 'electron-log';
 import { z } from 'zod';
-import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
+import { createHandler, createValidatedHandler, createValidatedEventHandler } from '../utils/ipc-wrapper';
 import {
   init, isInitialized, initVault, getTier, isEnabled, toggleEnabled,
   addEntry, listEntries, deleteEntry,
@@ -18,6 +18,21 @@ import type {
 } from '../../shared/types/passwords';
 import { getPendingCredential, removePendingCredential, notifyPasswordChanged } from '../modules/password-capture';
 import { tabManager } from '../modules/tabs';
+
+/**
+ * P4a：CredUI 属主取"发起查看的窗口"。
+ * 不在本模块 import window.ts，避免把 electron-store 依赖带进密码 IPC 的测试链。
+ */
+function windowHandle(win: { getNativeWindowHandle(): Buffer } | null): string | null {
+  if (!win) return null;
+  try {
+    const handle = win.getNativeWindowHandle();
+    const value = handle.length >= 4 ? handle.readUInt32LE(0) : 0;
+    return value > 0 ? String(value) : null;
+  } catch {
+    return null;
+  }
+}
 
 export function registerPasswordIPC(): void {
   createHandler('password:status', async () => {
@@ -135,14 +150,15 @@ export function registerPasswordIPC(): void {
   });
 
   // 查看明文：门禁授权制（规格 G1/G2/G12）——先授权，再解密；明文只在此处出一次。
-  createValidatedHandler('password:reveal', revealArg, async ({ id, secret }): Promise<RevealPasswordResult> => {
+  // P4a：CredUI 属主按 sender 窗口解析，验证框不会再压到另一个窗口后面。
+  createValidatedEventHandler('password:reveal', revealArg, async ({ window, args: { id, secret } }): Promise<RevealPasswordResult> => {
     if (!isEnabled()) return { error: 'not-authorized' };
     // 判定顺序：先"有没有可解密的库"→ 再"条目在不在"→ 最后才验证。
     // 反过来做会误导（未建库却报 missing）或白弹一次验证框（为不存在的条目输口令）。
     if (!isInitialized() || !isDekReady()) return { error: 'not-authorized' };
     if (!hasEntry(id)) return { error: 'missing' };
 
-    const auth = await authorizeView(secret);
+    const auth = await authorizeView(secret, windowHandle(window));
     const guard = await resolveViewGuard();
     if (!auth.ok) {
       log.info(`[Password] reveal denied code=${auth.code}${auth.reason ? ` reason=${auth.reason}` : ''} mode=${guard.mode}`);

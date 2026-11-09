@@ -331,3 +331,36 @@ describe('无门禁可用时不得泄露明文（G1）', () => {
     expect(await authorizeView('anything')).toMatchObject({ ok: false, code: 'none' });
   });
 });
+
+describe('view-gate 属主窗口（P4a）', () => {
+  beforeEach(() => {
+    for (const data of storeState.stores.values()) data.clear();
+    _resetViewGateForTest();
+  });
+
+  it('把发起请求的窗口 HWND 传给 OS 后端', async () => {
+    await initTierA();
+    const seen: Array<string | null | undefined> = [];
+    _setOsBackendForTest({
+      id: 'win-credui',
+      async available() { return true; },
+      async verify(owner?: string | null) { seen.push(owner); return { ok: true }; },
+    });
+
+    expect(await authorizeView(undefined, '4242')).toMatchObject({ ok: true, code: 'ok' });
+    expect(seen).toEqual(['4242']);
+  });
+
+  it('未提供属主时把 undefined 交给后端（保留 provider 兜底路径）', async () => {
+    await initTierA();
+    const seen: Array<string | null | undefined> = [];
+    _setOsBackendForTest({
+      id: 'win-credui',
+      async available() { return true; },
+      async verify(owner?: string | null) { seen.push(owner); return { ok: true }; },
+    });
+
+    await authorizeView();
+    expect(seen).toEqual([undefined]);
+  });
+});

@@ -303,3 +303,30 @@ export function getWindowContext(win: BrowserWindow): WindowContext | null {
     ...(entry.initialUrl ? { initialUrl: entry.initialUrl } : {}),
   };
 }
+
+/**
+ * 十进制字符串形式的原生窗口句柄（Windows HWND）。CredUI / 文件对话框的属主
+ * 需要它；取不到时返回 null（退回无属主，行为与改动前一致）。
+ * HWND 是 32 位句柄（64 位进程里以符号扩展的 8 字节存放），低 4 字节就是值。
+ */
+export function getNativeWindowHandle(win: BrowserWindow): string | null {
+  if (win.isDestroyed()) return null;
+  try {
+    const handle = win.getNativeWindowHandle();
+    const value = handle.length >= 4 ? handle.readUInt32LE(0) : 0;
+    return value > 0 ? String(value) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 向所有注册窗口广播（下载进度、用户脚本变更等跨窗口只读状态）。 */
+export function broadcastToRegisteredWindows(channel: string, payload: unknown): void {
+  for (const win of getRegisteredWindows()) {
+    try {
+      win.webContents.send(channel, payload);
+    } catch {
+      // 窗口正在销毁：跳过即可，广播不能打断其他窗口。
+    }
+  }
+}

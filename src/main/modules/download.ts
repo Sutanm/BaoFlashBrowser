@@ -6,7 +6,7 @@ import path from 'path';
 import { nanoid } from 'nanoid';
 import { resolveDownloadProxy } from './download-proxy';
 import { loadConfig } from './config';
-import { getMainWindow } from './window';
+import { broadcastToRegisteredWindows } from './window';
 import { availableSavePath, isPathWithinDirectory, sanitizeDownloadFilename } from '../utils/download-path';
 import { flushDownloadState, getDownloadRecord, updateDownloadRecord } from './download-state';
 import type { DownloadItem as DownloadRecord } from '@shared/types/downloads';
@@ -55,11 +55,9 @@ function browserDownload(sess: Electron.Session, url: string, retry?: DownloadRe
 }
 
 // ─── IPC send helper ────────────────────────────────────────────────
+// 下载是全局状态：进度/完成事件广播到所有注册窗口（多窗口下每个窗口都有下载面板）。
 function send(channel: string, payload: unknown): void {
-  const win = getMainWindow();
-  if (win && !win.isDestroyed()) {
-    win.webContents.send(channel, payload);
-  }
+  broadcastToRegisteredWindows(channel, payload);
 }
 
 function sendLog(tag: string, msg: string): void {
