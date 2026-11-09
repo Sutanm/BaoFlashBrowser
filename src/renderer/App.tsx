@@ -26,10 +26,12 @@ const UserscriptsPage = MODULE_USERSCRIPTS ? lazy(() => import('./components/use
 
 const AppInner: React.FC = () => {
   const { LL, locale, setLocale } = useI18nContext();
+  const hydrated = useDataStore((s) => s.hydrated);
   useEffect(() => {
     document.documentElement.lang = locale;
+    if (!hydrated) return;
     void window.electronAPI.invoke('ui:set-language', locale).catch(() => undefined);
-  }, [locale]);
+  }, [locale, hydrated]);
   const favorites = useDataStore((s) => s.favorites);
   const activeDownloadCount = useDataStore((s) => s.downloads.filter((d) => d.state === 'progressing' || d.state === 'paused').length);
   const settings = useDataStore((s) => s.settings);
@@ -369,11 +371,13 @@ const AppInner: React.FC = () => {
 
 const App: React.FC = () => {
   const { themeMode } = useTheme();
+  const hydrated = useDataStore((s) => s.hydrated);
   useEffect(() => {
+    if (!hydrated) return;
     // Send the selected mode, not the resolved color: system must remove the override.
     void window.electronAPI.invoke('theme:set-source', themeMode)
       .catch((error) => console.warn('[Theme] native theme sync failed:', error));
-  }, [themeMode]);
+  }, [themeMode, hydrated]);
   const settings = useDataStore((s) => s.settings);
   const initRef = useRef(false);
   if (!initRef.current) {

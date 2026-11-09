@@ -16,6 +16,11 @@ const DatabaseHydrator: React.FC = () => {
   useEffect(() => { if (settings) hydrateFromDb({ settings: { ...useDataStore.getState().settings, ...settings } }); }, [settings]);
   useEffect(() => { if (themeMode) hydrateFromDb({ themeMode }); }, [themeMode]);
 
+  // P8：settings / themeMode 至少各拿到一次结果（含"库里没有"）后才算水合完成。
+  useEffect(() => {
+    if (settings !== undefined && themeMode !== undefined) useDataStore.getState().markHydrated();
+  }, [settings, themeMode]);
+
   // 下载记录以主进程为唯一权威源（download-state 已在主进程持久化）：
   // 挂载时一次性拉取，后续只靠 download:progress 事件驱动。
   // 之前这里用 useLiveQuery 监听 IndexedDB 镜像并在每次写库时把

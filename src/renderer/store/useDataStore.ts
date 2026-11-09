@@ -34,6 +34,8 @@ export interface DataState {
   passwordStoreStatus: PasswordStoreStatus;
   activePanel: ActivePanel;
   toastQueue: AddressToast[];
+  /** P8：IndexedDB 首次水合完成（此前不得下发主题/语言，否则会用默认值覆盖）。 */
+  hydrated: boolean;
 
   setFavorites: (f: BookmarkEntry[] | ((prev: BookmarkEntry[]) => BookmarkEntry[])) => void;
   recordHistory: (entry: HistoryEntry) => void;
@@ -48,6 +50,7 @@ export interface DataState {
   setActivePanel: (p: ActivePanel | ((prev: ActivePanel) => ActivePanel)) => void;
   pushToast: (toast: ToastInput) => void;
   dismissToast: (id: number, reason: ToastDismissReason) => void;
+  markHydrated: () => void;
 }
 
 let persistenceQueue: Promise<void> = Promise.resolve();
@@ -107,6 +110,9 @@ export const useDataStore = create<DataState>((set, get) => ({
   },
   activePanel: null,
   toastQueue: [],
+  hydrated: false,
+
+  markHydrated: () => set({ hydrated: true }),
 
   setFavorites: (f) =>
     set((state) => {
