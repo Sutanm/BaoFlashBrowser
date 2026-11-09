@@ -522,7 +522,7 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 - 判据：R8、R9 手工验收通过；页面不重载，迁移后标题/加载态/地址栏继续更新
 - 验证：`npm run typecheck`、`npm run probe:deep`
 
-- **P7 状态**：P7-1（迁移原语）、P7-2a（迁移后事件归属）、P7-2b（`win:move-tab` 主进程换窗 + `tab:detached/adopted` + 拖空关窗）、P7-2c（`win:tear-off-tab` + `whenRendererReady` 握手 + `tab:setViewVisibility` + `isTabBusy` 拒绝 + 渲染层消费 adopted/detached）已完成；**P7-2d 待做**：pointer events 拖拽手势（替换 HTML5 draggable）、拖拽期间隐藏视图与 Escape 取消、probe 47/48/51。`r`n`r`n### P8 全量验证
+- **P7 状态**：P7-1（迁移原语）、P7-2a（迁移后事件归属）、P7-2b（`win:move-tab` 主进程换窗 + `tab:detached/adopted` + 拖空关窗）、P7-2c（`win:tear-off-tab` + `whenRendererReady` 握手 + `tab:setViewVisibility` + `isTabBusy` 拒绝 + 渲染层消费 adopted/detached）已完成；**P7-2d 已完成**：pointer events 拖拽（6px 阈值、`tab:setViewVisibility`、Escape/pointercancel/卸载兜底）、三种落点分派（本窗重排 / 跨窗 `win:move-tab` / 窗外 `win:tear-off-tab`）；**剩余**：probe 47/48/51 与 P8 手工验收。`r`n`r`n### P8 全量验证
 
 - [ ] `npm run typecheck`
 - [ ] `npm run lint`
@@ -803,3 +803,4 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | P6 | `a9dfb89` | `launch-url`（2）+ title 断言；unit 160 文件 / 1054 例；typecheck、build:main、test:electron | hydration gating（App 水合前 theme/language 推送）仍留待 P7/P8 收尾；P6 未跑 probe:deep（无新的浏览器运行时面） |
 | P7-2b | `bb3aa19` | `drop-target`（4）；unit 161 文件 / 1059 例；typecheck、build:main、test:electron | 渲染层拖拽手势与 tear-off 新窗口、probe 47/48/51 待 P7-2c |
 | P7-2c | `b4d5a05` | unit 161 文件 / 1059 例；typecheck、build:main、test:electron | 主进程 + 握手 + 渲染层事件消费已完成；目标窗口拖拽手势与 probe 47/48/51 待 P7-2d |
+| P7-2d | `3dd358b` | unit 161 文件 / 1059 例；typecheck、build:main、test:electron | 拖拽 UI 无组件级测试（仓库无夹具），由 P8 手工清单 9-12 项覆盖；probe 47/48/51 待 P8 前补 |
