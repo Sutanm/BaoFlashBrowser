@@ -10,7 +10,7 @@ import { setupFlash } from './modules/flash';
 import { configureOptionalSessionServices, initSession } from './modules/session-manager';
 import { initializeProxy } from './modules/proxy';
 import { loadConfig } from './modules/config';
-import { createWindow, getMainWindow, getWindowForWebContents, getWindowKey, onWindowCreated } from './modules/window';
+import { createWindow, getMainWindow, getRegisteredWindows, getWindowContext, getWindowForWebContents, getWindowKey, onWindowCreated } from './modules/window';
 import { registerShortcutHandler, registerZoomShortcutsForWindow, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
 import { registerThemeIPC } from './ipc/theme.ipc';
@@ -24,12 +24,40 @@ import { configureOptionalTabServices, createTabManager, disposeTabManager } fro
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, markCleanShutdown } from './modules/session-recovery';
 import { setIpcWindowResolver } from './utils/ipc-wrapper';
+import { loadWindowStates, saveWindowStates, windowStatesFromWindows } from './modules/window-state';
 
 let automationService: { shutdown(): Promise<void> } | null = null;
 // 外壳 renderer 崩溃按窗口计数（多窗口下不能升级成整应用退出）。
 const shellCrashStates = new Map<number, { count: number; resetTimer: NodeJS.Timeout | null }>();
 let bootCompleted = false;
 let servicesShutdown = false;
+let windowStateTimer: NodeJS.Timeout | null = null;
+
+/** 采集当前注册窗口的几何/顺序（P5），供退出与 resize/move 防抖落盘。 */
+function collectWindowStates(): Array<{ key: string; bounds: Electron.Rectangle; maximized: boolean; index: number }> {
+  return getRegisteredWindows().map((win) => ({
+    key: getWindowKey(win),
+    bounds: win.getBounds(),
+    maximized: win.isMaximized(),
+    index: getWindowContext(win)?.index ?? 0,
+  }));
+}
+
+function persistWindowStatesNow(): void {
+  const states = collectWindowStates();
+  // 最后一个窗口已经注销时不要用空表覆盖旧记录（关最后一个窗口也会触发 close）。
+  if (states.length === 0) return;
+  saveWindowStates(windowStatesFromWindows(states));
+}
+
+function scheduleWindowStateSave(): void {
+  if (windowStateTimer) clearTimeout(windowStateTimer);
+  windowStateTimer = setTimeout(() => {
+    windowStateTimer = null;
+    persistWindowStatesNow();
+  }, 500);
+  windowStateTimer.unref?.();
+}
 
 function bootstrap(): void {
   if (!app.requestSingleInstanceLock()) {
@@ -151,13 +179,30 @@ function bootstrap(): void {
       win.on('maximize', () => manager.refreshActiveViewAfterHostRestore());
       // zoom 的 globalShortcut 是进程级的：每个窗口聚焦时注册自己的那一份。
       registerZoomShortcutsForWindow(win);
+      // 窗口几何/顺序（P5）：resize/move 防抖落盘，close 时同步落一次。
+      win.on('resize', scheduleWindowStateSave);
+      win.on('move', scheduleWindowStateSave);
+      win.on('maximize', scheduleWindowStateSave);
+      win.on('unmaximize', scheduleWindowStateSave);
+      win.on('close', () => persistWindowStatesNow());
       win.on('closed', () => {
         shellCrashStates.delete(win.id);
         disposeDevToolsBridge(win.id);
         disposeTabManager(win);
       });
     });
-    const mainWindow = createWindow();
+    // 按上次的窗口顺序与几何恢复；没有记录时创建一个窗口（P5）。
+    const savedWindows = loadWindowStates();
+    const restoredWindows = savedWindows.length > 0
+      ? savedWindows.map((state) => createWindow({
+        bounds: state.bounds,
+        windowKey: state.key,
+        index: state.index,
+        isPrimary: state.index === 0,
+        maximized: state.maximized,
+      }))
+      : [createWindow()];
+    const mainWindow = restoredWindows[0] ?? createWindow();
 
     // Optional integrations are wired before the first BrowserView/session is
     // configured. Disabled modules therefore have no reverse import from core.
@@ -298,6 +343,8 @@ function bootstrap(): void {
     markCleanShutdown();
     // 启动未完成（例如代理配置失败后 quit）时不做服务 teardown，交给进程退出。
     if (!bootCompleted) return;
+    // 在窗口销毁前落盘几何与顺序（P5）。
+    persistWindowStatesNow();
     shutdownDevToolsFrontendServer();
     // 工作区的 fs.watch 句柄必须显式关闭，否则退出时事件循环还挂着。
     shutdownWorkspaceWatchers();

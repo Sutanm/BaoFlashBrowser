@@ -22,6 +22,8 @@ export interface CreateWindowOptions {
   isPrimary?: boolean;
   /** 新窗口要打开的 URL（P6 消费；P2 只负责透传与持久化上下文）。 */
   initialUrl?: string;
+  /** 恢复上次最大化状态（P5）。 */
+  maximized?: boolean;
 }
 
 export interface WindowContext {
@@ -182,6 +184,7 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
   win.once('ready-to-show', () => {
     clearTimeout(showFallbackTimer);
     win.show();
+    if (options.maximized) win.maximize();
   });
 
   win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {

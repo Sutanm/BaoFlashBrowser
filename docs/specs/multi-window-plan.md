@@ -485,13 +485,15 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 ### P5 渲染层会话、恢复与几何
 
 - [ ] `useTabManager` 使用 `windowKey` 分片会话；旧 key 仅 primary 窗口认领
-- [ ] 崩溃恢复状态按窗口决策（主进程只读 + 按窗口 resolve）
+- [x] 崩溃恢复状态按窗口决策（主进程只读 + 按窗口 resolve；渲染层消费在 P5b）
 - [ ] 收藏改增量写；settings 读改写合并；水合前不写库
 - [ ] 抽屉尺寸/停靠按 `windowKey` 分片（P4b 顺延项：`useDevToolStore` 的 `devtoolbox.height/width/dock` 单键改为前缀键，拿到上下文后重读）
-- [ ] 窗口几何持久化（防抖 500ms）+ 启动按已存窗口数恢复
-- 改动：`hooks/useTabManager.ts`、`services/tab-session.ts`、`services/db.ts`、`store/useDataStore.ts`、`store/useDevToolStore.ts`、`components/data/DatabaseHydrator.tsx`、`modules/window-state.ts`（新增）、`preload/index.ts`
+- [x] 窗口几何持久化（防抖 500ms）+ 启动按已存窗口数恢复
+- 改动：`hooks/useTabManager.ts`、`services/tab-session.ts`、`services/db.ts`、`store/useDataStore.ts`、`store/useDevToolStore.ts`、`components/data/DatabaseHydrator.tsx`、`modules/window-state.ts`（新增）、`modules/session-recovery.ts`、`ipc/window.ipc.ts`、`index.ts`、`preload/index.ts`
 - 判据：R6 手工验收通过；两窗口同时加收藏/改设置不互相覆盖
 - 验证：`npm run typecheck:renderer`、`npm run typecheck:preload`
+- **P5a 已完成（主进程部分）**：`modules/window-state.ts`（校验/排序/防抖落盘/启动恢复）、`session-recovery` 按 `windowKey` 消费、`window.ipc` 的 session 通道按 sender 窗口、`index.ts` 按存盘顺序恢复窗口并挂 resize/move/close/before-quit 落盘。单测 `tests/window-state.test.ts`（4）+ `tests/session-recovery.test.ts`（3）；全量 156 文件 / 1043 例、typecheck、build:main、test:electron 全绿。
+- **P5b 待做**：渲染层 `windowKey` 分片会话与单归属迁移、崩溃恢复的渲染层消费、收藏/设置并发写、抽屉尺寸/停靠按窗口。
 
 ### P6 新建窗口入口与平台行为
 

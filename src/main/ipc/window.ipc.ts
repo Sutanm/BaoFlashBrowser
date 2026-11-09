@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { BrowserWindow } from 'electron';
-import { createHandler, createEventHandler, createValidatedEventHandler } from '../utils/ipc-wrapper';
+import { createEventHandler, createValidatedEventHandler } from '../utils/ipc-wrapper';
 import { getSessionRecoveryStatus, resolveSessionRecovery } from '../modules/session-recovery';
 import { createWindow, getWindowContext, getWindowKey } from '../modules/window';
 
@@ -69,6 +69,10 @@ export function registerWindowIPC(): void {
     return { windowKey: getWindowKey(win) };
   });
 
-  createHandler('session:recovery-status', () => getSessionRecoveryStatus());
-  createHandler('session:resolve-recovery', () => { resolveSessionRecovery(); });
+  createEventHandler('session:recovery-status', ({ window }) => (
+    getSessionRecoveryStatus(window ? getWindowKey(window) || undefined : undefined)
+  ));
+  createEventHandler('session:resolve-recovery', ({ window }) => {
+    resolveSessionRecovery(window ? getWindowKey(window) || undefined : undefined);
+  });
 }
