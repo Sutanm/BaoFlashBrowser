@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>thumbnail-gate</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #10141c; color: #e8eefc; font-family: "Microsoft YaHei", sans-serif; }
+  .panel { position: absolute; border: 1px solid #2b3446; border-radius: 8px; background: #161c27; }
+  #big { left: 40px; top: 40px; width: 380px; height: 160px; }
+  #big span { display: block; font-size: 64px; line-height: 160px; text-align: center; letter-spacing: 4px; }
+  #small { left: 460px; top: 40px; width: 240px; height: 120px; }
+  #small span { display: block; font-size: 10px; line-height: 120px; text-align: center; color: #9fb4d8; }
+  #dot { position: absolute; left: 460px; top: 200px; width: 24px; height: 24px; border-radius: 50%; background: #2a3a55; }
+  #static { left: 40px; top: 240px; width: 660px; height: 300px; background: repeating-linear-gradient(135deg, #161c27 0 12px, #182030 12px 24px); }
+  #log { position: absolute; left: 740px; top: 40px; width: 180px; font-size: 12px; color: #7d8ea8; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="panel" id="big"><span id="bigValue">0000</span></div>
+  <div class="panel" id="small"><span id="smallValue">0</span></div>
+  <div class="panel" id="dot"></div>
+  <div class="panel" id="static"></div>
+  <div id="log">frames: <b id="frameCount">0</b></div>
+<script>
+  // 压力测试靶场：
+  //   setBig(n)   —— 64px 大字，大面积变化（缩略帧应该都看得见）
+  //   setSmall(n) —— 10px 小字，小面积变化（缩略帧最容易漏检的那一类）
+  //   pulseDot()  —— 24px 圆点在两种颜色间切换（中等面积）
+  let frames = 0;
+  const big = document.getElementById('bigValue');
+  const small = document.getElementById('smallValue');
+  const dot = document.getElementById('dot');
+  const counter = document.getElementById('frameCount');
+  function mark() { counter.textContent = String(++frames); }
+  window.setBig = (value) => { big.textContent = String(value).padStart(4, '0'); mark(); return value; };
+  window.setSmall = (value) => { small.textContent = String(value); mark(); return value; };
+  window.pulseDot = (on) => { dot.style.background = on ? '#7fd1ff' : '#2a3a55'; mark(); return !!on; };
+  window.ready = true;
+  requestAnimationFrame(function loop() { mark(); requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
