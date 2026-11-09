@@ -211,6 +211,7 @@ const en: Translation = {
     automation: 'Automation Workbench',
     closeTab: 'Close Tab',
     newTabHint: 'New Tab (Ctrl+T)',
+    dragBusy: 'This tab is busy with automation or autofill and cannot be moved',
   },
 
   session: {

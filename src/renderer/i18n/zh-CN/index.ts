@@ -214,6 +214,7 @@ const zhCN: BaseTranslation = {
     automation: '自动化工作台',
     closeTab: '关闭标签页',
     newTabHint: '新标签页 (Ctrl+T)',
+    dragBusy: '当前标签正在自动化或填充，暂时无法移动',
   },
 
   session: {

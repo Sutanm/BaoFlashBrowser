@@ -619,6 +619,8 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 
 ### 8.3 手工验收清单
 
+> 可逐项勾选的执行版见 [multi-window-acceptance.md](multi-window-acceptance.md)（含自动化前置、每项期望、已知不可自动验证项）。
+
 1. `npm start` → 双击图标两次 → 共 3 个窗口。
 2. 窗口 A 开 3 标签、B 开 2 标签 → 标签栏不串、页面位置正确。
 3. 关闭 A → B 的标签与页面不受影响，进程仍在。
@@ -810,3 +812,13 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | P8 | `e888244` + `5e14a37` | hydration gating（2 例）；unit 162 文件 / 1061 例；typecheck；build:main；test:electron；probe:deep 23/23；test:e2e 9/9；test:smokes ALL PASS | 全仓 lint 仍为生成物既有 8 错；probe 47/48/51 未编写（48 需真机）；8.3 手工清单待真人 |
 | P8-补 | `5e14a37` 后续 | probe 51（真实 TabManager 迁移，独立运行 OK）；tear-off 超时分支改为取消并关窗；unit 162 文件 / 1061 例、typecheck、build:main | 全量 `probe:deep` 跑到 51 时本机 watchdog 超时（45/46/51 组合单跑 OK，判定为探针进程累积抖动）；probe 47/48 与手工清单仍待 |
 | P8-补2 | 本轮 | probe 47（PPAPI 迁移出帧）子进程实现并通过；probe 51 独立/组合运行通过 | probe 48（跨窗口拖拽 OS 捕获）仍只能真机/手工；全量 probe:deep 中 47/51 附近有进程抖动风险（建议分批跑）；8.3 手工清单待真人 |
+
+### 8.4 分批探针（本机稳定性）
+
+单进程跑完全部 Electron 探针时，后段偶发 watchdog 超时（47/51 加入后更明显）。`npm run probe:deep:batched` 把探针按 4 个一组分批启动、失败批次自动重试一次：
+
+```bash
+npm run probe:deep:batched
+```
+
+47（PPAPI 出帧）与 51（真实 TabManager 迁移）实测通过；48（跨窗口拖拽的 OS 捕获）仍需真机。

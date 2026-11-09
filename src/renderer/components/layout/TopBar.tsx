@@ -155,7 +155,7 @@ const TopBar: React.FC<TopBarProps> = ({
       const result = await window.electronAPI.win.moveTab(state.tabId);
       if (result?.reason === 'new-window') await window.electronAPI.win.tearOffTab(state.tabId);
       else if (result?.reason === 'busy') {
-        pushToast({ key: 'tab-drag-busy', message: '当前标签正在自动化或填充，暂时无法移动', type: 'warning' });
+        pushToast({ key: 'tab-drag-busy', message: LL.tab.dragBusy(), type: 'warning' });
       }
     } catch { /* window gone */ }
   }, [tabs, onReorder, pushToast, restoreView]);

@@ -841,6 +841,10 @@ type RootTranslation = {
 		 * 新​标​签​页​ ​(​C​t​r​l​+​T​)
 		 */
 		newTabHint: string
+		/**
+		 * 当​前​标​签​正​在​自​动​化​或​填​充​，​暂​时​无​法​移​动
+		 */
+		dragBusy: string
 	}
 	session: {
 		/**
@@ -3473,6 +3477,10 @@ export type TranslationFunctions = {
 		 * 新标签页 (Ctrl+T)
 		 */
 		newTabHint: () => LocalizedString
+		/**
+		 * 当前标签正在自动化或填充，暂时无法移动
+		 */
+		dragBusy: () => LocalizedString
 	}
 	session: {
 		/**
