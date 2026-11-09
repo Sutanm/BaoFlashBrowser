@@ -152,9 +152,11 @@ const TopBar: React.FC<TopBarProps> = ({
     }
     if (element?.closest?.('.topbar-tabbar')) return;
     try {
+      if (typeof window.electronAPI.win.moveTab !== 'function') return;
       const result = await window.electronAPI.win.moveTab(state.tabId);
-      if (result?.reason === 'new-window') await window.electronAPI.win.tearOffTab(state.tabId);
-      else if (result?.reason === 'busy') {
+      if (result?.reason === 'new-window' && typeof window.electronAPI.win.tearOffTab === 'function') {
+        await window.electronAPI.win.tearOffTab(state.tabId);
+      } else if (result?.reason === 'busy') {
         pushToast({ key: 'tab-drag-busy', message: LL.tab.dragBusy(), type: 'warning' });
       }
     } catch { /* window gone */ }

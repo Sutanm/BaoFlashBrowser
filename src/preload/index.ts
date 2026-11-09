@@ -281,6 +281,9 @@ const electronAPI = {
     getContext: () => safeInvoke('win:get-context'),
     newWindow: (options?: { url?: string; bounds?: { x?: number; y?: number; width?: number; height?: number } }) =>
       safeInvoke('win:new-window', options ?? {}),
+    moveTab: (tabId: string) => safeInvoke('win:move-tab', { tabId }),
+    tearOffTab: (tabId: string) => safeInvoke('win:tear-off-tab', { tabId }),
+    rendererReady: () => safeInvoke('win:renderer-ready'),
   },
 
   userscripts: {

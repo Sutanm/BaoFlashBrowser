@@ -176,6 +176,8 @@ const AppInner: React.FC = () => {
 
   // P7：告诉主进程本窗口渲染层已就绪（tear-off 迁移的握手条件）。
   useEffect(() => {
+    // preload 与 renderer 可能短暂版本错位（HMR/旧 dist），缺方法时不能炸掉 UI。
+    if (typeof window.electronAPI.win.rendererReady !== 'function') return;
     void window.electronAPI.win.rendererReady().catch(() => { /* older preload */ });
   }, []);
 
