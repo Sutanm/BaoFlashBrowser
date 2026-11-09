@@ -20,7 +20,7 @@ import { registerScreenshotIPC } from './ipc/screenshot.ipc';
 import { registerDevToolboxIPC } from './ipc/devtoolbox.ipc';
 import { initDevToolbox, shutdownDevToolsFrontendServer, shutdownWorkspaceWatchers } from './modules/devtoolbox';
 import { devToolsBridge } from './modules/devtoolbox-bridge';
-import { configureOptionalTabServices, tabManager } from './modules/tabs';
+import { configureOptionalTabServices, createTabManager, disposeTabManager } from './modules/tabs';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, markCleanShutdown } from './modules/session-recovery';
 import { setIpcWindowResolver } from './utils/ipc-wrapper';
@@ -142,17 +142,19 @@ function bootstrap(): void {
       log.error('[Ruffle] resource protocol registration failed:', (e instanceof Error ? e.message : 'Unknown error'));
     }
 
-    // 每个窗口都要绑定宿主事件：Chromium 87 合成器表面丢失的修复需要
-    // restore 与 maximize 都触发（最大化不产生 restore 事件）。注册表回调
-    // 保证后续窗口（P6 的 second-instance / Ctrl+N）也自动补绑，而不只覆盖
-    // 首个窗口。
+    // 每个窗口一个 TabManager 实例（P3）：restore/maximize 必须调用"该窗口"的
+    // 实例，窗口关闭时销毁它的 BrowserView 并清理全局索引。
+    const webviewPreloadPath = path.join(__dirname, 'webview-preload.js');
     onWindowCreated((win) => {
-      win.on('restore', () => tabManager.refreshActiveViewAfterHostRestore());
-      win.on('maximize', () => tabManager.refreshActiveViewAfterHostRestore());
-      win.on('closed', () => shellCrashStates.delete(win.id));
+      const manager = createTabManager(win, webviewPreloadPath);
+      win.on('restore', () => manager.refreshActiveViewAfterHostRestore());
+      win.on('maximize', () => manager.refreshActiveViewAfterHostRestore());
+      win.on('closed', () => {
+        shellCrashStates.delete(win.id);
+        disposeTabManager(win);
+      });
     });
     const mainWindow = createWindow();
-    tabManager.setPreload(path.join(__dirname, 'webview-preload.js'));
 
     // Optional integrations are wired before the first BrowserView/session is
     // configured. Disabled modules therefore have no reverse import from core.

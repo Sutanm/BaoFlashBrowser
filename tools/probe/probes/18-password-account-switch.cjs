@@ -21,12 +21,13 @@ module.exports = {
       outfile, bundle: true, platform: 'node', format: 'cjs', target: 'node12',
       external: ['electron', 'electron-log'], alias: { '@shared': path.join(ctx.root, 'src/shared') },
       plugins: [{ name: 'isolated-password-ports', setup(build) {
-        build.onLoad({ filter: /[\\/]modules[\\/](password-store|window|session-manager)\.ts$/ }, (args) => {
+        build.onLoad({ filter: /[\\/]modules[\\/](password-store|window|session-manager|ui-language)\.ts$/ }, (args) => {
           const name = path.basename(args.path);
           const contents = name === 'password-store.ts'
             ? "export const getMetaForHost=()=>[{id:'fixture-a',username:'fixture-a'}]; export const getDecryptedPassword=()=> 'fixture-pass-a'; export const isAutoCaptureEnabled=()=>true; export const isCaptureExcluded=()=>false;"
             : name === 'window.ts' ? 'export const getMainWindow=()=>globalThis.__baoPasswordSwitchWindow;'
-              : 'export const setupSessionOnce=()=>{};';
+              : name === 'ui-language.ts' ? 'export const uiText=(zh)=>zh;'
+                : 'export const setupSessionOnce=()=>{};';
           return { contents, loader: 'ts' };
         });
       } }],
@@ -38,6 +39,8 @@ module.exports = {
     const mod = bundled.exports;
     const win = new BrowserWindow({ show: false, width: 800, height: 600, webPreferences: { nodeIntegration: false } });
     global.__baoPasswordSwitchWindow = win;
+    // P3 起 TabManager 是"一窗口一实例"；probe 必须像 index.ts 一样先建实例。
+    mod.createTabManager(win, path.join(ctx.root, 'dist/webview-preload.js'));
     const events = [];
     win.webContents.send = (channel, payload) => { if (channel === 'password:captured') events.push(payload); };
     const server = http.createServer((req, res) => {

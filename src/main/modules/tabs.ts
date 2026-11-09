@@ -2,7 +2,7 @@ import { uiText } from './ui-language';
 import { BrowserView, Menu } from 'electron';
 import type { BrowserWindow } from 'electron';
 import log from 'electron-log';
-import { getMainWindow, getRegisteredWindows, getWindowForWebContents } from './window';
+import { getMainWindow } from './window';
 import { setupSessionOnce } from './session-manager';
 import { withTimeout } from '../utils/with-timeout';
 import type { PasswordFillResult } from './password-fill';
@@ -107,13 +107,29 @@ class TabManager {
   private wcToId = new Map<number, string>();
   private activeId: string | null = null;
   private rect: ContainerRect = { x: 0, y: 0, width: 0, height: 0 };
-  private preloadPath = '';
+  private preloadPath: string;
   private userscriptGeneration = 0;
   private passwordFillTimers = new Map<number, Set<ReturnType<typeof setTimeout>>>();
   private passwordFormSignalTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private passwordFillInFlight = new Set<number>();
   private automationTargets = new Map<string, AutomationViewportLease>();
   private hostRestoreTimer?: NodeJS.Timeout;
+
+  /**
+   * 一窗口一实例（P3）。preload 路径是构造参数而不是事后 setter：漏注入会让
+   * 该窗口的标签失去 Ruffle / userscript / 密码桥。
+   */
+  constructor(
+    private readonly win: () => BrowserWindow | null,
+    preloadPath: string,
+  ) {
+    this.preloadPath = preloadPath;
+  }
+
+  /** 宿主窗口（迁移与归属解析用；窗口销毁后返回 null）。 */
+  getHostWindow(): BrowserWindow | null {
+    return this.win();
+  }
 
   private _isCurrentWebContents(tabId: string, wc: Electron.WebContents): boolean {
     const tab = this.tabs.get(tabId);
@@ -361,7 +377,7 @@ class TabManager {
     if (this.hostRestoreTimer) clearTimeout(this.hostRestoreTimer);
     const attempt = (triesLeft: number): void => {
       this.hostRestoreTimer = undefined;
-      const win = getMainWindow();
+      const win = this.win();
       if (win && !win.isDestroyed() && win.isMinimized()) {
         // 还原动画还没走完：等下一轮再试，别直接放弃
         if (triesLeft > 0) {
@@ -393,6 +409,9 @@ class TabManager {
   }
 
   create(tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }): void {
+    // 全局索引是 tabId → 实例的唯一真相；重复 tabId 会覆盖（并记 warn 由 P3 的
+    // create 调用方保证唯一）。
+    tabIndex.set(tabId, this);
     const existing = this.tabs.get(tabId);
     if (existing) {
       existing.lastTargetUrl = url || existing.lastTargetUrl;
@@ -424,9 +443,9 @@ class TabManager {
 
   private _createView(tab: TabEntry): Electron.WebContents | null {
     if (tab.browserView) return tab.browserView.webContents;
-    const win = getMainWindow();
+    const win = this.win();
     if (!win || win.isDestroyed()) {
-      log.warn('[TabManager] mainWindow unavailable for tab ' + tab.id);
+      log.warn('[TabManager] host window unavailable for tab ' + tab.id);
       return null;
     }
     const view = new BrowserView({
@@ -452,6 +471,7 @@ class TabManager {
     view.setAutoResize({ width: false, height: false });
     const wc = view.webContents;
     this.wcToId.set(wc.id, tab.id);
+    wcIndex.set(wc.id, this);
     userscriptManager()?.registerView(wc.id, {
       mode: tab.isRuffle ? 'ruffle' : 'ppapi',
       generation: ++this.userscriptGeneration,
@@ -586,7 +606,7 @@ class TabManager {
     });
     wc.on('context-menu', (_e, params) => {
       if (!this._isCurrentWebContents(tabId, wc)) return;
-      const win = getMainWindow();
+      const win = this.win();
       if (!win || win.isDestroyed()) return;
       const tab = this.tabs.get(tabId);
       const template: Electron.MenuItemConstructorOptions[] = [
@@ -649,6 +669,7 @@ class TabManager {
     this.automationTargets.delete(tabId);
     if (tab.browserView) { const view = tab.browserView; tab.browserView = null; this._disposeView(view); }
     this.tabs.delete(tabId);
+    tabIndex.delete(tabId);
     if (this.activeId === tabId) this.activeId = null;
   }
 
@@ -666,12 +687,16 @@ class TabManager {
     this.passwordFillInFlight.delete(wc.id);
     passwordCapture.teardown(wc);
     this.wcToId.delete(wc.id);
-    try { getMainWindow()?.removeBrowserView(view); } catch { /* gone */ }
+    wcIndex.delete(wc.id);
+    try { this.win()?.removeBrowserView(view); } catch { /* gone */ }
     try { if (!wc.isDestroyed()) (wc as unknown as { destroy(): void }).destroy(); } catch { /* gone */ }
   }
 
   destroyAll(): void {
-    for (const tab of this.tabs.values()) if (tab.browserView) this._disposeView(tab.browserView);
+    for (const [tabId, tab] of this.tabs) {
+      tabIndex.delete(tabId);
+      if (tab.browserView) this._disposeView(tab.browserView);
+    }
     this.tabs.clear(); this.wcToId.clear(); this.automationTargets.clear(); this.activeId = null;
   }
 
@@ -811,35 +836,222 @@ class TabManager {
   }
 
   private send(channel: string, payload: Record<string, unknown>): void {
-    const win = getMainWindow(); if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+    const win = this.win(); if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   }
 }
 
-export const tabManager = new TabManager();
+// ---------------------------------------------------------------------------
+// 多窗口实例注册表（P3）
+//
+// 一窗口一 TabManager。这里的三张表是窗口归属的唯一真相：
+//   managers: runtimeWindowId → TabManager
+//   tabIndex: tabId → TabManager
+//   wcIndex:  webContentsId → TabManager
+// 索引在 TabManager 内部创建/销毁 tab 与 view 时同步维护。
+// ---------------------------------------------------------------------------
+const managers = new Map<number, TabManager>();
+const tabIndex = new Map<string, TabManager>();
+const wcIndex = new Map<number, TabManager>();
+
+/** 为一个窗口创建实例（重复调用返回同一实例）。 */
+export function createTabManager(win: BrowserWindow, preloadPath: string): TabManager {
+  const existing = managers.get(win.id);
+  if (existing) return existing;
+  const manager = new TabManager(() => (win.isDestroyed() ? null : win), preloadPath);
+  managers.set(win.id, manager);
+  return manager;
+}
+
+export function getTabManagerForWindow(runtimeId: number): TabManager | undefined {
+  return managers.get(runtimeId);
+}
+
+export function findTabManagerByTabId(tabId: string): TabManager | undefined {
+  return tabIndex.get(tabId);
+}
+
+export function findTabManagerByWebContents(wcId: number): TabManager | undefined {
+  return wcIndex.get(wcId);
+}
 
 /**
- * 多窗口路由辅助（P2；P3 起由真实实例索引替代）。
- *
- * - sender 必须是注册窗口的外壳/标签 WebContents；
- * - tabId 的归属窗口必须等于 sender 窗口，越窗拒绝由 IPC 层完成。
+ * sender 归属解析：
+ * - 标签 BrowserView 的 WebContents 直接在 wcIndex 里；
+ * - 窗口外壳的 WebContents 通过注册窗口 → managers 解析。
  */
 export function getTabManagerForSender(wc: Electron.WebContents): TabManager | undefined {
-  const win = getWindowForWebContents(wc);
-  if (!win) return undefined;
-  // P2 仍只有一个 manager，它只服务首个窗口；其余窗口必须等 P3 的实例化，
-  // 否则会把标签建到错误窗口（串窗）。
-  const primary = getRegisteredWindows()[0];
-  return primary && primary.id === win.id ? tabManager : undefined;
+  const direct = wcIndex.get(wc.id);
+  if (direct) return direct;
+  // 外壳 WebContents：直接和实例持有的宿主窗口比对。这样 tabs.ts 只依赖
+  // window.getMainWindow()，不把 window.ts 的完整 API 变成子模块契约。
+  for (const manager of managers.values()) {
+    const win = manager.getHostWindow();
+    if (win && win.webContents.id === wc.id) return manager;
+  }
+  return undefined;
 }
 
 export function getTabManagerForTabId(tabId: string): TabManager | undefined {
-  return tabManager.hasTab(tabId) ? tabManager : undefined;
+  return tabIndex.get(tabId);
 }
 
+/** 标签归属窗口；崩溃/挂起后没有 WebContents 也能解析（tabId → manager → 窗口）。 */
 export function getTabOwnerWindow(tabId: string): BrowserWindow | null {
-  const wc = tabManager.getWebContents(tabId);
-  if (wc) return getWindowForWebContents(wc);
-  // 崩溃后的标签没有 WebContents：P2 单实例只能回落到首个窗口；
-  // P3 改为 "tabId → manager → manager 所属窗口"。
-  return tabManager.hasTab(tabId) ? getRegisteredWindows()[0] ?? null : null;
+  return tabIndex.get(tabId)?.getHostWindow() ?? null;
 }
+
+/** 窗口关闭时销毁该窗口的全部 BrowserView 并清理三类索引。 */
+export function disposeTabManager(win: BrowserWindow): void {
+  const manager = managers.get(win.id);
+  if (!manager) return;
+  manager.destroyAll();
+  managers.delete(win.id);
+}
+
+/** 仅测试用：销毁全部实例并清空注册表。 */
+export function resetTabManagersForTest(): void {
+  for (const manager of managers.values()) manager.destroyAll();
+  managers.clear();
+  tabIndex.clear();
+  wcIndex.clear();
+}
+
+function fallbackManager(): TabManager | null {
+  const focused = getMainWindow();
+  const byFocus = focused ? managers.get(focused.id) : undefined;
+  if (byFocus) return byFocus;
+  return managers.values().next().value ?? null;
+}
+
+function managerForTabOrThrow(tabId: string): TabManager {
+  const manager = tabIndex.get(tabId);
+  if (!manager) throw new Error(`tab not found: ${tabId}`);
+  return manager;
+}
+
+/**
+ * 兼容 facade：保留 `export const tabManager`，让 60 处既有调用点无需改动。
+ * 转发规则按计划 §6.2：tabId 作用域 → 归属实例；窗口作用域 → 聚焦窗口实例；
+ * 聚合/广播遍历全部实例。
+ */
+const facade = {
+  getRuffleForWC(wcId: number) {
+    return wcIndex.get(wcId)?.getRuffleForWC(wcId) ?? null;
+  },
+  getActiveId() {
+    return fallbackManager()?.getActiveId() ?? null;
+  },
+  getTabIdForWebContents(wcId: number) {
+    return wcIndex.get(wcId)?.getTabIdForWebContents(wcId) ?? null;
+  },
+  getWebContents(tabId: string) {
+    return tabIndex.get(tabId)?.getWebContents(tabId) ?? null;
+  },
+  hasTab(tabId: string) {
+    return tabIndex.has(tabId);
+  },
+  isTabActive(tabId: string) {
+    return tabIndex.get(tabId)?.isTabActive(tabId) ?? false;
+  },
+  getContainerRect() {
+    return fallbackManager()?.getContainerRect() ?? { x: 0, y: 0, width: 0, height: 0 };
+  },
+  inspectAutomationTarget<T>(tabId: string, inspect: (webContents: Electron.WebContents) => Promise<T>): Promise<T> {
+    return managerForTabOrThrow(tabId).inspectAutomationTarget(tabId, inspect);
+  },
+  beginAutomation(tabId: string, viewport: AutomationViewport): AutomationTabHandle {
+    return managerForTabOrThrow(tabId).beginAutomation(tabId, viewport);
+  },
+  setPreload(path: string) {
+    for (const manager of managers.values()) manager.setPreload(path);
+  },
+  getMemoryDiagnostics() {
+    return [...managers.values()].flatMap((manager) => manager.getMemoryDiagnostics());
+  },
+  setBounds(x: number, y: number, width: number, height: number) {
+    fallbackManager()?.setBounds(x, y, width, height);
+  },
+  refreshActiveViewAfterHostRestore() {
+    fallbackManager()?.refreshActiveViewAfterHostRestore();
+  },
+  create(tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }) {
+    const manager = fallbackManager();
+    if (!manager) {
+      log.warn('[Tabs] tabManager.create without a window instance: ' + tabId);
+      return;
+    }
+    manager.create(tabId, url, ruffleConfig);
+  },
+  setRuffleMode(tabId: string, enabled: boolean, source: 'bundled' | 'cdn') {
+    tabIndex.get(tabId)?.setRuffleMode(tabId, enabled, source);
+  },
+  activate(tabId: string) {
+    tabIndex.get(tabId)?.activate(tabId);
+  },
+  focusActive() {
+    return fallbackManager()?.focusActive() ?? false;
+  },
+  close(tabId: string) {
+    tabIndex.get(tabId)?.close(tabId);
+  },
+  suspend(tabId: string) {
+    tabIndex.get(tabId)?.suspend(tabId);
+  },
+  destroyAll() {
+    for (const manager of managers.values()) manager.destroyAll();
+  },
+  refreshPasswordCapture(enabled: boolean) {
+    for (const manager of managers.values()) manager.refreshPasswordCapture(enabled);
+  },
+  notifyPasswordFormDetected(wcId: number) {
+    wcIndex.get(wcId)?.notifyPasswordFormDetected(wcId);
+  },
+  refreshPasswordFill() {
+    for (const manager of managers.values()) manager.refreshPasswordFill();
+  },
+  fillPassword(tabId: string, entryId: string): Promise<PasswordFillResult> {
+    const manager = tabIndex.get(tabId);
+    if (!manager) {
+      return Promise.resolve({ success: false, filledFields: 0, filledCredentials: 0, usernames: [], reason: 'destroyed' });
+    }
+    return manager.fillPassword(tabId, entryId);
+  },
+  navigate(tabId: string, url: string) {
+    tabIndex.get(tabId)?.navigate(tabId, url);
+  },
+  goBack(tabId: string) {
+    tabIndex.get(tabId)?.goBack(tabId);
+  },
+  goForward(tabId: string) {
+    tabIndex.get(tabId)?.goForward(tabId);
+  },
+  reload(tabId: string) {
+    tabIndex.get(tabId)?.reload(tabId);
+  },
+  stop(tabId: string) {
+    tabIndex.get(tabId)?.stop(tabId);
+  },
+  setZoom(tabId: string, factor: number) {
+    tabIndex.get(tabId)?.setZoom(tabId, factor);
+  },
+  setMuted(tabId: string, muted: boolean) {
+    tabIndex.get(tabId)?.setMuted(tabId, muted);
+  },
+  openDevTools(tabId: string) {
+    tabIndex.get(tabId)?.openDevTools(tabId);
+  },
+  findInPage(tabId: string, text: string, options?: Electron.FindInPageOptions) {
+    tabIndex.get(tabId)?.findInPage(tabId, text, options);
+  },
+  stopFindInPage(tabId: string, action: 'clearSelection' | 'keepSelection' | 'activateSelection') {
+    tabIndex.get(tabId)?.stopFindInPage(tabId, action);
+  },
+  getUserscriptCommandsForTab(tabId: string) {
+    return tabIndex.get(tabId)?.getUserscriptCommandsForTab(tabId) ?? [];
+  },
+  invokeUserscriptCommand(tabId: string, commandId: string) {
+    return tabIndex.get(tabId)?.invokeUserscriptCommand(tabId, commandId) ?? false;
+  },
+};
+
+export const tabManager = facade as unknown as TabManager;

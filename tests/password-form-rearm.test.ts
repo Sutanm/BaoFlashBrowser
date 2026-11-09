@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
+  id: 1,
   isDestroyed: () => false, addBrowserView: vi.fn(), removeBrowserView: vi.fn(),
   webContents: { send: vi.fn() },
 }));
@@ -21,7 +22,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { configureOptionalTabServices, tabManager } from '../src/main/modules/tabs';
+import { configureOptionalTabServices, createTabManager, tabManager } from '../src/main/modules/tabs';
 
 afterEach(() => {
   tabManager.destroyAll();
@@ -32,6 +33,8 @@ afterEach(() => {
 describe('password capture re-arm on a dynamic form', () => {
   function fixture(autofill: boolean) {
     vi.useFakeTimers();
+    // P3 起必须有窗口实例；这里给测试宿主注册一个 manager。
+    createTabManager(host as never, '/preload.js');
     const setupCapture = vi.fn();
     const fillPasswords = vi.fn(async () => ({ success: false, filledFields: 0, filledCredentials: 0, usernames: [] }));
     configureOptionalTabServices({ passwords: {

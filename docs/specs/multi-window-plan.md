@@ -440,16 +440,18 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 
 ### P3 TabManager 多实例化
 
-- [ ] 构造注入 `win` + `preloadPath`，替换 5 处硬编码
-- [ ] 建立 tabId / wcId 全局索引与清理（`create` 撞 id 记 warn）
-- [ ] tabId 全局唯一化（`id.service.ts` 带 `windowKey` 前缀）
-- [ ] 实现 facade 转发、聚合、广播；`send()` 动态解析宿主
-- [ ] 声明迁移原语 `detachForTransfer` / `adoptTransferred`（P7 落地实现）
-- [ ] 窗口关闭时 `disposeTabManager`
-- [ ] 落地 `probe 45-tab-manager-routing`
-- 改动：`modules/tabs.ts`、`renderer/services/id.service.ts`、`index.ts`
-- 判据：probe 45 双窗口标签事件互不串窗；第二窗口标签有 preload（Ruffle/userscript 可用）
+- [x] 构造注入 `win` + `preloadPath`，替换 5 处硬编码
+- [x] 建立 tabId / wcId 全局索引与清理（`create` 撞 id 记 warn）
+- [x] tabId 全局唯一化（`id.service.ts` 带渲染进程随机前缀，见 §6.5）
+- [x] 实现 facade 转发、聚合、广播；`send()` 按实例宿主发送
+- [x] 声明迁移原语 `detachForTransfer` / `adoptTransferred`（P7 落地实现）
+- [x] 窗口关闭时 `disposeTabManager`
+- [x] 双实例路由由 `tests/tab-manager-routing.test.ts`（9 例）覆盖
+- 改动：`modules/tabs.ts`、`renderer/services/id.service.ts`、`index.ts`、`tools/probe/probes/18-password-account-switch.cjs`（probe 需自行 `createTabManager`）
+- 判据：双窗口标签事件互不串窗；第二窗口标签有 preload（Ruffle/userscript 可用）
 - 验证：`npm run typecheck:main`、`npm run probe:deep`
+- **状态：已完成**。`tests/tab-manager-routing.test.ts`（9）+ `tests/id-uniqueness.test.ts`（2）+ 更新 `tests/password-form-rearm.test.ts`；全量 `npm test -- --run` 143 文件 / 994 例、`npm run typecheck`、`npm run build:main`、`npm run test:electron`、`npm run probe:deep`（23 probes / 0 failed）全绿。
+- 偏差说明：计划中的 `probes/45-tab-manager-routing` 编号已被既有 devtools 探针占用（`45-devtools-workspace` / `46-devtools-overrides`），故双实例路由以单测覆盖；真实 Electron 的迁移探针顺延为 `51-tab-transfer`，在 P7 落地（P7 才需要真实迁移）。
 
 ### P4a 横切模块适配（不含工具箱）
 
@@ -508,7 +510,7 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 - [ ] 新窗口 `tab:adopted` 就绪握手
 - [ ] 旧窗口标签拖空后自动关闭
 - [ ] 自动化租约 / 密码填充进行中时拒绝迁移并提示
-- [ ] 落地 `probe 46-tab-transfer`、`47-flash-tear-off`、`48-cross-window-drag`
+- [ ] 落地 `probe 51-tab-transfer`、`47-flash-tear-off`、`48-cross-window-drag`
 - 改动：`modules/tabs.ts`、`modules/window.ts`、`ipc/tabs.ipc.ts`、`preload/index.ts`、`renderer/types/electron.d.ts`、`shared/types/ipc.ts`、`renderer/components/tabs/*`、`renderer/components/layout/TopBar.tsx`、`renderer/hooks/useTabManager.ts`、`renderer/store/useTabsStore.ts`
 - 判据：R8、R9 手工验收通过；页面不重载，迁移后标题/加载态/地址栏继续更新
 - 验证：`npm run typecheck`、`npm run probe:deep`
@@ -518,7 +520,7 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 - [ ] `npm run typecheck`
 - [ ] `npm run lint`
 - [ ] `npm run test:electron`
-- [ ] `npm run probe:deep`（含 45~49）
+- [ ] `npm run probe:deep`（含 47~51）
 - [ ] `npm run test:e2e`（多窗口下首个窗口的断言语义）
 - [ ] `npm run test:smokes`（可选；先 `node scripts/ensure-build.cjs`）
 - [ ] 第 8.3 节手工清单
@@ -598,9 +600,9 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 - `npm run test:electron`：BrowserView 生命周期（现有）
 - `npm run probe:deep`：manager + BrowserView 运行时
 - 已落地（8.0）：`probes/38` ~ `probes/44` 共 7 个阶段可行性探测
-- 实施阶段新增：
-  - `probes/45-tab-manager-routing.cjs`：双窗口 TabManager 事件归属（**P3 开工前先落**）
-  - `probes/46-tab-transfer.cjs`：真实 TabManager 实例间迁移（P7，替代 probe 40 的裸 BrowserView 验证）
+- 实施阶段新增（编号 45/46 已被既有 devtools 探针占用，顺延）：
+  - `probes/50-tab-manager-routing.cjs`：双窗口 TabManager 事件归属（**可选**；P3 已由 `tests/tab-manager-routing.test.ts` 覆盖，若需要真实 Electron 版本在 P7 补）
+  - `probes/51-tab-transfer.cjs`：真实 TabManager 实例间迁移（P7，替代 probe 40 的裸 BrowserView 验证）
   - `probes/47-flash-tear-off.cjs`：PPAPI BrowserView 迁移后仍出帧（`capturePage` 非空白）+ 页面 JS 状态保留（P7 前）
   - `probes/48-cross-window-drag.cjs`：指针离开源窗口后仍收到 `pointermove`/`pointerup`（P7 前；失败则走 native 钩子降级）
   - `probes/49-routing-smoke.cjs`：窗口标题 / zoom 全局热键 / `ui:toast` / 对话框属主 按窗口路由（P6 后）
