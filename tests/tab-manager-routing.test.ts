@@ -278,5 +278,10 @@ describe('TabManager multi-instance routing (P3)', () => {
     expect(tabs.getTabOwnerWindow('tab-a1')).toBe(winB);
     expect(viewOf(winB).webContents.id).toBe(wcId);
     expect(tabs.findTabManagerByWebContents(wcId)).toBe(managerB);
+
+    // 迁移后事件必须投给新窗口：旧实例的监听器因归属守卫失效，不会双发。
+    viewOf(winB).webContents.emit('page-title-updated', {}, 'Adopted title');
+    expect(winB.send).toHaveBeenCalledWith('tab:updated', { tabId: 'tab-a1', title: 'Adopted title' });
+    expect(winA.send).not.toHaveBeenCalledWith('tab:updated', { tabId: 'tab-a1', title: 'Adopted title' });
   });
 });

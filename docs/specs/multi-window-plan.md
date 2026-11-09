@@ -478,7 +478,7 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 - 改动：`modules/devtoolbox-bridge.ts`、`-host.ts`、`-collector.ts`、`-snapshot.ts`、`-target-resolve.ts`、`-probe-page.ts`、`ipc/devtoolbox.ipc.ts`、`index.ts`
 - 判据：两个窗口同时打开抽屉、各自 attach 各自标签、互不干扰
 - 验证：`npm run typecheck:main`、`npm run probe:deep`、P8 手工清单第 7 项
-- **P7-1（本轮）**：`TabManager.detachForTransfer` / `adoptTransferred` 已落地并通过单测（不重建 wc、tabId 不变、索引迁移）。**P7-2 待做**：事件监听重绑（当前监听仍绑旧实例，迁移后标题/加载态会失联）、pointer events 拖拽、落点判定、`tab:detached/adopted` 握手、probe 47/48/51。`- **若 Chromium 87 并发桥出现不可接受问题：先记录阻塞证据再回退到单桥方案，不允许静默降级**
+- **P7-1 已完成**：`detachForTransfer` / `adoptTransferred`（不重建 wc、tabId 不变、索引迁移）。**P7-2a 已完成**：归属守卫 `_isCurrentWebContents` 改为 `tabIndex.get(tabId) === this`，adopt 时在新实例重装事件；旧实例监听器整体失效，迁移后标题事件投递到新窗口（单测覆盖）。**P7-2b 待做**：pointer events 拖拽、落点判定、`tab:detached/adopted` 握手、旧窗口拖空自动关闭、probe 47/48/51。`- **若 Chromium 87 并发桥出现不可接受问题：先记录阻塞证据再回退到单桥方案，不允许静默降级**
 - **状态：已完成（L）**。新增 `tests/devtoolbox-per-window-{bridge,host,collector,ipc}.test.ts`（共 16 例）：桥实例/前端容器/采集分桶/信任边界与 IPC 路由；全量 `npm test -- --run` 154 文件 / 1035 例、`npm run typecheck`、`npm run build:main`、`npm run test:electron`、`npm run probe:deep`（23/23，含 45/46 两个 devtools 探针）全绿。
 - 说明：`undocked` 独立 DevTools 窗口也改为按窗口 Map 管理（不再全局单例），但其前端容器仍只允许每个窗口一个。**抽屉高度/宽度/停靠** 存于渲染层 `localStorage` 的单键（`devtoolbox.height/width/dock`），按窗口分片需要 `windowKey`，已并入 P5 的渲染层改造（届时用 `windowKey` 前缀 + 重读持久值），本阶段不做半吊子实现。
 

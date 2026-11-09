@@ -132,6 +132,8 @@ class TabManager {
   }
 
   private _isCurrentWebContents(tabId: string, wc: Electron.WebContents): boolean {
+    // P7：迁移后旧实例的监听器必须整体失效（新实例会重新绑定）。
+    if (tabIndex.get(tabId) !== this) return false;
     const tab = this.tabs.get(tabId);
     return !!tab?.browserView && tab.browserView.webContents.id === wc.id && this.wcToId.get(wc.id) === tabId;
   }
@@ -872,6 +874,8 @@ class TabManager {
       tab.view.setBounds(rect);
       tab.view.webContents.setZoomFactor(tab.entry.zoomFactor);
       tab.view.webContents.setAudioMuted(tab.entry.muted);
+      // P7：把事件监听重装到新实例；旧实例的监听器因归属守卫失效，不会双发。
+      this._wireBrowserViewEvents(tab.view.webContents, tab.tabId);
     }
   }
 
