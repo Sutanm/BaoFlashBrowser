@@ -821,4 +821,4 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 npm run probe:deep:batched
 ```
 
-47（PPAPI 出帧）与 51（真实 TabManager 迁移）实测通过；48（跨窗口拖拽的 OS 捕获）仍需真机。
+47（PPAPI 出帧）与 51（真实 TabManager 迁移）实测通过；48 用合成输入验证"离开拖拽元素后 move/up 仍到达"，跨窗口的 OS 级捕获仍需真机。

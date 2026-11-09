@@ -60,7 +60,7 @@ npm run probe:deep:batched   # 47/51 会各自拉起子进程，分批跑更稳
 
 | 项 | 原因 | 替代验证 |
 | --- | --- | --- |
-| 跨窗口拖拽时指针离开源窗口仍收到 `pointermove/pointerup` | Chromium 依赖 OS 级鼠标捕获，无头/合成输入无法复现 | 手工第 9/10 项；失败则按计划扩 native mouse-hook |
+| 跨窗口拖拽时指针离开源窗口仍收到 `pointermove/pointerup` | Chromium 依赖 OS 级鼠标捕获，无头/合成输入无法复现；probe 48 只能验证"离开拖拽元素后仍收事件"（合成输入） | 手工第 9/10 项；失败则按计划扩 native mouse-hook |
 | macOS 行为（`activate`、`window-all-closed` 不退出） | 当前构建环境为 Windows | 手工第 16 项；代码路径已单测/审查 |
 | 大文件/长时间 Flash 播放 | 环境依赖 | 手工第 9 项 |
 
