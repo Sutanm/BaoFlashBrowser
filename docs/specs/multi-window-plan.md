@@ -791,3 +791,4 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | P1 | `f075cdb` | `tests/window-registry.test.ts`（7）；unit 137 文件 / 961 例；typecheck、build:main、test:electron | 单测放在 `tests/*.test.ts`（仓库约定）；`windowKey` 用 18 位十六进制随机串（未引入 nanoid） |
 | P2 | `f9ac07b` | 4 个新测试 + 更新的 ui-language；unit 141 文件 / 983 例 | `ui:set-language` 经 ipc-wrapper 的 window 上下文鉴权，不直接 import `window.ts`（避免拖入 electron-store 依赖） |
 | P3 | `15ec669` | `tab-manager-routing`（9）+ `id-uniqueness`（2）；unit 143 文件 / 994 例；probe:deep 23/23 | 计划 probe 45/46 编号已被 devtools 探针占用：双实例路由改用单测覆盖，真实迁移探针顺延为 `51-tab-transfer`（P7） |
+| P4a | `f565963` | 7 个路由测试文件 + window-registry / view-gate 扩展；unit 150 文件 / 1019 例；probe:deep 23/23 | 自动化导入/导出对话框仍用 `getWin()`（聚焦窗口）；probe 24 首次全量跑出现一次 matchMedia 超时，单独重跑与二次全量均 OK（时序抖动，非 P4a 引入） |
