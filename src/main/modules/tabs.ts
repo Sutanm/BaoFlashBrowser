@@ -837,6 +837,45 @@ class TabManager {
     return false;
   }
 
+  /**
+   * P7：把标签从本实例摘除但不销毁 WebContents（迁移用）。
+   * 注意：事件监听仍绑在本实例上；adopt 端需要重新绑定或由全局索引解析宿主，
+   * 这部分在 P7 的接线阶段完成（当前仅基础设施，未被 IPC 调用）。
+   */
+  detachForTransfer(tabId: string): { tabId: string; entry: TabEntry; view: BrowserView | null } | null {
+    const entry = this.tabs.get(tabId);
+    if (!entry) return null;
+    const view = entry.browserView;
+    this.tabs.delete(tabId);
+    tabIndex.delete(tabId);
+    if (view) {
+      wcIndex.delete(view.webContents.id);
+      this.wcToId.delete(view.webContents.id);
+      try { this.win()?.removeBrowserView(view); } catch { /* host gone */ }
+    }
+    if (this.activeId === tabId) this.activeId = null;
+    return { tabId, entry, view };
+  }
+
+  /** P7：接收另一个实例摘除的标签（不重建 wc、tabId 不变）。 */
+  adoptTransferred(tab: { tabId: string; entry: TabEntry; view: BrowserView | null }, _index?: number): void {
+    const host = this.win();
+    if (!host || host.isDestroyed()) return;
+    this.tabs.set(tab.tabId, tab.entry);
+    tabIndex.set(tab.tabId, this);
+    if (tab.view) {
+      tab.entry.browserView = tab.view;
+      this.wcToId.set(tab.view.webContents.id, tab.tabId);
+      wcIndex.set(tab.view.webContents.id, this);
+      host.addBrowserView(tab.view);
+      const rect = this.activeId === tab.tabId && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS;
+      tab.view.setBounds(rect);
+      tab.view.webContents.setZoomFactor(tab.entry.zoomFactor);
+      tab.view.webContents.setAudioMuted(tab.entry.muted);
+    }
+  }
+
+  private activeIndexFor(_tabId: string): boolean { return false; }
   private send(channel: string, payload: Record<string, unknown>): void {
     const win = this.win();
     if (!win || win.isDestroyed()) return;

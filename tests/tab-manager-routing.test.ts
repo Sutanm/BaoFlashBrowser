@@ -261,4 +261,22 @@ describe('TabManager multi-instance routing (P3)', () => {
     expect(second).toBe(first);
     expect(tabs.getTabManagerForWindow(winA.id)).toBe(first);
   });
+
+  it('detaches and adopts a tab without recreating its WebContents', () => {
+    const managerA = tabs.createTabManager(winA as never, '/preload.js');
+    const managerB = tabs.createTabManager(winB as never, '/preload.js');
+    managerA.create('tab-a1', 'https://a.example/');
+    const wcId = viewOf(winA).webContents.id;
+
+    const detached = managerA.detachForTransfer('tab-a1');
+    expect(detached).not.toBeNull();
+    expect(tabs.findTabManagerByTabId('tab-a1')).toBeUndefined();
+
+    managerB.adoptTransferred(detached!);
+
+    expect(tabs.findTabManagerByTabId('tab-a1')).toBe(managerB);
+    expect(tabs.getTabOwnerWindow('tab-a1')).toBe(winB);
+    expect(viewOf(winB).webContents.id).toBe(wcId);
+    expect(tabs.findTabManagerByWebContents(wcId)).toBe(managerB);
+  });
 });
