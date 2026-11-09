@@ -781,3 +781,11 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | Q8 | "接受" | P5 按增量写 + 事务内合并实施（§6.5），不启用"禁用第二个窗口数据面板"的备选 |
 
 审核清单中 Q6/Q7/Q8 一项已勾选；其余条目（方案 B、探测结论与已知边界、非目标、R1-R9、阶段顺序、风险对策、新增文件清单）仍待逐项确认后进入 P1。
+
+### 12.4 实施记录（TDD 逐阶段）
+
+| 阶段 | 提交 | 关键验证 | 与计划的偏差 |
+| --- | --- | --- | --- |
+| P1 | `f075cdb` | `tests/window-registry.test.ts`（7）；unit 137 文件 / 961 例；typecheck、build:main、test:electron | 单测放在 `tests/*.test.ts`（仓库约定）；`windowKey` 用 18 位十六进制随机串（未引入 nanoid） |
+| P2 | `f9ac07b` | 4 个新测试 + 更新的 ui-language；unit 141 文件 / 983 例 | `ui:set-language` 经 ipc-wrapper 的 window 上下文鉴权，不直接 import `window.ts`（避免拖入 electron-store 依赖） |
+| P3 | `15ec669` | `tab-manager-routing`（9）+ `id-uniqueness`（2）；unit 143 文件 / 994 例；probe:deep 23/23 | 计划 probe 45/46 编号已被 devtools 探针占用：双实例路由改用单测覆盖，真实迁移探针顺延为 `51-tab-transfer`（P7） |
