@@ -38,6 +38,7 @@ export {
 } from './devtoolbox-host';
 export { probeActivePage } from './devtoolbox-probe-page';
 export { getDevToolSnapshot, openNativeDevTools } from './devtoolbox-snapshot';
+export { shutdownWorkspaceWatchers } from './devtoolbox-workspace';
 
 // 端点查询已抽到 devtoolbox-targets（打断与 devtoolbox-bridge 的循环依赖），
 // 这里保留同名导出，外部引用（ipc / 探针风格调用）不用跟着改。

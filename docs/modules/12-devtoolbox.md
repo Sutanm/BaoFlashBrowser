@@ -298,6 +298,7 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
 | 部分新特性降级 | 后端是 87，前端会向它要 `Network.setAttachDebugStack`、`Overlay.setShowFlexOverlays` 等新方法，返回 `-32601`；主面板不受影响 |
 | 搜索命中无底色 | `CSS.highlights` 是 no-op（87 画不了 custom highlight），Elements 里搜索命中只有选中态没有高亮底色 |
 | Preloading 面板的 JSON 高亮常量 | 摘 `await` 后该常量到得晚，只有打开该面板看 JSON 时可能缺色 |
+| 工作区（本地文件夹）需自实现 | 前端跑在 hosted mode，原生宿主的 `addFileSystem` 是假实现。已自实现，见 §10 |
 
 ### 8.5 验证
 
@@ -549,8 +550,51 @@ preload 后这条中继整个删了（`useDevToolsBridgeRelay.ts` 已移除）�
 8. **长轮询方法不能套超时**。`CSS.takeComputedStyleUpdates`（Chrome 88+ 引入，87 后端
    可能一直不回）语义是"有变化才回包"，15s 超时只会在 CSS 模型里塞一个错误响应。
    它被列进 `LONG_POLL_METHODS` 白名单，靠 detach/断开收尾。
+9. **同一 loader 内节点 id 作废复发时，必须轮换会话**（2026-11-09 Styles 永久转圈）。
+   sdk.js 的 getMatchedStyles 垫片原本是"每 loader 一次本地 documentUpdated 恢复"，
+   但 87 号 DOM agent 作废在同一 loader 内会**复发**（Flash 游戏页尤其频繁）：
+   额度用完之后 `getMatchedStylesForNode` 永远报 `Could not find node with given id`，
+   Styles 面板永久转圈，用户只能手工「切外壳再切回当前页」恢复——那一步的本质是
+   **换 target = 换 CDP session = 全新 DOM agent 与节点 id 空间**，本地 documentUpdated
+   重取文档拿到的还是同一个 agent 的 id，兜不住复发。
+   现在的恢复链：第一级仍是 150ms 合并的本地 documentUpdated（每 loader 一次，快）；
+   第二级是恢复后 1.5s 内同类错误仍在/复发 → 垫片调 `bfbBridge.rotate()`（前端 preload
+   专有，外壳没有）→ `devtoolbox:bridge-rotate` → `devToolsBridge.rotate()`：
+   同一 target `detach + attachToTarget({force})` + replay + documentUpdated，
+   **桥内 3s 冷却**防风暴；成功路径会取消轮换定时器，只有错误持续才真正轮换。
+   `attach()` 因此多了 `force` 选项：同 target 强制重挂，且 `previousTarget === targetId`
+   时也要 replay（新 session 上域一个都没开，不 replay 就是死 session）。
+   **但 replay 的时机有讲究**——重开抽屉时立刻 replay 会把头部事件打进还没加载的前端，
+   见 9.3（2026-11-09 第二个根因）。
 
-### 9.3 开关与限制
+### 9.3 replay 时序：必须等前端真的在听（2026-11-09 Styles 永久转圈根因②）
+
+现象与根因②独立于 9.2 的节点 id 作废，两者叠加时表现相同（Styles 转圈）：
+
+- **丢失点**：重开抽屉时 `attachDevToolsView` 先 `beginFrontendSession` → 桥 attach →
+  立刻 replay `CSS.enable` 等开关命令 → 后端随即回发全部 `CSS.styleSheetAdded` 头部事件
+  → **此刻前端页面还在加载，preload 的 `messageListener` 是 null，事件整批蒸发**
+  （`src/preload/devtools.ts` 对未注册 onMessage 的事件直接丢弃，无缓冲）。
+- **为什么不自愈**：前端随后自己发的 `CSS.enable` 撞上"后端已启用"→ no-op，头部
+  永远不会重发。前端 CSSModel 头部表为空 → `getMatchedStylesForNode` 的响应引用未知
+  styleSheetId → `CSSMatchedRules.buildMainCascade` 读 `header.sourceURL` 抛 TypeError
+  → Promise reject → Styles 面板 spinner 永驻（真机实证：`styleSheetHeaders()` 为 0，
+  响应引用 `35952.0/35952.3`）。
+- **修复（三层）**：
+  1. `beginFrontendSession` 置 `newFrontendPending`：下一次 attach 即使 target 没变也
+     **强制换新 session**（旧 session 域已启用，换 session 让 enable 重新走一遍——
+     等价用户手工"切外壳再切回"）；
+  2. attach 时前端未就绪（`frontendReady`，由 preload 在页面注册 onMessage 后的
+     `devtoolbox:bridge-frontend-ready` 握手置位）→ **replay 挂起**，由握手或首条前端
+     命令放行（`flushDeferredReplay`，幂等）；就绪（切标签/rotate，前端活着）则照旧即时 replay；
+  3. sdk.js 垫片兜底：`De.create` 构建期崩溃（头部缺失）→ catch → 600ms 后 rotate。
+     该状态 documentUpdated 兜不了（头部来自 styleSheetAdded，不随文档重取）。
+
+验证：`tools/devtools-spike/live-reopen-check.cjs`（开抽屉→关→重开，读
+`hasMatchedStyles` / `styleSheetHeaders()` 数量 / 手动 race `getMatchedStyles`），
+修复前第二次打开 headers=0 且 threw `sourceURL of null`，修复后 headers=14、resolved。
+
+### 9.4 开关与限制
 
 | 开关 | 作用 |
 | --- | --- |
@@ -569,4 +613,131 @@ preload 后这条中继整个删了（`useDevToolsBridgeRelay.ts` 已移除）�
   `detachDevToolsView()` 销毁内嵌视图；反向的三条出口（关窗 → `setDock` 回内嵌、F12 收起 →
   `closeDevToolsWindow`、建窗失败 → 退回）也都在建/拆之前完成。那句话原来写成"两者同时
   打开时独立窗口收不到事件"，描述的是一个构造不出来的状态，已更正。
+
+## 10 工作区：真实本地文件夹（2026-11-09）
+
+「设置 → 工作区 → 添加文件夹…」原来**点了没反应**，根因不是样式或点击事件：
+
+前端跑在 hosted mode（没有原生宿主进程），`core/host/host.js` 回退到
+`InspectorFrontendHostStub`，它的 `addFileSystem` 是假实现——用
+`webkitRequestFileSystem(TEMPORARY)` 建一个沙盒 FS，然后往工作区塞一个
+`fileSystemPath: "/overrides"` 的假条目。实测：
+
+| 点击次数 | 现象 |
+| --- | --- |
+| 第 1 次 | 列表里多出一行 `file:///overrides`（**假条目**，不是用户选的目录） |
+| 第 2 次 | 控制台 `A project with id file:///overrides already exists!`，条目反而消失 |
+| 之后 | 永远停在"没反应" |
+
+真 Chrome 里这个能力由浏览器进程实现（`ChromeDevToolsHost::AddFileSystem`
+→ 目录选择框 + 授予 isolated filesystem），Electron 11 没有对应 API。
+
+### 10.1 实现
+
+| 层 | 位置 | 职责 |
+| --- | --- | --- |
+| 宿主（主进程） | `src/main/modules/devtoolbox-workspace.ts` | 目录选择、清单持久化、读写/新建/重命名/删除/搜索 |
+| IPC | `src/main/ipc/devtoolbox.ipc.ts` `devtoolbox:workspace` | 单通道 + `action` 分派，zod 校验，sender 白名单 |
+| preload | `src/preload/devtools.ts` `bfbBridge.workspace.*` | 页面 ⇄ 主进程搬运 |
+| 前端运行时 | `scripts/devtools-frontend/bfb-workspace.js`（构建期复制进 `dist/devtools-frontend/`） | 接管宿主五个方法 + 虚拟 DOM FileSystem |
+
+工作区清单存在 `userData/devtools-workspace.json`（原子写：临时文件 + rename），
+跨重启保留。
+
+**为什么要虚拟 DOM FileSystem**：上游 `models/persistence/IsolatedFileSystem.ts`
+只依赖 Web 标准的 `root.getFile` / `getDirectory` / `createReader` / `createWriter`，
+在宿主层补齐这几个接口 punch 面最小，上游升级不用重写业务逻辑。
+
+**为什么要用访问器接管 `InspectorFrontendHost`**：`host.js` 是 deferred 模块脚本，
+它在初始化时才 `globalThis.InspectorFrontendHost = new Stub`，而
+`IsolatedFileSystemManager` 构造时立刻调 `requestFileSystems()`。注入脚本先执行，
+用 `Object.getOwnPropertyDescriptor` 的 `set` 钩子在赋值那一刻打补丁——既不会触发
+"Incompatible embedder: method … is missing" 的一串 console.error，也不会晚于
+第一次 `requestFileSystems()`。
+
+### 10.2 安全边界
+
+- **只有用户通过系统目录选择框授权的目录**可读写；
+- IPC 只接受 DevTools 前端容器 / 主窗口的 WebContents；
+- 页面侧只传「授权根目录名 + 相对路径」，绝对路径在 zod 层直接拒（`path.isAbsolute`）；
+- 主进程再夹取一次：`resolve` + `..` 归一 + `realpath`（防符号链接逃逸），越界返回
+  `SecurityError`；
+- 删除工作区根目录本身被拒。
+
+### 10.3 文件变更监听 + 路径索引（2026-11-09）
+
+两件原来标为「限制」的事，现在都在主进程实现了：
+
+**变更监听**：每个已授权根目录挂一个 `fs.watch(root, { recursive: true })`。
+
+- Electron 11（Node 12）实测 Windows 下 `recursive` 可用，子目录的新增/修改/删除都能
+  收到；该选项**只有 Windows/macOS 支持**，Linux 上抛错后退回单层监听（顶层改动仍能
+  感知，深层改动靠下一次 `enumerateFiles` 补）。
+- `fs.watch` 给的事件类型不可靠（同一路径会同时报 `rename` 和 `change`，删除也不明说），
+  因此一律**以磁盘现状为准**：`statSync` 成功 → `added`/`changed`，失败 → `removed`。
+- 300ms 合并窗口：一次保存通常触发多条事件，合并后按 `{changed, added, removed}`
+  三组相对路径一次性推给前端。
+- 推送链路：`devtoolbox-workspace.ts` → `setWorkspaceChangeSink`（IPC 层注册）→
+  `devtoolbox:workspace-changes` → preload `bfbBridge.workspace.onChanges` →
+  `bfb-workspace.js` 转成前端认的 `FileSystemFilesChangedAddedRemoved`
+  （参数是**绝对文件路径**数组）。
+- 本进程自己的写操作额外走 `touchIndex()` 立刻同步索引：watcher 有 300ms 延迟，
+  而「在 DevTools 里新建文件后立刻搜索」是很自然的操作。
+
+**路径索引**：`RootIndex = { paths: Set<相对路径>, contents: Map<相对路径, {text,size}> }`。
+
+- 首次建立（添加文件夹 / 启动 `warmWorkspaceIndexes()`）递归枚举一次，之后靠 watcher
+  增量维护；`node_modules` / `.git` / `.svn` / `.idea` / `.cache` 等目录跳过。
+- 搜索在索引上过滤：先匹配文件名（成本为零），再按需读内容；内容带 LRU 式字节预算
+  缓存（32MB），文件改动时立刻失效。
+- 上限：索引 20 万文件（超出截断并 `log.warn`）、单次搜索 5000 结果、单文件 2MB
+  才参与内容匹配。
+- `indexPath` 仍然只补进度事件——索引是常驻的，搜索时不需要再扫盘。
+
+应用退出时 `shutdownWorkspaceWatchers()` 关闭所有 watcher（`fs.watch` 的句柄会
+阻止事件循环退出），挂在 `window-all-closed`。
+
+**仍存在的限制**：
+
+| 限制 | 说明 |
+| --- | --- |
+| Linux 深层变更 | `fs.watch` 非递归兜底只覆盖根目录顶层，子目录里的外部改动要等重新添加/重启 |
+| 索引上限 | 超过 20 万文件的目录只索引前 20 万（保护主进程内存），搜索会漏掉其余文件 |
+| 大目录首次索引 | 添加一个巨大目录时会同步递归枚举一次，UI 期间主进程有短暂阻塞 |
+
+### 10.4 Overrides（本地替换）已验证可用
+
+原先这里写的是「需 CDP `Fetch` 域配合，本阶段未接」——实测后更正：**桥对 `Fetch.*`
+是透传的，整条链路本来就是通的**。探针 `46-devtools-overrides` 用真实桥 + 真实前端
+产物 + 真实目标页验证：
+
+| 检查 | 结果 |
+| --- | --- |
+| `Fetch.enable(requestStage:'Response')` | 通过（1ms 返回） |
+| `Fetch.requestPaused` 收到主文档 + 子资源 | 通过 |
+| `Fetch.getResponseBody` 拿到原始响应 | 通过（base64，含 `SERVER-APP-JS`） |
+| `Fetch.fulfillRequest` 改写响应 | 通过 |
+| 页面渲染本地内容 | 通过（`LOCAL-OVERRIDE-FILE`） |
+| 重新加载恢复服务端内容 | 通过 |
+| 前端的 overrides 设置项 / 管理器类 | 通过 |
+
+一个必须注意的行为：`requestStage: 'Response'` 会把**主文档自身**也挂起，不放行的话
+页面的 `<script src>` / `<link>` 根本不会发起。宿主侧实现（前端自己就是这样做的）必须
+对非目标请求立刻 `Fetch.continueRequest`。
+
+尚未做真机 UI 验证的部分：在 Sources 里对某个脚本「编辑并保存」自动生成
+`<工作区>/<origin>/<path>` 下的 override 文件，再刷新页面看到本地内容。这需要真实站点
+（脚本 URL 带查询串/压缩、跨域 iframe 等），不属于自动化探针能覆盖的范围。
+
+### 10.5 验证
+
+```bash
+npx electron tools/probe/host-electron.cjs --only 45   # 21 项端到端检查（工作区读写 + 变更推送）
+npx electron tools/probe/host-electron.cjs --only 46   # 10 项端到端检查（Fetch / Overrides）
+```
+
+45 号探针用 esbuild 现场编译真实的主进程模块 + 真实前端产物 + 真实 preload，覆盖：
+登记、递归索引、读、文本写、二进制写、元数据、新建（`NewFile`/`NewFile1` 递增）、
+重命名、删除、搜索、**外部新增/修改/删除 → 前端收到 `FileSystemFilesChangedAddedRemoved`**、
+**外部新增文件可被索引搜索到**、相对/绝对路径逃逸拒绝、移除。46 号见上表。
 

@@ -25,6 +25,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 const EVENT_CHANNEL = 'devtoolbox:bridge-event';
 const SEND_CHANNEL = 'devtoolbox:bridge-send';
 const DETACH_CHANNEL = 'devtoolbox:bridge-detach';
+/** 工作区（真实本地文件夹）——宿主侧实现见 modules/devtoolbox-workspace.ts。 */
+const WORKSPACE_CHANNEL = 'devtoolbox:workspace';
+/** 主进程 → 页面：工作区文件发生变更（外部编辑器改动）。 */
+const WORKSPACE_CHANGES_CHANNEL = 'devtoolbox:workspace-changes';
 
 interface CdpMessage {
   id?: number;
@@ -50,6 +54,12 @@ interface RawCommand {
 
 let messageListener: ((message: string) => void) | null = null;
 let disconnectListener: ((reason: string) => void) | null = null;
+/** 工作区文件变更的页面侧监听（bfb-workspace.js 注册）。 */
+let workspaceChangeListener: ((payload: unknown) => void) | null = null;
+
+ipcRenderer.on(WORKSPACE_CHANGES_CHANNEL, (_event, payload: unknown) => {
+  workspaceChangeListener?.(payload);
+});
 /**
  * 外壳当前的停靠位置（bottom/left/right/undocked）。
  *
@@ -103,6 +113,11 @@ const bfbBridge = {
 
   onMessage(callback: (message: string) => void): void {
     messageListener = callback;
+    // 就绪握手：主进程的挂起 replay（重开抽屉时 attach 先于本页加载，replay
+    // 的 styleSheetAdded 等事件不能在空 listener 上放行）等这一刻才发。
+    void ipcRenderer.invoke('devtoolbox:bridge-frontend-ready').catch(() => {
+      // 桥不在（探针单独驱动等）：静默
+    });
   },
 
   onDisconnect(callback: (reason: string) => void): void {
@@ -150,6 +165,19 @@ const bfbBridge = {
   },
 
   /**
+   * 会话轮换：同一 target 拆了重挂（新 session = 全新 DOM agent）。
+   *
+   * 只给 sdk.js 的 getMatchedStyles 垫片用：87 号 DOM agent bug 复发、本地
+   * documentUpdated 重取兜不住时升级调用。fire-and-forget——垫片不关心结果，
+   * 桥重建完会发 documentUpdated，前端按既有逻辑重建面板。桥内有 3s 冷却。
+   */
+  rotate(): void {
+    void ipcRenderer.invoke('devtoolbox:bridge-rotate').catch(() => {
+      // 桥不在（探针单独驱动等）：静默，前端靠下一次错误重试
+    });
+  },
+
+  /**
    * 把「原生 DevTools 界面里的框架级操作」转给外壳。
    *
    * 原生前端自己带一套停靠菜单和一个关闭按钮，但停靠/关闭是**外壳**的事：
@@ -173,6 +201,74 @@ const bfbBridge = {
   dockSide(): string {
     return shellDockSide;
   },
+
+  /**
+   * 工作区（DevTools「设置 → 工作区 → 添加文件夹」）。
+   *
+   * 内置前端跑在 hosted mode，原生宿主的 `addFileSystem` 只是个假实现（塞一个
+   * `filesystem:devtools://…/overrides` 假条目，第二次点击还会撞 project 重名）。
+   * 这里把真实的目录选择与文件读写交给主进程（modules/devtoolbox-workspace.ts），
+   * 页面侧的虚拟 DOM FileSystem 在构建期注入的 bfb-workspace.js 里。
+   *
+   * 只暴露「按授权根目录名 + 相对路径」操作，不含任何绝对路径直读能力。
+   */
+  workspace: {
+    list(): Promise<unknown> {
+      return invokeWorkspace('list');
+    },
+    pick(type: string): Promise<unknown> {
+      return invokeWorkspace('pick', { type });
+    },
+    remove(fileSystemPath: string): Promise<unknown> {
+      return invokeWorkspace('remove', { fileSystemPath });
+    },
+    readDir(name: string, relative: string): Promise<unknown> {
+      return invokeWorkspace('readDir', { name, relative });
+    },
+    stat(name: string, relative: string): Promise<unknown> {
+      return invokeWorkspace('stat', { name, relative });
+    },
+    readFile(name: string, relative: string): Promise<unknown> {
+      return invokeWorkspace('readFile', { name, relative });
+    },
+    writeFile(name: string, relative: string, base64: string): Promise<unknown> {
+      return invokeWorkspace('writeFile', { name, relative, base64 });
+    },
+    createFile(name: string, relative: string, exclusive: boolean): Promise<unknown> {
+      return invokeWorkspace('createFile', { name, relative, exclusive });
+    },
+    createDirectory(name: string, relative: string): Promise<unknown> {
+      return invokeWorkspace('createDirectory', { name, relative });
+    },
+    deletePath(name: string, relative: string, recursive: boolean): Promise<unknown> {
+      return invokeWorkspace('deletePath', { name, relative, recursive });
+    },
+    move(name: string, relative: string, to: string): Promise<unknown> {
+      return invokeWorkspace('move', { name, relative, to });
+    },
+    search(fileSystemPath: string, query: string): Promise<unknown> {
+      return invokeWorkspace('search', { fileSystemPath, query });
+    },
+    /** 订阅主进程推来的文件变更（外部编辑器改了工作区里的文件时触发）。 */
+    onChanges(callback: (payload: unknown) => void): void {
+      workspaceChangeListener = callback;
+    },
+  },
 };
+
+/**
+ * 工作区统一入口：一条通道 + action 字段，主进程按 action 分派并做 zod 校验。
+ *
+ * 失败一律 resolve 成 `{ ok: false, error }` 而不是 reject：页面侧的虚拟
+ * FileSystem 把这些结果翻译成 DOMException 回调，reject 会让调用方多一条分支。
+ */
+function invokeWorkspace(action: string, payload?: Record<string, unknown>): Promise<unknown> {
+  return ipcRenderer
+    .invoke(WORKSPACE_CHANNEL, { action, ...(payload ?? {}) })
+    .catch((error: unknown) => ({
+      ok: false,
+      error: { name: 'InvalidStateError', message: error instanceof Error ? error.message : String(error) },
+    }));
+}
 
 contextBridge.exposeInMainWorld('bfbBridge', bfbBridge);

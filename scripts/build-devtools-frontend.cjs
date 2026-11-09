@@ -171,6 +171,34 @@ function prefixMask(text) {
     .replace(/(?<!-webkit-)mask(\s*:\s*(?:url\(|var\())/g, '-webkit-mask$1');
 }
 
+/**
+ * 焦点描边只留给键盘：`:focus` → `:focus-visible`。
+ *
+ * M97 前端有一批「聚焦就画蓝框」的规则写的是 `:focus`（`.text-button`、`.close-button`、
+ * 输入框等），而同一份资源里的工具栏按钮用的是 `:focus-visible`。鼠标点一下就出一圈
+ * 蓝框、程序化 focus（例如设置页默认聚焦「添加自定义配置文件…」）也画，观感上就是
+ * 「按钮莫名多了个蓝框」。
+ *
+ * 只改「画得出来」的描边：`outline:0 / none`、`outline-width:0` 是上游用来压掉原生
+ * 描边的，改成 `:focus-visible` 反而会把原生描边放回来，必须原样保留。
+ * 用 box-shadow 画 ring 的少数几处算同类（值里带 `focus-ring`），一并处理。
+ * `:focus-visible` / `:focus-within` 用负前瞻排除，避免二次改写。
+ */
+const VISIBLE_OUTLINE = /outline\s*:\s*(?:auto|[1-9]|var\()|outline-width\s*:\s*(?:[1-9]|var\()|outline-color\s*:|box-shadow[^{};]*focus-ring/;
+
+function keyboardOnlyFocus(text) {
+  let count = 0;
+  const next = text.replace(/([^{}]*)\{([^{}]*)\}/g, (match, selector, body) => {
+    // 选择器里必须真有裸 `:focus`（不能是 `:focus-visible` / `:focus-within`）
+    if (!/:focus(?![-:])/.test(selector)) return match;
+    if (!VISIBLE_OUTLINE.test(body)) return match;
+    count += 1;
+    // 一条规则可能挂多个选择器（`td:focus, th:focus{}`），整组一起换
+    return `${selector.replace(/:focus(?![-:])/g, ':focus-visible')}{${body}}`;
+  });
+  return { text: next, count };
+}
+
 function walk(dir, acc = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
@@ -200,8 +228,14 @@ const SOURCE_PATCHES = [
       // CSS 成功一次 → CSS 报 Could not find node with given id，中间没有任何 DOM 命令。
       // 对照：同一套刷新在纯 fixture、以及带跨域 iframe 的 fixture 上都不复现。
       // 结论：作废发生在 Chromium 87 的 DOM agent 里，应用层看不到也拦不住，只能事后自愈。
-      // 做法：命中该错误且针对当前文档时，150ms 合并、每个主帧 loader 最多恢复一次，
-      // 重取 DOM 后由 Elements 原有逻辑恢复选中与规则。
+      //
+      // 两级自愈（2026-11-09 Styles 永久转圈：同一 loader 内作废会**复发**，
+      // 原"每 loader 一次"的本地恢复用完额度后就永久卡死，Flash 游戏页尤其频繁；
+      // 用户实测的恢复手段「切外壳再切回当前页」本质是换 session = 全新 DOM agent）：
+      //   第一级：150ms 合并、每 loader 一次的本地 documentUpdated（重取文档，快）；
+      //   第二级：恢复后 1.5s 内同类错误仍在/复发 → 调 bfbBridge.rotate() 轮换会话
+      //   （主进程 detach+attachToTarget，新 DOM agent 与节点 id 空间，带 3s 冷却）。
+      //   成功路径取消轮换定时器，所以只有错误持续时才会真正轮换。
       [
         'async getMatchedStyles(e){const t=await this.agent.invoke_getMatchedStylesForNode({nodeId:e});if(t.getError())return null;',
         `async getMatchedStyles(e){
@@ -212,16 +246,41 @@ const SOURCE_PATCHES = [
           const t=await this.agent.invoke_getMatchedStylesForNode({nodeId:e});
           if(t.getError()){
             if(t.getError()==="Could not find node with given id"&&doc&&node&&loader&&
-               this.bfbRecoveredLoader!==loader&&this.#an.existingDocument()===doc){
+               this.#an.existingDocument()===doc){
               clearTimeout(this.bfbDocumentRecoveryTimer);
               this.bfbDocumentRecoveryTimer=setTimeout(()=>{
                 if(resourceTree.mainFrame?.loaderId!==loader||this.#an.existingDocument()!==doc)return;
-                this.bfbRecoveredLoader=loader;
-                this.#an.documentUpdated();
+                if(this.bfbRecoveredLoader!==loader){
+                  this.bfbRecoveredLoader=loader;
+                  this.#an.documentUpdated();
+                }
+                clearTimeout(this.bfbRotateTimer);
+                this.bfbRotateTimer=setTimeout(()=>{
+                  try{window.bfbBridge&&window.bfbBridge.rotate&&window.bfbBridge.rotate()}catch(bfbErr){}
+                },1500);
               },150);
             }
             return null;
-          }`,
+          }
+          clearTimeout(this.bfbRotateTimer);`,
+      ],
+      [
+        // 【兼容垫片】getMatchedStyles 成功响应的**构建期**崩溃：响应引用的
+        // styleSheetId 在前端 CSSModel 头部表里不存在（`header.sourceURL` 读 null
+        // 抛 TypeError）。见主进程 devtoolbox-bridge.ts attach 的注释——根因是
+        // replay 的 styleSheetAdded 事件落在空 listener 上蒸发，且后端对已启用
+        // 的 CSS 域不重发头部。Promise 一旦 reject，Styles 面板永久 spinner。
+        // 该状态 documentUpdated 兜不了（头部来自 styleSheetAdded，不随文档重取），
+        // 唯一出路是轮换 session（新 session 上 enable 重新走一遍、事件落在已注册
+        // 的 listener 上）。短暂延迟合并并发崩溃；桥内有 3s 冷却防风暴。
+        'const n=this.#an.nodeForId(e);return n?await De.create({cssModel:this,node:n,inlinePayload:t.inlineStyle||null,attributesPayload:t.attributesStyle||null,matchedPayload:t.matchedCSSRules||[],pseudoPayload:t.pseudoElements||[],inheritedPayload:t.inherited||[],inheritedPseudoPayload:t.inheritedPseudoElements||[],animationsPayload:t.cssKeyframesRules||[],parentLayoutNodeId:t.parentLayoutNodeId,positionFallbackRules:t.cssPositionFallbackRules||[],propertyRules:t.cssPropertyRules??[],cssPropertyRegistrations:t.cssPropertyRegistrations??[],fontPaletteValuesRule:t.cssFontPaletteValuesRule}):null}',
+        `const n=this.#an.nodeForId(e);if(!n)return null;try{
+          return await De.create({cssModel:this,node:n,inlinePayload:t.inlineStyle||null,attributesPayload:t.attributesStyle||null,matchedPayload:t.matchedCSSRules||[],pseudoPayload:t.pseudoElements||[],inheritedPayload:t.inherited||[],inheritedPseudoPayload:t.inheritedPseudoElements||[],animationsPayload:t.cssKeyframesRules||[],parentLayoutNodeId:t.parentLayoutNodeId,positionFallbackRules:t.cssPositionFallbackRules||[],propertyRules:t.cssPropertyRules??[],cssPropertyRegistrations:t.cssPropertyRegistrations??[],fontPaletteValuesRule:t.cssFontPaletteValuesRule});
+        }catch(bfbErr){
+          clearTimeout(this.bfbRotateTimer);
+          this.bfbRotateTimer=setTimeout(()=>{try{window.bfbBridge&&window.bfbBridge.rotate&&window.bfbBridge.rotate()}catch(e2){}},600);
+          return null;
+        }}`,
       ],
     ],
   },
@@ -299,6 +358,19 @@ const SOURCE_PATCHES = [
     ],
   },
   {
+    // 前端工具栏自带的 ✕（DockController.closeButton，注册在 MAIN_TOOLBAR_RIGHT）
+    // 和外壳抽屉顶栏的 ✕ 上下叠在同一列，动作又完全一样（都收起抽屉），
+    // 看起来就是重复；而且只有 DevTools 页签有第二个 ✕，另外三个页签没有，
+    // 切页签时更显不对称。这里直接不注册它，关闭统一交给外壳。
+    file: 'entrypoints/main/main-meta.js',
+    patches: [
+      [
+        'n.Toolbar.registerToolbarItem({loadItem:async()=>n.DockController.CloseButtonProvider.instance(),order:101,location:n.Toolbar.ToolbarItemLocation.MAIN_TOOLBAR_RIGHT,showLabel:void 0,condition:void 0,separator:void 0,actionId:void 0}),',
+        '',
+      ],
+    ],
+  },
+  {
     file: 'ui/legacy/legacy.js',
     patches: [
       // 原生「停靠侧」菜单的勾选读的是前端自己的 dockSide()，而停靠由外壳决定
@@ -308,6 +380,12 @@ const SOURCE_PATCHES = [
       [
         'dockSide(){return this.dockSideInternal}',
         'dockSide(){try{if(window.bfbBridge&&window.bfbBridge.dockSide){const s=window.bfbBridge.dockSide();if(s)return s}}catch(bfbErr){}return this.dockSideInternal}',
+      ],
+      // 上面把关闭按钮移除了，它为绝对定位的 ✕ 预留的 28px 右边距就没有意义，
+      // 留着只会让 ⋮ 菜单离右边缘差一截。
+      [
+        '{margin-inline-end:28px}',
+        '{margin-inline-end:0}',
       ],
     ],
   },
@@ -390,6 +468,7 @@ function applySourcePatches(relative, source, failures) {
   const files = walk(SRC);
   let transformed = 0;
   let patchedTla = 0;
+  let patchedFocus = 0;
   const failures = [];
 
   for (const file of files) {
@@ -399,7 +478,9 @@ function applySourcePatches(relative, source, failures) {
     const ext = path.extname(file).toLowerCase();
 
     if (ext === '.css') {
-      fs.writeFileSync(target, prefixMask(fs.readFileSync(file, 'utf-8')));
+      const focus = keyboardOnlyFocus(prefixMask(fs.readFileSync(file, 'utf-8')));
+      patchedFocus += focus.count;
+      fs.writeFileSync(target, focus.text);
       continue;
     }
     if (ext !== '.js') {
@@ -412,6 +493,9 @@ function applySourcePatches(relative, source, failures) {
     source = applySourcePatches(relative, source, failures);
     source = source.replace(/\bawait import\(/g, 'import(');
     source = prefixMask(source);
+    const focus = keyboardOnlyFocus(source);
+    source = focus.text;
+    patchedFocus += focus.count;
     if (source !== before) patchedTla += 1;
 
     // 剩余的顶层 await：按 esbuild 报的精确行列逐个摘掉，避免误伤 async 函数体内部
@@ -452,15 +536,19 @@ function applySourcePatches(relative, source, failures) {
   }
 
   fs.writeFileSync(path.join(OUT, 'bfb-polyfills.js'), POLYFILL);
-  // 两个入口都要前置 polyfill：inspector.html 是 screencast 壳（保留给探针脚本对拍），
-  // devtools_app.html 是应用实际加载的停靠壳入口。
+  // 工作区运行时（真实本地文件夹）：把 hosted mode 下宿主那五个假方法接管成
+  // 「preload → IPC → 主进程 fs」。源码在 scripts/devtools-frontend/bfb-workspace.js。
+  fs.copyFileSync(path.join(__dirname, 'devtools-frontend', 'bfb-workspace.js'), path.join(OUT, 'bfb-workspace.js'));
+  // 三个入口都要前置：devtools_app.html 是实际加载的停靠壳，
+  // inspector.html 保留给探针脚本对拍，其余场景按同一套行为。
   for (const name of ['inspector.html', 'devtools_app.html']) {
     const entryHtml = path.join(OUT, name);
-    const html = fs.readFileSync(entryHtml, 'utf-8').replace('<body', '<script src="./bfb-polyfills.js"></script>\n<body');
+    const html = fs.readFileSync(entryHtml, 'utf-8')
+      .replace('<body', '<script src="./bfb-polyfills.js"></script>\n<script src="./bfb-workspace.js"></script>\n<body');
     fs.writeFileSync(entryHtml, html);
   }
 
-  console.log(`[devtools-frontend] ${transformed} js downgraded, ${patchedTla} files patched, ${failures.length} failed → ${OUT}`);
+  console.log(`[devtools-frontend] ${transformed} js downgraded, ${patchedTla} files patched, ${patchedFocus} focus rules scoped to :focus-visible, ${failures.length} failed → ${OUT}`);
   if (failures.length) {
     for (const failure of failures) console.warn('  !', failure);
     process.exit(1);

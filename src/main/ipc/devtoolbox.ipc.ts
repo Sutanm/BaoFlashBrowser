@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ipcMain } from 'electron';
+import path from 'path';
 import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
 import {
   attachDevToolsView,
@@ -17,6 +18,22 @@ import {
   setDevToolsViewBounds,
 } from '../modules/devtoolbox';
 import { devToolsBridge } from '../modules/devtoolbox-bridge';
+import {
+  createWorkspaceDirectory,
+  createWorkspaceFile,
+  deleteWorkspacePath,
+  listWorkspaceRoots,
+  moveWorkspacePath,
+  pickWorkspaceRoot,
+  readWorkspaceDirectory,
+  readWorkspaceFile,
+  removeWorkspaceRoot,
+  searchWorkspacePath,
+  setWorkspaceChangeSink,
+  statWorkspacePath,
+  warmWorkspaceIndexes,
+  writeWorkspaceFile,
+} from '../modules/devtoolbox-workspace';
 import { getMainWindow } from '../modules/window';
 
 const target = z.enum(['page', 'shell']);
@@ -49,6 +66,50 @@ const bridgeSendSchema = z.object({
   // 前端请求 id：给了就代表「响应走有序流」，桥不再用 IPC 返回值回传。
   id: z.number().int().positive().optional(),
 }).strict();
+
+/** 相对授权根目录的路径：必须是相对路径，绝对路径一律拒绝（夹取在主进程再做一次）。 */
+const workspacePathArg = z.string().max(4096).refine((value) => !path.isAbsolute(value), 'must be relative');
+
+/** 工作区 action 分派：`list`/`pick` 之外一律要带根目录名与相对路径。 */
+const workspaceActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('list') }).strict(),
+  z.object({ action: z.literal('pick'), type: z.string().max(40).optional() }).strict(),
+  z.object({ action: z.literal('remove'), fileSystemPath: z.string().min(1).max(4096) }).strict(),
+  z.object({ action: z.literal('readDir'), name: z.string().min(1).max(120), relative: workspacePathArg }).strict(),
+  z.object({ action: z.literal('stat'), name: z.string().min(1).max(120), relative: workspacePathArg }).strict(),
+  z.object({ action: z.literal('readFile'), name: z.string().min(1).max(120), relative: workspacePathArg }).strict(),
+  z.object({
+    action: z.literal('writeFile'),
+    name: z.string().min(1).max(120),
+    relative: workspacePathArg,
+    // base64：上限 32MB 的原始字节（≈44MB 文本），足够覆盖 DevTools 里会编辑的文件
+    base64: z.string().max(48 * 1024 * 1024),
+  }).strict(),
+  z.object({
+    action: z.literal('createFile'),
+    name: z.string().min(1).max(120),
+    relative: workspacePathArg,
+    exclusive: z.boolean(),
+  }).strict(),
+  z.object({ action: z.literal('createDirectory'), name: z.string().min(1).max(120), relative: workspacePathArg }).strict(),
+  z.object({
+    action: z.literal('deletePath'),
+    name: z.string().min(1).max(120),
+    relative: workspacePathArg,
+    recursive: z.boolean(),
+  }).strict(),
+  z.object({
+    action: z.literal('move'),
+    name: z.string().min(1).max(120),
+    relative: workspacePathArg,
+    to: workspacePathArg,
+  }).strict(),
+  z.object({
+    action: z.literal('search'),
+    fileSystemPath: z.string().min(1).max(4096),
+    query: z.string().max(500).optional(),
+  }).strict(),
+]);
 
 export function registerDevToolboxIPC(): void {
   // 两个只读探测都收 tabId：主进程的"活动标签"比渲染层晚一拍，靠它会读到上一个页面。
@@ -189,6 +250,23 @@ export function registerDevToolboxIPC(): void {
     return { ok: true };
   });
 
+  // 会话轮换（同一 target 拆了重挂）：87 号 DOM agent bug 的前端垫片在本地恢复
+  // 兜不住时调用。新 session = 全新 DOM agent 与节点 id 空间，等价于用户手工
+  // 「切外壳再切回当前页」。桥内有 3s 冷却，风暴下不会无限重建。
+  ipcMain.handle('devtoolbox:bridge-rotate', async (event) => {
+    if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
+    return devToolsBridge.rotate();
+  });
+
+  // 前端就绪握手：preload 在页面注册 onMessage 后调用。主进程据此放行挂起的
+  // replay——在此之前 styleSheetAdded 等 enable 伴生事件投出去只会被空 listener
+  // 蒸发（重开抽屉样式永久转圈的根因，2026-11-09 真机实证）。
+  ipcMain.handle('devtoolbox:bridge-frontend-ready', async (event) => {
+    if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
+    devToolsBridge.markFrontendReady();
+    return { ok: true };
+  });
+
   ipcMain.handle('devtoolbox:bridge-send', async (event, args: unknown) => {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
     const parsed = bridgeSendSchema.safeParse(args);
@@ -199,5 +277,54 @@ export function registerDevToolboxIPC(): void {
   ipcMain.handle('devtoolbox:bridge-stats', (event) => {
     if (!isTrustedSender(event)) return null;
     return devToolsBridge.getStats();
+  });
+
+  // ---- 工作区（真实本地文件夹） ----
+  // 一条通道 + action 分派：页面侧的虚拟 FileSystem 只传「授权根目录名 + 相对路径」，
+  // 绝对路径由主进程按清单解析（见 modules/devtoolbox-workspace.ts 的安全边界）。
+  //
+  // 文件变更走反向推送（`devtoolbox:workspace-changes` → 前端 preload → bfb-workspace.js
+  // 派发 FileSystemFilesChangedAddedRemoved），这样外部编辑器的改动 Sources 能自己刷新。
+  warmWorkspaceIndexes();
+  setWorkspaceChangeSink((fileSystemPath, change) => {
+    const frontend = getDevToolsFrontendContents();
+    if (frontend && !frontend.isDestroyed()) {
+      frontend.send('devtoolbox:workspace-changes', { fileSystemPath, change });
+    }
+  });
+
+  ipcMain.handle('devtoolbox:workspace', async (event, args: unknown) => {
+    if (!isTrustedSender(event)) return { ok: false, error: { name: 'SecurityError', message: 'untrusted-sender' } };
+    const parsed = workspaceActionSchema.safeParse(args);
+    if (!parsed.success) return { ok: false, error: { name: 'InvalidModificationError', message: 'invalid-arguments' } };
+    const payload = parsed.data;
+    switch (payload.action) {
+      case 'list':
+        return { ok: true, roots: listWorkspaceRoots() };
+      case 'pick':
+        return pickWorkspaceRoot(payload.type ?? '');
+      case 'remove':
+        return removeWorkspaceRoot(payload.fileSystemPath);
+      case 'readDir':
+        return readWorkspaceDirectory(payload.name, payload.relative);
+      case 'stat':
+        return statWorkspacePath(payload.name, payload.relative);
+      case 'readFile':
+        return readWorkspaceFile(payload.name, payload.relative);
+      case 'writeFile':
+        return writeWorkspaceFile(payload.name, payload.relative, payload.base64);
+      case 'createFile':
+        return createWorkspaceFile(payload.name, payload.relative, payload.exclusive);
+      case 'createDirectory':
+        return createWorkspaceDirectory(payload.name, payload.relative);
+      case 'deletePath':
+        return deleteWorkspacePath(payload.name, payload.relative, payload.recursive);
+      case 'move':
+        return moveWorkspacePath(payload.name, payload.relative, payload.to);
+      case 'search':
+        return searchWorkspacePath(payload.fileSystemPath, payload.query ?? '');
+      default:
+        return { ok: false, error: { name: 'InvalidModificationError', message: 'unknown-action' } };
+    }
   });
 }

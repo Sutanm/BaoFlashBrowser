@@ -399,7 +399,8 @@ const DevToolDrawer: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0">
+      {/* 内容区可选文本：外壳 body 是 user-select: none，不覆写就复制不了日志/插件信息 */}
+      <div className="flex-1 min-h-0 devtools-selectable">
         {/*
           * DevTools 容器**常驻挂载**（抽屉开着时）：切到「捕获/Flash/主进程」只把
           * 它 `display:none`，不卸载。卸载 = 销毁原生视图 + 前端重新启动，代价是

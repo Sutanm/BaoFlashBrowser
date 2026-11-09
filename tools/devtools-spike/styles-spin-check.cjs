@@ -200,7 +200,8 @@ const STYLES_PROBE = `(() => {
     if (await navigate(pageUrl) === 'submitted') break;
     await sleep(500);
   }
-  await sleep(3000);
+  // BFB_OPEN_EARLY=1：页面还在加载时就开抽屉（用户的真实习惯）。默认等 3s。
+  if (process.env.BFB_OPEN_EARLY !== '1') await sleep(3000);
 
   for (let i = 0; i < 40; i += 1) {
     const st = await evaluate(client, `(() => {
@@ -473,6 +474,27 @@ const STYLES_PROBE = `(() => {
     })()`, false);
     await sleep(4000);
     console.log('[spin] 切回后:', await evaluate(fc, STYLES_PROBE));
+  }
+
+  // 会话轮换（87 号 bug 的自动恢复路径）：rotate 后 session 必须变化、样式必须存活
+  if (process.env.BFB_ROTATE === '1') {
+    const before = JSON.parse(await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) {
+      return JSON.stringify({ session: s.sessionId, target: s.targetId });
+    })`));
+    console.log('[spin] 轮换前 session:', before.session, '| 样式:', await evaluate(fc, STYLES_PROBE));
+    console.log('[spin] 调用 rotate:', await evaluate(fc, `(() => { window.bfbBridge.rotate(); return 'called'; })()`, false));
+    await sleep(2500);
+    const after = JSON.parse(await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) {
+      return JSON.stringify({ session: s.sessionId, target: s.targetId });
+    })`));
+    console.log('[spin] 轮换后 session:', after.session, '| session 变化:', before.session !== after.session);
+    console.log('[spin] 轮换后样式:', await evaluate(fc, STYLES_PROBE));
+    console.log('[spin] 轮换后点 div:', await evaluate(fc, CLICK_NODE('<div')));
+    await sleep(2500);
+    const afterStyles = JSON.parse(await evaluate(fc, STYLES_PROBE));
+    console.log('[spin] 点后样式:', await evaluate(fc, STYLES_PROBE));
+    if (before.session === after.session) throw new Error('session did not rotate');
+    if (!afterStyles.hasRules) throw new Error('styles lost after rotation');
   }
 
   const stats = await evaluate(client, `window.electronAPI.devtoolbox.bridge.stats().then(function (s) {

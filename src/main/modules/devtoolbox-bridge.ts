@@ -130,6 +130,13 @@ class DevToolsBridge {
    * 所以换实例时静默丢弃旧请求，绝不再往回发信封。
    */
   private frontendEpoch = 0;
+  /** beginFrontendSession 置位：下一次 attach 必须给新前端一个全新 session（见其注释）。 */
+  private newFrontendPending = false;
+  /** 前端页面已注册消息监听（preload `bfbBridge.onMessage` 握手）——事件投递从此可靠。 */
+  private frontendReady = false;
+  /** attach 时前端未就绪：replay 推迟到握手或首条前端命令（见 attach 内注释）。 */
+  private pendingReplay = false;
+  private replayTask: Promise<void> | null = null;
 
   private sessionId: string | null = null;
   private targetId: string | null = null;
@@ -221,14 +228,20 @@ class DevToolsBridge {
   }
 
   /** 把当前活动标签的 target 挂到桥上（切标签时重新调用）。 */
-  async attach(targetId: string, port: number): Promise<{ sessionId: string }> {
-    if (this.targetId === targetId && this.sessionId) return { sessionId: this.sessionId };
+  async attach(targetId: string, port: number, opts?: { force?: boolean }): Promise<{ sessionId: string }> {
+    const force = opts?.force === true;
+    // 新前端实例接管（重开抽屉）：即使 target 没变也换新 session。旧 session 上
+    // 各域已启用，新前端的 enable 是 no-op，样式表头部事件再也不会重发
+    // （见 beginFrontendSession 注释）。换 session = enable 重新走一遍。
+    const freshFrontend = this.newFrontendPending;
+    this.newFrontendPending = false;
+    if (!force && !freshFrontend && this.targetId === targetId && this.sessionId) return { sessionId: this.sessionId };
     // 已有 attach 在飞：先等它落地，再判断是否已经挂到同一个 target。
     // 直接覆盖 this.attaching 会让两次 attach 并发改 sessionId，先完成者的
     // finally 还会把后者的 promise 清空（currentOrPendingSession 落空）。
     if (this.attaching) {
       try { await this.attaching; } catch { /* 失败由本次调用重新尝试 */ }
-      if (this.targetId === targetId && this.sessionId) return { sessionId: this.sessionId };
+      if (!force && !freshFrontend && this.targetId === targetId && this.sessionId) return { sessionId: this.sessionId };
     }
     const task = (async (): Promise<{ sessionId: string }> => {
       await this.ensureSocket(port);
@@ -248,13 +261,24 @@ class DevToolsBridge {
       // 或一次短延迟再放行（attached 事件通常先于本次响应到达，这里兜底 60ms）。
       await new Promise((resolve) => setTimeout(resolve, 60));
 
-      // 切标签（换 target）或换了新前端实例：前端没有重新连过，它只发过一次
+      // 切标签（换 target）、换新前端实例或强制轮换：前端没有重新连过，它只发过一次
       // 初始化命令，新 session 上这些域一个都没开。把前端此前发过的「开关类」
       // 命令按最新参数重放一遍，再宣告文档已换，前端就会重建 Elements/Console。
-      if (previousTarget && previousTarget !== targetId) {
-        await this.replayFrontendState(sessionId);
-        this.enqueue({ method: 'DOM.documentUpdated' });
-        this.enqueue({ method: 'Runtime.executionContextsCleared' });
+      //
+      // **replay 必须等前端真的在听**。重开抽屉时 attach 先于前端页面加载，此刻
+      // replay 的 `CSS.styleSheetAdded` 等事件会在 preload 的空 listener 上整批
+      // 蒸发（preload 对未注册 onMessage 的事件直接丢弃）；随后前端自己的 enable
+      // 又因后端已启用而不重发头部 → CSSModel 头部表为空 → getMatchedStyles
+      // 引用未知 styleSheetId 构建崩溃 → Styles 永久转圈（2026-11-09 真机实证）。
+      // 所以前端未就绪时把 replay 挂起，由 markFrontendReady / 首条前端命令触发。
+      if (previousTarget && (previousTarget !== targetId || force || freshFrontend)) {
+        if (this.frontendReady) {
+          await this.replayFrontendState(sessionId);
+          this.enqueue({ method: 'DOM.documentUpdated' });
+          this.enqueue({ method: 'Runtime.executionContextsCleared' });
+        } else {
+          this.pendingReplay = true;
+        }
       }
       log.info(`[DevToolsBridge] attached target=${targetId.slice(0, 12)}… session=${sessionId.slice(0, 12)}…`);
       return { sessionId };
@@ -265,6 +289,43 @@ class DevToolsBridge {
     } finally {
       // 只清理自己那一次，避免把后来者的 promise 也置空。
       if (this.attaching === task) this.attaching = null;
+    }
+  }
+
+  /** 会话轮换的最小间隔：87 号 DOM agent bug 风暴下防无限轮换。 */
+  private static ROTATE_COOLDOWN_MS = 3000;
+  private lastRotateAt = 0;
+
+  /**
+   * 强制轮换 CDP session（同一 target 拆了重挂）。
+   *
+   * 为什么需要：Chromium 87 的 DOM agent 会**隐形作废节点 id**——对 CDP 会话完全
+   * 不可见，重取文档拿到的还是同一个 agent 的 id，作废可能立刻复发（见
+   * build-devtools-frontend.cjs 里 sdk.js 的 getMatchedStyles 垫片注释）。
+   * 唯一可靠的恢复手段是换 session：detach + attachToTarget 会得到全新的
+   * DOM agent 与节点 id 空间。这正是用户手工「切外壳再切回当前页」能恢复
+   * 样式的原理，这里把它自动化，由前端垫片在错误复发时调用。
+   *
+   * 冷却期内直接拒绝（垫片侧还有 1.5s 定时器缓冲），避免风暴下反复重建会话。
+   */
+  async rotate(): Promise<{ ok: boolean; error?: string }> {
+    if (this.attaching) {
+      try { await this.attaching; } catch { /* 失败由本次重试 */ }
+    }
+    const targetId = this.targetId;
+    if (!targetId || !this.sessionId || this.state !== 'ready') return { ok: false, error: 'not-attached' };
+    const now = Date.now();
+    if (now - this.lastRotateAt < DevToolsBridge.ROTATE_COOLDOWN_MS) return { ok: false, error: 'rotate-cooldown' };
+    const port = this.port;
+    if (!port) return { ok: false, error: 'no-port' };
+    // 先占冷却额度再动手：并发 rotate 只放行第一个。
+    this.lastRotateAt = now;
+    try {
+      await this.attach(targetId, port, { force: true });
+      log.info('[DevToolsBridge] session rotated (same target)');
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
@@ -294,6 +355,44 @@ class DevToolsBridge {
     log.info(`[DevToolsBridge] replayed ${replayed} stateful commands onto new session`);
   }
 
+  /**
+   * 前端页面注册消息监听后的握手（preload `bfbBridge.onMessage` 触发）。
+   *
+   * 此刻起事件投递可靠：挂起的 replay 在这里放行，保证 styleSheetAdded 等
+   * 「enable 的伴生事件」全部落在已注册的 listener 上。
+   */
+  markFrontendReady(): void {
+    this.frontendReady = true;
+    if (this.pendingReplay && this.sessionId) void this.flushDeferredReplay();
+  }
+
+  /**
+   * 放行挂起的 replay（幂等：并发调用共享同一个 task）。
+   *
+   * 除握手外，`send()` 里的首条前端命令也会触发——探针等不经 preload 的调用方
+   * 没有握手，靠它兜底。flush 完成前前端命令一律排队等它：enable 类命令必须
+   * 让 replay 的版本先到（先到者触发后端的伴生事件流）。
+   */
+  private flushDeferredReplay(): Promise<void> {
+    if (!this.replayTask) {
+      const sessionId = this.sessionId;
+      if (!sessionId) {
+        this.pendingReplay = false;
+        return Promise.resolve();
+      }
+      this.replayTask = (async () => {
+        await this.replayFrontendState(sessionId);
+        this.pendingReplay = false;
+        this.enqueue({ method: 'DOM.documentUpdated' });
+        this.enqueue({ method: 'Runtime.executionContextsCleared' });
+      })();
+      void this.replayTask.finally(() => {
+        this.replayTask = null;
+      });
+    }
+    return this.replayTask;
+  }
+
   async detach(): Promise<void> {    if (!this.sessionId) return;
     const sessionId = this.sessionId;
     // 换 target 前先把在途的前端请求失败掉：旧 session 上的响应永远不会回来，
@@ -314,9 +413,17 @@ class DevToolsBridge {
    *
    * 旧实例的请求 id 空间随之作废：**静默**丢弃它们的在途请求，绝不回发信封——
    * 否则那条迟到错误会命中新实例里同号的请求（表现：Styles 永久空白）。
+   *
+   * 同时置 `newFrontendPending`：下一次 attach 即使 target 没变也**强制换新
+   * session**。原因：旧 session 上 CSS 等域早已启用，新前端的 enable 全是
+   * no-op，`CSS.styleSheetAdded` 头部事件只发给过上一任前端——新实例的
+   * CSSModel 头部表为空，getMatchedStylesForNode 一调就在构建期崩掉
+   * （header 为 null），Styles 永久转圈。换 session 让 enable 重新走一遍。
    */
   beginFrontendSession(): void {
     this.frontendEpoch += 1;
+    this.newFrontendPending = true;
+    this.frontendReady = false;
     if (this.pending.size === 0) return;
     for (const [id, entry] of this.pending) {
       if (entry.timer) clearTimeout(entry.timer);
@@ -374,6 +481,9 @@ class DevToolsBridge {
     if (!this.socket || this.state !== 'ready') {
       return finish({ ok: false, error: { message: 'bridge-not-connected' } });
     }
+    // 前端未就绪时挂起的 replay：首条前端命令是「listener 已注册」的可靠信号
+    // （探针等不经 preload 的调用方没有握手），先放行 replay 再发本条。
+    if (this.pendingReplay && this.sessionId) await this.flushDeferredReplay();
     if (!RAW_MODE) {
       const intercepted = await this.interceptTargetMethod(method);
       if (intercepted) return finish(intercepted);
@@ -493,6 +603,8 @@ class DevToolsBridge {
 
   shutdown(): void {
     this.state = 'closed';
+    this.pendingReplay = false;
+    this.replayTask = null;
     if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
     // 先把在途的前端请求判失败（会入队错误响应），再同步投递一次——
     // 不然这些错误信封跟着 buffer 一起被清掉，等于没通知前端。
