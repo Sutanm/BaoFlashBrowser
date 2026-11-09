@@ -10,7 +10,7 @@ import { setupFlash } from './modules/flash';
 import { configureOptionalSessionServices, initSession } from './modules/session-manager';
 import { initializeProxy } from './modules/proxy';
 import { loadConfig } from './modules/config';
-import { createWindow, getMainWindow } from './modules/window';
+import { createWindow, getMainWindow, getWindowForWebContents, getWindowKey, onWindowCreated } from './modules/window';
 import { registerShortcutHandler, registerZoomShortcuts, startMouseHook } from './ipc/shortcut.ipc';
 import { registerWindowIPC } from './ipc/window.ipc';
 import { registerThemeIPC } from './ipc/theme.ipc';
@@ -22,9 +22,13 @@ import { initDevToolbox, shutdownDevToolsFrontendServer, shutdownWorkspaceWatche
 import { devToolsBridge } from './modules/devtoolbox-bridge';
 import { configureOptionalTabServices, tabManager } from './modules/tabs';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
-import { initializeSessionRecovery, preventCleanShutdownMark } from './modules/session-recovery';
+import { initializeSessionRecovery, markCleanShutdown } from './modules/session-recovery';
 
 let automationService: { shutdown(): Promise<void> } | null = null;
+// 外壳 renderer 崩溃按窗口计数（多窗口下不能升级成整应用退出）。
+const shellCrashStates = new Map<number, { count: number; resetTimer: NodeJS.Timeout | null }>();
+let bootCompleted = false;
+let servicesShutdown = false;
 
 function bootstrap(): void {
   if (!app.requestSingleInstanceLock()) {
@@ -134,13 +138,16 @@ function bootstrap(): void {
       log.error('[Ruffle] resource protocol registration failed:', (e instanceof Error ? e.message : 'Unknown error'));
     }
 
-    // 创建主窗口优先于可选模块初始化，保留快速首屏；BrowserView 要等 IPC
-    // 注册后才会创建，因此下面仍能在首个标签页出现前完成依赖装配。
+    // 每个窗口都要绑定宿主事件：Chromium 87 合成器表面丢失的修复需要
+    // restore 与 maximize 都触发（最大化不产生 restore 事件）。注册表回调
+    // 保证后续窗口（P6 的 second-instance / Ctrl+N）也自动补绑，而不只覆盖
+    // 首个窗口。
+    onWindowCreated((win) => {
+      win.on('restore', () => tabManager.refreshActiveViewAfterHostRestore());
+      win.on('maximize', () => tabManager.refreshActiveViewAfterHostRestore());
+      win.on('closed', () => shellCrashStates.delete(win.id));
+    });
     const mainWindow = createWindow();
-    // Chromium 87 合成器表面丢失的修复：还原和最大化都要触发（最大化不产生
-    // restore 事件，只挂 restore 时"最小化→弹通知→最大化"会白屏）
-    mainWindow.on('restore', () => tabManager.refreshActiveViewAfterHostRestore());
-    mainWindow.on('maximize', () => tabManager.refreshActiveViewAfterHostRestore());
     tabManager.setPreload(path.join(__dirname, 'webview-preload.js'));
 
     // Optional integrations are wired before the first BrowserView/session is
@@ -268,9 +275,21 @@ function bootstrap(): void {
     // 主窗口早于上面的事件监听创建，必须显式补绑，否则焦点在外壳界面
     // （地址栏、开发者工具箱输入框）时 F12 等快捷键全部失效。
     registerShortcutHandler(mainWindow.webContents);
+    bootCompleted = true;
   });
 
-  app.on('window-all-closed', () => {
+  /**
+   * 服务级 teardown 只在真正退出时执行，绝不挂在 window-all-closed 上：
+   * 多窗口下关掉一个窗口不能停掉下载/OCR/抽屉；macOS 关完窗口后进程仍活着，
+   * 提前 teardown 会让 activate 重建的窗口功能残缺（计划 §6.4 / K14）。
+   * 幂等：before-quit 与 will-quit 都可能触发。
+   */
+  const shutdownServicesOnce = (): void => {
+    if (servicesShutdown) return;
+    servicesShutdown = true;
+    markCleanShutdown();
+    // 启动未完成（例如代理配置失败后 quit）时不做服务 teardown，交给进程退出。
+    if (!bootCompleted) return;
     shutdownDevToolsFrontendServer();
     // 工作区的 fs.watch 句柄必须显式关闭，否则退出时事件循环还挂着。
     shutdownWorkspaceWatchers();
@@ -290,26 +309,38 @@ function bootstrap(): void {
       const { killAria2 } = require('./modules/download') as typeof import('./modules/download');
       killAria2();
     }
-    app.quit();
+  };
+  app.on('before-quit', () => { shutdownServicesOnce(); });
+  app.on('will-quit', () => { shutdownServicesOnce(); });
+
+  app.on('window-all-closed', () => {
+    // 只决定是否退出：Windows/Linux 最后一个窗口关闭即退出；
+    // macOS 保持进程存活，由 activate 重建窗口（teardown 已上移到 before-quit）。
+    if (process.platform !== 'darwin') app.quit();
   });
 
-  let crashCount = 0;
-  let crashResetTimer: ReturnType<typeof setTimeout> | null = null;
+  // 外壳 renderer 崩溃按窗口计数。旧行为是全局计数超过 3 次就 app.quit()，
+  // 多窗口下会让一个窗口的崩溃连带杀掉其他窗口的所有页面。
+  const SHELL_CRASH_LIMIT = 3;
+  const SHELL_CRASH_RESET_MS = 30_000;
 
   app.on('render-process-gone', (_event, wc, details) => {
-    const win = getMainWindow();
-    if (wc === win?.webContents) {
-      log.error('[App] MAIN RENDER PROCESS GONE — reason: ' + details.reason);
-      crashCount++;
-      if (crashResetTimer) clearTimeout(crashResetTimer);
-      crashResetTimer = setTimeout(() => { crashCount = 0; }, 30000);
-      if (crashCount > 3) {
-        preventCleanShutdownMark();
-        app.quit();
-        return;
-      }
-      setTimeout(() => win?.reload(), 500);
+    const win = getWindowForWebContents(wc);
+    // BrowserView 的崩溃由 TabManager 自己处理；这里只关注外壳 renderer。
+    if (!win || wc !== win.webContents) return;
+    const state = shellCrashStates.get(win.id) ?? { count: 0, resetTimer: null };
+    state.count += 1;
+    if (state.resetTimer) clearTimeout(state.resetTimer);
+    state.resetTimer = setTimeout(() => { state.count = 0; }, SHELL_CRASH_RESET_MS);
+    state.resetTimer.unref?.();
+    shellCrashStates.set(win.id, state);
+    log.error(`[App] SHELL RENDER PROCESS GONE win=${win.id} key=${getWindowKey(win)} reason=${details.reason} count=${state.count}`);
+    if (state.count > SHELL_CRASH_LIMIT) {
+      // 只放弃这一个窗口，绝不退出整个应用；其他窗口的页面必须继续可用。
+      log.error(`[App] window ${win.id} crashed ${state.count} times; stop reloading it`);
+      return;
     }
+    setTimeout(() => { if (!win.isDestroyed()) win.reload(); }, 500);
   });
 
   app.on('child-process-gone', (_event, details) => {
