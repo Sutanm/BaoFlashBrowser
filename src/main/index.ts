@@ -18,7 +18,7 @@ import { registerConfigIPC } from './ipc/config.ipc';
 import { registerTabsIPC } from './ipc/tabs.ipc';
 import { registerScreenshotIPC } from './ipc/screenshot.ipc';
 import { registerDevToolboxIPC } from './ipc/devtoolbox.ipc';
-import { initDevToolbox, shutdownDevToolsFrontendServer } from './modules/devtoolbox';
+import { initDevToolbox, shutdownDevToolsFrontendServer, shutdownWorkspaceWatchers } from './modules/devtoolbox';
 import { devToolsBridge } from './modules/devtoolbox-bridge';
 import { configureOptionalTabServices, tabManager } from './modules/tabs';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
@@ -48,6 +48,9 @@ function bootstrap(): void {
   // The browser does not offer spellchecking, so disable the feature globally.
   if (process.platform === 'win32') {
     app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
+    // 通知图标靠 AUMID 关联应用身份；不设就是默认的 electron.app.Electron（空图标）。
+    // 值必须与 electron-builder 的 appId 一致。
+    app.setAppUserModelId('com.bao.flashbrowser');
   }
 
   if (process.platform === 'linux') {
@@ -134,7 +137,10 @@ function bootstrap(): void {
     // 创建主窗口优先于可选模块初始化，保留快速首屏；BrowserView 要等 IPC
     // 注册后才会创建，因此下面仍能在首个标签页出现前完成依赖装配。
     const mainWindow = createWindow();
+    // Chromium 87 合成器表面丢失的修复：还原和最大化都要触发（最大化不产生
+    // restore 事件，只挂 restore 时"最小化→弹通知→最大化"会白屏）
     mainWindow.on('restore', () => tabManager.refreshActiveViewAfterHostRestore());
+    mainWindow.on('maximize', () => tabManager.refreshActiveViewAfterHostRestore());
     tabManager.setPreload(path.join(__dirname, 'webview-preload.js'));
 
     // Optional integrations are wired before the first BrowserView/session is
@@ -203,6 +209,18 @@ function bootstrap(): void {
     registerScreenshotIPC(() => getMainWindow());
     if (MODULE_PASSWORDS) {
       const { registerPasswordIPC } = require('./ipc/password.ipc') as typeof import('./ipc/password.ipc');
+      const { setViewGateOwnerWindow } = require('./modules/view-gate-win') as typeof import('./modules/view-gate-win');
+      // CredUI 验证对话框是 powershell.exe 子进程创建的顶层窗口，必须给它一个属主窗口，
+      // 否则它没有 Z 序关系、可能被压在浏览器窗口后面（2026-11-08 反馈）。
+      setViewGateOwnerWindow(() => {
+        const win = getMainWindow();
+        if (!win || win.isDestroyed()) return null;
+        const handle = win.getNativeWindowHandle();
+        // HWND 是 32 位句柄（64 位进程里以符号扩展的 8 字节存放），低 4 字节就是它的值。
+        // 不用 BigInt：主进程 tsconfig 目标低于 ES2020，BigInt 字面量过不了类型检查。
+        const value = handle.length >= 4 ? handle.readUInt32LE(0) : 0;
+        return value > 0 ? String(value) : null;
+      });
       passwordStore?.init().catch((e: unknown) => log.warn('[App] password store init failed:', (e instanceof Error ? e.message : 'Unknown error')));
       registerPasswordIPC();
     }
@@ -254,6 +272,8 @@ function bootstrap(): void {
 
   app.on('window-all-closed', () => {
     shutdownDevToolsFrontendServer();
+    // 工作区的 fs.watch 句柄必须显式关闭，否则退出时事件循环还挂着。
+    shutdownWorkspaceWatchers();
     // 桥的 browser ws 是长连接，退出前必须显式关闭（否则进程退出要多等一个超时）。
     devToolsBridge.shutdown();
     if (MODULE_MEMORY_MONITOR) {

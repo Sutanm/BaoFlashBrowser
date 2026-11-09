@@ -1,4 +1,5 @@
 import { app, shell, Notification } from 'electron';
+import { createDesktopNotification } from '../modules/desktop-notification';
 import log from 'electron-log';
 import { z } from 'zod';
 import { createValidatedHandler } from '../utils/ipc-wrapper';
@@ -38,18 +39,16 @@ export async function runStartupUpdateCheck(): Promise<void> {
     const result = await checkOnce();
     if (result.status !== 'available' || !result.latestVersion) return;
     if (!Notification.isSupported()) return;
-    const notification = new Notification({
+    createDesktopNotification({
       title: uiText('发现新版本', 'Update available'),
       body: uiText(
         `BaoFlashBrowser ${result.latestVersion} 已发布，点击查看更新。`,
         `BaoFlashBrowser ${result.latestVersion} is available. Click to view the release.`,
       ),
+      onClick: () => { void shell.openExternal(result.releaseUrl ?? RELEASES_URL); },
     });
-    notification.on('click', () => {
-      void shell.openExternal(result.releaseUrl ?? RELEASES_URL);
-    });
-    notification.show();
   } catch (error) {
     log.warn('[AppUpdate] startup update check failed:', error instanceof Error ? error.message : String(error));
   }
 }
+
