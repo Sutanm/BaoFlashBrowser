@@ -6,7 +6,7 @@ export type JavaScriptAutomationCapability =
 
 export type JavaScriptAutomationMethod =
   | 'input.click' | 'input.move' | 'input.drag' | 'input.keyPress' | 'input.typeText' | 'input.scroll'
-  | 'vision.find' | 'vision.exists' | 'vision.waitForRegionChange' | 'vision.waitForColor'
+  | 'vision.find' | 'vision.exists' | 'vision.waitForRegionChange' | 'vision.waitForColor' | 'vision.sampleColor'
   | 'ocr.findText' | 'ocr.readText' | 'ocr.readNumber'
   | 'page.url' | 'page.navigate' | 'page.reload'
   | 'time.sleep' | 'time.now'
@@ -14,7 +14,7 @@ export type JavaScriptAutomationMethod =
 
 export const JAVASCRIPT_AUTOMATION_CAPABILITY: Readonly<Record<JavaScriptAutomationMethod, JavaScriptAutomationCapability | null>> = Object.freeze({
   'input.click': 'input', 'input.move': 'input', 'input.drag': 'input', 'input.keyPress': 'input', 'input.typeText': 'input', 'input.scroll': 'input',
-  'vision.find': 'vision', 'vision.exists': 'vision', 'vision.waitForRegionChange': 'vision', 'vision.waitForColor': 'vision',
+  'vision.find': 'vision', 'vision.exists': 'vision', 'vision.waitForRegionChange': 'vision', 'vision.waitForColor': 'vision', 'vision.sampleColor': 'vision',
   'ocr.findText': 'ocr', 'ocr.readText': 'ocr', 'ocr.readNumber': 'ocr',
   'page.url': 'page.read', 'page.navigate': 'page.navigate', 'page.reload': 'page.navigate',
   'time.sleep': null, 'time.now': null, 'log.write': 'log', 'notify.show': 'notify',
@@ -57,6 +57,12 @@ export type JavaScriptAutomationParams = {
     readonly minimumMatchingPixels?: number;
     readonly consecutiveFrames?: number;
   };
+  'vision.sampleColor': {
+    readonly region: PersistedRegion;
+    readonly colors: readonly string[];
+    readonly tolerance?: number;
+    readonly minimumMatchingPixels?: number;
+  };
   'ocr.findText': { readonly locator: Extract<LocatorSpec, { readonly kind: 'text' }> };
   'ocr.readText': { readonly region?: PersistedRegion; readonly minConfidence?: number };
   'ocr.readNumber': { readonly region?: PersistedRegion; readonly locale?: string };
@@ -97,6 +103,19 @@ export type JavaScriptAutomationResult = {
     readonly matchBounds?: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
   };
   'ocr.findText': ScriptLocatedTarget | null; 'ocr.readText': string; 'ocr.readNumber': number;
+  /** 单帧采样：形状与 waitForColor 相同，但 samples 恒为 1、没有轮询语义。 */
+  'vision.sampleColor': {
+    readonly found: boolean;
+    readonly matchingPixels: number;
+    readonly totalPixels: number;
+    readonly matchingRatio: number;
+    readonly maxMatchingPixels: number;
+    readonly maxMatchingRatio: number;
+    readonly samples: number;
+    readonly elapsedMs: number;
+    readonly captureMs: number;
+    readonly matchBounds?: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+  };
   'page.url': string; 'page.navigate': null; 'page.reload': null;
   'time.sleep': null; 'time.now': number; 'log.write': null; 'notify.show': null;
 };
@@ -126,6 +145,8 @@ export interface BaoAutomationApi {
     exists(locator: LocatorSpec): Promise<boolean>;
     waitForRegionChange(region: PersistedRegion, options?: Omit<JavaScriptAutomationParams['vision.waitForRegionChange'], 'region'>): Promise<JavaScriptAutomationResult['vision.waitForRegionChange']>;
     waitForColor(region: PersistedRegion, colors: readonly string[], options?: Omit<JavaScriptAutomationParams['vision.waitForColor'], 'region' | 'colors'>): Promise<JavaScriptAutomationResult['vision.waitForColor']>;
+    /** 只采一帧、只数一次颜色。用于"此刻有多少这种颜色"，不要拿 waitForColor 的超时代替它。 */
+    sampleColor(region: PersistedRegion, colors: readonly string[], options?: Omit<JavaScriptAutomationParams['vision.sampleColor'], 'region' | 'colors'>): Promise<JavaScriptAutomationResult['vision.sampleColor']>;
   };
   readonly ocr: {
     findText(locator: JavaScriptAutomationParams['ocr.findText']['locator']): Promise<ScriptLocatedTarget | null>;
@@ -137,3 +158,4 @@ export interface BaoAutomationApi {
   readonly log: { debug(message: string): Promise<null>; info(message: string): Promise<null>; warn(message: string): Promise<null>; error(message: string): Promise<null> };
   readonly notify: { show(title: string, body?: string): Promise<null> };
 }
+

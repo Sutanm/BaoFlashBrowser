@@ -176,6 +176,12 @@ function validateMethodParams(method: JavaScriptAutomationMethod, untrusted: unk
     if (params.minimumMatchingPixels !== undefined && !Number.isSafeInteger(finite(params.minimumMatchingPixels, 'minimum matching pixels', 1, 1_000_000))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'minimum matching pixels must be an integer');
     if (params.consecutiveFrames !== undefined && !Number.isSafeInteger(finite(params.consecutiveFrames, 'consecutive frames', 1, 20))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'consecutive frames must be an integer');
   }
+  else if (method === 'vision.sampleColor') {
+    assertRegion(params.region);
+    if (!Array.isArray(params.colors) || params.colors.length < 1 || params.colors.length > 16 || params.colors.some((value) => typeof value !== 'string' || !/^#?[0-9a-f]{6}$/iu.test(value))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'region colors must contain 1 to 16 RGB hex values');
+    if (params.tolerance !== undefined) finite(params.tolerance, 'region color tolerance', 0, 255);
+    if (params.minimumMatchingPixels !== undefined && !Number.isSafeInteger(finite(params.minimumMatchingPixels, 'minimum matching pixels', 1, 1_000_000))) throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'minimum matching pixels must be an integer');
+  }
   else if (method === 'ocr.findText') { assertLocator(params.locator); if ((params.locator as { kind?: unknown }).kind !== 'text') throw new JavaScriptCapabilityBrokerError('PAYLOAD_INVALID', 'ocr.findText requires TextLocator'); }
   else if (method === 'ocr.readText' || method === 'ocr.readNumber') {
     if (params.region !== undefined) assertRegion(params.region);

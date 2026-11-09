@@ -25,6 +25,7 @@ export type JavaScriptAutomationServicePorts = {
   readonly vision: {
     waitForRegionChange(region: PersistedRegion, options: RegionChangeOptions, context: ActionContext): Promise<RegionChangeResult>;
     waitForColor(region: PersistedRegion, options: RegionColorOptions, context: ActionContext): Promise<RegionColorResult>;
+    sampleColor(region: PersistedRegion, options: Pick<RegionColorOptions, 'colors' | 'tolerance' | 'minimumMatchingPixels'>, context: ActionContext): Promise<RegionColorResult>;
   };
   readonly page: {
     url(): string;
@@ -62,6 +63,17 @@ function isTargetNotFound(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 'TARGET_NOT_FOUND');
 }
 
+function parseColors(values: readonly string[]): { red: number; green: number; blue: number }[] {
+  return values.map((value) => {
+    const hex = value.startsWith('#') ? value.slice(1) : value;
+    return {
+      red: Number.parseInt(hex.slice(0, 2), 16),
+      green: Number.parseInt(hex.slice(2, 4), 16),
+      blue: Number.parseInt(hex.slice(4, 6), 16),
+    };
+  });
+}
+
 /** Maps the public JavaScript API to the same Core registries/services used by other frontends. */
 export function createJavaScriptAutomationHostPorts(services: JavaScriptAutomationServicePorts): JavaScriptAutomationHostPorts {
   return {
@@ -87,15 +99,17 @@ export function createJavaScriptAutomationHostPorts(services: JavaScriptAutomati
       reference: params.reference ?? 'baseline',
     }, services.context(signal)),
     'vision.waitForColor': (params, signal) => services.vision.waitForColor(params.region, {
-      colors: params.colors.map((value) => {
-        const hex = value.startsWith('#') ? value.slice(1) : value;
-        return { red: Number.parseInt(hex.slice(0, 2), 16), green: Number.parseInt(hex.slice(2, 4), 16), blue: Number.parseInt(hex.slice(4, 6), 16) };
-      }),
+      colors: parseColors(params.colors),
       timeoutMs: params.timeoutMs ?? 10_000,
       pollIntervalMs: params.pollIntervalMs ?? 10,
       tolerance: params.tolerance ?? 16,
       minimumMatchingPixels: params.minimumMatchingPixels ?? 1,
       consecutiveFrames: params.consecutiveFrames ?? 1,
+    }, services.context(signal)),
+    'vision.sampleColor': (params, signal) => services.vision.sampleColor(params.region, {
+      colors: parseColors(params.colors),
+      tolerance: params.tolerance ?? 16,
+      minimumMatchingPixels: params.minimumMatchingPixels ?? 1,
     }, services.context(signal)),
     'ocr.findText': async (params, signal) => {
       const context = services.context(signal);

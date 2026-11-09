@@ -51,6 +51,7 @@ const bao: BaoAutomationApi = freeze({
     exists: (locator: LocatorSpec) => call('vision.exists', { locator }),
     waitForRegionChange: (region: PersistedRegion, options: Omit<JavaScriptAutomationParams['vision.waitForRegionChange'], 'region'> = {}) => call('vision.waitForRegionChange', { region, ...options }),
     waitForColor: (region: PersistedRegion, colors: readonly string[], options: Omit<JavaScriptAutomationParams['vision.waitForColor'], 'region' | 'colors'> = {}) => call('vision.waitForColor', { region, colors, ...options }),
+    sampleColor: (region: PersistedRegion, colors: readonly string[], options: Omit<JavaScriptAutomationParams['vision.sampleColor'], 'region' | 'colors'> = {}) => call('vision.sampleColor', { region, colors, ...options }),
   }),
   ocr: freeze({
     findText: (locator: Extract<LocatorSpec, { kind: 'text' }>) => call('ocr.findText', { locator }),

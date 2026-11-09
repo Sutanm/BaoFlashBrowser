@@ -159,6 +159,34 @@ export async function waitForRegionChange(options: RegionChangeOptions, dependen
   };
 }
 
+/**
+ * 只采一帧、只数一次颜色，不轮询。
+ *
+ * 存在的理由：`waitForRegionColor` 的语义是"等到颜色出现"，没命中时它会一直采到超时。
+ * 而绝大多数调用方其实只想问"此刻这块区域有多少个这种颜色的像素"——用等待去表达计数，
+ * 每次没命中都要白付一整个超时预算（实测 80ms 对 12ms）。
+ */
+export async function sampleRegionColor(
+  options: Pick<RegionColorOptions, 'colors' | 'tolerance' | 'minimumMatchingPixels'>,
+  dependencies: Pick<RegionChangeDependencies, 'capture' | 'now'>,
+  signal: AbortSignal,
+): Promise<RegionColorResult> {
+  if (signal.aborted) throw new Error('automation cancelled');
+  const now = dependencies.now ?? (() => performance.now());
+  const startedAt = now();
+  const current = await dependencies.capture();
+  const latest = countRegionColorPixels(current, options.colors, options.tolerance);
+  return {
+    found: latest.matchingPixels >= (options.minimumMatchingPixels ?? 1),
+    ...latest,
+    maxMatchingPixels: latest.matchingPixels,
+    maxMatchingRatio: latest.matchingRatio,
+    samples: 1,
+    elapsedMs: now() - startedAt,
+    captureMs: current.captureMs ?? 0,
+  };
+}
+
 export async function waitForRegionColor(options: RegionColorOptions, dependencies: RegionChangeDependencies, signal: AbortSignal): Promise<RegionColorResult> {
   const now = dependencies.now ?? (() => performance.now());
   const startedAt = now();
