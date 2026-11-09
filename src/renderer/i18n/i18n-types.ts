@@ -364,6 +364,22 @@ type RootTranslation = {
 		 */
 		runMainEntry: string
 		/**
+		 * 运​行​历​史
+		 */
+		runHistory: string
+		/**
+		 * 还​没​有​落​盘​的​运​行​记​录
+		 */
+		noPersistedRunLogs: string
+		/**
+		 * 用​系​统​默​认​程​序​打​开
+		 */
+		openFile: string
+		/**
+		 * 关​闭
+		 */
+		close: string
+		/**
 		 * 保​存
 		 */
 		save: string
@@ -661,6 +677,50 @@ type RootTranslation = {
 		 * 重​试
 		 */
 		retry: string
+		/**
+		 * 开​启​密​码​本
+		 */
+		vaultTitle: string
+		/**
+		 * 密​码​本​可​以​保​存​并​自​动​填​充​网​站​的​登​录​密​码​。​设​置​一​个​查​看​密​码​来​保​护​它​；​暂​时​不​需​要​的​话​直​接​跳​过​即​可​，​之​后​可​随​时​在​设​置​中​开​启​。
+		 */
+		vaultDescription: string
+		/**
+		 * 密​码​本​可​以​保​存​并​自​动​填​充​网​站​的​登​录​密​码​。​本​机​会​用​ ​W​i​n​d​o​w​s​ ​系​统​验​证​（​W​i​n​d​o​w​s​ ​H​e​l​l​o​ ​/​ ​账​户​凭​据​）​保​护​已​保​存​的​密​码​，​无​需​再​设​置​查​看​密​码​。
+		 */
+		vaultOsDescription: string
+		/**
+		 * 启​用​密​码​本
+		 */
+		vaultEnable: string
+		/**
+		 * 暂​不​启​用
+		 */
+		vaultDisable: string
+		/**
+		 * 查​看​密​码​（​至​少​ ​6​ ​位​）
+		 */
+		vaultPasswordLabel: string
+		/**
+		 * 确​认​并​开​启
+		 */
+		vaultConfirm: string
+		/**
+		 * 跳​过
+		 */
+		vaultSkip: string
+		/**
+		 * 留​空​跳​过​将​默​认​不​开​启​密​码​本​。
+		 */
+		vaultHint: string
+		/**
+		 * 请​牢​记​这​个​密​码​：​忘​记​后​只​能​重​建​密​码​本​，​会​丢​弃​全​部​已​保​存​的​密​码​。
+		 */
+		vaultWarning: string
+		/**
+		 * 开​启​密​码​本​失​败​，​请​重​试​。
+		 */
+		vaultFailed: string
 	}
 	/**
 	 * 确​定
@@ -2936,6 +2996,22 @@ export type TranslationFunctions = {
 		 */
 		runMainEntry: () => LocalizedString
 		/**
+		 * 运行历史
+		 */
+		runHistory: () => LocalizedString
+		/**
+		 * 还没有落盘的运行记录
+		 */
+		noPersistedRunLogs: () => LocalizedString
+		/**
+		 * 用系统默认程序打开
+		 */
+		openFile: () => LocalizedString
+		/**
+		 * 关闭
+		 */
+		close: () => LocalizedString
+		/**
 		 * 保存
 		 */
 		save: () => LocalizedString
@@ -3233,6 +3309,50 @@ export type TranslationFunctions = {
 		 * 重试
 		 */
 		retry: () => LocalizedString
+		/**
+		 * 开启密码本
+		 */
+		vaultTitle: () => LocalizedString
+		/**
+		 * 密码本可以保存并自动填充网站的登录密码。设置一个查看密码来保护它；暂时不需要的话直接跳过即可，之后可随时在设置中开启。
+		 */
+		vaultDescription: () => LocalizedString
+		/**
+		 * 密码本可以保存并自动填充网站的登录密码。本机会用 Windows 系统验证（Windows Hello / 账户凭据）保护已保存的密码，无需再设置查看密码。
+		 */
+		vaultOsDescription: () => LocalizedString
+		/**
+		 * 启用密码本
+		 */
+		vaultEnable: () => LocalizedString
+		/**
+		 * 暂不启用
+		 */
+		vaultDisable: () => LocalizedString
+		/**
+		 * 查看密码（至少 6 位）
+		 */
+		vaultPasswordLabel: () => LocalizedString
+		/**
+		 * 确认并开启
+		 */
+		vaultConfirm: () => LocalizedString
+		/**
+		 * 跳过
+		 */
+		vaultSkip: () => LocalizedString
+		/**
+		 * 留空跳过将默认不开启密码本。
+		 */
+		vaultHint: () => LocalizedString
+		/**
+		 * 请牢记这个密码：忘记后只能重建密码本，会丢弃全部已保存的密码。
+		 */
+		vaultWarning: () => LocalizedString
+		/**
+		 * 开启密码本失败，请重试。
+		 */
+		vaultFailed: () => LocalizedString
 	}
 	/**
 	 * 确定

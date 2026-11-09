@@ -37,7 +37,7 @@ export function nativeAssistantModule(source) {
       disposed = true;
       timers.forEach(id => window.clearTimeout(id)); intervals.forEach(id => window.clearInterval(id));
       listeners.forEach(([target, args]) => target.removeEventListener(...args));
-      ['bao-automation-frame-assistant','bao-automation-assistant-style','bao-automation-assistant-toasts','bao-automation-capture-layer','bao-automation-coordinate-layer','bao-automation-game-layer'].forEach(id => document.getElementById(id)?.remove());
+      ['bao-automation-frame-assistant','bao-automation-assistant-style','bao-automation-assistant-toasts','bao-automation-capture-layer','bao-automation-coordinate-layer','bao-automation-game-layer','bao-automation-history-layer'].forEach(id => document.getElementById(id)?.remove());
     };
   }`;
 }

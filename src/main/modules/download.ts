@@ -444,7 +444,10 @@ export function setupDownloadHandlers(sess: Electron.Session): void {
     const pending = browserRetries.get(url) || 0;
     if (pending === 1) browserRetries.delete(url);
     else if (pending > 1) browserRetries.set(url, pending - 1);
-    const engine = pending || pendingChromiumRetries.get(url)?.length ? 'chromium' : (loadConfig().downloadEngine ?? 'aria2');
+    // blob:/data: 只存在于渲染进程地址空间，aria2 作为独立进程拿不到内容
+    // （addUri 会报 "No URI to download"），必须交给 Chromium 自己写盘。
+    const rendererLocal = /^(blob|data|filesystem):/iu.test(url);
+    const engine = rendererLocal || pending || pendingChromiumRetries.get(url)?.length ? 'chromium' : (loadConfig().downloadEngine ?? 'aria2');
     log.info('[Download] will-download: engine=' + engine + ', aria2Ready=' + aria2Ready + ', url=' + redactUrlForLog(item.getURL()));
 
     if (engine === 'aria2' && aria2Ready) {

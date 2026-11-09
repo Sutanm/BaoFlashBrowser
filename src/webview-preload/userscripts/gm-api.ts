@@ -69,6 +69,9 @@ export interface GmApi {
     endCoordinatePick(): Promise<unknown>;
     warmup(packageId: string, asset?: string): Promise<unknown>;
     warmAuthoring(): Promise<unknown>;
+    listAutomationLogs(): Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>>;
+    readAutomationLogs(name: string): Promise<unknown>;
+    openAutomationLog(name: string): Promise<unknown>;
   };
   handleWebRequestEvent(event: GmWebRequestEvent): void;
   info: Record<string, unknown>;

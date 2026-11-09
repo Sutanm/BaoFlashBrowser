@@ -1,163 +1,277 @@
 ---
 name: baoauto-script-builder
-description: Design, build, validate, and iteratively refine BaoFlashBrowser Automation 2.0 .baoauto v3 packages from a user's workflow description. Use when a user wants a BaoFlashBrowser automation package, Blockly workflow, or sandboxed JS/TS automation script and may need guided questions or material collection first.
+description: Design, build, validate, and refine BaoFlashBrowser .baoauto v3 automation packages (Blockly workflow and/or sandboxed JS/TS) from a user's workflow description. Use when the user wants an automation package, wants to modify an existing .baoauto, or needs guided requirement discovery and material collection.
 ---
 
-# BaoFlashBrowser `.baoauto` Script Builder
+# BaoFlashBrowser `.baoauto` 脚本制作规范（v3）
 
-Turn a user's desired in-game or webpage workflow into an importable `.baoauto` v3 package. Treat
-requirements discovery, material collection, implementation, real-scene validation, and refinement as
-one continuous task.
+把用户描述的工作流变成可导入的 `.baoauto` v3 包。需求澄清、素材收集、实现、验证、迭代修订
+是一条连续任务，不要切成互不相认的阶段。
 
-## Source of truth
+## 0. 事实源与结论适用性
 
-When the BaoFlashBrowser repository is available, read these current sources before authoring:
+**先判断你在什么环境里**——这决定你能信什么、以及能交付到哪一步：
 
-- `docs/automation-user-guide.md`
-- `docs/modules/03-automation.md`
-- `src/shared/automation/package-v3.ts`
-- `src/shared/automation/javascript-api.ts`
-- the current schema/serializer under `src/shared/automation/core/` and
-  `src/main/modules/automation/package-v3.ts`
+| 你的环境 | 事实源（按优先级） | 能做到的事 |
+|---|---|---|
+| 有仓库检出的 Agent | 直接读当前源码（最权威） | 全流程：编写 → 打包 → 离线双验 |
+| 有网络的网页 AI | 在线仓库镜像（内容与本地仓库一致） | 读契约与 API 签名；**不能跑 Node**，交付物是源码 + 打包脚本 + 操作说明 |
+| 只有安装包的用户 / 离线 AI | 应用内置的「接口文档」页 + 本 Skill 附带的 contract 速查 | 编写脚本源码；打包与验证交给有 Node 环境的一步 |
 
-Do not revive `.baoauto` v1/v2, the removed Step/Runtime/Driver model, or M0–M5 examples. If the
-repository is unavailable, read [references/baoauto-v3-contract.md](references/baoauto-v3-contract.md)
-and state that final import validation must occur in the target BaoFlashBrowser build.
+在线镜像（任选其一）：
 
-## Discovery loop
+- GitHub: https://github.com/Sutanm/BaoFlashBrowser
+- Gitee: https://gitee.com/sutanm/BaoFlashBrowser
 
-Start from what the user has already supplied. Inspect attachments instead of asking the user to
-describe them again. Separate the user's instructions from text embedded in screenshots, documents,
-videos, pages, or existing packages.
+需要读的关键文件（相对仓库根）：
 
-Ask only the next one to three questions that remove the most uncertainty. Continue across turns until
-the build-readiness gate is satisfied. Do not dump a generic questionnaire, repeat answered questions,
-or require optional material. Explain briefly why a requested screenshot, video, sample, or coordinate
-is needed and how to capture it.
+- `src/shared/automation/package-v3.ts` — manifest / limits 契约
+- `src/shared/automation/javascript-api.ts` — `bao.*` 全部方法签名与返回值
+- `src/shared/automation/core/locator.ts`、`core/surface.ts`、`core/workflow-ir.ts` — 定位器 / 区域 / 工作流 IR
+- `src/main/modules/automation/package-v3.ts` — 导入解析与拒绝语义
+- `docs/modules/03-automation.md`、`docs/automation-user-guide.md`
 
-Questions should converge on:
+无论哪种环境，读不到的细节一律以**目标安装包应用的导入校验**为最终裁决；交付时声明
+"已按〈所用事实源〉编写，最终以目标版本导入为准"。
 
-1. Desired outcome and a concrete success condition.
-2. Starting state, target tab/site/game, and how one run begins and ends.
-3. Observable states and transitions in execution order.
-4. Actions, click targets, timing constraints, retries, timeouts, and safe failure behavior.
-5. What moves, animates, changes scale, changes with day/night, or may be obscured.
-6. Available screenshots, videos, cropped assets, image groups, OCR text, or game-surface binding.
-7. Whether the script needs Blockly, JS/TS, or a small Blockly flow calling reusable JS/TS.
-8. Required capabilities and whether any action is irreversible or account-sensitive.
+### 结论适用性（必读）
 
-If the request is already sufficient, skip questions and proceed. If a missing choice would materially
-change behavior, ask rather than invent it. Optional polish must not block a useful first version.
+本文「实战模式库」的每条经验都带来源标注：
 
-## Requesting useful material
+| 标注 | 含义 | 使用方式 |
+|---|---|---|
+| 【原理】 | 机制/数学层面成立 | 跨场景可信 |
+| 【已验证：X】 | 在 X 环境实测通过 | 换环境时当**起点假设**，必须重新验证 |
+| 【推断】 | 未实测 | 使用前先验证 |
 
-Prefer raw evidence from the actual runtime over manually transcribed measurements:
+**禁止把个案结论写成普遍禁令。** 一个场景里失败的技术，换个条件可能完全正常。遇到失败
+时先定位失败的具体条件（字体？字号？颜色系？遮罩强度？分辨率？），在**条件层面**给结论，
+不要在**技术层面**下禁令。示例：某游戏像素字体 OCR 误读率高 → 结论应是"点阵字体在
+小字号下易误读，遇到时改用模板匹配或放大区域"，而不是"OCR 不可靠"。
 
-- Full BrowserView screenshots for each important state, including confusing negative states.
-- Short videos that begin before the triggering action and continue through success or failure. Preserve
-  the original frame rate and do not round measured non-integer timings merely for neatness.
-- Separate frames for animation phases, directions, day/night variants, hover/pressed states, and target
-  absence when they affect recognition.
-- The existing `.baoauto` package when modifying a script, plus the exact runtime log around failure.
-- A `BFG1:` game-surface feature when the workflow should bind to a detected Flash/game surface.
+## 1. 需求澄清
 
-Ask the user to hide private identifiers or credentials. Never request passwords, session tokens, or
-other secrets for package construction.
+从用户已给的信息开始，先检查附件再提问。每轮只问 1~3 个最能消除不确定性的问题，
+不发问卷，不重复确认已明确的事项。问题收敛于：
 
-## Choosing coordinates and recognition
+1. 目标结果与可判定的成功标志；
+2. 起始状态、目标标签页/站点/游戏，一次运行怎么开始、怎么结束；
+3. 按执行顺序排列的画面状态与转换；
+4. 动作、点击目标、时序约束、重试/超时/失败策略；
+5. 什么会移动、动画、缩放、随昼夜或主题变色、被遮挡；
+6. 已有哪些素材（截图、视频、裁剪图、OCR 文本、游戏画面绑定）；
+7. Blockly / JS/TS / 混合（小 Blockly 入口调 JS/TS）的选择；
+8. 所需能力（permissions）与是否有不可逆或账号敏感操作。
 
-Choose the least fragile combination; hybrids are normal.
+信息已足够就跳过提问直接做。缺失的选择会实质改变行为时必须问，不要擅自补全。
 
-### Game-surface relative coordinates — recommended when suitable
+## 2. 技术事实
 
-For controls or lanes whose positions remain fixed relative to the detected game canvas, prefer a bound
-game Surface and its `0..10000` relative coordinate space. This normally survives window movement and
-resize better than desktop or whole-page coordinates.
+### 2.1 运行环境与边界【原理】
 
-This is a recommendation, not a requirement:
+- 脚本跑在**沙箱**里：无 Node.js、无 Electron IPC、无任意文件系统、无未声明网络。
+  能用的只有注入的 `bao.*` API。
+- TS 经 `transpileModule` 转 ES2019（`module: None`、`strict: true`）；**Error 级诊断
+  直接拒绝运行**——写 TS 时不要产生类型错误。
+- 权限（permissions）七种：`input` `vision` `ocr` `page.read` `page.navigate` `log` `notify`。
+  `time.sleep` / `time.now` 无需权限。**只声明用到的**。
+- 权限授予存放在包外（用户批准），改 manifest 不能给自己发权限。
 
-- Do not say that `.baoauto` requires a game binding.
-- Do not claim that relative coordinates solve responsive layout, in-game camera motion, independently
-  moving targets, animation, or a wrongly detected Surface.
-- Do not ask for an irregular “water area” merely because the task is fishing. A rectangular Region is
-  useful only when it intentionally limits search or input.
-- Use page-relative coordinates for stable browser UI outside the game Surface, and a Region only when
-  its boundary has a real semantic or performance purpose.
+### 2.2 成本模型【原理 + 已验证：Flash 游戏实测】
 
-### Locator and timing choices
+每次 `vision.*` / `ocr.*` 调用 = 一次截图 + 一次处理，单次约 **60~90ms**，全部计入
+`maxCalls`。这是预算核算的基本单位：
 
-- Use image locators for distinctive visual targets; validate the returned box, not only confidence.
-- Use image groups for the same semantic target across directions, frames, themes, or day/night states.
-  Do not mix unrelated actions in one group.
-- Use OCR only for visible text whose value or wording matters and when the OCR runtime is available.
-- Use region-change or color waits for narrowly defined visual events, with negative samples and bounded
-  timeouts. Color agreement alone is not identity.
-- Use timing when an event starts a deterministic animation and visual latency would miss a one-cycle
-  window. Measure from source video or runtime timestamps, include input/capture overhead, and retain a
-  calibration path if speed can vary.
-- Prefer recognition to fixed timing when the event is observable with adequate latency and ambiguity.
-- For moving targets, consider prediction or an event sensor only after measuring recognition latency,
-  target speed, and the actual acceptable hit window.
+```
+单轮成本 ≈ Σ(每次探测 1 次调用) + Σ(轮询次数 × 1)
+轮询循环成本 ≈ timeoutMs / (pollIntervalMs + 单次探测耗时) 次
+```
 
-Never present a probabilistic visual match as guaranteed. A high score on a wrong object is a negative
-sample, not proof that the threshold should simply be raised or lowered.
+设计任何"等待/轮询"前先算这笔账。要点：
 
-## Build-readiness gate
+- `vision.waitForColor` / `waitForRegionChange` 的 `pollIntervalMs` 有效范围 **1~1000ms**
+  （超出按上限处理）；`click/move/drag` 的 poll 上限是 1 小时。
+- `waitForColor` **不匹配时不抛错**：超时后正常返回 `{ found: false, matchingPixels, ... }`。
+  「数像素」式检测要读 `matchingPixels` / `matchingRatio` / `matchBounds`，而不是只看 `found`。
+- 默认预算 10,000 次调用 / 30 分钟墙钟；长跑脚本必须在 manifest 声明 `limits`
+  （见 contract 文档），且**脚本内部再做一层自控**（时间上限 + 轮数上限），
+  双保险：预算是兜底，不是设计参数。
 
-Begin formal construction when all mandatory items below are known or explicitly assumed with low risk:
+### 2.3 坐标与区域【原理】
 
-- The state machine and action order are unambiguous.
-- The target page/Surface and coordinate space are chosen.
-- Every required locator has usable material or a justified non-image strategy.
-- Timing-critical transitions have measured or testable windows.
-- Timeout, retry, cancellation, and failure behavior are defined.
-- The expected success signal and at least one failure/negative scenario are known.
-- Required JS capabilities are known and minimal.
-- The output location and whether this is a new package or revision are known.
+- `PersistedRegion = { unit: 'ratio'|'logical', x, y, width, height }`。
+  `ratio` 用 **0..10000** 相对坐标（左上原点），推荐用于绑定游戏画面后固定不变的目标；
+  `logical` 是逻辑像素。固定 UI 用 ratio，会移动/变形的目标用识别而非坐标。
+- Locator 四型：
+  - `image`：`{ kind, asset, method: 'template'|'color'|'auto', threshold, scales?, mask?, region? }`
+    —— 有独特外观的目标。**验证返回的 bounds 落在真目标上，不要只看置信度**。
+  - `text`：`{ kind, text, match: 'exact'|'contains'|'normalized', minConfidence, region? }`
+    —— 文字内容本身有意义时用。
+  - `coordinate`：固定点位。
+  - `firstOf`：多定位器容错。
+- `TargetRef = locator + anchor + offset + selection`，可表达"目标左上角偏移 (10,20)"这类组合。
 
-Before a materially judgment-heavy build, summarize the proposed workflow in a compact build brief and
-ask the user to correct it. Do not seek confirmation for facts they already made explicit.
+### 2.4 颜色检测的适用边界
 
-## Construction
+颜色计数是便宜且常用的信号，但**先验证独占性再使用**：
 
-Prefer Blockly for straightforward state/action flows. Use sandboxed JS/TS for calculations, temporal
-tracking, reusable functions, or APIs not represented by current blocks. A small Blockly entry calling
-one or more JS/TS frontends is often the clearest hybrid.
+1. **独占性检查【原理，方法已验证】**：统计画面主色（直方图），确认目标色只出现在目标上。
+   目标色若与环境底色**同色系**（如灰白目标落在灰调环境），任何阈值都会误命中——
+   这不是调阈值能解决的，必须换特征、收窄 region、或把该色的裁决权重降级。
+2. **容差与色距【原理】**：tolerance 是逐通道最大差。两个颜色的可区分度由
+   `max(|Δr|,|Δg|,|Δb|)` 决定；容差必须显著小于目标色与最近干扰色的距离。
+3. **全局色调变化（昼夜/滤镜/主题）【已验证：昼夜混合遮罩场景】**：
+   - 先用**两个已知色锚点**反解变化模型。若两锚点解出的强度一致 → 全局统一变化，
+     可用 `out = day × (1−a) + tint × a` 整体换算；若不一致 → 变化是逐元素的，分层处理。
+   - 色调变暗会**压缩色距**：两个色各变化 a 后，彼此距离只剩约 `(1−a)` 倍。
+     容差必须同步压缩（如 `tol × (1−a)`），否则夜间判别力减半。
+   - **校准取档的系统性偏差**：当目标区域自身明暗跨度大时，"匹配像素最多的档位"
+     会偏向最暗端（越暗能套上的像素越多）。修正法：取"最高分 97% 带内最亮的档"，
+     或改选**饱和亮色区域**做校准锚点（其计数曲线有尖峰，判别力强）。
+   - UI 与场景可能分层：滤镜只盖场景、UI 保持原亮度时，两类目标的换算策略不同，
+     检测前先分清目标属于哪层。
+4. 永远给颜色检测配**有界超时**；用真实负样本（目标不存在的画面）验证不会误命中。
 
-Create only `.baoauto` v3 content. Keep assets package-scoped under `assets/`, scripts under `scripts/`,
-and profiles under `profiles/`. Request the minimum capabilities. Do not use Node.js, Electron IPC,
-arbitrary filesystem access, or undeclared network access from a frontend.
+### 2.5 OCR 的适用边界【原理 + 个案教训】
 
-Use the current application export path or repository v3 serializer to generate integrity entries and
-the ZIP. Do not handcraft an unchecked archive. Preserve a copy of any input package before revising it.
+- OCR 可靠性取决于**文字的渲染方式**：抗锯齿常规字体（网页 UI、多数 2D 游戏）通常可靠；
+  点阵/像素字体在**小字号**下笔画断裂、易误读；斜体、艺术字、暗底暗字同样易错。
+- **遇到 OCR 连续误读时按序排查**：① 放大 region、调 `minConfidence`，看原始返回；
+  ② 确认字体类型——点阵字体是小字号误读的常见原因，但放大字号或换渲染环境后往往恢复；
+  ③ 确认该字体确实不可识别后，改用整块文字区域的**模板匹配**（阈值 0.7~0.9 实测稳）
+  或色块特征。不要因为一次失败放弃 OCR，也不要在不利的字体条件下硬撑 OCR。
+- 弹窗/对话框分类优先用**色块特征**（边框色、图标色），OCR 只做文字级确认——
+  色块便宜（一次调用），OCR 贵且慢。
 
-## Validation and iteration
+## 3. 实战模式库
 
-Validate in increasing realism:
+每条模式 = 适用条件 → 做法。标注的含义见 §0。
 
-1. Schema, safe paths, declared frontends, permissions, integrity, and package budgets.
-2. Import preview and round-trip export in the target application.
-3. Offline scene tests with positive and confusing negative images.
-4. A real-page dry run with harmless actions or logging where possible.
-5. Full success, timeout, cancellation, target-absent, scale-change, and repeated-run behavior.
+### 模式 A：固定位置指纹识别（多层/多状态场景）
 
-For recognition, record the selected box, strategy, scale, confidence, elapsed time, and closest rejected
-candidate when diagnostics expose them. For timing, record the intended deadline, call initiation time,
-input-call duration, and visible result.
+【已验证：20 层矿洞 + 昼夜，39 探针】适用于"同一画面结构、靠局部特征区分状态"的场景。
 
-When the user reports a failure, ask for the smallest artifact that distinguishes the likely causes—such
-as the relevant log slice and a short video—then revise the package. Do not restart the interview or
-discard confirmed facts.
+- 每个状态选 1~3 个**固定位置 + 独占特征色**的物体当指纹；判定门槛取实测正常命中量的
+  1/3~1/2（真目标命中上千像素时，门槛数百即可挡杂色）。
+- **同色检测框间距检查**（必做）：两枚同色探针的检测框（半径 = region 宽/2）若相交，
+  会互相污染计数。相交不一定是错——同一面墙"同位不同色"的装饰在各层都命中是常态，
+  靠"需命中 ≥2 个特征"的交叉验证消化；写成脚本化检查，录入新指纹时自动跑。
+- **多候选裁决顺序**：多个状态同时过线（撞车）时——① 有文字就 OCR 文本优先
+  （白天/明亮环境读得准）；② OCR 不可用时按**特征强度**裁决，且只用"干净特征"
+  的强度（被底色污染的色系剔除出裁决），要求第一名 ≥ 第二名 × 1.3，差距不足降级到
+  更慢但更权威的判据，**不要硬猜**。
+- 认层扫描加**提前出局**索引：某状态需要 n 个特征全中，已失败 `总探针数 − n + 1` 个
+  时直接跳过剩余探针。数学上与全量扫描等价，实测 39 → 25 次调用。
 
-## Handoff
+### 模式 B：无独占特征的状态识别（排除法）
 
-Deliver:
+【已验证：无标志物层识别】当某状态没有自己的指纹，但**状态全集封闭**（已全部录入）
+时：所有指纹都未命中 + 附加条件成立（如"无可疑痕迹"：全部探针的原始计数低于阈值）
+→ 反推为该状态。实现成"从配置反查唯一无指纹项"，将来新增无指纹项时自动退回更慢的
+判据，不会硬猜。
 
-- the importable `.baoauto` file;
-- a short workflow summary and required starting state;
-- required game-surface binding or profile setup, clearly labeled as required or recommended;
-- material/threshold/timing assumptions and known limitations;
-- validation performed and any real-game checks still requiring the user.
+### 模式 C：到达/完成判定（掉幅 + 滑动窗口）
 
-Do not call the work complete merely because the ZIP was created. Completion requires successful import
-validation and evidence proportionate to the workflow's risk.
+【已验证：挖矿到位判定】目标是"角色走到某格/某动画完成"这类**变化型**事件：
+
+- 用 `waitForColor` 前后两次 `matchingPixels` 的**掉幅**（before − min）判定目标被遮挡/完成，
+  门槛取实测掉幅的下界（正常站上去掉 400+ 时门槛取 130~200，兼顾"只蹭到边缘"的情况）。
+- **滑动窗口确认**代替"连续 N 次"：最近 W 次探测中 K 次达标即算成立。连续 N 次在
+  探测窗口尾部会凑不齐（事件发生得晚时剩余探测次数 < N）导致假超时；滑动窗口还
+  允许中间偶发抖动。典型 W=4、K=3。
+- **近距短路**：落点与上一成功点很近时（约 2 格内），角色不必走、基线已被自己压低，
+  掉幅判定永远不成立 → 用固定短等待（~700ms）代替判定。判据用"上一成功落点"，
+  不要用"基线偏低"（会把障碍格误判成已到达）。
+- 超时是正常路径的一部分：超时后换点重试，不视为错误。
+
+### 模式 D：取点验证（整格 + 芯区）
+
+【已验证】随机撒点前，先验**整格**的可通行色像素 ≥ 门槛，再验**中心小块**（约 1/9 格）
+≥ 门槛——整格达标但中心压着障碍（铁轨/NPC/石堆）时，点击不会有任何反应。
+芯区门槛按运行时采样（5 点取中位数 × 比例）自适应分辨率，不要写死像素数。
+
+### 模式 E：危险点禁区
+
+【已验证】画面上有"点错就出事"的对象（NPC、传送门、付费按钮）时，配置禁区数组
+（中心 + 半径），随机点落入即重抽。禁区按状态/层级配置，取点循环里一个距离判断即可。
+
+### 模式 F：失败自愈链
+
+【已验证】连续取点失败时按代价从低到高逐级自救，**每级限定次数**：
+
+```
+取点连续失败 → ① 光照/主题校准（≤2 次，防抖动）
+             → ② 用包围盒/指纹重新识别当前位置（可能被弹走了）
+             → ③ 降级到保守通用区域继续
+             → ④ 检查地面/环境特征是否还成立：成立 → 判"条件异常"有界结束；
+                                                不成立 → 判"已离开场景"有界结束
+```
+
+任何一级修复成功就回到主循环。结束要带原因（`budget / stuck / left-scene / no-target`），
+结束日志写清统计（轮数、均值、计数），供下一轮迭代定位。
+
+### 模式 G：弹窗分类处理
+
+【已验证】画面弹窗按色块特征分三类，行为完全不同：
+有完成图标 → 物品弹窗（点确定收取）；纯提示框 → 点确定关闭；
+带"取消"按钮的询问框 → **默认停机交用户**或按用户明确要求自动处理。
+注意：询问框的判定依赖 OCR 读到"取消"二字，置信度门槛过高会漏读 → 误点确定。
+用户接受自动点确定即可（如挂机下楼场景），但要写清这个失败模式。
+
+## 4. 打包与验证 SOP
+
+### 4.1 构建【已验证】
+
+**前置环境**：Node.js，依赖 `fflate`（打包）与 `esbuild`（离线双验时 bundle 仓库源码）。
+**网页 AI 没有执行环境**：它的交付物是脚本源码 + 打包脚本 + 一步一步的操作说明，由用户在
+本地跑 `node build-package.cjs` 完成打包——不要声称"已生成 .baoauto"而实际只贴了文本；
+也**绝不允许手工拼一个未经验证的 ZIP**（integrity 一个字节对不上，导入就报
+`INTEGRITY_MISMATCH`）。
+
+目录结构见 contract 文档。用 Node 脚本打包（fflate 与主进程同一实现），
+完整可运行模板：`artifacts/mining-v1/build-package.cjs`。要点：
+
+- `integrity` = 对**每个非 manifest 条目**算 SHA-256（`crypto.createHash('sha256')`）；
+- 打完**自检**：解压回来逐条比对散列，避免打出一个导入就报 `INTEGRITY_MISMATCH` 的包；
+- 长跑脚本在 manifest 顶层声明 `limits`（三处独立生效，缺一个都会截断——见 contract）。
+
+### 4.2 离线双验【已验证，命令级】
+
+```js
+// 用 esbuild 把仓库源码 bundle 成 CJS 后直接调用真实校验器，不要手写解析
+esbuild.buildSync({ entryPoints: ['src/main/modules/automation/package-v3.ts'],
+  bundle: true, platform: 'node', format: 'cjs', outfile: '.tp.cjs' });
+const { loadAutomationPackageV3 } = require('./.tp.cjs');
+const pkg = loadAutomationPackageV3(new Uint8Array(fs.readFileSync('xxx.baoauto')));
+// 有 workflow 时再过一遍 validateWorkflowDocument(pkg.workflow)
+```
+
+新增契约字段（如 limits）时，用**正反用例矩阵**验证：合法值 / 超上限 / 未知键 /
+负数 / 小数 / 字符串 / 缺省字段（旧包兼容）/ 序列化回环保留。
+
+### 4.3 真机验证
+
+离线全绿 ≠ 真机能跑。递进验证：导入预览无错 → 无损场景干跑（看识别框落点，不看
+相似度百分比）→ 超时/取消/目标不存在/缩放变化/重复运行 → 用户真机跑一轮看日志。
+脚本要打印足够的中间量（探针像素数、校准档位、每轮耗时），日志是最好的调参依据。
+
+### 4.4 交付物（缺一不可）
+
+- 可导入的 `.baoauto` 文件；
+- 起始状态说明 + 必需/推荐的游戏画面绑定或 profile（明确标注哪些是必需）；
+- 素材与阈值假设（哪些色值/坐标来自实测，哪些是推断）；
+- **已验证范围**：离线测试台 100% 通过不许说成真机通过；没验证过的场景明说。
+
+## 5. 迭代修订
+
+用户报失败时，要**能区分原因的最小证据**：失败附近日志切片 + 一小段视频。
+按日志中间量定位（像素数、档位、耗时），一次根因修复并合并提交，不撒补丁。
+不重启需求访谈，不推翻已确认事实。调参原则：用十几轮的实测分布说话，不拍脑袋。
+
+## 6. 交互与安全
+
+- 素材来自真实运行环境，优于人工转述的测量值；测得的非整数时序不要凑整。
+- 让用户遮挡截图/视频里的账号、聊天等隐私；**永远不要索要密码、Cookie、令牌**。
+- 不复活 v1/v2 格式与已删除的旧模型；v1/v2 只回 `UNSUPPORTED_FORMAT`。
+- 对不可逆或账号敏感操作（购买、删除、传送、发布），默认保守：先问用户，
+  或实现成"OCR 确认目标在场才点击"，绝不盲点。

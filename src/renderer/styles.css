@@ -1044,18 +1044,51 @@ body.keyboard-navigation .address-input:focus {
   gap: 6px;
 }
 
+/* 条目动作区：密码文本独占一行，四个动作按钮在下一行均分整行宽度。
+   用四列网格而不是两行 flex，是为了让"复制"和它下面的"删除"落在同一条列轨道上——
+   两者都填满第 4 列，左右边界天然对齐，不必按语言硬编码宽度。
+   列宽下限取 max-content：中英文标签都不会被截断；剩余空间由 1fr 四列均分。 */
 .pwd-entry-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(max-content, 1fr));
   gap: 4px;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
+.pwd-secret-line {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 18px;
+}
+
+/* 明文态：密码文本让出第 4 列给"复制"，两者同处第 1 行 */
+.pwd-entry-actions[data-revealed='true'] .pwd-secret-line { grid-column: 1 / 4; }
+
+/* 显式钉在第 4 列（与"删除"同列），不依赖自动排布的游标位置 */
+.pwd-copy-btn { grid-column: 4; }
+
 .pwd-pwd-text {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 12px;
   color: var(--text-secondary);
-  min-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pwd-entry-buttons {
+  /* 让四个按钮直接成为 .pwd-entry-actions 网格的项，与"复制"共用列轨道 */
+  display: contents;
+}
+
+/* 每个动作按钮填满自己的列（复制与删除同列同宽） */
+.pwd-entry-actions .pwd-btn-action {
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .pwd-btn-action {
@@ -1723,4 +1756,16 @@ body.dark .browser-toolbar .btn-icon:hover {
 
 .devtools-header-tabs::-webkit-scrollbar {
   height: 0;
+}
+
+/*
+ * 抽屉内容区（捕获 / Flash / 主进程日志）允许选中文本。
+ * body 是全局 `user-select: none`（浏览器外壳的习惯），不覆写的话这些诊断信息
+ * 一个字都选不中，没法复制去提问或存档。顶栏（页签、按钮）保持不可选。
+ * Chromium 87 仍需带前缀写法。
+ */
+.devtools-selectable,
+.devtools-selectable * {
+  -webkit-user-select: text;
+  user-select: text;
 }

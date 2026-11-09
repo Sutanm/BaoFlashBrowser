@@ -11,7 +11,9 @@ const logMock = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn()
 vi.mock('electron-log', () => ({ default: logMock }));
 
 import {
-  classifyVerifyOutcome, WinCredUiBackend, _psVerifyScript, _psVerifyFacts, VIEW_PROMPT_TEXT,
+  classifyVerifyOutcome, WinCredUiBackend, WinHelloBackend, WinViewVerifyBackend,
+  _psVerifyScript, _psHelloScript, _psRaiseScript, _psVerifyFacts, VIEW_PROMPT_TEXT,
+  setViewGateOwnerWindow,
 } from '../src/main/modules/view-gate-win';
 
 describe('classifyVerifyOutcome：脚本机器码 → 语义（规格 §3 错误分类表）', () => {
@@ -52,8 +54,20 @@ describe('classifyVerifyOutcome：脚本机器码 → 语义（规格 §3 错误
   it('未知/异常文本一律归为 unavailable（不猜，不放行）', () => {
     expect(classifyVerifyOutcome({ code: 'exit-error', message: 'logon-failed:1385' }))
       .toEqual({ ok: false, kind: 'unavailable', reason: 'logon-failed:1385' });
+  });
+
+  // 用户反馈 2026-11-08：输入错误口令后弹出来的是一串中文乱码。
+  // 根因是 PowerShell 的中文异常文案经 stdout 回传（5.1 的控制台编码不是 UTF-8）。
+  it('异常文案只回稳定 ASCII 码，绝不透传子进程文本（乱码防线）', () => {
     expect(classifyVerifyOutcome({ code: 'exit-error', message: 'exception:Add-Type 失败' }))
-      .toEqual({ ok: false, kind: 'unavailable', reason: 'exception:Add-Type 失败' });
+      .toEqual({ ok: false, kind: 'unavailable', reason: 'exception' });
+    const classified = classifyVerifyOutcome({
+      code: 'exit-error', message: 'exception:无法在 DLL credui.dll 中找到 CoTaskMemFree',
+    });
+    if (classified.ok === false) {
+      // eslint-disable-next-line no-control-regex
+      expect(classified.reason ?? '').toMatch(/^[\x20-\x7E]*$/);
+    }
   });
 });
 
@@ -99,6 +113,149 @@ describe('WinCredUiBackend', () => {
     const backend = new WinCredUiBackend(vi.fn());
     expect(await backend.available()).toBe(process.platform === 'win32');
   });
+
+  // 用户反馈 2026-11-08：点"查看密码"后安全中心验证窗没置顶到前台。
+  // 根因：对话框由无窗口的 powershell.exe 子进程创建，hwndParent = NULL → 与浏览器窗口
+  // 没有 Z 序关系。修法是传入属主窗口句柄（Chromium 同款做法）。
+  describe('CredUI 属主窗口', () => {
+    afterEach(() => setViewGateOwnerWindow(() => null));
+
+    it('有属主时把十进制 HWND 作为 stdin 第 2 行传下去', async () => {
+      setViewGateOwnerWindow(() => '65610');
+      const exec = vi.fn().mockResolvedValue({ code: 'ok', value: 'granted' });
+      expect(await new WinCredUiBackend(exec).verify()).toEqual({ ok: true });
+      expect(Buffer.from(exec.mock.calls[0][0], 'base64').toString('utf8'))
+        .toBe(`${VIEW_PROMPT_TEXT}\n65610`);
+    });
+
+    it('取不到句柄或提供者抛错时退回单行，不阻塞验证', async () => {
+      const exec = vi.fn().mockResolvedValue({ code: 'ok', value: 'granted' });
+      setViewGateOwnerWindow(() => { throw new Error('no window'); });
+      expect(await new WinCredUiBackend(exec).verify()).toEqual({ ok: true });
+      expect(Buffer.from(exec.mock.calls[0][0], 'base64').toString('utf8')).toBe(VIEW_PROMPT_TEXT);
+    });
+
+    it('脚本把 hwndParent 绑定到传入的属主，而不是恒为 NULL', () => {
+      expect(_psVerifyScript).toContain('$info.hwndParent = $owner');
+      expect(_psVerifyScript).not.toContain('$info.hwndParent = [IntPtr]::Zero');
+      expect(_psVerifyScript).toContain('$owner = [IntPtr]([int64]$parts[1])');
+    });
+  });
+
+  // 用户反馈 2026-11-08：Hello 弹窗被浏览器完全挡住、任务栏也没图标，要手动点一下。
+  // 实测该弹窗属于系统凭据宿主进程（窗口类 Credential Dialog Xaml Host），属主/激活都由
+  // 宿主决定 → 只能在验证前主动把窗口拎到前台（见 PS_RAISE）。
+  describe('系统凭据窗口抢前台', () => {
+    it('Hello 验证先拉起看门脚本，再等对话框（顺序不能反）', async () => {
+      const order: string[] = [];
+      const exec = vi.fn(async () => { order.push('exec'); return { code: 'ok' as const, value: 'granted' }; });
+      const raise = vi.fn(() => { order.push('raise'); });
+      expect(await new WinHelloBackend(exec, raise).verify()).toEqual({ ok: true });
+      expect(order).toEqual(['raise', 'exec']);
+    });
+
+    it('看门脚本抛错不影响验证结果（抢前台是尽力而为）', async () => {
+      const exec = vi.fn(async () => ({ code: 'ok' as const, value: 'granted' }));
+      const raise = vi.fn(() => { throw new Error('spawn failed'); });
+      expect(await new WinHelloBackend(exec, raise).verify()).toEqual({ ok: true });
+      expect(raise).toHaveBeenCalledTimes(1);
+      expect(exec).toHaveBeenCalledTimes(1);
+    });
+
+    it('CredUI 兜底路径同样抢前台', async () => {
+      const raise = vi.fn();
+      const exec = vi.fn(async () => ({ code: 'ok' as const, value: 'granted' }));
+      expect(await new WinCredUiBackend(exec, raise).verify()).toEqual({ ok: true });
+      expect(raise).toHaveBeenCalledTimes(1);
+    });
+
+    it('脚本按实测窗口类匹配，并同时做激活与 Z 序兜底', () => {
+      expect(_psRaiseScript).toContain(`$cls = '${_psVerifyFacts.systemPromptWindowClass}'`);
+      expect(_psVerifyFacts.systemPromptWindowClass).toBe('Credential Dialog Xaml Host');
+      expect(_psRaiseScript).toContain('SetForegroundWindow');
+      expect(_psRaiseScript).toContain('BringWindowToTop');
+      expect(_psRaiseScript).toContain('AllowSetForegroundWindow');
+      // HWND_TOP + SWP_NOSIZE|SWP_NOMOVE|SWP_SHOWWINDOW：激活被拒也能看到窗口
+      expect(_psRaiseScript).toContain('SetWindowPos($h, [IntPtr]::Zero, 0, 0, 0, 0, 0x43)');
+      // 已置前就退出（连续确认几轮，见下一条），不反复抢焦点；找不到才算失败
+      expect(_psRaiseScript).toContain("GetForegroundWindow() -eq $h");
+      expect(_psRaiseScript).toContain('ERR not-found');
+    });
+
+    // 用户反馈 2026-11-08：这个弹窗在任务栏是个空白按钮（Edge 没有）。
+    // 实测宿主 CredentialUIBroker 是高完整性进程：SetWindowLong(GWL_EXSTYLE) 被 UIPI 拒
+    // （ERROR_ACCESS_DENIED），唯一可用的是 shell 层的 ITaskbarList::DeleteTab。
+    it('撤掉任务栏空白按钮，且必须排在激活之后', () => {
+      expect(_psRaiseScript).toContain('56FDF342-FD6D-11d0-958A-006097C9A090');
+      expect(_psRaiseScript).toContain('56FDF344-FD6D-11d0-958A-006097C9A090');
+      expect(_psRaiseScript).toContain('[BaoRaise]::DeleteTab($h)');
+      // ShowWindow / SetForegroundWindow 都会让 explorer 把按钮补回来，顺序不能反
+      const fg = _psRaiseScript.indexOf('SetForegroundWindow($h)');
+      expect(fg).toBeGreaterThan(-1);
+      expect(_psRaiseScript.indexOf('DeleteTab($h)')).toBeGreaterThan(fg);
+    });
+
+    it('连续确认前台才收工（explorer 异步补按钮，抢一次就退会漏）', () => {
+      expect(_psRaiseScript).toContain('$raised = 0');
+      expect(_psRaiseScript).toContain('$raised++');
+      expect(_psRaiseScript).toContain('$raised = 0');
+    });
+  });
+});
+
+describe('WinHelloBackend（Edge 同款 Hello/PIN 对话框）', () => {
+  it('verify() 只传提示文案，并认 OK granted', async () => {
+    const exec = vi.fn().mockResolvedValue({ code: 'ok', value: 'granted' });
+    const backend = new WinHelloBackend(exec);
+    expect(await backend.verify()).toEqual({ ok: true });
+    const [payload] = exec.mock.calls[0];
+    expect(Buffer.from(payload, 'base64').toString('utf8')).toBe(VIEW_PROMPT_TEXT);
+  });
+
+  it('取消 / 重试耗尽 / 不可用 分别映射', async () => {
+    const run = (message: string) => new WinHelloBackend(
+      vi.fn().mockResolvedValue({ code: 'exit-error', message }),
+    ).verify();
+    expect(await run('cancelled')).toEqual({ ok: false, kind: 'cancelled' });
+    expect(await run('denied:retries-exhausted'))
+      .toEqual({ ok: false, kind: 'denied', reason: 'denied:retries-exhausted' });
+    expect(await run('hello-unavailable:2'))
+      .toEqual({ ok: false, kind: 'unavailable', reason: 'hello-unavailable:2' });
+  });
+});
+
+describe('WinViewVerifyBackend（Hello 优先 + CredUI 兜底）', () => {
+  const backendOf = (id: 'win-hello' | 'win-credui', result: unknown) => ({
+    id, available: async () => true, verify: vi.fn().mockResolvedValue(result),
+  }) as never;
+
+  it('Hello 通过时不弹第二个对话框', async () => {
+    const credUi = backendOf('win-credui', { ok: true });
+    const composite = new WinViewVerifyBackend(backendOf('win-hello', { ok: true }), credUi);
+    expect(await composite.verify()).toEqual({ ok: true });
+    expect((credUi as { verify: ReturnType<typeof vi.fn> }).verify).not.toHaveBeenCalled();
+  });
+
+  it('用户取消时也绝不回退（否则会连弹两个系统对话框）', async () => {
+    const credUi = backendOf('win-credui', { ok: true });
+    const composite = new WinViewVerifyBackend(backendOf('win-hello', { ok: false, kind: 'cancelled' }), credUi);
+    expect(await composite.verify()).toEqual({ ok: false, kind: 'cancelled' });
+    expect((credUi as { verify: ReturnType<typeof vi.fn> }).verify).not.toHaveBeenCalled();
+  });
+
+  it('Hello 在本机不可用时回退到 CredUI', async () => {
+    const credUi = backendOf('win-credui', { ok: true });
+    const composite = new WinViewVerifyBackend(
+      backendOf('win-hello', { ok: false, kind: 'unavailable', reason: 'hello-unavailable:1' }),
+      credUi,
+    );
+    expect(await composite.verify()).toEqual({ ok: true });
+    expect((credUi as { verify: ReturnType<typeof vi.fn> }).verify).toHaveBeenCalledTimes(1);
+  });
+
+  it('id=win-os → 系统验证档位', () => {
+    expect(new WinViewVerifyBackend().id).toBe('win-os');
+  });
 });
 
 describe('PowerShell 脚本的硬约束', () => {
@@ -108,6 +265,28 @@ describe('PowerShell 脚本的硬约束', () => {
     // eslint-disable-next-line no-control-regex
     expect(_psVerifyScript).toMatch(/^[\x00-\x7F]*$/);
     expect(_psVerifyScript).not.toContain(VIEW_PROMPT_TEXT);
+    // eslint-disable-next-line no-control-regex
+    expect(_psHelloScript).toMatch(/^[\x00-\x7F]*$/);
+    expect(_psHelloScript).not.toContain(VIEW_PROMPT_TEXT);
+    // 看门脚本同样经 `-Command` 传入，中文会直接破坏脚本语法。
+    // eslint-disable-next-line no-control-regex
+    expect(_psRaiseScript).toMatch(/^[\x00-\x7F]*$/);
+  });
+
+  it('Hello 脚本把类型名写在单引号里（双引号会吃掉 `1 转义）', () => {
+    expect(_psHelloScript).toContain("'IAsyncOperation`1'");
+    expect(_psHelloScript).toContain('UserConsentVerifier');
+    expect(_psHelloScript).not.toContain('"IAsyncOperation`1"');
+  });
+
+  // 用户反馈 2026-11-08："输入密码后直接炸掉"。根因：CoTaskMemFree 不在 credui.dll 里，
+  // 对话框成功后释放 out-buffer 时必抛 EntryPointNotFoundException。
+  it('CoTaskMemFree 必须从 ole32.dll 导入（credui.dll 不导出它）', () => {
+    const freeImport = _psVerifyScript.split('\n')
+      .findIndex((line) => line.includes('public static extern void CoTaskMemFree'));
+    expect(freeImport).toBeGreaterThan(0);
+    expect(_psVerifyScript.split('\n')[freeImport - 1]).toContain('ole32.dll');
+    expect(_psVerifyScript).not.toMatch(/DllImport\("credui\.dll"\)\]\s*\n\s*public static extern void CoTaskMemFree/);
   });
 
   it('stdout 只有 OK granted / ERR 两种语义（明文绝不进 stdout）', () => {

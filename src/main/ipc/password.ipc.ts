@@ -9,9 +9,9 @@ import {
   isDekReady, resetAll, ensureKeyLoaded, getKeyStatus,
   hasEntry, getDecryptedPassword,
 } from '../modules/password-store';
-import { invalidateKeyring } from '../modules/keyring';
+import { invalidateKeyring, detectKeyring } from '../modules/keyring';
 import {
-  authorizeView, resolveViewGuard, resetOsAuthUnavailable, setViewPassword,
+  authorizeView, resolveViewGuard, resetOsAuthUnavailable, setViewPassword, isOsAuthAvailable,
 } from '../modules/view-gate';
 import type {
   PasswordTier, RevealPasswordResult, SetViewPasswordResult, ViewGuardStatus,
@@ -35,6 +35,15 @@ export function registerPasswordIPC(): void {
       viewGuard: await resolveViewGuard(),
       excludedSites: getExcludedSites(),
     };
+  });
+
+  // 首次启动向导用：**建库之前**预判"查看保护会落在系统验证还是查看密码"。
+  // 系统钥匙串可用 + 平台有验证后端 → 走 os-*，向导就不该再问用户要查看密码。
+  // 只读，不建库、不写盘。
+  createHandler('password:guard-preview', async () => {
+    const keyring = await detectKeyring();
+    const mode: ViewGuardStatus['mode'] = keyring.backend && await isOsAuthAvailable() ? 'os-win' : 'password';
+    return { mode };
   });
 
   // 手动重试：使探测缓存失效（瞬时失败不再污染会话）后重试一次。

@@ -378,19 +378,26 @@ const PasswordsPanel: React.FC = () => {
                     <span style={{ color: 'var(--text-primary)' }}>{entry.username || LL.password.noUsername()}</span>
                     {entry.id === defaultId && <span className="pwd-default-star">★</span>}
                   </div>
-                  <div className="pwd-entry-actions">
-                    <span className="pwd-pwd-text">
-                      {decryptedPasswords.has(entry.id) ? decryptedPasswords.get(entry.id) : '••••••••'}
-                    </span>
-                    <button className="btn-secondary pwd-btn-action" onClick={() => handleTogglePassword(entry.id)}>
-                      {decryptedPasswords.has(entry.id) ? LL.password.hide() : LL.password.view()}
-                    </button>
+                  <div
+                    className="pwd-entry-actions"
+                    data-revealed={decryptedPasswords.has(entry.id) ? 'true' : 'false'}
+                  >
+                    <div className="pwd-secret-line">
+                      <span className="pwd-pwd-text">
+                        {decryptedPasswords.has(entry.id) ? decryptedPasswords.get(entry.id) : '••••••••'}
+                      </span>
+                    </div>
                     {decryptedPasswords.has(entry.id) && (
-                      <button className="btn-secondary pwd-btn-action" onClick={() => handleCopy(decryptedPasswords.get(entry.id)!)}>{LL.copy()}</button>
+                      <button className="btn-secondary pwd-btn-action pwd-copy-btn" onClick={() => handleCopy(decryptedPasswords.get(entry.id)!)}>{LL.copy()}</button>
                     )}
-                    <button className="btn-secondary pwd-btn-action" onClick={async () => { await api?.setDefault(entry.id); refreshStatus(); }}>{LL.password.setDefault()}</button>
-                    <button className="btn-secondary pwd-btn-action" onClick={() => handleFill(entry.id)}>{LL.password.fill()}</button>
-                    <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={async () => { await api?.delete(entry.id); refreshStatus(); }}>{LL.delete()}</button>
+                    <div className="pwd-entry-buttons">
+                      <button className="btn-secondary pwd-btn-action" onClick={() => handleTogglePassword(entry.id)}>
+                        {decryptedPasswords.has(entry.id) ? LL.password.hide() : LL.password.view()}
+                      </button>
+                      <button className="btn-secondary pwd-btn-action" onClick={async () => { await api?.setDefault(entry.id); refreshStatus(); }}>{LL.password.setDefault()}</button>
+                      <button className="btn-secondary pwd-btn-action" onClick={() => handleFill(entry.id)}>{LL.password.fill()}</button>
+                      <button className="btn-secondary pwd-btn-action pwd-btn-danger" onClick={async () => { await api?.delete(entry.id); refreshStatus(); }}>{LL.delete()}</button>
+                    </div>
                   </div>
                 </div>
               ))}
