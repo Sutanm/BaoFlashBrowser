@@ -256,15 +256,22 @@ export function getRegisteredWindows(): BrowserWindow[] {
     .map((entry) => entry.win);
 }
 
-const rendererReadyResolvers = new Map<number, () => void>();
+const rendererReadyResolvers = new Map<number, (ready: boolean) => void>();
 
-/** P7：新窗口渲染层挂载后由它自己握手；tear-off 迁移必须等这一步。 */
-export function whenRendererReady(win: BrowserWindow, timeoutMs = 5000): Promise<void> {
-  if (win.isDestroyed()) return Promise.resolve();
+/**
+ * P7：新窗口渲染层挂载后由它自己握手；tear-off 迁移必须等这一步。
+ * 返回 false 表示超时/窗口已销毁——调用方必须取消迁移，不能在空窗口上 adopted。
+ */
+export function whenRendererReady(win: BrowserWindow, timeoutMs = 5000): Promise<boolean> {
+  if (win.isDestroyed()) return Promise.resolve(false);
+  const windowId = win.id;
   return new Promise((resolve) => {
-    const timer = setTimeout(() => { rendererReadyResolvers.delete(win.id); resolve(); }, timeoutMs);
+    const timer = setTimeout(() => {
+      rendererReadyResolvers.delete(windowId);
+      resolve(false);
+    }, timeoutMs);
     timer.unref?.();
-    rendererReadyResolvers.set(win.id, () => { clearTimeout(timer); resolve(); });
+    rendererReadyResolvers.set(windowId, (ready) => { clearTimeout(timer); resolve(ready); });
   });
 }
 
@@ -272,7 +279,7 @@ export function markRendererReady(win: BrowserWindow): void {
   const resolve = rendererReadyResolvers.get(win.id);
   if (!resolve) return;
   rendererReadyResolvers.delete(win.id);
-  resolve();
+  resolve(true);
 }
 
 export function getWindowById(id: number): BrowserWindow | null {
