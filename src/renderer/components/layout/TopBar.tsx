@@ -123,45 +123,90 @@ const TopBar: React.FC<TopBarProps> = ({
     }
   }, [LL, pushToast, screenshotting]);
 
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  // P7：指针拖拽（替换 HTML5 draggable，窗口外也能收到 pointerup）。
+  const [dragState, setDragState] = useState<{ tabId: string; index: number; startX: number; startY: number; active: boolean; overIndex: number | null } | null>(null);
+  const dragRef = useRef(dragState);
+  useEffect(() => { dragRef.current = dragState; }, [dragState]);
+  const dragActive = Boolean(dragState);
 
-  const handleDragStart = useCallback((index: number) => {
-    setDragIndex(index);
+  const restoreView = useCallback(() => {
+    void window.electronAPI.tab.setViewVisibility(true).catch(() => { /* view gone */ });
   }, []);
 
-  const handleDragOver = useCallback((index: number) => {
-    setDragOverIndex(index);
+  const beginDrag = useCallback((event: React.PointerEvent<HTMLDivElement>, tabId: string, index: number) => {
+    if (event.button !== 0) return;
+    setDragState({ tabId, index, startX: event.clientX, startY: event.clientY, active: false, overIndex: null });
   }, []);
 
-  const handleDrop = useCallback((index: number) => {
-    if (dragIndex !== null && dragIndex !== index) {
-      onReorder(dragIndex, index);
+  const endDrag = useCallback(async (clientX: number, clientY: number) => {
+    const state = dragRef.current;
+    setDragState(null);
+    if (!state || !state.active) return;
+    restoreView();
+    const element = document.elementFromPoint(clientX, clientY);
+    const tabElement = element?.closest?.('[data-tab-id]') as HTMLElement | null;
+    if (tabElement?.dataset.tabId) {
+      const targetIndex = tabs.findIndex((item) => item.id === tabElement.dataset.tabId);
+      if (targetIndex >= 0 && targetIndex !== state.index) onReorder(state.index, targetIndex);
+      return;
     }
-    setDragIndex(null);
-    setDragOverIndex(null);
-  }, [dragIndex, onReorder]);
+    if (element?.closest?.('.topbar-tabbar')) return;
+    try {
+      const result = await window.electronAPI.win.moveTab(state.tabId);
+      if (result?.reason === 'new-window') await window.electronAPI.win.tearOffTab(state.tabId);
+      else if (result?.reason === 'busy') {
+        pushToast({ key: 'tab-drag-busy', message: '当前标签正在自动化或填充，暂时无法移动', type: 'warning' });
+      }
+    } catch { /* window gone */ }
+  }, [tabs, onReorder, pushToast, restoreView]);
 
-  const handleDragEnd = useCallback(() => {
-    setDragIndex(null);
-    setDragOverIndex(null);
-  }, []);
+  useEffect(() => {
+    if (!dragActive) return;
+    const handleMove = (event: PointerEvent) => {
+      const state = dragRef.current;
+      if (!state) return;
+      if (!state.active) {
+        if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) < 6) return;
+        void window.electronAPI.tab.setViewVisibility(false).catch(() => { /* view gone */ });
+        setDragState({ ...state, active: true });
+      }
+      const tabElement = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-tab-id]') as HTMLElement | null;
+      const overIndex = tabElement?.dataset.tabId ? tabs.findIndex((item) => item.id === tabElement.dataset.tabId) : null;
+      setDragState((prev) => (prev && prev.overIndex !== overIndex ? { ...prev, overIndex } : prev));
+    };
+    const handleUp = (event: PointerEvent) => { void endDrag(event.clientX, event.clientY); };
+    const cancel = () => {
+      const state = dragRef.current;
+      setDragState(null);
+      if (state?.active) restoreView();
+    };
+    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('keydown', handleKey);
+      if (dragRef.current?.active) restoreView();
+    };
+  }, [dragActive, tabs, endDrag, restoreView]);
 
   const tabCallbacks = useMemo(() => {
-    const map = new Map<string, { onSelect: () => void; onClose: () => void; onDragStart: () => void; onDragOver: () => void; onDrop: () => void }>();
+    const map = new Map<string, { onSelect: () => void; onClose: () => void; onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void }>();
     for (let i = 0; i < tabs.length; i++) {
       const tab = tabs[i];
       const index = i;
       map.set(tab.id, {
         onSelect: () => onSelectTab(tab.id),
         onClose: () => onCloseTab(tab.id),
-        onDragStart: () => handleDragStart(index),
-        onDragOver: () => handleDragOver(index),
-        onDrop: () => handleDrop(index),
+        onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => beginDrag(event, tab.id, index),
       });
     }
     return map;
-  }, [tabs, onSelectTab, onCloseTab, handleDragStart, handleDragOver, handleDrop]);
+  }, [tabs, onSelectTab, onCloseTab, beginDrag]);
 
   return (
     <div className="flex flex-col flex-shrink-0 relative topbar-toolbar">
@@ -180,11 +225,9 @@ const TopBar: React.FC<TopBarProps> = ({
               isActive={tab.id === activeTabId}
               onSelect={cb?.onSelect ?? (() => {})}
               onClose={cb?.onClose ?? (() => {})}
-              onDragStart={cb?.onDragStart ?? (() => {})}
-              onDragOver={cb?.onDragOver ?? (() => {})}
-              onDragEnd={handleDragEnd}
-              onDrop={cb?.onDrop ?? (() => {})}
-              isDragOver={dragOverIndex === index && dragIndex !== index}
+              onPointerDown={cb?.onPointerDown ?? (() => {})}
+              isDragOver={dragState?.overIndex === index && dragState?.index !== index}
+              isDragging={dragState?.active === true && dragState.tabId === tab.id}
             />
             );
           })}

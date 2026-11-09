@@ -8,11 +8,10 @@ interface TabItemProps {
   isActive: boolean;
   onSelect: () => void;
   onClose: () => void;
-  onDragStart: () => void;
-  onDragOver: () => void;
-  onDragEnd: () => void;
-  onDrop: () => void;
+  /** P7：指针按下即进入拖拽候选；阈值/隐藏视图/落点由 TopBar 统一处理。 */
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   isDragOver: boolean;
+  isDragging: boolean;
 }
 
 const TabItem: React.FC<TabItemProps> = ({
@@ -20,42 +19,18 @@ const TabItem: React.FC<TabItemProps> = ({
   isActive,
   onSelect,
   onClose,
-  onDragStart,
-  onDragOver,
-  onDragEnd,
-  onDrop,
+  onPointerDown,
   isDragOver,
+  isDragging,
 }) => {
-  const handleDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', tab.id);
-    e.currentTarget.setAttribute('data-dragging', 'true');
-    onDragStart();
-  };
-
-  const handleDragEnd = (e: React.DragEvent) => {
-    e.currentTarget.removeAttribute('data-dragging');
-    onDragEnd();
-  };
-
   const { LL } = useI18nContext();
 
   return (
     <div
-      draggable
+      data-tab-id={tab.id}
+      onPointerDown={onPointerDown}
       onClick={onSelect}
-      onDragStart={handleDragStart}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        onDragOver();
-      }}
-      onDragEnd={handleDragEnd}
-      onDrop={(e) => {
-        e.preventDefault();
-        onDrop();
-      }}
-      className={`tab-item ${isActive ? 'active' : ''} ${isDragOver ? 'drag-over' : ''}`}
+      className={`tab-item ${isActive ? 'active' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragging ? 'data-dragging' : ''}`}
       title={tab.url || tab.title}
     >
       {/* 内容裁剪放在内层：外层 .tab-item 必须 overflow: visible，否则活动标签
