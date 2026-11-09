@@ -522,15 +522,18 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 - 判据：R8、R9 手工验收通过；页面不重载，迁移后标题/加载态/地址栏继续更新
 - 验证：`npm run typecheck`、`npm run probe:deep`
 
-- **P7 状态**：P7-1（迁移原语）、P7-2a（迁移后事件归属）、P7-2b（`win:move-tab` 主进程换窗 + `tab:detached/adopted` + 拖空关窗）、P7-2c（`win:tear-off-tab` + `whenRendererReady` 握手 + `tab:setViewVisibility` + `isTabBusy` 拒绝 + 渲染层消费 adopted/detached）已完成；**P7-2d 已完成**：pointer events 拖拽（6px 阈值、`tab:setViewVisibility`、Escape/pointercancel/卸载兜底）、三种落点分派（本窗重排 / 跨窗 `win:move-tab` / 窗外 `win:tear-off-tab`）；**剩余**：probe 47/48/51 与 P8 手工验收。`r`n`r`n### P8 全量验证
+- **P7 状态**：P7-1（迁移原语）、P7-2a（迁移后事件归属）、P7-2b（`win:move-tab` 主进程换窗 + `tab:detached/adopted` + 拖空关窗）、P7-2c（`win:tear-off-tab` + `whenRendererReady` 握手 + `tab:setViewVisibility` + `isTabBusy` 拒绝 + 渲染层消费 adopted/detached）已完成；**P7-2d 已完成**：pointer events 拖拽（6px 阈值、`tab:setViewVisibility`、Escape/pointercancel/卸载兜底）、三种落点分派（本窗重排 / 跨窗 `win:move-tab` / 窗外 `win:tear-off-tab`）；**剩余**：probe 47/48/51 与 P8 手工验收。
 
-- [ ] `npm run typecheck`
-- [ ] `npm run lint`
-- [ ] `npm run test:electron`
-- [ ] `npm run probe:deep`（含 47~51）
-- [ ] `npm run test:e2e`（多窗口下首个窗口的断言语义）
-- [ ] `npm run test:smokes`（可选；先 `node scripts/ensure-build.cjs`）
-- [ ] 第 8.3 节手工清单
+### P8 全量验证
+
+- [x] `npm run typecheck`
+- [x] `npm run lint`（全仓仍有 8 个**既有**错误，全部在生成物 `bundled-scripts/automation-frame-assistant.user.js`，本次改动文件 lint 干净）
+- [x] `npm run test:electron`
+- [x] `npm run probe:deep`（23/23；47~51 尚未编写，见下）
+- [x] `npm run test:e2e`（9/9 通过；曾暴露并修复"窗口销毁后读 win.id"崩溃）
+- [x] `npm run test:smokes`（run-smokes ALL PASS）
+- [ ] 第 8.3 节手工清单（需真人操作：拖拽/Flash/双窗口）
+- **P8 状态**：自动化验证全绿——unit 162 文件 / 1061 例、typecheck、build:main、test:electron、probe:deep 23/23、test:e2e 9/9、test:smokes ALL PASS；hydration gating 已落地。**剩余**：probe 47/48/51 与 8.3 手工清单。probe 48（跨窗口拖拽的 OS 级鼠标捕获）无法在无头环境模拟，需真机手工或 instrumented 构建。
 
 ---
 
@@ -804,3 +807,4 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | P7-2b | `bb3aa19` | `drop-target`（4）；unit 161 文件 / 1059 例；typecheck、build:main、test:electron | 渲染层拖拽手势与 tear-off 新窗口、probe 47/48/51 待 P7-2c |
 | P7-2c | `b4d5a05` | unit 161 文件 / 1059 例；typecheck、build:main、test:electron | 主进程 + 握手 + 渲染层事件消费已完成；目标窗口拖拽手势与 probe 47/48/51 待 P7-2d |
 | P7-2d | `3dd358b` | unit 161 文件 / 1059 例；typecheck、build:main、test:electron | 拖拽 UI 无组件级测试（仓库无夹具），由 P8 手工清单 9-12 项覆盖；probe 47/48/51 待 P8 前补 |
+| P8 | `e888244` + `5e14a37` | hydration gating（2 例）；unit 162 文件 / 1061 例；typecheck；build:main；test:electron；probe:deep 23/23；test:e2e 9/9；test:smokes ALL PASS | 全仓 lint 仍为生成物既有 8 错；probe 47/48/51 未编写（48 需真机）；8.3 手工清单待真人 |
