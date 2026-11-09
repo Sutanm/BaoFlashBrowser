@@ -176,11 +176,13 @@ class TabManager {
     view.setBounds(visible && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
   }
 
-  /** P7：自动化租约或密码填充进行中时禁止迁移。 */
+  /** P7：自动化租约或密码填充进行中时禁止迁移。
+   *  注意不能把 `passwordFillTimers` 算进来：每次导航都会排 30s 内的重试计时器，
+   *  否则任何真实页面都会被判成"忙碌"而永远拖不动。 */
   isTabBusy(tabId: string): boolean {
     if (this.automationTargets.has(tabId)) return true;
     const wcId = this.tabs.get(tabId)?.browserView?.webContents.id;
-    return wcId !== undefined && (this.passwordFillInFlight.has(wcId) || this.passwordFillTimers.has(wcId));
+    return wcId !== undefined && this.passwordFillInFlight.has(wcId);
   }
 
   getTabUrl(tabId: string): string | null {

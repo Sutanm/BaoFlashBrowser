@@ -4,6 +4,7 @@ import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useDataStore } from '@renderer/store/useDataStore';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 import { getHost } from '@renderer/services/url-utils';
+import { generateId } from '@renderer/services/id.service';
 
 interface FavoritesPanelProps {
   currentUrl: string;
@@ -39,7 +40,7 @@ const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, currentTitl
     setFavs((prev) => {
       const exists = prev.some((f) => f.url === currentUrl);
       if (exists) return prev.filter((f) => f.url !== currentUrl);
-      return [{ url: currentUrl, title, favicon: currentFavicon, addedAt: Date.now() } as BookmarkEntry, ...prev];
+      return [{ id: generateId(), url: currentUrl, title, favicon: currentFavicon, addedAt: Date.now() } as BookmarkEntry, ...prev];
     });
   }, [currentUrl, currentTitle, currentFavicon, setFavs]);
 

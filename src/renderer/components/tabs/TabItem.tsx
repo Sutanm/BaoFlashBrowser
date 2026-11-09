@@ -28,9 +28,10 @@ const TabItem: React.FC<TabItemProps> = ({
   return (
     <div
       data-tab-id={tab.id}
+      data-dragging={isDragging ? 'true' : undefined}
       onPointerDown={onPointerDown}
       onClick={onSelect}
-      className={`tab-item ${isActive ? 'active' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragging ? 'data-dragging' : ''}`}
+      className={`tab-item ${isActive ? 'active' : ''} ${isDragOver ? 'drag-over' : ''}`}
       title={tab.url || tab.title}
     >
       {/* 内容裁剪放在内层：外层 .tab-item 必须 overflow: visible，否则活动标签

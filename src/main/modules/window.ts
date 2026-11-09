@@ -24,6 +24,8 @@ export interface CreateWindowOptions {
   initialUrl?: string;
   /** 恢复上次最大化状态（P5）。 */
   maximized?: boolean;
+  /** P7 tear-off：新窗口的首个标签由主进程迁移进来，渲染层不得再自建默认标签。 */
+  adopting?: boolean;
 }
 
 export interface WindowContext {
@@ -31,6 +33,7 @@ export interface WindowContext {
   index: number;
   isPrimary: boolean;
   initialUrl?: string;
+  adopting?: boolean;
 }
 
 interface RegisteredWindow {
@@ -39,6 +42,7 @@ interface RegisteredWindow {
   index: number;
   isPrimary: boolean;
   initialUrl?: string;
+  adopting?: boolean;
 }
 
 const DEFAULT_WIDTH = 1280;
@@ -129,6 +133,7 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     index,
     isPrimary,
     ...(options.initialUrl ? { initialUrl: options.initialUrl } : {}),
+    ...(options.adopting ? { adopting: true } : {}),
   });
   shellWebContentsToWindow.set(shellWebContentsId, win);
   win.on('focus', () => { focusedWindowId = win.id; });
@@ -333,6 +338,7 @@ export function getWindowContext(win: BrowserWindow): WindowContext | null {
     index: entry.index,
     isPrimary: entry.isPrimary,
     ...(entry.initialUrl ? { initialUrl: entry.initialUrl } : {}),
+    ...(entry.adopting ? { adopting: true } : {}),
   };
 }
 

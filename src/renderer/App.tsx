@@ -20,6 +20,7 @@ import TypesafeI18n, { useI18nContext } from './i18n/i18n-react';
 import { loadAllLocales } from './i18n/i18n-util.sync';
 import { isLocale } from './i18n/i18n-util';
 import { computeBrowserViewBounds } from './services/browserview-bounds';
+import { generateId } from './services/id.service';
 
 const AutomationPage = MODULE_AUTOMATION ? lazy(() => import('./components/automation/AutomationPage')) : null;
 const UserscriptsPage = MODULE_USERSCRIPTS ? lazy(() => import('./components/userscripts/UserscriptsPage')) : null;
@@ -271,7 +272,7 @@ const AppInner: React.FC = () => {
     const exists = favorites.some((favorite) => favorite.url === url);
     setFavorites((prev) => exists
       ? prev.filter((favorite) => favorite.url !== url)
-      : [{ url, title, favicon: activeTab.favicon, addedAt: Date.now() } as BookmarkEntry, ...prev]);
+      : [{ id: generateId(), url, title, favicon: activeTab.favicon, addedAt: Date.now() } as BookmarkEntry, ...prev]);
     pushToast({
       key: `bookmark:${url}`,
       message: exists ? LL.bookmark.removed({ title }) : LL.bookmark.added({ title }),

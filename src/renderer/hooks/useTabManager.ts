@@ -46,6 +46,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const [sessionReady, setSessionReady] = useState(false);
   /** P5：本窗口的会话快照 key（	ab-session:<windowKey>；拿不到上下文时退回旧全局 key）。 */
   const sessionKeyRef = useRef<string>(TAB_SESSION_META_KEY);
+  /** P7 tear-off：新窗口的标签由主进程迁入，渲染层不得自建默认标签。 */
+  const adoptingRef = useRef(false);
   const recordHistory = useDataStore((s) => s.recordHistory);
   const updateHistoryByUrl = useDataStore((s) => s.updateHistoryByUrl);
   const tabsRef = useRef(tabs);
@@ -318,7 +320,12 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     const u3 = window.electronAPI.on('tab:detached', (payload) => {
       setTabs((prev) => {
         const next = prev.filter((item) => item.id !== payload.tabId);
-        if (activeTabIdRef.current === payload.tabId) setActiveTabId(next[0]?.id ?? null);
+        if (activeTabIdRef.current === payload.tabId) {
+          const nextActiveId = next[0]?.id ?? null;
+          setActiveTabId(nextActiveId);
+          // 主进程摘除活动标签后 rect 归属为空：显式激活下一个，避免页面白屏。
+          if (nextActiveId) void window.electronAPI.tab.activate(nextActiveId).catch(() => {});
+        }
         return next;
       });
     });
@@ -330,6 +337,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       });
       setTabs((prev) => [...prev.filter((item) => item.id !== tab.id), tab]);
       setActiveTabId(tab.id);
+      // 迁入的视图在主进程里初始为隐藏：激活后才会按容器 rect 显示。
+      void window.electronAPI.tab.activate(tab.id).catch(() => {});
     });
     const u2 = window.electronAPI.on('tab:crashed', (payload) => {
       updateTabRef.current(payload.tabId, { crashed: true, isLoading: false, isAudible: false, canGoBack: false, canGoForward: false, title: LLRef.current.error.pageCrashed() });
@@ -367,10 +376,17 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     void (async () => {
       try {
         // 多窗口 P5：先拿窗口上下文，再决定快照 key；旧全局 key 只由 primary 窗口认领。
-        let windowContext: { windowKey: string; isPrimary: boolean; initialUrl?: string } | null = null;
+        let windowContext: { windowKey: string; isPrimary: boolean; initialUrl?: string; adopting?: boolean } | null = null;
         try {
           windowContext = await window.electronAPI.win.getContext();
         } catch { /* 拿不到上下文时退回旧全局 key */ }
+        if (windowContext?.adopting) {
+          // tear-off 新窗口：标签即将由 tab:adopted 迁入，不建默认标签、不弹恢复。
+          adoptingRef.current = true;
+          sessionKeyRef.current = windowContext.windowKey ? tabSessionKey(windowContext.windowKey) : TAB_SESSION_META_KEY;
+          setSessionReady(true);
+          return;
+        }
         const sessionKey = windowContext?.windowKey ? tabSessionKey(windowContext.windowKey) : TAB_SESSION_META_KEY;
         sessionKeyRef.current = sessionKey;
         if (windowContext?.windowKey) {
@@ -473,7 +489,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         console.warn('[Tabs] session recovery check failed:', error);
         await db.meta.delete(sessionKeyRef.current).catch(() => {});
         await window.electronAPI.session.resolveRecovery().catch(() => {});
-        if (tabsRef.current.length === 0) createTab();
+        if (tabsRef.current.length === 0 && !adoptingRef.current) createTab();
         setSessionReady(true);
       }
     })();
@@ -499,7 +515,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   }, [sessionReady, sessionSignature, settings.restoreSession]);
 
   useEffect(() => {
-    if (sessionReady && tabs.length === 0) createTab();
+    if (sessionReady && tabs.length === 0 && !adoptingRef.current) createTab();
   }, [sessionReady, tabs.length, createTab]);
 
   // Sync address bar when active tab changes

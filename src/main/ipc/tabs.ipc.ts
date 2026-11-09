@@ -187,7 +187,7 @@ export function registerTabsIPC(): void {
     if (!owner || !window || owner.id !== window.id) throw new Error('tab does not belong to this window');
     if (getTabManagerForTabId(args.tabId)?.isTabBusy(args.tabId)) return { moved: false, reason: 'busy' };
     const point = screen.getCursorScreenPoint();
-    const newWin = createWindow({ bounds: { x: Math.max(0, point.x - 160), y: Math.max(0, point.y - 40), width: 1100, height: 760 } });
+    const newWin = createWindow({ adopting: true, bounds: { x: Math.max(0, point.x - 160), y: Math.max(0, point.y - 40), width: 1100, height: 760 } });
     const ready = await whenRendererReady(newWin);
     if (!ready || newWin.isDestroyed()) {
       try { if (!newWin.isDestroyed()) newWin.close(); } catch { /* ignore */ }
