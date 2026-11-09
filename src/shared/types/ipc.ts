@@ -139,6 +139,8 @@ export interface IPCMainToRenderer {
   'tab:load-error': (payload: TabLoadErrorPayload) => void;
   'tab:crashed': (payload: TabCrashedPayload) => void;
   'tab:newwindow': (payload: NewWindowPayload) => void;
+  'tab:detached': (payload: { tabId: string }) => void;
+  'tab:adopted': (payload: { tabId: string }) => void;
   'download:progress': (payload: DownloadProgressPayload) => void;
   'aria2:status': (payload: Aria2StatusPayload) => void;
   'navigate-url': (url: string) => void;

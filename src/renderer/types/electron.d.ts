@@ -152,6 +152,7 @@ declare global {
       invoke(channel: 'theme:set-source', source: 'system' | 'light' | 'dark'): Promise<void>;
       invoke(channel: 'win:setFullscreen', fullscreen: boolean): Promise<void>;
       invoke(channel: 'win:isMaximized'): Promise<boolean>;
+      invoke(channel: 'win:move-tab', payload: { tabId: string }): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
       invoke(channel: 'win:get-context'): Promise<WindowContextPayload>;
       invoke(channel: 'win:new-window', payload?: {
         url?: string;
@@ -299,6 +300,7 @@ declare global {
         isMaximized(): Promise<boolean>;
         getContext(): Promise<WindowContextPayload>;
         newWindow(options?: { url?: string; bounds?: { x?: number; y?: number; width?: number; height?: number } }): Promise<{ windowKey: string }>;
+        moveTab(tabId: string): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
       };
 
       userscripts: {

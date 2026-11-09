@@ -4,7 +4,7 @@ import type { FindInPageOptions } from 'electron';
 
 // --- L04: IPC 通道白名单 ---
 const ALLOWED_ON_CHANNELS = new Set([
-  'tab:updated', 'tab:found', 'tab:load-error', 'tab:crashed', 'tab:newwindow',
+  'tab:updated', 'tab:found', 'tab:load-error', 'tab:crashed', 'tab:newwindow', 'tab:detached', 'tab:adopted',
   'ruffle:diagnostic',
   'download:progress', 'aria2:status', 'navigate-url',
   'shortcut',
@@ -42,7 +42,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
   'win:minimize', 'win:maximize', 'win:unmaximize', 'win:close', 'win:setFullscreen', 'win:toggleFullscreen', 'win:isMaximized',
-  'win:get-context', 'win:new-window',
+  'win:get-context', 'win:new-window', 'win:move-tab',
   'userscripts:list', 'userscripts:get-source', 'userscripts:parse-source',
   'userscripts:install-source', 'userscripts:install-file', 'userscripts:install-url',
   'userscripts:uninstall', 'userscripts:set-enabled', 'userscripts:update-source',

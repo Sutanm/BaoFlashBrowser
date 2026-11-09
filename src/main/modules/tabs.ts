@@ -164,6 +164,11 @@ class TabManager {
     return this.tabs.has(tabId);
   }
 
+  /** 当前实例的标签数（P7：拖空后自动关窗）。 */
+  getTabCount(): number {
+    return this.tabs.size;
+  }
+
   isTabActive(tabId: string): boolean {
     return this.activeId === tabId;
   }
@@ -1106,3 +1111,18 @@ const facade = {
 };
 
 export const tabManager = facade as unknown as TabManager;
+
+/**
+ * P7：把标签在两个窗口实例之间迁移（不重建 WebContents、tabId 不变）。
+ * 返回 false 表示来源/目标实例不存在；同一实例返回 true（由调用方做重排）。
+ */
+export function transferTabBetweenWindows(tabId: string, targetWin: BrowserWindow, index?: number): boolean {
+  const source = tabIndex.get(tabId);
+  const target = getTabManagerForWindow(targetWin.id);
+  if (!source || !target) return false;
+  if (source === target) return true;
+  const detached = source.detachForTransfer(tabId);
+  if (!detached) return false;
+  target.adoptTransferred(detached, index);
+  return true;
+}
