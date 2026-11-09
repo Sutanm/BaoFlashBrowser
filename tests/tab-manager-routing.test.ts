@@ -59,6 +59,7 @@ const state = vi.hoisted(() => {
     readonly webContents = new FakeWebContents();
     readonly views: FakeBrowserView[] = [];
     readonly send = this.webContents.send;
+    readonly setTitle = vi.fn();
     destroyed = false;
     constructor(id: number) { this.id = id; }
     addBrowserView(view: FakeBrowserView): void { this.views.push(view); }
@@ -161,6 +162,8 @@ describe('TabManager multi-instance routing (P3)', () => {
     viewOf(winB).webContents.emit('page-title-updated', {}, 'B title');
 
     expect(winA.send).toHaveBeenCalledWith('tab:updated', { tabId: 'tab-a1', title: 'A title' });
+    expect(winA.setTitle).toHaveBeenCalledWith('A title — BaoFlashBrowser');
+    expect(winB.setTitle).toHaveBeenCalledWith('B title — BaoFlashBrowser');
     expect(winA.send).not.toHaveBeenCalledWith('tab:updated', { tabId: 'tab-b1', title: 'B title' });
     expect(winB.send).toHaveBeenCalledWith('tab:updated', { tabId: 'tab-b1', title: 'B title' });
     expect(winB.send).not.toHaveBeenCalledWith('tab:updated', { tabId: 'tab-a1', title: 'A title' });

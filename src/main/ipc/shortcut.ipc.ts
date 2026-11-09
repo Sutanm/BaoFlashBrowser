@@ -19,6 +19,7 @@ const SHORTCUTS: ShortcutEntry[] = [
   // Tab management
   { key: 't', ctrl: true, action: 'new-tab' },
   { key: 'w', ctrl: true, action: 'close-tab' },
+  { key: 'w', ctrl: true, shift: true, action: 'close-window' },
   { key: 'Tab', ctrl: true, action: 'next-tab' },
   { key: 'Tab', ctrl: true, shift: true, action: 'prev-tab' },
   { key: '1', ctrl: true, action: 'switch-tab-1' },

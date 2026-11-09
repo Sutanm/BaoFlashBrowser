@@ -10,8 +10,8 @@ import { createTabSession, createTabSessionSignature, planLegacySessionMigration
 import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
 import { isTabEligibleForSuspension } from '../services/tab-suspension';
 import { PendingHistoryRegistry } from '../services/pending-history';
-import { AUTOMATION_URL, NEWTAB_URL, USERSCRIPTS_URL, isNewtabUrl } from '../services/url-utils';
-import { createInitialTabState } from '../services/tab-initial-state';
+import { AUTOMATION_URL, USERSCRIPTS_URL, isNewtabUrl } from '../services/url-utils';
+import { createInitialTabState, resolveInitialTabUrl } from '../services/tab-initial-state';
 
 const INACTIVE_TAB_SUSPEND_MS = 10 * 60 * 1000;
 
@@ -94,7 +94,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
 
   const createTab = useCallback((url?: string) => {
     const id = generateId();
-    const initialUrl = url || settings.homepage || NEWTAB_URL;
+    const initialUrl = resolveInitialTabUrl(url, settings.homepage);
     // Singleton internal pages: activating an existing tab instead of
     // duplicating (plan §5.2).
     if (initialUrl === USERSCRIPTS_URL || initialUrl === AUTOMATION_URL) {
@@ -304,6 +304,10 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   useEffect(() => {
     const u1 = window.electronAPI.on('tab:newwindow', (payload) => {
       const url = payload.url;
+      if (payload.disposition === 'new-window') {
+        void window.electronAPI.win.newWindow({ url });
+        return;
+      }
       const currentId = activeTabIdRef.current;
       if (settingsRef.current.linkBehavior === 'current-page' && currentId) {
         window.electronAPI.tab.navigate(currentId, url);
@@ -347,7 +351,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     void (async () => {
       try {
         // 多窗口 P5：先拿窗口上下文，再决定快照 key；旧全局 key 只由 primary 窗口认领。
-        let windowContext: { windowKey: string; isPrimary: boolean } | null = null;
+        let windowContext: { windowKey: string; isPrimary: boolean; initialUrl?: string } | null = null;
         try {
           windowContext = await window.electronAPI.win.getContext();
         } catch { /* 拿不到上下文时退回旧全局 key */ }
@@ -385,14 +389,14 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         if (!snapshot) {
           await db.meta.delete(sessionKeyRef.current).catch(() => {});
           await window.electronAPI.session.resolveRecovery().catch(() => {});
-          createTab();
+          createTab(windowContext?.initialUrl);
           setSessionReady(true);
           return;
         }
 
         // Show a usable new tab while the old crash snapshot remains untouched.
         // Snapshot persistence stays paused until the user makes a choice.
-        createTab();
+        createTab(windowContext?.initialUrl);
         let choiceHandled = false;
 
         const ignoreRecovery = async () => {

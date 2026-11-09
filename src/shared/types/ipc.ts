@@ -27,6 +27,7 @@ export type ShortcutAction =
   | 'print-page'
   | 'view-source'
   | 'new-window'
+  | 'close-window'
   | 'clear-data'
   | 'go-back'
   | 'go-forward'

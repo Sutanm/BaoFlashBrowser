@@ -1,6 +1,10 @@
 import type { Settings } from '@shared/types/settings';
 import type { TabState } from '../store/useTabsStore';
-import { AUTOMATION_URL, USERSCRIPTS_URL, isNewtabUrl } from './url-utils';
+import { AUTOMATION_URL, NEWTAB_URL, USERSCRIPTS_URL, isNewtabUrl } from './url-utils';
+
+export function resolveInitialTabUrl(requested: string | undefined, homepage: string | undefined): string {
+  return requested || homepage || NEWTAB_URL;
+}
 
 export interface InternalTabTitles {
   newTab: string;

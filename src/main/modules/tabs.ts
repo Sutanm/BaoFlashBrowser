@@ -615,7 +615,9 @@ class TabManager {
         { label: uiText('⟳ 刷新', '⟳ Reload'), click: () => this.reload(tabId) },
         { type: 'separator' }, { label: uiText('复制', 'Copy'), enabled: Boolean(params.selectionText), role: 'copy' }, { label: uiText('粘贴', 'Paste'), role: 'paste' },
       ];
-      if (params.linkURL) template.push({ type: 'separator' }, { label: uiText('在新标签页打开链接', 'Open link in new tab'), click: () => this.send('tab:newwindow', { url: params.linkURL }) });
+      if (params.linkURL) template.push({ type: 'separator' },
+        { label: uiText('在新标签页打开链接', 'Open link in new tab'), click: () => this.send('tab:newwindow', { url: params.linkURL }) },
+        { label: uiText('在新窗口打开链接', 'Open link in new window'), click: () => this.send('tab:newwindow', { url: params.linkURL, disposition: 'new-window' }) });
       template.push(
         { type: 'separator' },
         { label: tab?.isRuffle ? `${uiText('Flash 引擎: Ruffle (WASM 模拟)', 'Flash engine: Ruffle (WASM)')}${tab.ruffleSource === 'cdn' ? ' (CDN)' : ''}` : uiText('Flash 引擎: PPAPI (原生)', 'Flash engine: PPAPI (native)'), enabled: false },
@@ -836,7 +838,13 @@ class TabManager {
   }
 
   private send(channel: string, payload: Record<string, unknown>): void {
-    const win = this.win(); if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+    const win = this.win();
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send(channel, payload);
+    // P6：窗口标题跟随活动标签（外壳 document.title 固定，只能由主进程 setTitle）。
+    if (channel === 'tab:updated' && typeof payload.title === 'string' && payload.title) {
+      try { win.setTitle(`${payload.title} — BaoFlashBrowser`); } catch { /* window gone */ }
+    }
   }
 }
 

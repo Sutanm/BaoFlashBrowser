@@ -183,6 +183,8 @@ const AppInner: React.FC = () => {
   useShortcut((action) => {
     switch (action) {
       case 'new-tab': createTab(); break;
+      case 'new-window': void window.electronAPI.win.newWindow(); break;
+      case 'close-window': window.electronAPI.win.close(); break;
       case 'close-tab': if (activeTabId) closeTab(activeTabId); break;
       case 'next-tab': {
         const idx = tabs.findIndex((t) => t.id === activeTabId);

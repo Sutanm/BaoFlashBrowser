@@ -24,6 +24,7 @@ import { configureOptionalTabServices, createTabManager, disposeTabManager } fro
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, markCleanShutdown } from './modules/session-recovery';
 import { setIpcWindowResolver } from './utils/ipc-wrapper';
+import { findLaunchUrl } from './utils/launch-url';
 import { loadWindowStates, saveWindowStates, windowStatesFromWindows } from './modules/window-state';
 
 let automationService: { shutdown(): Promise<void> } | null = null;
@@ -65,12 +66,12 @@ function bootstrap(): void {
     return;
   }
 
-  app.on('second-instance', () => {
-    const win = getMainWindow();
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
+  app.on('second-instance', (_event, argv) => {
+    // P6：二次启动 = 新开一个窗口（argv 带 URL 时由新窗口首个标签打开）。
+    const url = findLaunchUrl(argv ?? []);
+    const win = createWindow(url ? { initialUrl: url } : {});
+    if (win.isMinimized()) win.restore();
+    win.focus();
   });
 
   const config = loadConfig();
@@ -367,6 +368,11 @@ function bootstrap(): void {
   };
   app.on('before-quit', () => { shutdownServicesOnce(); });
   app.on('will-quit', () => { shutdownServicesOnce(); });
+
+  app.on('activate', () => {
+    // macOS：没有窗口时（含关完所有窗口后）重建一个。
+    if (getRegisteredWindows().length === 0) createWindow();
+  });
 
   app.on('window-all-closed', () => {
     // 只决定是否退出：Windows/Linux 最后一个窗口关闭即退出；
