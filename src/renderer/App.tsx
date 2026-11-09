@@ -172,6 +172,11 @@ const AppInner: React.FC = () => {
   useDownloadListener();
   usePasswordListener();
 
+  // P7：告诉主进程本窗口渲染层已就绪（tear-off 迁移的握手条件）。
+  useEffect(() => {
+    void window.electronAPI.win.rendererReady().catch(() => { /* older preload */ });
+  }, []);
+
   // 多窗口 P5：抽屉布局按窗口 key 分片（拿到上下文后重读本窗口的值）。
   useEffect(() => {
     void window.electronAPI.win.getContext().then((context) => {

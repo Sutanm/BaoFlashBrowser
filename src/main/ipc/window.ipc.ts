@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { BrowserWindow } from 'electron';
 import { createEventHandler, createValidatedEventHandler } from '../utils/ipc-wrapper';
 import { getSessionRecoveryStatus, resolveSessionRecovery } from '../modules/session-recovery';
-import { createWindow, getWindowContext, getWindowKey } from '../modules/window';
+import { createWindow, getWindowContext, getWindowKey, markRendererReady } from '../modules/window';
 
 /**
  * 窗口相关 IPC（SDD: docs/specs/multi-window-plan.md §6.3 / §7 P2）。
@@ -69,6 +69,9 @@ export function registerWindowIPC(): void {
     return { windowKey: getWindowKey(win) };
   });
 
+  createEventHandler('win:renderer-ready', ({ window }) => {
+    if (window) markRendererReady(window);
+  });
   createEventHandler('session:recovery-status', ({ window }) => (
     getSessionRecoveryStatus(window ? getWindowKey(window) || undefined : undefined)
   ));

@@ -229,6 +229,7 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     windows.delete(win.id);
     shellWebContentsToWindow.delete(shellWebContentsId);
     if (focusedWindowId === win.id) focusedWindowId = null;
+    rendererReadyResolvers.delete(win.id);
   });
 
   log.info(`[Window] created id=${win.id} key=${windowKey} index=${index} primary=${isPrimary}`);
@@ -251,6 +252,25 @@ export function getRegisteredWindows(): BrowserWindow[] {
     .filter((entry) => !entry.win.isDestroyed())
     .sort((a, b) => (a.index === b.index ? a.win.id - b.win.id : a.index - b.index))
     .map((entry) => entry.win);
+}
+
+const rendererReadyResolvers = new Map<number, () => void>();
+
+/** P7：新窗口渲染层挂载后由它自己握手；tear-off 迁移必须等这一步。 */
+export function whenRendererReady(win: BrowserWindow, timeoutMs = 5000): Promise<void> {
+  if (win.isDestroyed()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { rendererReadyResolvers.delete(win.id); resolve(); }, timeoutMs);
+    timer.unref?.();
+    rendererReadyResolvers.set(win.id, () => { clearTimeout(timer); resolve(); });
+  });
+}
+
+export function markRendererReady(win: BrowserWindow): void {
+  const resolve = rendererReadyResolvers.get(win.id);
+  if (!resolve) return;
+  rendererReadyResolvers.delete(win.id);
+  resolve();
 }
 
 export function getWindowById(id: number): BrowserWindow | null {

@@ -169,6 +169,24 @@ class TabManager {
     return this.tabs.size;
   }
 
+  /** P7：拖拽期间隐藏/恢复活动视图（不改 rect）。 */
+  setActiveViewVisible(visible: boolean): void {
+    const view = this.activeId ? this.tabs.get(this.activeId)?.browserView : null;
+    if (!view) return;
+    view.setBounds(visible && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
+  }
+
+  /** P7：自动化租约或密码填充进行中时禁止迁移。 */
+  isTabBusy(tabId: string): boolean {
+    if (this.automationTargets.has(tabId)) return true;
+    const wcId = this.tabs.get(tabId)?.browserView?.webContents.id;
+    return wcId !== undefined && (this.passwordFillInFlight.has(wcId) || this.passwordFillTimers.has(wcId));
+  }
+
+  getTabUrl(tabId: string): string | null {
+    return this.tabs.get(tabId)?.lastTargetUrl ?? null;
+  }
+
   isTabActive(tabId: string): boolean {
     return this.activeId === tabId;
   }

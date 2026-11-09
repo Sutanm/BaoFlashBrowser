@@ -97,6 +97,8 @@ declare global {
       on(channel: 'tab:load-error', cb: (payload: TabLoadErrorPayload) => void): () => void;
       on(channel: 'tab:crashed', cb: (payload: TabCrashedPayload) => void): () => void;
       on(channel: 'tab:newwindow', cb: (payload: NewWindowPayload) => void): () => void;
+      on(channel: 'tab:detached', cb: (payload: { tabId: string }) => void): () => void;
+      on(channel: 'tab:adopted', cb: (payload: { tabId: string; url?: string }) => void): () => void;
       on(channel: 'download:progress', cb: (payload: DownloadProgressPayload) => void): () => void;
       on(channel: 'aria2:status', cb: (data: Aria2StatusPayload) => void): () => void;
       on(channel: 'navigate-url', cb: (url: string) => void): () => void;
@@ -153,6 +155,9 @@ declare global {
       invoke(channel: 'win:setFullscreen', fullscreen: boolean): Promise<void>;
       invoke(channel: 'win:isMaximized'): Promise<boolean>;
       invoke(channel: 'win:move-tab', payload: { tabId: string }): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
+      invoke(channel: 'win:tear-off-tab', payload: { tabId: string }): Promise<{ moved: boolean; reason?: string }>;
+      invoke(channel: 'win:renderer-ready'): Promise<void>;
+      invoke(channel: 'tab:setViewVisibility', payload: { visible: boolean }): Promise<void>;
       invoke(channel: 'win:get-context'): Promise<WindowContextPayload>;
       invoke(channel: 'win:new-window', payload?: {
         url?: string;
@@ -172,6 +177,7 @@ declare global {
         suspend(tabId: string): Promise<void>;
         activate(tabId: string): Promise<void>;
         focusActive(): Promise<boolean>;
+        setViewVisibility(visible: boolean): Promise<void>;
         navigate(tabId: string, url: string): Promise<void>;
         goBack(tabId: string): Promise<void>;
         goForward(tabId: string): Promise<void>;
@@ -301,6 +307,8 @@ declare global {
         getContext(): Promise<WindowContextPayload>;
         newWindow(options?: { url?: string; bounds?: { x?: number; y?: number; width?: number; height?: number } }): Promise<{ windowKey: string }>;
         moveTab(tabId: string): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
+        tearOffTab(tabId: string): Promise<{ moved: boolean; reason?: string }>;
+        rendererReady(): Promise<void>;
       };
 
       userscripts: {

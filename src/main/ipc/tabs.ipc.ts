@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron';
 import { z } from 'zod';
 import { createEventHandler, createValidatedEventHandler } from '../utils/ipc-wrapper';
 import { getTabManagerForSender, getTabManagerForTabId, getTabManagerForWindow, getTabOwnerWindow, tabManager, transferTabBetweenWindows } from '../modules/tabs';
-import { getRegisteredWindows, getWindowById } from '../modules/window';
+import { createWindow, getRegisteredWindows, getWindowById, whenRendererReady } from '../modules/window';
 import { resolveDropTarget } from '../utils/drop-target';
 import { ruffleBundleInfo, ruffleJsContent } from '../modules/ruffle-bundle';
 import log from 'electron-log';
@@ -173,11 +173,38 @@ export function registerTabsIPC(): void {
    * P7：把标签拖到另一个窗口。落点由主进程读 `screen.getCursorScreenPoint()`，
    * 渲染层不需要关心窗口坐标；落在本窗口交回渲染层做重排。
    */
+  createEventHandler<undefined, void>('tab:setViewVisibility', ({ window, args }) => {
+    const manager = requireManagerForSender(window, 'tab:setViewVisibility');
+    const visible = (args as { visible?: unknown } | undefined)?.visible;
+    manager.setActiveViewVisible(visible !== false);
+  });
+
+  /**
+   * P7：把标签拖出成新窗口（tear-off）。等新窗口 renderer 握手后再迁移，避免 adopted 事件丢失。
+   */
+  createValidatedEventHandler('win:tear-off-tab', tabOnly, async ({ window, args }) => {
+    const owner = getTabOwnerWindow(args.tabId);
+    if (!owner || !window || owner.id !== window.id) throw new Error('tab does not belong to this window');
+    if (getTabManagerForTabId(args.tabId)?.isTabBusy(args.tabId)) return { moved: false, reason: 'busy' };
+    const point = screen.getCursorScreenPoint();
+    const newWin = createWindow({ bounds: { x: Math.max(0, point.x - 160), y: Math.max(0, point.y - 40), width: 1100, height: 760 } });
+    await whenRendererReady(newWin);
+    if (newWin.isDestroyed()) return { moved: false, reason: 'no-target' };
+    if (!transferTabBetweenWindows(args.tabId, newWin)) return { moved: false, reason: 'transfer-failed' };
+    const adoptedUrl = getTabManagerForTabId(args.tabId)?.getTabUrl(args.tabId) ?? undefined;
+    window.webContents.send('tab:detached', { tabId: args.tabId });
+    newWin.webContents.send('tab:adopted', { tabId: args.tabId, url: adoptedUrl });
+    const sourceManager = getTabManagerForWindow(owner.id);
+    if (sourceManager && sourceManager.getTabCount() === 0) owner.close();
+    return { moved: true };
+  });
+
   createValidatedEventHandler('win:move-tab', tabOnly, ({ window, args }) => {
     const owner = getTabOwnerWindow(args.tabId);
     if (!owner || !window || owner.id !== window.id) {
       throw new Error('tab does not belong to this window');
     }
+    if (getTabManagerForTabId(args.tabId)?.isTabBusy(args.tabId)) return { moved: false, reason: 'busy' };
     const point = screen.getCursorScreenPoint();
     const target = resolveDropTarget(
       point,
@@ -190,7 +217,7 @@ export function registerTabsIPC(): void {
     if (!transferTabBetweenWindows(args.tabId, targetWin)) return { moved: false, reason: 'transfer-failed' };
 
     window.webContents.send('tab:detached', { tabId: args.tabId });
-    targetWin.webContents.send('tab:adopted', { tabId: args.tabId });
+    targetWin.webContents.send('tab:adopted', { tabId: args.tabId, url: getTabManagerForTabId(args.tabId)?.getTabUrl(args.tabId) ?? undefined });
     // 旧窗口被拖空 → 自动关闭（Chrome 行为）；close 走正常生命周期，不标记 clean shutdown。
     const sourceManager = getTabManagerForWindow(owner.id);
     if (sourceManager && sourceManager.getTabCount() === 0) owner.close();

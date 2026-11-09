@@ -315,11 +315,27 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         createTabRef.current(url);
       }
     });
+    const u3 = window.electronAPI.on('tab:detached', (payload) => {
+      setTabs((prev) => {
+        const next = prev.filter((item) => item.id !== payload.tabId);
+        if (activeTabIdRef.current === payload.tabId) setActiveTabId(next[0]?.id ?? null);
+        return next;
+      });
+    });
+    const u4 = window.electronAPI.on('tab:adopted', (payload) => {
+      const tab = createInitialTabState(payload.tabId, payload.url || 'about:newtab', settingsRef.current, {
+        newTab: LLRef.current.tab.newTab(),
+        userscripts: LLRef.current.tab.userscripts(),
+        automation: LLRef.current.tab.automation(),
+      });
+      setTabs((prev) => [...prev.filter((item) => item.id !== tab.id), tab]);
+      setActiveTabId(tab.id);
+    });
     const u2 = window.electronAPI.on('tab:crashed', (payload) => {
       updateTabRef.current(payload.tabId, { crashed: true, isLoading: false, isAudible: false, canGoBack: false, canGoForward: false, title: LLRef.current.error.pageCrashed() });
       pushToast({ key: `tab-crashed:${payload.tabId}`, message: LLRef.current.error.pageCrashed(), type: 'error' });
     });
-    return () => { try { u1(); u2(); } catch { /* ignore */ } };
+    return () => { try { u1(); u2(); u3(); u4(); } catch { /* ignore */ } };
   }, [pushToast]);
 
   // External URL open
