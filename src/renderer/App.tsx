@@ -37,6 +37,11 @@ const AppInner: React.FC = () => {
   const setFavorites = useDataStore((s) => s.setFavorites);
   const pushToast = useDataStore((s) => s.pushToast);
 
+  // 主进程（自动化助手）发来的一次性提示：走地址栏提示条，不覆盖网页画面。
+  useEffect(() => window.electronAPI.onUiToast((payload) => {
+    pushToast({ message: payload.message, type: payload.type ?? 'info' });
+  }), [pushToast]);
+
   const activePanel = useDataStore((s) => s.activePanel);
   const setActivePanel = useDataStore((s) => s.setActivePanel);
 

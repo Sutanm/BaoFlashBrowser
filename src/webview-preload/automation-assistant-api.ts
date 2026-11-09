@@ -13,6 +13,8 @@ export function createAutomationAssistantApi(invoke: (operation: string, payload
       return automationPackages;
     },
     status: async (): Promise<unknown> => invoke('status', { scriptId: scriptId }),
+    /** 一次性提示：走主进程 → 渲染层，显示在地址栏提示条里，不覆盖网页画面。 */
+    toast: (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): Promise<unknown> => invoke('toast', { scriptId: scriptId, message: String(message).slice(0, 500), type }),
     start: async (packageId: string, _countdownMs = 0): Promise<unknown> => {
       automationPackageId = packageId;
       if (!automationPackages.length) await baoAutomation.listPackages();
@@ -67,6 +69,9 @@ export function createAutomationAssistantApi(invoke: (operation: string, payload
       if (!automationPackageId) return { warm: false };
       return invoke('warm', { scriptId: scriptId, packageId: automationPackageId });
     },
+    listAutomationLogs: (): Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>> => invoke('logs-list', { scriptId: scriptId }) as Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>>,
+    readAutomationLogs: (name: string): Promise<unknown> => invoke('logs-read', { scriptId: scriptId, name }),
+    openAutomationLog: (name: string): Promise<unknown> => invoke('logs-open', { scriptId: scriptId, name }),
   };
 
   return baoAutomation;

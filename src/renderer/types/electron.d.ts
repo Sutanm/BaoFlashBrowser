@@ -128,6 +128,7 @@ declare global {
       invoke(channel: 'tab:setRuffleMode', payload: { tabId: string; enabled: boolean; source: 'bundled' | 'cdn' }): Promise<void>;
       invoke(channel: 'password:status'): Promise<PasswordStoreStatus>;
       invoke(channel: 'password:init'): Promise<{ success: boolean; tier: 'A' | 'C' | 'none' }>;
+      invoke(channel: 'password:guard-preview'): Promise<{ mode: 'os-win' | 'password' }>;
       invoke(channel: 'password:toggle-enabled'): Promise<PasswordEnabledResult>;
       invoke(channel: 'password:set-auto-capture', payload: { enabled: boolean }): Promise<{ enabled: boolean }>;
       invoke(channel: 'password:set-auto-fill', payload: { enabled: boolean }): Promise<{ enabled: boolean; ready: boolean }>;
@@ -207,6 +208,7 @@ declare global {
       pwd: {
         status(): Promise<PasswordStoreStatus>;
         init(): Promise<{ success: boolean; tier: 'A' | 'C' | 'none' }>;
+        guardPreview(): Promise<{ mode: 'os-win' | 'password' }>;
         toggleEnabled(): Promise<PasswordEnabledResult>;
         setAutoCapture(enabled: boolean): Promise<{ enabled: boolean }>;
         setAutoFill(enabled: boolean): Promise<{ enabled: boolean; ready: boolean }>;
@@ -361,6 +363,9 @@ declare global {
           currentStep?: string; executedSteps: number; message?: string; startedAt?: number; finishedAt?: number;
           logs: Array<{ timestamp: number; level: 'info' | 'success' | 'error'; message: string }>;
         }>;
+        listPersistedRunLogs(): Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>>;
+        readPersistedRunLog(name: string): Promise<Array<{ timestamp: number; level: 'info' | 'success' | 'error'; message: string; system?: boolean }>>;
+        openPersistedRunLog(name: string): Promise<{ opened: true }>;
         start(packageId: string, frontendId: string, tabId: string, profilePath?: string): Promise<{ runId: string }>;
           cancel(): Promise<{ success: boolean }>;
           readClipboard(): Promise<string>;
@@ -377,7 +382,10 @@ declare global {
           testText(packageId: string, tabId: string, text: string, match: 'contains' | 'exact', minConfidence: number): Promise<{ bounds: { x: number; y: number; width: number; height: number }; score: number } | null>;
           testAssetPreview(packageId: string, tabId: string, asset: string, threshold: number, scales: number[], mask: 'auto' | 'none' | 'alpha'): Promise<{ dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; candidate: null | { x: number; y: number; width: number; height: number; score: number }; matched: boolean; captureMs: number }>;
           testTextPreview(packageId: string, tabId: string, text: string, match: 'contains' | 'exact', minConfidence: number): Promise<{ dataUrl: string; previewWidth: number; previewHeight: number; sourceWidth: number; sourceHeight: number; candidates: Array<{ text: string; score: number; x: number; y: number; width: number; height: number }>; matched: boolean; captureMs: number; ocrMs: number }>;
+          onChanged(callback: () => void): () => void;
         };
+      /** 主进程 → 渲染层的一次性提示（显示在地址栏提示条里）。 */
+      onUiToast(callback: (payload: { message: string; type?: 'info' | 'success' | 'warning' | 'error' }) => void): () => void;
     };
   }
 }

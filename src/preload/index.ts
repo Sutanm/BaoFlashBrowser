@@ -11,6 +11,8 @@ const ALLOWED_ON_CHANNELS = new Set([
   'password:captured', 'password:changed', 'password:filled',
   'userscripts:changed',
   'userscript:open-tab',
+  'automation-v3:changed',
+  'ui:toast',
   'devtoolbox:entries', 'devtoolbox:cleared', 'devtoolbox:bridge-event', 'devtoolbox:devtools-window-closed',
 ]);
 
@@ -28,6 +30,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'download:list', 'download:remove-record', 'download:clear-finished', 'download:pause', 'download:resume',
   'password:status', 'password:init',
   'password:toggle-enabled', 'password:set-auto-capture', 'password:set-auto-fill', 'password:set-excluded-sites', 'password:list', 'password:save-confirm',
+  'password:guard-preview',
   'password:ignore', 'password:delete', 'password:reveal', 'password:set-default',
   'password:reset', 'password:fill', 'password:retry-key', 'password:rebuild-vault',
   'password:set-view-password', 'password:reset-os-auth',
@@ -51,7 +54,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'automation-v3:list', 'automation-v3:get', 'automation-v3:create', 'automation-v3:validate-workflow',
     'automation-v3:update-workflow', 'automation-v3:upsert-script', 'automation-v3:delete-script', 'automation-v3:set-main-entry', 'automation-v3:delete',
     'automation-v3:open', 'automation-v3:install', 'automation-v3:export',
-    'automation-v3:show-assistant', 'automation-v3:status', 'automation-v3:start', 'automation-v3:cancel',
+    'automation-v3:show-assistant', 'automation-v3:status', 'automation-v3:list-persisted-run-logs', 'automation-v3:read-persisted-run-log', 'automation-v3:open-persisted-run-log', 'automation-v3:start', 'automation-v3:cancel',
     'automation-v3:read-clipboard', 'automation-v3:asset-preview',
     'automation-v3:open-test-scene', 'automation-v3:test-asset-on-scene', 'automation-v3:test-text-on-scene',
     'automation-v3:import-assets', 'automation-v3:import-asset-folder', 'automation-v3:delete-asset',
@@ -167,6 +170,8 @@ const electronAPI = {
   pwd: {
     status: () => safeInvoke('password:status'),
     init: () => safeInvoke('password:init'),
+    // 首次启动向导：建库前预判查看保护档位（不写盘）。
+    guardPreview: () => safeInvoke('password:guard-preview'),
     toggleEnabled: () => safeInvoke('password:toggle-enabled'),
     setAutoCapture: (enabled: boolean) => safeInvoke('password:set-auto-capture', { enabled }),
     setAutoFill: (enabled: boolean) => safeInvoke('password:set-auto-fill', { enabled }),
@@ -326,6 +331,9 @@ const electronAPI = {
     installPackage: (token: string, replace?: boolean, approvals?: Record<string, string[]>) => safeInvoke('automation-v3:install', { token, replace, approvals }),
     exportPackage: (packageId: string, i18n?: { title?: string; filterName?: string }) => safeInvoke('automation-v3:export', { packageId, ...i18n }),
     status: () => safeInvoke('automation-v3:status', {}),
+    listPersistedRunLogs: () => safeInvoke('automation-v3:list-persisted-run-logs', {}),
+    readPersistedRunLog: (name: string) => safeInvoke('automation-v3:read-persisted-run-log', { name }),
+    openPersistedRunLog: (name: string) => safeInvoke('automation-v3:open-persisted-run-log', { name }),
     start: (packageId: string, frontendId: string, tabId: string, profilePath?: string) => safeInvoke('automation-v3:start', { packageId, frontendId, tabId, profilePath }),
       cancel: () => safeInvoke('automation-v3:cancel', {}),
       readClipboard: () => safeInvoke('automation-v3:read-clipboard', {}),
@@ -342,7 +350,20 @@ const electronAPI = {
       testText: (packageId: string, tabId: string, text: string, match: 'contains' | 'exact', minConfidence: number) => safeInvoke('automation-v3:test-text', { packageId, tabId, text, match, minConfidence }),
       testAssetPreview: (packageId: string, tabId: string, asset: string, threshold: number, scales: number[], mask: 'auto' | 'none' | 'alpha') => safeInvoke('automation-v3:test-asset-preview', { packageId, tabId, asset, threshold, scales, mask }),
       testTextPreview: (packageId: string, tabId: string, text: string, match: 'contains' | 'exact', minConfidence: number) => safeInvoke('automation-v3:test-text-preview', { packageId, tabId, text, match, minConfidence }),
+      /** 主进程在自动化包/脚本/素材变更后推送；渲染层收到后重新查询（单源真值在主进程）。 */
+      onChanged: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on('automation-v3:changed', listener);
+        return () => { ipcRenderer.removeListener('automation-v3:changed', listener); };
+      },
     },
+  /** 主进程 → 渲染层的一次性提示（显示在地址栏提示条里，不覆盖网页）。 */
+  onUiToast: (callback: (payload: { message: string; type?: 'info' | 'success' | 'warning' | 'error' }) => void) => {
+    const listener = (_event: unknown, payload: { message: string; type?: 'info' | 'success' | 'warning' | 'error' }) => callback(payload);
+    ipcRenderer.on('ui:toast', listener);
+    return () => { ipcRenderer.removeListener('ui:toast', listener); };
+  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+

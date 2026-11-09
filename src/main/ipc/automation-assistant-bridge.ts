@@ -3,10 +3,24 @@ import { z } from 'zod';
 import { getAutomationV3Service } from '../modules/automation/service-v3';
 import { detectGameSurfaces } from '../modules/automation/game-surface-detector';
 import { tabManager } from '../modules/tabs';
+import { getMainWindow } from '../modules/window';
 import { DEFAULT_IMAGE_MATCH_MASK } from '../../shared/automation/vision-policy';
 
 /** Shared narrow authoring endpoints; each transport supplies its own caller gate. */
 export function registerAutomationAssistantBridge(prefix: string, allowed: (wcId: number, scriptId: string) => boolean): void {
+  // 助手的一次性提示改由主进程转给渲染层，显示在地址栏提示条里——
+  // 页面内浮层会盖住游戏画面（楼层名牌就在画面上方），而地址栏提示不占网页像素。
+  ipcMain.handle(`${prefix}toast`, async (event, raw: unknown) => {
+    const parsed = z.object({
+      scriptId: z.string(),
+      message: z.string().min(1).max(500),
+      type: z.enum(['info', 'success', 'warning', 'error']).optional(),
+    }).strict().safeParse(raw);
+    if (!parsed.success || !allowed(event.sender.id, parsed.data.scriptId)) return { success: false };
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send('ui:toast', { message: parsed.data.message, type: parsed.data.type ?? 'info' });
+    return { success: true };
+  });
   ipcMain.handle(`${prefix}list`, async (event, raw: unknown) => {
     const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw);
     const service = getAutomationV3Service();
@@ -94,5 +108,28 @@ export function registerAutomationAssistantBridge(prefix: string, allowed: (wcId
     const targetTabId = tabManager.getTabIdForWebContents(event.sender.id);
     if (!parsed.success || !targetTabId || !allowed(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
     return tabManager.inspectAutomationTarget(targetTabId, detectGameSurfaces);
+  });
+
+  ipcMain.handle(`${prefix}logs-list`, async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw);
+    const service = getAutomationV3Service();
+    if (!parsed.success || !service || !allowed(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    return service.listPersistedRunLogs();
+  });
+
+  ipcMain.handle(`${prefix}logs-read`, async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string(), name: z.string().max(160) }).strict().safeParse(raw);
+    const service = getAutomationV3Service();
+    if (!parsed.success || !service || !allowed(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    return service.readPersistedRunLog(parsed.data.name);
+  });
+
+  ipcMain.handle(`${prefix}logs-open`, async (event, raw: unknown) => {
+    const parsed = z.object({ scriptId: z.string(), name: z.string().max(160) }).strict().safeParse(raw);
+    const service = getAutomationV3Service();
+    if (!parsed.success || !service || !allowed(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
+    const error = await service.openPersistedRunLog(parsed.data.name);
+    if (error) throw new Error(error);
+    return { opened: true as const };
   });
 }

@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.8
-// @updateHash  103e359675a4
+// @updateHash  7a3138981532
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -27,7 +27,7 @@
   var api = GM.baoAutomation;
   var state = {
     packages: [], packageFingerprint: '', packageTimer: 0, busy: false, monitor: 0, statusTimer: 0, lastState: '', statusInitialized: false, matchMode: 'image',
-    capture: null, selection: null, gameSurface: null, surfaceViewport: null, surfaceRefreshTimer: 0, coordinateViewport: { width: 1280, height: 720 }, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1,
+    capture: null, selection: null, gameSurface: null, surfaceViewport: null, surfaceRefreshTimer: 0, coordinateViewport: { width: 1280, height: 720 }, captureIndex: Number(GM.getValue('captureIndex', 1)) || 1, logs: [],
   };
   var style = document.createElement('style');
   style.id = 'bao-automation-assistant-style';
@@ -68,8 +68,8 @@
 #bao-automation-frame-assistant .bao-title{min-width:0;flex:1}#bao-automation-frame-assistant .bao-title strong{display:block;font-size:12px}
 #bao-automation-frame-assistant .bao-icon{display:grid;width:26px;height:26px;place-items:center;border:1px solid transparent;border-radius:7px;background:transparent;color:#afc1d8;cursor:pointer}#bao-automation-frame-assistant .bao-icon:hover{border-color:#9cbbee2b;background:#ffffff0d;color:white}
 #bao-automation-frame-assistant .bao-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:6px 8px 0}#bao-automation-frame-assistant .bao-tab{padding:6px 4px;border:0;border-radius:7px;background:transparent;color:#8fa3ba;cursor:pointer}#bao-automation-frame-assistant .bao-tab.bao-active{background:#6c9eff1c;color:#c6dcff;box-shadow:inset 0 0 0 1px #77aaff30}
-#bao-automation-frame-assistant .bao-views{height:calc(100% - 82px);overflow:hidden;padding:8px}#bao-automation-frame-assistant .bao-view{display:none}#bao-automation-frame-assistant .bao-view.bao-active{display:block}#bao-automation-frame-assistant .bao-view[data-panel="match"].bao-active{height:100%;min-height:0}#bao-automation-frame-assistant .bao-view[data-panel="match"]>.bao-card{display:flex;height:100%;min-height:0;flex-direction:column;margin:0;overflow:hidden}@media (max-height:440px){#bao-automation-frame-assistant .bao-views{overflow-y:auto}}
-#bao-automation-frame-assistant .bao-card{margin-bottom:7px;padding:9px;border:1px solid #9cbbee2b;border-radius:9px;background:#07132252}#bao-automation-frame-assistant .bao-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}#bao-automation-frame-assistant .bao-card-head strong{font-size:11px}#bao-automation-frame-assistant .bao-card-head small{color:#9cafc7;font-size:9px}
+#bao-automation-frame-assistant .bao-views{height:calc(100% - 82px);overflow:hidden;padding:8px}#bao-automation-frame-assistant .bao-view{display:none}#bao-automation-frame-assistant .bao-view.bao-active{display:block}#bao-automation-frame-assistant .bao-view[data-panel="run"].bao-active{height:100%;overflow-y:auto}#bao-automation-frame-assistant .bao-view[data-panel="run"]::-webkit-scrollbar{width:5px}#bao-automation-frame-assistant .bao-view[data-panel="run"]::-webkit-scrollbar-thumb{border-radius:5px;background:#7691b052}#bao-automation-frame-assistant .bao-view[data-panel="match"].bao-active{height:100%;min-height:0}#bao-automation-frame-assistant .bao-view[data-panel="match"]>.bao-card{display:flex;height:100%;min-height:0;flex-direction:column;margin:0;overflow:hidden}@media (max-height:440px){#bao-automation-frame-assistant .bao-views{overflow-y:auto}}
+#bao-automation-frame-assistant .bao-card{margin-bottom:7px;padding:9px;border:1px solid #9cbbee2b;border-radius:9px;background:#07132252}#bao-automation-frame-assistant .bao-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}#bao-automation-frame-assistant .bao-card-head strong{font-size:11px}#bao-automation-frame-assistant .bao-card-head small{color:#9cafc7;font-size:9px}#bao-automation-frame-assistant .bao-head-actions{display:flex;gap:5px}
 #bao-automation-frame-assistant .bao-field{display:grid;gap:4px;margin-bottom:7px}#bao-automation-frame-assistant .bao-field label{color:#9eb0c5;font-size:9px}#bao-automation-frame-assistant select,#bao-automation-frame-assistant input[type=text],#bao-automation-frame-assistant input[type=number]{width:100%;height:29px;padding:0 8px;border:1px solid #95bce526;border-radius:7px;background:#071524d9;color:#e9f2ff}
 #bao-automation-frame-assistant input[type=range]{width:100%;accent-color:#5998ff}
 #bao-automation-frame-assistant .bao-two{display:grid;grid-template-columns:1fr 1fr;gap:6px}#bao-automation-frame-assistant .bao-button{height:30px;padding:0 9px;border:1px solid #8eb8e22b;border-radius:7px;background:#10223a;color:#c8d7ea;cursor:pointer}#bao-automation-frame-assistant .bao-button:hover{background:#183254}#bao-automation-frame-assistant .bao-button.bao-primary{border-color:#699fff;background:linear-gradient(#4b8bff,#3971db);color:#fff;box-shadow:0 4px 14px #397ce933}#bao-automation-frame-assistant .bao-button.bao-danger{color:#ffabb0}#bao-automation-frame-assistant .bao-button:disabled{opacity:.45;cursor:not-allowed}
@@ -77,13 +77,17 @@
 #bao-automation-frame-assistant .bao-run-state{display:flex;align-items:center;gap:11px}#bao-automation-frame-assistant .bao-run-dot{width:11px;height:11px;border-radius:50%;background:#6d7f94;box-shadow:0 0 0 5px #6d7f9422}#bao-automation-frame-assistant .bao-run-state.bao-live .bao-run-dot{background:#6ea8ff;box-shadow:0 0 0 5px #6ea8ff20;animation:bao-pulse 1s ease-in-out infinite}@keyframes bao-pulse{50%{transform:scale(.72);opacity:.6}}
 #bao-automation-frame-assistant .bao-run-copy{min-width:0;flex:1}#bao-automation-frame-assistant .bao-run-copy b{display:block}#bao-automation-frame-assistant .bao-run-copy span{display:block;overflow:hidden;margin-top:3px;color:#9cafc7;font-size:10px;text-overflow:ellipsis;white-space:nowrap}#bao-automation-frame-assistant .bao-run-state.bao-live .bao-state-title,#bao-automation-frame-assistant .bao-run-state.bao-live .bao-state-detail{color:#76dba8}#bao-automation-frame-assistant .bao-step{color:#9cafc7;font-size:10px}
 #bao-automation-frame-assistant .bao-progress{height:4px;margin-top:8px;overflow:hidden;border-radius:99px;background:#ffffff10}#bao-automation-frame-assistant .bao-progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4489ff,#69d8e8);transition:width .35s}
+#bao-automation-history-layer{all:initial;position:fixed;z-index:2147483647;inset:0;display:none;place-items:center;background:#020913cc;color:#eef5ff;font:12px/1.45 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-history-layer.bao-history-open{display:grid}#bao-automation-history-layer *{box-sizing:border-box}#bao-automation-history-layer .bao-history-panel{display:grid;width:min(900px,calc(100vw - 48px));height:min(620px,calc(100vh - 64px));grid-template-rows:auto 1fr;overflow:hidden;border:1px solid #9ec6ee44;border-radius:12px;background:#0d1d34f7;box-shadow:0 24px 70px #000b}
+#bao-automation-history-layer .bao-history-head{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid #9cbbee2b}#bao-automation-history-layer .bao-history-head strong{font-size:13px}#bao-automation-history-layer .bao-history-actions{display:flex;gap:7px}#bao-automation-history-layer .bao-history-actions button{height:28px;padding:0 11px;border:1px solid #8eb8e22b;border-radius:7px;background:#142843;color:#dce9f8;font:inherit;cursor:pointer}#bao-automation-history-layer .bao-history-actions button:hover{background:#1c3556}
+#bao-automation-history-layer .bao-history-body{display:grid;min-height:0;grid-template-columns:230px 1fr}#bao-automation-history-layer .bao-history-files{display:grid;align-content:start;gap:5px;overflow-y:auto;padding:9px;border-right:1px solid #9cbbee2b}#bao-automation-history-layer .bao-history-file{display:grid;gap:3px;padding:7px 9px;border:1px solid #8eb8e233;border-radius:7px;background:#14284355;color:#e7f1ff;font:inherit;text-align:left;cursor:pointer}#bao-automation-history-layer .bao-history-file:hover{background:#1c3556}#bao-automation-history-layer .bao-history-file b{overflow:hidden;font-size:11px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}#bao-automation-history-layer .bao-history-file small{color:#91a9c2;font-size:9px}#bao-automation-history-layer .bao-history-file-active{border-color:#73aaff;background:#1d3c66}
+#bao-automation-history-layer .bao-history-entries{overflow-y:auto;padding:10px 12px}#bao-automation-history-layer .bao-history-log{display:grid;gap:5px}#bao-automation-history-layer .bao-history-log-row{display:grid;grid-template-columns:64px 1fr;gap:8px;color:#9fb0c3;font-size:11px}#bao-automation-history-layer .bao-history-log-row time{color:#668098}#bao-automation-history-layer .bao-history-log-row span{overflow-wrap:anywhere}#bao-automation-history-layer .bao-history-log-row.bao-good span{color:#76dba8}#bao-automation-history-layer .bao-history-log-row.bao-bad span{color:#ff858c}#bao-automation-history-layer .bao-history-empty{padding:10px 4px;color:#8fa3ba;font-size:11px}
 #bao-automation-frame-assistant .bao-log{display:grid;max-height:145px;gap:5px;overflow-y:auto;padding-right:3px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar{width:5px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar-thumb{border-radius:5px;background:#7691b052}#bao-automation-frame-assistant .bao-log-row{display:grid;grid-template-columns:43px 1fr;gap:6px;color:#9fb0c3;font-size:9px}#bao-automation-frame-assistant .bao-log-row time{color:#668098}#bao-automation-frame-assistant .bao-log-row span{overflow-wrap:anywhere}#bao-automation-frame-assistant .bao-log-row.bao-good span{color:#76dba8}#bao-automation-frame-assistant .bao-log-row.bao-bad span{color:#ff858c}
 #bao-automation-frame-assistant .bao-assets{display:flex;gap:5px;overflow:auto;padding:1px 1px 5px}#bao-automation-frame-assistant .bao-asset{position:relative;display:grid;flex:0 0 64px;height:56px;place-items:center;overflow:hidden;border:1px solid #91b9df24;border-radius:7px;background:#071320;color:#a9bbcf;cursor:pointer}#bao-automation-frame-assistant .bao-asset.bao-selected{border-color:#73aaff;box-shadow:0 0 0 2px #73aaff22}#bao-automation-frame-assistant .bao-asset img{max-width:44px;max-height:34px;object-fit:contain;background:#fff;border-radius:3px}#bao-automation-frame-assistant .bao-asset span{position:absolute;right:2px;bottom:1px;left:2px;overflow:hidden;font-size:8px;text-align:center;text-overflow:ellipsis;white-space:nowrap}
 #bao-automation-frame-assistant .bao-selected-asset{overflow:hidden;margin:-2px 0 5px;color:#b7cae1;font-size:9px;text-overflow:ellipsis;white-space:nowrap}
 #bao-automation-frame-assistant .bao-match-modes{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:7px}#bao-automation-frame-assistant .bao-match-mode{height:27px;border:1px solid #8eb8e22b;border-radius:7px;background:#10223a;color:#9fb2c9;cursor:pointer}#bao-automation-frame-assistant .bao-match-mode.bao-active{border-color:#699fff;background:#356dc4;color:#fff}#bao-automation-frame-assistant .bao-test-settings.bao-hidden{display:none}#bao-automation-frame-assistant .bao-ocr-row{display:grid;grid-template-columns:1fr 88px;gap:6px}
 #bao-automation-frame-assistant .bao-preview{display:grid;min-height:72px;flex:1 1 150px;place-items:center;overflow:hidden;border:3px solid #6e5138;border-radius:6px;background:#07101d;box-shadow:inset 0 0 0 1px #be946b}#bao-automation-frame-assistant .bao-image{position:relative;min-width:1px;min-height:1px}#bao-automation-frame-assistant .bao-image img{display:block;width:100%;height:100%;background:#fff}#bao-automation-frame-assistant .bao-hit{position:absolute;border:2px solid #ffca28;background:#ffca2826;box-shadow:0 0 8px #ffca28;pointer-events:none}#bao-automation-frame-assistant .bao-hit.bao-ok{border-color:#31d17c;background:#31d17c26;box-shadow:0 0 8px #31d17c}#bao-automation-frame-assistant .bao-hit b{position:absolute;left:-2px;bottom:calc(100% + 2px);padding:1px 3px;background:#ffca28;color:#172033;font-size:9px;white-space:nowrap}#bao-automation-frame-assistant .bao-hit.bao-ok b{background:#31d17c}
 #bao-automation-frame-assistant .bao-result{margin:8px 0 0;color:#9fb1c7;font-size:10px}#bao-automation-frame-assistant .bao-score{color:#72dba5;font-size:25px;font-weight:700}#bao-automation-frame-assistant .bao-tip{padding:10px;border-radius:9px;background:#4b79d414;color:#b6c9e1;font-size:10px;line-height:1.6}
-#bao-automation-assistant-toasts{all:initial;position:fixed;z-index:2147483647;top:18px;left:50%;display:grid;gap:8px;transform:translateX(-50%);pointer-events:none;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-assistant-toasts .bao-toast{min-width:280px;padding:11px 15px;border:1px solid #9ec5ed38;border-radius:10px;background:#102039ee;box-shadow:0 12px 40px #0008;color:#dbeaff;animation:bao-toast-in .25s both}@keyframes bao-toast-in{from{transform:translateY(-12px);opacity:0}}
+#bao-automation-assistant-toasts{all:initial;position:fixed;z-index:2147483647;bottom:18px;left:50%;display:grid;gap:8px;transform:translateX(-50%);pointer-events:none;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-assistant-toasts .bao-toast{min-width:280px;padding:11px 15px;border:1px solid #9ec5ed38;border-radius:10px;background:#102039ee;box-shadow:0 12px 40px #0008;color:#dbeaff;animation:bao-toast-in .25s both}@keyframes bao-toast-in{from{transform:translateY(12px);opacity:0}}
 #bao-automation-capture-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;overflow:hidden;background:#020914ed;color:#eef5ff;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif;cursor:crosshair}#bao-automation-capture-layer.bao-active{display:block}#bao-automation-capture-layer *{box-sizing:border-box}#bao-automation-capture-layer .bao-capture-image{position:absolute;max-width:100vw;max-height:100vh;object-fit:contain;left:50%;top:50%;transform:translate(-50%,-50%)}#bao-automation-capture-layer .bao-capture-help{position:absolute;z-index:4;top:64px;left:50%;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 16px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap}#bao-automation-capture-layer .bao-capture-cancel{height:28px;padding:0 11px;border-color:#ff9b9b55;background:#5f2637;color:#ffdce2;cursor:pointer}#bao-automation-capture-layer .bao-selection{position:absolute;z-index:2;display:none;border:2px solid #78b5ff;background:#64a4ff16;box-shadow:0 0 0 9999px #02091399}#bao-automation-capture-layer .bao-selection-info{position:absolute;left:-2px;bottom:calc(100% + 7px);padding:4px 7px;border-radius:5px;background:#3779cf;color:white;font-size:10px;white-space:nowrap}
 #bao-automation-capture-layer .bao-save{position:absolute;z-index:3;display:none;width:292px;gap:8px;padding:10px;border:1px solid #9ec6ee44;border-radius:12px;background:#0f2038f5;box-shadow:0 15px 45px #000b;cursor:default}#bao-automation-capture-layer .bao-save label{display:grid;gap:5px;color:#a9bbd0;font-size:10px}#bao-automation-capture-layer .bao-save input{width:100%;height:34px;padding:0 10px;border:1px solid #90b9e23d;border-radius:8px;background:#061321;color:#eff6ff}#bao-automation-capture-layer .bao-save small{color:#7890aa;font-size:9px}#bao-automation-capture-layer .bao-save-buttons,#bao-automation-capture-layer .bao-conflict-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}#bao-automation-capture-layer button{height:34px;border:1px solid #8eb8e22b;border-radius:8px;background:#142843;color:#dce9f8;cursor:pointer}#bao-automation-capture-layer button.bao-primary{background:#397cec;color:#fff}#bao-automation-capture-layer .bao-conflict{display:none;gap:7px;padding:8px;border:1px solid #ffb15b3b;border-radius:8px;background:#9a5b191f;color:#ffd2a0;font-size:10px}#bao-automation-capture-layer .bao-conflict.bao-show{display:grid}
 #bao-automation-coordinate-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;overflow:hidden;cursor:crosshair;background-image:linear-gradient(#77b3ff24 1px,transparent 1px),linear-gradient(90deg,#77b3ff24 1px,transparent 1px);background-size:10% 10%;box-shadow:inset 0 0 0 1px #77b3ff88;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif;color:#fff;user-select:none}#bao-automation-coordinate-layer.bao-active{display:block}#bao-automation-coordinate-layer .bao-coordinate-help{position:absolute;z-index:3;top:18px;left:50%;padding:9px 15px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap;pointer-events:none}#bao-automation-coordinate-layer .bao-coordinate-x,#bao-automation-coordinate-layer .bao-coordinate-y{position:absolute;z-index:1;background:#65b5ffcc;pointer-events:none}#bao-automation-coordinate-layer .bao-coordinate-x{top:0;bottom:0;width:1px}#bao-automation-coordinate-layer .bao-coordinate-y{right:0;left:0;height:1px}#bao-automation-coordinate-layer .bao-coordinate-value{position:absolute;z-index:2;padding:5px 8px;border:1px solid #80c2ff88;border-radius:6px;background:#0b2139ee;box-shadow:0 6px 20px #0008;color:#eaf6ff;font-weight:700;white-space:nowrap;pointer-events:none}
@@ -97,7 +101,7 @@
   root.id = 'bao-automation-frame-assistant';
   root.setAttribute('data-view', 'run');
   root.innerHTML = '<button class="bao-orb" aria-label="展开自动化助手"><i class="bao-ring"></i><span class="bao-orb-icon">⌘</span></button><aside class="bao-drawer"><i class="bao-handle"></i><header class="bao-head"><div class="bao-title"><strong>BaoFlash 自动化</strong></div><button class="bao-icon bao-collapse" title="收起">×</button></header><nav class="bao-tabs"><button class="bao-tab bao-active" data-view="run">执行</button><button class="bao-tab" data-view="match">识别</button><button class="bao-tab" data-view="capture">取材</button></nav><div class="bao-views">'
-    + '<section class="bao-view bao-active" data-panel="run"><div class="bao-card"><div class="bao-field"><label>自动化脚本</label><select class="bao-package-run"></select></div><div class="bao-run-state"><i class="bao-run-dot"></i><div class="bao-run-copy"><b class="bao-state-title">可以开始</b><span class="bao-state-detail">正在读取运行状态…</span></div><small class="bao-step">0 步</small></div><div class="bao-progress"><i></i></div></div><div class="bao-two"><button class="bao-button bao-primary bao-start">开始脚本</button><button class="bao-button bao-danger bao-stop" disabled>停止</button></div><div class="bao-card" style="margin-top:7px"><div class="bao-card-head"><strong>运行记录</strong></div><div class="bao-log"><div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div></div></div></section>'
+    + '<section class="bao-view bao-active" data-panel="run"><div class="bao-card"><div class="bao-field"><label>自动化脚本</label><select class="bao-package-run"></select></div><div class="bao-run-state"><i class="bao-run-dot"></i><div class="bao-run-copy"><b class="bao-state-title">可以开始</b><span class="bao-state-detail">正在读取运行状态…</span></div><small class="bao-step">0 步</small></div><div class="bao-progress"><i></i></div></div><div class="bao-two"><button class="bao-button bao-primary bao-start">开始脚本</button><button class="bao-button bao-danger bao-stop" disabled>停止</button></div><div class="bao-card" style="margin-top:7px"><div class="bao-card-head"><strong>运行记录</strong><div class="bao-head-actions"><button class="bao-button bao-log-copy" style="height:25px">复制</button><button class="bao-button bao-archive-toggle" style="height:25px">历史</button></div></div><div class="bao-log"><div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div></div></div></section>'
     + '<section class="bao-view" data-panel="match"><div class="bao-card"><div class="bao-match-modes"><button class="bao-match-mode bao-active" data-match-mode="image">图片识别</button><button class="bao-match-mode" data-match-mode="text">文字识别</button></div><div class="bao-test-settings bao-image-settings"><div class="bao-card-head"><strong>UI 素材</strong><button class="bao-button bao-refresh" style="height:25px">刷新素材</button></div><div class="bao-assets"></div><div class="bao-selected-asset" title="">当前：未选择素材</div><div class="bao-field"><label>识别阈值 <b class="bao-threshold-text">90%</b></label><input class="bao-threshold" type="range" min="50" max="100" value="90"></div></div><div class="bao-test-settings bao-text-settings bao-hidden"><div class="bao-field"><label>要识别的文字</label><input class="bao-ocr-text" type="text" maxlength="200" placeholder="例如：开始游戏"></div><div class="bao-ocr-row"><div class="bao-field"><label>匹配方式</label><select class="bao-ocr-match"><option value="contains">包含文字</option><option value="exact">完全一致</option></select></div><div class="bao-field"><label>最低可信度</label><input class="bao-ocr-score" type="number" min="0" max="1" step="0.01" value="0.5"></div></div></div><div class="bao-preview"><span>选择测试方式后捕获页面</span></div><p class="bao-result">选择图片或输入文字开始测试</p><div class="bao-two"><button class="bao-button bao-primary bao-compare">捕获并比对</button><button class="bao-button bao-monitor">连续监测</button></div></div></section>'
     + '<section class="bao-view" data-panel="capture"><div class="bao-card"><div class="bao-card-head"><strong>取材工具</strong><small>坐标范围 0–10000</small></div><div class="bao-two"><button class="bao-button bao-primary bao-capture">框选图片素材</button><button class="bao-button bao-primary bao-coordinate">获取相对坐标</button></div><div class="bao-game-actions"><button class="bao-button bao-game-select">选择游戏画面</button><button class="bao-button bao-game-copy">复制特征串</button><button class="bao-button bao-danger bao-game-clear">取消选择</button></div></div></section>'
     + '</div></aside>';
@@ -113,6 +117,10 @@
   var gameLayer = document.createElement('div'); gameLayer.id = 'bao-automation-game-layer';
   gameLayer.innerHTML = '<div class="bao-game-help"><span>单击绿色框，或从右侧候选列表选择</span><button class="bao-game-cancel" type="button">取消</button></div><div class="bao-game-candidates"></div><aside class="bao-game-list"><div class="bao-game-list-head"><strong>检测到的游戏画面</strong><small>旧式 Flash 可能盖住绿色边框，请直接选择列表中的 Flash 项</small></div><div class="bao-game-options"></div></aside>';
   document.documentElement.appendChild(gameLayer);
+  // 历史记录专用浮层：320px 助手面板装不下长记录，这里独立成大窗口。
+  var historyLayer = document.createElement('div'); historyLayer.id = 'bao-automation-history-layer';
+  historyLayer.innerHTML = '<section class="bao-history-panel"><header class="bao-history-head"><strong>运行历史</strong><div class="bao-history-actions"><button class="bao-history-export" type="button">导出 JSON</button><button class="bao-history-close" type="button">关闭</button></div></header><div class="bao-history-body"><aside class="bao-history-files"></aside><main class="bao-history-entries"></main></div></section>';
+  document.documentElement.appendChild(historyLayer);
 
   var orb = root.querySelector('.bao-orb');
   var packageRun = root.querySelector('.bao-package-run');
@@ -127,9 +135,27 @@
   var stopButton = root.querySelector('.bao-stop');
   var selectedAsset = '';
 
-  function toast(text) {
-    var item = document.createElement('div'); item.className = 'bao-toast'; item.textContent = text; toasts.appendChild(item);
+  function pageToast(text, type) {
+    var item = document.createElement('div'); item.className = 'bao-toast'; item.textContent = text;
+    if (type) item.setAttribute('data-type', type);
+    toasts.appendChild(item);
     setTimeout(function () { item.remove(); }, 2800);
+  }
+  // type: 'info' | 'success' | 'warning' | 'error'（默认 info）
+  function toast(text, type) {
+    var level = type || 'info';
+    // 优先交给宿主显示在地址栏提示条里：页面内浮层会盖住游戏画面（楼层名牌在画面上方）。
+    // 宿主不可用（用户脚本通道、主窗口已关、IPC 失败）时退回页面内提示，保证信息不丢。
+    var fallback = function () { pageToast(text, level); };
+    try {
+      if (gm && gm.baoAutomation && typeof gm.baoAutomation.toast === 'function') {
+        Promise.resolve(gm.baoAutomation.toast(String(text), level)).then(function (result) {
+          if (!result || result.success === false) fallback();
+        }, fallback);
+        return;
+      }
+    } catch (error) { /* fall through to the in-page toast */ }
+    fallback();
   }
   function fitOpenPanel() {
     if (!root.classList.contains('bao-open')) return;
@@ -184,11 +210,13 @@
     root.querySelector('.bao-step').textContent = String(status.executedSteps || 0) + ' 步';
     root.querySelector('.bao-progress i').style.width = active ? Math.min(92, 14 + (status.executedSteps || 0) * 8) + '%' : status.state === 'completed' ? '100%' : '0';
     startButton.disabled = active; stopButton.disabled = !active;
-    var logs = (status.logs || []).slice(-30).reverse(); var logHost = root.querySelector('.bao-log'); logHost.innerHTML = '';
+    var logs = (status.logs || []).slice(-200).reverse(); var logHost = root.querySelector('.bao-log'); logHost.innerHTML = '';
+    state.logs = status.logs || [];
     logs.forEach(function (entry) { var row = document.createElement('div'); row.className = 'bao-log-row ' + (entry.level === 'success' ? 'bao-good' : entry.level === 'error' ? 'bao-bad' : ''); var time = document.createElement('time'); time.textContent = new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }); var text = document.createElement('span'); text.textContent = messageText(entry.message); row.append(time, text); logHost.appendChild(row); });
     if (!logs.length) logHost.innerHTML = '<div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div>';
-    if (state.statusInitialized && state.lastState !== status.state && status.state === 'completed') toast('自动化脚本执行完成');
-    if (state.statusInitialized && state.lastState !== status.state && status.state === 'failed') toast(messageText(status.message) || '自动化脚本执行失败');
+    if (logArchive.open) renderHistoryLayer();
+    if (state.statusInitialized && state.lastState !== status.state && status.state === 'completed') toast('自动化脚本执行完成', 'success');
+    if (state.statusInitialized && state.lastState !== status.state && status.state === 'failed') toast(messageText(status.message) || '自动化脚本执行失败', 'error');
     state.lastState = status.state;
     state.statusInitialized = true;
   }
@@ -276,6 +304,99 @@
   function clearPageCross() {
     if (crossTimer) { clearTimeout(crossTimer); crossTimer = 0; }
     var old = document.getElementById('bao-diag-cross'); if (old) old.remove();
+  }
+  // 历史运行记录：读主进程落盘的 JSONL（userData/automation-logs），跨运行可回溯。
+  // 内存里只留最近 200 条会随运行裁剪，历史入口从落盘文件补全，并支持导出/打开原文件。
+  var logArchive = { open: false, files: [], entries: [], selected: '', loading: false };
+  function closeHistoryLayer() {
+    logArchive.open = false;
+    historyLayer.classList.remove('bao-history-open');
+  }
+  function renderHistoryLayer() {
+    if (!logArchive.open) { historyLayer.classList.remove('bao-history-open'); return; }
+    historyLayer.classList.add('bao-history-open');
+    var filesHost = historyLayer.querySelector('.bao-history-files');
+    var entriesHost = historyLayer.querySelector('.bao-history-entries');
+    filesHost.innerHTML = '';
+    if (!logArchive.files.length) {
+      filesHost.innerHTML = '<div class="bao-history-empty">还没有落盘的运行记录</div>';
+    } else {
+      logArchive.files.forEach(function (file) {
+        var row = document.createElement('button'); row.type = 'button';
+        row.className = 'bao-history-file' + (file.name === logArchive.selected ? ' bao-history-file-active' : '');
+        var title = document.createElement('b'); title.textContent = file.scriptName || file.name;
+        var meta = document.createElement('small');
+        meta.textContent = new Date(file.startedAt).toLocaleString('zh-CN', { hour12: false }) + ' · ' + file.sizeLabel;
+        row.append(title, meta);
+        row.title = file.name;
+        row.addEventListener('click', function () { void openArchiveFile(file.name); });
+        filesHost.appendChild(row);
+      });
+    }
+    entriesHost.innerHTML = '';
+    if (logArchive.loading) {
+      entriesHost.innerHTML = '<div class="bao-history-empty">正在读取…</div>';
+      return;
+    }
+    if (!logArchive.entries.length) {
+      entriesHost.innerHTML = '<div class="bao-history-empty">' + (logArchive.selected ? '这份记录是空的' : '左侧选择一份记录查看') + '</div>';
+      return;
+    }
+    // 独立浮层高度不受助手面板约束，但几千行仍会拖慢渲染，超过 2000 条只显示尾部。
+    var shown = logArchive.entries.slice(-2000);
+    var list = document.createElement('div'); list.className = 'bao-history-log';
+    shown.forEach(function (entry) {
+      var row = document.createElement('div');
+      row.className = 'bao-history-log-row ' + (entry.level === 'success' ? 'bao-good' : entry.level === 'error' ? 'bao-bad' : '');
+      var time = document.createElement('time'); time.textContent = new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+      var text = document.createElement('span'); text.textContent = messageText(entry.message);
+      row.append(time, text); list.appendChild(row);
+    });
+    entriesHost.appendChild(list);
+    if (logArchive.entries.length > shown.length) {
+      var note = document.createElement('div'); note.className = 'bao-history-empty';
+      note.textContent = '仅显示最近 ' + shown.length + ' 条，共 ' + logArchive.entries.length + ' 条';
+      entriesHost.insertBefore(note, list);
+    }
+    entriesHost.scrollTop = 0;
+  }
+  function exportArchive() {
+    if (!logArchive.entries.length) { toast('还没有运行记录'); return; }
+    var blob = new Blob([logArchive.entries.map(function (entry) { return JSON.stringify(entry); }).join('\n') + '\n'], { type: 'application/json' });
+    var link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = logArchive.selected || 'bao-automation-history.json'; link.click();
+    setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+  }
+  async function openArchiveFile(name) {
+    logArchive.selected = name;
+    logArchive.loading = true;
+    renderHistoryLayer();
+    try {
+      var value = await api.readAutomationLogs(name);
+      logArchive.entries = Array.isArray(value) ? value : [];
+      toast('已载入 ' + name + '（' + logArchive.entries.length + ' 条）', 'success');
+    } catch (error) { logArchive.entries = []; toast(error.message || String(error), 'error'); }
+    finally { logArchive.loading = false; renderHistoryLayer(); }
+  }
+  async function toggleArchive() {
+    if (logArchive.open) { closeHistoryLayer(); return; }
+    logArchive.open = true;
+    renderHistoryLayer();
+    try { logArchive.files = await api.listAutomationLogs(); }
+    catch (error) { logArchive.files = []; toast(error.message || String(error), 'error'); }
+    // 默认载入最新一份，省掉一次点击。
+    if (logArchive.files.length && !logArchive.entries.length) { await openArchiveFile(logArchive.files[0].name); return; }
+    renderHistoryLayer();
+  }
+  // 复制按钮：历史面板已载入文件时复制该文件全部记录，否则复制当前运行的记录。
+  async function copyRunLogs() {
+    var useArchive = logArchive.open && logArchive.entries.length > 0;
+    var entries = useArchive ? logArchive.entries : (state.logs || []);
+    if (!entries.length) { toast('还没有运行记录'); return; }
+    var text = entries.map(function (entry) {
+      return new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) + ' ' + messageText(entry.message);
+    }).join('\n');
+    try { await copyText(text); toast('已复制运行记录 ' + entries.length + ' 条', 'success'); }
+    catch (error) { toast(error.message || String(error), 'error'); }
   }
   // 页面级诊断红框:把命中框按真实页面 CSS 坐标画在页面上,直接肉眼核对
   // 服务端报告的 pageX/pageY 是否真的落在目标上(与预览图内的绿框相互印证)。
@@ -406,7 +527,7 @@
   function cleanName(value) { var text = String(value || '').trim().split('').map(function (character) { return character.charCodeAt(0) < 32 ? '_' : character; }).join('').replace(/[<>:"/\\|?*]/g, '_'); if (!text) text = nextAssetName(); if (!/\.png$/i.test(text)) text += '.png'; return text; }
   function suffixName(name) { var pkg = currentPackage(); var names = pkg ? pkg.assets : []; var base = name.replace(/\.png$/i, '').replace(/_\d{3}$/, ''); var index = 2; var candidate; do { candidate = base + '_' + String(index++).padStart(3, '0') + '.png'; } while (names.indexOf(candidate) >= 0); return candidate; }
   async function beginCapture() {
-    var pkg = currentPackage(); if (!pkg) { toast('请先选择自动化脚本'); return; }
+    var pkg = currentPackage(); if (!pkg) { toast('请先选择自动化脚本', 'warning'); return; }
     toast('正在捕获当前页面…');
     try {
       // 清除残留的诊断红框,避免被截进取材预览图。
@@ -414,7 +535,7 @@
       await refreshBoundSurfaceIfNeeded();
       state.capture = await api.captureFrame(ocrRegion(), state.gameSurface ? 'surface' : 'viewport'); var image = captureLayer.querySelector('.bao-capture-image'); image.src = state.capture.dataUrl;
       captureLayer.classList.add('bao-active'); captureLayer.querySelector('.bao-selection').style.display = 'none'; captureLayer.querySelector('.bao-save').style.display = 'none'; captureLayer.querySelector('.bao-conflict').classList.remove('bao-show'); captureLayer.querySelector('.bao-capture-name').value = nextAssetName();
-    } catch (error) { openPanel('capture'); toast(error.message || String(error)); }
+    } catch (error) { openPanel('capture'); toast(error.message || String(error), 'error'); }
   }
   function cancelCapture() { captureLayer.classList.remove('bao-active'); state.capture = null; state.selection = null; openPanel('capture'); }
   async function saveCapture(overwrite) {
@@ -424,8 +545,8 @@
       var saved = await api.saveCapture(pkg.packageId, state.capture.token, name, state.selection, Boolean(overwrite));
       if (saved.conflict) { captureLayer.querySelector('.bao-conflict').classList.add('bao-show'); return; }
       var automatic = name.match(/^截取素材_(\d{3})\.png$/i); if (automatic) state.captureIndex = Math.max(state.captureIndex, Number(automatic[1]) + 1); GM.setValue('captureIndex', state.captureIndex);
-      captureLayer.classList.remove('bao-active'); state.capture = null; state.selection = null; selectedAsset = saved.asset || name; await refreshPackages(); openPanel('capture'); toast('素材“' + name + '”已保存并选中');
-    } catch (error) { toast(error.message || String(error)); }
+      captureLayer.classList.remove('bao-active'); state.capture = null; state.selection = null; selectedAsset = saved.asset || name; await refreshPackages(); openPanel('capture'); toast('素材“' + name + '”已保存并选中', 'success');
+    } catch (error) { toast(error.message || String(error), 'error'); }
   }
   function visibleGameSurfaceRect() {
     var rect = state.gameSurface && state.gameSurface.rect; if (!rect) return null;
@@ -483,7 +604,7 @@
     try {
       var result = await api.detectGameSurfaces(); var candidates = result && Array.isArray(result.candidates) ? result.candidates : [];
       if (result && result.bound) { state.gameSurface = result.bound; updateGameButton(); }
-      if (!candidates.length) { openPanel('capture'); toast('没有检测到可见的 Flash、Ruffle 或 Canvas 画面'); return; }
+      if (!candidates.length) { openPanel('capture'); toast('没有检测到可见的 Flash、Ruffle 或 Canvas 画面', 'warning'); return; }
       var host = gameLayer.querySelector('.bao-game-candidates'); var listHost = gameLayer.querySelector('.bao-game-options'); host.innerHTML = ''; listHost.innerHTML = '';
       var list = gameLayer.querySelector('.bao-game-list'); var primaryRect = candidates[0].rect || {};
       var leftSpace = Math.max(0, Number(primaryRect.x) || 0); var rightSpace = Math.max(0, innerWidth - (Number(primaryRect.x) || 0) - (Number(primaryRect.width) || 0));
@@ -491,8 +612,8 @@
       list.style.width = Math.max(180, Math.min(330, sideSpace - 16)) + 'px';
       if (placeLeft) { list.style.left = '8px'; list.style.right = 'auto'; } else { list.style.left = 'auto'; list.style.right = '8px'; }
       async function selectCandidate(candidate) {
-        try { var bound = await api.bindGameSurface(candidate.id); state.gameSurface = bound.bound; rememberSurfaceViewport(); updateGameButton(); closeGameSelect(); toast('已将坐标和识图区域绑定到所选游戏画面'); }
-        catch (error) { toast(error.message || String(error)); }
+        try { var bound = await api.bindGameSurface(candidate.id); state.gameSurface = bound.bound; rememberSurfaceViewport(); updateGameButton(); closeGameSelect(); toast('已将坐标和识图区域绑定到所选游戏画面', 'success'); }
+        catch (error) { toast(error.message || String(error), 'error'); }
       }
       candidates.forEach(function (candidate, index) {
         var rect = candidate.rect || {}; var button = document.createElement('button'); button.className = 'bao-game-candidate'; button.type = 'button';
@@ -510,7 +631,7 @@
         option.append(number, text, size); option.addEventListener('click', function () { void selectCandidate(candidate); }); listHost.appendChild(option);
       });
       gameLayer.classList.add('bao-active');
-    } catch (error) { openPanel('capture'); toast(error.message || String(error)); }
+    } catch (error) { openPanel('capture'); toast(error.message || String(error), 'error'); }
   }
   async function beginCoordinatePick() {
     try {
@@ -520,33 +641,39 @@
       if (state.gameSurface && !visibleGameSurfaceRect()) throw new Error('游戏画面当前不在可见页面内');
       showCoordinateSurface(); coordinateLayer.classList.add('bao-active');
       toast(state.gameSurface ? '坐标以绿色游戏画面为范围，单击即可复制' : '单击目标位置即可复制页面相对坐标');
-    } catch (error) { openPanel('capture'); toast(error.message || String(error)); }
+    } catch (error) { openPanel('capture'); toast(error.message || String(error), 'error'); }
   }
   async function endCoordinatePick(reopen) { coordinateLayer.classList.remove('bao-active'); try { await api.endCoordinatePick(); } finally { if (reopen) openPanel('capture'); } }
 
   root.querySelectorAll('.bao-tab').forEach(function (tab) { tab.addEventListener('click', function () { selectView(tab.getAttribute('data-view')); }); });
   root.addEventListener('pointerup', function (event) { var button = event.target.closest && event.target.closest('button'); if (button) button.blur(); });
   root.querySelector('.bao-collapse').addEventListener('click', closePanel);
-  root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages(true).then(function () { toast('素材列表已刷新'); }); });
+  root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages(true).then(function () { toast('素材列表已刷新', 'success'); }); });
+  root.querySelector('.bao-archive-toggle').addEventListener('click', function () { void toggleArchive(); });
+  historyLayer.querySelector('.bao-history-close').addEventListener('click', closeHistoryLayer);
+  historyLayer.querySelector('.bao-history-export').addEventListener('click', exportArchive);
+  historyLayer.addEventListener('click', function (event) { if (event.target === historyLayer) closeHistoryLayer(); });
+  window.addEventListener('keydown', function (event) { if (event.key === 'Escape' && logArchive.open) closeHistoryLayer(); });
+  root.querySelector('.bao-log-copy').addEventListener('click', function () { void copyRunLogs(); });
   root.querySelectorAll('.bao-match-mode').forEach(function (button) { button.addEventListener('click', function () { selectMatchMode(button.getAttribute('data-match-mode')); }); });
   packageRun.addEventListener('change', function () { selectedAsset = ''; renderAssets(''); void warmSelected(); });
   threshold.addEventListener('input', function () { root.querySelector('.bao-threshold-text').textContent = threshold.value + '%'; });
   ocrText.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); void compare(); } });
   root.querySelector('.bao-compare').addEventListener('click', function () { void compare(); });
   root.querySelector('.bao-monitor').addEventListener('click', function () { if (state.monitor) stopMonitor(); else void startMonitor(); });
-  startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) { toast('没有 Automation 2.0 包，请先在工作台新建'); return; } clearPageCross(); startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error)); } });
-  stopButton.addEventListener('click', async function () { try { await api.cancel(); toast('正在停止自动化脚本'); } catch (error) { toast(error.message || String(error)); } });
+  startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) { toast('没有 Automation 2.0 包，请先在工作台新建', 'warning'); return; } clearPageCross(); startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error), 'error'); } });
+  stopButton.addEventListener('click', async function () { try { await api.cancel(); toast('正在停止自动化脚本'); } catch (error) { toast(error.message || String(error), 'error'); } });
   root.querySelector('.bao-capture').addEventListener('click', function () { void beginCapture(); });
   root.querySelector('.bao-coordinate').addEventListener('click', function () { void beginCoordinatePick(); });
   root.querySelector('.bao-game-select').addEventListener('click', function () { void beginGameSelect(); });
   root.querySelector('.bao-game-copy').addEventListener('click', function () {
     if (!state.gameSurface) return;
     var feature = gameSurfaceFeature(state.gameSurface);
-    void copyText(feature).then(function () { root.querySelector('.bao-game-copy').setAttribute('data-last-copied', feature); toast('已复制游戏画面特征串，请到入口积木中导入'); });
+    void copyText(feature).then(function () { root.querySelector('.bao-game-copy').setAttribute('data-last-copied', feature); toast('已复制游戏画面特征串，请到入口积木中导入', 'success'); });
   });
   root.querySelector('.bao-game-clear').addEventListener('click', async function () {
-    try { await api.clearGameSurface(); state.gameSurface = null; state.surfaceViewport = null; updateGameButton(); toast('已恢复为整个页面坐标和识图范围'); }
-    catch (error) { toast('取消失败：' + (error && error.message ? error.message : String(error))); }
+    try { await api.clearGameSurface(); state.gameSurface = null; state.surfaceViewport = null; updateGameButton(); toast('已恢复为整个页面坐标和识图范围', 'success'); }
+    catch (error) { toast('取消失败：' + (error && error.message ? error.message : String(error)), 'error'); }
   });
   gameLayer.querySelector('.bao-game-cancel').addEventListener('click', closeGameSelect);
   var dragging = null; var moved = false;
@@ -577,8 +704,11 @@
   window.addEventListener('keydown', function (event) { if (gameLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); closeGameSelect(); return; } if (coordinateLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); void endCoordinatePick(true); return; } if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') { event.preventDefault(); if (state.monitor) stopMonitor(false); openPanel(); } }, true);
 
   var savedPosition = GM.getValue('position', null); if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) placeCollapsedRoot(savedPosition.x, savedPosition.y);
-  window.addEventListener('resize', function () { var rect = orb.getBoundingClientRect(); var wasOpen = root.classList.contains('bao-open'); placeCollapsedRoot(rect.left, rect.top); if (wasOpen) root.classList.add('bao-open'); if (gameLayer.classList.contains('bao-active')) closeGameSelect(); if (state.surfaceRefreshTimer) window.clearTimeout(state.surfaceRefreshTimer); state.surfaceRefreshTimer = window.setTimeout(function () { state.surfaceRefreshTimer = 0; void refreshBoundSurfaceIfNeeded().catch(function (error) { toast(error.message || String(error)); }); }, 180); });
+  window.addEventListener('resize', function () { var rect = orb.getBoundingClientRect(); var wasOpen = root.classList.contains('bao-open'); placeCollapsedRoot(rect.left, rect.top); if (wasOpen) root.classList.add('bao-open'); if (gameLayer.classList.contains('bao-active')) closeGameSelect(); if (state.surfaceRefreshTimer) window.clearTimeout(state.surfaceRefreshTimer); state.surfaceRefreshTimer = window.setTimeout(function () { state.surfaceRefreshTimer = 0; void refreshBoundSurfaceIfNeeded().catch(function (error) { toast(error.message || String(error), 'error'); }); }, 180); });
   window.addEventListener('pagehide', function () { stopMonitor(false); if (state.packageTimer) window.clearInterval(state.packageTimer); gameLayer.classList.remove('bao-active'); if (coordinateLayer.classList.contains('bao-active')) void api.endCoordinatePick(); });
   if (GM.registerMenuCommand) GM.registerMenuCommand('显示自动化助手', function () { openPanel(); });
   void refreshPackages(true); void pollStatus(); state.statusTimer = setInterval(function () { void pollStatus(); }, 600); state.packageTimer = setInterval(function () { void refreshPackages(false); }, 1500);
 })();
+
+
+
