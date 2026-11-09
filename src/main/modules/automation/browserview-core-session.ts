@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { performance } from 'perf_hooks';
-import { Notification } from 'electron';
+import { createDesktopNotification } from '../desktop-notification';
 import { createAutomationAbortController } from '../../../shared/automation/abort-controller';
 import {
   AutomationActionRegistry,
@@ -66,10 +66,13 @@ import { AutomationTextRecognitionService } from './text-recognition-service';
 import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './vision-service';
 import { evaluateStructuredColorMatch } from './color-structure-policy';
 import { CachingAutomationTemplateProvider, OpenCvWorkerMatcher } from './vision-worker-matcher';
+import { CachingVisionMatcher } from './caching-vision-matcher';
+import { isObservationCacheEnabled } from './observation-cache';
+import { LearnedSearchRegions, isLearnedSearchRegionEnabled } from './learned-search-region';
 import { ColorPointWorkerMatcher } from './color-vision-worker-matcher';
 import { AutomaticVisionMatcher } from './automatic-vision-matcher';
 import { chooseLocatedGameSurface, detectGameSurfaces } from './game-surface-detector';
-import { waitForRegionChange, waitForRegionColor } from './region-change-detector';
+import { waitForRegionChange, waitForRegionColor, sampleRegionColor } from './region-change-detector';
 
 const sleep = (durationMs: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
   if (signal.aborted) { reject(new Error('automation cancelled')); return; }
@@ -108,6 +111,7 @@ export class BrowserViewAutomationCoreSession {
     readonly viewportTransform: { readonly scaleX: number; readonly scaleY: number };
   }>();
   private nextSurfaceGeneration = 1;
+  private readonly learnedRegions = new LearnedSearchRegions();
   private closePromise?: Promise<void>;
 
   constructor(private readonly handle: AutomationTabHandle, private readonly source: AutomationPackageV3, private readonly profile?: AutomationProfileV3, private readonly log: (message: string, level?: 'debug' | 'info' | 'warn' | 'error') => void = () => undefined, private readonly scriptGrants?: (entryId: string) => readonly import('../../../shared/automation/javascript-api').JavaScriptAutomationCapability[], injected: { matcher?: OpenCvWorkerMatcher; colorMatcher?: ColorPointWorkerMatcher; automaticMatcher?: AutomaticVisionMatcher; ocrEngine?: AutomationOcrEngine } = {}) {
@@ -128,7 +132,10 @@ export class BrowserViewAutomationCoreSession {
       const bytes = source.assets.get(normalized) ?? source.assets.get(asset); if (!bytes) throw new Error(`automation asset is missing: ${asset}`);
       return { bytes, cacheKey: crypto.createHash('sha256').update(Buffer.from(bytes)).digest('hex') };
     } }));
-    this.matcher = injected.matcher ?? new OpenCvWorkerMatcher(provider);
+    const templateMatcher = new OpenCvWorkerMatcher(provider);
+    // 观察缓存：同一幅画面上的同一个查询只算一次。默认关闭，见 observation-cache.ts。
+    this.matcher = injected.matcher
+      ?? (isObservationCacheEnabled() ? new CachingVisionMatcher(templateMatcher) : templateMatcher);
     this.colorMatcher = injected.colorMatcher ?? new ColorPointWorkerMatcher(provider);
     this.ownsMatcher = !injected.matcher;
     this.ownsColorMatcher = !injected.colorMatcher;
@@ -160,7 +167,7 @@ export class BrowserViewAutomationCoreSession {
       navigate: async (url) => { const parsed = new URL(url); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('只允许打开 http(s) 地址'); await this.handle.navigate(parsed.toString()); },
       reload: () => this.handle.reload(),
       log: async (message) => { this.log(message); },
-      notify: async (title, body) => { new Notification({ title, body: body ?? '' }).show(); },
+      notify: async (title, body) => { createDesktopNotification({ title, body: body ?? '' }); },
     });
     this.actions.freeze();
     registerLocatorQueries(this.runtimeQueries, this.locatorQueries);
@@ -169,7 +176,19 @@ export class BrowserViewAutomationCoreSession {
       readNumber: async (query, context) => this.text.readNumber(await this.captureFrame(query.region, context), context.signal),
     });
     this.runtimeQueries.freeze();
-    this.runtime = new AutomationWorkflowRuntime(this.actions, this.runtimeQueries);
+    // 包声明的预算（manifest.limits）优先于平台默认值：长期挂机脚本靠它突破
+    // 默认的 30 分钟 / 10,000 次调用。未声明的字段继续用默认值。
+    const budget = this.source.manifest.limits;
+    this.runtime = new AutomationWorkflowRuntime(this.actions, this.runtimeQueries, {
+      limits: {
+        ...(budget?.maxWallTimeMs !== undefined ? { maxWallTimeMs: budget.maxWallTimeMs } : {}),
+        ...(budget?.maxExecutedNodes !== undefined ? { maxExecutedNodes: budget.maxExecutedNodes } : {}),
+        ...(budget?.maxLoopIterations !== undefined ? { maxLoopIterations: budget.maxLoopIterations } : {}),
+      },
+    });
+    if (budget) {
+      this.log(`运行预算（包声明）：调用 ${budget.maxCalls ?? '默认 10000'} 次 / 单次运行 ${budget.maxWallTimeMs !== undefined ? `${Math.round(budget.maxWallTimeMs / 60000)} 分钟` : '默认 30 分钟'}`);
+    }
   }
 
   startWorkflow(): WorkflowRunHandle {
@@ -213,17 +232,31 @@ export class BrowserViewAutomationCoreSession {
           },
           sleep,
         }, context.signal),
+        // 单帧采样：同样的抓帧 + 计数，但不轮询。用于"此刻数一下"。
+        sampleColor: (regionValue, options, context) => sampleRegionColor(options, {
+          capture: async () => {
+            const frame = await this.captureFrame(regionValue, { ...context, observationScope: undefined });
+            if (!frame.bitmap || !frame.bitmapSize) throw new Error('captured region has no bitmap');
+            return { bitmap: frame.bitmap, width: frame.bitmapSize.width, height: frame.bitmapSize.height, captureMs: (frame.captureMs ?? 0) + (frame.bitmapMs ?? 0) };
+          },
+        }, context.signal),
       },
       ocr: { readText: async (value, _confidence, context) => this.text.readText(await this.captureFrame(value, context), context.signal), readNumber: async (value, _locale, context) => this.text.readNumber(await this.captureFrame(value, context), context.signal) },
       page: { url: () => this.handle.webContents.getURL(), navigate: (url) => this.handle.navigate(url), reload: () => this.handle.reload() },
-      time: { sleep, now: Date.now }, log: (level, message) => this.log(message, level), notify: (title, body) => new Notification({ title, body: body ?? '' }).show(),
+      time: { sleep, now: Date.now }, log: (level, message) => this.log(message, level), notify: (title, body) => createDesktopNotification({ title, body: body ?? '' }),
     });
     const runId = crypto.randomBytes(16).toString('hex');
     const installGrant = createJavaScriptInstallGrant(this.source.manifest.id, { entry: entry.path, permissions: entry.permissions }, approvedPermissions);
     const grant = createJavaScriptRunGrant(installGrant, runId, approvedPermissions);
-    const broker = new JavaScriptAutomationCapabilityBroker(crypto.randomBytes(32).toString('hex'), grant.capabilities, ports);
+    const broker = new JavaScriptAutomationCapabilityBroker(
+      crypto.randomBytes(32).toString('hex'),
+      grant.capabilities,
+      ports,
+      this.source.manifest.limits?.maxCalls !== undefined ? { maxCalls: this.source.manifest.limits.maxCalls } : {},
+    );
     return new JavaScriptAutomationSandboxHost().start(source, broker, {
       input,
+      ...(this.source.manifest.limits?.maxWallTimeMs !== undefined ? { timeoutMs: this.source.manifest.limits.maxWallTimeMs } : {}),
       log: (level, message) => this.log(`[console] ${message}`, level >= 3 ? 'error' : level === 2 ? 'warn' : 'info'),
     });
   }
@@ -495,9 +528,16 @@ export class BrowserViewAutomationCoreSession {
         return metadata?.source === 'capture' ? metadata.reference : undefined;
       })
       : [];
+    // 学习到的搜索区域要在抓帧之后才能算（需要视口尺寸），它只收窄**匹配**的 ROI，
+    // 不改抓帧——"一张归一化整帧 + 逻辑 ROI"是这条链路的设计不变量。
+    const fastSearch = isLearnedSearchRegionEnabled();
+    const searchRegionKey = `${assets.join('\u0000')}|${locator.mask ?? DEFAULT_IMAGE_MATCH_MASK}|${searchRegion ? 'scoped' : 'viewport'}`;
     const snapshot = await this.captureViewportFrameSnapshot(context);
     const frame = snapshot.frame;
     const currentViewportTransform = snapshot.viewportTransform;
+    const learnedRegion = fastSearch && !searchRegion
+      ? this.learnedRegions.regionFor(searchRegionKey, frame.cssSize)
+      : undefined;
     const predictedScales = captureReferences.length === assets.length && captureReferences.every(Boolean)
       ? capturedReferenceImageScales(captureReferences as Array<NonNullable<typeof captureReferences[number]>>, {
         viewport: { ...frame.cssSize, viewportTransform: currentViewportTransform },
@@ -512,7 +552,7 @@ export class BrowserViewAutomationCoreSession {
     // Keep the identity stable across viewport revisions: a learned content
     // scale is valuable precisely when the user changes zoom. The stored
     // geometry below is used to migrate it into the new frame safely.
-    const scaleKey = `${assets.join('\u0000')}|${locator.mask ?? DEFAULT_IMAGE_MATCH_MASK}|${searchRegion ? 'scoped' : 'viewport'}`;
+    const scaleKey = searchRegionKey;
     const learned = locator.scales === undefined && !predictedScales ? this.learnedImageScales.get(scaleKey) : undefined;
     let learnedScale: number | undefined;
     if (learned) {
@@ -531,15 +571,38 @@ export class BrowserViewAutomationCoreSession {
     // recovery below.
     const learnedScales = learnedScale === undefined ? undefined : [learnedScale];
     const initialScales = locator.scales ?? predictedScales ?? learnedScales ?? imageMatchScales();
+    // 匹配成本与搜索面积成正比（每请求一次、与尺度数无关），所以把上次命中的位置记下来，
+    // 下次只搜那一小块。框内没命中就作废并回退整屏，所以位移/滚动不会变成假阴性。
     const request = {
       assets,
       method: locator.method ?? this.defaultImageMethod,
       threshold: locator.threshold,
       scales: initialScales,
       mask: locator.mask ?? DEFAULT_IMAGE_MATCH_MASK,
-      region: searchRegion && { x: searchRegion.x, y: searchRegion.y, width: searchRegion.width, height: searchRegion.height },
+      region: learnedRegion
+        ?? (searchRegion && { x: searchRegion.x, y: searchRegion.y, width: searchRegion.width, height: searchRegion.height }),
     };
     let matches = await this.vision.locateCandidates(frame, request, context.signal, maxCandidates);
+    if (learnedRegion !== undefined && matches.length === 0) {
+      // 学到的位置失效了：作废并整屏再搜一次，保证结果与"没有这个优化"时一致。
+      this.learnedRegions.forget(searchRegionKey);
+      matches = await this.vision.locateCandidates(frame, { ...request, region: undefined }, context.signal, maxCandidates);
+    }
+    if (fastSearch && locator.region === undefined && matches.length > 0) {
+      const best = matches.reduce((current, candidate) => (
+        candidate.score > current.score ? candidate : current
+      ));
+      const scaleX = frame.cssSize.width > 0 ? frame.deviceSize.width / frame.cssSize.width : 1;
+      const scaleY = frame.cssSize.height > 0 ? frame.deviceSize.height / frame.cssSize.height : 1;
+      if (scaleX > 0 && scaleY > 0) {
+        this.learnedRegions.remember(searchRegionKey, {
+          x: best.x / scaleX,
+          y: best.y / scaleY,
+          width: best.width / scaleX,
+          height: best.height / scaleY,
+        }, frame.cssSize);
+      }
+    }
     if (locator.scales === undefined && matches.length === 0) {
       const fallbackScales = learnedScale === undefined
         ? imageMatchFallbackScales(initialScales)

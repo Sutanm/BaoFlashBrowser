@@ -1,4 +1,6 @@
 import type { AutomationOcrEngine } from './capability-contracts';
+import { CachingOcrEngine } from './caching-ocr-engine';
+import { OBSERVATION_CACHE_ENV, isObservationCacheEnabled } from './observation-cache';
 import { bundledPaddleOcrSidecarAvailable, PaddleOcrSidecarEngine } from './paddle-ocr-sidecar-engine';
 import { bundledTesseractOcrAvailable, TesseractOcrSidecarEngine } from './tesseract-ocr-sidecar-engine';
 
@@ -12,8 +14,13 @@ class UnavailableOcrEngine implements AutomationOcrEngine {
 
 export type AutomationOcrProviderPreference = 'auto' | 'paddle' | 'tesseract';
 
+/** 兼容旧引用：开关常量已统一到 observation-cache。 */
+export { OBSERVATION_CACHE_ENV };
+
 export function createAutomationOcrEngine(preference: AutomationOcrProviderPreference = 'auto'): AutomationOcrEngine {
-  if ((preference === 'auto' || preference === 'tesseract') && bundledTesseractOcrAvailable()) return new TesseractOcrSidecarEngine();
-  if ((preference === 'auto' || preference === 'paddle') && bundledPaddleOcrSidecarAvailable()) return new PaddleOcrSidecarEngine();
-  return new UnavailableOcrEngine();
+  let engine: AutomationOcrEngine;
+  if ((preference === 'auto' || preference === 'tesseract') && bundledTesseractOcrAvailable()) engine = new TesseractOcrSidecarEngine();
+  else if ((preference === 'auto' || preference === 'paddle') && bundledPaddleOcrSidecarAvailable()) engine = new PaddleOcrSidecarEngine();
+  else return new UnavailableOcrEngine();
+  return isObservationCacheEnabled() ? new CachingOcrEngine(engine) : engine;
 }
