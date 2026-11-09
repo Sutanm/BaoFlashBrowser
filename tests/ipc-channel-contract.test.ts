@@ -30,6 +30,12 @@ describe('multi-window IPC channel contract (P2)', () => {
     expect(preload).toMatch(/newWindow:\s*\([^)]*\)\s*=>\s*safeInvoke\('win:new-window'/u);
   });
 
+  it('exposes the P7 tab-transfer methods (whitelist without methods crashes the renderer)', () => {
+    expect(preload).toMatch(/moveTab:\s*\([^)]*\)\s*=>\s*safeInvoke\('win:move-tab'/u);
+    expect(preload).toMatch(/tearOffTab:\s*\([^)]*\)\s*=>\s*safeInvoke\('win:tear-off-tab'/u);
+    expect(preload).toMatch(/rendererReady:\s*\(\)\s*=>\s*safeInvoke\('win:renderer-ready'\)/u);
+  });
+
   it('declares both channels in the renderer typings', () => {
     expect(rendererTypes).toContain("'win:get-context'");
     expect(rendererTypes).toContain("'win:new-window'");
