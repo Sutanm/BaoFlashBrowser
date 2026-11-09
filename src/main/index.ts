@@ -175,6 +175,7 @@ function bootstrap(): void {
     // 实例，窗口关闭时销毁它的 BrowserView 并清理全局索引。
     const webviewPreloadPath = path.join(__dirname, 'webview-preload.js');
     onWindowCreated((win) => {
+      const winId = win.id;
       const manager = createTabManager(win, webviewPreloadPath);
       win.on('restore', () => manager.refreshActiveViewAfterHostRestore());
       win.on('maximize', () => manager.refreshActiveViewAfterHostRestore());
@@ -187,9 +188,10 @@ function bootstrap(): void {
       win.on('unmaximize', scheduleWindowStateSave);
       win.on('close', () => persistWindowStatesNow());
       win.on('closed', () => {
-        shellCrashStates.delete(win.id);
-        disposeDevToolsBridge(win.id);
-        disposeTabManager(win);
+        // 销毁后不能再读 win.id（Electron 11 抛 Object has been destroyed）。
+        shellCrashStates.delete(winId);
+        disposeDevToolsBridge(winId);
+        disposeTabManager(win, winId);
       });
     });
     // 按上次的窗口顺序与几何恢复；没有记录时创建一个窗口（P5）。

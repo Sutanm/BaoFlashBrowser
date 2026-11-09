@@ -975,11 +975,11 @@ export function getTabOwnerWindow(tabId: string): BrowserWindow | null {
 }
 
 /** 窗口关闭时销毁该窗口的全部 BrowserView 并清理三类索引。 */
-export function disposeTabManager(win: BrowserWindow): void {
-  const manager = managers.get(win.id);
+export function disposeTabManager(win: BrowserWindow, windowId: number = win.id): void {
+  const manager = managers.get(windowId);
   if (!manager) return;
   manager.destroyAll();
-  managers.delete(win.id);
+  managers.delete(windowId);
 }
 
 /** 仅测试用：销毁全部实例并清空注册表。 */

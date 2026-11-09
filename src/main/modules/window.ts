@@ -224,12 +224,14 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     markCleanShutdown();
   });
 
+  const windowId = win.id;
   win.on('closed', () => {
     clearTimeout(showFallbackTimer);
-    windows.delete(win.id);
+    // 销毁后访问 win.id 会抛 "Object has been destroyed"（Electron 11）——一律用捕获值。
+    windows.delete(windowId);
     shellWebContentsToWindow.delete(shellWebContentsId);
-    if (focusedWindowId === win.id) focusedWindowId = null;
-    rendererReadyResolvers.delete(win.id);
+    if (focusedWindowId === windowId) focusedWindowId = null;
+    rendererReadyResolvers.delete(windowId);
   });
 
   log.info(`[Window] created id=${win.id} key=${windowKey} index=${index} primary=${isPrimary}`);
