@@ -20,12 +20,15 @@ export interface CreateWindowOptions {
   index?: number;
   /** 只有首个窗口应为 true，用于旧会话单归属迁移（P5）。 */
   isPrimary?: boolean;
+  /** 新窗口要打开的 URL（P6 消费；P2 只负责透传与持久化上下文）。 */
+  initialUrl?: string;
 }
 
 export interface WindowContext {
   windowKey: string;
   index: number;
   isPrimary: boolean;
+  initialUrl?: string;
 }
 
 interface RegisteredWindow {
@@ -33,6 +36,7 @@ interface RegisteredWindow {
   key: string;
   index: number;
   isPrimary: boolean;
+  initialUrl?: string;
 }
 
 const DEFAULT_WIDTH = 1280;
@@ -117,7 +121,13 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
   const isPrimary = options.isPrimary ?? windows.size === 0;
   const shellWebContentsId = win.webContents.id;
 
-  windows.set(win.id, { win, key: windowKey, index, isPrimary });
+  windows.set(win.id, {
+    win,
+    key: windowKey,
+    index,
+    isPrimary,
+    ...(options.initialUrl ? { initialUrl: options.initialUrl } : {}),
+  });
   shellWebContentsToWindow.set(shellWebContentsId, win);
   win.on('focus', () => { focusedWindowId = win.id; });
 
@@ -286,5 +296,10 @@ export function getWindowKey(win: BrowserWindow): string {
 export function getWindowContext(win: BrowserWindow): WindowContext | null {
   const entry = windows.get(win.id);
   if (!entry) return null;
-  return { windowKey: entry.key, index: entry.index, isPrimary: entry.isPrimary };
+  return {
+    windowKey: entry.key,
+    index: entry.index,
+    isPrimary: entry.isPrimary,
+    ...(entry.initialUrl ? { initialUrl: entry.initialUrl } : {}),
+  };
 }

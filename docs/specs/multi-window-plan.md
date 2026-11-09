@@ -278,7 +278,7 @@ createValidatedEventHandler<S, R>(channel, schema, fn)
 | `win:minimize/maximize/unmaximize/close/setFullscreen/toggleFullscreen/isMaximized` | `event.sender` → 窗口 | 改为按 sender |
 | `win:get-context`（新增） | `event.sender` → `{ windowKey, index, isPrimary, isMaximized, bounds }` | 新增；渲染层会话 key 与迁移归属都依赖它 |
 | `win:new-window`（新增） | 任意窗口均可触发；`{ url?, bounds? }` | 新增 |
-| `ui:set-language` | `event.sender` 必须是某个注册窗口的外壳 | 换 `getWindowForWebContents`，保留"广播所有 wc" |
+| `ui:set-language` | `event.sender` 必须是某个注册窗口的外壳 | 按 sender 反查注册窗口（拒绝 BrowserView/隐藏窗口），保留"广播所有 wc" |
 | `tab:updated/tab:found/tab:load-error/tab:crashed/tab:newwindow/password:filled` | 由 tab 所属实例发送 | 只发所属窗口 |
 | `tab:detached` / `tab:adopted`（新增） | 旧实例 → 旧窗口；新实例 → 新窗口 | P7 迁移用；新窗口必须等渲染层就绪后再发 |
 | `ui:toast` / `automation-assistant:toast` | tab 所属窗口 | 改为按 tab 所属窗口发送（现在固定发主窗口） |
@@ -426,15 +426,17 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 
 ### P2 IPC 路由基建
 
-- [ ] `ipc-wrapper` 新增带事件上下文的 handler 工厂
-- [ ] `window.ipc` 全部按 sender 路由
-- [ ] `tabs.ipc` 的 `tab:create` / `tab:setBounds` / `tab:focusActive` 按 sender；tabId 通道加越窗校验
-- [ ] 新增 `win:get-context`（含 `windowKey` / `index` / `isPrimary`）、`win:new-window`
-- [ ] `preload` 三套白名单同步 + `electron.d.ts` + `shared/types/ipc.ts`
-- [ ] `ui:set-language` 鉴权改 `getWindowForWebContents`
-- 改动：`utils/ipc-wrapper.ts`、`ipc/window.ipc.ts`、`ipc/tabs.ipc.ts`、`modules/ui-language.ts`、`preload/index.ts`、`renderer/types/electron.d.ts`、`shared/types/ipc.ts`
+- [x] `ipc-wrapper` 新增带事件上下文的 handler 工厂（`createEventHandler` / `createValidatedEventHandler`，旧签名保留）
+- [x] `window.ipc` 全部按 sender 路由（`win:*` 无 sender 窗口一律拒绝）
+- [x] `tabs.ipc` 的 `tab:create` / `tab:setBounds` / `tab:focusActive` 按 sender；tabId 通道加越窗校验（未知 tabId 保持 no-op）
+- [x] 新增 `win:get-context`（含 `windowKey` / `index` / `isPrimary` / `isMaximized` / `bounds`）、`win:new-window`
+- [x] `preload` 三套白名单同步 + `electron.d.ts` + `shared/types/ipc.ts`（新增 `WindowContextPayload`）
+- [x] `ui:set-language` 鉴权改为按 sender 反查注册窗口（经 ipc-wrapper 的 window 上下文，拒绝 BrowserView/隐藏窗口）
+- 改动：`utils/ipc-wrapper.ts`、`ipc/window.ipc.ts`、`ipc/tabs.ipc.ts`、`modules/ui-language.ts`、`modules/tabs.ts`（路由辅助）、`index.ts`（注入 resolver）、`preload/index.ts`、`renderer/types/electron.d.ts`、`shared/types/ipc.ts`
 - 判据：单窗口全功能回归通过；新增白名单静态单测通过
 - 验证：`npm run typecheck`、`npm run test:electron`
+- **状态：已完成**。单测 `tests/ipc-wrapper.test.ts`（4）、`tests/window-ipc-routing.test.ts`（6）、`tests/tabs-ipc-routing.test.ts`（8）、`tests/ipc-channel-contract.test.ts`（4），并更新 `tests/ui-language.test.ts`；全量 `npm test -- --run` 141 文件 / 983 例、`npm run typecheck`、`npm run build:main`、`npm run test:electron` 全绿。
+- 说明：`win:new-window` 的 `url` 暂存进窗口上下文（`initialUrl`），由 P6 的新窗口首标签消费；P2 只保证窗口归属与通道契约。`getTabManagerForSender` 在 P2 只服务首个窗口（P3 换成实例索引），避免第二窗口把标签建到错误窗口。
 
 ### P3 TabManager 多实例化
 

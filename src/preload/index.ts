@@ -42,6 +42,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
   'win:minimize', 'win:maximize', 'win:unmaximize', 'win:close', 'win:setFullscreen', 'win:toggleFullscreen', 'win:isMaximized',
+  'win:get-context', 'win:new-window',
   'userscripts:list', 'userscripts:get-source', 'userscripts:parse-source',
   'userscripts:install-source', 'userscripts:install-file', 'userscripts:install-url',
   'userscripts:uninstall', 'userscripts:set-enabled', 'userscripts:update-source',
@@ -276,6 +277,9 @@ const electronAPI = {
     setFullscreen: (fullscreen: boolean) => safeInvoke('win:setFullscreen', fullscreen),
     toggleFullscreen: () => safeInvoke('win:toggleFullscreen'),
     isMaximized: () => safeInvoke('win:isMaximized') as Promise<boolean>,
+    getContext: () => safeInvoke('win:get-context'),
+    newWindow: (options?: { url?: string; bounds?: { x?: number; y?: number; width?: number; height?: number } }) =>
+      safeInvoke('win:new-window', options ?? {}),
   },
 
   userscripts: {

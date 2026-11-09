@@ -23,6 +23,7 @@ import { devToolsBridge } from './modules/devtoolbox-bridge';
 import { configureOptionalTabServices, tabManager } from './modules/tabs';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, markCleanShutdown } from './modules/session-recovery';
+import { setIpcWindowResolver } from './utils/ipc-wrapper';
 
 let automationService: { shutdown(): Promise<void> } | null = null;
 // 外壳 renderer 崩溃按窗口计数（多窗口下不能升级成整应用退出）。
@@ -119,7 +120,10 @@ function bootstrap(): void {
   }
 
   app.whenReady().then(async () => {
-    registerUiLanguageIPC(() => getMainWindow());
+    // IPC 上下文解析必须在注册任何通道之前就绪（P2）：所有 win:*/tab:* 都按
+    // event.sender 反查注册窗口，不再依赖"唯一主窗口"。
+    setIpcWindowResolver(getWindowForWebContents);
+    registerUiLanguageIPC();
     // Apply before creating windows, background scripts or navigations.
     try {
       await initializeProxy(config.proxy);
@@ -201,7 +205,7 @@ function bootstrap(): void {
     initSession();
     registerZoomShortcuts();
     startMouseHook();
-    registerWindowIPC(() => getMainWindow());
+    registerWindowIPC();
     registerThemeIPC();
     registerConfigIPC({ applyUserscriptCapacityConfig: userscripts?.applyCapacityConfig });
     registerTabsIPC();

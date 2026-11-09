@@ -1,9 +1,36 @@
 import { ipcMain } from 'electron';
+import type { BrowserWindow } from 'electron';
 import { z } from 'zod';
-import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
-import { tabManager } from '../modules/tabs';
+import { createEventHandler, createValidatedEventHandler } from '../utils/ipc-wrapper';
+import { getTabManagerForSender, getTabManagerForTabId, getTabOwnerWindow, tabManager } from '../modules/tabs';
 import { ruffleBundleInfo, ruffleJsContent } from '../modules/ruffle-bundle';
 import log from 'electron-log';
+
+/**
+ * 标签 IPC（SDD: docs/specs/multi-window-plan.md §6.3 / §7 P2）。
+ *
+ * - `tab:create` / `tab:setBounds` / `tab:focusActive` 属于窗口作用域，按 sender
+ *   解析实例；窗口 B 的渲染层不可能把标签建到窗口 A。
+ * - 其余通道以 tabId 为准，并校验 tab 的归属窗口就是 sender 窗口。
+ * - 未知 tabId 保持 no-op：崩溃恢复 / 关窗竞态下渲染层可能发出已消失的 tabId，
+ *   这里抛错会打断恢复流程。
+ */
+function requireManagerForSender(window: BrowserWindow | null, channel: string): NonNullable<ReturnType<typeof getTabManagerForSender>> {
+  if (!window) throw new Error(`IPC sender is not a registered window: ${channel}`);
+  const manager = getTabManagerForSender(window.webContents);
+  if (!manager) throw new Error(`no tab manager for the sender window: ${channel}`);
+  return manager;
+}
+
+function requireOwnedManager(window: BrowserWindow | null, tabId: string): ReturnType<typeof getTabManagerForTabId> | null {
+  const owner = getTabOwnerWindow(tabId);
+  if (!owner) return null;
+  if (!window || window.id !== owner.id) {
+    log.warn(`[TabsIPC] cross-window tab access rejected tab=${tabId} sender=${window?.id ?? 'none'} owner=${owner.id}`);
+    throw new Error('tab does not belong to this window');
+  }
+  return getTabManagerForTabId(tabId) ?? null;
+}
 
 export function registerTabsIPC(): void {
   ipcMain.on('password:form-detected', (event) => {
@@ -49,62 +76,94 @@ export function registerTabsIPC(): void {
   }, 'Unsupported navigation URL');
   const tabOnly = z.object({ tabId }).strict();
 
-  createValidatedHandler('tab:create', z.object({
+  createValidatedEventHandler('tab:create', z.object({
     tabId,
     url,
     ruffleConfig: z.object({ enabled: z.boolean(), source: z.enum(['bundled', 'cdn']) }).optional(),
-  }).strict(), (args) =>
-    tabManager.create(args.tabId, args.url, args.ruffleConfig));
+  }).strict(), ({ window, args }) => {
+    requireManagerForSender(window, 'tab:create').create(args.tabId, args.url, args.ruffleConfig);
+  });
 
-  createValidatedHandler('tab:close', tabOnly, (args) =>
-    tabManager.close(args.tabId));
+  createValidatedEventHandler('tab:close', tabOnly, ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.close(args.tabId);
+  });
 
-  createValidatedHandler('tab:suspend', tabOnly, (args) =>
-    tabManager.suspend(args.tabId));
+  createValidatedEventHandler('tab:suspend', tabOnly, ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.suspend(args.tabId);
+  });
 
-  createValidatedHandler('tab:activate', tabOnly, (args) =>
-    tabManager.activate(args.tabId));
+  createValidatedEventHandler('tab:activate', tabOnly, ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.activate(args.tabId);
+  });
 
   // Hand keyboard focus to the active BrowserView (no-op payload) so the shell
   // stops swallowing keystrokes after an address-bar submit or link click.
-  createHandler<undefined, boolean>('tab:focusActive', () => tabManager.focusActive());
+  createEventHandler<undefined, boolean>('tab:focusActive', ({ window }) => (
+    requireManagerForSender(window, 'tab:focusActive').focusActive()
+  ));
 
-  createValidatedHandler('tab:navigate', z.object({ tabId, url }).strict(), (args) =>
-    tabManager.navigate(args.tabId, args.url));
+  createValidatedEventHandler('tab:navigate', z.object({ tabId, url }).strict(), ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.navigate(args.tabId, args.url);
+  });
 
-  createValidatedHandler('tab:goBack', tabOnly, (args) =>
-    tabManager.goBack(args.tabId));
+  createValidatedEventHandler('tab:goBack', tabOnly, ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.goBack(args.tabId);
+  });
 
-  createValidatedHandler('tab:goForward', tabOnly, (args) =>
-    tabManager.goForward(args.tabId));
+  createValidatedEventHandler('tab:goForward', tabOnly, ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.goForward(args.tabId);
+  });
 
-  createValidatedHandler('tab:reload', tabOnly, (args) =>
-    tabManager.reload(args.tabId));
+  createValidatedEventHandler('tab:reload', tabOnly, ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.reload(args.tabId);
+  });
 
-  createValidatedHandler('tab:stop', tabOnly, (args) =>
-    tabManager.stop(args.tabId));
+  createValidatedEventHandler('tab:stop', tabOnly, ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.stop(args.tabId);
+  });
 
-  createValidatedHandler('tab:zoom', z.object({ tabId, factor: z.number().min(0.25).max(5) }).strict(), (args) =>
-    tabManager.setZoom(args.tabId, args.factor));
+  createValidatedEventHandler('tab:zoom', z.object({ tabId, factor: z.number().min(0.25).max(5) }).strict(), ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.setZoom(args.tabId, args.factor);
+  });
 
-  createValidatedHandler('tab:mute', z.object({ tabId, muted: z.boolean() }).strict(), (args) =>
-    tabManager.setMuted(args.tabId, args.muted));
+  createValidatedEventHandler('tab:mute', z.object({ tabId, muted: z.boolean() }).strict(), ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.setMuted(args.tabId, args.muted);
+  });
 
-  createValidatedHandler('tab:devtools', tabOnly, (args) =>
-    tabManager.openDevTools(args.tabId));
+  createValidatedEventHandler('tab:devtools', tabOnly, ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.openDevTools(args.tabId);
+  });
 
-  createValidatedHandler('tab:find', z.object({ tabId, text: z.string().max(10000), options: z.record(z.unknown()).optional() }).strict(), (args) =>
-    tabManager.findInPage(args.tabId, args.text, args.options));
+  createValidatedEventHandler('tab:find', z.object({ tabId, text: z.string().max(10000), options: z.record(z.unknown()).optional() }).strict(), ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.findInPage(args.tabId, args.text, args.options);
+  });
 
-  createValidatedHandler('tab:stopFind', z.object({ tabId, action: z.enum(['clearSelection', 'keepSelection', 'activateSelection']) }).strict(), (args) =>
-    tabManager.stopFindInPage(args.tabId, args.action));
+  createValidatedEventHandler('tab:stopFind', z.object({ tabId, action: z.enum(['clearSelection', 'keepSelection', 'activateSelection']) }).strict(), ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.stopFindInPage(args.tabId, args.action);
+  });
 
-  createValidatedHandler('tab:setBounds', z.object({
+  createValidatedEventHandler('tab:setBounds', z.object({
     x: z.number().int().min(-10000).max(50000), y: z.number().int().min(-10000).max(50000),
     w: z.number().int().min(0).max(50000), h: z.number().int().min(0).max(50000),
-  }).strict(), (args) =>
-    tabManager.setBounds(args.x ?? 0, args.y ?? 0, args.w ?? 0, args.h ?? 0));
+  }).strict(), ({ window, args }) => {
+    requireManagerForSender(window, 'tab:setBounds').setBounds(args.x ?? 0, args.y ?? 0, args.w ?? 0, args.h ?? 0);
+  });
 
-  createValidatedHandler('tab:setRuffleMode', z.object({ tabId, enabled: z.boolean(), source: z.enum(['bundled', 'cdn']) }).strict(), (args) =>
-    tabManager.setRuffleMode(args.tabId, args.enabled, args.source));
+  createValidatedEventHandler('tab:setRuffleMode', z.object({ tabId, enabled: z.boolean(), source: z.enum(['bundled', 'cdn']) }).strict(), ({ window, args }) => {
+    const manager = requireOwnedManager(window, args.tabId);
+    manager?.setRuffleMode(args.tabId, args.enabled, args.source);
+  });
 }

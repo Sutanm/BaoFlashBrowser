@@ -121,6 +121,16 @@ export interface RuffleDiagnosticPayload {
   detail?: string;
 }
 
+export interface WindowContextPayload {
+  windowKey: string;
+  index: number;
+  isPrimary: boolean;
+  isMaximized: boolean;
+  bounds: { x: number; y: number; width: number; height: number };
+  /** 新窗口待打开的 URL（由 P6 的新窗口首标签消费）。 */
+  initialUrl?: string;
+}
+
 export interface IPCMainToRenderer {
   shortcut: (action: ShortcutAction) => void;
   'tab:updated': (payload: TabUpdatedPayload) => void;

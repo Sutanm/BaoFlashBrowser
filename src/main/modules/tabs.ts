@@ -1,7 +1,8 @@
 import { uiText } from './ui-language';
 import { BrowserView, Menu } from 'electron';
+import type { BrowserWindow } from 'electron';
 import log from 'electron-log';
-import { getMainWindow } from './window';
+import { getMainWindow, getRegisteredWindows, getWindowForWebContents } from './window';
 import { setupSessionOnce } from './session-manager';
 import { withTimeout } from '../utils/with-timeout';
 import type { PasswordFillResult } from './password-fill';
@@ -138,6 +139,11 @@ class TabManager {
     const wc = tab?.browserView?.webContents;
     if (!wc || wc.isDestroyed()) return null;
     return wc;
+  }
+
+  /** 条目是否存在（渲染进程崩溃后 browserView 为 null，但条目仍在，关闭仍需生效）。 */
+  hasTab(tabId: string): boolean {
+    return this.tabs.has(tabId);
   }
 
   isTabActive(tabId: string): boolean {
@@ -810,3 +816,30 @@ class TabManager {
 }
 
 export const tabManager = new TabManager();
+
+/**
+ * 多窗口路由辅助（P2；P3 起由真实实例索引替代）。
+ *
+ * - sender 必须是注册窗口的外壳/标签 WebContents；
+ * - tabId 的归属窗口必须等于 sender 窗口，越窗拒绝由 IPC 层完成。
+ */
+export function getTabManagerForSender(wc: Electron.WebContents): TabManager | undefined {
+  const win = getWindowForWebContents(wc);
+  if (!win) return undefined;
+  // P2 仍只有一个 manager，它只服务首个窗口；其余窗口必须等 P3 的实例化，
+  // 否则会把标签建到错误窗口（串窗）。
+  const primary = getRegisteredWindows()[0];
+  return primary && primary.id === win.id ? tabManager : undefined;
+}
+
+export function getTabManagerForTabId(tabId: string): TabManager | undefined {
+  return tabManager.hasTab(tabId) ? tabManager : undefined;
+}
+
+export function getTabOwnerWindow(tabId: string): BrowserWindow | null {
+  const wc = tabManager.getWebContents(tabId);
+  if (wc) return getWindowForWebContents(wc);
+  // 崩溃后的标签没有 WebContents：P2 单实例只能回落到首个窗口；
+  // P3 改为 "tabId → manager → manager 所属窗口"。
+  return tabManager.hasTab(tabId) ? getRegisteredWindows()[0] ?? null : null;
+}

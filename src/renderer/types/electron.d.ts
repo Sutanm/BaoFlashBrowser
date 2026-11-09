@@ -2,7 +2,7 @@ import type {
   ShortcutAction, TabUpdatedPayload, DownloadProgressPayload, NewWindowPayload,
   TabFoundPayload, TabLoadErrorPayload, TabCrashedPayload,
   Aria2StatusPayload, PasswordCapturedPayload, PasswordChangedPayload, PasswordFilledPayload,
-  RuffleDiagnosticPayload,
+  RuffleDiagnosticPayload, WindowContextPayload,
 } from '@shared/types/ipc';
 import type {
   KeyRetryResult, PasswordStoreStatus, RebuildVaultResult, RevealPasswordResult,
@@ -152,6 +152,11 @@ declare global {
       invoke(channel: 'theme:set-source', source: 'system' | 'light' | 'dark'): Promise<void>;
       invoke(channel: 'win:setFullscreen', fullscreen: boolean): Promise<void>;
       invoke(channel: 'win:isMaximized'): Promise<boolean>;
+      invoke(channel: 'win:get-context'): Promise<WindowContextPayload>;
+      invoke(channel: 'win:new-window', payload?: {
+        url?: string;
+        bounds?: { x?: number; y?: number; width?: number; height?: number };
+      }): Promise<{ windowKey: string }>;
       invoke(channel: 'screenshot:capture', payload: { tabId: string } & ScreenshotOptions): Promise<ScreenshotResult>;
       invoke(channel: 'screenshot:capture-active', payload: ScreenshotOptions): Promise<ScreenshotResult>;
       invoke(channel: 'screenshot:reveal', payload: { filePath: string }): Promise<{ success: boolean; code?: string; error?: string }>;
@@ -292,6 +297,8 @@ declare global {
         setFullscreen(fullscreen: boolean): Promise<void>;
         toggleFullscreen(): Promise<void>;
         isMaximized(): Promise<boolean>;
+        getContext(): Promise<WindowContextPayload>;
+        newWindow(options?: { url?: string; bounds?: { x?: number; y?: number; width?: number; height?: number } }): Promise<{ windowKey: string }>;
       };
 
       userscripts: {
