@@ -6,7 +6,7 @@ import { normalizeUrl, generateId } from '../services/id.service';
 import type { TabState } from '../store/useTabsStore';
 import type { HistoryEntry } from '@shared/types/history';
 import { db, loadMeta, saveMeta } from '../services/db';
-import { createTabSession, createTabSessionSignature, selectCrashRecoverySession, TAB_SESSION_META_KEY } from '../services/tab-session';
+import { createTabSession, createTabSessionSignature, planLegacySessionMigration, selectCrashRecoverySession, TAB_SESSION_META_KEY, tabSessionKey } from '../services/tab-session';
 import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
 import { isTabEligibleForSuspension } from '../services/tab-suspension';
 import { PendingHistoryRegistry } from '../services/pending-history';
@@ -44,6 +44,8 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const setActiveTabId = useTabsStore((s) => s.setActiveTabId);
   const [addressUrl, setAddressUrl] = useState('');
   const [sessionReady, setSessionReady] = useState(false);
+  /** P5：本窗口的会话快照 key（	ab-session:<windowKey>；拿不到上下文时退回旧全局 key）。 */
+  const sessionKeyRef = useRef<string>(TAB_SESSION_META_KEY);
   const recordHistory = useDataStore((s) => s.recordHistory);
   const updateHistoryByUrl = useDataStore((s) => s.updateHistoryByUrl);
   const tabsRef = useRef(tabs);
@@ -344,8 +346,36 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
 
     void (async () => {
       try {
+        // 多窗口 P5：先拿窗口上下文，再决定快照 key；旧全局 key 只由 primary 窗口认领。
+        let windowContext: { windowKey: string; isPrimary: boolean } | null = null;
+        try {
+          windowContext = await window.electronAPI.win.getContext();
+        } catch { /* 拿不到上下文时退回旧全局 key */ }
+        const sessionKey = windowContext?.windowKey ? tabSessionKey(windowContext.windowKey) : TAB_SESSION_META_KEY;
+        sessionKeyRef.current = sessionKey;
+        if (windowContext?.windowKey) {
+          try {
+            const [legacySnapshot, ownSnapshot] = await Promise.all([
+              loadMeta(TAB_SESSION_META_KEY),
+              loadMeta(sessionKey),
+            ]);
+            const plan = planLegacySessionMigration({
+              windowKey: windowContext.windowKey,
+              isPrimary: windowContext.isPrimary === true,
+              hasShardedSession: Boolean(ownSnapshot),
+              legacyExists: Boolean(legacySnapshot),
+            });
+            if (plan && legacySnapshot) {
+              await saveMeta(plan.toKey, legacySnapshot);
+              await db.meta.delete(plan.fromKey).catch(() => {});
+            }
+          } catch (error) {
+            console.warn('[Tabs] legacy session migration failed:', error);
+          }
+        }
+
         const [rawSession, storedSettings, recoveryStatus] = await Promise.all([
-          loadMeta(TAB_SESSION_META_KEY),
+          loadMeta(sessionKey),
           db.settingsSingleton.get('default'),
           window.electronAPI.session.recoveryStatus(),
         ]);
@@ -353,7 +383,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         const restoredRuffleSource = storedSettings?.ruffleSource || useDataStore.getState().settings.ruffleSource;
         const snapshot = selectCrashRecoverySession(rawSession, recoveryStatus.abnormalExit, restoreEnabled);
         if (!snapshot) {
-          await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});
+          await db.meta.delete(sessionKeyRef.current).catch(() => {});
           await window.electronAPI.session.resolveRecovery().catch(() => {});
           createTab();
           setSessionReady(true);
@@ -368,7 +398,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         const ignoreRecovery = async () => {
           if (choiceHandled) return;
           choiceHandled = true;
-          await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});
+          await db.meta.delete(sessionKeyRef.current).catch(() => {});
           await window.electronAPI.session.resolveRecovery().catch(() => {});
           setSessionReady(true);
         };
@@ -400,7 +430,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
             createTab();
             pushToast({ key: 'session-restore-failed', message: LLRef.current.session.restoreFailed(), type: 'error' });
           } finally {
-            await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});
+            await db.meta.delete(sessionKeyRef.current).catch(() => {});
             await window.electronAPI.session.resolveRecovery().catch(() => {});
             setSessionReady(true);
           }
@@ -421,7 +451,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         });
       } catch (error) {
         console.warn('[Tabs] session recovery check failed:', error);
-        await db.meta.delete(TAB_SESSION_META_KEY).catch(() => {});
+        await db.meta.delete(sessionKeyRef.current).catch(() => {});
         await window.electronAPI.session.resolveRecovery().catch(() => {});
         if (tabsRef.current.length === 0) createTab();
         setSessionReady(true);
@@ -435,14 +465,15 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   useEffect(() => {
     if (!sessionReady) return;
     const timer = setTimeout(() => {
+      const sessionKey = sessionKeyRef.current;
       if (!settings.restoreSession) {
-        void db.meta.delete(TAB_SESSION_META_KEY);
+        void db.meta.delete(sessionKey);
         return;
       }
       const latest = useTabsStore.getState();
       const snapshot = createTabSession(latest.tabs, latest.activeTabId);
-      if (snapshot) void saveMeta(TAB_SESSION_META_KEY, snapshot);
-      else void db.meta.delete(TAB_SESSION_META_KEY);
+      if (snapshot) void saveMeta(sessionKey, snapshot);
+      else void db.meta.delete(sessionKey);
     }, 1000);
     return () => clearTimeout(timer);
   }, [sessionReady, sessionSignature, settings.restoreSession]);

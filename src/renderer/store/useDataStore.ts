@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db, saveMeta } from '../services/db';
+import { changedSettings, mergeSettings, planFavoriteWrites } from '../services/persistence-merge';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 import type { HistoryEntry } from '@shared/types/history';
 import type { DownloadItem } from '@shared/types/downloads';
@@ -60,10 +61,21 @@ function enqueuePersistence(label: string, operation: () => Promise<void>): void
 // L36: 注入标志 — useLiveQuery 回灌 store 时跳过 db 写入，避免循环
 let skipPersist = false;
 
-async function replaceFavorites(next: BookmarkEntry[]): Promise<void> {
+async function replaceFavorites(previous: BookmarkEntry[], next: BookmarkEntry[]): Promise<void> {
+  const { removedIds, put } = planFavoriteWrites(previous, next);
   await db.transaction('rw', db.favorites, async () => {
-    await db.favorites.clear();
-    if (next.length > 0) await db.favorites.bulkPut(next.map((item, index) => ({ ...item, _idx: index })));
+    if (removedIds.length > 0) await db.favorites.bulkDelete(removedIds);
+    if (put.length > 0) await db.favorites.bulkPut(put);
+  });
+}
+
+/** 只把本窗口真正改过的设置键合并进库，避免覆盖另一个窗口的并发修改。 */
+async function persistSettingsMerge(previous: Settings, next: Settings): Promise<void> {
+  const changed = changedSettings(previous, next);
+  if (Object.keys(changed).length === 0) return;
+  await db.transaction('rw', db.settingsSingleton, async () => {
+    const current = (await db.settingsSingleton.get('default')) ?? next;
+    await db.settingsSingleton.put(mergeSettings(current, changed), 'default');
   });
 }
 
@@ -99,8 +111,9 @@ export const useDataStore = create<DataState>((set, get) => ({
   setFavorites: (f) =>
     set((state) => {
       const next = typeof f === 'function' ? f(state.favorites) : f;
+      const previous = state.favorites;
       if (!skipPersist) {
-        enqueuePersistence('favorites', () => replaceFavorites(next));
+        enqueuePersistence('favorites', () => replaceFavorites(previous, next));
       }
       return { favorites: next };
     }),
@@ -142,13 +155,12 @@ export const useDataStore = create<DataState>((set, get) => ({
 
   setThemeMode: (t) => {
     set((state) => {
+      const previous = state.settings;
       const nextSettings = { ...state.settings, themeMode: t };
       if (!skipPersist) {
         enqueuePersistence('themeMode', async () => {
-          await db.transaction('rw', db.settingsSingleton, db.meta, async () => {
-            await db.settingsSingleton.put(nextSettings, 'default');
-            await saveMeta('themeMode', t);
-          });
+          await persistSettingsMerge(previous, nextSettings);
+          await saveMeta('themeMode', t);
         });
       }
       return { themeMode: t, settings: nextSettings };
@@ -157,9 +169,10 @@ export const useDataStore = create<DataState>((set, get) => ({
 
   setSettings: (s) =>
     set((state) => {
+      const previous = state.settings;
       const next = typeof s === 'function' ? s(state.settings) : s;
       if (!skipPersist) {
-        enqueuePersistence('settings', () => db.settingsSingleton.put(next, 'default').then(() => undefined));
+        enqueuePersistence('settings', () => persistSettingsMerge(previous, next));
       }
       return { settings: next, themeMode: next.themeMode };
     }),

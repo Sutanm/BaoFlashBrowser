@@ -91,3 +91,27 @@ export function selectCrashRecoverySession(
   if (!abnormalExit || !recoveryEnabled) return null;
   return sanitizeTabSession(value);
 }
+
+/**
+ * 多窗口 P5：会话快照按窗口 key 分片。
+ * 旧全局 key 只在 primary 窗口、且该窗口尚无可分片快照时认领一次。
+ */
+export function tabSessionKey(windowKey: string): string {
+  return `tab-session:${windowKey}`;
+}
+
+export interface SessionMigrationPlan {
+  migrate: true;
+  fromKey: string;
+  toKey: string;
+}
+
+export function planLegacySessionMigration(input: {
+  windowKey: string;
+  isPrimary: boolean;
+  hasShardedSession: boolean;
+  legacyExists: boolean;
+}): SessionMigrationPlan | null {
+  if (!input.isPrimary || !input.legacyExists || input.hasShardedSession || !input.windowKey) return null;
+  return { migrate: true, fromKey: TAB_SESSION_META_KEY, toKey: tabSessionKey(input.windowKey) };
+}

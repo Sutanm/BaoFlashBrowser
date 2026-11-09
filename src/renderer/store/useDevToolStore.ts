@@ -14,9 +14,21 @@ const HEIGHT_STORAGE_KEY = 'devtoolbox.height';
 const WIDTH_STORAGE_KEY = 'devtoolbox.width';
 const DOCK_STORAGE_KEY = 'devtoolbox.dock';
 
+/**
+ * 多窗口 P5：抽屉布局按窗口 key 分片。
+ * 旧单键（devtoolbox.height/width/dock）保持兼容；拿到 windowKey 后改为
+ * `<windowKey>:devtoolbox.*`，并立刻从新作用域重读一次，避免第二个窗口
+ * 继承前一个窗口的布局。
+ */
+let storageScope = '';
+
+function scopedKey(base: string): string {
+  return storageScope ? `${storageScope}:${base}` : base;
+}
+
 function readStoredHeight(): number | null {
   try {
-    const raw = window.localStorage.getItem(HEIGHT_STORAGE_KEY);
+    const raw = window.localStorage.getItem(scopedKey(HEIGHT_STORAGE_KEY));
     if (!raw) return null;
     const value = Number.parseInt(raw, 10);
     return Number.isFinite(value) && value > 0 ? value : null;
@@ -32,7 +44,7 @@ function persistHeight(height: number): void {
   persistTimer = window.setTimeout(() => {
     persistTimer = null;
     try {
-      window.localStorage.setItem(HEIGHT_STORAGE_KEY, String(Math.round(height)));
+      window.localStorage.setItem(scopedKey(HEIGHT_STORAGE_KEY), String(Math.round(height)));
     } catch {
       // 存储被禁用时忽略：高度只是展示偏好
     }
@@ -41,7 +53,7 @@ function persistHeight(height: number): void {
 
 function readStoredWidth(): number | null {
   try {
-    const raw = window.localStorage.getItem(WIDTH_STORAGE_KEY);
+    const raw = window.localStorage.getItem(scopedKey(WIDTH_STORAGE_KEY));
     if (!raw) return null;
     const value = Number.parseInt(raw, 10);
     return Number.isFinite(value) && value > 0 ? value : null;
@@ -57,7 +69,7 @@ function persistWidth(width: number): void {
   persistWidthTimer = window.setTimeout(() => {
     persistWidthTimer = null;
     try {
-      window.localStorage.setItem(WIDTH_STORAGE_KEY, String(Math.round(width)));
+      window.localStorage.setItem(scopedKey(WIDTH_STORAGE_KEY), String(Math.round(width)));
     } catch {
       // 同上
     }
@@ -66,7 +78,7 @@ function persistWidth(width: number): void {
 
 function readStoredDock(): DevToolDock {
   try {
-    const raw = window.localStorage.getItem(DOCK_STORAGE_KEY);
+    const raw = window.localStorage.getItem(scopedKey(DOCK_STORAGE_KEY));
     if (raw === 'bottom' || raw === 'left' || raw === 'right' || raw === 'undocked') return raw;
   } catch {
     // 忽略
@@ -173,7 +185,7 @@ export const useDevToolStore = create<DevToolState>((set) => ({
   },
   setDock: (dock) => {
     try {
-      window.localStorage.setItem(DOCK_STORAGE_KEY, dock);
+      window.localStorage.setItem(scopedKey(DOCK_STORAGE_KEY), dock);
     } catch {
       // 忽略
     }
@@ -197,3 +209,30 @@ export const useDevToolStore = create<DevToolState>((set) => ({
 
 export const DEVTOOL_MIN_HEIGHT = MIN_HEIGHT;
 export const DEVTOOL_MIN_WIDTH = MIN_WIDTH;
+
+// ---------------------------------------------------------------------------
+// 多窗口 P5：抽屉布局按窗口 key 分片。
+// 旧单键（devtoolbox.height/width/dock）保持兼容；拿到 windowKey 后改为
+// `<windowKey>:devtoolbox.*`，并立刻从新作用域重读一次，避免第二个窗口
+// 继承前一个窗口的布局。
+// ---------------------------------------------------------------------------
+export function getDevToolStorageScope(): string {
+  return storageScope;
+}
+
+export function setDevToolStorageScope(scope: string): void {
+  const next = String(scope || '').trim();
+  if (next === storageScope) return;
+  storageScope = next;
+  useDevToolStore.setState((state) => {
+    const dock = readStoredDock();
+    const height = readStoredHeight();
+    const width = readStoredWidth();
+    return {
+      height: height === null ? state.height : clampDrawerHeight(height),
+      width: width === null ? state.width : clampDrawerWidth(width),
+      dock,
+      lastEmbeddedDock: dock === 'undocked' ? 'bottom' : dock,
+    };
+  });
+}

@@ -5,7 +5,7 @@ import { isSidebarPanel, SIDEBAR_WIDTH } from './components/layout/DrawerSidebar
 import NewTabPage from './components/newtab/NewTabPage';
 import FindBar from './components/overlays/FindBar';
 import DevToolDrawer from './components/devtools/DevToolDrawer';
-import { useDevToolStore } from './store/useDevToolStore';
+import { setDevToolStorageScope, useDevToolStore } from './store/useDevToolStore';
 import { useShortcut } from './hooks/useShortcut';
 import { useTheme } from './hooks/useTheme';
 import { useTabManager } from './hooks/useTabManager';
@@ -171,6 +171,13 @@ const AppInner: React.FC = () => {
   // --- Download listener hook ---
   useDownloadListener();
   usePasswordListener();
+
+  // 多窗口 P5：抽屉布局按窗口 key 分片（拿到上下文后重读本窗口的值）。
+  useEffect(() => {
+    void window.electronAPI.win.getContext().then((context) => {
+      if (context?.windowKey) setDevToolStorageScope(context.windowKey);
+    }).catch(() => { /* 拿不到上下文时保持旧的全局布局 */ });
+  }, []);
 
   // --- Keyboard shortcuts ---
   useShortcut((action) => {
