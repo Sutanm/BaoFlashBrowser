@@ -613,7 +613,7 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 - 实施阶段新增（编号 45/46 已被既有 devtools 探针占用，顺延）：
   - `probes/50-tab-manager-routing.cjs`：双窗口 TabManager 事件归属（**可选**；P3 已由 `tests/tab-manager-routing.test.ts` 覆盖，若需要真实 Electron 版本在 P7 补）
   - `probes/51-tab-transfer.cjs`：真实 TabManager 实例间迁移（**已落地**：打包生产 tabs.ts，验证 wc/pid 不变、索引迁移、标题事件路由；独立运行 OK）
-  - `probes/47-flash-tear-off.cjs`：PPAPI BrowserView 迁移后仍出帧（`capturePage` 非空白）+ 页面 JS 状态保留（P7 前）
+  - `probes/47-flash-tear-off.cjs`：PPAPI BrowserView 迁移后仍出帧（**已落地**：子进程带 `ppapi-flash-*` 启动，验证 embed 加载、迁移前后 capturePage 非纯色、wc/pid 与尺寸不变）
   - `probes/48-cross-window-drag.cjs`：指针离开源窗口后仍收到 `pointermove`/`pointerup`（P7 前；失败则走 native 钩子降级）
   - `probes/49-routing-smoke.cjs`：窗口标题 / zoom 全局热键 / `ui:toast` / 对话框属主 按窗口路由（P6 后）
 
@@ -809,3 +809,4 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | P7-2d | `3dd358b` | unit 161 文件 / 1059 例；typecheck、build:main、test:electron | 拖拽 UI 无组件级测试（仓库无夹具），由 P8 手工清单 9-12 项覆盖；probe 47/48/51 待 P8 前补 |
 | P8 | `e888244` + `5e14a37` | hydration gating（2 例）；unit 162 文件 / 1061 例；typecheck；build:main；test:electron；probe:deep 23/23；test:e2e 9/9；test:smokes ALL PASS | 全仓 lint 仍为生成物既有 8 错；probe 47/48/51 未编写（48 需真机）；8.3 手工清单待真人 |
 | P8-补 | `5e14a37` 后续 | probe 51（真实 TabManager 迁移，独立运行 OK）；tear-off 超时分支改为取消并关窗；unit 162 文件 / 1061 例、typecheck、build:main | 全量 `probe:deep` 跑到 51 时本机 watchdog 超时（45/46/51 组合单跑 OK，判定为探针进程累积抖动）；probe 47/48 与手工清单仍待 |
+| P8-补2 | 本轮 | probe 47（PPAPI 迁移出帧）子进程实现并通过；probe 51 独立/组合运行通过 | probe 48（跨窗口拖拽 OS 捕获）仍只能真机/手工；全量 probe:deep 中 47/51 附近有进程抖动风险（建议分批跑）；8.3 手工清单待真人 |
