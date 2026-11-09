@@ -1,10 +1,16 @@
 import React from 'react';
+import { History } from 'lucide-react';
 import { useI18nContext } from '../../i18n/i18n-react';
 import type { AutomationWorkbench } from './useAutomationWorkbench';
 
-type Props = Pick<AutomationWorkbench, 'notice' | 'detail' | 'dirty'>;
+type Props = Pick<AutomationWorkbench, 'notice' | 'detail' | 'dirty' | 'openHistory' | 'running'>;
 
-export function AutomationStatusBar({ notice, detail, dirty }: Props): React.JSX.Element {
+export function AutomationStatusBar({
+  notice,
+  detail,
+  dirty,
+  openHistory,
+}: Props): React.JSX.Element {
   const { LL } = useI18nContext();
   const t = LL.automationWorkbench;
   return (
@@ -16,6 +22,14 @@ export function AutomationStatusBar({ notice, detail, dirty }: Props): React.JSX
       </span>
       <span>{t.assetCount()}{detail?.assets.length ?? 0}</span>
       <span>{dirty ? t.unsaved() : t.saved()}</span>
+      <button
+        type="button"
+        className="awb-history-open"
+        onClick={() => void openHistory()}
+        title={t.runHistory()}
+      >
+        <History size={14} /> {t.runHistory()}
+      </button>
     </footer>
   );
 }

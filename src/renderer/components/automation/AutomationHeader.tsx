@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Play, Plus, Save, Square, Trash2, Upload, Workflow } from 'lucide-react';
+import { Download, History, Play, Plus, Save, Square, Trash2, Upload, Workflow } from 'lucide-react';
 import { useI18nContext } from '../../i18n/i18n-react';
 import type { AutomationWorkbench } from './useAutomationWorkbench';
 
@@ -23,6 +23,7 @@ type Props = Pick<
   | 'runMain'
   | 'save'
   | 'createPackageDraft'
+  | 'openHistory'
 >;
 
 export function AutomationHeader({
@@ -44,6 +45,7 @@ export function AutomationHeader({
   runMain,
   save,
   createPackageDraft,
+  openHistory,
 }: Props): React.JSX.Element {
   const { LL } = useI18nContext();
   const t = LL.automationWorkbench;
@@ -99,6 +101,10 @@ export function AutomationHeader({
         >
           <Trash2 />
           {t.deletePackageLabel()}
+        </button>
+        <button onClick={() => void openHistory()} title={t.runHistory()}>
+          <History />
+          {t.runHistory()}
         </button>
         {running ? (
           <button onClick={() => void stop()}>

@@ -19,6 +19,7 @@ describe('Automation 2.0 sidebar entry', () => {
         automationV3: {
           listPackages: vi.fn().mockResolvedValue([]),
           status: vi.fn().mockResolvedValue({ state: 'idle' }),
+          onChanged: vi.fn(() => () => {}),
         },
       },
     });

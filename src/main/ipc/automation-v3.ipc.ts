@@ -49,6 +49,26 @@ function retainTestScene(image: NativeImage, name: string) {
   return { token, name, dataUrl: preview.toDataURL(), previewWidth: previewSize.width, previewHeight: previewSize.height, sourceWidth: source.width, sourceHeight: source.height };
 }
 
+// 变更类操作成功后广播一次，让侧边栏面板与工作台共享同一份数据视图
+// （与 userscripts:changed 同构：主进程是唯一权威，渲染层收到信号后重新查询）。
+function broadcastAutomationChanged(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('automation-v3:changed');
+  }
+}
+
+function createMutationHandler<S extends z.ZodTypeAny, R>(
+  channel: string,
+  schema: S,
+  fn: (args: z.infer<S>) => R | Promise<R>,
+): void {
+  createValidatedHandler(channel, schema, async (args) => {
+    const result = await fn(args);
+    broadcastAutomationChanged();
+    return result;
+  });
+}
+
 export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): AutomationV3Service {
   const repository = new AutomationPackageV3Repository(path.join(app.getPath('userData'), 'automation-v3', 'packages'));
   const service = new AutomationV3Service(repository, new JavaScriptAutomationGrantStore(path.join(app.getPath('userData'), 'automation-v3', 'grants.json')));
@@ -57,19 +77,26 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
   createValidatedHandler('automation-v3:show-assistant', z.object({ tabId }).strict(), ({ tabId: target }) => tabManager.inspectAutomationTarget(target, async (wc) => { wc.send('automation-assistant:show'); return { shown: true }; }));
   createValidatedHandler('automation-v3:list', z.object({}).optional(), () => service.listPackages());
   createValidatedHandler('automation-v3:status', z.object({}).optional(), () => service.status());
+  createValidatedHandler('automation-v3:list-persisted-run-logs', z.object({}).optional(), () => service.listPersistedRunLogs());
+  createValidatedHandler('automation-v3:read-persisted-run-log', z.object({ name: z.string().max(160) }).strict(), ({ name }) => service.readPersistedRunLog(name));
+  createValidatedHandler('automation-v3:open-persisted-run-log', z.object({ name: z.string().max(160) }).strict(), async ({ name }) => {
+    const error = await service.openPersistedRunLog(name);
+    if (error) throw new Error(error);
+    return { opened: true as const };
+  });
   createValidatedHandler('automation-v3:get', z.object({ packageId: id }).strict(), ({ packageId }) => service.getPackage(packageId));
-  createValidatedHandler('automation-v3:create', z.object({ id, name }).strict(), (input) => service.createPackage(input.id, input.name));
+  createMutationHandler('automation-v3:create', z.object({ id, name }).strict(), (input) => service.createPackage(input.id, input.name));
   createValidatedHandler('automation-v3:validate-workflow', z.object({ workflow: z.unknown() }).strict(), ({ workflow }) => {
     try { validateWorkflowDocument(workflow as WorkflowDocumentV3); return { valid: true as const, workflow: workflow as WorkflowDocumentV3 }; }
     catch (error) { return { valid: false as const, issues: [{ path: '', message: error instanceof Error ? error.message : String(error) }] }; }
   });
-  createValidatedHandler('automation-v3:update-workflow', z.object({ packageId: id, workflow: z.unknown() }).strict(), ({ packageId, workflow }) => service.updateWorkflow(packageId, workflow as WorkflowDocumentV3));
-  createValidatedHandler('automation-v3:upsert-script', z.object({
+  createMutationHandler('automation-v3:update-workflow', z.object({ packageId: id, workflow: z.unknown() }).strict(), ({ packageId, workflow }) => service.updateWorkflow(packageId, workflow as WorkflowDocumentV3));
+  createMutationHandler('automation-v3:upsert-script', z.object({
     packageId: id, id, name, source: z.string().max(512 * 1024), language: z.enum(['javascript', 'typescript']).optional(), permissions: z.array(z.enum(JAVASCRIPT_AUTOMATION_CAPABILITIES as [string, ...string[]])).max(JAVASCRIPT_AUTOMATION_CAPABILITIES.length),
   }).strict(), (input) => service.upsertScript(input as Parameters<AutomationV3Service['upsertScript']>[0]));
-  createValidatedHandler('automation-v3:delete-script', z.object({ packageId: id, scriptId: id }).strict(), ({ packageId, scriptId }) => service.removeScript(packageId, scriptId));
-  createValidatedHandler('automation-v3:set-main-entry', z.object({ packageId: id, entryId: id }).strict(), ({ packageId, entryId }) => service.setMainEntry(packageId, entryId));
-  createValidatedHandler('automation-v3:delete', z.object({ packageId: id }).strict(), async ({ packageId }) => { await service.remove(packageId); return { success: true as const }; });
+  createMutationHandler('automation-v3:delete-script', z.object({ packageId: id, scriptId: id }).strict(), ({ packageId, scriptId }) => service.removeScript(packageId, scriptId));
+  createMutationHandler('automation-v3:set-main-entry', z.object({ packageId: id, entryId: id }).strict(), ({ packageId, entryId }) => service.setMainEntry(packageId, entryId));
+  createMutationHandler('automation-v3:delete', z.object({ packageId: id }).strict(), async ({ packageId }) => { await service.remove(packageId); return { success: true as const }; });
   createValidatedHandler('automation-v3:open', z.object({ title: z.string().optional(), filterName: z.string().optional() }).strict(), async ({ title, filterName }) => {
     const win = getWin() ?? BrowserWindow.getFocusedWindow(); if (!win) throw new Error('No window available');
     const result = await dialog.showOpenDialog(win, { title, properties: ['openFile'], filters: [{ name: filterName ?? 'Bao Automation', extensions: ['baoauto'] }] });
@@ -79,7 +106,7 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
     const token = randomBytes(16).toString('hex'); const timer = setTimeout(() => pending.delete(token), 2 * 60_000); timer.unref(); pending.set(token, { bytes, timer });
     return { canceled: false as const, token, packageId: source.manifest.id, name: source.manifest.name, scripts: source.manifest.frontends.scripts, exists: (await service.listPackages()).some((entry) => entry.packageId === source.manifest.id) };
   });
-  createValidatedHandler('automation-v3:install', z.object({ token: z.string().regex(/^[a-f0-9]{32}$/u), replace: z.boolean().optional(), approvals: z.record(z.array(z.enum(JAVASCRIPT_AUTOMATION_CAPABILITIES as [string, ...string[]]))).optional() }).strict(), async ({ token, replace, approvals }) => {
+  createMutationHandler('automation-v3:install', z.object({ token: z.string().regex(/^[a-f0-9]{32}$/u), replace: z.boolean().optional(), approvals: z.record(z.array(z.enum(JAVASCRIPT_AUTOMATION_CAPABILITIES as [string, ...string[]]))).optional() }).strict(), async ({ token, replace, approvals }) => {
     const item = pending.get(token); if (!item) throw new Error('automation import expired'); clearTimeout(item.timer); pending.delete(token); return service.install(item.bytes, replace, approvals as Record<string, JavaScriptAutomationCapability[]> | undefined);
   });
   createValidatedHandler('automation-v3:export', z.object({ packageId: id, title: z.string().optional(), filterName: z.string().optional() }).strict(), async ({ packageId, title, filterName }) => {
@@ -114,17 +141,21 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
     const result = await dialog.showOpenDialog(win, { title: uiText('导入图片素材', 'Import image assets'), properties: ['openFile', 'multiSelections'], filters: [{ name: uiText('图片素材', 'Image assets'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
     if (result.canceled) return { canceled: true as const };
     const files = await Promise.all(result.filePaths.map(async (filePath) => ({ name: path.basename(filePath), bytes: new Uint8Array(await fs.promises.readFile(filePath)) })));
-    return { canceled: false as const, detail: await service.importAssets(packageId, files) };
+    const detail = await service.importAssets(packageId, files);
+    broadcastAutomationChanged();
+    return { canceled: false as const, detail };
   });
   createValidatedHandler('automation-v3:import-asset-folder', z.object({ packageId: id }).strict(), async ({ packageId }) => {
     const win = getWin() ?? BrowserWindow.getFocusedWindow(); if (!win) throw new Error('No window available');
     const result = await dialog.showOpenDialog(win, { title: uiText('导入图片组文件夹', 'Import image group folder'), properties: ['openDirectory'] });
     if (result.canceled || !result.filePaths[0]) return { canceled: true as const };
-    return { canceled: false as const, detail: await service.importAssets(packageId, await readImageDirectory(result.filePaths[0])) };
+    const detail = await service.importAssets(packageId, await readImageDirectory(result.filePaths[0]));
+    broadcastAutomationChanged();
+    return { canceled: false as const, detail };
   });
-  createValidatedHandler('automation-v3:delete-asset', z.object({ packageId: id, asset: z.string().min(1).max(512) }).strict(), ({ packageId, asset }) => service.deleteAsset(packageId, asset));
+  createMutationHandler('automation-v3:delete-asset', z.object({ packageId: id, asset: z.string().min(1).max(512) }).strict(), ({ packageId, asset }) => service.deleteAsset(packageId, asset));
   createValidatedHandler('automation-v3:capture-asset-frame', z.object({ packageId: id, tabId }).strict(), ({ packageId, tabId: targetTabId }) => service.captureAssetFrame(packageId, targetTabId));
-  createValidatedHandler('automation-v3:save-captured-asset', z.object({
+  createMutationHandler('automation-v3:save-captured-asset', z.object({
     packageId: id, token: z.string().regex(/^[a-f0-9]{32}$/u), assetName: z.string().min(1).max(180),
     rect: z.object({ x: z.number().min(0), y: z.number().min(0), width: z.number().min(1), height: z.number().min(1) }).strict(), overwrite: z.boolean().optional(),
   }).strict(), ({ packageId, token, assetName, rect, overwrite }) => service.saveCapturedAsset(packageId, token, assetName, rect, overwrite));

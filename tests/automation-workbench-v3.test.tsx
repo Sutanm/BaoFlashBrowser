@@ -31,6 +31,7 @@ describe('Automation 2.0 workbench creation', () => {
           getPackage,
           createPackage,
           status: vi.fn().mockResolvedValue({ state: 'idle', executedSteps: 0, logs: [] }),
+          onChanged: vi.fn(() => () => {}),
         },
         tab: { activate: vi.fn() },
       },

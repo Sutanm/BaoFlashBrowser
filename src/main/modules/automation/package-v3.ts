@@ -3,7 +3,9 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { validateWorkflowDocument } from '../../../shared/automation/core/workflow-validator';
 import { validateSurfaceSpec } from '../../../shared/automation/core/surface';
 import { JAVASCRIPT_AUTOMATION_CAPABILITIES } from '../../../shared/automation/javascript-grants';
+import { AUTOMATION_BUDGET_CEILING } from '../../../shared/automation/package-v3';
 import type {
+  AutomationBudgetV3,
   AutomationPackageManifestV3,
   AutomationPackageV3,
   AutomationProfileV3,
@@ -61,6 +63,25 @@ function parseScript(value: unknown): AutomationV3ScriptEntry {
   return { id: String(entry.id), name: entry.name, path: entry.path as AutomationV3ScriptEntry['path'], language, permissions: [...new Set(entry.permissions)] as AutomationV3ScriptEntry['permissions'] };
 }
 
+function parseBudget(value: unknown): AutomationBudgetV3 | undefined {
+  if (value === undefined) return undefined;
+  const limits = object(value, 'manifest limits');
+  const keys = ['maxCalls', 'maxWallTimeMs', 'maxExecutedNodes', 'maxLoopIterations'] as const;
+  const parsed: Partial<Record<(typeof keys)[number], number>> = {};
+  for (const key of Object.keys(limits)) {
+    if (!(keys as readonly string[]).includes(key)) throw new AutomationPackageV3Error('PACKAGE_INVALID', `manifest limits has an unknown field: ${key}`);
+  }
+  for (const key of keys) {
+    const raw = limits[key];
+    if (raw === undefined) continue;
+    const ceiling = AUTOMATION_BUDGET_CEILING[key];
+    if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 1) throw new AutomationPackageV3Error('PACKAGE_INVALID', `manifest limits.${key} must be a positive integer`);
+    if (raw > ceiling) throw new AutomationPackageV3Error('PACKAGE_INVALID', `manifest limits.${key} exceeds ceiling ${ceiling}`);
+    parsed[key] = raw;
+  }
+  return Object.keys(parsed).length ? (parsed as AutomationBudgetV3) : undefined;
+}
+
 function parseAssetMetadata(value: unknown): Readonly<Record<string, AutomationAssetMetadataV3>> | undefined {
   if (value === undefined) return undefined;
   const entries = object(value, 'manifest assetMetadata');
@@ -110,6 +131,7 @@ export function parseAutomationPackageManifestV3(value: unknown): AutomationPack
     description: typeof manifest.description === 'string' ? manifest.description : undefined,
     frontends: { workflow: frontends.workflow as 'workflow.json' | undefined, scripts, mainEntryId },
     features: [...new Set(manifest.features)] as AutomationPackageManifestV3['features'],
+    limits: parseBudget(manifest.limits),
     assetMetadata: parseAssetMetadata(manifest.assetMetadata),
     integrity: integrity as Record<string, string>,
   };

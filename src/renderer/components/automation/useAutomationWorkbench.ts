@@ -70,9 +70,16 @@ export function useAutomationWorkbench() {
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState<string>(t.automationCoreReady());
+  /** 落盘历史运行日志列表（新→旧），打开历史抽屉时拉取。 */
+  const [persistedRunLogs, setPersistedRunLogs] = useState<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>>([]);
+  /** 当前查看的落盘日志条目；null 表示抽屉里还没选中任何一次运行。 */
+  const [persistedLogEntries, setPersistedLogEntries] = useState<Array<{ timestamp: number; level: 'info' | 'success' | 'error'; message: string; system?: boolean }> | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [dialog, setDialog] = useState<AutomationDialog>();
   const runnableTabs = tabs.filter((tab) => /^(https?|file):/iu.test(tab.url));
   const [targetTabId, setTargetTabId] = useState('');
+  const [currentLogFile, setCurrentLogFile] = useState<string | null>(null);
+  const currentPersistedRunLog = currentLogFile ?? null;
 
   const showError = (error: unknown): void =>
     setNotice(localizeAutomationMessage(error instanceof Error ? error.message : String(error), locale));
@@ -123,6 +130,25 @@ export function useAutomationWorkbench() {
   useEffect(() => {
     void refresh().catch(showError);
   }, []);
+  // 与侧边栏面板共享同一份数据视图：主进程在包/脚本/素材变更后广播。这里只刷新
+  // 包列表，不整体重载详情，避免覆盖工作台里正在编辑的内容；当前包被删除时回退。
+  const syncRef = useRef({ packageId: '', dirty: false });
+  useEffect(() => {
+    syncRef.current = { packageId: detail?.packageId ?? '', dirty };
+  }, [detail?.packageId, dirty]);
+  useEffect(() => {
+    const off = api.onChanged(() => {
+      void (async () => {
+        const list = await api.listPackages();
+        setPackages(list);
+        const current = syncRef.current;
+        if (!list.some((item) => item.packageId === current.packageId)) {
+          await load(list[0]?.packageId ?? '');
+        }
+      })().catch(showError);
+    });
+    return off;
+  }, [api, load]);
   useEffect(() => {
     setTargetTabId((current) => runnableTabs.some((tab) => tab.id === current)
       ? current
@@ -219,6 +245,39 @@ export function useAutomationWorkbench() {
     await api.cancel();
     setRunning(false);
     setNotice(t.stopped());
+  };
+  /** 打开历史抽屉并拉取落盘日志列表；文件名来自白名单接口，防目录穿越。 */
+  const openHistory = async (): Promise<void> => {
+    setHistoryOpen(true);
+    try {
+      const logs = await window.electronAPI.automationV3.listPersistedRunLogs();
+      setPersistedRunLogs(logs);
+    } catch (error) {
+      showError(error);
+    }
+  };
+  /** 读取某次落盘运行的完整日志条目；文件名白名单校验交给主进程，防目录穿越。 */
+  const openPersistedRunLog = async (name: string): Promise<void> => {
+    try {
+      setCurrentLogFile(name);
+      const entries = await window.electronAPI.automationV3.readPersistedRunLog(name);
+      setPersistedLogEntries(entries);
+    } catch (error) {
+      setCurrentLogFile(null);
+      setPersistedLogEntries(null);
+      showError(error);
+    }
+  };
+  /** 用系统默认程序打开落盘日志文件。 */
+  const openPersistedRunLogFile = async (name: string): Promise<void> => {
+    try { await window.electronAPI.automationV3.openPersistedRunLog(name); }
+    catch (error) { showError(error); }
+  };
+  /** 关闭历史抽屉并清空当前查看的落盘日志条目。 */
+  const closeHistory = (): void => {
+    setHistoryOpen(false);
+    setPersistedLogEntries(null);
+    setCurrentLogFile(null);
   };
   const importPackage = async (): Promise<void> => {
     setBusy(true);
@@ -489,6 +548,14 @@ export function useAutomationWorkbench() {
     busy,
     running,
     notice,
+    historyOpen,
+    persistedRunLogs,
+    persistedLogEntries,
+    currentPersistedRunLog,
+    openHistory,
+    closeHistory,
+    openPersistedRunLog,
+    openPersistedRunLogFile,
     dialog,
     setDialog,
     runnableTabs,

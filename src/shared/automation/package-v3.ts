@@ -9,6 +9,33 @@ export type AutomationV3ScriptEntry = {
   readonly permissions: readonly JavaScriptAutomationCapability[];
 };
 
+/**
+ * 包可显式声明的运行预算。缺省的字段一律沿用平台默认值
+ * （10,000 次调用 / 30 分钟），所以旧包的行为不变。
+ *
+ * 长期挂机脚本（例如一次跑 24 小时）需要在这里声明，否则会被默认预算截断。
+ * 声明值受 {@link AUTOMATION_BUDGET_CEILING} 约束，超过上限的包在导入时直接拒绝，
+ * 避免「一个包把沙箱变成无限制执行器」。
+ */
+export type AutomationBudgetV3 = {
+  /** 单次脚本运行的 API 调用上限（默认 10,000）。 */
+  readonly maxCalls?: number;
+  /** 单次运行的墙钟上限，毫秒（默认 30 分钟）。工作流与脚本共用。 */
+  readonly maxWallTimeMs?: number;
+  /** 单次工作流运行最多执行的节点数（默认 100,000）。 */
+  readonly maxExecutedNodes?: number;
+  /** 单次工作流运行中单个循环的最大迭代次数（默认 10,000）。 */
+  readonly maxLoopIterations?: number;
+};
+
+/** 包声明预算的硬上限：写再大也只按这个值生效（实际是导入时拒绝）。 */
+export const AUTOMATION_BUDGET_CEILING: Readonly<Required<AutomationBudgetV3>> = Object.freeze({
+  maxCalls: 20_000_000,
+  maxWallTimeMs: 7 * 24 * 60 * 60 * 1000,
+  maxExecutedNodes: 20_000_000,
+  maxLoopIterations: 20_000_000,
+});
+
 export type AutomationAssetMetadataV3 = {
   readonly source: 'capture';
   readonly reference: {
@@ -35,6 +62,8 @@ export type AutomationPackageManifestV3 = {
     readonly mainEntryId?: 'workflow' | string;
   };
   readonly features: readonly ('workflow' | 'javascript' | 'assets' | 'profiles')[];
+  /** 可选：包声明的运行预算，缺省字段用平台默认值。 */
+  readonly limits?: AutomationBudgetV3;
   /** Optional because externally imported and early v3 assets have no reliable capture reference. */
   readonly assetMetadata?: Readonly<Record<string, AutomationAssetMetadataV3>>;
   readonly integrity: Readonly<Record<string, string>>;

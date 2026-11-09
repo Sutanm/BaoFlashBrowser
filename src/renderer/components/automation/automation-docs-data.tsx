@@ -762,10 +762,10 @@ await bao.notify.show('检测到异常');`}</pre>
             <tr><th>限制项</th><th>默认值</th><th>说明</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>maxCalls</code></td><td>10,000</td><td>单次运行最大 API 调用次数</td></tr>
+            <tr><td><code>maxCalls</code></td><td>10,000</td><td>单次运行最大 API 调用次数（包清单可覆盖）</td></tr>
             <tr><td><code>maxConcurrentCalls</code></td><td>8</td><td>同时进行的最大调用数</td></tr>
             <tr><td><code>deadlineMs</code></td><td>30,000</td><td>单次 API 调用超时（30 秒）</td></tr>
-            <tr><td><code>timeoutMs</code></td><td>1,800,000</td><td>脚本最大运行时间（30 分钟）</td></tr>
+            <tr><td><code>timeoutMs</code></td><td>1,800,000</td><td>脚本最大运行时间（30 分钟，包清单可覆盖）</td></tr>
             <tr><td><code>maxSourceBytes</code></td><td>524,288</td><td>脚本源码最大体积（512 KB）</td></tr>
             <tr><td><code>maxRequestBytes</code></td><td>65,536</td><td>单次请求最大体积（64 KB）</td></tr>
             <tr><td><code>maxResultBytes</code></td><td>262,144</td><td>单次返回值最大体积（256 KB）</td></tr>
@@ -773,6 +773,14 @@ await bao.notify.show('检测到异常');`}</pre>
             <tr><td><code>maxValueDepth</code></td><td>32</td><td>对象最大嵌套层级</td></tr>
           </tbody>
         </table>
+
+        <h3>包声明预算（长期挂机）</h3>
+        <p>上表是默认值。需要长时间运行的脚本（例如挂机 24 小时）可以在包清单里显式声明预算，覆盖默认的调用次数与运行时长：</p>
+        <pre>{`"limits": {
+  "maxCalls": 2000000,        // 单次脚本运行的 API 调用上限
+  "maxWallTimeMs": 86400000   // 单次运行的墙钟上限（24 小时），工作流与脚本共用
+}`}</pre>
+        <p>可选项还包括 <code>maxExecutedNodes</code>（工作流节点数）与 <code>maxLoopIterations</code>（单个循环迭代数），仅影响 Blockly 工作流。声明的值有硬上限：调用 20,000,000 次、时长 7 天、节点与循环 20,000,000 次；超过上限的包在导入时会被直接拒绝，字段名写错也会报错。未声明时完全沿用默认值，旧包行为不变。</p>
 
         <h3>常见约束范围</h3>
         <table>

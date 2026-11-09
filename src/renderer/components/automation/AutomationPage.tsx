@@ -11,6 +11,7 @@ import { AutomationScriptView } from './AutomationScriptView';
 import { AutomationDocsView } from './AutomationDocsView';
 import { AutomationStatusBar } from './AutomationStatusBar';
 import { AutomationDialogModal } from './AutomationDialogModal';
+import { AutomationRunHistoryDrawer } from './AutomationRunHistoryDrawer';
 import './automation.css';
 
 export default function AutomationPage(): React.JSX.Element {
@@ -51,8 +52,20 @@ export default function AutomationPage(): React.JSX.Element {
           )}
         </main>
       </div>
-      <AutomationStatusBar {...workbench} />
+      <AutomationStatusBar
+        {...workbench}
+        openHistory={workbench.openHistory}
+      />
       {workbench.dialog && <AutomationDialogModal {...workbench} />}
+      <AutomationRunHistoryDrawer
+        historyOpen={workbench.historyOpen}
+        persistedRunLogs={workbench.persistedRunLogs}
+        persistedLogEntries={workbench.persistedLogEntries}
+        openHistory={workbench.openHistory}
+        closeHistory={workbench.closeHistory}
+        openPersistedRunLog={workbench.openPersistedRunLog}
+        openPersistedRunLogFile={workbench.openPersistedRunLogFile}
+      />
     </div>
   );
 }

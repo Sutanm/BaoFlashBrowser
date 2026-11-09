@@ -27,6 +27,112 @@ type Props = Pick<
   | 'showError'
 > & { detail: AutomationDetail };
 
+interface ApiRefEntry {
+  name: string;
+  signature: string;
+}
+interface ApiRefGroup {
+  module: string;
+  permission?: string;
+  entries: ApiRefEntry[];
+}
+
+// 与 automation-docs-data.tsx 的完整文档保持一致的常用签名。
+const API_QUICK_REFERENCE: ApiRefGroup[] = [
+  {
+    module: 'bao.input',
+    permission: 'input',
+    entries: [
+      {
+        name: 'click',
+        signature:
+          "click(target: TargetRef, options?: { button?, count?, timeoutMs?, pollIntervalMs? }): Promise<null>",
+      },
+      {
+        name: 'move',
+        signature: "move(target: TargetRef, options?: { durationMs?, timeoutMs? }): Promise<null>",
+      },
+      {
+        name: 'drag',
+        signature:
+          "drag(options: { from: TargetRef, to: TargetRef, button?, durationMs? }): Promise<null>",
+      },
+    ],
+  },
+  {
+    module: 'bao.vision',
+    permission: 'vision',
+    entries: [
+      {
+        name: 'find',
+        signature: 'find(locator: ImageLocator): Promise<ScriptLocatedTarget | null>',
+      },
+      { name: 'exists', signature: 'exists(locator: LocatorSpec): Promise<boolean>' },
+      {
+        name: 'waitForRegionChange',
+        signature:
+          "waitForRegionChange(region: PersistedRegion, options?: { timeoutMs?, consecutiveFrames?, reference? }): Promise<RegionChangeResult>",
+      },
+      {
+        name: 'waitForColor',
+        signature:
+          "waitForColor(region: PersistedRegion, colors: readonly string[], options?: { timeoutMs?, tolerance? }): Promise<RegionColorResult>",
+      },
+    ],
+  },
+  {
+    module: 'bao.ocr',
+    permission: 'ocr',
+    entries: [
+      {
+        name: 'findText',
+        signature: 'findText(locator: TextLocator): Promise<ScriptLocatedTarget | null>',
+      },
+      {
+        name: 'readText',
+        signature: 'readText(region?: PersistedRegion, minConfidence?): Promise<string>',
+      },
+      {
+        name: 'readNumber',
+        signature: 'readNumber(region?: PersistedRegion, locale?): Promise<number>',
+      },
+    ],
+  },
+  {
+    module: 'bao.page',
+    permission: 'page.read / page.navigate',
+    entries: [
+      { name: 'url', signature: 'url(): Promise<string>' },
+      { name: 'navigate', signature: 'navigate(url: string): Promise<null>' },
+      { name: 'reload', signature: 'reload(): Promise<null>' },
+    ],
+  },
+  {
+    module: 'bao.time',
+    entries: [
+      { name: 'sleep', signature: 'sleep(durationMs: number): Promise<null>' },
+      { name: 'now', signature: 'now(): Promise<number>' },
+    ],
+  },
+  {
+    module: 'bao.log',
+    permission: 'log',
+    entries: [
+      {
+        name: 'debug / info / warn / error',
+        signature: '(message: string): Promise<null>',
+      },
+    ],
+  },
+  {
+    module: 'bao.notify',
+    permission: 'notify',
+    entries: [
+      { name: 'show', signature: 'show(title: string, body?: string): Promise<null>' },
+    ],
+  },
+];
+
 export function AutomationScriptView({
   detail,
   selectedScriptId,
@@ -140,17 +246,24 @@ export function AutomationScriptView({
         <aside className="api-reference">
           <h3>{t.apiQuickReference()}</h3>
           <p>{t.commonSignaturesAreShownHereOpenThe()}</p>
-          {[
-            'bao.input.click(target)',
-            'bao.vision.find(locator)',
-            'bao.vision.waitForRegionChange(region, options)',
-            'bao.vision.waitForColor(region, colors, options)',
-            'bao.ocr.readNumber(region)',
-            'bao.time.sleep(ms)',
-            'bao.log.info(message)',
-          ].map((item) => (
-            <button key={item}>{item}</button>
+          {API_QUICK_REFERENCE.map((group) => (
+            <div key={group.module} className="api-ref-group">
+              <h4>
+                {group.module}
+                {group.permission && <span className="api-ref-perm">{group.permission}</span>}
+              </h4>
+              {group.entries.map((entry) => (
+                <div key={entry.name} className="api-ref-entry">
+                  <code className="api-ref-name">{entry.name}</code>
+                  <code className="api-ref-signature">{entry.signature}</code>
+                </div>
+              ))}
+            </div>
           ))}
+          <button className="api-ref-full-docs" onClick={() => setMode('docs')}>
+            <BookOpen />
+            {t.fullApiDocumentation()}
+          </button>
         </aside>
       </div>
     </section>

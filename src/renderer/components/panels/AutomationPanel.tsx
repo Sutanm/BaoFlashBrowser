@@ -43,6 +43,12 @@ export default function AutomationPanel({ tabId, currentUrl, onOpenUrl }: Automa
   }, [api]);
 
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void api.status().then(setStatus), 1000); return () => window.clearInterval(timer); }, [refresh, api]);
+  // 与工作台共享同一份数据视图：主进程在包/脚本/素材变更后广播，收到即重新查询
+  // （与用户脚本侧边栏的 userscripts.onChanged 同构）。
+  useEffect(() => {
+    const off = api.onChanged(() => void refresh());
+    return off;
+  }, [refresh, api]);
   useEffect(() => { setFrontendId((current) => selected?.frontends.some((entry) => entry.id === current) ? current : selected?.mainEntryId ?? selected?.frontends[0]?.id ?? ''); }, [selected?.packageId, selected?.mainEntryId]);
   useEffect(() => { setSelectedAsset((current) => selected?.assets.includes(current) ? current : selected?.assets[0] ?? ''); }, [selected?.packageId, selected?.assets.join('\n')]);
 
