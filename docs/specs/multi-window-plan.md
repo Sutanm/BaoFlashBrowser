@@ -497,13 +497,13 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 
 ### P6 新建窗口入口与平台行为
 
-- [ ] `second-instance` → `createWindow()`（argv 带 URL 则加载该 URL）
+- [x] `second-instance` → `createWindow()`（argv 带 URL 则加载该 URL）
 - [ ] `Ctrl+N` 接入新建窗口（动作已在 `shortcut.ipc.ts:47`，渲染层 `App.tsx` 未处理）
-- [ ] `Ctrl+Shift+W` 关闭当前窗口
-- [ ] 右键链接菜单增加「在新窗口打开」（`tab:newwindow` 的 `disposition` 需要真正被消费）
-- [ ] 窗口标题跟随活动标签：**在主进程 `tab:updated` 里调用 `win.setTitle()`**（不要只移除 `page-title-updated` 的 `preventDefault`——外壳 document.title 固定为 `'Bao — loaded'`，不会跟随标签）
-- [ ] 新窗口默认地址 = `settings.homepage || about:newtab`（与正常启动一致）
-- [ ] macOS `activate` 重建窗口
+- [x] `Ctrl+Shift+W` 关闭当前窗口
+- [x] 右键链接菜单增加「在新窗口打开」（`tab:newwindow` 的 `disposition` 被消费）
+- [x] 窗口标题跟随活动标签：**在主进程 `tab:updated` 里调用 `win.setTitle()`**（不要只移除 `page-title-updated` 的 `preventDefault`——外壳 document.title 固定为 `'Bao — loaded'`，不会跟随标签）
+- [x] 新窗口默认地址 = `settings.homepage || about:newtab`（与正常启动一致；`initialUrl` 优先）
+- [x] macOS `activate` 重建窗口
 - 改动：`index.ts`、`ipc/shortcut.ipc.ts`、`renderer/App.tsx`、`preload/index.ts`
 - 判据：R1、R4 手工验收通过；标题在两窗口各自跟随
 - 验证：`npm run typecheck`、`npm run lint`
@@ -800,3 +800,4 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | P4b | `3db5749` | `devtoolbox-per-window-{bridge,host,collector,ipc}`（16）；unit 154 文件 / 1036 例；probe:deep 23/23（含 45/46） | 抽屉尺寸/停靠按窗口顺延到 P5（`localStorage` 单键需要 `windowKey`）；probe 46 改为桥工厂（独立桶 0） |
 | P5a | `c932061` | `window-state`（4）+ `session-recovery`（3）；unit 156 文件 / 1043 例；typecheck、build:main、test:electron | 渲染层会话/DB/抽屉分片留到 P5b；probe:deep 在 P5b 完成后统一跑 |
 | P5b | `9113064` | `tab-session-sharding`（2）+ `persistence-merge`（4）+ `devtool-storage-scope`（3）；unit 159 文件 / 1052 例；probe:deep 23/23 | App 在 IndexedDB 水合前仍下发 theme/language（默认值），gating 留到 P6 |
+| P6 | `a9dfb89` | `launch-url`（2）+ title 断言；unit 160 文件 / 1054 例；typecheck、build:main、test:electron | hydration gating（App 水合前 theme/language 推送）仍留待 P7/P8 收尾；P6 未跑 probe:deep（无新的浏览器运行时面） |
