@@ -33,8 +33,12 @@ export async function launchApp(profilePath?: string, showLanguageSelection = fa
       const page = await app.firstWindow();
       await page.locator('#first-run-language, .topbar-tabbar').first().waitFor({ timeout: 15000 });
       if (await page.locator('#first-run-language').isVisible()) {
-        await page.locator('.first-run-dialog button[type="submit"]').click();
+        await page.locator('.first-run-dialog button[type="submit"]').click(); // 语言 → 下一步
+        // 第二步：密码本。系统验证可用时是"启用/暂不启用"，否则是密码框 + 跳过/确认；
+        // 两种形态下"不启用"这条路都挂在 #first-run-vault-skip 上。
+        await page.locator('#first-run-vault-skip').click();
       }
+      await page.locator('.topbar-tabbar').waitFor({ timeout: 15000 });
     } catch (error) {
       await closeApp(app);
       throw error;

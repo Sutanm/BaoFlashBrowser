@@ -9,7 +9,7 @@ import {
 import type {
   SetViewPasswordResult, ViewAuthCode, ViewGuardStatus,
 } from '../../shared/types/passwords';
-import { createWinCredUiBackend } from './view-gate-win';
+import { createWinViewVerifyBackend } from './view-gate-win';
 
 /**
  * view-gate.ts — "查看密码明文"的门禁（规格：docs/superpowers/specs/2026-09-22-view-gate-design.md）。
@@ -70,7 +70,8 @@ export type OsVerifyResult = OsVerifyResultOk | { ok: false; kind: OsVerifyFailu
 
 /** OS 身份验证后端（Windows 由 view-gate-win.ts 提供；darwin/linux 尚未实现 → 无后端）。 */
 export interface OsVerifyBackend {
-  readonly id: 'win-credui';
+  /** `win-hello`=Windows Hello 对话框；`win-credui`=凭据对话框；`win-os`=Hello 优先 + CredUI 兜底。 */
+  readonly id: 'win-credui' | 'win-hello' | 'win-os';
   available(): Promise<boolean>;
   verify(): Promise<OsVerifyResult>;
 }
@@ -281,12 +282,28 @@ function osBackendFor(platform: NodeJS.Platform): OsVerifyBackend | null {
   if (_osBackendOverride !== undefined) return _osBackendOverride;
   // 只有真实存在可用后端才走 OS 门禁；darwin/linux 的 T3/T4 未实现，
   // 若在此返回一个"假可用"的 mode 就等于无门禁（规格 §2 的偏离说明）。
-  if (platform === 'win32') return createWinCredUiBackend();
+  if (platform === 'win32') return createWinViewVerifyBackend();
   return null;
 }
 
 function osModeFor(backend: OsVerifyBackend): ViewGuardStatus['mode'] {
-  return backend.id === 'win-credui' ? 'os-win' : 'password';
+  // 目前只有 Windows 家族后端；将来新增平台后端时必须在这里改判据。
+  return backend.id.startsWith('win-') ? 'os-win' : 'password';
+}
+
+/**
+ * 只回答一个问题：**现在这台机器上，查看保护会落在系统验证还是查看密码？**
+ * 不建库、不读密钥，供首次启动向导在启用前决定"要否输入查看密码"。
+ * 与 `resolveViewGuard()` 的差别只有一处：这里不要求 isInitialized()。
+ */
+export async function isOsAuthAvailable(): Promise<boolean> {
+  const backend = osBackendFor(_platformOverride ?? process.platform);
+  if (!backend) return false;
+  try {
+    return await backend.available();
+  } catch {
+    return false;
+  }
 }
 
 export async function resolveViewGuard(): Promise<ViewGuardStatus> {

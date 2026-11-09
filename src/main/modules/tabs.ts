@@ -341,17 +341,34 @@ class TabManager {
    * Chromium 87 can lose a BrowserView's compositor surface while its host
    * BrowserWindow is minimized. Re-submitting the same bounds is insufficient;
    * force one hidden -> visible transition, just like a successful tab switch.
+   *
+   * Called from both 'restore' and 'maximize'. The original single-shot version
+   * bailed out when isMinimized() was still true at +50 ms — Windows keeps the
+   * minimized flag during its restore animation (~200-300 ms) — so the surface
+   * stayed lost and the game tab rendered white until the next tab switch.
+   * While an automation run is active this is masked by ~20 capturePage calls
+   * per second forcing frames; once the run ends nothing forces a repaint and
+   * the white screen shows. Poll instead: retry every 150 ms for up to ~1.6 s
+   * until the window is actually visible, then run the transition.
    */
   refreshActiveViewAfterHostRestore(): void {
     if (this.hostRestoreTimer) clearTimeout(this.hostRestoreTimer);
-    this.hostRestoreTimer = setTimeout(() => {
+    const attempt = (triesLeft: number): void => {
       this.hostRestoreTimer = undefined;
       const win = getMainWindow();
+      if (win && !win.isDestroyed() && win.isMinimized()) {
+        // 还原动画还没走完：等下一轮再试，别直接放弃
+        if (triesLeft > 0) {
+          this.hostRestoreTimer = setTimeout(() => attempt(triesLeft - 1), 150);
+          this.hostRestoreTimer.unref();
+        }
+        return;
+      }
       const tabId = this.activeId;
       const tab = tabId ? this.tabs.get(tabId) : undefined;
       const view = tab?.browserView;
       const wc = view?.webContents;
-      if (!tabId || !view || !wc || wc.isDestroyed() || win?.isMinimized() || this.rect.width <= 0 || this.rect.height <= 0) return;
+      if (!tabId || !view || !wc || wc.isDestroyed() || this.rect.width <= 0 || this.rect.height <= 0) return;
       const expectedWcId = wc.id;
       const lease = this.automationTargets.get(tabId);
       if (lease?.webContentsId === expectedWcId) lease.refreshVersion += 1;
@@ -364,7 +381,8 @@ class TabManager {
         else view.setBounds(this.rect);
         try { (wc as unknown as { invalidate?: () => void }).invalidate?.(); } catch { /* Electron 11 best effort. */ }
       }, 0);
-    }, 50);
+    };
+    this.hostRestoreTimer = setTimeout(() => attempt(10), 50);
     this.hostRestoreTimer.unref();
   }
 

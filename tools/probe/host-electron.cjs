@@ -18,6 +18,10 @@ const { renderText, renderJson, failCount } = require('./lib/reporter.cjs');
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('no-sandbox');
 if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'WinUseBrowserSpellChecker');
+// 与主应用保持一致（src/main/index.ts 同样用 0 = 系统临时端口）。
+// 不开这个开关，P4「每窗口独立 CDP 桥」就无法在探针里验证；它是回环临时端口，
+// 不写任何用户状态，probes 仍保持只读语义。
+app.commandLine.appendSwitch('remote-debugging-port', '0');
 app.on('window-all-closed', () => {});
 const realUserData = userDataDir();
 const probeUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'bao-probe-userdata-'));

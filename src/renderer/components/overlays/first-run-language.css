@@ -19,13 +19,15 @@
 .first-run-dialog h1 { margin: 0 0 12px; font-size: 24px; }
 .first-run-dialog p { color: var(--text-secondary); line-height: 1.6; }
 .first-run-dialog form { display: flex; flex-direction: column; gap: 12px; }
-.first-run-dialog select {
+.first-run-dialog select,
+.first-run-dialog input {
   width: 100%;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-primary);
   color: var(--text-primary);
+  box-sizing: border-box;
 }
 .first-run-dialog button {
   padding: 10px 16px;
@@ -35,6 +37,13 @@
   color: #fff;
   cursor: pointer;
 }
+/* 未输入密码时的"跳过"是次要动作：不与主按钮争夺注意力。 */
+.first-run-dialog button.secondary {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
 .first-run-dialog button:disabled { opacity: .5; cursor: wait; }
 .first-run-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .first-run-dialog [role='alert'] { color: var(--text-primary); }
+.first-run-hint { margin: 0; font-size: 12px; line-height: 1.5; }

@@ -46,13 +46,49 @@ const DEFAULT_VERIFY_TIMEOUT_MS = 120_000;
  */
 export const VIEW_PROMPT_TEXT = '验证 Windows 账户身份后才能查看密码明文';
 
+/**
+ * 属主窗口句柄提供者（组合根在 `src/main/index.ts` 注入）。
+ *
+ * 为什么必须有属主：CredUI 对话框是 **powershell.exe 子进程**创建的顶层窗口，而该进程
+ * 既不是前台进程、也没有窗口。没有属主时它与浏览器窗口之间没有任何 Z 序关系，
+ * 系统"显示但不激活"它 → 用户看到的是被压在浏览器窗口后面（或只有任务栏闪一下），
+ * 也就是 2026-11-08 反馈的"验证窗没有置顶到前台"。传属主窗口是 Chromium/Edge 的同款做法：
+ * 属主窗口的子窗口恒在其属主之上。
+ *
+ * 刻意**不** import './window'：window.ts 顶层 `import { app, BrowserWindow } from 'electron'`，
+ * 会让本模块的单测（无 Electron 进程）在导入期就炸掉。注入式依赖也让它可被单测替换。
+ */
+let _ownerHwndProvider: () => string | null = () => null;
+
+export function setViewGateOwnerWindow(provider: () => string | null): void {
+  _ownerHwndProvider = provider;
+}
+
+/** 十进制字符串形式的 HWND；取不到就返回 null（对话框退回无属主，行为与改动前一致）。 */
+function ownerHwnd(): string | null {
+  try {
+    const value = _ownerHwndProvider();
+    return value && value !== '0' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function verifyBudgetMs(): number {
   const raw = Number(process.env.BFB_VIEWGATE_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_VERIFY_TIMEOUT_MS;
 }
 
+/** 机器码清洗：stdout 只允许 ASCII，落到渲染层的 reason 也必须是 ASCII。 */
+function asciiCode(raw: string): string {
+  const stripped = raw.replace(/[^\x20-\x7E]/g, '').trim();
+  return stripped.slice(0, 120) || 'unknown';
+}
+
 const PS_VERIFY = [
   "$ErrorActionPreference = 'Stop'",
+  // 进度记录会被 powershell.exe 序列化成 CLIXML 混进输出流，直接关掉。
+  "$ProgressPreference = 'SilentlyContinue'",
   "Add-Type -TypeDefinition @'",
   'using System;',
   'using System.Runtime.InteropServices;',
@@ -86,7 +122,10 @@ const PS_VERIFY = [
   '    int dwFlags, string pszUserName, string pszPassword,',
   '    IntPtr pPackedCredentials, ref uint pcbPackedCredentials);',
   '',
-  '  [DllImport("credui.dll")]',
+  // CoTaskMemFree 在 ole32.dll（credui.dll 不导出它）。写在 credui.dll 上会在
+  // 对话框刚成功、准备释放 out-buffer 时抛 EntryPointNotFoundException——
+  // 表现为"输入密码后直接报错"，且异常文案是中文 → 再叠加下游的乱码。
+  '  [DllImport("ole32.dll")]',
   '  public static extern void CoTaskMemFree(IntPtr pv);',
   '',
   '  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]',
@@ -140,9 +179,15 @@ const PS_VERIFY = [
   '    }',
   '  } else {',
   '    if ($parts.Length -ge 1 -and -not [string]::IsNullOrEmpty($parts[0])) { $msg = $parts[0] }',
+  '    # Owner window (decimal HWND, 2nd stdin line): the dialog is created by this child process,',
+  '    # which has no window of its own, so without an owner it can end up behind the browser.',
+  '    $owner = [IntPtr]::Zero',
+  '    if ($parts.Length -ge 2 -and -not [string]::IsNullOrEmpty($parts[1])) {',
+  '      $owner = [IntPtr]([int64]$parts[1])',
+  '    }',
   '    $info = New-Object BaoCredUi+CREDUI_INFOW',
   '    $info.cbSize = [Runtime.InteropServices.Marshal]::SizeOf([type][BaoCredUi+CREDUI_INFOW])',
-  '    $info.hwndParent = [IntPtr]::Zero',
+  '    $info.hwndParent = $owner',
   "    $info.pszCaptionText = 'BaoFlashBrowser'",
   '    $info.pszMessageText = $msg',
   '    $info.hbmBanner = [IntPtr]::Zero',
@@ -247,9 +292,206 @@ const PS_VERIFY = [
   '  Write-Output \'OK granted\'',
   '}',
   'catch {',
-  "  Fail ('exception:' + $_.Exception.Message)",
+  // stdout 只允许 ASCII：Windows PowerShell 5.1 的控制台编码不是 UTF-8，异常文案（中文）
+  // 经 stdout 回传必然乱码。细节走 stderr（只进日志），stdout 只给稳定机器码。
+  "  [Console]::Error.WriteLine('viewgate: ' + $_.Exception.GetType().Name)",
+  "  Fail 'exception'",
   '}',
 ].join('\n');
+
+/**
+ * Windows Hello（`UserConsentVerifier`）——Edge 同款的"验证你的身份"PIN/指纹对话框。
+ *
+ * 与 CredUI 的区别：Hello 只回答"当前登录用户是否已确认"，不回传口令，因此没有
+ * LogonUser + SID 比对那一步（也不需要）；这正是浏览器查看已保存密码时的系统形态。
+ *
+ * WinRT 异步在 PowerShell 5.1 里必须自己接：`AsTask` 的泛型参数取不到（枚举类型无法用
+ * `[Type,Assembly,ContentType=WindowsRuntime]` 解析），所以从方法签名的返回类型反射拿。
+ */
+const PS_HELLO = [
+  "$ErrorActionPreference = 'Stop'",
+  // 进度记录会被 powershell.exe 序列化成 CLIXML 混进输出流，直接关掉。
+  "$ProgressPreference = 'SilentlyContinue'",
+  '',
+  'function Fail([string]$code) {',
+  '  Write-Output ("ERR " + $code)',
+  '  exit 1',
+  '}',
+  '',
+  'try {',
+  '  $line = [Console]::In.ReadLine()',
+  "  $msg = 'Verify your identity to view the saved password'",
+  '  if (-not [string]::IsNullOrEmpty($line)) {',
+  '    $msg = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($line))',
+  '  }',
+  '',
+  '  Add-Type -AssemblyName System.Runtime.WindowsRuntime | Out-Null',
+  '  $verifier = [Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]',
+  '  $mi = $verifier.GetMethods() | Where-Object { $_.Name -eq "RequestVerificationAsync" } | Select-Object -First 1',
+  '  $enumType = $mi.ReturnType.GenericTypeArguments[0]',
+  // PowerShell 里反引号在双引号内是转义符，`"IAsyncOperation`1"` 会被吃成 IAsyncOperation1，
+  // 所以这里的类型名必须用单引号字面量。
+  '  $asTaskM = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq "AsTask" -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq \'IAsyncOperation`1\' })[0]',
+  '',
+  '  $op = $verifier::RequestVerificationAsync($msg)',
+  '  $task = $asTaskM.MakeGenericMethod($enumType).Invoke($null, @($op))',
+  '  $task.Wait(-1) | Out-Null',
+  // UserConsentVerificationResult: 0 Verified / 5 RetriesExhausted / 6 Canceled / 其他 = 后端不可用
+  '  $code = [int]$task.Result',
+  '  if ($code -eq 0) { Write-Output \'OK granted\'; exit 0 }',
+  "  if ($code -eq 6) { Fail 'cancelled' }",
+  "  if ($code -eq 5) { Fail 'denied:retries-exhausted' }",
+  "  Fail ('hello-unavailable:' + $code)",
+  '}',
+  'catch {',
+  "  [Console]::Error.WriteLine('viewgate-hello: ' + $_.Exception.GetType().Name)",
+  "  Fail 'hello-unavailable:exception'",
+  '}',
+].join('\n');
+
+/**
+ * 系统凭据窗口的窗口类名（Windows Hello 与 CredUI 共用同一个 XAML 宿主窗口）。
+ * 2026-11-08 本机实测：`EnumWindows` 找到的弹窗是 `Credential Dialog Xaml Host` +
+ * 标题「Windows 安全中心」，且**属于另一个进程**（系统凭据宿主，pid 与我们的 PowerShell
+ * 子进程不同）、`GetForegroundWindow()` 不是它、ex-style 无 `WS_EX_APPWINDOW`。
+ */
+const SYSTEM_PROMPT_WINDOW_CLASS = 'Credential Dialog Xaml Host';
+const RAISE_PROMPT_BUDGET_MS = 10_000;
+
+/**
+ * 把系统凭据窗口拎到前台（用户反馈 2026-11-08：弹窗被浏览器完全挡住、任务栏还没图标，
+ * 必须手动点一下才能输入 PIN）。
+ *
+ * 根因：那个窗口是**系统凭据宿主进程**创建的，属主与激活都由宿主决定。宿主是后台进程，
+ * 撞上 Windows 前台锁定规则（`SetForegroundWindow` 只对"前台进程 / 由前台进程启动 /
+ * 收到最后一次输入"的进程放行）→ 系统"只显示不激活"。它又是个无属主、也没有
+ * `WS_EX_TOOLWINDOW` 的顶层窗口，所以 shell 照常给它一个任务栏按钮；而宿主进程没有图标
+ * 资源，那个按钮就是空白的（2026-11-08 实测：owner=0，ex-style=0x200100）。
+ *
+ * 窗口本身我们改不了（不属于本进程）：实测 `SetWindowLong(GWL_EXSTYLE, WS_EX_TOOLWINDOW)`
+ * 返回 `ERROR_ACCESS_DENIED` —— 宿主是高完整性进程，UIPI 拦掉了跨进程改样式。能用的只有
+ * shell 层的 `ITaskbarList::DeleteTab(hwnd)`：它只是请求 explorer 撤掉按钮，不写目标窗口。
+ * 2026-11-08 用 UIA 实测同一窗口：`AddTab` 让任务栏多出一个无图标的 `…\CredentialUIBroker.exe`
+ * 按钮（这正是用户看到的那个空白按钮），`DeleteTab` 又让它消失。
+ *
+ * 而**发起方可以抢**：本脚本由主进程直接 spawn，满足"由前台进程启动"这条豁免，
+ * 因此可以合法地 `SetForegroundWindow`；同时用 `SetWindowPos(HWND_TOP)` 兜底 Z 序——
+ * 即使激活仍被拒，也保证它压在浏览器窗口之上、用户能看见。
+ *
+ * 注意：拿不到窗口类（未实测过的 Windows 版本）时它只是空转到超时，不影响验证本身，
+ * 也就是退化成改动前的行为。
+ */
+const PS_RAISE = [
+  "$ErrorActionPreference = 'Stop'",
+  // 进度记录会被 powershell.exe 序列化成 CLIXML 混进输出流，直接关掉。
+  "$ProgressPreference = 'SilentlyContinue'",
+  "Add-Type -TypeDefinition @'",
+  'using System;',
+  'using System.Runtime.InteropServices;',
+  'using System.Text;',
+  '',
+  // ITaskbarList：shell 层的"从任务栏撤掉某个窗口的按钮"接口。它只向 explorer 提请求，
+  // 不写目标窗口，因此不受 UIPI 限制（改样式那条路实测 ERROR_ACCESS_DENIED）。
+  '[ComImport, Guid("56FDF342-FD6D-11d0-958A-006097C9A090"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  'public interface IBaoTaskbarList {',
+  '  [PreserveSig] int HrInit();',
+  '  [PreserveSig] int AddTab(IntPtr hwnd);',
+  '  [PreserveSig] int DeleteTab(IntPtr hwnd);',
+  '  [PreserveSig] int ActivateTab(IntPtr hwnd);',
+  '  [PreserveSig] int SetActiveAlt(IntPtr hwnd);',
+  '}',
+  '',
+  'public class BaoRaise {',
+  '  public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);',
+  '',
+  '  [DllImport("user32.dll")]',
+  '  public static extern bool EnumWindows(EnumProc lpEnumFunc, IntPtr lParam);',
+  '  [DllImport("user32.dll")]',
+  '  public static extern bool IsWindowVisible(IntPtr hWnd);',
+  '  [DllImport("user32.dll", CharSet = CharSet.Unicode)]',
+  '  public static extern int GetClassNameW(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);',
+  '  [DllImport("user32.dll")]',
+  '  public static extern IntPtr GetForegroundWindow();',
+  '  [DllImport("user32.dll")]',
+  '  public static extern bool SetForegroundWindow(IntPtr hWnd);',
+  '  [DllImport("user32.dll")]',
+  '  public static extern bool BringWindowToTop(IntPtr hWnd);',
+  '  [DllImport("user32.dll")]',
+  '  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);',
+  '  [DllImport("user32.dll")]',
+  '  public static extern bool SetWindowPos(',
+  '    IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);',
+  '  [DllImport("user32.dll")]',
+  '  public static extern bool AllowSetForegroundWindow(int dwProcessId);',
+  '',
+  '  public static IntPtr Find(string cls) {',
+  '    IntPtr found = IntPtr.Zero;',
+  '    EnumWindows(delegate(IntPtr h, IntPtr l) {',
+  '      if (!IsWindowVisible(h)) return true;',
+  '      StringBuilder sb = new StringBuilder(256);',
+  '      GetClassNameW(h, sb, 256);',
+  '      if (string.Equals(sb.ToString(), cls, StringComparison.Ordinal)) { found = h; return false; }',
+  '      return true;',
+  '    }, IntPtr.Zero);',
+  '    return found;',
+  '  }',
+  '',
+  '  public static void DeleteTab(IntPtr hwnd) {',
+  '    try {',
+  '      var t = (IBaoTaskbarList)Activator.CreateInstance(',
+  '        Type.GetTypeFromCLSID(new Guid("56FDF344-FD6D-11d0-958A-006097C9A090")));',
+  '      t.HrInit();',
+  '      t.DeleteTab(hwnd);',
+  '      Marshal.ReleaseComObject(t);',
+  '    } catch { }',
+  '  }',
+  '}',
+  "'@",
+  '',
+  `$cls = '${SYSTEM_PROMPT_WINDOW_CLASS}'`,
+  '$budget = ' + String(RAISE_PROMPT_BUDGET_MS),
+  '$deadline = [DateTime]::UtcNow.AddMilliseconds($budget)',
+  '$found = $false',
+  // 连续几轮确认前台才收工：任务栏按钮是 explorer 异步补的，抢一次就退会漏掉它。
+  '$raised = 0',
+  'while ([DateTime]::UtcNow -lt $deadline) {',
+  '  $h = [BaoRaise]::Find($cls)',
+  '  if ($h -ne [IntPtr]::Zero) {',
+  '    $found = $true',
+  '    [BaoRaise]::AllowSetForegroundWindow(-1) | Out-Null',
+  '    [BaoRaise]::ShowWindow($h, 5) | Out-Null',
+  // HWND_TOP(0) | SWP_NOSIZE(0x1) | SWP_NOMOVE(0x2) | SWP_SHOWWINDOW(0x40)
+  '    [BaoRaise]::SetWindowPos($h, [IntPtr]::Zero, 0, 0, 0, 0, 0x43) | Out-Null',
+  '    [BaoRaise]::BringWindowToTop($h) | Out-Null',
+  '    [BaoRaise]::SetForegroundWindow($h) | Out-Null',
+  // 必须在 ShowWindow/激活之后：这两步都会让 explorer 把按钮补回来。
+  '    [BaoRaise]::DeleteTab($h)',
+  '    if ([BaoRaise]::GetForegroundWindow() -eq $h) {',
+  '      $raised++',
+  "      if ($raised -ge 4) { Write-Output 'OK raised'; exit 0 }",
+  '    } else {',
+  '      $raised = 0',
+  '    }',
+  '  }',
+  '  Start-Sleep -Milliseconds 150',
+  '}',
+  // 找到过窗口但始终没拿到前台：Z 序仍按上面抬高过，退化为"至少看得见"。
+  "if ($found) { Write-Output 'OK zorder-only'; exit 0 }",
+  "Write-Output 'ERR not-found'",
+  'exit 2',
+].join('\n');
+
+/** 生产用：拉起看门脚本抢前台。故意不 await——它与验证对话框并行，失败也不影响验证。 */
+export function raiseSystemPrompt(): void {
+  void runPowerShell(PS_RAISE, '', RAISE_PROMPT_BUDGET_MS + 5_000)
+    .then((outcome) => {
+      if (outcome.code === 'ok') {
+        log.info(`[view-gate] system prompt ${outcome.value}`);
+        return;
+      }
+      log.warn(`[view-gate] system prompt raise failed: ${outcome.code}`);
+    });
+}
 
 /** 脚本侧机器码 → 语义分类（纯函数，可单测）。 */
 export function classifyVerifyOutcome(outcome: PsOutcome): OsVerifyResult {
@@ -274,7 +516,10 @@ export function classifyVerifyOutcome(outcome: PsOutcome): OsVerifyResult {
       if (code === 'account-locked') return { ok: false, kind: 'account-locked' };
       if (code.startsWith('unusable-account')) return { ok: false, kind: 'unusable-account', reason: code };
       if (code.startsWith('denied')) return { ok: false, kind: 'denied', reason: code };
-      return { ok: false, kind: 'unavailable', reason: code.slice(0, 120) || 'unknown' };
+      // `exception:<message>` 曾把 PowerShell 的中文异常文案透传到渲染层 → 乱码。
+      // 现在只回一个稳定的 ASCII 码；细节在 stderr/日志里。
+      if (code.startsWith('exception')) return { ok: false, kind: 'unavailable', reason: 'exception' };
+      return { ok: false, kind: 'unavailable', reason: asciiCode(code) };
     }
   }
 }
@@ -285,6 +530,8 @@ export class WinCredUiBackend implements OsVerifyBackend {
   constructor(
     private readonly exec: (payloadB64: string, timeoutMs: number) => Promise<PsOutcome> =
       (payloadB64, timeoutMs) => runPowerShell(PS_VERIFY, payloadB64, timeoutMs),
+    // 默认 no-op：单测构造后端时不该真的去 spawn 进程。生产由 createWin*Backend 注入。
+    private readonly raisePrompt: () => void = () => {},
   ) {}
 
   async available(): Promise<boolean> {
@@ -293,9 +540,16 @@ export class WinCredUiBackend implements OsVerifyBackend {
 
   /** 弹系统对话框验证当前用户身份。 */
   async verify(): Promise<OsVerifyResult> {
+    // 对话框由系统宿主进程渲染，抢前台要由我们主动发起（见 PS_RAISE）。
+    // 尽力而为：抢不到也必须继续弹对话框，绝不能把验证本身卡死。
+    try { this.raisePrompt(); } catch { /* ignore */ }
     // 提示文案经 stdin（UTF-8/base64）传入：Windows PowerShell 5.1 按 ANSI 解码 `-Command`
     // 里的非 ASCII，中文会直接破坏脚本语法（2026-09-22 本机实跑发现）。脚本本体保持纯 ASCII。
-    const payloadB64 = Buffer.from(VIEW_PROMPT_TEXT, 'utf8').toString('base64');
+    // 第 2 行（可选）= 属主窗口 HWND，缺省时对话框退回无属主。
+    const lines = [VIEW_PROMPT_TEXT];
+    const owner = ownerHwnd();
+    if (owner) lines.push(owner);
+    const payloadB64 = Buffer.from(lines.join('\n'), 'utf8').toString('base64');
     const outcome = await this.exec(payloadB64, verifyBudgetMs());
     const result = classifyVerifyOutcome(outcome);
     if (!result.ok) {
@@ -319,14 +573,85 @@ export class WinCredUiBackend implements OsVerifyBackend {
 
 /** 供 view-gate.ts 按平台构造（也可被测试直接构造）。 */
 export function createWinCredUiBackend(): WinCredUiBackend {
-  return new WinCredUiBackend();
+  return new WinCredUiBackend(undefined, raiseSystemPrompt);
+}
+
+/** Windows Hello 后端（Edge 同款的 PIN/指纹对话框）。 */
+export class WinHelloBackend implements OsVerifyBackend {
+  readonly id = 'win-hello' as const;
+
+  constructor(
+    private readonly exec: (payloadB64: string, timeoutMs: number) => Promise<PsOutcome> =
+      (payloadB64, timeoutMs) => runPowerShell(PS_HELLO, payloadB64, timeoutMs),
+    // 默认 no-op：单测构造后端时不该真的去 spawn 进程。生产由 createWin*Backend 注入。
+    private readonly raisePrompt: () => void = () => {},
+  ) {}
+
+  async available(): Promise<boolean> {
+    return process.platform === 'win32';
+  }
+
+  async verify(): Promise<OsVerifyResult> {
+    // Hello 弹窗同样由系统凭据宿主渲染（实测窗口类 Credential Dialog Xaml Host），
+    // 不抢就压在浏览器窗口后面（2026-11-08 反馈）。看门脚本与下面的调用并行，不阻塞。
+    try { this.raisePrompt(); } catch { /* 尽力而为，绝不影响验证 */ }
+    const payloadB64 = Buffer.from(VIEW_PROMPT_TEXT, 'utf8').toString('base64');
+    const result = classifyVerifyOutcome(await this.exec(payloadB64, verifyBudgetMs()));
+    if (!result.ok) {
+      log.warn(`[view-gate] hello verify kind=${result.kind}${result.reason ? ` reason=${result.reason}` : ''}`);
+    }
+    return result;
+  }
+}
+
+export function createWinHelloBackend(): WinHelloBackend {
+  return new WinHelloBackend(undefined, raiseSystemPrompt);
+}
+
+/**
+ * Windows 查看门禁：**Hello 优先，CredUI 兜底**。
+ *
+ * 顺序的理由：Hello 是系统里"礼貌"的那个（PIN/指纹，不要求敲账户口令）；只有当 Hello
+ * 在本机不可用（未配置/被策略禁用/设备不支持）时才退到 CredUI 的凭据对话框。
+ *
+ * 回退条件刻意收窄到 `hello-unavailable:*`：用户取消、重试耗尽、以及验证通过都必须直接采用，
+ * 否则同一次查看会连弹两个系统对话框（2026-11-08 实测形态）。
+ */
+export class WinViewVerifyBackend implements OsVerifyBackend {
+  readonly id = 'win-os' as const;
+
+  constructor(
+    private readonly hello: OsVerifyBackend = createWinHelloBackend(),
+    private readonly credUi: OsVerifyBackend = createWinCredUiBackend(),
+  ) {}
+
+  async available(): Promise<boolean> {
+    return process.platform === 'win32';
+  }
+
+  async verify(): Promise<OsVerifyResult> {
+    const hello = await this.hello.verify();
+    if (!hello.ok && hello.kind === 'unavailable' && (hello.reason ?? '').startsWith('hello-unavailable')) {
+      log.info(`[view-gate] Windows Hello unavailable (${hello.reason}); falling back to CredUI`);
+      return this.credUi.verify();
+    }
+    return hello;
+  }
+}
+
+/** 生产用：Windows 上走 Hello 优先 + CredUI 兜底。 */
+export function createWinViewVerifyBackend(): WinViewVerifyBackend {
+  return new WinViewVerifyBackend();
 }
 
 /** 导出脚本本体供本机验证用（不参与生产逻辑）。 */
 export const _psVerifyScript = PS_VERIFY;
+export const _psHelloScript = PS_HELLO;
+export const _psRaiseScript = PS_RAISE;
 
 /** 导出脚本里插值的常量，供单测把"对话框形态"与"in-buffer 打包方式"钉死。 */
 export const _psVerifyFacts = {
   credUiFlags: CREDUI_FLAGS,
   credPackProtected: CRED_PACK_PROTECTED_CREDENTIALS,
+  systemPromptWindowClass: SYSTEM_PROMPT_WINDOW_CLASS,
 };
