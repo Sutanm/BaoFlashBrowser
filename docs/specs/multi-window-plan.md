@@ -801,3 +801,4 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | P5a | `c932061` | `window-state`（4）+ `session-recovery`（3）；unit 156 文件 / 1043 例；typecheck、build:main、test:electron | 渲染层会话/DB/抽屉分片留到 P5b；probe:deep 在 P5b 完成后统一跑 |
 | P5b | `9113064` | `tab-session-sharding`（2）+ `persistence-merge`（4）+ `devtool-storage-scope`（3）；unit 159 文件 / 1052 例；probe:deep 23/23 | App 在 IndexedDB 水合前仍下发 theme/language（默认值），gating 留到 P6 |
 | P6 | `a9dfb89` | `launch-url`（2）+ title 断言；unit 160 文件 / 1054 例；typecheck、build:main、test:electron | hydration gating（App 水合前 theme/language 推送）仍留待 P7/P8 收尾；P6 未跑 probe:deep（无新的浏览器运行时面） |
+| P7-2b | `bb3aa19` | `drop-target`（4）；unit 161 文件 / 1059 例；typecheck、build:main、test:electron | 渲染层拖拽手势与 tear-off 新窗口、probe 47/48/51 待 P7-2c |
