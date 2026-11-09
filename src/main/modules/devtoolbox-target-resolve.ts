@@ -5,7 +5,12 @@ import log from 'electron-log';
 import type { DevToolsTargetResult } from '@shared/types/devtoolbox';
 import { fetchTargets, resolveDebugPort, type DebugTarget } from './devtoolbox-targets';
 import { ensureFrontendServer, getDevToolsFrontendDir, useBridge, useLegacyHttp } from './devtoolbox-frontend-server';
-import { tabManager } from './tabs';
+import { tabManager, getTabManagerForWindow } from './tabs';
+
+/** 指定窗口的实例；没有 winId 的旧调用点退回全局 facade（聚焦窗口语义）。 */
+function managerFor(winId?: number | null) {
+  return winId === undefined || winId === null ? tabManager : (getTabManagerForWindow(winId) ?? tabManager);
+}
 
 /**
  * tabId → CDP page targetId 绑定表。
@@ -44,8 +49,8 @@ function isBindableTarget(item: DebugTarget): boolean {
   return item.type === 'page' && !isShell(item) && !isFrontendTarget(item);
 }
 
-export async function pickTargetForTab(tabId: string, port: number): Promise<string | null> {
-  const wc = tabManager.getWebContents(tabId);
+export async function pickTargetForTab(tabId: string, port: number, winId?: number | null): Promise<string | null> {
+  const wc = managerFor(winId).getWebContents(tabId);
   const bound = tabTargetBindings.get(tabId);
   const targets = (await fetchTargets(port)).filter(isBindableTarget);
 
@@ -75,13 +80,13 @@ export async function pickTargetForTab(tabId: string, port: number): Promise<str
  * 唯一匹配。放在这里而不是让 IPC 层自己拼，是为了和 `getDevToolsTargetUrl`
  * 共用同一套解析（两套逻辑漂移过一次，about:blank 中间态会静默撞旧 target）。
  */
-export async function resolveTargetId(target: 'page' | 'shell', tabId?: string | null): Promise<string | null> {
+export async function resolveTargetId(target: 'page' | 'shell', tabId?: string | null, winId?: number | null): Promise<string | null> {
   if (target === 'shell') {
     const port = resolveDebugPort();
     if (!port) return null;
     return (await fetchTargets(port)).find(isShell)?.id ?? null;
   }
-  return resolveActivePageTargetId(tabId);
+  return resolveActivePageTargetId(tabId, winId);
 }
 
 /**
@@ -90,13 +95,14 @@ export async function resolveTargetId(target: 'page' | 'shell', tabId?: string |
  * 绑定表逻辑与 `getDevToolsTargetUrl` 共用（`pickTargetForTab`），避免两套
  * 解析漂移。
  */
-export async function resolveActivePageTargetId(tabId?: string | null): Promise<string | null> {
+export async function resolveActivePageTargetId(tabId?: string | null, winId?: number | null): Promise<string | null> {
   const port = resolveDebugPort();
   if (!port) return null;
-  const wanted = tabId ?? tabManager.getActiveId();
+  const manager = managerFor(winId);
+  const wanted = tabId ?? manager.getActiveId();
   if (!wanted) return null;
-  const resolved = await pickTargetForTab(wanted, port);
-  const wc = tabManager.getWebContents(wanted);
+  const resolved = await pickTargetForTab(wanted, port, winId);
+  const wc = manager.getWebContents(wanted);
   log.info('[DevToolsBridge] resolve tab=%s url=%s → target=%s',
     wanted.slice(-6), (wc ? wc.getURL() : '-'), (resolved ? resolved.slice(0, 6) : 'null'));
   return resolved;
@@ -110,7 +116,7 @@ export async function resolveActivePageTargetId(tabId?: string | null): Promise<
  * 且同标签内导航永远触发不了重连。外壳目标按 URL 匹配（外壳 target 唯一，
  * 无歧义；匹配不到就返回 no-target）。
  */
-export async function getDevToolsTargetUrl(target: 'page' | 'shell', tabId?: string | null): Promise<DevToolsTargetResult> {
+export async function getDevToolsTargetUrl(target: 'page' | 'shell', tabId?: string | null, winId?: number | null): Promise<DevToolsTargetResult> {
   const port = resolveDebugPort();
   if (!port) return { url: null, reason: 'no-port' };
 
@@ -136,9 +142,9 @@ export async function getDevToolsTargetUrl(target: 'page' | 'shell', tabId?: str
     pickedId = targets.find(isShell)?.id ?? null;
   } else {
     // tabId 由渲染层传入：它就是"用户现在看到的是哪个标签"的权威。
-    // 不传时退回主进程的活动标签（容器首次挂载等场景）。
-    const wanted = tabId ?? tabManager.getActiveId();
-    pickedId = wanted ? await pickTargetForTab(wanted, port) : null;
+    // 不传时退回该窗口的活动标签（容器首次挂载等场景）。
+    const wanted = tabId ?? managerFor(winId).getActiveId();
+    pickedId = wanted ? await pickTargetForTab(wanted, port, winId) : null;
   }
   if (!pickedId) {
     return { url: null, reason: 'no-target' };

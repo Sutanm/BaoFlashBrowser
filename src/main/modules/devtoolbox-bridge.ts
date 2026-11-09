@@ -808,4 +808,35 @@ class DevToolsBridge {
   }
 }
 
-export const devToolsBridge = new DevToolsBridge();
+/**
+ * 每窗口一个 CDP 桥（P4b / Q4=A）。
+ *
+ * 旧实现是进程级单例：`targetId` / 前端 epoch / 事件 sink / 统计全部共享，
+ * 两个窗口同时开抽屉会互相抢 attach。现在按 runtimeWindowId 分桶，窗口关闭时
+ * 由 `disposeDevToolsBridge()` 关闭它自己的 ws 与 session。
+ */
+const bridgesByWindow = new Map<number, DevToolsBridge>();
+
+export function getDevToolsBridge(winId: number): DevToolsBridge {
+  let bridge = bridgesByWindow.get(winId);
+  if (!bridge) {
+    bridge = new DevToolsBridge();
+    bridgesByWindow.set(winId, bridge);
+  }
+  return bridge;
+}
+
+export function disposeDevToolsBridge(winId: number): void {
+  const bridge = bridgesByWindow.get(winId);
+  if (!bridge) return;
+  bridgesByWindow.delete(winId);
+  try { bridge.shutdown(); } catch { /* already gone */ }
+}
+
+export function disposeAllDevToolsBridges(): void {
+  for (const winId of [...bridgesByWindow.keys()]) disposeDevToolsBridge(winId);
+}
+
+export function getDevToolsBridgeCount(): number {
+  return bridgesByWindow.size;
+}

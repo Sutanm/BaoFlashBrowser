@@ -46,7 +46,9 @@ module.exports = {
       external: ['electron'],
       logLevel: 'silent',
     });
-    const { devToolsBridge } = require(bridgeBundle);
+    const { getDevToolsBridge, disposeDevToolsBridge } = require(bridgeBundle);
+    // P4b：桥按窗口分桶；probe 用一个独立桶（0 = 非真实窗口）直发同一条链路。
+    const devToolsBridge = getDevToolsBridge(0);
 
     // 目标页：一个 HTML + 一个会被本地替换的 JS
     const server = http.createServer((req, res) => {
@@ -228,7 +230,7 @@ module.exports = {
       checks.push({ name: 'probe crashed', ok: false, detail: String(error && (error.stack || error.message)) });
     } finally {
       devToolsBridge.setEventSink(null);
-      devToolsBridge.shutdown();
+      disposeDevToolsBridge(0);
       try { if (!pageView.webContents.isDestroyed()) pageView.webContents.destroy(); } catch { /* ignore */ }
       try { if (!host.isDestroyed()) host.destroy(); } catch { /* ignore */ }
       try { if (!frontend.isDestroyed()) frontend.destroy(); } catch { /* ignore */ }

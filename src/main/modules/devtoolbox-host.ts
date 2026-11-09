@@ -4,40 +4,45 @@ import log from 'electron-log';
 import { DEVTOOLS_PARTITION } from './devtoolbox-frontend-server';
 import { resolveDebugPort } from './devtoolbox-targets';
 import { getDevToolsTargetUrl } from './devtoolbox-target-resolve';
-import { devToolsBridge } from './devtoolbox-bridge';
-import { getMainWindow } from './window';
+import { getDevToolsBridge } from './devtoolbox-bridge';
+import { getWindowById } from './window';
 
 /**
- * 独立窗口模式（dockSide = 'undocked'）：把前端整页放进一个独立 BrowserWindow。
+ * 开发者工具箱的窗口容器（P4b）。
  *
- * 与内嵌模式的差别：这里没有父页 frame 树，前端拿不到外壳的 window；窗口被用户关掉时
- * 通知外壳把停靠位置退回上一次的内嵌位置（关窗 = 回到内嵌，而非收起抽屉）。
+ * 每个浏览器窗口拥有独立的内嵌前端 BrowserView / 独立窗口，互不覆盖：
+ * 旧实现是模块级单例，第二个窗口 attach 会把第一个窗口的前端拆掉。
  */
 const DEVTOOLS_WINDOW_CLOSED = 'devtoolbox:devtools-window-closed';
-let devToolsWindow: BrowserWindow | null = null;
-let devToolsWindowClosingByCode = false;
-let mainWindowCloseHooked = false;
 
-export async function openDevToolsWindow(target: 'page' | 'shell' = 'page', tabId?: string | null): Promise<{ ok: boolean; error?: string }> {
-  if (devToolsWindow && !devToolsWindow.isDestroyed()) {
-    if (devToolsWindow.isMinimized()) devToolsWindow.restore();
-    devToolsWindow.focus();
+const devToolsWindows = new Map<number, BrowserWindow>();
+const closingByCode = new Set<number>();
+
+export async function openDevToolsWindow(winId: number, target: 'page' | 'shell' = 'page', tabId?: string | null): Promise<{ ok: boolean; error?: string }> {
+  const existing = devToolsWindows.get(winId);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.focus();
     return { ok: true };
   }
 
-  const resolved = await getDevToolsTargetUrl(target, tabId);
+  const host = getWindowById(winId);
+  if (!host || host.isDestroyed()) return { ok: false, error: 'no-window' };
+
+  const resolved = await getDevToolsTargetUrl(target, tabId, winId);
   if (!resolved.url) return { ok: false, error: resolved.reason };
 
+  const bridge = getDevToolsBridge(winId);
   // 新的前端实例接管：旧实例的在途请求必须静默作废（理由见 beginFrontendSession）。
-  devToolsBridge.beginFrontendSession();
+  bridge.beginFrontendSession();
 
   // 与内嵌视图同一套时序：桥没挂上就不要把前端放出来（理由见 attachDevToolsView）。
-  const bridge = resolved.mode === 'bridge';
-  if (bridge) {
+  const bridgeMode = resolved.mode === 'bridge';
+  if (bridgeMode) {
     const port = resolveDebugPort();
     if (!port || !resolved.targetId) return { ok: false, error: 'no-port' };
     try {
-      await devToolsBridge.attach(resolved.targetId, port);
+      await bridge.attach(resolved.targetId, port);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.warn('[DevToolbox] 独立窗口桥 attach 失败:', message);
@@ -59,26 +64,19 @@ export async function openDevToolsWindow(target: 'page' | 'shell' = 'page', tabI
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false,
-      ...(bridge ? { preload: path.join(__dirname, 'devtools-preload.js') } : {}),
+      ...(bridgeMode ? { preload: path.join(__dirname, 'devtools-preload.js') } : {}),
     },
   });
-  devToolsWindow = win;
+  devToolsWindows.set(winId, win);
   win.on('closed', () => {
-    devToolsWindow = null;
-    if (devToolsWindowClosingByCode) {
-      devToolsWindowClosingByCode = false;
-      return;
-    }
-    const main = getMainWindow();
+    if (devToolsWindows.get(winId) === win) devToolsWindows.delete(winId);
+    if (closingByCode.delete(winId)) return;
+    const main = getWindowById(winId);
     if (main && !main.isDestroyed()) main.webContents.send(DEVTOOLS_WINDOW_CLOSED);
   });
 
-  const main = getMainWindow();
-  if (main && !mainWindowCloseHooked) {
-    mainWindowCloseHooked = true;
-    // 主窗口关掉时不能让独立窗口把应用吊住
-    main.once('closed', () => closeDevToolsWindow());
-  }
+  // 宿主窗口关掉时不能让独立窗口把应用吊住
+  host.once('closed', () => closeDevToolsWindow(winId));
 
   await win.loadURL(resolved.url).catch((error: unknown) => {
     log.warn('[DevToolbox] 独立窗口加载失败:', error instanceof Error ? error.message : String(error));
@@ -86,14 +84,14 @@ export async function openDevToolsWindow(target: 'page' | 'shell' = 'page', tabI
   return { ok: true };
 }
 
-export function closeDevToolsWindow(): void {
-  const win = devToolsWindow;
+export function closeDevToolsWindow(winId: number): void {
+  const win = devToolsWindows.get(winId);
   if (!win || win.isDestroyed()) {
-    devToolsWindow = null;
+    devToolsWindows.delete(winId);
     return;
   }
-  devToolsWindowClosingByCode = true;
-  devToolsWindow = null;
+  closingByCode.add(winId);
+  devToolsWindows.delete(winId);
   win.close();
 }
 
@@ -106,36 +104,38 @@ export function closeDevToolsWindow(): void {
  *
  * bounds 由渲染层逐帧上报（与 tab 的 setBounds 同一形状），实测拖拽零延迟。
  */
-let devToolsView: BrowserView | null = null;
-/** 前端 WebContents 的旁路引用：IPC 层要做 sender 校验与事件投递，销毁后必须置空。 */
-let devToolsViewContents: WebContents | null = null;
-let devToolsViewCloseHooked = false;
-let devToolsBoundsLog = 0;
-let devToolsBoundsMissLog = 0;
+interface EmbeddedDevToolsHost {
+  view: BrowserView;
+  contents: WebContents;
+  boundsLog: number;
+  boundsMissLog: number;
+}
 
-export async function attachDevToolsView(target: 'page' | 'shell' = 'page', tabId?: string | null): Promise<{ ok: boolean; error?: string }> {
-  const main = getMainWindow();
+const embeddedHosts = new Map<number, EmbeddedDevToolsHost>();
+const boundsMissLogged = new Set<number>();
+
+export async function attachDevToolsView(winId: number, target: 'page' | 'shell' = 'page', tabId?: string | null): Promise<{ ok: boolean; error?: string }> {
+  const main = getWindowById(winId);
   if (!main || main.isDestroyed()) return { ok: false, error: 'no-window' };
 
-  const resolved = await getDevToolsTargetUrl(target, tabId);
+  const resolved = await getDevToolsTargetUrl(target, tabId, winId);
   if (!resolved.url) return { ok: false, error: resolved.reason };
-  log.info('[DevToolbox] attach embedded view target=%s url=%s', target, resolved.url.slice(0, 60));
-  devToolsBoundsLog = 0;
-  devToolsBoundsMissLog = 0;
+  log.info('[DevToolbox] attach embedded view window=%s target=%s url=%s', winId, target, resolved.url.slice(0, 60));
 
   // 新容器 = 新前端实例：先把旧实例的在途请求静默作废，再挂桥、建视图。
   // 顺序不能反：旧请求的 id 空间作废之后，它们才不会在新实例里"认领"别人的请求。
-  devToolsBridge.beginFrontendSession();
+  const bridge = getDevToolsBridge(winId);
+  bridge.beginFrontendSession();
 
   // 桥模式必须**先挂桥再放前端出来**：preload 里的 onOpen 是立即回调的
   // （见 src/preload/devtools.ts），前端一起来就会连发十几条 enable/getDocument。
   // 若此时桥还没 session，这些命令全部落空，Elements 会空白且不会自愈。
-  const bridge = resolved.mode === 'bridge';
-  if (bridge) {
+  const bridgeMode = resolved.mode === 'bridge';
+  if (bridgeMode) {
     const port = resolveDebugPort();
     if (!port || !resolved.targetId) return { ok: false, error: 'no-port' };
     try {
-      await devToolsBridge.attach(resolved.targetId, port);
+      await bridge.attach(resolved.targetId, port);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.warn('[DevToolbox] 桥 attach 失败，前端不启动:', message);
@@ -143,7 +143,7 @@ export async function attachDevToolsView(target: 'page' | 'shell' = 'page', tabI
     }
   }
 
-  destroyDevToolsView();
+  destroyDevToolsView(winId);
   const view = new BrowserView({
     webPreferences: {
       partition: DEVTOOLS_PARTITION,
@@ -151,34 +151,36 @@ export async function attachDevToolsView(target: 'page' | 'shell' = 'page', tabI
       nodeIntegration: false,
       spellcheck: false,
       // 只有桥模式需要这个 preload（它只暴露 bfbBridge，不含 electronAPI）。
-      ...(bridge ? { preload: path.join(__dirname, 'devtools-preload.js') } : {}),
+      ...(bridgeMode ? { preload: path.join(__dirname, 'devtools-preload.js') } : {}),
     },
   });
-  devToolsView = view;
-  devToolsViewContents = view.webContents;
+  embeddedHosts.set(winId, { view, contents: view.webContents, boundsLog: 0, boundsMissLog: 0 });
+  boundsMissLogged.delete(winId);
   main.addBrowserView(view);
   // 先给 1×1：等渲染层第一次上报矩形再对齐，避免首帧闪一下满屏
   view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
-  if (!devToolsViewCloseHooked) {
-    devToolsViewCloseHooked = true;
-    main.once('closed', () => destroyDevToolsView());
-  }
+  main.once('closed', () => destroyDevToolsView(winId));
   await view.webContents.loadURL(resolved.url).catch((error: unknown) => {
     log.warn('[DevToolbox] 内嵌前端视图加载失败:', error instanceof Error ? error.message : String(error));
   });
   return { ok: true };
 }
 
-export function setDevToolsViewBounds(rect: { x: number; y: number; width: number; height: number }): void {
-  const view = devToolsView;
-  if (!view) {
-    if (devToolsBoundsMissLog++ < 3) log.info('[DevToolbox] bounds 上报但视图不存在');
+export function setDevToolsViewBounds(winId: number, rect: { x: number; y: number; width: number; height: number }): void {
+  const host = embeddedHosts.get(winId);
+  if (!host) {
+    // 每个窗口只记一次，避免频繁拖拽刷日志。
+    if (!boundsMissLogged.has(winId)) {
+      boundsMissLogged.add(winId);
+      log.info('[DevToolbox] bounds 上报但视图不存在 window=%s', winId);
+    }
     return;
   }
-  if (devToolsBoundsLog++ < (process.env.BAO_DEVTOOLS_BOUNDS_LOG === '1' ? 400 : 3)) {
-    log.info('[DevToolbox] bounds → x=%s y=%s w=%s h=%s', Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height));
+  host.boundsMissLog += 1;
+  if (host.boundsLog++ < (process.env.BAO_DEVTOOLS_BOUNDS_LOG === '1' ? 400 : 3)) {
+    log.info('[DevToolbox] bounds → window=%s x=%s y=%s w=%s h=%s', winId, Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height));
   }
-  view.setBounds({
+  host.view.setBounds({
     x: Math.round(rect.x),
     y: Math.round(rect.y),
     width: Math.max(1, Math.round(rect.width)),
@@ -187,27 +189,28 @@ export function setDevToolsViewBounds(rect: { x: number; y: number; width: numbe
 }
 
 /**
- * 前端容器的 WebContents（内嵌视图优先，其次独立窗口）。
+ * 指定窗口的前端容器 WebContents（内嵌视图优先，其次独立窗口）。
  *
- * 桥的 IPC 需要它做两件事：校验消息来源（只认前端自己），以及把 CDP 事件
- * 投递到正确的窗口（B3 之前是发给外壳 renderer，再由 postMessage 转进 iframe；
- * 现在前端自己就是终点）。
+ * 桥的 IPC 需要它做两件事：校验消息来源（只认该窗口自己的前端），以及把
+ * CDP 事件投递到正确的窗口。
  */
-export function getDevToolsFrontendContents(): WebContents | null {
-  if (devToolsViewContents && !devToolsViewContents.isDestroyed()) return devToolsViewContents;
-  if (devToolsWindow && !devToolsWindow.isDestroyed()) {
-    const contents = devToolsWindow.webContents;
+export function getDevToolsFrontendContents(winId: number): WebContents | null {
+  const host = embeddedHosts.get(winId);
+  if (host && !host.contents.isDestroyed()) return host.contents;
+  const win = devToolsWindows.get(winId);
+  if (win && !win.isDestroyed()) {
+    const contents = win.webContents;
     if (contents && !contents.isDestroyed()) return contents;
   }
   return null;
 }
 
-export function destroyDevToolsView(): void {
-  const view = devToolsView;
-  devToolsView = null;
-  devToolsViewContents = null;
-  if (!view) return;
-  const main = getMainWindow();
+export function destroyDevToolsView(winId: number): void {
+  const host = embeddedHosts.get(winId);
+  embeddedHosts.delete(winId);
+  if (!host) return;
+  const { view } = host;
+  const main = getWindowById(winId);
   try {
     main?.removeBrowserView(view);
   } catch {
@@ -221,4 +224,10 @@ export function destroyDevToolsView(): void {
   } catch {
     // 已销毁
   }
+}
+
+/** 仅测试用：清空所有窗口容器。 */
+export function resetDevToolsHostsForTest(): void {
+  for (const winId of [...embeddedHosts.keys()]) destroyDevToolsView(winId);
+  for (const [winId] of [...devToolsWindows]) closeDevToolsWindow(winId);
 }

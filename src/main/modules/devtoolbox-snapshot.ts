@@ -7,8 +7,12 @@ import { getCdpLeaseOwner } from './cdp-lease';
 import { loadConfig } from './config';
 import { describeContents, getBufferedEntries, isDevToolsContents } from './devtoolbox-collector';
 import { resolveFlashPlugin } from './flash';
-import { getMainWindow } from './window';
-import { tabManager } from './tabs';
+import { getMainWindow, getWindowById } from './window';
+import { getTabManagerForWindow, tabManager } from './tabs';
+
+function managerFor(winId?: number | null) {
+  return winId === undefined || winId === null ? tabManager : (getTabManagerForWindow(winId) ?? tabManager);
+}
 
 function readMmsCfg(pluginPath: string | null): string {
   if (!pluginPath) return '';
@@ -20,7 +24,7 @@ function readMmsCfg(pluginPath: string | null): string {
   }
 }
 
-function buildFlashInfo(): DevToolFlashInfo {
+function buildFlashInfo(winId?: number | null): DevToolFlashInfo {
   const config = loadConfig();
   const resolution = resolveFlashPlugin(app, config.flashPluginChannel, config.flashVersion);
   return {
@@ -32,7 +36,8 @@ function buildFlashInfo(): DevToolFlashInfo {
     mmsCfg: readMmsCfg(resolution.pluginPath),
     ua: (() => {
       try {
-        return getMainWindow()?.webContents.getUserAgent() ?? '';
+        const win = winId === undefined || winId === null ? getMainWindow() : getWindowById(winId);
+        return win?.webContents.getUserAgent() ?? '';
       } catch {
         return '';
       }
@@ -59,29 +64,31 @@ function collectTargets(): DevToolTargetInfo[] {
 }
 
 /** `tabId` 由渲染层给（理由同 `probeActivePage`）：主进程的活动标签比渲染层晚一拍。 */
-export function getDevToolSnapshot(tabId?: string | null): DevToolSnapshot {
-  const resolvedId = tabId ?? tabManager.getActiveId();
-  const activeWc = resolvedId ? tabManager.getWebContents(resolvedId) : null;
+export function getDevToolSnapshot(tabId?: string | null, winId?: number | null): DevToolSnapshot {
+  const manager = managerFor(winId);
+  const resolvedId = tabId ?? manager.getActiveId();
+  const activeWc = resolvedId ? manager.getWebContents(resolvedId) : null;
   return {
-    entries: getBufferedEntries(),
+    entries: getBufferedEntries(winId ?? undefined),
     targets: collectTargets(),
-    flash: buildFlashInfo(),
+    flash: buildFlashInfo(winId),
     cdpOwner: activeWc ? getCdpLeaseOwner(activeWc.id) : null,
     activeTabId: resolvedId,
   };
 }
 
-export function openNativeDevTools(target: 'page' | 'shell'): boolean {
+export function openNativeDevTools(target: 'page' | 'shell', tabId?: string | null, winId?: number | null): boolean {
   try {
     if (target === 'shell') {
-      const win = getMainWindow();
+      const win = winId === undefined || winId === null ? getMainWindow() : getWindowById(winId);
       if (!win || win.isDestroyed()) return false;
       win.webContents.openDevTools({ mode: 'detach' });
       return true;
     }
-    const tabId = tabManager.getActiveId();
-    if (!tabId) return false;
-    tabManager.openDevTools(tabId);
+    const manager = managerFor(winId);
+    const resolvedId = tabId ?? manager.getActiveId();
+    if (!resolvedId) return false;
+    manager.openDevTools(resolvedId);
     return true;
   } catch (error) {
     log.warn('[DevToolbox] openNativeDevTools failed:', error instanceof Error ? error.message : String(error));

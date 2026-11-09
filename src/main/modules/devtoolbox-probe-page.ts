@@ -4,7 +4,11 @@ import { clip } from './devtoolbox-buffer';
 import { probeFramesDeep, type DeepProbe } from './devtoolbox-probe';
 import { resolveDebugPort } from './devtoolbox-targets';
 import { pickTargetForTab } from './devtoolbox-target-resolve';
-import { tabManager } from './tabs';
+import { getTabManagerForWindow, tabManager } from './tabs';
+
+function managerFor(winId?: number | null) {
+  return winId === undefined || winId === null ? tabManager : (getTabManagerForWindow(winId) ?? tabManager);
+}
 
 const PROBE_SCRIPT = `(function () {
   function abs(value, base) {
@@ -143,9 +147,10 @@ function mergeProbe(base: DevToolPageProbe | null, deep: DeepProbe | null, ua: s
  * 工具箱 Flash 页显示的还是上一页的数据，得重新按一次 F12 才更正。这与
  * `devtoolsUrl` / `bridge.attach` 是同一类错误（见 §9.4）。
  */
-export async function probeActivePage(tabId?: string | null): Promise<DevToolPageProbe | null> {
-  const resolvedId = tabId ?? tabManager.getActiveId();
-  const wc = resolvedId ? tabManager.getWebContents(resolvedId) : null;
+export async function probeActivePage(tabId?: string | null, winId?: number | null): Promise<DevToolPageProbe | null> {
+  const manager = managerFor(winId);
+  const resolvedId = tabId ?? manager.getActiveId();
+  const wc = resolvedId ? manager.getWebContents(resolvedId) : null;
   if (!wc || wc.isDestroyed()) return null;
 
   let base: DevToolPageProbe | null = null;
@@ -163,7 +168,7 @@ export async function probeActivePage(tabId?: string | null): Promise<DevToolPag
   if (needsDeep && resolvedId) {
     const port = resolveDebugPort();
     if (port) {
-      const targetId = await pickTargetForTab(resolvedId, port).catch(() => null);
+      const targetId = await pickTargetForTab(resolvedId, port, winId).catch(() => null);
       if (targetId) {
         deep = await probeFramesDeep(`ws://127.0.0.1:${port}/devtools/page/${targetId}`).catch(() => null);
       }

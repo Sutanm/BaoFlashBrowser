@@ -19,7 +19,7 @@ import { registerTabsIPC } from './ipc/tabs.ipc';
 import { registerScreenshotIPC } from './ipc/screenshot.ipc';
 import { registerDevToolboxIPC } from './ipc/devtoolbox.ipc';
 import { initDevToolbox, shutdownDevToolsFrontendServer, shutdownWorkspaceWatchers } from './modules/devtoolbox';
-import { devToolsBridge } from './modules/devtoolbox-bridge';
+import { disposeAllDevToolsBridges, disposeDevToolsBridge } from './modules/devtoolbox-bridge';
 import { configureOptionalTabServices, createTabManager, disposeTabManager } from './modules/tabs';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, markCleanShutdown } from './modules/session-recovery';
@@ -153,6 +153,7 @@ function bootstrap(): void {
       registerZoomShortcutsForWindow(win);
       win.on('closed', () => {
         shellCrashStates.delete(win.id);
+        disposeDevToolsBridge(win.id);
         disposeTabManager(win);
       });
     });
@@ -301,7 +302,7 @@ function bootstrap(): void {
     // 工作区的 fs.watch 句柄必须显式关闭，否则退出时事件循环还挂着。
     shutdownWorkspaceWatchers();
     // 桥的 browser ws 是长连接，退出前必须显式关闭（否则进程退出要多等一个超时）。
-    devToolsBridge.shutdown();
+    disposeAllDevToolsBridges();
     if (MODULE_MEMORY_MONITOR) {
       const { stopMemoryMonitor } = require('./modules/memory-monitor') as typeof import('./modules/memory-monitor');
       stopMemoryMonitor();

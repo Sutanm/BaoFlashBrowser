@@ -470,23 +470,26 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 
 ### P4b 开发者工具箱每窗口独立桥（L）
 
-- [ ] `DevToolsBridge` 从单例改为 `Map<winId, bridge>`，生命周期随窗口
-- [ ] 工具箱前端容器 BrowserView 每窗口一个
-- [ ] collector 缓冲 / sink / `describeContents` 按窗口归属
-- [ ] `isTrustedSender` 改为"该窗口自己的前端或外壳"
-- [ ] targetId 解析按窗口；抽屉尺寸/停靠状态按窗口
-- 改动：`modules/devtoolbox*.ts`、`ipc/devtoolbox.ipc.ts`
+- [x] `DevToolsBridge` 从单例改为 `Map<winId, bridge>`，生命周期随窗口
+- [x] 工具箱前端容器 BrowserView 每窗口一个
+- [x] collector 缓冲 / sink / `describeContents` 按窗口归属
+- [x] `isTrustedSender` 改为"该窗口自己的前端或外壳"
+- [x] targetId 解析按窗口；抽屉尺寸/停靠状态按窗口（**尺寸/停靠部分顺延到 P5**，见下）
+- 改动：`modules/devtoolbox-bridge.ts`、`-host.ts`、`-collector.ts`、`-snapshot.ts`、`-target-resolve.ts`、`-probe-page.ts`、`ipc/devtoolbox.ipc.ts`、`index.ts`
 - 判据：两个窗口同时打开抽屉、各自 attach 各自标签、互不干扰
 - 验证：`npm run typecheck:main`、`npm run probe:deep`、P8 手工清单第 7 项
 - **若 Chromium 87 并发桥出现不可接受问题：先记录阻塞证据再回退到单桥方案，不允许静默降级**
+- **状态：已完成（L）**。新增 `tests/devtoolbox-per-window-{bridge,host,collector,ipc}.test.ts`（共 16 例）：桥实例/前端容器/采集分桶/信任边界与 IPC 路由；全量 `npm test -- --run` 154 文件 / 1035 例、`npm run typecheck`、`npm run build:main`、`npm run test:electron`、`npm run probe:deep`（23/23，含 45/46 两个 devtools 探针）全绿。
+- 说明：`undocked` 独立 DevTools 窗口也改为按窗口 Map 管理（不再全局单例），但其前端容器仍只允许每个窗口一个。**抽屉高度/宽度/停靠** 存于渲染层 `localStorage` 的单键（`devtoolbox.height/width/dock`），按窗口分片需要 `windowKey`，已并入 P5 的渲染层改造（届时用 `windowKey` 前缀 + 重读持久值），本阶段不做半吊子实现。
 
 ### P5 渲染层会话、恢复与几何
 
 - [ ] `useTabManager` 使用 `windowKey` 分片会话；旧 key 仅 primary 窗口认领
 - [ ] 崩溃恢复状态按窗口决策（主进程只读 + 按窗口 resolve）
 - [ ] 收藏改增量写；settings 读改写合并；水合前不写库
+- [ ] 抽屉尺寸/停靠按 `windowKey` 分片（P4b 顺延项：`useDevToolStore` 的 `devtoolbox.height/width/dock` 单键改为前缀键，拿到上下文后重读）
 - [ ] 窗口几何持久化（防抖 500ms）+ 启动按已存窗口数恢复
-- 改动：`hooks/useTabManager.ts`、`services/tab-session.ts`、`services/db.ts`、`store/useDataStore.ts`、`components/data/DatabaseHydrator.tsx`、`modules/window-state.ts`（新增）、`preload/index.ts`
+- 改动：`hooks/useTabManager.ts`、`services/tab-session.ts`、`services/db.ts`、`store/useDataStore.ts`、`store/useDevToolStore.ts`、`components/data/DatabaseHydrator.tsx`、`modules/window-state.ts`（新增）、`preload/index.ts`
 - 判据：R6 手工验收通过；两窗口同时加收藏/改设置不互相覆盖
 - 验证：`npm run typecheck:renderer`、`npm run typecheck:preload`
 

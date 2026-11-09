@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ipcMain } from 'electron';
 import path from 'path';
-import { createHandler, createValidatedHandler } from '../utils/ipc-wrapper';
+import { createEventHandler, createValidatedEventHandler } from '../utils/ipc-wrapper';
 import {
   attachDevToolsView,
   clearDevToolEntries,
@@ -17,7 +17,7 @@ import {
   resolveTargetId,
   setDevToolsViewBounds,
 } from '../modules/devtoolbox';
-import { devToolsBridge } from '../modules/devtoolbox-bridge';
+import { getDevToolsBridge } from '../modules/devtoolbox-bridge';
 import {
   createWorkspaceDirectory,
   createWorkspaceFile,
@@ -34,21 +34,63 @@ import {
   warmWorkspaceIndexes,
   writeWorkspaceFile,
 } from '../modules/devtoolbox-workspace';
-import { getMainWindow } from '../modules/window';
+import { getRegisteredWindows, getWindowForWebContents } from '../modules/window';
 
 const target = z.enum(['page', 'shell']);
 
 /**
- * 桥的 IPC 有两个来源，都必须精确校验：
+ * 工具箱的 IPC 有两个来源，都必须精确校验：
  * - **外壳 renderer**：只调 `attach`（切标签热切换）与 `stats`（探针/诊断）；
- * - **前端容器自己的 WebContents**：`send` / `detach`。B3 之前它经 iframe
- *   postMessage 中继、sender 仍是外壳；迁到 preload 后前端直接说话，校验对象变了。
+ * - **前端容器自己的 WebContents**：`send` / `detach`。
+ *
+ * P4b：信任边界按窗口——sender 必须是"它所属窗口"的外壳或该窗口自己的前端。
+ * 独立（undocked）DevTools 是独立的 BrowserWindow，`getWindowForWebContents`
+ * 反查不到宿主，所以前端 sender 还要按"哪个窗口的前端容器"再匹配一次。
  */
+function windowForFrontendSender(wc: Electron.WebContents): number | null {
+  for (const win of getRegisteredWindows()) {
+    const frontend = getDevToolsFrontendContents(win.id);
+    if (frontend && frontend.id === wc.id) return win.id;
+  }
+  return null;
+}
+
+function windowIdForSender(event: { sender: Electron.WebContents }): number | null {
+  const direct = getWindowForWebContents(event.sender);
+  if (direct && !direct.isDestroyed()) return direct.id;
+  return windowForFrontendSender(event.sender);
+}
+
 function isTrustedSender(event: { sender: Electron.WebContents }): boolean {
-  const win = getMainWindow();
-  if (win && !win.isDestroyed() && event.sender === win.webContents) return true;
-  const frontend = getDevToolsFrontendContents();
-  return Boolean(frontend && event.sender === frontend);
+  const winId = windowIdForSender(event);
+  if (winId === null) return false;
+  const win = getWindowForWebContents(event.sender);
+  if (win && !win.isDestroyed() && event.sender.id === win.webContents.id) return true;
+  const frontend = getDevToolsFrontendContents(winId);
+  return Boolean(frontend && frontend.id === event.sender.id);
+}
+
+function requireSenderWindowId(event: { sender: Electron.WebContents }): number {
+  const winId = windowIdForSender(event);
+  if (winId === null) throw new Error('untrusted-sender');
+  return winId;
+}
+
+const sinkInstalled = new Set<number>();
+
+/** 每窗口一个桥实例；首次取用时安装该窗口自己的事件 sink（只投给它的前端）。 */
+function bridgeFor(winId: number) {
+  const bridge = getDevToolsBridge(winId);
+  if (!sinkInstalled.has(winId)) {
+    sinkInstalled.add(winId);
+    bridge.setEventSink((events) => {
+      const frontend = getDevToolsFrontendContents(winId);
+      if (frontend && !frontend.isDestroyed()) {
+        frontend.send('devtoolbox:bridge-event', { events });
+      }
+    });
+  }
+  return bridge;
 }
 
 const boundsSchema = z.object({
@@ -115,49 +157,55 @@ export function registerDevToolboxIPC(): void {
   // 两个只读探测都收 tabId：主进程的"活动标签"比渲染层晚一拍，靠它会读到上一个页面。
   const tabIdArg = z.object({ tabId: z.string().min(1).max(120).nullable().optional() }).strict();
 
-  createHandler<unknown, ReturnType<typeof getDevToolSnapshot>>('devtoolbox:snapshot', (args) => {
+  createEventHandler<unknown, ReturnType<typeof getDevToolSnapshot>>('devtoolbox:snapshot', ({ event, args }) => {
     const parsed = tabIdArg.safeParse(args ?? {});
-    return getDevToolSnapshot(parsed.success ? parsed.data.tabId : undefined);
+    return getDevToolSnapshot(parsed.success ? parsed.data.tabId : undefined, windowIdForSender(event) ?? undefined);
   });
 
-  createHandler<void, void>('devtoolbox:clear', () => {
-    clearDevToolEntries();
+  createEventHandler<void, void>('devtoolbox:clear', ({ event }) => {
+    clearDevToolEntries(windowIdForSender(event) ?? 0);
   });
 
   // 独立窗口：停靠位置设为 undocked 时由渲染层拉起；关窗后主进程回发事件
-  createValidatedHandler(
+  createValidatedEventHandler(
     'devtoolbox:open-devtools-window',
     z.object({ target: target.optional(), tabId: z.string().min(1).max(120).nullable().optional() }).strict(),
-    (args: { target?: 'page' | 'shell'; tabId?: string | null }) => openDevToolsWindow(args.target ?? 'page', args.tabId),
+    ({ event, args }) => openDevToolsWindow(requireSenderWindowId(event), args.target ?? 'page', args.tabId),
   );
 
-  createHandler<void, void>('devtoolbox:close-devtools-window', () => {
-    closeDevToolsWindow();
+  createEventHandler<void, void>('devtoolbox:close-devtools-window', ({ event }) => {
+    closeDevToolsWindow(requireSenderWindowId(event));
   });
 
   // 内嵌前端视图（B1 容器换代）：BrowserView 承载前端，bounds 由渲染层上报
-  createValidatedHandler(
+  createValidatedEventHandler(
     'devtoolbox:attach-devtools-view',
     z.object({ target, tabId: z.string().min(1).max(120).nullable().optional() }).strict(),
-    (args: { target: 'page' | 'shell'; tabId?: string | null }) => attachDevToolsView(args.target, args.tabId),
+    ({ event, args }) => {
+      const winId = requireSenderWindowId(event);
+      // 先安装该窗口的事件 sink，再挂前端（前端一起来就会发命令）。
+      bridgeFor(winId);
+      return attachDevToolsView(winId, args.target, args.tabId);
+    },
   );
 
-  createValidatedHandler(
+  createValidatedEventHandler(
     'devtoolbox:set-devtools-bounds',
     boundsSchema,
-    (args: { x: number; y: number; width: number; height: number }) => {
-      setDevToolsViewBounds(args);
+    ({ event, args }) => {
+      setDevToolsViewBounds(requireSenderWindowId(event), args);
     },
   );
 
   // 拖拽专用同步通道：渲染层在 ResizeObserver 回调里等这一步，跨进程多走一次
   // 外壳把当前停靠位置推给前端：原生「停靠侧」菜单的勾选状态读的是前端自己的
   // dockSide()，不推的话永远勾在初始值上（实测在右侧停靠时勾着「底部」）。
-  createValidatedHandler(
+  createValidatedEventHandler(
     'devtoolbox:set-dock',
     z.object({ dock: z.enum(['bottom', 'left', 'right', 'undocked']) }).strict(),
-    (args: { dock: 'bottom' | 'left' | 'right' | 'undocked' }) => {
-      const frontend = getDevToolsFrontendContents();
+    ({ event, args }) => {
+      const winId = requireSenderWindowId(event);
+      const frontend = getDevToolsFrontendContents(winId);
       if (frontend && !frontend.isDestroyed()) frontend.send('devtoolbox:dock-side', args.dock);
     },
   );
@@ -165,14 +213,17 @@ export function registerDevToolboxIPC(): void {
   // 原生 DevTools 界面里的「停靠 / 关闭」：前端只发意图，由外壳的 store 落地。
   // 前端自己不改 dockSide —— 它跑在 BrowserView 里，改自己的停靠只会画出错的布局。
   ipcMain.on('devtoolbox:frontend-intent', (event, args: unknown) => {
-    const frontend = getDevToolsFrontendContents();
+    if (!isTrustedSender(event)) return;
+    const winId = windowIdForSender(event);
+    if (winId === null) return;
+    const frontend = getDevToolsFrontendContents(winId);
     if (!frontend || event.sender !== frontend) return;
     const parsed = z.object({
       dock: z.enum(['bottom', 'left', 'right', 'undocked']).optional(),
       close: z.boolean().optional(),
     }).strict().safeParse(args);
     if (!parsed.success) return;
-    const win = getMainWindow();
+    const win = getWindowForWebContents(event.sender);
     if (win && !win.isDestroyed()) win.webContents.send('devtoolbox:frontend-intent', parsed.data);
   });
 
@@ -181,63 +232,53 @@ export function registerDevToolboxIPC(): void {
   ipcMain.on('devtoolbox:set-devtools-bounds-sync', (event, args: unknown) => {
     event.returnValue = true;
     if (!isTrustedSender(event)) return;
+    const winId = windowIdForSender(event);
+    if (winId === null) return;
     const parsed = boundsSchema.safeParse(args);
     if (!parsed.success) return;
-    setDevToolsViewBounds(parsed.data);
+    setDevToolsViewBounds(winId, parsed.data);
   });
 
-  createHandler<void, void>('devtoolbox:detach-devtools-view', () => {
-    destroyDevToolsView();
+  createEventHandler<void, void>('devtoolbox:detach-devtools-view', ({ event }) => {
+    destroyDevToolsView(requireSenderWindowId(event));
   });
 
   // DevTools 前端只认 WebSocket，这里给出可直接喂给 iframe 的 ws 地址。
-  createValidatedHandler(
+  createValidatedEventHandler(
     'devtoolbox:devtools-url',
     z.object({ target, tabId: z.string().min(1).max(120).nullable().optional() }).strict(),
-    (args: { target: 'page' | 'shell'; tabId?: string | null }) => getDevToolsTargetUrl(args.target, args.tabId),
+    ({ event, args }) => getDevToolsTargetUrl(args.target, args.tabId, windowIdForSender(event) ?? undefined),
   );
 
-  createValidatedHandler(
+  createValidatedEventHandler(
     'devtoolbox:open-native',
     z.object({ target }).strict(),
-    (args: { target: 'page' | 'shell' }) => openNativeDevTools(args.target),
+    ({ event, args }) => openNativeDevTools(args.target, undefined, windowIdForSender(event) ?? undefined),
   );
 
-  createHandler<unknown, Awaited<ReturnType<typeof probeActivePage>>>('devtoolbox:probe-page', (args) => {
+  createEventHandler<unknown, Awaited<ReturnType<typeof probeActivePage>>>('devtoolbox:probe-page', ({ event, args }) => {
     const parsed = tabIdArg.safeParse(args ?? {});
-    return probeActivePage(parsed.success ? parsed.data.tabId : undefined);
+    return probeActivePage(parsed.success ? parsed.data.tabId : undefined, windowIdForSender(event) ?? undefined);
   });
 
-  // ---- CDP 桥（桥 v2） ----
-  // 这几个通道不走 createHandler：需要 sender 校验（规格 §2 铁律 B5），
-  // 而公共 wrapper 不接收 event。
-  // B3 之后前端就是事件终点：直接投给前端容器的 WebContents，由它的 preload
-  // 逐条回调给页面。**不再经外壳 renderer 中转**——那是 iframe 时代的形状。
-  devToolsBridge.setEventSink((events) => {
-    const frontend = getDevToolsFrontendContents();
-    if (frontend) {
-      frontend.send('devtoolbox:bridge-event', { events });
-      return;
-    }
-    // 前端容器不在（page-ws 路径，或桥被探针单独驱动）时退回外壳 renderer，
-    // 让 `bridge.onEvents` 至少还有观察窗口。
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) win.webContents.send('devtoolbox:bridge-event', { events });
-  });
-
+  // ---- CDP 桥（桥 v2，P4b 起每窗口一实例） ----
+  // 这几个通道不走 createEventHandler：需要 sender 校验（规格 §2 铁律 B5），
+  // 且响应形状由前端协议决定。
   ipcMain.handle('devtoolbox:bridge-attach', async (event, args?: { target?: 'page' | 'shell'; tabId?: string | null }) => {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
+    const winId = windowIdForSender(event);
+    if (winId === null) return { ok: false, error: { message: 'untrusted-sender' } };
     const port = resolveDebugPort();
     if (!port) return { ok: false, error: { message: 'no-port' } };
     // 目标由渲染层指定：桥模式 URL 恒定，切 page/shell 不会重建容器，
     // 只能靠这一次 attach 换 target。
-    // **tabId 必须由渲染层给**：切标签是渲染层先更新、主进程后跟上的，
-    // 用主进程的"活动标签"会在这段窗口里绑到上一个页面（实测：切到新标签页
-    // 后仍显示旧页面的 Elements，且因为 URL 恒定再也不会重解析）。
-    const targetId = await resolveTargetId(args?.target === 'shell' ? 'shell' : 'page', args?.tabId);
+    // **tabId 必须由渲染层给**：切标签是渲染层先更新、主进程后跟上的，用主进程的
+    // "活动标签"会在这段窗口里绑到上一个页面（实测：切到新标签页后仍显示旧页面的
+    // Elements，且因为 URL 恒定再也不会重解析）。
+    const targetId = await resolveTargetId(args?.target === 'shell' ? 'shell' : 'page', args?.tabId, winId);
     if (!targetId) return { ok: false, error: { message: 'no-target' } };
     try {
-      const { sessionId } = await devToolsBridge.attach(targetId, port);
+      const { sessionId } = await bridgeFor(winId).attach(targetId, port);
       return { ok: true, targetId, sessionId };
     } catch (error) {
       return { ok: false, error: { message: error instanceof Error ? error.message : String(error) } };
@@ -246,7 +287,9 @@ export function registerDevToolboxIPC(): void {
 
   ipcMain.handle('devtoolbox:bridge-detach', async (event) => {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
-    await devToolsBridge.detach();
+    const winId = windowIdForSender(event);
+    if (winId === null) return { ok: false, error: { message: 'untrusted-sender' } };
+    await getDevToolsBridge(winId).detach();
     return { ok: true };
   });
 
@@ -255,7 +298,9 @@ export function registerDevToolboxIPC(): void {
   // 「切外壳再切回当前页」。桥内有 3s 冷却，风暴下不会无限重建。
   ipcMain.handle('devtoolbox:bridge-rotate', async (event) => {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
-    return devToolsBridge.rotate();
+    const winId = windowIdForSender(event);
+    if (winId === null) return { ok: false, error: { message: 'untrusted-sender' } };
+    return getDevToolsBridge(winId).rotate();
   });
 
   // 前端就绪握手：preload 在页面注册 onMessage 后调用。主进程据此放行挂起的
@@ -263,33 +308,42 @@ export function registerDevToolboxIPC(): void {
   // 蒸发（重开抽屉样式永久转圈的根因，2026-11-09 真机实证）。
   ipcMain.handle('devtoolbox:bridge-frontend-ready', async (event) => {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
-    devToolsBridge.markFrontendReady();
+    const winId = windowIdForSender(event);
+    if (winId === null) return { ok: false, error: { message: 'untrusted-sender' } };
+    getDevToolsBridge(winId).markFrontendReady();
     return { ok: true };
   });
 
   ipcMain.handle('devtoolbox:bridge-send', async (event, args: unknown) => {
     if (!isTrustedSender(event)) return { ok: false, error: { message: 'untrusted-sender' } };
+    const winId = windowIdForSender(event);
+    if (winId === null) return { ok: false, error: { message: 'untrusted-sender' } };
     const parsed = bridgeSendSchema.safeParse(args);
     if (!parsed.success) return { ok: false, error: { message: 'invalid-arguments' } };
-    return devToolsBridge.send(parsed.data.method, parsed.data.params, parsed.data.sessionId, parsed.data.id);
+    return bridgeFor(winId).send(parsed.data.method, parsed.data.params, parsed.data.sessionId, parsed.data.id);
   });
 
   ipcMain.handle('devtoolbox:bridge-stats', (event) => {
     if (!isTrustedSender(event)) return null;
-    return devToolsBridge.getStats();
+    const winId = windowIdForSender(event);
+    if (winId === null) return null;
+    return getDevToolsBridge(winId).getStats();
   });
 
   // ---- 工作区（真实本地文件夹） ----
   // 一条通道 + action 分派：页面侧的虚拟 FileSystem 只传「授权根目录名 + 相对路径」，
   // 绝对路径由主进程按清单解析（见 modules/devtoolbox-workspace.ts 的安全边界）。
   //
-  // 文件变更走反向推送（`devtoolbox:workspace-changes` → 前端 preload → bfb-workspace.js
-  // 派发 FileSystemFilesChangedAddedRemoved），这样外部编辑器的改动 Sources 能自己刷新。
+  // 文件变更走反向推送（`devtoolbox:workspace-changes` → 前端 preload →
+  // bfb-workspace.js 派发 FileSystemFilesChangedAddedRemoved），这样外部编辑器的改动
+  // Sources 能自己刷新。工作区是全局授权列表，变更广播给每个窗口自己的前端。
   warmWorkspaceIndexes();
   setWorkspaceChangeSink((fileSystemPath, change) => {
-    const frontend = getDevToolsFrontendContents();
-    if (frontend && !frontend.isDestroyed()) {
-      frontend.send('devtoolbox:workspace-changes', { fileSystemPath, change });
+    for (const win of getRegisteredWindows()) {
+      const frontend = getDevToolsFrontendContents(win.id);
+      if (frontend && !frontend.isDestroyed()) {
+        frontend.send('devtoolbox:workspace-changes', { fileSystemPath, change });
+      }
     }
   });
 
