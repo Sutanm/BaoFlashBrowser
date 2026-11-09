@@ -795,3 +795,4 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 | P2 | `f9ac07b` | 4 个新测试 + 更新的 ui-language；unit 141 文件 / 983 例 | `ui:set-language` 经 ipc-wrapper 的 window 上下文鉴权，不直接 import `window.ts`（避免拖入 electron-store 依赖） |
 | P3 | `15ec669` | `tab-manager-routing`（9）+ `id-uniqueness`（2）；unit 143 文件 / 994 例；probe:deep 23/23 | 计划 probe 45/46 编号已被 devtools 探针占用：双实例路由改用单测覆盖，真实迁移探针顺延为 `51-tab-transfer`（P7） |
 | P4a | `f565963` | 7 个路由测试文件 + window-registry / view-gate 扩展；unit 150 文件 / 1019 例；probe:deep 23/23 | 自动化导入/导出对话框仍用 `getWin()`（聚焦窗口）；probe 24 首次全量跑出现一次 matchMedia 超时，单独重跑与二次全量均 OK（时序抖动，非 P4a 引入） |
+| P4b | `3db5749` | `devtoolbox-per-window-{bridge,host,collector,ipc}`（16）；unit 154 文件 / 1036 例；probe:deep 23/23（含 45/46） | 抽屉尺寸/停靠按窗口顺延到 P5（`localStorage` 单键需要 `windowKey`）；probe 46 改为桥工厂（独立桶 0） |
