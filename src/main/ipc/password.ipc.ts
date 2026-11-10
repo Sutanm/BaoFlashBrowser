@@ -1,4 +1,5 @@
 import log from 'electron-log';
+import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { createHandler, createValidatedHandler, createValidatedEventHandler } from '../utils/ipc-wrapper';
 import {
@@ -52,11 +53,18 @@ export function registerPasswordIPC(): void {
     };
   });
 
+  // 渲染层"保存提示决定"诊断（只含固定短语，绝不带凭据/用户名）：
+  // 回答"捕获成功了为什么没看到提示"——队列深度、被忽略的原因、保存结果。
+  ipcMain.on('password:ui-diagnostic', (_event, raw: unknown) => {
+    const parsed = z.object({ message: z.string().min(1).max(200) }).strict().safeParse(raw);
+    if (!parsed.success) return;
+    log.info('[PasswordUI] ' + parsed.data.message.replace(/[\r\n]+/gu, ' '));
+  });
+
   // 首次启动向导用：**建库之前**预判"查看保护会落在系统验证还是查看密码"。
   // 系统钥匙串可用 + 平台有验证后端 → 走 os-*，向导就不该再问用户要查看密码。
   // 只读，不建库、不写盘。
-  createHandler('password:guard-preview', async () => {
-    const keyring = await detectKeyring();
+  createHandler('password:guard-preview', async () => {    const keyring = await detectKeyring();
     const mode: ViewGuardStatus['mode'] = keyring.backend && await isOsAuthAvailable() ? 'os-win' : 'password';
     return { mode };
   });
@@ -140,8 +148,7 @@ export function registerPasswordIPC(): void {
 
   createValidatedHandler('password:ignore', captureArg, ({ captureId }) => {
     removePendingCredential(captureId);
-    return { success: true };
-  });
+    return { success: true };  });
 
   createValidatedHandler('password:delete', idArg, ({ id }) => {
     const ok = deleteEntry(id);

@@ -32,7 +32,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'password:toggle-enabled', 'password:set-auto-capture', 'password:set-auto-fill', 'password:set-excluded-sites', 'password:list', 'password:save-confirm',
   'password:guard-preview',
   'password:ignore', 'password:delete', 'password:reveal', 'password:set-default',
-  'password:reset', 'password:fill', 'password:retry-key', 'password:rebuild-vault',
+  'password:reset', 'password:fill', 'password:retry-key', 'password:rebuild-vault', 'password:ui-diagnostic',
   'password:set-view-password', 'password:reset-os-auth',
   'diagnostics:export',
   'devtoolbox:snapshot', 'devtoolbox:clear', 'devtoolbox:devtools-url', 'devtoolbox:open-native', 'devtoolbox:probe-page',
@@ -191,6 +191,13 @@ const electronAPI = {
     resetAll: () => safeInvoke('password:reset'),
     retryKey: () => safeInvoke('password:retry-key'),
     rebuildVault: (confirm: string) => safeInvoke('password:rebuild-vault', { confirm }),
+    /**
+     * 只上报"保存提示做了什么决定"（shown / ignored / disabled / 状态失败）：
+     * 固定短语、不含凭据与用户名。fire-and-forget，失败静默。
+     */
+    uiDiagnostic: (message: string) => {
+      try { ipcRenderer.send('password:ui-diagnostic', { message: String(message).slice(0, 200) }); } catch { /* diagnostics only */ }
+    },
   },
 
   diagnostics: {

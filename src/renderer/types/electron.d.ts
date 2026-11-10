@@ -235,6 +235,8 @@ declare global {
         resetAll(): Promise<PasswordOperationResult>;
         retryKey(): Promise<KeyRetryResult>;
         rebuildVault(confirm: 'REBUILD'): Promise<RebuildVaultResult>;
+    /** 保存提示决定诊断（固定短语，不含凭据）：fire-and-forget。 */
+    uiDiagnostic(message: string): void;
         setViewPassword(password: string, current?: string): Promise<SetViewPasswordResult>;
         resetOsAuth(): Promise<ResetOsAuthResult>;
       };

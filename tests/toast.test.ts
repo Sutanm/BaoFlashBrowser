@@ -33,4 +33,19 @@ describe('toast queue policy', () => {
     expect(result.queue[1].id).toBe(99);
     expect(result.queue).toHaveLength(MAX_TOASTS);
   });
+
+  // 地址栏提示宿主只渲染队首一条（AddressToastHost 取 toastQueue[0]）。
+  // 保存密码提示是"登录后必须立刻看到"的 sticky 提示：普通优先级会被前一条
+  // sticky 提示永久挡在后面，表现为"捕获到了却没有弹提示"（2026-11-10 真机）。
+  it('leapfrogs a pending normal toast for high-priority prompts', () => {
+    const head = toast(1, { key: 'pending-normal' });
+    const capturePrompt = toast(2, { key: 'password-capture:host', duration: null, priority: 'high' });
+    const result = enqueueToast([head], capturePrompt);
+    expect(result.queue.map((item) => item.id)).toEqual([1, 2]);
+    expect(result.queue[1]).toMatchObject({ priority: 'high', duration: null });
+
+    // 再多一条 sticky 普通提示时，保存提示仍然插在它前面
+    const queued = enqueueToast(result.queue, toast(3, { key: 'another', duration: null })).queue;
+    expect(queued.map((item) => item.id)).toEqual([1, 2, 3]);
+  });
 });
