@@ -8,7 +8,7 @@ const ALLOWED_ON_CHANNELS = new Set([
   'ruffle:diagnostic',
   'download:progress', 'aria2:status', 'navigate-url',
   'shortcut',
-  'password:captured', 'password:changed', 'password:filled',
+  'password:captured', 'password:changed', 'password:filled', 'password:already-saved',
   'userscripts:changed',
   'userscript:open-tab',
   'automation-v3:changed',

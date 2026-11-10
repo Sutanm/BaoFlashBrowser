@@ -175,13 +175,16 @@ describe('password capture lifecycle', () => {
 
   // 2026-09-22：去重从"一律静默"改为 Chrome 的"变了才提示"。
   // 此前静默是用户误判"捕获坏了"的直接来源（日志里只有一行 skip already-saved）。
-  it('同账号 + 同密码：静默跳过，不弹提示', () => {
+  it('同账号 + 同密码：不弹保存提示，但回一条"已保存过"的轻提示', () => {
     const wc = fakeWebContents(84);
     storeMock.saved = [{ id: 'e1', username: 'bao' }];
     storeMock.passwords.set('e1', 'pw12345');
     setupCapture(wc as never);
     emitCapture(wc, 'same-pass.example', { user: 'bao', pass: 'pw12345' });
-    expect(windowMock.send).not.toHaveBeenCalled();
+    // 不再发 password:captured（那是"要你保存"的提示），改为发 already-saved：
+    // 只带 host 与账号名，不含密码，渲染层用自动消失的轻提示说明原因。
+    expect(windowMock.send).not.toHaveBeenCalledWith('password:captured', expect.anything());
+    expect(windowMock.send).toHaveBeenCalledWith('password:already-saved', { host: 'same-pass.example', username: 'bao' });
     expect(logMock.info).toHaveBeenCalledWith('[PasswordCapture] skip already-saved host=same-pass.example (same password)');
     teardownCapture(wc as never);
   });
