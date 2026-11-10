@@ -213,6 +213,22 @@ app.whenReady().then(async () => {
   check('built-in auto-updates on version bump', afterUpdate?.metadata.version === bundledVersion, { version: afterUpdate?.metadata.version, expected: bundledVersion });
   check('update preserves enabled state', afterUpdate?.enabled === false);
 
+  // 2026-11-10：内置脚本"只改 @updateHash、不动 @version"也必须更新。
+  // 这就是内置脚本发修复的正常形态（@updateHash 专门为此设计），若只有版本号
+  // 能触发更新，已装旧副本的用户永远收不到修复 —— 2026-11-10 的助手提示修复即此类。
+  const bundledHash = source.match(/@updateHash\s+(\S+)/)?.[1];
+  check('bundled updateHash present', Boolean(bundledHash), bundledHash);
+  mod.installUserscript(source.replace(/@updateHash\s+\S+/, '@updateHash  000000000000'), { id: builtIn.id, enabled: true });
+  const sameVersionStaged = mod.listUserscripts().find((s) => s.id === builtIn.id);
+  check('same version, stale hash staged',
+    sameVersionStaged?.metadata.version === bundledVersion && sameVersionStaged?.metadata.updateHash === '000000000000',
+    { version: sameVersionStaged?.metadata.version, hash: sameVersionStaged?.metadata.updateHash });
+  mod.ensureBundledScripts();
+  const afterHashOnlyUpdate = mod.listUserscripts().find((s) => s.id === builtIn.id);
+  check('built-in auto-updates on @updateHash change alone (same @version)',
+    afterHashOnlyUpdate?.metadata.updateHash === bundledHash && (afterHashOnlyUpdate?.revision ?? 0) > (sameVersionStaged?.revision ?? 0),
+    { hash: afterHashOnlyUpdate?.metadata.updateHash, expected: bundledHash, revision: afterHashOnlyUpdate?.revision, before: sameVersionStaged?.revision });
+
   // An OLD build must never downgrade a newer stored version (stale dist).
   const stagedNewer = source.replace(/@version\s+\S+/, '@version      99.0.0');
   mod.installUserscript(stagedNewer, { id: builtIn.id });
