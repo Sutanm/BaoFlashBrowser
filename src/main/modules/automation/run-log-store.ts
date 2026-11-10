@@ -81,7 +81,7 @@ export function buildRunLogMetaLine(meta: RunLogMeta): string {
   return JSON.stringify({
     [META_KEY]: true,
     packageId: String(meta.packageId),
-    packageName: String(meta.packageName),
+    packageName: String(meta.packageName).slice(0, 256),
     ...(meta.frontendId ? { frontendId: String(meta.frontendId) } : {}),
     startedAt: Number(meta.startedAt) || Date.now(),
   });
@@ -114,8 +114,19 @@ export async function readRunLogMeta(target: string): Promise<RunLogMeta | null>
     const buffer = Buffer.alloc(META_HEAD_BYTES);
     const { bytesRead } = await handle.read(buffer, 0, META_HEAD_BYTES, 0);
     if (!bytesRead) return null;
-    const firstLine = buffer.subarray(0, bytesRead).toString('utf8').split('\n', 1)[0];
-    return parseRunLogMetaLine(firstLine);
+    const head = buffer.subarray(0, bytesRead).toString('utf8');
+    const endOfLine = head.indexOf('\n');
+    if (endOfLine !== -1 || bytesRead < META_HEAD_BYTES) {
+      return parseRunLogMetaLine(endOfLine === -1 ? head : head.slice(0, endOfLine));
+    }
+    // Older writers could emit arbitrarily long names. Their header puts the
+    // validated package ID first, so restore ownership from that bounded prefix.
+    const legacyHeader = /^\{"_baoRunLogMeta":true,"packageId":"([A-Za-z0-9][A-Za-z0-9._-]{0,127})","packageName":"/u.exec(head);
+    return legacyHeader ? {
+      packageId: legacyHeader[1],
+      packageName: runLogScriptName(path.basename(target)),
+      startedAt: 0,
+    } : null;
   } catch {
     return null;
   } finally {
@@ -179,10 +190,11 @@ export async function listRunLogFiles(directory: string, filter?: RunLogFilter):
       ...(meta ? { packageId: meta.packageId, identity: 'meta' as const } : { identity: 'legacy-name' as const }),
     };
   }));
+  const legacyName = filter?.packageName ? sanitizeScriptName(filter.packageName) : null;
   const wanted = filter?.packageId
     ? summarized.filter((item) => (item.identity === 'meta'
       ? item.packageId === filter.packageId
-      : Boolean(filter.packageName) && sanitizeScriptName(item.scriptName) === sanitizeScriptName(filter.packageName!)))
+      : legacyName !== null && sanitizeScriptName(item.scriptName) === legacyName))
     : summarized;
   return wanted.sort((a, b) => b.startedAt - a.startedAt);
 }

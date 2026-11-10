@@ -121,7 +121,7 @@ export function registerAutomationAssistantBridge(prefix: string, allowed: (wcId
     const parsed = z.object({
       scriptId: z.string(),
       packageId: z.string().min(1).max(128).optional(),
-      packageName: z.string().min(1).max(200).optional(),
+      packageName: z.string().min(1).optional(),
     }).strict().safeParse(raw);
     const service = getAutomationV3Service();
     if (!parsed.success || !service || !allowed(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');

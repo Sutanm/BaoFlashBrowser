@@ -141,6 +141,7 @@ const TopBar: React.FC<TopBarProps> = ({
     active: boolean;
     overIndex: number | null;
     phase: DragPhase;
+    dragId?: number;
   };
   const [dragState, setDragState] = useState<DragInfo | null>(null);
   const dragRef = useRef(dragState);
@@ -151,7 +152,7 @@ const TopBar: React.FC<TopBarProps> = ({
   /** tear-off 正在进行：用它保证一次拖拽只开一个新窗口。 */
   const tearOffRef = useRef<Promise<void> | null>(null);
   /** 松手发生在 tear-off 就绪之前：就绪后立刻落定，别把窗口吊在半空。 */
-  const dropPendingRef = useRef(false);
+  const dropPendingRef = useRef<'drop' | 'cancel' | null>(null);
 
   const restoreView = useCallback(() => {
     viewHiddenRef.current = false;
@@ -168,35 +169,50 @@ const TopBar: React.FC<TopBarProps> = ({
   const contentTopRef = useRef(0);
 
   const beginDrag = useCallback((event: React.PointerEvent<HTMLDivElement>, tabId: string, index: number) => {
-    if (event.button !== 0) return;
-    dropPendingRef.current = false;
+    if (event.button !== 0 || tearOffRef.current) return;
+    dropPendingRef.current = null;
     contentTopRef.current = document.querySelector('.workspace-main')?.getBoundingClientRect().top ?? 0;
-    setDragState({ tabId, index, startX: event.clientX, startY: event.clientY, active: false, overIndex: null, phase: 'pending' });
+    const state: DragInfo = { tabId, index, startX: event.clientX, startY: event.clientY, active: false, overIndex: null, phase: 'pending' };
+    dragRef.current = state;
+    setDragState(state);
   }, []);
 
   /** 把标签迁进跟随指针的新窗口（一次拖拽只允许一次）。 */
   const startTearOff = useCallback((tabId: string) => {
-    if (tearOffRef.current) return;
-    setDragState((prev) => (prev && prev.tabId === tabId ? { ...prev, phase: 'tearing' } : prev));
+    const state = dragRef.current;
+    if (tearOffRef.current || !state || state.tabId !== tabId) return;
+    const tearing: DragInfo = { ...state, active: true, phase: 'tearing' };
+    dragRef.current = tearing;
+    setDragState(tearing);
     tearOffRef.current = (async () => {
       try {
-        const result = await window.electronAPI.win.tearOffTab(tabId);
-        if (!result?.moved) {
+        const result = await window.electronAPI.win.tearOffTab(tabId, { follow: true });
+        if (!result?.moved || result.dragId === undefined) {
           // busy / renderer 超时：整段拖拽作废，别留下半开的窗口。
           pushToast({ key: 'tab-drag-busy', message: LL.tab.dragBusy(), type: 'warning' });
+          dragRef.current = null;
           setDragState(null);
           restoreView();
           return;
         }
-        setDragState((prev) => (prev && prev.tabId === tabId ? { ...prev, phase: 'torn' } : prev));
-        if (dropPendingRef.current) {
-          dropPendingRef.current = false;
+        const pending = dropPendingRef.current;
+        if (pending) {
+          dropPendingRef.current = null;
+          dragRef.current = null;
           setDragState(null);
-          await window.electronAPI.win.dragDrop(tabId).catch(() => { /* window gone */ });
+          await window.electronAPI.win.dragDrop(tabId, result.dragId, { cancel: pending === 'cancel' });
           // 主进程放开了 viewHold，这里同步本地的隐藏标记并让视图按容器 rect 回来。
           restoreView();
+        } else {
+          const torn: DragInfo = { ...tearing, phase: 'torn', dragId: result.dragId };
+          dragRef.current = torn;
+          setDragState(torn);
         }
-      } catch { /* window gone */ } finally {
+      } catch {
+        dragRef.current = null;
+        setDragState(null);
+        restoreView();
+      } finally {
         tearOffRef.current = null;
       }
     })();
@@ -205,22 +221,25 @@ const TopBar: React.FC<TopBarProps> = ({
   const endDrag = useCallback(async (clientX: number, clientY: number) => {
     const state = dragRef.current;
     if (!state || !state.active) {
+      dragRef.current = null;
       setDragState(null);
       return;
     }
     // 已经分离出窗口：落点由主进程按屏幕坐标裁决，本窗口不再参与排版。
-    if (state.phase === 'torn') {
+    if (state.phase === 'torn' && state.dragId !== undefined) {
+      dragRef.current = null;
       setDragState(null);
-      await window.electronAPI.win.dragDrop(state.tabId).catch(() => { /* window gone */ });
+      await window.electronAPI.win.dragDrop(state.tabId, state.dragId).catch(() => { /* window gone */ });
       restoreView();
       return;
     }
     // tear-off 还在路上（新窗口要等 renderer 握手）：先记住"该落定了"。
     if (state.phase === 'tearing') {
-      dropPendingRef.current = true;
+      if (dropPendingRef.current !== 'cancel') dropPendingRef.current = 'drop';
       return;
     }
 
+    dragRef.current = null;
     setDragState(null);
     restoreView();
     const element = document.elementFromPoint(clientX, clientY);
@@ -252,7 +271,11 @@ const TopBar: React.FC<TopBarProps> = ({
       let current = state;
       if (!state.active) {
         if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) < 6) return;
+        // 捕获放在稳定的标签栏上，迁出标签 DOM 后仍能收到松手。
+        const tabbar = document.querySelector('.topbar-tabbar');
+        try { tabbar?.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
         current = { ...state, active: true, phase: 'drag' };
+        dragRef.current = current;
         setDragState(current);
       }
       if (current.phase === 'tearing' || current.phase === 'torn') return;
@@ -276,13 +299,17 @@ const TopBar: React.FC<TopBarProps> = ({
     const handleUp = (event: PointerEvent) => { void endDrag(event.clientX, event.clientY); };
     const cancel = () => {
       const state = dragRef.current;
-      setDragState(null);
       if (!state) return;
-      if (state.phase === 'tearing' || state.phase === 'torn') {
-        dropPendingRef.current = false;
-        void window.electronAPI.win.dragDrop(state.tabId, { cancel: true })
-          .then(() => { restoreView(); })
-          .catch(() => { /* window gone */ });
+      if (state.phase === 'tearing') {
+        dropPendingRef.current = 'cancel';
+        return;
+      }
+      dragRef.current = null;
+      setDragState(null);
+      if (state.phase === 'torn' && state.dragId !== undefined) {
+        void window.electronAPI.win.dragDrop(state.tabId, state.dragId, { cancel: true })
+          .catch(() => { /* window gone */ })
+          .finally(restoreView);
         return;
       }
       if (state.active) restoreView();
@@ -297,7 +324,6 @@ const TopBar: React.FC<TopBarProps> = ({
       window.removeEventListener('pointerup', handleUp);
       window.removeEventListener('pointercancel', cancel);
       window.removeEventListener('keydown', handleKey);
-      if (dragRef.current?.active) restoreView();
     };
   }, [dragActive, tabs, endDrag, startTearOff, restoreView, hideView]);
 

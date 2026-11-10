@@ -5,7 +5,7 @@ import { createEventHandler, createValidatedEventHandler } from '../utils/ipc-wr
 import { getTabManagerForSender, getTabManagerForTabId, getTabManagerForWindow, getTabOwnerWindow, notifyTabAdopted, tabManager, transferTabBetweenWindows } from '../modules/tabs';
 import { createWindow, getRegisteredWindows, getWindowById, whenRendererReady } from '../modules/window';
 import { resolveBandTarget, resolveDropIntent, resolveDropTarget } from '../utils/drop-target';
-import { followBoundsAt, raiseForFollow, settleDragWindow, startDragFollow, stopDragFollow } from '../modules/drag-session';
+import { followBoundsAt, getDragFollowWindowId, raiseForFollow, settleDragWindow, startDragFollow, stopDragFollow } from '../modules/drag-session';
 import { ruffleBundleInfo, ruffleJsContent } from '../modules/ruffle-bundle';
 import log from 'electron-log';
 
@@ -43,6 +43,7 @@ function requireOwnedManager(window: BrowserWindow | null, tabId: string): Retur
  */
 
 export function registerTabsIPC(): void {
+  let tearOffPending = false;
   ipcMain.on('password:form-detected', (event, payload: unknown) => {
     // payload.fill === false：这次信号只用于重新武装捕获（用户点了页面），
     // 不触发自动填充，避免把用户刚改的账号密码冲掉。
@@ -210,37 +211,46 @@ export function registerTabsIPC(): void {
    * 源窗口这里**不关闭**——用户可能立刻把标签拖回来（回吸），关掉就无处可放；
    * 收尾统一由 `win:drag-drop` 判空处理。
    */
-  createValidatedEventHandler('win:tear-off-tab', tabOnly, async ({ window, args }) => {
+  createValidatedEventHandler('win:tear-off-tab', z.object({
+    tabId,
+    follow: z.boolean().optional(),
+  }).strict(), async ({ window, event, args }) => {
     const owner = getTabOwnerWindow(args.tabId);
-    if (!owner || !window || owner.id !== window.id) throw new Error('tab does not belong to this window');
-    if (getTabManagerForTabId(args.tabId)?.isTabBusy(args.tabId)) return { moved: false, reason: 'busy' };
-    const point = screen.getCursorScreenPoint();
-    // 拖拽期间源窗口会切到相邻标签；先压住视图，否则视图一出现就吃掉 pointermove/up。
+    if (!owner || !window || owner.id !== window.id || window.webContents.id !== event.sender.id) {
+      throw new Error('tab does not belong to this window');
+    }
     const ownerManager = getTabManagerForWindow(owner.id);
-    ownerManager?.setViewHold(true);
-    // 初始矩形与第一帧跟随完全一致（指针压在新窗口的标签上），避免窗口先闪一下再跳。
-    // showInactive：拖拽期间不抢前台——源窗口握着鼠标捕获，被抢焦点就可能丢 pointerup。
-    const newWin = createWindow({ adopting: true, showInactive: true, bounds: followBoundsAt(point) });
-    // 建窗即置顶：`ready-to-show` 到握手完成之间，源窗口的 focusActive() 会把宿主角
-    // 色抢回前台；等 startDragFollow 再置顶就来不及，用户会看到窗口冒出又沉下去。
-    raiseForFollow(newWin);
-    const ready = await whenRendererReady(newWin);
-    if (!ready || newWin.isDestroyed()) {
-      ownerManager?.setViewHold(false);
-      try { if (!newWin.isDestroyed()) newWin.close(); } catch { /* ignore */ }
-      return { moved: false, reason: 'renderer-timeout' };
+    if (!ownerManager || tearOffPending || getDragFollowWindowId() !== null || ownerManager.isTabBusy(args.tabId)) {
+      return { moved: false, reason: 'busy' };
     }
-    if (!transferTabBetweenWindows(args.tabId, newWin)) {
-      log.warn(`[Tabs] tear-off transfer failed tab=${args.tabId} newWin=${newWin.id}`);
-      ownerManager?.setViewHold(false);
-      try { if (!newWin.isDestroyed()) newWin.close(); } catch { /* ignore */ }
-      return { moved: false, reason: 'transfer-failed' };
+    const point = screen.getCursorScreenPoint();
+    let newWin: BrowserWindow | undefined;
+    let transferred = false;
+    let dragId: number | undefined;
+    const releaseHold = () => { if (!owner.isDestroyed()) ownerManager.setViewHold(false); };
+    tearOffPending = true;
+    try {
+      if (args.follow) ownerManager.setViewHold(true);
+      newWin = createWindow({ adopting: true, showInactive: args.follow, bounds: followBoundsAt(point) });
+      if (args.follow) raiseForFollow(newWin);
+      const ready = await whenRendererReady(newWin);
+      if (!ready || newWin.isDestroyed()) return { moved: false, reason: 'renderer-timeout' };
+      if (owner.isDestroyed() || getTabOwnerWindow(args.tabId) !== owner) return { moved: false, reason: 'owner-changed' };
+      if (ownerManager.isTabBusy(args.tabId)) return { moved: false, reason: 'busy' };
+      transferred = transferTabBetweenWindows(args.tabId, newWin);
+      if (!transferred) return { moved: false, reason: 'transfer-failed' };
+      notifyTabAdopted(args.tabId, newWin, owner);
+      if (args.follow) dragId = startDragFollow(newWin, owner, args.tabId, releaseHold);
+      else if (ownerManager.getTabCount() === 0) owner.close();
+      return { moved: true, windowId: newWin.id, dragId };
+    } finally {
+      tearOffPending = false;
+      if (args.follow && dragId === undefined) releaseHold();
+      if (newWin && !newWin.isDestroyed()) {
+        if (!transferred) newWin.close();
+        else if (args.follow && dragId === undefined) settleDragWindow(newWin.id);
+      }
     }
-    // 快照跟着 adopted 一起推：渲染层用主进程的权威列表重建，不靠 url 猜状态。
-    log.info(`[Tabs] tear-off ok tab=${args.tabId} newWin=${newWin.id}`);
-    notifyTabAdopted(args.tabId, newWin, window);
-    startDragFollow(newWin, owner.id, args.tabId);
-    return { moved: true, windowId: newWin.id };
   });
 
   /**
@@ -249,14 +259,16 @@ export function registerTabsIPC(): void {
    */
   createValidatedEventHandler('win:drag-drop', z.object({
     tabId,
+    dragId: z.number().int().positive(),
     /** Esc/pointercancel：强制回吸到源窗口，不看指针位置。 */
     cancel: z.boolean().optional(),
-  }).strict(), ({ args }) => {
-    const session = stopDragFollow();
-    if (!session || session.tabId !== args.tabId) return { placed: false, reason: 'no-session' };
+  }).strict(), ({ window, event, args }) => {
+    const session = window?.webContents.id === event.sender.id
+      ? stopDragFollow(window.id, args.tabId, args.dragId)
+      : null;
+    if (!session) return { placed: false, reason: 'no-session' };
     const point = screen.getCursorScreenPoint();
     const followWin = getWindowById(session.windowId);
-    const ownerManager = getTabManagerForWindow(session.ownerWindowId);
     const candidates = getRegisteredWindows()
       .filter((win) => win.id !== session.windowId)
       .map((win) => ({ id: win.id, bounds: win.getBounds() }));
@@ -277,20 +289,20 @@ export function registerTabsIPC(): void {
 
     if (targetWindowId !== null) {
       const targetWin = getWindowById(targetWindowId);
-      if (targetWin && transferTabBetweenWindows(args.tabId, targetWin)) {
+      if (targetWin && followWin && getTabOwnerWindow(args.tabId) === followWin
+        && !getTabManagerForTabId(args.tabId)?.isTabBusy(args.tabId)
+        && transferTabBetweenWindows(args.tabId, targetWin)) {
         log.info(`[Tabs] drag-drop merge tab=${args.tabId} from=${session.windowId} into=${targetWindowId} cancel=${Boolean(args.cancel)}`);
         notifyTabAdopted(args.tabId, targetWin, followWin);
         closeFollowWindow();
         // 跟随窗口一关，用户应当看到刚把标签放进去的那个窗口，而不是被别的窗口挡着。
         try { targetWin.moveTop(); targetWin.focus(); } catch { /* window gone */ }
-        ownerManager?.setViewHold(false);
         closeIfEmpty(session.ownerWindowId);
         return { placed: true, merged: true, windowId: targetWindowId };
       }
     }
 
     log.info(`[Tabs] drag-drop place tab=${args.tabId} win=${session.windowId} at=${point.x},${point.y}`);
-    ownerManager?.setViewHold(false);
     // 就地定格：卸置顶 + 重新抬到最前。拖拽期间的 topmost 已由 stopDragFollow 撤掉，
     // 但源窗口那次 focusActive() 仍可能排在后面把它盖住，这里显式抬一次。
     settleDragWindow(session.windowId);

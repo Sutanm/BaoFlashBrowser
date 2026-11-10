@@ -8,6 +8,7 @@ import { withTimeout } from '../utils/with-timeout';
 import type { PasswordFillResult } from './password-fill';
 import type { FillCredential } from './password-store';
 import type { UserscriptManager } from './userscripts/userscript-manager';
+import type { TabSnapshotEntry } from '@shared/types/ipc';
 
 export interface OptionalTabServices {
   passwords?: {
@@ -179,7 +180,7 @@ class TabManager {
   setActiveViewVisible(visible: boolean): void {
     const view = this.activeId ? this.tabs.get(this.activeId)?.browserView : null;
     if (!view) return;
-    view.setBounds(visible && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
+    view.setBounds(visible && !this.viewHold && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
   }
 
   /** P7：自动化租约或密码填充进行中时禁止迁移。
@@ -386,6 +387,7 @@ class TabManager {
 
   setBounds(x: number, y: number, width: number, height: number): void {
     this.rect = { x, y, width, height };
+    if (this.viewHold) return;
     const tabId = this.activeId || '';
     const wc = this.tabs.get(tabId)?.browserView?.webContents;
     if (wc && this.automationTargets.has(tabId)) this._applyAutomationViewport(tabId, wc);
@@ -500,7 +502,7 @@ class TabManager {
     tab.browserView = view;
     tab.crashed = false;
     win.addBrowserView(view);
-    view.setBounds(this.activeId === tab.id && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
+    view.setBounds(!this.viewHold && this.activeId === tab.id && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
     // 窗口拉伸时必须由原生侧跟随，不能等渲染层 IPC。
     //
     // `OnWidgetBoundsChanged`（native_window_views.cc）在窗口尺寸变化的同一个原生调用栈里
@@ -726,17 +728,16 @@ class TabManager {
    */
   setViewHold(hold: boolean): void {
     this.viewHold = hold;
-    if (hold) return;
-    const view = this.activeId ? this.tabs.get(this.activeId)?.browserView : null;
-    if (view) view.setBounds(this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
+    this.setActiveViewVisible(!hold);
   }
 
   activate(tabId: string): void {
     if (this.activeId && this.activeId !== tabId) this.tabs.get(this.activeId)?.browserView?.setBounds(HIDDEN_BOUNDS);
     this.activeId = tabId;
     const wc = this.tabs.get(tabId)?.browserView?.webContents;
+    if (this.viewHold) return;
     if (wc && this.automationTargets.has(tabId)) this._applyAutomationViewport(tabId, wc);
-    else if (!this.viewHold) this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
+    else this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
   }
 
   /**
@@ -989,15 +990,18 @@ class TabManager {
    * url 取 `webContents.getURL()` 优先：`lastTargetUrl` 只是导航意图，重定向、SPA
    * 改址、初始 about:blank 之后它都可能落后于真实地址。
    */
-  snapshotTabs(): Array<{ tabId: string; url: string; title: string; favicon?: string; active: boolean }> {
-    const out: Array<{ tabId: string; url: string; title: string; favicon?: string; active: boolean }> = [];
+  snapshotTabs(): TabSnapshotEntry[] {
+    const out: TabSnapshotEntry[] = [];
     for (const [tabId, entry] of this.tabs) {
       const wc = entry.browserView?.webContents;
       const alive = Boolean(wc && !wc.isDestroyed());
       let url = entry.lastTargetUrl;
       let title = '';
       if (alive && wc) {
-        try { url = wc.getURL() || url; } catch { /* wc 竞态销毁 */ }
+        try {
+          const currentUrl = wc.getURL();
+          if (currentUrl && currentUrl !== 'about:blank') url = currentUrl;
+        } catch { /* wc 竞态销毁 */ }
         try { title = wc.getTitle(); } catch { /* 同上 */ }
       }
       out.push({
@@ -1006,6 +1010,12 @@ class TabManager {
         title,
         ...(entry.favicon ? { favicon: entry.favicon } : {}),
         active: tabId === this.activeId,
+        zoomFactor: entry.zoomFactor,
+        isMuted: entry.muted,
+        ruffleMode: entry.isRuffle ? 'ruffle' : 'ppapi',
+        ruffleSource: entry.ruffleSource,
+        suspended: !alive && !entry.crashed && needsBrowserView(url),
+        crashed: entry.crashed,
       });
     }
     return out;
@@ -1017,22 +1027,19 @@ class TabManager {
     if (!host || host.isDestroyed()) return;
     this.tabs.set(tab.tabId, tab.entry);
     tabIndex.set(tab.tabId, this);
-    // 迁入的标签必须在主进程侧就成为活动标签：渲染层的 `tab:adopted` 是异步事件，
-    // 一旦丢失/晚到，视图会一直停在 HIDDEN_BOUNDS —— 表现就是"新窗口里只有一个
-    // 新标签页"。主进程先接管活动态，渲染层后续的 activate 只是校正。
-    this.activeId = tab.tabId;
     if (tab.view) {
       tab.entry.browserView = tab.view;
       this.wcToId.set(tab.view.webContents.id, tab.tabId);
       wcIndex.set(tab.view.webContents.id, this);
       host.addBrowserView(tab.view);
-      const rect = this.activeId === tab.tabId && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS;
-      tab.view.setBounds(rect);
+      tab.view.setBounds(HIDDEN_BOUNDS);
       tab.view.webContents.setZoomFactor(tab.entry.zoomFactor);
       tab.view.webContents.setAudioMuted(tab.entry.muted);
       // P7：把事件监听重装到新实例；旧实例的监听器因归属守卫失效，不会双发。
       this._wireBrowserViewEvents(tab.view.webContents, tab.tabId);
     }
+    // 先隐藏原活动视图，再激活迁入标签。挂起标签没有视图，也必须隐藏原页面。
+    this.activate(tab.tabId);
   }
 
   private activeIndexFor(_tabId: string): boolean { return false; }

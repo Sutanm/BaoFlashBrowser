@@ -2,14 +2,14 @@
 import crypto from 'crypto';
 import type { WebContents } from 'electron';
 import log from 'electron-log';
-import { getMainWindow } from './window';
+import { broadcastToRegisteredWindows, getWindowForWebContents } from './window';
 import { getMetaForHost, getDecryptedPassword, isAutoCaptureEnabled, isCaptureExcluded } from './password-store';
-import { credentialOrigin, redactUrlForLog } from '@shared/utils/url-privacy';
+import { redactUrlForLog } from '@shared/utils/url-privacy';
 import { acquireCdpLease, type CdpLease } from './cdp-lease';
 import { CAPTURE_SCRIPT } from './password-capture-script';
 
 interface CaptureMessageParams {
-  context?: { id?: unknown };
+  context?: { id?: unknown; origin?: unknown; auxData?: { isDefault?: boolean } };
   executionContextId?: unknown;
   name?: unknown;
   payload?: unknown;
@@ -19,25 +19,30 @@ interface CaptureState {
   wc: WebContents;
   destroyed: boolean;
   injectTimer: ReturnType<typeof setTimeout> | null;
-  contexts: Set<number>;
+  contexts: Map<number, URL | null>;
   injectedContexts: Set<number>;
   retryContexts: Set<number>;
   messageListener: (_event: Electron.Event, method: string, params: CaptureMessageParams) => void;
-  consoleListener: (_event: Electron.Event, level: number, message: string) => void;
-  /** 页面侧"上报通道丢失"的告警只记一次（后续降 debug），避免一次捕获刷十几行。 */
-  bindingMissingLogged: boolean;
   /** 注入汇总行的定时器（一次性诊断），teardown 时必须清掉。 */
   readyTimer: ReturnType<typeof setTimeout> | null;
   capturedSet: Set<string>;
   cdpLease: CdpLease;
 }
 
-/**
- * 账号指纹：只用于在日志里比较"两次登录是不是同一个账号"，不可逆且截断。
- * 凭据类信息一律不写日志，所以查重结论只记指纹，不记用户名本身。
- */
-export function credentialFingerprint(username: string): string {
-  try { return crypto.createHash('sha256').update(String(username)).digest('hex').slice(0, 8); } catch { return 'n/a'; }
+let resolveCaptureWindow = getWindowForWebContents;
+
+export function setPasswordCaptureWindowResolver(resolver: typeof getWindowForWebContents): void {
+  resolveCaptureWindow = resolver;
+}
+
+function httpUrl(value: unknown): URL | null {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 export function addBoundedCaptureKey(keys: Set<string>, key: string, maxSize = 200): void {  if (maxSize <= 0) return;
@@ -95,7 +100,7 @@ function scheduleAttachRetry(wc: WebContents): void {
 export function getCaptureContextIds(wc: WebContents): number[] {
   const state = captures.get(wc.id);
   if (!state || state.destroyed) return [];
-  return [...state.contexts];
+  return [...state.contexts.keys()];
 }
 
 // 待保存凭据 —— 模块级全局，不受 state 重建影响（JSONP 捕获后 detach → teardown → setupCapture，旧 state 的 pendingCreds 不丢）
@@ -119,11 +124,6 @@ setInterval(() => {
     }
   }
 }, 60 * 1000);
-
-function sendToRenderer(channel: string, payload: Record<string, unknown>): void {
-  const win = getMainWindow();
-  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
-}
 
 function detachQuietly(state: CaptureState): void {
   try { state.cdpLease.release(); } catch { /* ignore duplicate detach */ }
@@ -206,31 +206,15 @@ export function setupCapture(wc: WebContents): void {
     wc,
     destroyed: false,
     injectTimer: null,
-    contexts: new Set(),
+    contexts: new Map(),
     injectedContexts: new Set(),
     retryContexts: new Set(),
     messageListener: () => {},
-    consoleListener: () => {},
-    bindingMissingLogged: false,
     readyTimer: null,
     capturedSet: new Set(),
     cdpLease,
   };
   log.info('[PasswordCapture] attached, wc.id=' + wc.id);
-  // 页面侧脚本"还活着但上报通道没了"是这次最坑的静默失败形态：脚本照旧监听
-  // input/click，但 window.__baopReport 不存在，所有上报被 catch 吞掉 —— 表现为
-  // 一条 DIAG 都没有、也没有捕获。页面会 console.warn('[baop] …') 一次，这里接住。
-  state.consoleListener = (_event, _level, message) => {
-    if (typeof message !== 'string' || message.indexOf('[baop]') < 0) return;
-    // 每次 detach 之后，页面里每个帧都会喊一次"绑定没了"——首次记 warn（真的异常），
-    // 之后降到 debug，避免一次捕获就刷十几行。
-    const line = '[PasswordCapture] page console: ' + message.slice(0, 200);
-    if (state.bindingMissingLogged) { log.debug(line); return; }
-    state.bindingMissingLogged = true;
-    log.warn(line);
-  };
-  // 测试里的假 wc 可能没有事件接口：诊断监听是尽力而为，不能因此让捕获挂不上。
-  try { wc.on('console-message', state.consoleListener); } catch { /* fake wc in unit tests */ }
   // 注入结论汇总（一次性）：contexts 里有多少个真正执行了捕获脚本。
   // 排查"某帧明明注入了却没反应"时，先看这行与 frame info 是否能对应上。
   state.readyTimer = setTimeout(() => {
@@ -244,7 +228,8 @@ export function setupCapture(wc: WebContents): void {
     if (state.destroyed) return;
     if (method === 'Runtime.executionContextCreated' && typeof params?.context?.id === 'number') {
       const ctxId = params.context.id;
-      state.contexts.add(ctxId);
+      if (params.context.auxData?.isDefault === false) return;
+      state.contexts.set(ctxId, httpUrl(params.context.origin));
       // Per-context diagnostics: CDP emits this for every frame and isolated
       // world, which flooded the log (~1.5k lines in a single session). Kept at
       // debug so it stays available without burying real events.
@@ -261,95 +246,77 @@ export function setupCapture(wc: WebContents): void {
       state.injectedContexts.clear();
       state.retryContexts.clear();
     }
-    if (method !== 'Runtime.bindingCalled' || params?.name !== '__baopReport' || typeof params.payload !== 'string') return;
-    for (const text of [params.payload]) {
-      if (!text.startsWith('{"_type":"baop_')) continue;
+    if (method !== 'Runtime.bindingCalled' || params?.name !== '__baopReport'
+      || typeof params.payload !== 'string' || params.payload.length > 64 * 1024
+      || typeof params.executionContextId !== 'number') return;
+    const frameOrigin = state.contexts.get(params.executionContextId);
+    if (!frameOrigin) return;
+    try {
+      const data = JSON.parse(params.payload);
+      if (data?._type !== 'baop_capture' || typeof data.pass !== 'string' || data.pass.length < 2) return;
+      const reportedUrl = httpUrl(data.origin);
+      // Only CDP's execution context can establish which site owns the credential.
+      if (!reportedUrl || reportedUrl.origin !== frameOrigin.origin || data.host !== frameOrigin.hostname) return;
+      const host = frameOrigin.hostname;
+      const username = typeof data.user === 'string' ? data.user : '';
+      if (isCaptureExcluded(frameOrigin.origin)) return;
+      const sourceWindow = resolveCaptureWindow(wc);
+      if (!sourceWindow || sourceWindow.isDestroyed()) return;
+
+      const key = host + '/' + username;
+      if (state.capturedSet.has(key)) return;
+      let skipToast = shownToastKeys.has(key);
+      if (skipToast) {
+        log.info('[PasswordCapture] skip already-shown-toast host=' + host);
+      } else {
+        addBoundedCaptureKey(state.capturedSet, key);
+        try {
+          const saved = getMetaForHost(host).find((entry) => entry.username === username);
+          const known = saved ? getDecryptedPassword(saved.id) : null;
+          const verdict = !saved ? 'no-entry'
+            : known === null ? 'key-unavailable'
+              : known === data.pass ? 'same-password' : 'password-changed';
+          log.info('[PasswordCapture] dedupe host=' + host + ' verdict=' + verdict);
+          if (verdict === 'key-unavailable') {
+            log.info('[PasswordCapture] skip already-saved host=' + host + ' (key unavailable)');
+            skipToast = true;
+          } else if (verdict === 'same-password') {
+            log.info('[PasswordCapture] skip already-saved host=' + host + ' (same password)');
+            skipToast = true;
+          } else if (verdict === 'password-changed') {
+            log.info('[PasswordCapture] password changed host=' + host + ' — prompting update');
+          }
+        } catch { /* vault may not be initialized */ }
+      }
+
+      // Detach even when the prompt is suppressed, so 7k7k's JSONP can finish.
+      if (['script-src', 'script-mo', 'img-src', 'beacon', 'fetch', 'xhr', 'form.submit', 'click-login'].includes(data.source)) {
+        detachQuietly(state);
+      }
+      if (skipToast) return;
+
+      const captureId = 'cap_' + crypto.randomBytes(16).toString('hex');
+      globalPendingCredentials.set(captureId, {
+        host,
+        username,
+        password: data.pass,
+        origin: frameOrigin.origin,
+        title: typeof data.title === 'string' ? data.title.slice(0, 200) : '',
+        timestamp: Date.now(),
+      });
       try {
-        const data = JSON.parse(text);
-        if (data._type === 'baop_diag') {
-          log.info('[PasswordCapture] DIAG: ' + data.msg);
-          continue;
-        }
-        if (data._type !== 'baop_capture') continue;
-        // 用户名允许为空（对齐 Chrome）：部分登录页先填密码、用户名由站点 JS 后补，或压根没有
-        // 用户名框（卡号/手机号/邮箱即账号）。此前 `!data.user` 会让这类登录静默不弹提示。
-        if (!data.pass || String(data.pass).length < 2) continue;
-        const username = typeof data.user === 'string' ? data.user : '';
-        if (isCaptureExcluded(String(data.origin || data.host || ''))) continue;
-        const key = `${data.host}/${username}`;
-        if (state.capturedSet.has(key)) continue;
-
-        let skipToast = shownToastKeys.has(key);
-        if (skipToast) {
-          log.info('[PasswordCapture] skip already-shown-toast host=' + data.host);
-        }
-
-        if (!skipToast) addBoundedCaptureKey(state.capturedSet, key);
-        const captureId = 'cap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-        if (!skipToast) {
-          globalPendingCredentials.set(captureId, {
-            host: data.host,
-            username,
-            password: data.pass,
-            origin: credentialOrigin(String(data.origin || ''), String(data.host || '')),
-            title: data.title || '',
-            timestamp: Date.now(),
-          });
-        }
-
-        // 已保存账号查重（2026-09-22 起对齐 Chrome 的"变了才提示"）：
-        //   同账号 + 同密码 → 静默跳过（重复登录不必再问一次）
-        //   同账号 + 密码已变 → 照常提示（save-confirm 会覆盖旧条目，即"更新密码"）
-        //   解不出明文（密钥不可用）→ 沿用旧的静默行为，不误报成"新密码"
-        // 此前一律静默，用户无法区分"没捕获"和"已保存过"，是多次误判成功能坏了的直接来源。
-        //
-        // 2026-11-10：查重结论只记"账号指纹"（sha256 前 8 位），不记账号本身 ——
-        // 排查"我明明用了新账号却被当成已保存"时，比较两次登录的 `user#` 与
-        // 库里条目的 `saved#` 就能定论，而不必把用户名写进日志。
-        if (!skipToast) {
-          try {
-            const saved = getMetaForHost(data.host).find((e) => e.username === username);
-            const known = saved ? getDecryptedPassword(saved.id) : null;
-            const verdict = !saved ? 'no-entry'
-              : known === null ? 'key-unavailable'
-                : known === String(data.pass) ? 'same-password' : 'password-changed';
-            // 沿用既有文案（文档与排障都靠它 grep），并把指纹+结论并入同一段日志。
-            log.info('[PasswordCapture] dedupe host=' + data.host
-              + ' user#' + credentialFingerprint(username)
-              + ' saved#' + (saved ? credentialFingerprint(saved.username) : 'none')
-              + ' verdict=' + verdict);
-            if (verdict === 'key-unavailable') {
-              log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (key unavailable)');
-              skipToast = true;
-            } else if (verdict === 'same-password') {
-              log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (same password)');
-              skipToast = true;
-            } else if (verdict === 'password-changed') {
-              log.info('[PasswordCapture] password changed host=' + data.host + ' — prompting update');
-            }
-          } catch { /* password-store 未初始化时忽略 */ }
-        }
-
-        // Workaround for 7k7k JSONP stuck: debugger attached may block <script> onload callback execution.
-        // ⚠️ detach 必须在 toast 决策之后、continue 之前执行，无论是否显示 toast 都要 detach
-        const needsDetach = ['script-src', 'script-mo', 'img-src', 'beacon', 'fetch', 'xhr', 'form.submit', 'click-login'].includes(String(data.source || ''));
-        if (needsDetach) {
-          log.info('[PasswordCapture] detach after capture source=' + data.source + ' (unblock JSONP callback)');
-          detachQuietly(state);
-        }
-
-        if (skipToast) {
-          globalPendingCredentials.delete(captureId);
-          continue;
-        }
-
-        shownToastKeys.set(key, { captureId, timestamp: Date.now() });
-        sendToRenderer('password:captured', { captureId, host: data.host, username });
-        log.info('[PasswordCapture] captured host=' + data.host + ' source=' + data.source);
-        // LRU：超过 50 条删最早的（removePendingCredential 里也会兜底）
-        if (globalPendingCredentials.size > 50) { const fk = globalPendingCredentials.keys().next().value; if (fk) globalPendingCredentials.delete(fk); }
-      } catch { /* ignore detach errors */ }
-    }
+        sourceWindow.webContents.send('password:captured', { captureId, host, username });
+      } catch {
+        globalPendingCredentials.delete(captureId);
+        return;
+      }
+      shownToastKeys.set(key, { captureId, timestamp: Date.now() });
+      log.info('[PasswordCapture] captured host=' + host);
+      if (globalPendingCredentials.size > 50) {
+        const oldest = globalPendingCredentials.keys().next().value;
+        if (oldest) removePendingCredential(oldest);
+      }
+    } catch { /* malformed page payload or renderer gone */ }
   };
   wc.debugger.on('message', state.messageListener);
   captures.set(wc.id, state);
@@ -398,7 +365,6 @@ function disposeCaptureState(state: CaptureState): void {
   state.injectedContexts.clear();
   state.retryContexts.clear();
   try { state.wc.debugger.removeListener('message', state.messageListener); } catch { /* local cleanup best effort */ }
-  try { state.wc.removeListener('console-message', state.consoleListener); } catch { /* local cleanup best effort */ }
   if (!state.wc.isDestroyed()) detachQuietly(state);
 }
 
@@ -424,7 +390,7 @@ export function removePendingCredential(captureId: string): void {
 
 // 通知 renderer 密码本数据变化（保存/删除/修改/重置后广播，面板自动刷新）
 export function notifyPasswordChanged(): void {
-  sendToRenderer('password:changed', { ts: Date.now() });
+  broadcastToRegisteredWindows('password:changed', { ts: Date.now() });
 }
 
 

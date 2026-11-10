@@ -111,6 +111,20 @@ describe('run log store', () => {
     expect(sanitized.map((item) => item.name)).toEqual(['260110-13-00-斗地主_闯关-记录1.json']);
   });
 
+  it('keeps package ownership for newly written and older oversized names', async () => {
+    const longName = '脚本'.repeat(3000);
+    const fresh = await metaFile('260110-12-00-新日志-记录1.json', 'pkg-long', longName);
+    const old = '260110-12-01-旧日志-记录1.json';
+    writeFileSync(path.join(directory, old), JSON.stringify({
+      _baoRunLogMeta: true, packageId: 'pkg-long', packageName: longName, startedAt: 1700000000000,
+    }) + '\n');
+
+    expect((await readRunLogMeta(path.join(directory, fresh)))?.packageName).toHaveLength(256);
+    expect((await listRunLogFiles(directory, { packageId: 'pkg-long', packageName: longName })).map(({ name }) => name).sort())
+      .toEqual([fresh, old].sort());
+    expect(await listRunLogFiles(directory, { packageId: 'pkg-other', packageName: '旧日志' })).toEqual([]);
+  });
+
   it('忽略非白名单文件与不存在的目录', async () => {
     writeFileSync(path.join(directory, 'README.txt'), 'not a log', 'utf8');
     writeFileSync(path.join(directory, 'run-1700000000000-abc123.jsonl'), '', 'utf8');

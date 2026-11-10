@@ -7,7 +7,7 @@ export const CAPTURE_SCRIPT = `
   // 上报通道 = CDP Runtime.addBinding 装进来的 window.__baopReport。它只在调试器
   // 附着期间存在：脚本本身（监听器）在 detach 后仍然活着，于是会出现"脚本在跑、
   // 却什么都报不出来"的静默失败。这里在通道缺席时用一次性 console.warn 留痕，
-  // 主进程订阅 console-message 把它落到日志（只报"通道没了"，不含任何凭据）。
+  // 只留在页面控制台，主进程不会转录页面消息。
   var _baopEmitFailed = false;
   function _baopEmit(payload){
     try{ window.__baopReport(JSON.stringify(payload)); return; }catch(e){}

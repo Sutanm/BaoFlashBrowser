@@ -79,7 +79,7 @@ module.exports = {
           const name = path.basename(args.path);
           const contents = name === 'password-store.ts'
             ? "export const getMetaForHost=()=>[]; export const getDecryptedPassword=()=>null; export const isAutoCaptureEnabled=()=>true; export const isCaptureExcluded=()=>false;"
-            : name === 'window.ts' ? 'export const getMainWindow=()=>globalThis.__baoCapturePopupWindow;'
+            : name === 'window.ts' ? 'export const getMainWindow=()=>globalThis.__baoCapturePopupWindow; export const getWindowForWebContents = getMainWindow; export const broadcastToRegisteredWindows = () => {};'
               : name === 'ui-language.ts' ? 'export const uiText=(zh)=>zh;'
                 : 'export const setupSessionOnce=()=>{};';
           return { contents, loader: 'ts' };
@@ -128,9 +128,17 @@ module.exports = {
       const read = (script) => wc.executeJavaScript(script).catch((error) => String(error));
 
       await waitFor(() => read("document.readyState === 'complete'"), { timeoutMs: 8000, intervalMs: 100, label: 'page ready' });
-      // 捕获在 did-stop-loading 挂上；等注入完成（DIAG 无法在本探针里读，用诊断探针代替）
       await waitFor(() => wc.debugger.isAttached(), { timeoutMs: 8000, intervalMs: 100, label: 'capture attached' });
       await wait(300);
+      await waitFor(() => read("typeof window.__baopReport === 'function'"), {
+        timeoutMs: 2000, intervalMs: 50, label: 'page capture binding installed',
+      });
+      await read(`window.__baopReport(JSON.stringify({
+        _type: 'baop_capture', host: 'victim.invalid', origin: 'https://victim.invalid/login',
+        user: 'fixture', pass: 'fixture-pass', source: 'submit'
+      }))`);
+      await wait(100);
+      if (captured.length > 0) return { ok: false, summary: 'forged cross-origin credential reached the prompt' };
 
       // 1) 点「登录」把隐藏的登录层显示出来（等同 7k7k 的 $().show()）
       await read("document.getElementById('open-login').click()");

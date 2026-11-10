@@ -76,10 +76,12 @@ export function followBoundsAt(point: { x: number; y: number }): { x: number; y:
 }
 
 interface FollowState {
+  dragId: number;
   windowId: number;
   ownerWindowId: number;
   tabId: string;
   timer: NodeJS.Timeout;
+  cleanup: () => void;
   /** 会话内恒定，绝不在跟随过程中重新读取。 */
   width: number;
   height: number;
@@ -88,6 +90,7 @@ interface FollowState {
 }
 
 let follow: FollowState | null = null;
+let nextDragId = 0;
 
 /** 把 DIP 坐标对齐到物理像素：避免 150% 缩放下每帧取整到相反方向造成抖动。 */
 function snapToDevicePixels(value: number, scale: number): number {
@@ -155,12 +158,14 @@ function placeAtPointer(win: BrowserWindow, state: FollowState): void {
 /**
  * 开始跟随。`tabId` 只是为日志与后续落点判定留痕（真正的迁移在 tear-off 里已完成）。
  */
-export function startDragFollow(win: BrowserWindow, ownerWindowId: number, tabId: string): void {
-  stopDragFollow();
-  if (win.isDestroyed()) return;
+export function startDragFollow(win: BrowserWindow, owner: BrowserWindow, tabId: string, onStop: () => void): number {
   raiseForFollow(win);
   const bounds = win.getBounds();
+  const dragId = ++nextDragId;
+  const ownerWindowId = owner.id;
+  const finish = () => { stopDragFollow(ownerWindowId, tabId, dragId); };
   const state: FollowState = {
+    dragId,
     windowId: win.id,
     ownerWindowId,
     tabId,
@@ -168,9 +173,14 @@ export function startDragFollow(win: BrowserWindow, ownerWindowId: number, tabId
     height: bounds.height,
     lastPoint: null,
     lastPosition: null,
+    cleanup: () => {
+      if (!win.isDestroyed()) win.removeListener('closed', finish);
+      if (!owner.isDestroyed()) owner.removeListener('closed', finish);
+      onStop();
+    },
     timer: setInterval(() => {
       if (win.isDestroyed()) {
-        stopDragFollow();
+        finish();
         return;
       }
       // 窗口还没 show（`ready-to-show` 尚未触发）时不要动它：Windows 会对新显示的
@@ -179,19 +189,24 @@ export function startDragFollow(win: BrowserWindow, ownerWindowId: number, tabId
       placeAtPointer(win, state);
     }, FOLLOW_INTERVAL_MS),
   };
+  win.once('closed', finish);
+  owner.once('closed', finish);
   state.timer.unref?.();
   follow = state;
   placeAtPointer(win, state);
   log.info(`[Tabs] drag-follow start tab=${tabId} win=${win.id} owner=${ownerWindowId} size=${state.width}x${state.height}`);
+  return dragId;
 }
 
 /** 结束跟随并交回"这次拖拽是谁"的信息（落点判定需要 owner / followWin）。 */
-export function stopDragFollow(): { windowId: number; ownerWindowId: number; tabId: string } | null {
-  if (!follow) return null;
+export function stopDragFollow(ownerWindowId: number, tabId: string, dragId: number): { windowId: number; ownerWindowId: number; tabId: string } | null {
+  if (!follow || follow.ownerWindowId !== ownerWindowId || follow.tabId !== tabId || follow.dragId !== dragId) return null;
   clearInterval(follow.timer);
+  const cleanup = follow.cleanup;
   const state = { windowId: follow.windowId, ownerWindowId: follow.ownerWindowId, tabId: follow.tabId };
   follow = null;
   lowerAfterFollow(state.windowId);
+  cleanup();
   log.info(`[Tabs] drag-follow stop tab=${state.tabId} win=${state.windowId}`);
   return state;
 }

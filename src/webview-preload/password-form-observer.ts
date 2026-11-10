@@ -82,7 +82,9 @@ export function installPasswordFormObserver(
     const freshInputs = usable.filter((input) => !knownInputs.has(input));
     if (!force && freshInputs.length === 0) return;
     for (const input of usable) knownInputs.add(input);
-    report(!userEdited);
+    // 站点可直接写 value 清空表单，不一定触发 input。
+    if (userEdited && !loginFieldsFilled()) userEdited = false;
+    report(!userEdited && usable.some((input) => !input.value));
   };
   const start = () => {
     if (stopped || observer || !document.documentElement) return;
@@ -104,6 +106,7 @@ export function installPasswordFormObserver(
   };
   // 用户动过登录表单里的输入框后，按"此刻表单是否还有内容"决定要不要继续填。
   const markUserEdited = (event: Event) => {
+    if (!event.isTrusted) return;
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     const loginField = target.type === 'password'
@@ -114,8 +117,7 @@ export function installPasswordFormObserver(
   };
   // 冒泡阶段（站点自己的 click 处理器先跑完，登录层通常此刻已经显示），并补一次
   // 延迟复查，覆盖异步 show / 动画结束后才可见的登录层。
-  // 点击只用于"重新武装捕获"：绝不因为一次点击就去填充（否则会把用户刚改的
-  // 账号/密码冲掉，见上面 userEdited 的来由）。
+  // 点击按当前表单状态决定填充或只重新武装捕获。
   const onClick = () => {
     if (stopped) return;
     reportIfNeeded(true);

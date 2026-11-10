@@ -20,7 +20,7 @@ import { registerScreenshotIPC } from './ipc/screenshot.ipc';
 import { registerDevToolboxIPC } from './ipc/devtoolbox.ipc';
 import { initDevToolbox, shutdownDevToolsFrontendServer, shutdownWorkspaceWatchers } from './modules/devtoolbox';
 import { disposeAllDevToolsBridges, disposeDevToolsBridge } from './modules/devtoolbox-bridge';
-import { configureOptionalTabServices, createTabManager, disposeTabManager } from './modules/tabs';
+import { configureOptionalTabServices, createTabManager, disposeTabManager, getTabManagerForSender } from './modules/tabs';
 import { installWindowDragMerge } from './modules/window-drag-merge';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, markCleanShutdown } from './modules/session-recovery';
@@ -177,6 +177,7 @@ function bootstrap(): void {
     const webviewPreloadPath = path.join(__dirname, 'webview-preload.js');
     onWindowCreated((win) => {
       const winId = win.id;
+      registerShortcutHandler(win.webContents);
       const manager = createTabManager(win, webviewPreloadPath);
       win.on('restore', () => manager.refreshActiveViewAfterHostRestore());
       win.on('maximize', () => manager.refreshActiveViewAfterHostRestore());
@@ -206,15 +207,14 @@ function bootstrap(): void {
     // windowKey 必须沿用：标签会话快照绑定在 `tab-session:<windowKey>` 上，
     // 换 key 等于丢会话。多窗口仅按序号做级联偏移，避免全部叠在同一位置。
     const savedWindows = loadWindowStates();
-    const restoredWindows = savedWindows.length > 0
-      ? savedWindows.map((state) => createWindow({
+    if (savedWindows.length > 0) {
+      for (const state of savedWindows) createWindow({
         ...(state.index > 0 ? { bounds: { x: 120 + state.index * 40, y: 80 + state.index * 40 } } : {}),
         windowKey: state.key,
         index: state.index,
         isPrimary: state.index === 0,
-      }))
-      : [createWindow()];
-    const mainWindow = restoredWindows[0] ?? createWindow();
+      });
+    } else createWindow();
 
     // Optional integrations are wired before the first BrowserView/session is
     // configured. Disabled modules therefore have no reverse import from core.
@@ -240,6 +240,7 @@ function bootstrap(): void {
     const passwordFill = MODULE_PASSWORDS
       ? require('./modules/password-fill') as typeof import('./modules/password-fill')
       : undefined;
+    passwordCapture?.setPasswordCaptureWindowResolver((wc) => wc ? getTabManagerForSender(wc)?.getHostWindow() ?? null : null);
 
     userscripts?.initUserscriptManager();
     configureOptionalSessionServices({
@@ -337,9 +338,6 @@ function bootstrap(): void {
     app.on('web-contents-created', (_event, wc) => {
       registerShortcutHandler(wc);
     });
-    // 主窗口早于上面的事件监听创建，必须显式补绑，否则焦点在外壳界面
-    // （地址栏、开发者工具箱输入框）时 F12 等快捷键全部失效。
-    registerShortcutHandler(mainWindow.webContents);
     bootCompleted = true;
   });
 

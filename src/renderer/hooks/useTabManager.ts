@@ -70,7 +70,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     if (!tab?.suspended) return;
     await window.electronAPI.tab.create(tab.id, tab.url, {
       enabled: tab.ruffleMode === 'ruffle',
-      source: useDataStore.getState().settings.ruffleSource,
+      source: tab.ruffleSource ?? useDataStore.getState().settings.ruffleSource,
     });
     if (tab.zoomFactor !== 1) await window.electronAPI.tab.zoom(tab.id, tab.zoomFactor);
     if (tab.isMuted) await window.electronAPI.tab.mute(tab.id, true);
@@ -320,8 +320,14 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     const activeId = pickActiveTabId(snapshot);
     // 列表与活动 id 必须原子替换（见 replaceTabs 注释）。
     replaceTabs(nextTabs, activeId);
-    if (activeId) void window.electronAPI.tab.activate(activeId).catch(() => {});
-  }, [replaceTabs]);
+    if (activeId) {
+      void ensureTabView(activeId).then(() => {
+        if (useTabsStore.getState().activeTabId === activeId) return window.electronAPI.tab.activate(activeId);
+      }).catch((error) => {
+        console.warn('[Tabs] adopted tab resume failed:', error);
+      });
+    }
+  }, [replaceTabs, ensureTabView]);
 
   const createTabRef = useRef(createTab);
   useEffect(() => { createTabRef.current = createTab; }, [createTab]);

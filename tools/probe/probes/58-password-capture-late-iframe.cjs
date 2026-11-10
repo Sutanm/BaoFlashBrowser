@@ -61,7 +61,7 @@ module.exports = {
           const name = path.basename(args.path);
           const contents = name === 'password-store.ts'
             ? "export const getMetaForHost=()=>[]; export const getDecryptedPassword=()=>null; export const isAutoCaptureEnabled=()=>true; export const isCaptureExcluded=()=>false;"
-            : name === 'window.ts' ? 'export const getMainWindow=()=>globalThis.__baoLateFrameWindow;'
+            : name === 'window.ts' ? 'export const getMainWindow=()=>globalThis.__baoLateFrameWindow; export const getWindowForWebContents = getMainWindow; export const broadcastToRegisteredWindows = () => {};'
               : 'export const uiText=(zh)=>zh;';
           return { contents, loader: 'ts' };
         });

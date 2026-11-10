@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.8
-// @updateHash  f04a3d2ca994
+// @updateHash  7f9cfc08d350
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -334,6 +334,7 @@
   // 历史运行记录：读主进程落盘的 JSONL（userData/automation-logs），跨运行可回溯。
   // 内存里只留最近 200 条会随运行裁剪，历史入口从落盘文件补全，浮层内可整份复制。
   var logArchive = { open: false, scope: 'current', files: [], entries: [], selected: '', loading: false };
+  var archiveRequest = 0;
   // 历史归属：默认只看当前选中的脚本，可切「全部脚本」。归属由主进程按日志首行的
   // packageId 判定（老日志回退文件名里的脚本名）。
   function archiveScopeDefault() { return currentPackage() ? 'current' : 'all'; }
@@ -357,6 +358,7 @@
     }
   }
   function closeHistoryLayer() {
+    archiveRequest += 1;
     logArchive.open = false;
     historyLayer.classList.remove('bao-history-open');
   }
@@ -364,6 +366,7 @@
     if (!logArchive.open) { historyLayer.classList.remove('bao-history-open'); return; }
     historyLayer.classList.add('bao-history-open');
     refreshArchiveScopeButtons();
+    historyLayer.querySelector('.bao-history-copy').disabled = logArchive.loading || !logArchive.entries.length;
     var filesHost = historyLayer.querySelector('.bao-history-files');
     var entriesHost = historyLayer.querySelector('.bao-history-entries');
     filesHost.innerHTML = '';
@@ -415,23 +418,37 @@
     entriesHost.scrollTop = 0;
   }
   async function openArchiveFile(name) {
+    var request = ++archiveRequest;
     logArchive.selected = name;
+    logArchive.entries = [];
     logArchive.loading = true;
     renderHistoryLayer();
     try {
       var value = await api.readAutomationLogs(name);
+      if (request !== archiveRequest) return;
       // 载入成功不再弹提示：打开历史层时 toggleArchive 会自动载入最新一份，
       // 每开一次都往地址栏弹一条就成了噪音；选中项高亮 + 右侧列表本身就是结果，
       // 失败仍然要提示（否则只会显示"这份记录是空的"，看不出是读失败）。
       logArchive.entries = Array.isArray(value) ? value : [];
-    } catch (error) { logArchive.entries = []; toast(error.message || String(error), 'error'); }
-    finally { logArchive.loading = false; renderHistoryLayer(); }
+    } catch (error) {
+      if (request === archiveRequest) toast(error.message || String(error), 'error');
+    } finally {
+      if (request === archiveRequest) { logArchive.loading = false; renderHistoryLayer(); }
+    }
   }
   async function loadArchiveFiles() {
+    var request = ++archiveRequest;
+    logArchive.files = [];
     logArchive.loading = true;
     renderHistoryLayer();
-    try { logArchive.files = await api.listAutomationLogs(archiveFilter()); }
-    catch (error) { logArchive.files = []; toast(error.message || String(error), 'error'); }
+    try {
+      var files = await api.listAutomationLogs(archiveFilter());
+      if (request !== archiveRequest) return;
+      logArchive.files = files;
+    } catch (error) {
+      if (request !== archiveRequest) return;
+      toast(error.message || String(error), 'error');
+    }
     logArchive.loading = false;
     // 切范围后原先选中的文件可能已不在列表里，清掉避免右侧显示别的脚本的记录。
     if (logArchive.selected && !logArchive.files.some(function (file) { return file.name === logArchive.selected; })) {
@@ -457,18 +474,19 @@
     logArchive.entries = [];
     await loadArchiveFiles();
   }
-  // 复制按钮：历史面板已载入文件时复制该文件全部记录，否则复制当前运行的记录。
-  // 「已复制」闪在用户刚点的那个按钮上——历史浮层是全屏遮罩（z-index 比助手面板高），
-  // 浮层打开时闪面板里的复制按钮等于没人看得见。
-  async function copyRunLogs() {
-    var useArchive = logArchive.open && logArchive.entries.length > 0;
-    var entries = useArchive ? logArchive.entries : (state.logs || []);
+  async function copyRunLogs(fromArchive) {
+    if (fromArchive && (!logArchive.open || logArchive.loading)) return;
+    var entries = fromArchive ? logArchive.entries : (state.logs || []);
     if (!entries.length) { toast('还没有运行记录'); return; }
     var text = entries.map(function (entry) {
       return new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) + ' ' + messageText(entry.message);
     }).join('\n');
-    var feedback = (logArchive.open && historyLayer.querySelector('.bao-history-copy')) || root.querySelector('.bao-log-copy');
-    try { await copyText(text); flashText(feedback, '已复制'); }
+    var request = archiveRequest;
+    var feedback = fromArchive ? historyLayer.querySelector('.bao-history-copy') : root.querySelector('.bao-log-copy');
+    try {
+      await copyText(text);
+      if (!fromArchive || request === archiveRequest) flashText(feedback, '已复制');
+    }
     catch (error) { toast(error.message || String(error), 'error'); }
   }
   // 页面级诊断红框:把命中框按真实页面 CSS 坐标画在页面上,直接肉眼核对
@@ -724,12 +742,12 @@
   root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages(true); });
   root.querySelector('.bao-archive-toggle').addEventListener('click', function () { void toggleArchive(); });
   historyLayer.querySelector('.bao-history-close').addEventListener('click', closeHistoryLayer);
-  historyLayer.querySelector('.bao-history-copy').addEventListener('click', function () { void copyRunLogs(); });
+  historyLayer.querySelector('.bao-history-copy').addEventListener('click', function () { void copyRunLogs(true); });
   historyLayer.querySelector('.bao-history-scope-current').addEventListener('click', function () { void selectArchiveScope('current'); });
   historyLayer.querySelector('.bao-history-scope-all').addEventListener('click', function () { void selectArchiveScope('all'); });
   historyLayer.addEventListener('click', function (event) { if (event.target === historyLayer) closeHistoryLayer(); });
   window.addEventListener('keydown', function (event) { if (event.key === 'Escape' && logArchive.open) closeHistoryLayer(); });
-  root.querySelector('.bao-log-copy').addEventListener('click', function () { void copyRunLogs(); });
+  root.querySelector('.bao-log-copy').addEventListener('click', function () { void copyRunLogs(false); });
   root.querySelectorAll('.bao-match-mode').forEach(function (button) { button.addEventListener('click', function () { selectMatchMode(button.getAttribute('data-match-mode')); }); });
   packageRun.addEventListener('change', function () { selectedAsset = ''; renderAssets(''); void warmSelected(); });
   threshold.addEventListener('input', function () { root.querySelector('.bao-threshold-text').textContent = threshold.value + '%'; });

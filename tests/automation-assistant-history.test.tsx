@@ -32,17 +32,22 @@ describe('floating assistant run-history copy', () => {
   it('copies the whole loaded run log from the history layer instead of exporting it', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText } });
-    const readAutomationLogs = vi.fn().mockResolvedValue([
+    let resolveSecond!: (entries: unknown[]) => void;
+    const pendingSecond = new Promise<unknown[]>((resolve) => { resolveSecond = resolve; });
+    const readAutomationLogs = vi.fn().mockResolvedValueOnce([
       { timestamp: 1762300000000, level: 'info', message: '开始运行脚本' },
       { timestamp: 1762300001000, level: 'success', message: '执行完成' },
-    ]);
+    ]).mockReturnValueOnce(pendingSecond);
     (globalThis as { GM?: GmStub }).GM = {
       baoAutomation: {
         listPackages: vi.fn().mockResolvedValue([]),
-        status: vi.fn().mockResolvedValue({ state: 'idle', executedSteps: 0, logs: [] }),
+        status: vi.fn().mockResolvedValue({
+          state: 'idle', executedSteps: 0, logs: [{ timestamp: 1762300002000, level: 'info', message: '当前运行' }],
+        }),
         toast: vi.fn().mockResolvedValue({ success: true }),
         listAutomationLogs: vi.fn().mockResolvedValue([
           { name: '261110-12-47-脚本A-记录1.json', sizeLabel: '1 KB', scriptName: '脚本A', startedAt: 1762300000000 },
+          { name: '261110-12-48-脚本A-记录2.json', sizeLabel: '0 B', scriptName: '脚本A', startedAt: 1762300001000 },
         ]),
         readAutomationLogs,
         openAutomationLog: vi.fn().mockResolvedValue({ opened: true }),
@@ -82,5 +87,16 @@ describe('floating assistant run-history copy', () => {
     expect(copied).toContain('执行完成');
     // 反馈必须落在浮层里那颗按钮上：面板里的复制按钮此刻被遮罩盖着。
     expect(copy?.textContent).toBe('已复制');
+
+    layer?.querySelectorAll<HTMLButtonElement>('.bao-history-file')[1]?.click();
+    expect(copy?.disabled).toBe(true);
+    copy?.click();
+    await flush();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    resolveSecond([]);
+    await flush();
+    expect(copy?.disabled).toBe(true);
+    copy?.click();
+    expect(writeText).toHaveBeenCalledTimes(1);
   });
 });

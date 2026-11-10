@@ -127,6 +127,25 @@ describe('TabManager multi-instance routing (P3)', () => {
   let winA: FakeWindow;
   let winB: FakeWindow;
 
+  it('hides the previous page when adopting a suspended tab and preserves its runtime settings', () => {
+    const source = tabs.createTabManager(winA as never, 'preload.js');
+    const target = tabs.createTabManager(winB as never, 'preload.js');
+    source.create('suspended', 'https://source.example/', { enabled: true, source: 'cdn' });
+    source.setZoom('suspended', 1.5);
+    source.setMuted('suspended', true);
+    source.suspend('suspended');
+    target.create('visible', 'https://target.example/');
+    target.setBounds(0, 100, 800, 600);
+    target.activate('visible');
+
+    expect(tabs.transferTabBetweenWindows('suspended', winB as never)).toBe(true);
+    expect(viewOf(winB).setBounds).toHaveBeenLastCalledWith({ x: -9999, y: -9999, width: 1, height: 1 });
+    expect(target.snapshotTabs()).toContainEqual(expect.objectContaining({
+      tabId: 'suspended', active: true, suspended: true, zoomFactor: 1.5,
+      isMuted: true, ruffleMode: 'ruffle', ruffleSource: 'cdn',
+    }));
+  });
+
   beforeEach(() => {
     state.reset();
     tabs.resetTabManagersForTest();

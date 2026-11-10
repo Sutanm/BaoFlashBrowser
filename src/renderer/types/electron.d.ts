@@ -312,8 +312,8 @@ declare global {
         getContext(): Promise<WindowContextPayload>;
         newWindow(options?: { url?: string; bounds?: { x?: number; y?: number; width?: number; height?: number } }): Promise<{ windowKey: string }>;
         moveTab(tabId: string, options?: { zone?: 'content' | 'outside' }): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
-        tearOffTab(tabId: string): Promise<{ moved: boolean; reason?: string; windowId?: number }>;
-        dragDrop(tabId: string, options?: { cancel?: boolean }): Promise<{ placed: boolean; merged?: boolean; reason?: string; windowId?: number }>;
+        tearOffTab(tabId: string, options?: { follow?: boolean }): Promise<{ moved: boolean; reason?: string; windowId?: number; dragId?: number }>;
+        dragDrop(tabId: string, dragId: number, options?: { cancel?: boolean }): Promise<{ placed: boolean; merged?: boolean; reason?: string; windowId?: number }>;
         rendererReady(): Promise<void>;
       };
 

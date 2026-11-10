@@ -23,37 +23,36 @@ describe('persistence merge (P5)', () => {
 
   it('deletes only favorites removed locally, keyed by the table primary key (url)', () => {
     const previous = [
-      { id: 'a', title: 'A', url: 'https://a.example' },
-      { id: 'b', title: 'B', url: 'https://b.example' },
+      { id: 'a', title: 'A', url: 'https://a.example', addedAt: 1 },
+      { id: 'b', title: 'B', url: 'https://b.example', addedAt: 2 },
     ];
     const next = [
-      { id: 'b', title: 'B', url: 'https://b.example' },
-      { id: 'c', title: 'C', url: 'https://c.example' },
+      previous[1],
+      { id: 'c', title: 'C', url: 'https://c.example', addedAt: 3 },
     ];
 
     // db.favorites 的主键是 url（services/db.ts: `favorites: 'url'`），
     // bulkDelete 只认主键 —— 这里回归的是"按 id 删 = 静默空操作、取消收藏无效"。
     expect(planFavoriteWrites(previous, next)).toEqual({
       removedKeys: ['https://a.example'],
-      put: [
-        { id: 'b', title: 'B', url: 'https://b.example', _idx: 0 },
-        { id: 'c', title: 'C', url: 'https://c.example', _idx: 1 },
-      ],
+      put: [{ id: 'c', title: 'C', url: 'https://c.example', addedAt: 3, _idx: 1 }],
+      update: [{ url: 'https://b.example', changes: { _idx: 0 } }],
     });
   });
 
   it('never deletes entries that another window added', () => {
-    const previous = [{ id: 'a', title: 'A', url: 'https://a.example' }];
-    const next = [{ id: 'a', title: 'A', url: 'https://a.example' }];
+    const previous = [{ id: 'a', title: 'A', url: 'https://a.example', addedAt: 1 }];
+    const next = [...previous, { id: 'b', title: 'B', url: 'https://b.example', addedAt: 2 }];
 
     expect(planFavoriteWrites(previous, next).removedKeys).toEqual([]);
+    expect(planFavoriteWrites(previous, next).put.map(({ url }) => url)).toEqual(['https://b.example']);
   });
 
   it('backfills the id of legacy rows that were migrated without one', () => {
-    const legacy = { title: 'Legacy', url: 'https://legacy.example' } as unknown as { id: string; title: string; url: string };
-    const { put } = planFavoriteWrites([legacy], [legacy]);
+    const legacy = { id: '', title: 'Legacy', url: 'https://legacy.example', addedAt: 0 };
+    const { put, update } = planFavoriteWrites([legacy], [legacy]);
 
-    expect(put[0].id).toBe('https://legacy.example');
-    expect(put[0]._idx).toBe(0);
+    expect(put).toEqual([]);
+    expect(update).toEqual([{ url: 'https://legacy.example', changes: { id: 'https://legacy.example' } }]);
   });
 });

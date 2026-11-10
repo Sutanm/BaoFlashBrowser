@@ -25,7 +25,7 @@ module.exports = {
           const name = path.basename(args.path);
           const contents = name === 'password-store.ts'
             ? "export const getMetaForHost=()=>[{id:'fixture-a',username:'fixture-a'}]; export const getDecryptedPassword=()=> 'fixture-pass-a'; export const isAutoCaptureEnabled=()=>true; export const isCaptureExcluded=()=>false;"
-            : name === 'window.ts' ? 'export const getMainWindow=()=>globalThis.__baoPasswordSwitchWindow;'
+            : name === 'window.ts' ? 'export const getMainWindow=()=>globalThis.__baoPasswordSwitchWindow; export const getWindowForWebContents = getMainWindow; export const broadcastToRegisteredWindows = () => {};'
               : name === 'ui-language.ts' ? 'export const uiText=(zh)=>zh;'
                 : 'export const setupSessionOnce=()=>{};';
           return { contents, loader: 'ts' };

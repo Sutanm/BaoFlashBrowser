@@ -18,6 +18,10 @@ const state = vi.hoisted(() => {
     managersBySender,
     managersByTab,
     ownerWindows,
+    createWindow: vi.fn(),
+    whenRendererReady: vi.fn(),
+    transferTab: vi.fn(),
+    stopDragFollow: vi.fn(),
     notifyPasswordFormDetected: vi.fn(),
     getRuffleForWC: vi.fn(() => null),
     warn: vi.fn(),
@@ -41,6 +45,8 @@ const state = vi.hoisted(() => {
         stopFindInPage: vi.fn(),
         setBounds: vi.fn(),
         setRuffleMode: vi.fn(),
+        isTabBusy: vi.fn(() => false),
+        setViewHold: vi.fn(),
       };
     },
   };
@@ -64,9 +70,12 @@ interface FakeManager {
   stopFindInPage: ReturnType<typeof vi.fn>;
   setBounds: ReturnType<typeof vi.fn>;
   setRuffleMode: ReturnType<typeof vi.fn>;
+  isTabBusy: ReturnType<typeof vi.fn>;
+  setViewHold: ReturnType<typeof vi.fn>;
 }
 
 vi.mock('electron', () => ({
+  screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }) },
   ipcMain: {
     handle: (channel: string, handler: (event: unknown, args?: unknown) => unknown) => {
       state.invokeHandlers.set(channel, handler);
@@ -84,7 +93,19 @@ vi.mock('../src/main/modules/tabs', () => ({
   },
   getTabManagerForSender: (wc: { id: number }) => state.managersBySender.get(wc.id),
   getTabManagerForTabId: (tabId: string) => state.managersByTab.get(tabId),
+  getTabManagerForWindow: (id: number) => state.managersBySender.get(id === 1 ? 101 : 201),
   getTabOwnerWindow: (tabId: string) => state.ownerWindows.get(tabId) ?? null,
+  transferTabBetweenWindows: state.transferTab,
+}));
+vi.mock('../src/main/modules/window', () => ({
+  createWindow: state.createWindow,
+  whenRendererReady: state.whenRendererReady,
+}));
+vi.mock('../src/main/modules/drag-session', () => ({
+  followBoundsAt: vi.fn(),
+  getDragFollowWindowId: () => null,
+  raiseForFollow: vi.fn(),
+  stopDragFollow: state.stopDragFollow,
 }));
 vi.mock('../src/main/modules/ruffle-bundle', () => ({
   ruffleBundleInfo: () => null,
@@ -94,8 +115,8 @@ vi.mock('../src/main/modules/ruffle-bundle', () => ({
 const { registerTabsIPC } = await import('../src/main/ipc/tabs.ipc');
 const { setIpcWindowResolver } = await import('../src/main/utils/ipc-wrapper');
 
-function makeWindow(id: number, webContentsId: number): { id: number; webContents: { id: number } } {
-  return { id, webContents: { id: webContentsId } };
+function makeWindow(id: number, webContentsId: number) {
+  return { id, webContents: { id: webContentsId }, isDestroyed: () => false, close: vi.fn() };
 }
 
 describe('tabs IPC routing (P2)', () => {
@@ -120,6 +141,33 @@ describe('tabs IPC routing (P2)', () => {
       wc.id === winA.webContents.id ? winA as never : wc.id === winB.webContents.id ? winB as never : null
     ));
     registerTabsIPC();
+  });
+
+  it('closes the provisional window if tab ownership changes during the tear-off handshake', async () => {
+    const temporary = makeWindow(3, 301);
+    state.createWindow.mockReturnValueOnce(temporary);
+    let markReady!: (ready: boolean) => void;
+    state.whenRendererReady.mockReturnValueOnce(new Promise<boolean>((resolve) => { markReady = resolve; }));
+    state.ownerWindows.set('tab-a', winA);
+
+    const result = state.invokeHandlers.get('win:tear-off-tab')!(
+      { sender: winA.webContents }, { tabId: 'tab-a', follow: true },
+    );
+    state.ownerWindows.set('tab-a', winB);
+    markReady(true);
+
+    await expect(result).resolves.toEqual({ moved: false, reason: 'owner-changed' });
+    expect(temporary.close).toHaveBeenCalledOnce();
+    expect(state.transferTab).not.toHaveBeenCalled();
+    expect(managerA.setViewHold.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('does not let a BrowserView stop a drag session', async () => {
+    setIpcWindowResolver(() => winA as never);
+    await expect(state.invokeHandlers.get('win:drag-drop')!(
+      { sender: { id: 999 } }, { tabId: 'tab-a', dragId: 1 },
+    )).resolves.toEqual({ placed: false, reason: 'no-session' });
+    expect(state.stopDragFollow).not.toHaveBeenCalled();
   });
 
   it('creates a tab on the manager of the sender window', async () => {

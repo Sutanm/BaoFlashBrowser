@@ -1,4 +1,4 @@
-export type CdpLeaseOwner = 'password-capture' | 'automation';
+export type CdpLeaseOwner = 'password-capture' | 'automation' | 'devtools-target';
 
 export type CdpDebuggerLike = {
   isAttached(): boolean;

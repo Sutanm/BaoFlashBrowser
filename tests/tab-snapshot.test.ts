@@ -41,12 +41,14 @@ describe('mergeTabSnapshot (P7)', () => {
   it('adopts the favicon carried by the snapshot for a tab it has never seen', () => {
     const snapshot: TabSnapshotEntry[] = [{
       tabId: 'b', url: 'https://www.4399.com/', title: '4399', favicon: 'https://www.4399.com/favicon.ico', active: true,
+      suspended: true, zoomFactor: 1.5, isMuted: true, ruffleMode: 'ruffle', ruffleSource: 'cdn',
     }];
 
     const [merged] = mergeTabSnapshot([], snapshot, settings, titles);
     expect(merged.id).toBe('b');
     expect(merged.favicon).toBe('https://www.4399.com/favicon.ico');
     expect(merged.title).toBe('4399');
+    expect(merged).toMatchObject({ suspended: true, zoomFactor: 1.5, isMuted: true, ruffleMode: 'ruffle', ruffleSource: 'cdn' });
   });
 
   it('never turns an empty url into a new tab page for a tab it already knows', () => {

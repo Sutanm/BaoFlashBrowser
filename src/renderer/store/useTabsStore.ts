@@ -3,6 +3,7 @@ import type { Tab } from '@shared/types/tab';
 
 export interface TabState extends Tab {
   webviewId?: string;
+  ruffleSource?: 'bundled' | 'cdn';
 }
 
 export interface TabsState {

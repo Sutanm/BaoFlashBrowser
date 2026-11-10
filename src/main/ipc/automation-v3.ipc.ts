@@ -79,7 +79,7 @@ export function registerAutomationV3IPC(getWin: () => BrowserWindow | null): Aut
   createValidatedHandler('automation-v3:status', z.object({}).optional(), () => service.status());
   createValidatedHandler('automation-v3:list-persisted-run-logs', z.object({
     packageId: z.string().min(1).max(128).optional(),
-    packageName: z.string().min(1).max(200).optional(),
+    packageName: z.string().min(1).optional(),
   }).strict().optional(), (filter) => service.listPersistedRunLogs(filter ?? undefined));
   createValidatedHandler('automation-v3:read-persisted-run-log', z.object({ name: z.string().max(160) }).strict(), ({ name }) => service.readPersistedRunLog(name));
   createValidatedHandler('automation-v3:open-persisted-run-log', z.object({ name: z.string().max(160) }).strict(), async ({ name }) => {

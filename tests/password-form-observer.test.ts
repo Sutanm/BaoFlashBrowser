@@ -161,6 +161,21 @@ describe('password form observer', () => {
     dispose();
   });
 
+  it('allows filling after the page clears a previously filled form without input events', () => {
+    document.body.innerHTML = '<form><input type="text"><input type="password"><button type="button">登录</button></form>';
+    const report = vi.fn();
+    const dispose = installPasswordFormObserver(report);
+    const [user, password] = document.querySelectorAll<HTMLInputElement>('input');
+    user.value = 'fixture-user';
+    password.value = 'fixture-password';
+    password.dispatchEvent(new Event('input', { bubbles: true }));
+    user.value = '';
+    password.value = '';
+    document.querySelector('button')!.click();
+    expect(report.mock.calls).toEqual([[true], [true]]);
+    dispose();
+  });
+
   it('sends no field values and stops all signals after disposal', async () => {
     const report = vi.fn();
     const dispose = installPasswordFormObserver(report);

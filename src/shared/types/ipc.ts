@@ -52,6 +52,12 @@ export interface TabSnapshotEntry {
    */
   favicon?: string;
   active: boolean;
+  zoomFactor?: number;
+  isMuted?: boolean;
+  ruffleMode?: 'ppapi' | 'ruffle';
+  ruffleSource?: 'bundled' | 'cdn';
+  suspended?: boolean;
+  crashed?: boolean;
 }
 
 export interface TabUpdatedPayload {

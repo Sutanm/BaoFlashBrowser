@@ -294,10 +294,10 @@ const electronAPI = {
     // zone: 'content' = 落点在本窗口内容区（网页方向），主进程据此把"窗口内落点"也算拖出。
     moveTab: (tabId: string, options?: { zone?: 'content' | 'outside' }) =>
       safeInvoke('win:move-tab', { tabId, zone: options?.zone }),
-    tearOffTab: (tabId: string) => safeInvoke('win:tear-off-tab', { tabId }),
+    tearOffTab: (tabId: string, options?: { follow?: boolean }) => safeInvoke('win:tear-off-tab', { tabId, follow: options?.follow }),
     // 拖拽落定（松手/Esc）：主进程停跟随、按落点回吸或定格。
-    dragDrop: (tabId: string, options?: { cancel?: boolean }) =>
-      safeInvoke('win:drag-drop', { tabId, cancel: options?.cancel }),
+    dragDrop: (tabId: string, dragId: number, options?: { cancel?: boolean }) =>
+      safeInvoke('win:drag-drop', { tabId, dragId, cancel: options?.cancel }),
     rendererReady: () => safeInvoke('win:renderer-ready'),
   },
 

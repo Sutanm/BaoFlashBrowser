@@ -168,7 +168,7 @@ export async function probeActivePage(tabId?: string | null, winId?: number | nu
   if (needsDeep && resolvedId) {
     const port = resolveDebugPort();
     if (port) {
-      const targetId = await pickTargetForTab(resolvedId, port, winId).catch(() => null);
+      const targetId = await pickTargetForTab(resolvedId, winId).catch(() => null);
       if (targetId) {
         deep = await probeFramesDeep(`ws://127.0.0.1:${port}/devtools/page/${targetId}`).catch(() => null);
       }

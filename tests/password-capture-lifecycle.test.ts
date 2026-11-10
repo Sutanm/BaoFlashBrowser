@@ -5,9 +5,7 @@ const logMock = vi.hoisted(() => ({
   debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
 }));
 
-// getMainWindow 打桩成"可观测窗口"：sendToRenderer 的调用可以直接断言
-// （此前固定返回 null，"捕获是否上报"这件事在单测里完全不可见）。
-const windowMock = vi.hoisted(() => ({ send: vi.fn() }));
+const windowMock = vi.hoisted(() => ({ send: vi.fn(), resolve: vi.fn(), broadcast: vi.fn() }));
 
 // 密码本打桩：saved 提供 host+username 查重结果，passwords 提供"能否解出明文"。
 // 2026-09-22 的"变了才提示"语义依赖这两者，故必须在测试里可控。
@@ -23,14 +21,12 @@ vi.mock('../src/main/modules/password-store', () => ({
   isCaptureExcluded: () => false,
 }));
 vi.mock('../src/main/modules/window', () => ({
-  getMainWindow: () => ({
-    isDestroyed: () => false,
-    webContents: { send: (...args: unknown[]) => windowMock.send(...args) },
-  }),
+  getWindowForWebContents: windowMock.resolve,
+  broadcastToRegisteredWindows: windowMock.broadcast,
 }));
 vi.mock('electron-log', () => ({ default: logMock }));
 
-import { addBoundedCaptureKey, getCaptureContextIds, setupCapture, teardownCapture } from '../src/main/modules/password-capture';
+import { addBoundedCaptureKey, getCaptureContextIds, notifyPasswordChanged, setupCapture, teardownCapture } from '../src/main/modules/password-capture';
 
 class FakeDebugger extends EventEmitter {
   attached = false;
@@ -74,6 +70,10 @@ describe('password capture lifecycle', () => {
     logMock.info.mockClear();
     logMock.warn.mockClear();
     windowMock.send.mockClear();
+    windowMock.resolve.mockReset().mockReturnValue({
+      isDestroyed: () => false,
+      webContents: { send: windowMock.send },
+    });
     storeMock.saved = [];
     storeMock.passwords.clear();
   });
@@ -138,11 +138,42 @@ describe('password capture lifecycle', () => {
   // （先填密码、或压根没有用户名框）静默不弹保存提示。
   // 注意：shownToastKeys 是模块级去重表，跨用例必须换 host，否则会被判成"已提示过"。
   const emitCapture = (wc: ReturnType<typeof fakeWebContents>, host: string, payload: Record<string, unknown>): void => {
+    wc.debugger.emit('message', {}, 'Runtime.executionContextCreated', { context: { id: 1, origin: `https://${host}` } });
     wc.debugger.emit('message', {}, 'Runtime.bindingCalled', {
       name: '__baopReport',
+      executionContextId: 1,
       payload: JSON.stringify({ _type: 'baop_capture', host, origin: `https://${host}/login`, title: 't', source: 'submit', ...payload }),
     });
   };
+
+  it('rejects cross-origin claims and ignores raw diagnostic messages', () => {
+    const wc = fakeWebContents(7902);
+    setupCapture(wc as never);
+    try {
+      emitCapture(wc, 'attacker.example', {
+        host: 'victim.example', origin: 'https://victim.example/', user: 'target', pass: 'fake-password',
+      });
+      emitCapture(wc, 'attacker.example', { _type: 'baop_diag', msg: 'fixture-secret' });
+      expect(windowMock.send).not.toHaveBeenCalled();
+      expect(logMock.info.mock.calls.flat().join(' ')).not.toContain('fixture-secret');
+    } finally {
+      teardownCapture(wc as never);
+    }
+  });
+
+  it('routes the prompt by its WebContents and broadcasts vault changes', () => {
+    const wc = fakeWebContents(7903);
+    setupCapture(wc as never);
+    try {
+      emitCapture(wc, 'owned-tab.example', { user: 'fixture', pass: 'fixture-password' });
+      expect(windowMock.resolve).toHaveBeenCalledWith(wc);
+      expect(windowMock.send).toHaveBeenCalledWith('password:captured', expect.objectContaining({ host: 'owned-tab.example' }));
+      notifyPasswordChanged();
+      expect(windowMock.broadcast).toHaveBeenCalledWith('password:changed', expect.objectContaining({ ts: expect.any(Number) }));
+    } finally {
+      teardownCapture(wc as never);
+    }
+  });
 
   it('用户名可为空：空账号的捕获照样上报，且 username 是空串而不是 undefined', () => {
     const wc = fakeWebContents(79);

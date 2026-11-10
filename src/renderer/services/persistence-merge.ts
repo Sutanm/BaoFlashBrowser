@@ -46,11 +46,31 @@ export function mergeSettings(current: Settings, changed: Partial<Settings>): Se
 export function planFavoriteWrites(previous: BookmarkEntry[], next: BookmarkEntry[]): {
   removedKeys: string[];
   put: Array<BookmarkEntry & { _idx: number }>;
+  update: Array<{ url: string; changes: Partial<BookmarkEntry & { _idx: number }> }>;
 } {
-  const previousKeys = new Set(previous.map((item) => item.url));
+  const previousByUrl = new Map(previous.map((item, index) => [item.url, { item, index }]));
   const nextKeys = new Set(next.map((item) => item.url));
+  const put: Array<BookmarkEntry & { _idx: number }> = [];
+  const update: Array<{ url: string; changes: Partial<BookmarkEntry & { _idx: number }> }> = [];
+  next.forEach((item, index) => {
+    const before = previousByUrl.get(item.url);
+    const id = item.id || item.url;
+    if (!before) {
+      put.push({ ...item, id, _idx: index });
+      return;
+    }
+    const changes = {
+      ...(before.item.id !== id ? { id } : {}),
+      ...(before.item.title !== item.title ? { title: item.title } : {}),
+      ...(before.item.favicon !== item.favicon ? { favicon: item.favicon } : {}),
+      ...(before.item.addedAt !== item.addedAt ? { addedAt: item.addedAt } : {}),
+      ...(before.index !== index ? { _idx: index } : {}),
+    };
+    if (Object.keys(changes).length > 0) update.push({ url: item.url, changes });
+  });
   return {
-    removedKeys: [...previousKeys].filter((key) => !nextKeys.has(key)),
-    put: next.map((item, index) => ({ ...item, id: item.id || item.url, _idx: index })),
+    removedKeys: [...previousByUrl.keys()].filter((key) => !nextKeys.has(key)),
+    put,
+    update,
   };
 }
