@@ -581,6 +581,10 @@ class TabManager {
         }
       } catch { /* must not break navigation */ }
       this._applyAutomationViewport(tabId, wc);
+      // 文档已可交互（DOM 解析完成），此时就武装捕获：广告/子帧能把 load 事件
+      // 拖上几十秒（7k7k 实测），而用户在这段时间里完全可以完成一次登录 ——
+      // 只等 did-finish-load / did-stop-loading 会让这次登录完全不被捕获。
+      if (this._isCurrentWebContents(tabId, wc) && captureAfterLoad) armCaptureForLoadedPage('dom-ready');
       if (!this._isCurrentWebContents(tabId, wc) || !mainNavigationPending) return;
       // The top-level DOM is usable even if a game/login iframe is still fetching.
       // End the visible spinner here; capture setup remains deferred until did-stop-loading.

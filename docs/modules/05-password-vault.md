@@ -205,12 +205,16 @@ node tools/probe/host.cjs --only 21             # 契约探针
 - 真机回归：4399 表单提交、7k7k JSONP、跨域 iframe、捕获开关关闭路径。
 - **禁止在捕获脚本里创建 iframe 取"干净 API"**：注入由"新执行上下文创建"驱动，自建
   子帧会跑同一段脚本再建子帧（实测 71 vs 2 次 `script loaded`、57 vs 0 次栈溢出）。
-- **捕获挂载时机**：`did-finish-load`（主文档 load 之后）先武装，`did-stop-loading`
-  兜底，一次导航只武装一次（`[Tabs] capture armed via …` 会记下是哪个事件）。
-  2026-11-10 真机：7k7k 这类广告密集页的 `did-stop-loading` 能晚几十秒，只在那里挂
-  捕获的话，用户在加载期间完成登录就完全不会被捕获（日志里 23 秒内没有任何
-  `setupCapture`）。排查"某站点捕获不到"时，先对齐日志里的 `capture armed` /
-  `setupCapture` 时间戳与用户操作时间。
+- **捕获挂载时机**：`dom-ready`（文档可交互）就武装，`did-finish-load` /
+  `did-stop-loading` 依次兜底，一次导航只武装一次（`[Tabs] capture armed via …`
+  会记下是哪个事件）。2026-11-10 真机：7k7k 这类广告密集页连 `did-finish-load`
+  都会被拖住几十秒，只等 load 的话，用户在加载期间完成登录就完全不会被捕获
+  （日志里 23 秒内没有任何 `setupCapture`，而用户已经登完）。
+  **代价**：调试器附着期间，页面的 `<script>` onload 可能被推迟（既有 landmine）。
+  捕获脚本在命中登录提交源（xhr / script-src / click-login 等）后立即 detach，
+  所以登录这条链本身不会卡住；受影响的是同期的广告脚本。
+  排查"某站点捕获不到"时，先对齐日志里的 `capture armed` / `setupCapture` 时间戳
+  与用户操作时间。
   **2026-11-10 起捕获生命周期可读**：每次挂载 2s 后有一行
   `ready wc=N contexts=X injected=Y`（注入失败会带 `retrying=`），每次拆卸有一行
   `teardown wc=N reason=…`（navigation / pre-navigate / dispose / automation-* /

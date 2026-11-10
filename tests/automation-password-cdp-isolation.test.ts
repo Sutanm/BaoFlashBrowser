@@ -24,6 +24,8 @@ describe('Automation password-CDP isolation', () => {
       tabsSource.indexOf("wc.on('did-finish-load'"),
       tabsSource.indexOf('const updateUrl = '),
     );
+    // dom-ready 先武装（文档可交互即可），load 事件可能被广告拖住几十秒
+    expect(tabsSource).toContain("armCaptureForLoadedPage('dom-ready')");
     expect(section).toContain("wc.on('did-finish-load'");
     expect(section).toContain('armCaptureForLoadedPage(\'did-finish-load\')');
     expect(section).toContain("wc.on('did-stop-loading'");
@@ -40,3 +42,4 @@ describe('Automation password-CDP isolation', () => {
     expect(tabsSource).toMatch(/fillPassword\(tabId[\s\S]*?this\.automationTargets\.has\(tabId\)/u);
   });
 });
+
