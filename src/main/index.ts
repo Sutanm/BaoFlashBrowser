@@ -194,15 +194,21 @@ function bootstrap(): void {
         disposeTabManager(win, winId);
       });
     });
-    // 按上次的窗口顺序与几何恢复；没有记录时创建一个窗口（P5）。
+    // 按上次的窗口顺序恢复；没有记录时创建一个窗口（P5）。
+    //
+    // 刻意不恢复 bounds / maximized：用户要求启动一律是普通窗口（默认
+    // 1280x800，不 maximize）。此前的实现把最大化矩形当普通尺寸存回来，
+    // 造成"每次打开都是满屏、点还原仍是满屏"的自锁。
+    //
+    // windowKey 必须沿用：标签会话快照绑定在 `tab-session:<windowKey>` 上，
+    // 换 key 等于丢会话。多窗口仅按序号做级联偏移，避免全部叠在同一位置。
     const savedWindows = loadWindowStates();
     const restoredWindows = savedWindows.length > 0
       ? savedWindows.map((state) => createWindow({
-        bounds: state.bounds,
+        ...(state.index > 0 ? { bounds: { x: 120 + state.index * 40, y: 80 + state.index * 40 } } : {}),
         windowKey: state.key,
         index: state.index,
         isPrimary: state.index === 0,
-        maximized: state.maximized,
       }))
       : [createWindow()];
     const mainWindow = restoredWindows[0] ?? createWindow();
