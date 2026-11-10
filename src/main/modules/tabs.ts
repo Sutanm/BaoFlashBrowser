@@ -514,6 +514,18 @@ class TabManager {
   private _wireBrowserViewEvents(wc: Electron.WebContents, tabId: string): void {
     let mainNavigationPending = false;
     let captureAfterLoad = false;
+    // 一次导航里捕获只武装一次：`did-finish-load` 与 `did-stop-loading` 都会尝试，
+    // 先到的那个生效（广告密集页的 did-stop-loading 可能晚几十秒，见 armCapture）。
+    let captureArmed = false;
+    const armCaptureForLoadedPage = (source: string): void => {
+      if (captureArmed) return;
+      captureArmed = true;
+      // 记下是哪个事件武装的：排查"登录时捕获还没挂上"时，这条与后续
+      // `PasswordCapture attached/ready` 的时间差就是答案。
+      log.info(`[Tabs] capture armed via ${source} tab=${tabId} wc=${wc.id}`);
+      if (!this.automationTargets.has(tabId)) passwordCapture.setup(wc);
+      this._schedulePasswordFill(wc, tabId);
+    };
     const refreshPageMetadata = (delay: number): void => {
       setTimeout(() => {
         if (!this._isCurrentWebContents(tabId, wc) || wc.isDestroyed()) return;
@@ -547,6 +559,7 @@ class TabManager {
       if (!this._isCurrentWebContents(tabId, wc) || !isMainFrame || isInPlace) return;
       mainNavigationPending = true;
       captureAfterLoad = true;
+      captureArmed = false;
       this._detachDebuggerBeforeNavigate(wc);
       this._clearPasswordFillTimers(wc.id);
       this.send('tab:updated', { tabId, isLoading: true, crashed: false });
@@ -575,6 +588,14 @@ class TabManager {
       this.send('tab:updated', { tabId, isLoading: false });
       refreshPageMetadata(50);
     });
+    wc.on('did-finish-load', () => {
+      if (!this._isCurrentWebContents(tabId, wc) || !captureAfterLoad) return;
+      // 主文档的 load 事件已经派发（站点自己的脚本跑完了），此时挂捕获既不会因为
+      // 调试器附着而卡住站点的 <script>，又远早于 did-stop-loading ——
+      // 7k7k 这类广告密集页的 did-stop-loading 实测能晚到几十秒，期间用户完全
+      // 可以完成一次登录，于是表现为"登录了却没有保存提示"（2026-11-10 真机）。
+      armCaptureForLoadedPage('did-finish-load');
+    });
     wc.on('did-stop-loading', () => {
       if (!this._isCurrentWebContents(tabId, wc)) return;
       if (!captureAfterLoad) return;
@@ -584,8 +605,7 @@ class TabManager {
         this.send('tab:updated', { tabId, isLoading: false });
       }
       refreshPageMetadata(500);
-      if (!this.automationTargets.has(tabId)) passwordCapture.setup(wc);
-      this._schedulePasswordFill(wc, tabId);
+      armCaptureForLoadedPage('did-stop-loading');
     });
     const updateUrl = (navUrl: string) => {
       if (!this._isCurrentWebContents(tabId, wc) || navUrl === 'about:blank' || navUrl.startsWith('data:')) return;
@@ -1153,5 +1173,6 @@ export function transferTabBetweenWindows(tabId: string, targetWin: BrowserWindo
   target.adoptTransferred(detached, index);
   return true;
 }
+
 
 

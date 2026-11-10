@@ -16,8 +16,25 @@ describe('Automation password-CDP isolation', () => {
     expect(begin).toContain('this._schedulePasswordFill(wc, tabId)');
   });
 
-  it('does not start automatic or manual password fill during an Automation run', () => {
-    expect(tabsSource).toMatch(/_attemptPasswordFill[\s\S]*?this\.automationTargets\.has\(tabId\)/u);
+  // 2026-11-10 真机：广告密集页的 did-stop-loading 能晚几十秒，捕获若只在那里挂载，
+  // 用户在加载期间完成登录就完全不会被捕获（日志里 23 秒内没有任何 setupCapture）。
+  // 现在 did-finish-load（主文档 load 后）先武装，did-stop-loading 兜底，一次导航只一次。
+  it('arms capture as early as did-finish-load, once per navigation', () => {
+    const section = tabsSource.slice(
+      tabsSource.indexOf("wc.on('did-finish-load'"),
+      tabsSource.indexOf('const updateUrl = '),
+    );
+    expect(section).toContain("wc.on('did-finish-load'");
+    expect(section).toContain('armCaptureForLoadedPage(\'did-finish-load\')');
+    expect(section).toContain("wc.on('did-stop-loading'");
+    expect(section).toContain('armCaptureForLoadedPage(\'did-stop-loading\')');
+    // 两个入口共用同一个"只武装一次"的守卫
+    expect(tabsSource).toMatch(/armCaptureForLoadedPage[\s\S]*?if \(captureArmed\) return;/u);
+    // 新一次主框架导航重置守卫
+    expect(tabsSource).toMatch(/did-start-navigation[\s\S]*?captureArmed = false;/u);
+  });
+
+  it('does not start automatic or manual password fill during an Automation run', () => {    expect(tabsSource).toMatch(/_attemptPasswordFill[\s\S]*?this\.automationTargets\.has\(tabId\)/u);
     expect(tabsSource).toMatch(/_schedulePasswordFill[\s\S]*?this\.automationTargets\.has\(tabId\)/u);
     expect(tabsSource).toMatch(/notifyPasswordFormDetected[\s\S]*?this\.automationTargets\.has\(tabId\)/u);
     expect(tabsSource).toMatch(/fillPassword\(tabId[\s\S]*?this\.automationTargets\.has\(tabId\)/u);
