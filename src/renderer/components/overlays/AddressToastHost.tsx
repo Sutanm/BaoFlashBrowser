@@ -88,7 +88,10 @@ const AddressToastHost: React.FC<AddressToastHostProps> = ({ closeLabel }) => {
       className={`toast-overlay toast-${phase}`}
       role={toast.type === 'error' ? 'alert' : 'status'}
       aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
-      onClick={() => dismiss('click')}
+      // 带按钮的提示不能"点哪儿都关"：保存密码提示被误点一下就等于"忽略"，
+      // 捕获到的凭据就此丢掉（2026-11-10 真机：弹窗 1.6 秒后被误点消失）。
+      // 这类提示只认它自己的按钮和 X。
+      onClick={() => { if (!toast.actions?.length) dismiss('click'); }}
       onMouseEnter={pauseTimer}
       onMouseLeave={resumeTimer}
       style={{ background: toast.color || TOAST_COLORS[toast.type] }}

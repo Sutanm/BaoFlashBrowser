@@ -34,6 +34,29 @@ describe('AddressToastHost', () => {
     expect(screen.queryByText('Button close')).not.toBeInTheDocument();
   });
 
+  it('keeps an action toast when its body is clicked, only its own buttons close it', async () => {
+    const onDismiss = vi.fn();
+    const action = vi.fn();
+    const view = render(<AddressToastHost closeLabel="Close" />);
+    act(() => useDataStore.getState().pushToast({
+      message: 'Save password?', type: 'info', duration: null, onDismiss,
+      actions: [{ label: 'Save', primary: true, onClick: action }],
+    }));
+
+    // 误点提示正文：不能当成"忽略"，否则捕获到的凭据白丢
+    fireEvent.click(screen.getByText('Save password?'));
+    act(() => vi.advanceTimersByTime(200));
+    expect(screen.getByText('Save password?')).toBeInTheDocument();
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(view.container.querySelector('.toast-exiting')).not.toBeInTheDocument();
+
+    // 只有自己的按钮（或 X）才关闭
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await act(async () => { vi.advanceTimersByTime(110); await Promise.resolve(); });
+    expect(screen.queryByText('Save password?')).not.toBeInTheDocument();
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a persistent toast until the user closes it', () => {
     render(<AddressToastHost closeLabel="Close" />);
     act(() => useDataStore.getState().pushToast({ message: 'Persistent', type: 'warning', duration: null }));

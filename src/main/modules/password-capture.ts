@@ -24,6 +24,8 @@ interface CaptureState {
   retryContexts: Set<number>;
   messageListener: (_event: Electron.Event, method: string, params: CaptureMessageParams) => void;
   consoleListener: (_event: Electron.Event, level: number, message: string) => void;
+  /** 页面侧"上报通道丢失"的告警只记一次（后续降 debug），避免一次捕获刷十几行。 */
+  bindingMissingLogged: boolean;
   /** 注入汇总行的定时器（一次性诊断），teardown 时必须清掉。 */
   readyTimer: ReturnType<typeof setTimeout> | null;
   capturedSet: Set<string>;
@@ -209,6 +211,7 @@ export function setupCapture(wc: WebContents): void {
     retryContexts: new Set(),
     messageListener: () => {},
     consoleListener: () => {},
+    bindingMissingLogged: false,
     readyTimer: null,
     capturedSet: new Set(),
     cdpLease,
@@ -219,7 +222,12 @@ export function setupCapture(wc: WebContents): void {
   // 一条 DIAG 都没有、也没有捕获。页面会 console.warn('[baop] …') 一次，这里接住。
   state.consoleListener = (_event, _level, message) => {
     if (typeof message !== 'string' || message.indexOf('[baop]') < 0) return;
-    log.warn('[PasswordCapture] page console: ' + message.slice(0, 200));
+    // 每次 detach 之后，页面里每个帧都会喊一次"绑定没了"——首次记 warn（真的异常），
+    // 之后降到 debug，避免一次捕获就刷十几行。
+    const line = '[PasswordCapture] page console: ' + message.slice(0, 200);
+    if (state.bindingMissingLogged) { log.debug(line); return; }
+    state.bindingMissingLogged = true;
+    log.warn(line);
   };
   // 测试里的假 wc 可能没有事件接口：诊断监听是尽力而为，不能因此让捕获挂不上。
   try { wc.on('console-message', state.consoleListener); } catch { /* fake wc in unit tests */ }
