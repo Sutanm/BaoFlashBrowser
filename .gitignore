@@ -30,6 +30,8 @@ test-results/
 # local packaging scratch (~1.8 GB of worktrees) and tool-private agent memory
 .packaging-worktrees/
 .workbuddy/
+# 临时脚本/基准数据（perf 快照、一次性探针输出），不进版本库
+.tmp/
 
 # Local captures, downloaded site assets and diagnostic reports
 artifacts/
