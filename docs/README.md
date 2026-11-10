@@ -45,6 +45,12 @@
 | 网络代理 | [`proxy-settings.md`](proxy-settings.md) |
 | 实验平台边界 | [`experimental-platform-support.md`](experimental-platform-support.md) |
 
+## 浏览器功能对照与规划
+
+| 主题 | 文档 | 说明 |
+| --- | --- | --- |
+| Chrome 功能对照清单 | [`chrome-feature-parity.md`](chrome-feature-parity.md) | 1.1.2 现状、缺口、建议批次（含 1.1.3 候选）与待验证项 |
+
 ## 构建、发布与验证
 
 | 主题 | 文档 |
@@ -82,7 +88,7 @@
 ## 维护规则
 
 1. **版本变化时**至少复核：本文、`FINAL_REGRESSION.md`、`PACKAGE.md`、`RELEASE_NOTES.md`、
-   `modules/00-overview.md`。
+   `modules/00-overview.md`、[`chrome-feature-parity.md`](chrome-feature-parity.md)。
 2. 文档中的命令必须来自 `package.json`；CI 平台与触发条件必须来自 `.github/workflows/`。
    不允许凭记忆写命令。
 3. 现行文档**不固定写测试数量、文件数和本机耗时**，这类数据只写入带日期的验证记录
