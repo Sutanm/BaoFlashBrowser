@@ -497,7 +497,19 @@ class TabManager {
     tab.crashed = false;
     win.addBrowserView(view);
     view.setBounds(this.activeId === tab.id && this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
-    view.setAutoResize({ width: false, height: false });
+    // 窗口拉伸时必须由原生侧跟随，不能等渲染层 IPC。
+    //
+    // `OnWidgetBoundsChanged`（native_window_views.cc）在窗口尺寸变化的同一个原生调用栈里
+    // 同步对每个 BrowserView 调 `AutoResize(new_bounds, width_delta, height_delta)`，
+    // 早于发给 JS 的 'resize' 事件；flags 只认 width/height 时语义就是"view 宽高各加 delta、
+    // x/y 不动"，正好等于本项目的布局（y 由固定高度的标题栏/工具栏决定，x 由侧边栏决定，
+    // 宽高跟随窗口）。
+    //
+    // 关掉它的话，BrowserView 的边界只能靠 渲染层 measure → 异步 IPC → 主进程 setBounds
+    // 这条链路更新，快速拉伸时至少落后一两帧，新露出的那块显示的是外壳背景
+    // （深色主题下 --bg-primary 就是 #1e1e2e，看起来像"黑色跟不上渲染"）。
+    // 参考 preload 里 devtoolbox:set-devtools-bounds-sync 的注释：同一个坑，抽屉拖拽已经踩过。
+    view.setAutoResize({ width: true, height: true });
     const wc = view.webContents;
     this.wcToId.set(wc.id, tab.id);
     wcIndex.set(wc.id, this);
