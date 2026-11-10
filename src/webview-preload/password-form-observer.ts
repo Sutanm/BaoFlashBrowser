@@ -42,11 +42,19 @@ export function installPasswordFormObserver(
   let pendingScan: ReturnType<typeof setTimeout> | null = null;
   let pendingClick: ReturnType<typeof setTimeout> | null = null;
   const knownInputs = new WeakSet<HTMLInputElement>();
-  // 用户在这个文档里动过登录输入框（打字 / 清空）之后就不再自动填充。
-  // 2026-11-10 真机：点一次输入框就触发一次填充，把旧账号+旧密码塞回去，
-  // 用户想改登新账号根本做不到；他"清空表单"后又被填回旧账号，提交上去自然
-  // 捕获成旧账号 → 命中已保存条目 → 静默无提示。
+  // 用户在这个文档里改过登录框内容之后……只有在**字段仍然非空**时才停止自动填充。
+  // 2026-11-10 两次真机反馈把边界说清了：
+  //   - 想改登新账号时被填回旧账号（字段有内容 → 不该再填）；
+  //   - 退出登录、清空表单后却要等好几秒才填（字段已空 → 应该立刻填）。
+  // 所以判据不是"动过手就再也不填"，而是"此刻表单里有没有用户输入的东西"。
   let userEdited = false;
+  const loginFieldsFilled = (): boolean => {
+    const pass = document.querySelector<HTMLInputElement>('input[type="password"]');
+    if (!pass) return false;
+    const scope = pass.form || document;
+    const user = scope.querySelector<HTMLInputElement>('input[type="text"], input[type="email"], input[type="tel"]');
+    return Boolean(pass.value) || Boolean(user && user.value);
+  };
   const reportIfNeeded = (force = false) => {
     if (stopped) return;
     // 没有密码框的页面（绝大多数）只付一次选择器的钱。
@@ -66,6 +74,10 @@ export function installPasswordFormObserver(
     lastScanAt = now;
     // 只把"此刻真能填"的密码框算作已知：隐藏期间不算，等它变可见时仍是新鲜信号。
     const usable = inputs.filter(isUsablePasswordInput);
+    // 重新隐回去的输入框要从"已知"里摘掉：站点常见的"退出登录 → 收起登录层 →
+    // 再点登录展开"用的是同一批元素，否则第二次展开不会上报、也就不会自动填充
+    // （表现为"清空表单后要等好几秒才填上"）。
+    for (const input of inputs) if (!usable.includes(input)) knownInputs.delete(input);
     if (usable.length === 0) return;
     const freshInputs = usable.filter((input) => !knownInputs.has(input));
     if (!force && freshInputs.length === 0) return;
@@ -90,7 +102,7 @@ export function installPasswordFormObserver(
     if (target instanceof HTMLInputElement && (target.type === 'password'
       || target.form?.querySelector('input[type="password"]'))) reportIfNeeded(true);
   };
-  // 用户动过登录表单里的输入框后，只保留"重新武装捕获"，不再触发填充。
+  // 用户动过登录表单里的输入框后，按"此刻表单是否还有内容"决定要不要继续填。
   const markUserEdited = (event: Event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
@@ -98,7 +110,7 @@ export function installPasswordFormObserver(
       || target.type === 'text' || target.type === 'email' || target.type === 'tel'
       || Boolean(target.form?.querySelector('input[type="password"]'));
     if (!loginField) return;
-    userEdited = true;
+    userEdited = loginFieldsFilled();
   };
   // 冒泡阶段（站点自己的 click 处理器先跑完，登录层通常此刻已经显示），并补一次
   // 延迟复查，覆盖异步 show / 动画结束后才可见的登录层。

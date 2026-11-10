@@ -105,7 +105,6 @@ declare global {
       on(channel: 'password:captured', cb: (payload: PasswordCapturedPayload) => void): () => void;
       on(channel: 'password:changed', cb: (payload: PasswordChangedPayload) => void): () => void;
       on(channel: 'password:filled', cb: (payload: PasswordFilledPayload) => void): () => void;
-      on(channel: 'password:already-saved', cb: (payload: { host: string; username: string }) => void): () => void;
       on(channel: 'ruffle:diagnostic', cb: (payload: RuffleDiagnosticPayload) => void): () => void;
       on(channel: string, cb: (...args: unknown[]) => void): () => void;
 
@@ -411,3 +410,4 @@ declare global {
 }
 
 export {};
+

@@ -1313,11 +1313,6 @@ type RootTranslation = {
 		 */
 		filled: string
 		/**
-		 * 该​账​号​密​码​已​保​存​过​：​{​u​s​e​r​n​a​m​e​}
-		 * @param {unknown} username
-		 */
-		alreadySaved: RequiredParams<'username'>
-		/**
 		 * 填​充​当​前​页​面
 		 */
 		fill: string
@@ -3954,10 +3949,6 @@ export type TranslationFunctions = {
 		 * 已填充登录信息，请确认后登录
 		 */
 		filled: () => LocalizedString
-		/**
-		 * 该账号密码已保存过：{username}
-		 */
-		alreadySaved: (arg: { username: unknown }) => LocalizedString
 		/**
 		 * 填充当前页面
 		 */

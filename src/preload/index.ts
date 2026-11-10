@@ -8,7 +8,7 @@ const ALLOWED_ON_CHANNELS = new Set([
   'ruffle:diagnostic',
   'download:progress', 'aria2:status', 'navigate-url',
   'shortcut',
-  'password:captured', 'password:changed', 'password:filled', 'password:already-saved',
+  'password:captured', 'password:changed', 'password:filled',
   'userscripts:changed',
   'userscript:open-tab',
   'automation-v3:changed',
@@ -381,4 +381,5 @@ const electronAPI = {
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+
 

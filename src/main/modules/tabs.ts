@@ -111,6 +111,8 @@ class TabManager {
   private userscriptGeneration = 0;
   private passwordFillTimers = new Map<number, Set<ReturnType<typeof setTimeout>>>();
   private passwordFormSignalTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  /** "没找到可填表单"后的短间隔重试（每次尝试一个，带上限）。 */
+  private passwordFillFollowUps = new Map<number, ReturnType<typeof setTimeout>>();
   private passwordFillInFlight = new Set<number>();
   private automationTargets = new Map<string, AutomationViewportLease>();
   private hostRestoreTimer?: NodeJS.Timeout;
@@ -768,9 +770,12 @@ class TabManager {
     const signalTimer = this.passwordFormSignalTimers.get(wcId);
     if (signalTimer) clearTimeout(signalTimer);
     this.passwordFormSignalTimers.delete(wcId);
+    const followUp = this.passwordFillFollowUps.get(wcId);
+    if (followUp) clearTimeout(followUp);
+    this.passwordFillFollowUps.delete(wcId);
   }
 
-  private async _attemptPasswordFill(wc: Electron.WebContents, tabId: string): Promise<void> {
+  private async _attemptPasswordFill(wc: Electron.WebContents, tabId: string, followUp = 0): Promise<void> {
     const passwords = optionalServices.passwords;
     if (!passwords?.isAutoFillEnabled() || wc.isDestroyed() || !this._isCurrentWebContents(tabId, wc)
       || this.automationTargets.has(tabId) || this.passwordFillInFlight.has(wc.id)) return;
@@ -785,17 +790,33 @@ class TabManager {
       } else if (result.reason === 'no-form') {
         // 有凭据但页面上没有可填的密码框：登录层可能还没显示（隐藏 → show()），
         // 也可能是账号框已有别的账号。这条日志是"为什么没自动填"的唯一线索。
-        log.debug(`[PasswordFill] no usable form yet tab=${tabId} wc=${wc.id}`);
+        log.debug(`[PasswordFill] no usable form yet tab=${tabId} wc=${wc.id} followUp=${followUp}`);
+        // 登录层往往在就绪后几百毫秒才显示出来；只等粗粒度阶梯会让人感觉"要等几秒"。
+        // 这里补两次短间隔重试（200ms / 600ms），总次数有上限，不会自旋。
+        if (followUp < 2 && this._isCurrentWebContents(tabId, wc)) this._scheduleFillFollowUp(wc, tabId, followUp);
       }
     } catch (error) { log.debug('[PasswordFill] automatic attempt failed:', error); }
     finally { this.passwordFillInFlight.delete(wc.id); }
+  }
+
+  /** 一次填充"没找到可填表单"后的短间隔重试（有上限，随标签页清理一起取消）。 */
+  private _scheduleFillFollowUp(wc: Electron.WebContents, tabId: string, followUp: number): void {
+    const previous = this.passwordFillFollowUps.get(wc.id);
+    if (previous) clearTimeout(previous);
+    const timer = setTimeout(() => {
+      this.passwordFillFollowUps.delete(wc.id);
+      void this._attemptPasswordFill(wc, tabId, followUp + 1);
+    }, followUp === 0 ? 200 : 600);
+    this.passwordFillFollowUps.set(wc.id, timer);
   }
 
   private _schedulePasswordFill(wc: Electron.WebContents, tabId: string): void {
     this._clearPasswordFillTimers(wc.id);
     if (!optionalServices.passwords?.isAutoFillEnabled() || this.automationTargets.has(tabId)) return;
     const timers = new Set<ReturnType<typeof setTimeout>>(); this.passwordFillTimers.set(wc.id, timers);
-    for (const delay of [120, 1000, 3000, 10000, 30000]) {
+    // 早期档位要密：登录层常常在页面就绪后几百毫秒才显示出来。原来只有
+    // 120ms / 1s / 3s，测到的效果是"清空表单后等了 3 秒才填"（2026-11-10 真机）。
+    for (const delay of [120, 300, 700, 1500, 3000, 8000, 20000, 30000]) {
       const timer = setTimeout(async () => { timers.delete(timer); await this._attemptPasswordFill(wc, tabId); if (!timers.size) this.passwordFillTimers.delete(wc.id); }, delay);
       timers.add(timer);
     }

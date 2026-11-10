@@ -324,10 +324,6 @@ export function setupCapture(wc: WebContents): void {
             } else if (verdict === 'same-password') {
               log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (same password)');
               skipToast = true;
-              // Chrome 语义是静默，但"静默"在界面上等于"什么都没发生"，用户会
-              // 反复试登录并怀疑捕获坏了（2026-11-10 真机）。这里回一条不弹窗的
-              // 轻提示：只带 host 与账号名，不含密码。
-              sendToRenderer('password:already-saved', { host: String(data.host || ''), username });
             } else if (verdict === 'password-changed') {
               log.info('[PasswordCapture] password changed host=' + data.host + ' — prompting update');
             }

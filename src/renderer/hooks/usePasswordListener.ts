@@ -112,23 +112,9 @@ export function usePasswordListener(): void {
       });
     });
 
-    // 捕获到但"同账号+同密码已保存过"：按 Chrome 语义不弹保存提示，但完全不反馈
-    // 会让用户以为捕获坏了（2026-11-10 真机反复试登录）。这里给一条自动消失的
-    // 轻提示，把"已经保存过哪个账号"说清楚。
-    const unsubSaved = api.on('password:already-saved', (payload) => {
-      logDecision(`already-saved notice host=${payload.host}`);
-      pushToast({
-        key: `password-already-saved:${payload.host}`,
-        message: LL.password.alreadySaved({ username: payload.username || '—' }),
-        type: 'info',
-        duration: 2500,
-      });
-    });
-
     return () => {
       if (unsubCapture) unsubCapture();
       if (unsubFilled) unsubFilled();
-      if (unsubSaved) unsubSaved();
     };
   }, [setStoreStatus, setActivePanel, pushToast, LL]);
 }

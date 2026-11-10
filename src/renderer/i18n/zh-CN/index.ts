@@ -357,7 +357,6 @@ const zhCN: BaseTranslation = {
     tierC: '本地弱保护（基础防护）',
     viewLocked: '查看密码需验证身份（即将支持）',
     filled: '已填充登录信息，请确认后登录',
-    alreadySaved: '该账号密码已保存过：{username}',
     fill: '填充当前页面',
     fillFailed: '当前页面没有可安全填充的匹配登录表单',
     excludedSites: '不捕获的网站',
@@ -743,3 +742,4 @@ const zhCN: BaseTranslation = {
 };
 
 export default zhCN;
+

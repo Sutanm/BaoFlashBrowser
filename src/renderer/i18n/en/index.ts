@@ -346,7 +346,6 @@ const en: Translation = {
     tierC: 'Local weak protection (basic)',
     viewLocked: 'Revealing passwords requires identity verification (coming soon)',
     filled: 'Login details filled. Review them before signing in.',
-    alreadySaved: 'This account is already saved: {username}',
     fill: 'Fill This Page',
     fillFailed: 'No matching login form could be filled safely on this page.',
     excludedSites: 'Never capture on these sites',
@@ -718,3 +717,4 @@ const en: Translation = {
 };
 
 export default en;
+

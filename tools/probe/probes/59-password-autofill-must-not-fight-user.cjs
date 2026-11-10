@@ -128,10 +128,28 @@ module.exports = {
 
       const noOverwrite = afterClicks.u === typed.u && afterClicks.p === typed.p;
       const capturedUserInput = pending?.username === USERNAME && pending?.password === PASSWORD;
+
+      // 5) 退出登录那种场景：把表单清空后**应当很快**被填回来（不再是"等 3 秒"）。
+      //    清空后点一下账号框（真实用户会这么做），期望 1.2s 内填回库里的账号。
+      await read(`(function(){
+        var u = document.getElementById('u'); var p = document.getElementById('p');
+        u.value = ''; u.dispatchEvent(new Event('input', { bubbles: true }));
+        p.value = ''; p.dispatchEvent(new Event('input', { bubbles: true }));
+        u.click();
+      })()`);
+      const clearedAt = Date.now();
+      let refillMs = null;
+      try {
+        await waitFor(async () => (await values()).u === SAVED.username, { timeoutMs: 3000, intervalMs: 50, label: 'refill after clearing' });
+        refillMs = Date.now() - clearedAt;
+      } catch { /* 未填回 → refillMs 保持 null */ }
+
       return {
-        ok: noOverwrite && capturedUserInput,
+        ok: noOverwrite && capturedUserInput && refillMs !== null && refillMs <= 1500,
         summary: noOverwrite
-          ? `用户输入未被覆盖；提交捕获到新账号（fill 尝试 ${attemptsBefore} → ${fillAttempts.length}）`
+          ? (refillMs === null
+            ? '清空表单后没有被填回（退化成"永不填充"了）'
+            : `用户输入未被覆盖；清空后 ${refillMs}ms 填回库里的账号（fill 尝试 ${attemptsBefore} → ${fillAttempts.length}）`)
           : `自动填充覆盖了用户输入：期望 ${JSON.stringify(typed)} 实际 ${JSON.stringify(afterClicks)}`,
         detail: { filledOnce, typed, afterClicks, captured: pending, fillAttempts: fillAttempts.length },
       };

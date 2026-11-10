@@ -114,16 +114,6 @@ export interface PasswordFilledPayload {  tabId: string;
   automatic: boolean;
 }
 
-/**
- * 捕获到的凭据"已经保存过"（同账号 + 同密码，Chrome 语义是静默跳过）。
- * 渲染层用一条自动消失的轻提示说明原因，避免用户以为"捕获坏了、没弹窗"。
- * 只带 host 与账号名，不含密码。
- */
-export interface PasswordAlreadySavedPayload {
-  host: string;
-  username: string;
-}
-
 export interface RuffleDiagnosticPayload {
   tabId: string;
   source: 'bundled' | 'cdn';
@@ -156,7 +146,6 @@ export interface IPCMainToRenderer {
   'password:captured': (payload: PasswordCapturedPayload) => void;
   'password:changed': (payload: PasswordChangedPayload) => void;
   'password:filled': (payload: PasswordFilledPayload) => void;
-  'password:already-saved': (payload: PasswordAlreadySavedPayload) => void;
   'ruffle:diagnostic': (payload: RuffleDiagnosticPayload) => void;
   'webview:context-menu': (payload: ContextMenuPayload) => void;
   'webview:new-window': (payload: NewWindowPayload) => void;
@@ -169,3 +158,4 @@ export type { BookmarkEntry } from './bookmarks';
 export type { HistoryEntry } from './history';
 export type { DownloadItem, DownloadState, DownloadEngine } from './downloads';
 export type { Settings, LinkBehavior, FlashEngineMode, FlashEngineRule, SearchEngine } from './settings';
+
