@@ -12,7 +12,7 @@ import type { UserscriptManager } from './userscripts/userscript-manager';
 export interface OptionalTabServices {
   passwords?: {
     setupCapture(wc: Electron.WebContents): void;
-    teardownCapture(wc: Electron.WebContents): void;
+    teardownCapture(wc: Electron.WebContents, reason?: string): void;
     fillPasswords(
       wc: Electron.WebContents,
       resolveCredential: (frameUrl: string) => FillCredential | null,
@@ -34,7 +34,7 @@ export function configureOptionalTabServices(services: OptionalTabServices): voi
 
 const passwordCapture = {
   setup(wc: Electron.WebContents): void { optionalServices.passwords?.setupCapture(wc); },
-  teardown(wc: Electron.WebContents): void { optionalServices.passwords?.teardownCapture(wc); },
+  teardown(wc: Electron.WebContents, reason?: string): void { optionalServices.passwords?.teardownCapture(wc, reason); },
 };
 
 function userscriptManager(): UserscriptManager | null {
@@ -203,7 +203,7 @@ class TabManager {
     const wc = this.getWebContents(tabId);
     if (!wc) throw new Error('automation target has no live BrowserView');
     if (this.automationTargets.has(tabId)) return inspect(wc);
-    passwordCapture.teardown(wc);
+    passwordCapture.teardown(wc, 'automation-inspect');
     try { return await inspect(wc); }
     finally {
       if (!wc.isDestroyed() && this._isCurrentWebContents(tabId, wc) && !this.automationTargets.has(tabId)) {
@@ -238,7 +238,7 @@ class TabManager {
     // Once Automation reserves this tab they must stay paused, otherwise a
     // retry can race an input step and make the run stop immediately.
     this._clearPasswordFillTimers(wc.id);
-    passwordCapture.teardown(wc);
+    passwordCapture.teardown(wc, 'automation-begin');
     try { this._applyAutomationViewport(tabId, wc); }
     catch (error) {
       this.automationTargets.delete(tabId);
@@ -714,7 +714,7 @@ class TabManager {
     const wc = view.webContents;
     this._clearPasswordFillTimers(wc.id);
     this.passwordFillInFlight.delete(wc.id);
-    passwordCapture.teardown(wc);
+    passwordCapture.teardown(wc, 'dispose');
     this.wcToId.delete(wc.id);
     wcIndex.delete(wc.id);
     try { this.win()?.removeBrowserView(view); } catch { /* gone */ }
@@ -733,7 +733,7 @@ class TabManager {
     for (const [tabId, tab] of this.tabs) {
       const wc = tab.browserView?.webContents; if (!wc) continue;
       if (enabled && !this.automationTargets.has(tabId)) passwordCapture.setup(wc);
-      else passwordCapture.teardown(wc);
+      else passwordCapture.teardown(wc, 'capture-disabled');
     }
   }
 
@@ -809,7 +809,7 @@ class TabManager {
   }
 
   private _detachDebuggerBeforeNavigate(wc: Electron.WebContents): void {
-    try { passwordCapture.teardown(wc); } catch (error) { log.warn('[TabManager] teardownCapture failed:', (error instanceof Error ? error.message : 'Unknown error')); }
+    try { passwordCapture.teardown(wc, 'pre-navigate'); } catch (error) { log.warn('[TabManager] teardownCapture failed:', (error instanceof Error ? error.message : 'Unknown error')); }
   }
 
   navigate(tabId: string, url: string): void {
@@ -1150,3 +1150,5 @@ export function transferTabBetweenWindows(tabId: string, targetWin: BrowserWindo
   target.adoptTransferred(detached, index);
   return true;
 }
+
+

@@ -22,6 +22,9 @@ interface CaptureState {
   injectedContexts: Set<number>;
   retryContexts: Set<number>;
   messageListener: (_event: Electron.Event, method: string, params: CaptureMessageParams) => void;
+  consoleListener: (_event: Electron.Event, level: number, message: string) => void;
+  /** 注入汇总行的定时器（一次性诊断），teardown 时必须清掉。 */
+  readyTimer: ReturnType<typeof setTimeout> | null;
   capturedSet: Set<string>;
   cdpLease: CdpLease;
 }
@@ -158,16 +161,16 @@ function scheduleFailedInjectionRetry(state: CaptureState, delay: number): void 
 export function setupCapture(wc: WebContents): void {
   if (!wc || wc.isDestroyed()) return;
   if (process.env.BAO_NO_CDP === '1') {
-    teardownCapture(wc);
+    teardownCapture(wc, 'cdp-disabled');
     return;
   }
   if (!isAutoCaptureEnabled()) {
-    teardownCapture(wc);
+    teardownCapture(wc, 'auto-capture-off');
     return;
   }
   if (isCaptureExcluded(wc.getURL())) {
     log.info('[PasswordCapture] excluded site, wc.id=' + wc.id + ' url=' + redactUrlForLog(wc.getURL()));
-    teardownCapture(wc);
+    teardownCapture(wc, 'excluded-site');
     return;
   }
 
@@ -177,7 +180,7 @@ export function setupCapture(wc: WebContents): void {
   const existing = captures.get(wc.id);
   if (existing) {
     if (!existing.destroyed && !existing.cdpLease.released && wc.debugger.isAttached()) return;
-    teardownCapture(wc);
+    teardownCapture(wc, 'restart');
   }
 
   let cdpLease: CdpLease;
@@ -197,10 +200,29 @@ export function setupCapture(wc: WebContents): void {
     injectedContexts: new Set(),
     retryContexts: new Set(),
     messageListener: () => {},
+    consoleListener: () => {},
+    readyTimer: null,
     capturedSet: new Set(),
     cdpLease,
   };
   log.info('[PasswordCapture] attached, wc.id=' + wc.id);
+  // 页面侧脚本"还活着但上报通道没了"是这次最坑的静默失败形态：脚本照旧监听
+  // input/click，但 window.__baopReport 不存在，所有上报被 catch 吞掉 —— 表现为
+  // 一条 DIAG 都没有、也没有捕获。页面会 console.warn('[baop] …') 一次，这里接住。
+  state.consoleListener = (_event, _level, message) => {
+    if (typeof message !== 'string' || message.indexOf('[baop]') < 0) return;
+    log.warn('[PasswordCapture] page console: ' + message.slice(0, 200));
+  };
+  // 测试里的假 wc 可能没有事件接口：诊断监听是尽力而为，不能因此让捕获挂不上。
+  try { wc.on('console-message', state.consoleListener); } catch { /* fake wc in unit tests */ }
+  // 注入结论汇总（一次性）：contexts 里有多少个真正执行了捕获脚本。
+  // 排查"某帧明明注入了却没反应"时，先看这行与 frame info 是否能对应上。
+  state.readyTimer = setTimeout(() => {
+    if (state.destroyed) return;
+    log.info('[PasswordCapture] ready wc=' + wc.id + ' contexts=' + state.contexts.size + ' injected=' + state.injectedContexts.size
+      + (state.retryContexts.size ? ' retrying=' + state.retryContexts.size : ''));
+  }, 2000);
+  if (typeof state.readyTimer.unref === 'function') state.readyTimer.unref();
 
   state.messageListener = (_event, method, params) => {
     if (state.destroyed) return;
@@ -323,11 +345,14 @@ export function setupCapture(wc: WebContents): void {
   });
 }
 
-export function teardownCapture(wc: WebContents): void {
+export function teardownCapture(wc: WebContents, reason = 'explicit'): void {
   if (!wc) return;
   // 即使当前没有捕获状态，也要清掉挂起中的附着重试（自动化占位/标签页关闭都走这里）。
   clearAttachRetry(wc.id);
   const state = captures.get(wc.id); if (!state) return;
+  // teardown 过去完全静默，于是"捕获什么时候没的"只能靠日志缺口倒推。
+  // 这里记下原因，配合 `ready` 汇总行就能还原一次会话的完整生命周期。
+  log.info('[PasswordCapture] teardown wc=' + wc.id + ' reason=' + reason);
   disposeCaptureState(state);
 }
 
@@ -339,10 +364,15 @@ function disposeCaptureState(state: CaptureState): void {
     clearTimeout(state.injectTimer);
     state.injectTimer = null;
   }
+  if (state.readyTimer) {
+    clearTimeout(state.readyTimer);
+    state.readyTimer = null;
+  }
   state.contexts.clear();
   state.injectedContexts.clear();
   state.retryContexts.clear();
   try { state.wc.debugger.removeListener('message', state.messageListener); } catch { /* local cleanup best effort */ }
+  try { state.wc.removeListener('console-message', state.consoleListener); } catch { /* local cleanup best effort */ }
   if (!state.wc.isDestroyed()) detachQuietly(state);
 }
 
@@ -370,3 +400,5 @@ export function removePendingCredential(captureId: string): void {
 export function notifyPasswordChanged(): void {
   sendToRenderer('password:changed', { ts: Date.now() });
 }
+
+

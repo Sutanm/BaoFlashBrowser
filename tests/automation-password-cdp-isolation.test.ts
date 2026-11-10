@@ -9,8 +9,10 @@ describe('Automation password-CDP isolation', () => {
       tabsSource.indexOf('beginAutomation('),
       tabsSource.indexOf('private _applyAutomationViewport'),
     );
-    expect(begin.indexOf('this._clearPasswordFillTimers(wc.id)')).toBeGreaterThan(-1);
-    expect(begin.indexOf('this._clearPasswordFillTimers(wc.id)')).toBeLessThan(begin.indexOf('passwordCapture.teardown(wc)'));
+    // teardown 现在带原因参数（自动化占位），因此只匹配到左括号为止。
+    const teardownAt = begin.indexOf('passwordCapture.teardown(wc');
+    expect(teardownAt).toBeGreaterThan(-1);
+    expect(begin.indexOf('this._clearPasswordFillTimers(wc.id)')).toBeLessThan(teardownAt);
     expect(begin).toContain('this._schedulePasswordFill(wc, tabId)');
   });
 

@@ -194,6 +194,14 @@ node tools/probe/host.cjs --only 21             # 契约探针
   子帧会跑同一段脚本再建子帧（实测 71 vs 2 次 `script loaded`、57 vs 0 次栈溢出）。
 - **捕获挂载时机**：挂在 `did-stop-loading`；广告密集页可能晚几十秒，期间输入不可见。
   排查"某站点捕获不到"时，先对齐日志里的 `setupCapture` 时间戳与用户操作时间。
+  **2026-11-10 起捕获生命周期可读**：每次挂载 2s 后有一行
+  `ready wc=N contexts=X injected=Y`（注入失败会带 `retrying=`），每次拆卸有一行
+  `teardown wc=N reason=…`（navigation / pre-navigate / dispose / automation-* /
+  restart / excluded-site / auto-capture-off / capture-disabled）。另外页面侧脚本在
+  上报通道（CDP `Runtime.addBinding`）缺席时会 `console.warn('[baop] …')` 一次，主进程
+  落成 `page console: [baop] …` —— 这一条专治"脚本还在监听、却什么都报不出来"。
+  判读顺序：`ready` 有没有 → 登录前有没有 `teardown` → 登录时有没有 `input pw` /
+  `click any` → 有没有 `[baop] binding missing`。
 - **别把"密码框出现在 DOM 里"当作"能填"**：登录层常见形态是"先
   `display:none` 插入、点击后 `show()`"。observer 必须按可见性（不是插入事件）
   判定新鲜度，并观察 `style`/`class`——否则又退化成"必须点一下输入框"。
