@@ -213,10 +213,16 @@ const TopBar: React.FC<TopBarProps> = ({
   return (
     <div className="flex flex-col flex-shrink-0 relative topbar-toolbar">
       <div
-        className="flex items-stretch h-[45px] px-1 gap-0.5 topbar-tabbar drag-region"
+        /* 顶部 pt-2（8px）是**故意留给系统**的：标签条自身不能是 drag-region，
+           否则 Electron 的 WM_NCHITTEST 会先命中拖拽区返回 HTCAPTION，把系统那条约
+           8 DIP 的顶部 sizing border 盖掉 —— 上边与上两角就拉不动（左右下三边不在
+           拖拽区里，所以一直正常）。drag 下沉到下面的标签行，顶部这片空白交回系统，
+           走原生拉伸（DWM 拖动、双击最大化、系统级尺寸约束都由系统管）。
+           标签 36px 本来就 items-end 贴底、上方留 9px，让出 8px 后视觉不变。 */
+        className="flex items-stretch h-[45px] px-1 pt-2 gap-0.5 topbar-tabbar relative"
       >
         <div
-          className="flex items-end h-full overflow-hidden flex-1 scrollbar-none"
+          className="flex items-end h-full overflow-hidden flex-1 scrollbar-none drag-region"
         >
           {tabs.map((tab, index) => {
             const cb = tabCallbacks.get(tab.id);
