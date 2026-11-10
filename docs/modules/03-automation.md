@@ -28,6 +28,7 @@ generation 失效并完成资源回收。
 | `src/shared/automation/package-v3.ts` | `.baoauto` v3 manifest、frontend、profile 与素材元类型 |
 | `src/shared/automation/javascript-api.ts` | 沙箱可调用的固定 `bao.*` 合同 |
 | `src/main/modules/automation/service-v3.ts` | 包管理、运行编排、状态日志、取材与识别测试 |
+| `src/main/modules/automation/run-log-store.ts` | 落盘运行日志的文件名白名单、归属元信息头、列表/读取（纯 Node，可单测） |
 | `src/main/modules/automation/package-v3.ts` | v3 ZIP 解析/序列化、完整性、路径与预算校验 |
 | `src/main/modules/automation/package-v3-repository.ts` | 已安装包的原子持久化；只接受 v3 |
 | `src/main/modules/automation/browserview-core-session.ts` | 把 Core registry 绑到当前 BrowserView 的截图、识别、OCR、输入与页面操作 |
@@ -91,6 +92,25 @@ ES2019（`module: None`、`strict: true`），存在 Error 级诊断即拒绝运
 运行状态机固定为 `idle → preparing → running → completed | failed | cancelled`，
 取消时先进入 `cancelling`，资源 barrier 完成后才落到 `cancelled`。运行日志最多保留
 200 条，`system` 标记区分系统消息与脚本自身日志；英文界面只本地化系统消息。
+
+**提示策略（2026-11）**：页面助手只在**错误/警告**（含运行失败、动作被前置条件拦住）时发
+通知，走地址栏提示条；成功类一律由界面自身表达，不再弹通知：
+复制运行记录/特征串/坐标改成按钮或读数就地闪一下「已复制」（`flashText` + `.bao-flash`），
+素材保存、绑定/取消游戏画面、刷新素材、启动/停止、坐标拾取等都有面板状态可看。新增失败
+路径仍必须提示——把成功和失败一起静音会让"点了没反应"变成不可诊断。
+
+**落盘运行历史与按脚本隔离（2026-11）**：每次运行新建
+`userData/automation-logs/YYMMDD-HH-MM-<脚本名>-记录N.json`，**首行是归属元信息**
+`{"_baoRunLogMeta":true,"packageId","packageName","frontendId?","startedAt"}`，其余行是
+JSONL 日志条目。列表与读取都在 `run-log-store.ts`（纯 Node，可单测）：
+
+- **归属按 `packageId`**：文件名里的脚本名只是可读性；脚本改名/重名时按名字归属会错配。
+- **默认只看当前脚本**：页面助手的历史浮层与工作台的历史抽屉都默认带
+  `packageId`（+`packageName` 供回退）过滤，顶部可切「全部脚本」；IPC 不传过滤参数即全量。
+- **老日志回退**：2026-11 之前没有元信息头的文件，只有在调用方同时给出 `packageName`
+  时才按"安全化后的文件名脚本名 == 该名字"命中；只给 `packageId` 时不猜（宁可不列出）。
+- 读取时元信息行被剔除，`readPersistedRunLog` 仍只返回日志条目；清理策略（7 天 / 最多
+  50 份）不变。
 
 ### 3.2 坐标、画面与截图
 
@@ -168,6 +188,12 @@ permissions，并通过 `integrity`（路径 → 散列）记录每个内容项�
 两条通道共享 11 个端点：`list` / `status` / `start` / `cancel` / `asset-preview` /
 `warm` / `capture` / `save-capture` / `match` / `ocr` / `surfaces`。原生助手只在
 `http(s)|file` 主框架安装，监听 `ui:language-changed` 做**实时**语言切换。
+
+运行历史另有三个端点：`logs-list`（可选 `packageId` / `packageName`，用于按脚本
+隔离；不传即全量）、`logs-read`（文件名白名单校验后返回条目，元信息行已剔除）、
+`logs-open`（用系统默认程序打开原文件）。主工作台侧对应
+`automation-v3:list-persisted-run-logs` / `read-persisted-run-log` /
+`open-persisted-run-log`。
 
 ## 5 安全边界与不变量
 

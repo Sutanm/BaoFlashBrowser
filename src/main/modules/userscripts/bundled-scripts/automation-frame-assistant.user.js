@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.8
-// @updateHash  74840cd2d9c7
+// @updateHash  cb450d6fc9a6
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -18,7 +18,7 @@
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 
-/* global GM, window, document, innerWidth, innerHeight, setInterval, setTimeout, clearTimeout */
+/* global GM, window, document, innerWidth, innerHeight, setInterval, setTimeout, clearTimeout, Blob, URL */
 
 (function () {
   'use strict';
@@ -78,7 +78,7 @@
 #bao-automation-frame-assistant .bao-run-copy{min-width:0;flex:1}#bao-automation-frame-assistant .bao-run-copy b{display:block}#bao-automation-frame-assistant .bao-run-copy span{display:block;overflow:hidden;margin-top:3px;color:#9cafc7;font-size:10px;text-overflow:ellipsis;white-space:nowrap}#bao-automation-frame-assistant .bao-run-state.bao-live .bao-state-title,#bao-automation-frame-assistant .bao-run-state.bao-live .bao-state-detail{color:#76dba8}#bao-automation-frame-assistant .bao-step{color:#9cafc7;font-size:10px}
 #bao-automation-frame-assistant .bao-progress{height:4px;margin-top:8px;overflow:hidden;border-radius:99px;background:#ffffff10}#bao-automation-frame-assistant .bao-progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4489ff,#69d8e8);transition:width .35s}
 #bao-automation-history-layer{all:initial;position:fixed;z-index:2147483647;inset:0;display:none;place-items:center;background:#020913cc;color:#eef5ff;font:12px/1.45 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-history-layer.bao-history-open{display:grid}#bao-automation-history-layer *{box-sizing:border-box}#bao-automation-history-layer .bao-history-panel{display:grid;width:min(900px,calc(100vw - 48px));height:min(620px,calc(100vh - 64px));grid-template-rows:auto 1fr;overflow:hidden;border:1px solid #9ec6ee44;border-radius:12px;background:#0d1d34f7;box-shadow:0 24px 70px #000b}
-#bao-automation-history-layer .bao-history-head{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid #9cbbee2b}#bao-automation-history-layer .bao-history-head strong{font-size:13px}#bao-automation-history-layer .bao-history-actions{display:flex;gap:7px}#bao-automation-history-layer .bao-history-actions button{height:28px;padding:0 11px;border:1px solid #8eb8e22b;border-radius:7px;background:#142843;color:#dce9f8;font:inherit;cursor:pointer}#bao-automation-history-layer .bao-history-actions button:hover{background:#1c3556}
+#bao-automation-history-layer .bao-history-head{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid #9cbbee2b}#bao-automation-history-layer .bao-history-head strong{font-size:13px}#bao-automation-history-layer .bao-history-scope{display:flex;gap:4px;margin-left:12px;margin-right:auto}#bao-automation-history-layer .bao-history-scope button{height:24px;padding:0 10px;border:1px solid #8eb8e233;border-radius:999px;background:#14284355;color:#c9dbf0;font:inherit;font-size:11px;cursor:pointer}#bao-automation-history-layer .bao-history-scope button:hover:not(:disabled){background:#1c3556}#bao-automation-history-layer .bao-history-scope button.bao-active{border-color:#73aaff;background:#2a5a9e;color:#fff}#bao-automation-history-layer .bao-history-scope button:disabled{opacity:.45;cursor:default}#bao-automation-history-layer .bao-history-actions{display:flex;gap:7px}#bao-automation-history-layer .bao-history-actions button{height:28px;padding:0 11px;border:1px solid #8eb8e22b;border-radius:7px;background:#142843;color:#dce9f8;font:inherit;cursor:pointer}#bao-automation-history-layer .bao-history-actions button:hover{background:#1c3556}
 #bao-automation-history-layer .bao-history-body{display:grid;min-height:0;grid-template-columns:230px 1fr}#bao-automation-history-layer .bao-history-files{display:grid;align-content:start;gap:5px;overflow-y:auto;padding:9px;border-right:1px solid #9cbbee2b}#bao-automation-history-layer .bao-history-file{display:grid;gap:3px;padding:7px 9px;border:1px solid #8eb8e233;border-radius:7px;background:#14284355;color:#e7f1ff;font:inherit;text-align:left;cursor:pointer}#bao-automation-history-layer .bao-history-file:hover{background:#1c3556}#bao-automation-history-layer .bao-history-file b{overflow:hidden;font-size:11px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}#bao-automation-history-layer .bao-history-file small{color:#91a9c2;font-size:9px}#bao-automation-history-layer .bao-history-file-active{border-color:#73aaff;background:#1d3c66}
 #bao-automation-history-layer .bao-history-entries{overflow-y:auto;padding:10px 12px}#bao-automation-history-layer .bao-history-log{display:grid;gap:5px}#bao-automation-history-layer .bao-history-log-row{display:grid;grid-template-columns:64px 1fr;gap:8px;color:#9fb0c3;font-size:11px}#bao-automation-history-layer .bao-history-log-row time{color:#668098}#bao-automation-history-layer .bao-history-log-row span{overflow-wrap:anywhere}#bao-automation-history-layer .bao-history-log-row.bao-good span{color:#76dba8}#bao-automation-history-layer .bao-history-log-row.bao-bad span{color:#ff858c}#bao-automation-history-layer .bao-history-empty{padding:10px 4px;color:#8fa3ba;font-size:11px}
 #bao-automation-frame-assistant .bao-log{display:grid;max-height:145px;gap:5px;overflow-y:auto;padding-right:3px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar{width:5px}#bao-automation-frame-assistant .bao-log::-webkit-scrollbar-thumb{border-radius:5px;background:#7691b052}#bao-automation-frame-assistant .bao-log-row{display:grid;grid-template-columns:43px 1fr;gap:6px;color:#9fb0c3;font-size:9px}#bao-automation-frame-assistant .bao-log-row time{color:#668098}#bao-automation-frame-assistant .bao-log-row span{overflow-wrap:anywhere}#bao-automation-frame-assistant .bao-log-row.bao-good span{color:#76dba8}#bao-automation-frame-assistant .bao-log-row.bao-bad span{color:#ff858c}
@@ -92,6 +92,9 @@
 #bao-automation-capture-layer .bao-save{position:absolute;z-index:3;display:none;width:292px;gap:8px;padding:10px;border:1px solid #9ec6ee44;border-radius:12px;background:#0f2038f5;box-shadow:0 15px 45px #000b;cursor:default}#bao-automation-capture-layer .bao-save label{display:grid;gap:5px;color:#a9bbd0;font-size:10px}#bao-automation-capture-layer .bao-save input{width:100%;height:34px;padding:0 10px;border:1px solid #90b9e23d;border-radius:8px;background:#061321;color:#eff6ff}#bao-automation-capture-layer .bao-save small{color:#7890aa;font-size:9px}#bao-automation-capture-layer .bao-save-buttons,#bao-automation-capture-layer .bao-conflict-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}#bao-automation-capture-layer button{height:34px;border:1px solid #8eb8e22b;border-radius:8px;background:#142843;color:#dce9f8;cursor:pointer}#bao-automation-capture-layer button.bao-primary{background:#397cec;color:#fff}#bao-automation-capture-layer .bao-conflict{display:none;gap:7px;padding:8px;border:1px solid #ffb15b3b;border-radius:8px;background:#9a5b191f;color:#ffd2a0;font-size:10px}#bao-automation-capture-layer .bao-conflict.bao-show{display:grid}
 #bao-automation-coordinate-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;overflow:hidden;cursor:crosshair;background-image:linear-gradient(#77b3ff24 1px,transparent 1px),linear-gradient(90deg,#77b3ff24 1px,transparent 1px);background-size:10% 10%;box-shadow:inset 0 0 0 1px #77b3ff88;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif;color:#fff;user-select:none}#bao-automation-coordinate-layer.bao-active{display:block}#bao-automation-coordinate-layer .bao-coordinate-help{position:absolute;z-index:3;top:18px;left:50%;padding:9px 15px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap;pointer-events:none}#bao-automation-coordinate-layer .bao-coordinate-x,#bao-automation-coordinate-layer .bao-coordinate-y{position:absolute;z-index:1;background:#65b5ffcc;pointer-events:none}#bao-automation-coordinate-layer .bao-coordinate-x{top:0;bottom:0;width:1px}#bao-automation-coordinate-layer .bao-coordinate-y{right:0;left:0;height:1px}#bao-automation-coordinate-layer .bao-coordinate-value{position:absolute;z-index:2;padding:5px 8px;border:1px solid #80c2ff88;border-radius:6px;background:#0b2139ee;box-shadow:0 6px 20px #0008;color:#eaf6ff;font-weight:700;white-space:nowrap;pointer-events:none}
 #bao-automation-coordinate-layer .bao-coordinate-surface{position:absolute;display:none;border:2px solid #55e49b;box-shadow:inset 0 0 0 1px #082b20,0 0 18px #32d98c66;pointer-events:none}#bao-automation-coordinate-layer.bao-surface .bao-coordinate-surface{display:block}
+/* in-place feedback for copy actions: recolour instead of raising a toast */
+#bao-automation-frame-assistant .bao-flash{color:#76dba8 !important;border-color:#76dba866 !important}
+#bao-automation-coordinate-layer .bao-flash{color:#76dba8 !important}
 #bao-automation-game-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;background:#02091466;color:#fff;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-game-layer.bao-active{display:block}#bao-automation-game-layer *{box-sizing:border-box}#bao-automation-game-layer .bao-game-help{position:absolute;z-index:3;top:18px;left:50%;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 16px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap}#bao-automation-game-layer .bao-game-cancel{height:28px;padding:0 11px;border:1px solid #ff9b9b55;border-radius:7px;background:#5f2637;color:#ffdce2;cursor:pointer}#bao-automation-game-layer .bao-game-candidate{position:absolute;border:3px solid #58d99b;background:#36cc8720;box-shadow:0 0 0 1px #071b14,0 0 20px #2fe29388;color:#fff;cursor:pointer}#bao-automation-game-layer .bao-game-candidate:hover{border-color:#fff;background:#42dc9e38}#bao-automation-game-layer .bao-game-candidate span{position:absolute;left:-3px;bottom:100%;max-width:280px;padding:5px 8px;border-radius:6px 6px 0 0;background:#126442f2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #bao-automation-game-layer .bao-game-list{position:absolute;z-index:2147483647;top:64px;right:18px;display:grid;width:min(330px,calc(100vw - 36px));max-height:calc(100vh - 82px);gap:6px;overflow:auto;padding:10px;border:1px solid #9ec6ee55;border-radius:11px;background:#0d1d34f5;box-shadow:0 15px 45px #000b}#bao-automation-game-layer .bao-game-list-head{display:grid;gap:3px;padding:0 2px 4px}#bao-automation-game-layer .bao-game-list-head small{color:#9db1c9;font-size:10px}#bao-automation-game-layer .bao-game-option{display:grid;grid-template-columns:22px 1fr;gap:7px;align-items:center;width:100%;min-height:38px;padding:6px 8px;border:1px solid #8eb8e233;border-radius:8px;background:#142843;color:#e7f1ff;text-align:left;cursor:pointer}#bao-automation-game-layer .bao-game-option:hover{border-color:#67dca1;background:#174432}#bao-automation-game-layer .bao-game-option b{display:grid;width:21px;height:21px;place-items:center;border-radius:50%;background:#2c7957;font-size:10px}#bao-automation-game-layer .bao-game-option span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#bao-automation-game-layer .bao-game-option small{grid-column:2;color:#91a9c2;font-size:9px}
 `;
@@ -119,7 +122,7 @@
   document.documentElement.appendChild(gameLayer);
   // 历史记录专用浮层：320px 助手面板装不下长记录，这里独立成大窗口。
   var historyLayer = document.createElement('div'); historyLayer.id = 'bao-automation-history-layer';
-  historyLayer.innerHTML = '<section class="bao-history-panel"><header class="bao-history-head"><strong>运行历史</strong><div class="bao-history-actions"><button class="bao-history-export" type="button">导出 JSON</button><button class="bao-history-close" type="button">关闭</button></div></header><div class="bao-history-body"><aside class="bao-history-files"></aside><main class="bao-history-entries"></main></div></section>';
+  historyLayer.innerHTML = '<section class="bao-history-panel"><header class="bao-history-head"><strong>运行历史</strong><div class="bao-history-scope"><button class="bao-history-scope-current" type="button">当前脚本</button><button class="bao-history-scope-all" type="button">全部脚本</button></div><div class="bao-history-actions"><button class="bao-history-export" type="button">导出 JSON</button><button class="bao-history-close" type="button">关闭</button></div></header><div class="bao-history-body"><aside class="bao-history-files"></aside><main class="bao-history-entries"></main></div></section>';
   document.documentElement.appendChild(historyLayer);
 
   var orb = root.querySelector('.bao-orb');
@@ -148,14 +151,36 @@
     // 宿主不可用（用户脚本通道、主窗口已关、IPC 失败）时退回页面内提示，保证信息不丢。
     var fallback = function () { pageToast(text, level); };
     try {
-      if (gm && gm.baoAutomation && typeof gm.baoAutomation.toast === 'function') {
-        Promise.resolve(gm.baoAutomation.toast(String(text), level)).then(function (result) {
+      // 宿主对象在两种形态下都叫 GM：用户脚本形态是注入的 GM 全局，原生助手形态是
+      // installAssistantUI(gm) 包装函数的第一个形参（见 build/native-assistant-i18n.mjs）。
+      // 此前这里写的是小写 gm —— 两种形态都不存在，于是永远抛 ReferenceError 掉进兜底，
+      // 地址栏提示实际上从未生效过。
+      if (typeof GM.baoAutomation.toast === 'function') {
+        Promise.resolve(GM.baoAutomation.toast(String(text), level)).then(function (result) {
           if (!result || result.success === false) fallback();
         }, fallback);
         return;
       }
-    } catch (error) { /* fall through to the in-page toast */ }
+    } catch { /* fall through to the in-page toast */ }
     fallback();
+  }
+  // 就地反馈：按钮/读数短暂变成「已复制」再复原。
+  // 复制这类高频动作不该占地址栏通知；面板本身已经把结果表达清楚了。
+  var flashTimers = new WeakMap();
+  function flashText(element, text, restoreMs) {
+    if (!element) return;
+    if (!element.getAttribute('data-flash-label')) element.setAttribute('data-flash-label', element.textContent || '');
+    var pending = flashTimers.get(element);
+    if (pending) window.clearTimeout(pending);
+    element.textContent = text;
+    element.classList.add('bao-flash');
+    flashTimers.set(element, window.setTimeout(function () {
+      flashTimers.delete(element);
+      element.classList.remove('bao-flash');
+      var original = element.getAttribute('data-flash-label');
+      if (original !== null) element.textContent = original;
+      element.removeAttribute('data-flash-label');
+    }, restoreMs || 1000));
   }
   function fitOpenPanel() {
     if (!root.classList.contains('bao-open')) return;
@@ -215,7 +240,7 @@
     logs.forEach(function (entry) { var row = document.createElement('div'); row.className = 'bao-log-row ' + (entry.level === 'success' ? 'bao-good' : entry.level === 'error' ? 'bao-bad' : ''); var time = document.createElement('time'); time.textContent = new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }); var text = document.createElement('span'); text.textContent = messageText(entry.message); row.append(time, text); logHost.appendChild(row); });
     if (!logs.length) logHost.innerHTML = '<div class="bao-log-row"><time>--:--:--</time><span>等待启动脚本</span></div>';
     if (logArchive.open) renderHistoryLayer();
-    if (state.statusInitialized && state.lastState !== status.state && status.state === 'completed') toast('自动化脚本执行完成', 'success');
+    // 完成/失败以外的状态变化都由面板自己表达（状态标题、进度条、日志流），不再弹提示。
     if (state.statusInitialized && state.lastState !== status.state && status.state === 'failed') toast(messageText(status.message) || '自动化脚本执行失败', 'error');
     state.lastState = status.state;
     state.statusInitialized = true;
@@ -307,7 +332,29 @@
   }
   // 历史运行记录：读主进程落盘的 JSONL（userData/automation-logs），跨运行可回溯。
   // 内存里只留最近 200 条会随运行裁剪，历史入口从落盘文件补全，并支持导出/打开原文件。
-  var logArchive = { open: false, files: [], entries: [], selected: '', loading: false };
+  var logArchive = { open: false, scope: 'current', files: [], entries: [], selected: '', loading: false };
+  // 历史归属：默认只看当前选中的脚本，可切「全部脚本」。归属由主进程按日志首行的
+  // packageId 判定（老日志回退文件名里的脚本名）。
+  function archiveScopeDefault() { return currentPackage() ? 'current' : 'all'; }
+  function archiveFilter() {
+    var pkg = currentPackage();
+    if (logArchive.scope !== 'current' || !pkg) return null;
+    return { packageId: pkg.packageId, packageName: pkg.name };
+  }
+  function refreshArchiveScopeButtons() {
+    var scopeCurrent = historyLayer.querySelector('.bao-history-scope-current');
+    var scopeAll = historyLayer.querySelector('.bao-history-scope-all');
+    var pkg = currentPackage();
+    if (scopeCurrent) {
+      scopeCurrent.disabled = !pkg;
+      if (logArchive.scope === 'current' && pkg) scopeCurrent.classList.add('bao-active');
+      else scopeCurrent.classList.remove('bao-active');
+    }
+    if (scopeAll) {
+      if (logArchive.scope === 'all' || !pkg) scopeAll.classList.add('bao-active');
+      else scopeAll.classList.remove('bao-active');
+    }
+  }
   function closeHistoryLayer() {
     logArchive.open = false;
     historyLayer.classList.remove('bao-history-open');
@@ -315,19 +362,25 @@
   function renderHistoryLayer() {
     if (!logArchive.open) { historyLayer.classList.remove('bao-history-open'); return; }
     historyLayer.classList.add('bao-history-open');
+    refreshArchiveScopeButtons();
     var filesHost = historyLayer.querySelector('.bao-history-files');
     var entriesHost = historyLayer.querySelector('.bao-history-entries');
     filesHost.innerHTML = '';
     if (!logArchive.files.length) {
-      filesHost.innerHTML = '<div class="bao-history-empty">还没有落盘的运行记录</div>';
+      filesHost.innerHTML = '<div class="bao-history-empty">'
+        + (logArchive.scope === 'current' ? '这个脚本还没有运行记录' : '还没有落盘的运行记录') + '</div>';
     } else {
       logArchive.files.forEach(function (file) {
         var row = document.createElement('button'); row.type = 'button';
         row.className = 'bao-history-file' + (file.name === logArchive.selected ? ' bao-history-file-active' : '');
-        var title = document.createElement('b'); title.textContent = file.scriptName || file.name;
+        // 「当前脚本」范围下脚本名是常量，不再占一行
+        if (logArchive.scope === 'all') {
+          var title = document.createElement('b'); title.textContent = file.scriptName || file.name;
+          row.appendChild(title);
+        }
         var meta = document.createElement('small');
         meta.textContent = new Date(file.startedAt).toLocaleString('zh-CN', { hour12: false }) + ' · ' + file.sizeLabel;
-        row.append(title, meta);
+        row.appendChild(meta);
         row.title = file.name;
         row.addEventListener('click', function () { void openArchiveFile(file.name); });
         filesHost.appendChild(row);
@@ -372,20 +425,42 @@
     renderHistoryLayer();
     try {
       var value = await api.readAutomationLogs(name);
+      // 载入成功不再弹提示：打开历史层时 toggleArchive 会自动载入最新一份，
+      // 每开一次都往地址栏弹一条就成了噪音；选中项高亮 + 右侧列表本身就是结果，
+      // 失败仍然要提示（否则只会显示"这份记录是空的"，看不出是读失败）。
       logArchive.entries = Array.isArray(value) ? value : [];
-      toast('已载入 ' + name + '（' + logArchive.entries.length + ' 条）', 'success');
     } catch (error) { logArchive.entries = []; toast(error.message || String(error), 'error'); }
     finally { logArchive.loading = false; renderHistoryLayer(); }
+  }
+  async function loadArchiveFiles() {
+    logArchive.loading = true;
+    renderHistoryLayer();
+    try { logArchive.files = await api.listAutomationLogs(archiveFilter()); }
+    catch (error) { logArchive.files = []; toast(error.message || String(error), 'error'); }
+    logArchive.loading = false;
+    // 切范围后原先选中的文件可能已不在列表里，清掉避免右侧显示别的脚本的记录。
+    if (logArchive.selected && !logArchive.files.some(function (file) { return file.name === logArchive.selected; })) {
+      logArchive.selected = '';
+      logArchive.entries = [];
+    }
+    renderHistoryLayer();
+    // 默认载入最新一份，省掉一次点击。
+    if (!logArchive.selected && logArchive.files.length) await openArchiveFile(logArchive.files[0].name);
+  }
+  async function selectArchiveScope(scope) {
+    if (logArchive.scope === scope) return;
+    logArchive.scope = scope;
+    logArchive.selected = '';
+    logArchive.entries = [];
+    await loadArchiveFiles();
   }
   async function toggleArchive() {
     if (logArchive.open) { closeHistoryLayer(); return; }
     logArchive.open = true;
-    renderHistoryLayer();
-    try { logArchive.files = await api.listAutomationLogs(); }
-    catch (error) { logArchive.files = []; toast(error.message || String(error), 'error'); }
-    // 默认载入最新一份，省掉一次点击。
-    if (logArchive.files.length && !logArchive.entries.length) { await openArchiveFile(logArchive.files[0].name); return; }
-    renderHistoryLayer();
+    logArchive.scope = archiveScopeDefault();
+    logArchive.selected = '';
+    logArchive.entries = [];
+    await loadArchiveFiles();
   }
   // 复制按钮：历史面板已载入文件时复制该文件全部记录，否则复制当前运行的记录。
   async function copyRunLogs() {
@@ -395,7 +470,7 @@
     var text = entries.map(function (entry) {
       return new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) + ' ' + messageText(entry.message);
     }).join('\n');
-    try { await copyText(text); toast('已复制运行记录 ' + entries.length + ' 条', 'success'); }
+    try { await copyText(text); flashText(root.querySelector('.bao-log-copy'), '已复制'); }
     catch (error) { toast(error.message || String(error), 'error'); }
   }
   // 页面级诊断红框:把命中框按真实页面 CSS 坐标画在页面上,直接肉眼核对
@@ -528,7 +603,8 @@
   function suffixName(name) { var pkg = currentPackage(); var names = pkg ? pkg.assets : []; var base = name.replace(/\.png$/i, '').replace(/_\d{3}$/, ''); var index = 2; var candidate; do { candidate = base + '_' + String(index++).padStart(3, '0') + '.png'; } while (names.indexOf(candidate) >= 0); return candidate; }
   async function beginCapture() {
     var pkg = currentPackage(); if (!pkg) { toast('请先选择自动化脚本', 'warning'); return; }
-    toast('正在捕获当前页面…');
+    // 就地提示，替代原来的「正在捕获当前页面…」通知。
+    flashText(root.querySelector('.bao-capture'), '捕获中…', 1600);
     try {
       // 清除残留的诊断红框,避免被截进取材预览图。
       clearPageCross();
@@ -545,7 +621,7 @@
       var saved = await api.saveCapture(pkg.packageId, state.capture.token, name, state.selection, Boolean(overwrite));
       if (saved.conflict) { captureLayer.querySelector('.bao-conflict').classList.add('bao-show'); return; }
       var automatic = name.match(/^截取素材_(\d{3})\.png$/i); if (automatic) state.captureIndex = Math.max(state.captureIndex, Number(automatic[1]) + 1); GM.setValue('captureIndex', state.captureIndex);
-      captureLayer.classList.remove('bao-active'); state.capture = null; state.selection = null; selectedAsset = saved.asset || name; await refreshPackages(); openPanel('capture'); toast('素材“' + name + '”已保存并选中', 'success');
+      captureLayer.classList.remove('bao-active'); state.capture = null; state.selection = null; selectedAsset = saved.asset || name; await refreshPackages(); openPanel('capture');
     } catch (error) { toast(error.message || String(error), 'error'); }
   }
   function visibleGameSurfaceRect() {
@@ -600,7 +676,7 @@
     button.title = state.gameSurface ? '坐标和高速识图区域将相对此画面计算；点击可重新选择' : '跨多层 iframe 查找 Flash、Ruffle 或 Canvas 游戏画面';
   }
   async function beginGameSelect() {
-    closePanel(); toast('正在查找当前页面中的游戏画面…');
+    closePanel();
     try {
       var result = await api.detectGameSurfaces(); var candidates = result && Array.isArray(result.candidates) ? result.candidates : [];
       if (result && result.bound) { state.gameSurface = result.bound; updateGameButton(); }
@@ -612,7 +688,7 @@
       list.style.width = Math.max(180, Math.min(330, sideSpace - 16)) + 'px';
       if (placeLeft) { list.style.left = '8px'; list.style.right = 'auto'; } else { list.style.left = 'auto'; list.style.right = '8px'; }
       async function selectCandidate(candidate) {
-        try { var bound = await api.bindGameSurface(candidate.id); state.gameSurface = bound.bound; rememberSurfaceViewport(); updateGameButton(); closeGameSelect(); toast('已将坐标和识图区域绑定到所选游戏画面', 'success'); }
+        try { var bound = await api.bindGameSurface(candidate.id); state.gameSurface = bound.bound; rememberSurfaceViewport(); updateGameButton(); closeGameSelect(); }
         catch (error) { toast(error.message || String(error), 'error'); }
       }
       candidates.forEach(function (candidate, index) {
@@ -640,7 +716,6 @@
       if (coordinateSession && coordinateSession.viewport) state.coordinateViewport = coordinateSession.viewport;
       if (state.gameSurface && !visibleGameSurfaceRect()) throw new Error('游戏画面当前不在可见页面内');
       showCoordinateSurface(); coordinateLayer.classList.add('bao-active');
-      toast(state.gameSurface ? '坐标以绿色游戏画面为范围，单击即可复制' : '单击目标位置即可复制页面相对坐标');
     } catch (error) { openPanel('capture'); toast(error.message || String(error), 'error'); }
   }
   async function endCoordinatePick(reopen) { coordinateLayer.classList.remove('bao-active'); try { await api.endCoordinatePick(); } finally { if (reopen) openPanel('capture'); } }
@@ -648,10 +723,12 @@
   root.querySelectorAll('.bao-tab').forEach(function (tab) { tab.addEventListener('click', function () { selectView(tab.getAttribute('data-view')); }); });
   root.addEventListener('pointerup', function (event) { var button = event.target.closest && event.target.closest('button'); if (button) button.blur(); });
   root.querySelector('.bao-collapse').addEventListener('click', closePanel);
-  root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages(true).then(function () { toast('素材列表已刷新', 'success'); }); });
+  root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages(true); });
   root.querySelector('.bao-archive-toggle').addEventListener('click', function () { void toggleArchive(); });
   historyLayer.querySelector('.bao-history-close').addEventListener('click', closeHistoryLayer);
   historyLayer.querySelector('.bao-history-export').addEventListener('click', exportArchive);
+  historyLayer.querySelector('.bao-history-scope-current').addEventListener('click', function () { void selectArchiveScope('current'); });
+  historyLayer.querySelector('.bao-history-scope-all').addEventListener('click', function () { void selectArchiveScope('all'); });
   historyLayer.addEventListener('click', function (event) { if (event.target === historyLayer) closeHistoryLayer(); });
   window.addEventListener('keydown', function (event) { if (event.key === 'Escape' && logArchive.open) closeHistoryLayer(); });
   root.querySelector('.bao-log-copy').addEventListener('click', function () { void copyRunLogs(); });
@@ -661,18 +738,19 @@
   ocrText.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); void compare(); } });
   root.querySelector('.bao-compare').addEventListener('click', function () { void compare(); });
   root.querySelector('.bao-monitor').addEventListener('click', function () { if (state.monitor) stopMonitor(); else void startMonitor(); });
-  startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) { toast('没有 Automation 2.0 包，请先在工作台新建', 'warning'); return; } clearPageCross(); startButton.disabled = true; try { await api.start(pkg.packageId, 0); toast('自动化脚本已启动'); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error), 'error'); } });
-  stopButton.addEventListener('click', async function () { try { await api.cancel(); toast('正在停止自动化脚本'); } catch (error) { toast(error.message || String(error), 'error'); } });
+  startButton.addEventListener('click', async function () { var pkg = currentPackage(); if (!pkg) { toast('没有 Automation 2.0 包，请先在工作台新建', 'warning'); return; } clearPageCross(); startButton.disabled = true; try { await api.start(pkg.packageId, 0); void pollStatus(); } catch (error) { startButton.disabled = false; toast(error.message || String(error), 'error'); } });
+  stopButton.addEventListener('click', async function () { try { await api.cancel(); } catch (error) { toast(error.message || String(error), 'error'); } });
   root.querySelector('.bao-capture').addEventListener('click', function () { void beginCapture(); });
   root.querySelector('.bao-coordinate').addEventListener('click', function () { void beginCoordinatePick(); });
   root.querySelector('.bao-game-select').addEventListener('click', function () { void beginGameSelect(); });
   root.querySelector('.bao-game-copy').addEventListener('click', function () {
     if (!state.gameSurface) return;
+    var button = root.querySelector('.bao-game-copy');
     var feature = gameSurfaceFeature(state.gameSurface);
-    void copyText(feature).then(function () { root.querySelector('.bao-game-copy').setAttribute('data-last-copied', feature); toast('已复制游戏画面特征串，请到入口积木中导入', 'success'); });
+    void copyText(feature).then(function () { button.setAttribute('data-last-copied', feature); flashText(button, '已复制'); });
   });
   root.querySelector('.bao-game-clear').addEventListener('click', async function () {
-    try { await api.clearGameSurface(); state.gameSurface = null; state.surfaceViewport = null; updateGameButton(); toast('已恢复为整个页面坐标和识图范围', 'success'); }
+    try { await api.clearGameSurface(); state.gameSurface = null; state.surfaceViewport = null; updateGameButton(); }
     catch (error) { toast('取消失败：' + (error && error.message ? error.message : String(error)), 'error'); }
   });
   gameLayer.querySelector('.bao-game-cancel').addEventListener('click', closeGameSelect);
@@ -699,7 +777,16 @@
   captureLayer.querySelector('.bao-suffix').addEventListener('click', function () { var input = captureLayer.querySelector('.bao-capture-name'); input.value = suffixName(cleanName(input.value)); captureLayer.querySelector('.bao-conflict').classList.remove('bao-show'); void saveCapture(false); });
   captureLayer.querySelector('.bao-capture-name').addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); void saveCapture(false); } else captureLayer.querySelector('.bao-conflict').classList.remove('bao-show'); });
   coordinateLayer.addEventListener('pointermove', updateCoordinate);
-  coordinateLayer.addEventListener('click', function (event) { event.preventDefault(); event.stopImmediatePropagation(); var point = updateCoordinate(event); var text = point.x + ',' + point.y; void copyText(text).then(async function () { coordinateLayer.setAttribute('data-last-copied', text); await endCoordinatePick(true); toast('已复制坐标 ' + text); }); });
+  coordinateLayer.addEventListener('click', function (event) {
+    event.preventDefault(); event.stopImmediatePropagation();
+    var point = updateCoordinate(event); var text = point.x + ',' + point.y;
+    void copyText(text).then(function () {
+      coordinateLayer.setAttribute('data-last-copied', text);
+      // 就地反馈：光标旁的读数先变成「已复制」，随后收起覆盖层（不再走地址栏通知）。
+      flashText(coordinateLayer.querySelector('.bao-coordinate-value'), '已复制', 420);
+      window.setTimeout(function () { void endCoordinatePick(true); }, 420);
+    });
+  });
   coordinateLayer.addEventListener('contextmenu', function (event) { event.preventDefault(); });
   window.addEventListener('keydown', function (event) { if (gameLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); closeGameSelect(); return; } if (coordinateLayer.classList.contains('bao-active') && event.key === 'Escape') { event.preventDefault(); void endCoordinatePick(true); return; } if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') { event.preventDefault(); if (state.monitor) stopMonitor(false); openPanel(); } }, true);
 

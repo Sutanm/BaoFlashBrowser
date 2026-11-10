@@ -69,7 +69,11 @@ export function createAutomationAssistantApi(invoke: (operation: string, payload
       if (!automationPackageId) return { warm: false };
       return invoke('warm', { scriptId: scriptId, packageId: automationPackageId });
     },
-    listAutomationLogs: (): Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>> => invoke('logs-list', { scriptId: scriptId }) as Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>>,
+    listAutomationLogs: (filter?: { packageId?: string; packageName?: string }): Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number; packageId?: string }>> => invoke('logs-list', {
+      scriptId: scriptId,
+      packageId: filter?.packageId,
+      packageName: filter?.packageName,
+    }) as Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number; packageId?: string }>>,
     readAutomationLogs: (name: string): Promise<unknown> => invoke('logs-read', { scriptId: scriptId, name }),
     openAutomationLog: (name: string): Promise<unknown> => invoke('logs-open', { scriptId: scriptId, name }),
   };
