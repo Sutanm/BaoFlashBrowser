@@ -777,12 +777,15 @@ class TabManager {
     }
   }
 
-  notifyPasswordFormDetected(wcId: number): void {
+  notifyPasswordFormDetected(wcId: number, options?: { fill?: boolean }): void {
     const tabId = this.wcToId.get(wcId); const tab = tabId ? this.tabs.get(tabId) : null; const wc = tab?.browserView?.webContents;
     if (!tabId || !wc || wc.isDestroyed() || wc.id !== wcId || !optionalServices.passwords || this.automationTargets.has(tabId)) return;
     // Re-arm on form discovery/focus rather than waiting for the fill debounce.
     // Never reattach while a login resource is still loading (JSONP onload).
     if (!wc.isLoading()) passwordCapture.setup(wc);
+    // 只重新武装捕获时到此为止：自动填充会把用户刚输入/清空的账号密码又写回去，
+    // 让"改登新账号"变成不可能（2026-11-10 真机：点一次输入框就被填回旧账号）。
+    if (options?.fill === false) return;
     const existing = this.passwordFormSignalTimers.get(wcId); if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       this.passwordFormSignalTimers.delete(wcId);
@@ -1083,8 +1086,8 @@ const facade = {
   refreshPasswordCapture(enabled: boolean) {
     for (const manager of managers.values()) manager.refreshPasswordCapture(enabled);
   },
-  notifyPasswordFormDetected(wcId: number) {
-    wcIndex.get(wcId)?.notifyPasswordFormDetected(wcId);
+  notifyPasswordFormDetected(wcId: number, options?: { fill?: boolean }) {
+    wcIndex.get(wcId)?.notifyPasswordFormDetected(wcId, options);
   },
   refreshPasswordFill() {
     for (const manager of managers.values()) manager.refreshPasswordFill();

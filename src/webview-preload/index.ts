@@ -47,9 +47,11 @@ declare global {
   if (!MODULE_PASSWORDS) return;
   try {
     // Only a presence signal crosses IPC; credentials stay in the main-process CDP path.
+    // allowFill=false 表示这次上报只用于"重新武装捕获"（例如用户点了页面），
+    // 主进程不应因此执行自动填充——否则会把用户刚输入/清空的账号密码又填回去。
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const ipc = require('electron').ipcRenderer;
-    if (ipc) installPasswordFormObserver(() => ipc.send('password:form-detected'));
+    if (ipc) installPasswordFormObserver((allowFill) => ipc.send('password:form-detected', { fill: allowFill }));
   } catch { /* page operation must not depend on autofill observation */ }
 })();
 

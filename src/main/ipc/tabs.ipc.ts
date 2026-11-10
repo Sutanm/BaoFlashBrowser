@@ -35,8 +35,11 @@ function requireOwnedManager(window: BrowserWindow | null, tabId: string): Retur
 }
 
 export function registerTabsIPC(): void {
-  ipcMain.on('password:form-detected', (event) => {
-    tabManager.notifyPasswordFormDetected(event.sender.id);
+  ipcMain.on('password:form-detected', (event, payload: unknown) => {
+    // payload.fill === false：这次信号只用于重新武装捕获（用户点了页面），
+    // 不触发自动填充，避免把用户刚改的账号密码冲掉。
+    const fill = (payload as { fill?: unknown } | null | undefined)?.fill !== false;
+    tabManager.notifyPasswordFormDetected(event.sender.id, { fill });
   });
 
   // Sync handler: preload uses sendSync to get ruffle config at document-start

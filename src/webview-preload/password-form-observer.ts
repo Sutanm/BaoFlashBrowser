@@ -33,7 +33,7 @@ const SCAN_INTERVAL_MS = 250;
  * 以及任意点击（站点通常在 click 里同步/异步 show 登录层）。
  */
 export function installPasswordFormObserver(
-  report: () => void,
+  report: (allowFill: boolean) => void,
   observerLifetime = PASSWORD_FORM_OBSERVER_LIFETIME_MS,
 ): () => void {
   let observer: MutationObserver | null = null;
@@ -42,6 +42,11 @@ export function installPasswordFormObserver(
   let pendingScan: ReturnType<typeof setTimeout> | null = null;
   let pendingClick: ReturnType<typeof setTimeout> | null = null;
   const knownInputs = new WeakSet<HTMLInputElement>();
+  // 用户在这个文档里动过登录输入框（打字 / 清空）之后就不再自动填充。
+  // 2026-11-10 真机：点一次输入框就触发一次填充，把旧账号+旧密码塞回去，
+  // 用户想改登新账号根本做不到；他"清空表单"后又被填回旧账号，提交上去自然
+  // 捕获成旧账号 → 命中已保存条目 → 静默无提示。
+  let userEdited = false;
   const reportIfNeeded = (force = false) => {
     if (stopped) return;
     // 没有密码框的页面（绝大多数）只付一次选择器的钱。
@@ -65,7 +70,7 @@ export function installPasswordFormObserver(
     const freshInputs = usable.filter((input) => !knownInputs.has(input));
     if (!force && freshInputs.length === 0) return;
     for (const input of usable) knownInputs.add(input);
-    report();
+    report(!userEdited);
   };
   const start = () => {
     if (stopped || observer || !document.documentElement) return;
@@ -85,8 +90,20 @@ export function installPasswordFormObserver(
     if (target instanceof HTMLInputElement && (target.type === 'password'
       || target.form?.querySelector('input[type="password"]'))) reportIfNeeded(true);
   };
+  // 用户动过登录表单里的输入框后，只保留"重新武装捕获"，不再触发填充。
+  const markUserEdited = (event: Event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    const loginField = target.type === 'password'
+      || target.type === 'text' || target.type === 'email' || target.type === 'tel'
+      || Boolean(target.form?.querySelector('input[type="password"]'));
+    if (!loginField) return;
+    userEdited = true;
+  };
   // 冒泡阶段（站点自己的 click 处理器先跑完，登录层通常此刻已经显示），并补一次
   // 延迟复查，覆盖异步 show / 动画结束后才可见的登录层。
+  // 点击只用于"重新武装捕获"：绝不因为一次点击就去填充（否则会把用户刚改的
+  // 账号/密码冲掉，见上面 userEdited 的来由）。
   const onClick = () => {
     if (stopped) return;
     reportIfNeeded(true);
@@ -97,6 +114,8 @@ export function installPasswordFormObserver(
     }, 150);
   };
   document.addEventListener('focusin', onFocus, true);
+  document.addEventListener('input', markUserEdited, true);
+  document.addEventListener('keydown', markUserEdited, true);
   document.addEventListener('click', onClick, false);
   if (document.documentElement) start();
   else document.addEventListener('DOMContentLoaded', start, { once: true });
@@ -113,6 +132,8 @@ export function installPasswordFormObserver(
     observer = null;
     document.removeEventListener('DOMContentLoaded', start);
     document.removeEventListener('focusin', onFocus, true);
+    document.removeEventListener('input', markUserEdited, true);
+    document.removeEventListener('keydown', markUserEdited, true);
     document.removeEventListener('click', onClick, false);
   };
 }
