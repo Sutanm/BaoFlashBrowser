@@ -49,6 +49,8 @@ interface TabEntry {
   isRuffle: boolean;
   ruffleSource?: 'bundled' | 'cdn';
   lastTargetUrl: string;
+  /** 最近一次拿到的图标地址；迁移/快照要靠它，见 snapshotTabs。 */
+  favicon?: string;
   zoomFactor: number;
   muted: boolean;
   crashed: boolean;
@@ -106,6 +108,8 @@ class TabManager {
   private tabs = new Map<string, TabEntry>();
   private wcToId = new Map<number, string>();
   private activeId: string | null = null;
+  /** P7 拖拽期间压住视图（见 setViewHold）：只切 activeId，不显示 BrowserView。 */
+  private viewHold = false;
   private rect: ContainerRect = { x: 0, y: 0, width: 0, height: 0 };
   private preloadPath: string;
   private userscriptGeneration = 0;
@@ -556,6 +560,8 @@ class TabManager {
           return '';
         })()`).then((favicon) => {
           if (this._isCurrentWebContents(tabId, wc) && typeof favicon === 'string' && favicon) {
+            const entry = this.tabs.get(tabId);
+            if (entry) entry.favicon = favicon;
             this.send('tab:updated', { tabId, favicon });
           }
         }).catch(() => log.debug('[Tabs] favicon metadata refresh failed', { tabId }));
@@ -567,7 +573,10 @@ class TabManager {
     });
     wc.on('page-title-updated', (_e, title) => this._isCurrentWebContents(tabId, wc) && this.send('tab:updated', { tabId, title }));
     wc.on('page-favicon-updated', (_e, favicons) => {
-      if (this._isCurrentWebContents(tabId, wc) && favicons?.[0]) this.send('tab:updated', { tabId, favicon: favicons[0] });
+      if (!this._isCurrentWebContents(tabId, wc) || !favicons?.[0]) return;
+      const entry = this.tabs.get(tabId);
+      if (entry) entry.favicon = favicons[0];
+      this.send('tab:updated', { tabId, favicon: favicons[0] });
     });
     wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
       if (!this._isCurrentWebContents(tabId, wc) || !isMainFrame || isInPlace) return;
@@ -628,8 +637,11 @@ class TabManager {
     const updateUrl = (navUrl: string) => {
       if (!this._isCurrentWebContents(tabId, wc) || navUrl === 'about:blank' || navUrl.startsWith('data:')) return;
       const tab = this.tabs.get(tabId);
-      if (tab) tab.lastTargetUrl = navUrl;
       const favicon = legacySiteFavicon(navUrl);
+      if (tab) {
+        tab.lastTargetUrl = navUrl;
+        if (favicon) tab.favicon = favicon;
+      }
       this.send('tab:updated', favicon ? { tabId, url: navUrl, favicon } : { tabId, url: navUrl });
     };
     wc.on('did-navigate', (_e, url) => updateUrl(url));
@@ -705,12 +717,26 @@ class TabManager {
     }
   }
 
+  /**
+   * P7：拖拽期间压住视图，别让"切到相邻标签"把 BrowserView 重新显示出来。
+   *
+   * 场景：把标签拖出之后源窗口要切成下一个标签，`activate` 会按容器 rect 显示
+   * 视图——可此时指针正在内容区上方拖拽，视图一旦出现就把 `pointermove/up` 全
+   * 吃掉，松手事件永远收不到。所以拖拽期间只更新 activeId，不显示视图。
+   */
+  setViewHold(hold: boolean): void {
+    this.viewHold = hold;
+    if (hold) return;
+    const view = this.activeId ? this.tabs.get(this.activeId)?.browserView : null;
+    if (view) view.setBounds(this.rect.width > 0 ? this.rect : HIDDEN_BOUNDS);
+  }
+
   activate(tabId: string): void {
     if (this.activeId && this.activeId !== tabId) this.tabs.get(this.activeId)?.browserView?.setBounds(HIDDEN_BOUNDS);
     this.activeId = tabId;
     const wc = this.tabs.get(tabId)?.browserView?.webContents;
     if (wc && this.automationTargets.has(tabId)) this._applyAutomationViewport(tabId, wc);
-    else this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
+    else if (!this.viewHold) this.tabs.get(tabId)?.browserView?.setBounds(this.rect);
   }
 
   /**
@@ -725,6 +751,11 @@ class TabManager {
     const view = this.activeId ? this.tabs.get(this.activeId)?.browserView : undefined;
     const wc = view?.webContents;
     if (!wc || wc.isDestroyed()) return false;
+    // 窗口不在前台就别抢焦点：Windows 上 `webContents.focus()` 会连带激活宿主窗口，
+    // 一个后台窗口（典型是刚把标签拖出去的源窗口切到相邻标签）会把跟随指针的
+    // tear-off 窗口压到 z-order 下面，看起来就像"拖出来的窗口不见了"。
+    const host = this.win();
+    if (!host || host.isDestroyed() || !host.isFocused()) return false;
     if (!wc.isFocused()) wc.focus();
     const focused = wc.isFocused();
     log.info(`[Tabs] focus-active tab=${this.activeId} wc=${wc.id} focused=${focused}`);
@@ -948,12 +979,48 @@ class TabManager {
     return { tabId, entry, view };
   }
 
+  /**
+   * P7：本窗口标签的权威快照。
+   *
+   * 渲染层的标签列表是事件驱动的（`tab:created/updated/detached/adopted`），任何
+   * 一条事件丢失都会留下幽灵标签或空壳窗口。tear-off / 跨窗移动之后由主进程推一份
+   * 全量快照，渲染层以它为基线重建，这是唯一能自愈的路径。
+   *
+   * url 取 `webContents.getURL()` 优先：`lastTargetUrl` 只是导航意图，重定向、SPA
+   * 改址、初始 about:blank 之后它都可能落后于真实地址。
+   */
+  snapshotTabs(): Array<{ tabId: string; url: string; title: string; favicon?: string; active: boolean }> {
+    const out: Array<{ tabId: string; url: string; title: string; favicon?: string; active: boolean }> = [];
+    for (const [tabId, entry] of this.tabs) {
+      const wc = entry.browserView?.webContents;
+      const alive = Boolean(wc && !wc.isDestroyed());
+      let url = entry.lastTargetUrl;
+      let title = '';
+      if (alive && wc) {
+        try { url = wc.getURL() || url; } catch { /* wc 竞态销毁 */ }
+        try { title = wc.getTitle(); } catch { /* 同上 */ }
+      }
+      out.push({
+        tabId,
+        url: url || 'about:newtab',
+        title,
+        ...(entry.favicon ? { favicon: entry.favicon } : {}),
+        active: tabId === this.activeId,
+      });
+    }
+    return out;
+  }
+
   /** P7：接收另一个实例摘除的标签（不重建 wc、tabId 不变）。 */
   adoptTransferred(tab: { tabId: string; entry: TabEntry; view: BrowserView | null }, _index?: number): void {
     const host = this.win();
     if (!host || host.isDestroyed()) return;
     this.tabs.set(tab.tabId, tab.entry);
     tabIndex.set(tab.tabId, this);
+    // 迁入的标签必须在主进程侧就成为活动标签：渲染层的 `tab:adopted` 是异步事件，
+    // 一旦丢失/晚到，视图会一直停在 HIDDEN_BOUNDS —— 表现就是"新窗口里只有一个
+    // 新标签页"。主进程先接管活动态，渲染层后续的 activate 只是校正。
+    this.activeId = tab.tabId;
     if (tab.view) {
       tab.entry.browserView = tab.view;
       this.wcToId.set(tab.view.webContents.id, tab.tabId);
@@ -1209,6 +1276,26 @@ export function transferTabBetweenWindows(tabId: string, targetWin: BrowserWindo
   if (!detached) return false;
   target.adoptTransferred(detached, index);
   return true;
+}
+
+/**
+ * P7：把"标签已迁移"告知两端，**且只从这里告知**。
+ *
+ * 所有跨窗路径（拖出成新窗口、拖拽落定、普通移动、单标签窗口整窗拖动合并）都必须
+ * 走这一条：`tab:adopted` 一律带整窗快照。此前普通移动只发一条 `url`，拿不到
+ * （或拿到空串）时渲染层会退化成 `about:newtab`，而那个状态会被会话持久化写盘——
+ * 表现正是"塞回去的窗口显示新标签页，刷新也还是这样"。快照里同时带 favicon，
+ * 重建时图标才不会丢。
+ */
+export function notifyTabAdopted(tabId: string, targetWin: BrowserWindow, sourceWin: BrowserWindow | null): void {
+  if (targetWin.isDestroyed()) return;
+  const snapshot = getTabManagerForTabId(tabId)?.snapshotTabs() ?? [];
+  const adoptedUrl = snapshot.find((item) => item.tabId === tabId)?.url;
+  if (sourceWin && sourceWin.id !== targetWin.id && !sourceWin.isDestroyed()) {
+    sourceWin.webContents.send('tab:detached', { tabId });
+  }
+  targetWin.webContents.send('tab:adopted', { tabId, url: adoptedUrl, snapshot });
+  log.info(`[Tabs] adopted tab=${tabId} into=${targetWin.id} url=${adoptedUrl ?? 'none'} snapshot=${snapshot.length}`);
 }
 
 

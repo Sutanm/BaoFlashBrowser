@@ -124,24 +124,104 @@ const TopBar: React.FC<TopBarProps> = ({
   }, [LL, pushToast, screenshotting]);
 
   // P7：指针拖拽（替换 HTML5 draggable，窗口外也能收到 pointerup）。
-  const [dragState, setDragState] = useState<{ tabId: string; index: number; startX: number; startY: number; active: boolean; overIndex: number | null } | null>(null);
+  //
+  // 四个阶段，对齐 Chrome 的手感：
+  //   pending → drag    位移 > 6px，指针仍在标签栏内：只做重排，页面不动。
+  //   drag → tearing    指针离开标签栏：立刻藏 BrowserView（只有藏了，指针进入网页区后
+  //                     事件才回得到外壳；藏着等就晚了——松手事件会被 view 吃掉），
+  //                     并在进入网页区的那一刻立即 tear-off，不等松手。
+  //   tearing → torn    tear-off 完成，新窗口已经在跟手；此后的排版/落点全交给主进程。
+  //   torn → 结束       松手：`win:drag-drop` 决定回吸 / 跨窗移动 / 就地放下。
+  type DragPhase = 'pending' | 'drag' | 'tearing' | 'torn';
+  type DragInfo = {
+    tabId: string;
+    index: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+    overIndex: number | null;
+    phase: DragPhase;
+  };
+  const [dragState, setDragState] = useState<DragInfo | null>(null);
   const dragRef = useRef(dragState);
   useEffect(() => { dragRef.current = dragState; }, [dragState]);
   const dragActive = Boolean(dragState);
+  /** 当前 BrowserView 是否已被挪走。 */
+  const viewHiddenRef = useRef(false);
+  /** tear-off 正在进行：用它保证一次拖拽只开一个新窗口。 */
+  const tearOffRef = useRef<Promise<void> | null>(null);
+  /** 松手发生在 tear-off 就绪之前：就绪后立刻落定，别把窗口吊在半空。 */
+  const dropPendingRef = useRef(false);
 
   const restoreView = useCallback(() => {
+    viewHiddenRef.current = false;
     void window.electronAPI.tab.setViewVisibility(true).catch(() => { /* view gone */ });
   }, []);
 
+  const hideView = useCallback(() => {
+    if (viewHiddenRef.current) return;
+    viewHiddenRef.current = true;
+    void window.electronAPI.tab.setViewVisibility(false).catch(() => { /* view gone */ });
+  }, []);
+
+  /** 内容区（网页区）顶部在 clientY 上的位置：决定"什么时候该把 view 藏起来"。 */
+  const contentTopRef = useRef(0);
+
   const beginDrag = useCallback((event: React.PointerEvent<HTMLDivElement>, tabId: string, index: number) => {
     if (event.button !== 0) return;
-    setDragState({ tabId, index, startX: event.clientX, startY: event.clientY, active: false, overIndex: null });
+    dropPendingRef.current = false;
+    contentTopRef.current = document.querySelector('.workspace-main')?.getBoundingClientRect().top ?? 0;
+    setDragState({ tabId, index, startX: event.clientX, startY: event.clientY, active: false, overIndex: null, phase: 'pending' });
   }, []);
+
+  /** 把标签迁进跟随指针的新窗口（一次拖拽只允许一次）。 */
+  const startTearOff = useCallback((tabId: string) => {
+    if (tearOffRef.current) return;
+    setDragState((prev) => (prev && prev.tabId === tabId ? { ...prev, phase: 'tearing' } : prev));
+    tearOffRef.current = (async () => {
+      try {
+        const result = await window.electronAPI.win.tearOffTab(tabId);
+        if (!result?.moved) {
+          // busy / renderer 超时：整段拖拽作废，别留下半开的窗口。
+          pushToast({ key: 'tab-drag-busy', message: LL.tab.dragBusy(), type: 'warning' });
+          setDragState(null);
+          restoreView();
+          return;
+        }
+        setDragState((prev) => (prev && prev.tabId === tabId ? { ...prev, phase: 'torn' } : prev));
+        if (dropPendingRef.current) {
+          dropPendingRef.current = false;
+          setDragState(null);
+          await window.electronAPI.win.dragDrop(tabId).catch(() => { /* window gone */ });
+          // 主进程放开了 viewHold，这里同步本地的隐藏标记并让视图按容器 rect 回来。
+          restoreView();
+        }
+      } catch { /* window gone */ } finally {
+        tearOffRef.current = null;
+      }
+    })();
+  }, [pushToast, restoreView]);
 
   const endDrag = useCallback(async (clientX: number, clientY: number) => {
     const state = dragRef.current;
+    if (!state || !state.active) {
+      setDragState(null);
+      return;
+    }
+    // 已经分离出窗口：落点由主进程按屏幕坐标裁决，本窗口不再参与排版。
+    if (state.phase === 'torn') {
+      setDragState(null);
+      await window.electronAPI.win.dragDrop(state.tabId).catch(() => { /* window gone */ });
+      restoreView();
+      return;
+    }
+    // tear-off 还在路上（新窗口要等 renderer 握手）：先记住"该落定了"。
+    if (state.phase === 'tearing') {
+      dropPendingRef.current = true;
+      return;
+    }
+
     setDragState(null);
-    if (!state || !state.active) return;
     restoreView();
     const element = document.elementFromPoint(clientX, clientY);
     const tabElement = element?.closest?.('[data-tab-id]') as HTMLElement | null;
@@ -150,14 +230,16 @@ const TopBar: React.FC<TopBarProps> = ({
       if (targetIndex >= 0 && targetIndex !== state.index) onReorder(state.index, targetIndex);
       return;
     }
-    if (element?.closest?.('.topbar-tabbar')) return;
+    // 落点在窗口外或别的窗口上时渲染层拿不到元素（null），跨窗移动交给主进程。
+    // 落到本窗口的壳层（顶栏/侧边栏/浮层）= 取消。
+    if (element && !element.closest?.('.workspace-main')) return;
     try {
       if (typeof window.electronAPI.win.moveTab !== 'function') return;
-      const result = await window.electronAPI.win.moveTab(state.tabId);
-      if (result?.reason === 'new-window' && typeof window.electronAPI.win.tearOffTab === 'function') {
-        await window.electronAPI.win.tearOffTab(state.tabId);
-      } else if (result?.reason === 'busy') {
+      const result = await window.electronAPI.win.moveTab(state.tabId, { zone: element ? 'content' : undefined });
+      if (result?.reason === 'busy') {
         pushToast({ key: 'tab-drag-busy', message: LL.tab.dragBusy(), type: 'warning' });
+      } else if (result?.reason === 'new-window') {
+        await window.electronAPI.win.tearOffTab(state.tabId).catch(() => { /* window gone */ });
       }
     } catch { /* window gone */ }
   }, [tabs, onReorder, pushToast, restoreView]);
@@ -167,20 +249,43 @@ const TopBar: React.FC<TopBarProps> = ({
     const handleMove = (event: PointerEvent) => {
       const state = dragRef.current;
       if (!state) return;
+      let current = state;
       if (!state.active) {
         if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) < 6) return;
-        void window.electronAPI.tab.setViewVisibility(false).catch(() => { /* view gone */ });
-        setDragState({ ...state, active: true });
+        current = { ...state, active: true, phase: 'drag' };
+        setDragState(current);
       }
-      const tabElement = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-tab-id]') as HTMLElement | null;
-      const overIndex = tabElement?.dataset.tabId ? tabs.findIndex((item) => item.id === tabElement.dataset.tabId) : null;
-      setDragState((prev) => (prev && prev.overIndex !== overIndex ? { ...prev, overIndex } : prev));
+      if (current.phase === 'tearing' || current.phase === 'torn') return;
+
+      const hovered = document.elementFromPoint(event.clientX, event.clientY);
+      const overTabbar = Boolean(hovered?.closest?.('.topbar-tabbar'));
+      if (overTabbar) {
+        // 还在标签栏里：只是换顺序，页面不该消失（这就是"拖一下闪一下"的来源）。
+        if (viewHiddenRef.current) restoreView();
+        const tabElement = hovered?.closest?.('[data-tab-id]') as HTMLElement | null;
+        const overIndex = tabElement?.dataset.tabId ? tabs.findIndex((item) => item.id === tabElement.dataset.tabId) : null;
+        setDragState((prev) => (prev && prev.overIndex !== overIndex ? { ...prev, overIndex } : prev));
+        return;
+      }
+      // 快贴到内容区上沿才藏 view：拖到地址栏/顶栏空白不该让页面消失。
+      // 必须比内容区早一帧藏——指针一进网页区就被 BrowserView 接管，那时再藏就晚了。
+      if (event.clientY >= contentTopRef.current - 2) hideView();
+      // 进入网页区 = 想把它拽出来 → 立即分离，不等松手。
+      if (hovered && hovered.closest?.('.workspace-main')) startTearOff(current.tabId);
     };
     const handleUp = (event: PointerEvent) => { void endDrag(event.clientX, event.clientY); };
     const cancel = () => {
       const state = dragRef.current;
       setDragState(null);
-      if (state?.active) restoreView();
+      if (!state) return;
+      if (state.phase === 'tearing' || state.phase === 'torn') {
+        dropPendingRef.current = false;
+        void window.electronAPI.win.dragDrop(state.tabId, { cancel: true })
+          .then(() => { restoreView(); })
+          .catch(() => { /* window gone */ });
+        return;
+      }
+      if (state.active) restoreView();
     };
     const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
     window.addEventListener('pointermove', handleMove);
@@ -194,7 +299,14 @@ const TopBar: React.FC<TopBarProps> = ({
       window.removeEventListener('keydown', handleKey);
       if (dragRef.current?.active) restoreView();
     };
-  }, [dragActive, tabs, endDrag, restoreView]);
+  }, [dragActive, tabs, endDrag, startTearOff, restoreView, hideView]);
+
+  /**
+   * 只剩一个标签时禁掉"拖出去"：把唯一标签拖走等于把窗口搬走，用户既没有落点
+   * 也没有收益（源窗口会被拖空。Chrome 在这种状态下按住标签是**移动窗口**）。
+   * 所以这一个标签改由 `-webkit-app-region: drag` 接管（见 TabItem 的 windowDrag）。
+   */
+  const singleTab = tabs.length <= 1;
 
   const tabCallbacks = useMemo(() => {
     const map = new Map<string, { onSelect: () => void; onClose: () => void; onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void }>();
@@ -204,11 +316,14 @@ const TopBar: React.FC<TopBarProps> = ({
       map.set(tab.id, {
         onSelect: () => onSelectTab(tab.id),
         onClose: () => onCloseTab(tab.id),
-        onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => beginDrag(event, tab.id, index),
+        onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+          if (singleTab) return;
+          beginDrag(event, tab.id, index);
+        },
       });
     }
     return map;
-  }, [tabs, onSelectTab, onCloseTab, beginDrag]);
+  }, [tabs, singleTab, onSelectTab, onCloseTab, beginDrag]);
 
   return (
     <div className="flex flex-col flex-shrink-0 relative topbar-toolbar">
@@ -234,6 +349,7 @@ const TopBar: React.FC<TopBarProps> = ({
               onSelect={cb?.onSelect ?? (() => {})}
               onClose={cb?.onClose ?? (() => {})}
               onPointerDown={cb?.onPointerDown ?? (() => {})}
+              windowDrag={singleTab}
               isDragOver={dragState?.overIndex === index && dragState?.index !== index}
               isDragging={dragState?.active === true && dragState.tabId === tab.id}
             />

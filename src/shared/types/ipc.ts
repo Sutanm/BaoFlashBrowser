@@ -35,6 +35,25 @@ export type ShortcutAction =
   | 'zoom-out'
   | 'zoom-reset';
 
+/**
+ * P7：一个窗口内标签的权威快照条目。
+ *
+ * 标签列表在渲染层是事件驱动的（created/updated/detached/adopted），任何一条事件
+ * 丢失都会留下幽灵标签或空壳窗口。tear-off / 跨窗移动之后主进程随事件推一份全量
+ * 快照，渲染层以它为基线重建——这是唯一能自愈的路径。
+ */
+export interface TabSnapshotEntry {
+  tabId: string;
+  url: string;
+  title: string;
+  /**
+   * 主进程记住的 favicon。`page-favicon-updated` 只在页面加载时触发一次，
+   * 迁移后不会再发，快照里不带它的话重建出来的标签就永久没有图标。
+   */
+  favicon?: string;
+  active: boolean;
+}
+
 export interface TabUpdatedPayload {
   tabId: string;
   changes?: Partial<Tab>;

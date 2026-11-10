@@ -5,6 +5,7 @@ import { useI18nContext } from '../i18n/i18n-react';
 import { normalizeUrl, generateId } from '../services/id.service';
 import type { TabState } from '../store/useTabsStore';
 import type { HistoryEntry } from '@shared/types/history';
+import type { TabSnapshotEntry } from '@shared/types/ipc';
 import { db, loadMeta, saveMeta } from '../services/db';
 import { createTabSession, createTabSessionSignature, planLegacySessionMigration, selectCrashRecoverySession, TAB_SESSION_META_KEY, tabSessionKey } from '../services/tab-session';
 import { sanitizeUrlForPersistence } from '@shared/utils/url-privacy';
@@ -12,6 +13,7 @@ import { isTabEligibleForSuspension } from '../services/tab-suspension';
 import { PendingHistoryRegistry } from '../services/pending-history';
 import { AUTOMATION_URL, USERSCRIPTS_URL, isNewtabUrl } from '../services/url-utils';
 import { createInitialTabState, resolveInitialTabUrl } from '../services/tab-initial-state';
+import { mergeTabSnapshot, pickActiveTabId } from '../services/tab-snapshot';
 
 const INACTIVE_TAB_SUSPEND_MS = 10 * 60 * 1000;
 
@@ -42,6 +44,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
   const setTabs = useTabsStore((s) => s.setTabs);
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const setActiveTabId = useTabsStore((s) => s.setActiveTabId);
+  const replaceTabs = useTabsStore((s) => s.replaceTabs);
   const [addressUrl, setAddressUrl] = useState('');
   const [sessionReady, setSessionReady] = useState(false);
   /** P5：本窗口的会话快照 key（	ab-session:<windowKey>；拿不到上下文时退回旧全局 key）。 */
@@ -300,6 +303,26 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
     };
   }, []);
 
+  /**
+   * P7：用主进程快照重建本窗口标签列表。
+   *
+   * tear-off 新窗口、跨窗迁入、以及"事件可能丢了"的兜底共用这一条路径——标签列表
+   * 在主进程里是权威的，渲染层只负责呈现，不再靠单个事件推断。
+   */
+  const applyTabSnapshot = useCallback((snapshot: TabSnapshotEntry[]) => {
+    if (!snapshot.length) return;
+    const labels = {
+      newTab: LLRef.current.tab.newTab(),
+      userscripts: LLRef.current.tab.userscripts(),
+      automation: LLRef.current.tab.automation(),
+    };
+    const nextTabs = mergeTabSnapshot(useTabsStore.getState().tabs, snapshot, settingsRef.current, labels);
+    const activeId = pickActiveTabId(snapshot);
+    // 列表与活动 id 必须原子替换（见 replaceTabs 注释）。
+    replaceTabs(nextTabs, activeId);
+    if (activeId) void window.electronAPI.tab.activate(activeId).catch(() => {});
+  }, [replaceTabs]);
+
   const createTabRef = useRef(createTab);
   useEffect(() => { createTabRef.current = createTab; }, [createTab]);
 
@@ -330,22 +353,40 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
       });
     });
     const u4 = window.electronAPI.on('tab:adopted', (payload) => {
-      const tab = createInitialTabState(payload.tabId, payload.url || 'about:newtab', settingsRef.current, {
-        newTab: LLRef.current.tab.newTab(),
-        userscripts: LLRef.current.tab.userscripts(),
-        automation: LLRef.current.tab.automation(),
-      });
-      setTabs((prev) => [...prev.filter((item) => item.id !== tab.id), tab]);
-      setActiveTabId(tab.id);
-      // 迁入的视图在主进程里初始为隐藏：激活后才会按容器 rect 显示。
-      void window.electronAPI.tab.activate(tab.id).catch(() => {});
+      // 整窗快照优先：以主进程的权威列表重建，而不是靠单条 url 猜状态。
+      if (Array.isArray(payload.snapshot) && payload.snapshot.length > 0) {
+        applyTabSnapshot(payload.snapshot);
+        return;
+      }
+      // 没有快照（异常/旧路径）：直接问主进程要权威列表。
+      // 绝不退回"用 url 猜"——猜出 about:newtab 会被写进会话快照，
+      // 于是刷新也还是新标签页，等于把错误固化下来。
+      void (async () => {
+        try {
+          const snapshot = await window.electronAPI.tab.list();
+          if (snapshot.length > 0) {
+            applyTabSnapshot(snapshot);
+            return;
+          }
+        } catch { /* window gone */ }
+        if (!payload.url) return;
+        const tab = createInitialTabState(payload.tabId, payload.url, settingsRef.current, {
+          newTab: LLRef.current.tab.newTab(),
+          userscripts: LLRef.current.tab.userscripts(),
+          automation: LLRef.current.tab.automation(),
+        });
+        setTabs((prev) => [...prev.filter((item) => item.id !== tab.id), tab]);
+        setActiveTabId(tab.id);
+        // 迁入的视图在主进程里初始为隐藏：激活后才会按容器 rect 显示。
+        void window.electronAPI.tab.activate(tab.id).catch(() => {});
+      })();
     });
     const u2 = window.electronAPI.on('tab:crashed', (payload) => {
       updateTabRef.current(payload.tabId, { crashed: true, isLoading: false, isAudible: false, canGoBack: false, canGoForward: false, title: LLRef.current.error.pageCrashed() });
       pushToast({ key: `tab-crashed:${payload.tabId}`, message: LLRef.current.error.pageCrashed(), type: 'error' });
     });
     return () => { try { u1(); u2(); u3(); u4(); } catch { /* ignore */ } };
-  }, [pushToast]);
+  }, [pushToast, applyTabSnapshot]);
 
   // External URL open
   useEffect(() => {
@@ -385,6 +426,20 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
           adoptingRef.current = true;
           sessionKeyRef.current = windowContext.windowKey ? tabSessionKey(windowContext.windowKey) : TAB_SESSION_META_KEY;
           setSessionReady(true);
+          // 兜底对账：adopted 若在监听就绪前发出（或整个丢了），窗口会一直是空壳。
+          // 主进程是权威源，隔两拍主动拉一次就能自愈。
+          void (async () => {
+            for (const delay of [600, 1600]) {
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              try {
+                const snapshot = await window.electronAPI.tab.list();
+                if (snapshot.length > 0) {
+                  applyTabSnapshot(snapshot);
+                  return;
+                }
+              } catch { /* window gone */ }
+            }
+          })();
           return;
         }
         const sessionKey = windowContext?.windowKey ? tabSessionKey(windowContext.windowKey) : TAB_SESSION_META_KEY;
@@ -493,7 +548,7 @@ export function useTabManager(calcBoundsRef: React.MutableRefObject<(animated: b
         setSessionReady(true);
       }
     })();
-  }, [createTab, pushToast, setActiveTabId, setTabs]);
+  }, [createTab, pushToast, setActiveTabId, setTabs, applyTabSnapshot]);
 
   // Keep a bounded, validated snapshot. Transient loading/navigation flags are
   // normalized by createTabSession and never trusted when restoring.

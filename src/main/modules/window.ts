@@ -26,6 +26,15 @@ export interface CreateWindowOptions {
   maximized?: boolean;
   /** P7 tear-off：新窗口的首个标签由主进程迁移进来，渲染层不得再自建默认标签。 */
   adopting?: boolean;
+  /**
+   * 只显示、不激活。
+   *
+   * P7 tear-off 的跟随窗口必须用这个：`show()` 会把前台从源窗口抢走，而源窗口
+   * 手里握着这次拖拽的鼠标捕获——激活一旦触发 capture 变更，源窗口就收不到
+   * `pointerup`，拖拽会卡在半空（窗口永久置顶）。Chrome 拖标签时新窗口同样
+   * 不抢焦点，直到松手才激活。
+   */
+  showInactive?: boolean;
 }
 
 export interface WindowContext {
@@ -188,7 +197,9 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
 
   win.once('ready-to-show', () => {
     clearTimeout(showFallbackTimer);
-    win.show();
+    // showInactive：不抢前台（拖拽中的 tear-off 窗口），其余窗口照常带焦点显示。
+    if (options.showInactive) win.showInactive();
+    else win.show();
     if (options.maximized) win.maximize();
   });
 

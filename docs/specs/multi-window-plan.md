@@ -378,7 +378,54 @@ IndexedDB 并发（多窗口后从"理论问题"变成"必然问题"）：
 4. 释放点判定放在**主进程**：`screen.getCursorScreenPoint()` + 注册表窗口 `bounds` 判断落点：
    - 落在本窗口标签栏 → 仅重排序；
    - 落在其他窗口标签栏 → 跨窗口移动；
-   - 落在窗口外 → 新建窗口（tear-off）。
+   - 落在窗口外 → 新建窗口（tear-off）；
+   - 落在**本窗口内容区**（渲染层判定并传 `zone: 'content'`，命中 `.workspace-main`）→ 同样 tear-off。
+     **这是最大化场景的唯一出路**：最大化时窗口 `bounds` 铺满整个工作区，屏幕内不存在"窗口外"
+     落点，只认"窗口外"会让 tear-off 在最大化下永久不可达（2026-11-10 修正，见
+     `src/main/utils/drop-target.ts` 的 `resolveDropIntent`）。落点在本窗口其它壳层（顶栏两行 /
+     侧边栏 / 浮层）仍按取消处理，避免误触。
+   - 附带修正：多显示器的副屏若位于主屏左侧/上方，光标坐标为负，`resolveDropTarget` **不再**把负坐标
+     判成无效（旧实现在这种布局下永远拖不出来）。
+
+5. **交互定稿（2026-11-10，对齐 Chrome 手感：按住即分离 + 窗口跟手）**
+
+   上面的"松手才判定"已作废，实际实现改成分段状态机（`TopBar.tsx` 的 DragPhase）：
+
+   | 阶段 | 触发 | 行为 |
+   | --- | --- | --- |
+   | `pending → drag` | 位移 > 6px | 指针仍在标签栏内：只做重排，**不隐藏 view**（"拖一下就闪"的来源） |
+   | `drag → tearing` | 指针进到内容区上沿 2px 内 | 立刻 `setViewVisibility(false)`，紧接着调 `win:tear-off-tab`（不等松手） |
+   | `tearing → torn` | 迁移完成 | 新窗口由主进程 16ms 轮询光标跟手（`drag-session.ts`） |
+   | `torn → 结束` | 松手 / Esc | `win:drag-drop`：命中别的窗口（含源窗口=回吸）的**标签栏带**就迁过去；否则就地定格 |
+
+   三条必须守住的约束：
+   - **必须比指针进网页区早一帧藏 view**：指针一进 BrowserView 就被它接管，那时再藏就再也收不到
+     `pointerup`。反过来，在标签栏内绝不藏——否则换顺序时页面整块消失。
+   - **落点只认标签栏带（48px），不认整窗矩形**：跟随窗口挂在指针下方且**指针压在自己标签栏里**
+     （对齐 Chrome），按矩形判定会永远命中跟随窗口自己；按坐标判带 + `excludeIds` 排除自身，
+     回吸/跨窗才有意义（`resolveBandTarget`）。
+   - **跟随期间允许越界**：判定用 `display.bounds`（含任务栏）而非 `workArea`，且允许窗口探出
+     屏幕边（每轴至少留 120 DIP 可见）。用 `workArea` + 强制整窗在内会表现为"最多顶到任务栏"。
+   - **跟随窗口 `showInactive`**：拖拽期间不抢前台。源窗口握着这次拖拽的鼠标捕获，被抢焦点可能
+     触发 capture 变更 → 收不到 `pointerup` → 窗口永久悬置顶。落定时 `settleDragWindow` 才 `focus()`。
+   - **只剩一个标签时不许 tear-off**：唯一标签搬走等于把窗口搬空。此时标签改成
+     `-webkit-app-region: drag`（`.tab-item-window-drag`），按住标签 = 原生拖动窗口（Chrome 行为）；
+     `.tab-close` 显式 `no-drag` 保证关标签仍然可用。
+   - **单标签窗口的"并回去"走整窗拖动通道**：这条路径不经过渲染层的指针状态机，`win:drag-drop`
+     永远不触发。改由 `modules/window-drag-merge.ts` 在 Windows 的 `WM_EXITSIZEMOVE`（用户结束一次
+     原生移动/缩放）时补一次落点判定：`getTabCount() === 1` 且指针同时压在本窗口与目标窗口的
+     标签栏带内（= 两条标签栏重叠，`resolveWindowMergeTarget`）→ 迁移标签并关掉空窗口。
+     `WM_EXITSIZEMOVE` 是唯一不依赖轮询鼠标按键的"拖完了"信号；非 Windows 不装钩子。
+   - **拖拽期间源窗口 `setViewHold(true)`**：拖出后源窗口要切到相邻标签，`activate` 若按 rect 显示
+     视图，就会重新吃掉事件。只能改 activeId、不显示，落定后统一放开。
+   - 源窗口**不因拖空而立刻 `close()`**（旧实现在这里断送了"拖回去"的可能），收尾统一由
+     `win:drag-drop` 判空。
+   - 标签列表以主进程为权威源：`tab:adopted` 带整窗快照 `TabSnapshotEntry[]`（url 优先
+     `wc.getURL()`），`tab:list` 供渲染层兜底对账——单条事件丢失不再退化成"新标签页"。
+   - **跟随窗口在拖拽期间置顶（`setAlwaysOnTop(true)`），落定即卸**：源窗口 detach 后会切到相邻标签，
+     `tab:focusActive` → `webContents.focus()` 在 Windows 上会重新激活宿主窗口，把刚 `show()` 出来的
+     跟随窗口压到 z-order 下面（最大化源窗口时表现为"拖出来的窗口不见了"）。配套约束：
+     `TabManager.focusActive()` 在宿主窗口不在前台时直接返回 false，后台窗口永不抢前台。
 
 **事件投递前提（P7 开工前必须验证）**：拖拽期间源窗口能否在指针离开窗口后继续收到 `pointermove` / `pointerup`。这依赖 Chromium 的 OS 级鼠标捕获，**probe 41 只验证了几何数学，没有验证事件投递**。P7 之前补 `probe 48-cross-window-drag`：
 
@@ -630,6 +677,7 @@ npx electron tools/probe/host-electron.cjs --only 38,39,40,41,42,43,44
 7. 自动化工作台在 A 选择目标标签运行 → 不影响 B。
 8. A 中 `Ctrl+N` → 新建窗口（而非新标签）。
 9. 拖动标签到窗口外释放 → 生成新窗口，页面不重载、Flash 继续播放；新窗口内标题/加载态/地址栏继续更新。
+   **窗口最大化时同样必须成立**（拖到网页内容区释放，§6.8 第 4 条）；拖回顶栏/侧边栏释放则取消。
 10. 把标签拖到另一个窗口的标签栏 → 标签移动过去，原窗口保留其余标签；移动后的标签继续更新标题与 favicon。
 11. 拖走旧窗口的最后一个标签 → 旧窗口自动关闭，且下次启动不做崩溃恢复提示。
 12. 自动化运行中拖拽该标签 → 被拒绝并给出提示。

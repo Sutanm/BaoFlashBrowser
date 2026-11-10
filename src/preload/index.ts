@@ -18,7 +18,7 @@ const ALLOWED_ON_CHANNELS = new Set([
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
   'ui:set-language',
-    'tab:create', 'tab:close', 'tab:suspend', 'tab:activate', 'tab:focusActive', 'tab:navigate', 'tab:goBack', 'tab:goForward',
+    'tab:create', 'tab:close', 'tab:suspend', 'tab:activate', 'tab:focusActive', 'tab:navigate', 'tab:goBack', 'tab:goForward', 'tab:list',
   'tab:reload', 'tab:stop', 'tab:zoom', 'tab:mute', 'tab:devtools', 'tab:find', 'tab:stopFind',
   'tab:setBounds', 'tab:setRuffleMode',
   'load-config', 'save-config',
@@ -42,7 +42,8 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'file:open-swf',
   'session:recovery-status', 'session:resolve-recovery',
   'win:minimize', 'win:maximize', 'win:unmaximize', 'win:close', 'win:setFullscreen', 'win:toggleFullscreen', 'win:isMaximized',
-  'win:get-context', 'win:new-window', 'win:move-tab', 'win:tear-off-tab', 'win:renderer-ready', 'tab:setViewVisibility',
+  'win:get-context', 'win:new-window', 'win:move-tab', 'win:tear-off-tab', 'win:renderer-ready', 'win:drag-drop',
+  'tab:setViewVisibility',
   'userscripts:list', 'userscripts:get-source', 'userscripts:parse-source',
   'userscripts:install-source', 'userscripts:install-file', 'userscripts:install-url',
   'userscripts:uninstall', 'userscripts:set-enabled', 'userscripts:update-source',
@@ -122,6 +123,8 @@ const electronAPI = {
   webviewPreloadPath: path.join(__dirname, 'webview-preload.js'),
 
   tab: {
+    // P7：本窗口标签快照（渲染层对账用）。
+    list: () => safeInvoke('tab:list'),
     create: (tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }) =>
       safeInvoke('tab:create', { tabId, url, ruffleConfig }),
     close: (tabId: string) => safeInvoke('tab:close', { tabId }),
@@ -288,8 +291,13 @@ const electronAPI = {
     getContext: () => safeInvoke('win:get-context'),
     newWindow: (options?: { url?: string; bounds?: { x?: number; y?: number; width?: number; height?: number } }) =>
       safeInvoke('win:new-window', options ?? {}),
-    moveTab: (tabId: string) => safeInvoke('win:move-tab', { tabId }),
+    // zone: 'content' = 落点在本窗口内容区（网页方向），主进程据此把"窗口内落点"也算拖出。
+    moveTab: (tabId: string, options?: { zone?: 'content' | 'outside' }) =>
+      safeInvoke('win:move-tab', { tabId, zone: options?.zone }),
     tearOffTab: (tabId: string) => safeInvoke('win:tear-off-tab', { tabId }),
+    // 拖拽落定（松手/Esc）：主进程停跟随、按落点回吸或定格。
+    dragDrop: (tabId: string, options?: { cancel?: boolean }) =>
+      safeInvoke('win:drag-drop', { tabId, cancel: options?.cancel }),
     rendererReady: () => safeInvoke('win:renderer-ready'),
   },
 

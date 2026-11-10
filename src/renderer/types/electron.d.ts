@@ -1,6 +1,6 @@
 import type {
   ShortcutAction, TabUpdatedPayload, DownloadProgressPayload, NewWindowPayload,
-  TabFoundPayload, TabLoadErrorPayload, TabCrashedPayload,
+  TabFoundPayload, TabLoadErrorPayload, TabCrashedPayload, TabSnapshotEntry,
   Aria2StatusPayload, PasswordCapturedPayload, PasswordChangedPayload, PasswordFilledPayload,
   RuffleDiagnosticPayload, WindowContextPayload,
 } from '@shared/types/ipc';
@@ -98,7 +98,7 @@ declare global {
       on(channel: 'tab:crashed', cb: (payload: TabCrashedPayload) => void): () => void;
       on(channel: 'tab:newwindow', cb: (payload: NewWindowPayload) => void): () => void;
       on(channel: 'tab:detached', cb: (payload: { tabId: string }) => void): () => void;
-      on(channel: 'tab:adopted', cb: (payload: { tabId: string; url?: string }) => void): () => void;
+      on(channel: 'tab:adopted', cb: (payload: { tabId: string; url?: string; snapshot?: TabSnapshotEntry[] }) => void): () => void;
       on(channel: 'download:progress', cb: (payload: DownloadProgressPayload) => void): () => void;
       on(channel: 'aria2:status', cb: (data: Aria2StatusPayload) => void): () => void;
       on(channel: 'navigate-url', cb: (url: string) => void): () => void;
@@ -119,6 +119,7 @@ declare global {
       invoke(channel: 'download:set-dir', payload: { title?: string }): Promise<string>;
       invoke(channel: 'download:delete-file', payload: { savePath: string }): Promise<boolean>;
       invoke(channel: 'download:list'): Promise<DownloadItem[]>;
+      invoke(channel: 'tab:list'): Promise<TabSnapshotEntry[]>;
       invoke(channel: 'tab:create', payload: { tabId: string; url: string }): Promise<void>;
       invoke(channel: 'tab:close' | 'tab:suspend' | 'tab:activate' | 'tab:goBack' | 'tab:goForward' | 'tab:reload' | 'tab:stop' | 'tab:devtools', payload: { tabId: string }): Promise<void>;
       invoke(channel: 'tab:navigate', payload: { tabId: string; url: string }): Promise<void>;
@@ -154,8 +155,9 @@ declare global {
       invoke(channel: 'theme:set-source', source: 'system' | 'light' | 'dark'): Promise<void>;
       invoke(channel: 'win:setFullscreen', fullscreen: boolean): Promise<void>;
       invoke(channel: 'win:isMaximized'): Promise<boolean>;
-      invoke(channel: 'win:move-tab', payload: { tabId: string }): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
+      invoke(channel: 'win:move-tab', payload: { tabId: string; zone?: 'content' | 'outside' }): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
       invoke(channel: 'win:tear-off-tab', payload: { tabId: string }): Promise<{ moved: boolean; reason?: string }>;
+      invoke(channel: 'win:drag-drop', payload: { tabId: string; cancel?: boolean }): Promise<{ placed: boolean; merged?: boolean; reason?: string; windowId?: number }>;
       invoke(channel: 'win:renderer-ready'): Promise<void>;
       invoke(channel: 'tab:setViewVisibility', payload: { visible: boolean }): Promise<void>;
       invoke(channel: 'win:get-context'): Promise<WindowContextPayload>;
@@ -172,6 +174,7 @@ declare global {
       webviewPreloadPath: string;
 
       tab: {
+        list(): Promise<TabSnapshotEntry[]>;
         create(tabId: string, url: string, ruffleConfig?: { enabled: boolean; source: 'bundled' | 'cdn' }): Promise<void>;
         close(tabId: string): Promise<void>;
         suspend(tabId: string): Promise<void>;
@@ -308,8 +311,9 @@ declare global {
         isMaximized(): Promise<boolean>;
         getContext(): Promise<WindowContextPayload>;
         newWindow(options?: { url?: string; bounds?: { x?: number; y?: number; width?: number; height?: number } }): Promise<{ windowKey: string }>;
-        moveTab(tabId: string): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
-        tearOffTab(tabId: string): Promise<{ moved: boolean; reason?: string }>;
+        moveTab(tabId: string, options?: { zone?: 'content' | 'outside' }): Promise<{ moved: boolean; reason?: string; targetWindowId?: number }>;
+        tearOffTab(tabId: string): Promise<{ moved: boolean; reason?: string; windowId?: number }>;
+        dragDrop(tabId: string, options?: { cancel?: boolean }): Promise<{ placed: boolean; merged?: boolean; reason?: string; windowId?: number }>;
         rendererReady(): Promise<void>;
       };
 

@@ -21,6 +21,7 @@ import { registerDevToolboxIPC } from './ipc/devtoolbox.ipc';
 import { initDevToolbox, shutdownDevToolsFrontendServer, shutdownWorkspaceWatchers } from './modules/devtoolbox';
 import { disposeAllDevToolsBridges, disposeDevToolsBridge } from './modules/devtoolbox-bridge';
 import { configureOptionalTabServices, createTabManager, disposeTabManager } from './modules/tabs';
+import { installWindowDragMerge } from './modules/window-drag-merge';
 import { registerRuffleProtocol } from './modules/ruffle-session-protocol';
 import { initializeSessionRecovery, markCleanShutdown } from './modules/session-recovery';
 import { setIpcWindowResolver } from './utils/ipc-wrapper';
@@ -181,6 +182,8 @@ function bootstrap(): void {
       win.on('maximize', () => manager.refreshActiveViewAfterHostRestore());
       // zoom 的 globalShortcut 是进程级的：每个窗口聚焦时注册自己的那一份。
       registerZoomShortcutsForWindow(win);
+      // 单标签窗口：标签卡就是窗口拖动区，拖完若落在别的窗口标签栏上要把标签并过去。
+      installWindowDragMerge(win);
       // 窗口几何/顺序（P5）：resize/move 防抖落盘，close 时同步落一次。
       win.on('resize', scheduleWindowStateSave);
       win.on('move', scheduleWindowStateSave);

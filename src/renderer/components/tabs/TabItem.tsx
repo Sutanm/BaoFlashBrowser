@@ -10,6 +10,12 @@ interface TabItemProps {
   onClose: () => void;
   /** P7：指针按下即进入拖拽候选；阈值/隐藏视图/落点由 TopBar 统一处理。 */
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  /**
+   * 窗口里只剩这一个标签：此时标签没有"搬走"的语义，按住它应该拖动整个窗口
+   * （Chrome 行为）。实现交给 Chromium 的 `-webkit-app-region: drag`——原生拖窗
+   * 零延迟，比自己轮询 setPosition 稳得多。
+   */
+  windowDrag?: boolean;
   isDragOver: boolean;
   isDragging: boolean;
 }
@@ -20,6 +26,7 @@ const TabItem: React.FC<TabItemProps> = ({
   onSelect,
   onClose,
   onPointerDown,
+  windowDrag = false,
   isDragOver,
   isDragging,
 }) => {
@@ -29,9 +36,9 @@ const TabItem: React.FC<TabItemProps> = ({
     <div
       data-tab-id={tab.id}
       data-dragging={isDragging ? 'true' : undefined}
-      onPointerDown={onPointerDown}
+      onPointerDown={windowDrag ? undefined : onPointerDown}
       onClick={onSelect}
-      className={`tab-item ${isActive ? 'active' : ''} ${isDragOver ? 'drag-over' : ''}`}
+      className={`tab-item ${isActive ? 'active' : ''} ${isDragOver ? 'drag-over' : ''} ${windowDrag ? 'tab-item-window-drag' : ''}`}
       title={tab.url || tab.title}
     >
       {/* 内容裁剪放在内层：外层 .tab-item 必须 overflow: visible，否则活动标签

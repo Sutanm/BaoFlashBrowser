@@ -153,6 +153,12 @@ body.dark {
     -webkit-app-region: no-drag;
     transition: all 0.15s;
   }
+  /* 只剩一个标签时不搬标签、改搬窗口：交给 Chromium 的原生 drag region，
+     按住标签即可拖动整个窗口（Chrome 同样行为）。必须是独立类，否则所有标签
+     都会变成拖窗区，标签拖拽与点击全部失效。 */
+  .tab-item-window-drag {
+    -webkit-app-region: drag;
+  }
   /* 内容层：承担裁剪与排布。标签被挤到很窄时图标/关闭按钮由这一层裁掉，
      而不会溢出画到相邻标签上；外层不能裁，否则见下方"开口圆角"会被一起裁掉。 */
   .tab-inner {
@@ -216,6 +222,8 @@ body.dark {
     outline: none;
     margin: 0;
     padding: 0;
+    /* 单标签窗口里整个标签是 drag region，关闭按钮必须显式退出——否则点它变成拖窗。 */
+    -webkit-app-region: no-drag;
   }
   .tab-item:hover .tab-close { opacity: 1; background: rgba(0,0,0,0.06); }
   body.dark .tab-close:hover { background: rgba(255,255,255,0.15); color: white; }
