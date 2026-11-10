@@ -5,7 +5,7 @@
 // @homepageURL  https://github.com/Sutanm/BaoFlashBrowser
 // @bao-origin   bfb:833eaf0307cffe0c
 // @version      3.3.8
-// @updateHash  cb450d6fc9a6
+// @updateHash  f04a3d2ca994
 // @description  Automation 2.0 页面助手：运行、识别、取材、Surface 与 CoordinateLocator。
 // @match        http://*/*
 // @match        https://*/*
@@ -18,7 +18,7 @@
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 
-/* global GM, window, document, innerWidth, innerHeight, setInterval, setTimeout, clearTimeout, Blob, URL */
+/* global GM, window, document, innerWidth, innerHeight, setInterval, setTimeout, clearTimeout */
 
 (function () {
   'use strict';
@@ -95,6 +95,7 @@
 /* in-place feedback for copy actions: recolour instead of raising a toast */
 #bao-automation-frame-assistant .bao-flash{color:#76dba8 !important;border-color:#76dba866 !important}
 #bao-automation-coordinate-layer .bao-flash{color:#76dba8 !important}
+#bao-automation-history-layer .bao-flash{color:#76dba8 !important;border-color:#76dba866 !important}
 #bao-automation-game-layer{all:initial;position:fixed;z-index:2147483646;inset:0;display:none;background:#02091466;color:#fff;font:12px/1.4 "Microsoft YaHei",system-ui,sans-serif}#bao-automation-game-layer.bao-active{display:block}#bao-automation-game-layer *{box-sizing:border-box}#bao-automation-game-layer .bao-game-help{position:absolute;z-index:3;top:18px;left:50%;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 16px;transform:translateX(-50%);border:1px solid #b3d2f055;border-radius:999px;background:#10223ef2;box-shadow:0 10px 40px #0008;white-space:nowrap}#bao-automation-game-layer .bao-game-cancel{height:28px;padding:0 11px;border:1px solid #ff9b9b55;border-radius:7px;background:#5f2637;color:#ffdce2;cursor:pointer}#bao-automation-game-layer .bao-game-candidate{position:absolute;border:3px solid #58d99b;background:#36cc8720;box-shadow:0 0 0 1px #071b14,0 0 20px #2fe29388;color:#fff;cursor:pointer}#bao-automation-game-layer .bao-game-candidate:hover{border-color:#fff;background:#42dc9e38}#bao-automation-game-layer .bao-game-candidate span{position:absolute;left:-3px;bottom:100%;max-width:280px;padding:5px 8px;border-radius:6px 6px 0 0;background:#126442f2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #bao-automation-game-layer .bao-game-list{position:absolute;z-index:2147483647;top:64px;right:18px;display:grid;width:min(330px,calc(100vw - 36px));max-height:calc(100vh - 82px);gap:6px;overflow:auto;padding:10px;border:1px solid #9ec6ee55;border-radius:11px;background:#0d1d34f5;box-shadow:0 15px 45px #000b}#bao-automation-game-layer .bao-game-list-head{display:grid;gap:3px;padding:0 2px 4px}#bao-automation-game-layer .bao-game-list-head small{color:#9db1c9;font-size:10px}#bao-automation-game-layer .bao-game-option{display:grid;grid-template-columns:22px 1fr;gap:7px;align-items:center;width:100%;min-height:38px;padding:6px 8px;border:1px solid #8eb8e233;border-radius:8px;background:#142843;color:#e7f1ff;text-align:left;cursor:pointer}#bao-automation-game-layer .bao-game-option:hover{border-color:#67dca1;background:#174432}#bao-automation-game-layer .bao-game-option b{display:grid;width:21px;height:21px;place-items:center;border-radius:50%;background:#2c7957;font-size:10px}#bao-automation-game-layer .bao-game-option span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#bao-automation-game-layer .bao-game-option small{grid-column:2;color:#91a9c2;font-size:9px}
 `;
@@ -122,7 +123,7 @@
   document.documentElement.appendChild(gameLayer);
   // 历史记录专用浮层：320px 助手面板装不下长记录，这里独立成大窗口。
   var historyLayer = document.createElement('div'); historyLayer.id = 'bao-automation-history-layer';
-  historyLayer.innerHTML = '<section class="bao-history-panel"><header class="bao-history-head"><strong>运行历史</strong><div class="bao-history-scope"><button class="bao-history-scope-current" type="button">当前脚本</button><button class="bao-history-scope-all" type="button">全部脚本</button></div><div class="bao-history-actions"><button class="bao-history-export" type="button">导出 JSON</button><button class="bao-history-close" type="button">关闭</button></div></header><div class="bao-history-body"><aside class="bao-history-files"></aside><main class="bao-history-entries"></main></div></section>';
+  historyLayer.innerHTML = '<section class="bao-history-panel"><header class="bao-history-head"><strong>运行历史</strong><div class="bao-history-scope"><button class="bao-history-scope-current" type="button">当前脚本</button><button class="bao-history-scope-all" type="button">全部脚本</button></div><div class="bao-history-actions"><button class="bao-history-copy" type="button">复制</button><button class="bao-history-close" type="button">关闭</button></div></header><div class="bao-history-body"><aside class="bao-history-files"></aside><main class="bao-history-entries"></main></div></section>';
   document.documentElement.appendChild(historyLayer);
 
   var orb = root.querySelector('.bao-orb');
@@ -331,7 +332,7 @@
     var old = document.getElementById('bao-diag-cross'); if (old) old.remove();
   }
   // 历史运行记录：读主进程落盘的 JSONL（userData/automation-logs），跨运行可回溯。
-  // 内存里只留最近 200 条会随运行裁剪，历史入口从落盘文件补全，并支持导出/打开原文件。
+  // 内存里只留最近 200 条会随运行裁剪，历史入口从落盘文件补全，浮层内可整份复制。
   var logArchive = { open: false, scope: 'current', files: [], entries: [], selected: '', loading: false };
   // 历史归属：默认只看当前选中的脚本，可切「全部脚本」。归属由主进程按日志首行的
   // packageId 判定（老日志回退文件名里的脚本名）。
@@ -413,12 +414,6 @@
     }
     entriesHost.scrollTop = 0;
   }
-  function exportArchive() {
-    if (!logArchive.entries.length) { toast('还没有运行记录'); return; }
-    var blob = new Blob([logArchive.entries.map(function (entry) { return JSON.stringify(entry); }).join('\n') + '\n'], { type: 'application/json' });
-    var link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = logArchive.selected || 'bao-automation-history.json'; link.click();
-    setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
-  }
   async function openArchiveFile(name) {
     logArchive.selected = name;
     logArchive.loading = true;
@@ -463,6 +458,8 @@
     await loadArchiveFiles();
   }
   // 复制按钮：历史面板已载入文件时复制该文件全部记录，否则复制当前运行的记录。
+  // 「已复制」闪在用户刚点的那个按钮上——历史浮层是全屏遮罩（z-index 比助手面板高），
+  // 浮层打开时闪面板里的复制按钮等于没人看得见。
   async function copyRunLogs() {
     var useArchive = logArchive.open && logArchive.entries.length > 0;
     var entries = useArchive ? logArchive.entries : (state.logs || []);
@@ -470,7 +467,8 @@
     var text = entries.map(function (entry) {
       return new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) + ' ' + messageText(entry.message);
     }).join('\n');
-    try { await copyText(text); flashText(root.querySelector('.bao-log-copy'), '已复制'); }
+    var feedback = (logArchive.open && historyLayer.querySelector('.bao-history-copy')) || root.querySelector('.bao-log-copy');
+    try { await copyText(text); flashText(feedback, '已复制'); }
     catch (error) { toast(error.message || String(error), 'error'); }
   }
   // 页面级诊断红框:把命中框按真实页面 CSS 坐标画在页面上,直接肉眼核对
@@ -726,7 +724,7 @@
   root.querySelector('.bao-refresh').addEventListener('click', function () { void refreshPackages(true); });
   root.querySelector('.bao-archive-toggle').addEventListener('click', function () { void toggleArchive(); });
   historyLayer.querySelector('.bao-history-close').addEventListener('click', closeHistoryLayer);
-  historyLayer.querySelector('.bao-history-export').addEventListener('click', exportArchive);
+  historyLayer.querySelector('.bao-history-copy').addEventListener('click', function () { void copyRunLogs(); });
   historyLayer.querySelector('.bao-history-scope-current').addEventListener('click', function () { void selectArchiveScope('current'); });
   historyLayer.querySelector('.bao-history-scope-all').addEventListener('click', function () { void selectArchiveScope('all'); });
   historyLayer.addEventListener('click', function (event) { if (event.target === historyLayer) closeHistoryLayer(); });
