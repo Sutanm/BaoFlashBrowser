@@ -48,6 +48,27 @@ describe('password fill page script', () => {
     expect(run()).toEqual({ filledFields: 0, filledCredentials: 0 });
   });
 
+  // 2026-11-10（用户报告"必须点一下账号密码框才填"）：7k7k 登录层把提示文字写在
+  // 账号框的 value 属性上（value="用户名/邮箱/KK号"，点击才清空），旧逻辑当成
+  // "账号框已有别的用户名"，连密码一起放弃填充。
+  it('把"从未被改写过的提示文字"当空账号框，账号密码一起填', () => {
+    document.body.innerHTML = '<form><input id="un_name" value="用户名/邮箱/KK号" placeholder="用户名/邮箱/KK号">'
+      + '<input type="password" autocomplete="current-password"></form>';
+    const inputs = document.querySelectorAll('input');
+    expect(run()).toEqual({ filledFields: 2, filledCredentials: 1 });
+    expect(inputs[0].value).toBe('bao');
+    expect(inputs[1].value).toBe('secret');
+  });
+
+  it('用户真敲进去的文字（value 属性为空）不会被当成提示文字覆盖', () => {
+    document.body.innerHTML = '<form><input autocomplete="username" placeholder="用户名">'
+      + '<input type="password"></form>';
+    const input = document.querySelector('input')!;
+    input.value = '用户名';
+    expect(run()).toEqual({ filledFields: 0, filledCredentials: 0 });
+    expect(input.value).toBe('用户名');
+  });
+
   it('skips hidden login controls', () => {
     document.body.innerHTML = '<form><input autocomplete="username"><input style="display:none" type="password"></form>';
     expect(run()).toEqual({ filledFields: 0, filledCredentials: 0 });

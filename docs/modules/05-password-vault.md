@@ -41,7 +41,7 @@
 页面内脚本动态插入，不经过主文档加载周期，原实现不会重新挂捕获（表现为"第二次登录
 完全无捕获、无提示"）。现在有三处配合：
 
-- `password-form-observer` 用 `WeakSet` 记录已知密码框，**只有新出现的输入框**才上报；
+- `password-form-observer` 用 `WeakSet` 记录已知密码框，只有新出现的输入框才上报；
   `focusin` 落在同一 `form` 内的任意输入框（如账号框）也强制上报。250ms 节流改为
   延迟合并，不丢事件。
 - `TabManager.notifyPasswordFormDetected` 不再要求"自动填充已开启"才继续，且在
@@ -50,10 +50,30 @@
   debugger，租约已释放但 `isAttached()` 仍为 true，旧判断会误认为"捕获仍在"，从而
   拒绝重建。
 
+**"先插入、后显示"登录层的重武装（2026-11-10）**：`4e2afa7` 的"只认新出现的密码框"
+把"登录层一开始 `display:none`、点击后才 `show()`"这种形态（实测 7k7k `#union`）的
+信号一起删掉了 —— 插入时填不进去，显示时又没有新框。现在三条信号并存：
+
+- **只在"此刻真能填"时才记为已知**：可见性判据与 `password-fill.ts` 页面侧
+  `usable()` 一致（`disabled`/`readOnly`/隐藏域/computed display·visibility·opacity/
+  `getBoundingClientRect` 尺寸）。隐藏期间不算已知，变可见后仍是新鲜信号。
+- `MutationObserver` 的 `attributeFilter` 增加 `style` / `class`：`$(...).show()`
+  这类"隐藏→可见"的唯一痕迹就是属性变化。
+- 冒泡阶段的 `click` 监听（站点自己的处理器先跑完）在点击时立刻复查一次，并在 150ms
+  后再复查一次，覆盖异步 show／动画结束后才可见的登录层；observer 到期（30s）后该兜底
+  仍然有效。
+
 ### 3.2 填充
 
 从保险库选取当前 URL 的账号，在主框架和 CDP execution context 中赋值，**不自动提交**。
 空用户名条目只在"账号框为空或没有账号框"时填密码；账号框已有其他用户名时整体不填。
+
+**提示文字不算"已填"（2026-11-10）**：老站点常把提示文字直接写进账号框的 `value`
+（7k7k `#un_name value="用户名/邮箱/KK号"`，点击才清空、失焦再回填）。旧逻辑把这种
+从没被用户编辑过的默认文本当成"用户已填了别的账号"，于是连密码一起放弃填充 ——
+用户看到的正是"必须点一下账号密码框才填"。判据刻意收紧到三条同时成立才当空值：
+`value` 非空、等于 `placeholder`/`aria-label`、且等于 HTML 上的 `value` 属性
+（即从未被改写过）。用户自己敲进去的同名文字（`value` 属性为空）不受影响。
 
 `password-fill.ts` 直接 `wc.debugger.attach('1.3')` 的窗口会与捕获竞争：
 `4f124b4` 起按 250/500/1000/2000/3000ms 有限重试，成功即清表，到上限留
@@ -174,6 +194,9 @@ node tools/probe/host.cjs --only 21             # 契约探针
   子帧会跑同一段脚本再建子帧（实测 71 vs 2 次 `script loaded`、57 vs 0 次栈溢出）。
 - **捕获挂载时机**：挂在 `did-stop-loading`；广告密集页可能晚几十秒，期间输入不可见。
   排查"某站点捕获不到"时，先对齐日志里的 `setupCapture` 时间戳与用户操作时间。
+- **别把"密码框出现在 DOM 里"当作"能填"**：登录层常见形态是"先
+  `display:none` 插入、点击后 `show()`"。observer 必须按可见性（不是插入事件）
+  判定新鲜度，并观察 `style`/`class`——否则又退化成"必须点一下输入框"。
 - **fill 与 capture 争抢 debugger**：排查先搜 `CDP is already attached` 与
   `attach retries exhausted`。
 - **纯 Node（vitest）下 electron-log 会写真实 `logs/main.log`**，含 `/mock/` 路径的行
@@ -188,3 +211,4 @@ node tools/probe/host.cjs --only 21             # 契约探针
 | 2026-09-21 | 修复：读路径零破坏、失败二分、亲和标签、惰性自愈、UI 出口（K1–K4） | 同上 + [`specs/2026-09-21-keyring-failure-path-design.md`](../archive/superpowers/specs/2026-09-21-keyring-failure-path-design.md)（历史规格） |
 | 2026-09-22 | 捕获链路三处缺陷：递归自造 iframe / submit 被当账号 / 空用户名被丢弃 | [`password-capture-diagnosis-2026-09-22.md`](../password-capture-diagnosis-2026-09-22.md) |
 | 2026-10-28 | 换账号后第二次登录框无捕获：动态表单未重武装 + 租约已释放仍被当成有效会话 | [`password-switch-and-automation-timing-2026-10-28.md`](../password-switch-and-automation-timing-2026-10-28.md) |
+| 2026-11-10 | 自动填充退化成"必须点一下账号密码框"：`4e2afa7` 删掉了"先插入后显示"登录层的信号；账号框预置提示文字被判成"用户已填别的账号" | 见 §3.1 末段与 §3.2；探针 `tools/probe/probes/52-password-autofill-rearm.cjs` |

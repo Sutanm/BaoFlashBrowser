@@ -34,6 +34,21 @@ export function buildPasswordFillExpression(username: string, password: string):
       input.dispatchEvent(new Event('input',{bubbles:true}));
       input.dispatchEvent(new Event('change',{bubbles:true}));
     }
+    // 站点常把提示文字直接写在账号框的 value 上（而不是 placeholder），并在点击时
+    // 清空、失焦时回填。实测 7k7k 登录层：#un_name value="用户名/邮箱/KK号"，
+    // 点击才清空。旧逻辑把这种"从没被用户编辑过的默认文本"当成"用户已填了别的账号"，
+    // 于是整个填充（连密码一起）直接放弃 —— 用户看到的就是"必须点一下账号密码框"。
+    // 判据刻意收紧到"HTML 的 value 属性本身就是提示文字、且 DOM 值仍与之一致"，
+    // 即这串文字从未被改写过；用户真敲进去的同名文字（value 属性为空）不受影响。
+    function hintValue(input){
+      var value=input.value||'';
+      if(!value)return '';
+      var trimmed=value.trim();
+      var hint=(input.getAttribute('placeholder')||input.getAttribute('aria-label')||'').trim();
+      var initial=(input.getAttribute('value')||'').trim();
+      if(hint&&initial&&trimmed===hint&&initial===trimmed)return '';
+      return value;
+    }
     function findUsername(scope,passwordInput){
       var inputs=Array.prototype.slice.call(scope.querySelectorAll('input'));
       var candidates=inputs.filter(function(input){
@@ -74,8 +89,9 @@ export function buildPasswordFillExpression(username: string, password: string):
       }
       if(/register|sign[\\s_-]*up|create[\\s_-]*account|join[\\s_-]*now|注册|创建账号|创建帐号/i.test(formText))return;
       var usernameInput=findUsername(scope,passwordInput);
-      if(usernameInput&&usernameInput.value&&usernameInput.value!==savedUsername)return;
-      if(usernameInput&&!usernameInput.value&&savedUsername){setNativeValue(usernameInput,savedUsername);filledFields+=1;}
+      var currentUsername=usernameInput?hintValue(usernameInput):'';
+      if(currentUsername&&currentUsername!==savedUsername)return;
+      if(usernameInput&&!currentUsername&&savedUsername){setNativeValue(usernameInput,savedUsername);filledFields+=1;}
       setNativeValue(passwordInput,savedPassword);filledFields+=1;filledCredentials+=1;
     });
     return{filledFields:filledFields,filledCredentials:filledCredentials};

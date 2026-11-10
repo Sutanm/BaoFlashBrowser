@@ -758,6 +758,10 @@ class TabManager {
       if (result.success && this._isCurrentWebContents(tabId, wc)) {
         this._clearPasswordFillTimers(wc.id);
         this.send('password:filled', { tabId, username: result.usernames[0] || '', count: result.filledCredentials, automatic: true });
+      } else if (result.reason === 'no-form') {
+        // 有凭据但页面上没有可填的密码框：登录层可能还没显示（隐藏 → show()），
+        // 也可能是账号框已有别的账号。这条日志是"为什么没自动填"的唯一线索。
+        log.debug(`[PasswordFill] no usable form yet tab=${tabId} wc=${wc.id}`);
       }
     } catch (error) { log.debug('[PasswordFill] automatic attempt failed:', error); }
     finally { this.passwordFillInFlight.delete(wc.id); }
