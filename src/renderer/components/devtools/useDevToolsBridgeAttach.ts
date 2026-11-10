@@ -35,6 +35,11 @@ export function useDevToolsBridgeAttach(
       // tabId 显式传：主进程的"活动标签"比渲染层晚一拍，靠它会绑到上一个页面。
       const result = await window.electronAPI.devtoolbox.bridge.attach(target, activeTabId).catch(() => null);
       if (cancelled || (result && result.ok)) return;
+      // 这个标签根本没有自己的 BrowserView（about:newtab / 内置页面）：不存在
+      // page target，退避重试只会把 20s 窗口变成一串空转 IPC 和日志。等它导航
+      // 到真页面时 activeTabUrl 会变，本 effect 重跑，自然再试一次。
+      const reason = (result as { error?: { message?: string } } | null)?.error?.message;
+      if (reason === 'no-view') return;
       const next = RETRY_DELAYS[step + 1];
       if (next === undefined) return;
       setTimeout(() => { if (!cancelled) void hotAttach(step + 1); }, next);

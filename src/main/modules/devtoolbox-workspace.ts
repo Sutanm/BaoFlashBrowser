@@ -246,7 +246,7 @@ function enumerateFiles(rootPath: string): Set<string> {
   };
   walk(base, 0);
   if (truncated) {
-    log.warn('[DevToolsWorkspace] 索引达到上限 %d，已截断:', INDEX_MAX_FILES, rootPath);
+    log.warn(`[DevToolsWorkspace] 索引达到上限 ${INDEX_MAX_FILES}，已截断:`, rootPath);
   }
   return out;
 }

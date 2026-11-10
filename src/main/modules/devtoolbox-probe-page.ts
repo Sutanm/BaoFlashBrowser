@@ -177,9 +177,6 @@ export async function probeActivePage(tabId?: string | null, winId?: number | nu
 
   const probe = mergeProbe(base, deep, (() => { try { return wc.getUserAgent(); } catch { return ''; } })());
   if (!probe) return null;
-  log.debug('[DevToolbox] probe tab=%s url=%s swf=%d frames=%d deep=%s%s',
-    resolvedId?.slice(-6), clip(wc.getURL(), 40), probe.swf?.length ?? 0, probe.frameCount ?? 0,
-    probe.deep ? 'yes' : 'no',
-    deep ? ` via=${JSON.stringify(deep.via)} ${deep.elapsedMs}ms` : '');
+  log.debug(`[DevToolbox] probe tab=${resolvedId?.slice(-6)} url=${clip(wc.getURL(), 40)} swf=${probe.swf?.length ?? 0} frames=${probe.frameCount ?? 0} deep=${probe.deep ? 'yes' : 'no'}${deep ? ` via=${JSON.stringify(deep.via)} ${deep.elapsedMs}ms` : ''}`);
   return probe;
 }

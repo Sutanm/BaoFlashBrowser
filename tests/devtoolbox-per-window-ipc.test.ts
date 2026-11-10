@@ -36,6 +36,7 @@ const state = vi.hoisted(() => {
     probe: vi.fn(async () => null),
     setBounds: vi.fn(),
     resolveTarget: vi.fn(async () => 'target-1'),
+    resolvePage: vi.fn(async () => ({ targetId: 'target-1', reason: 'ok' as const })),
     bridgeFor(winId: number) {
       let bridge = bridges.get(winId);
       if (!bridge) {
@@ -81,6 +82,7 @@ vi.mock('../src/main/modules/devtoolbox', () => ({
   openNativeDevTools: state.openNative,
   probeActivePage: state.probe,
   resolveDebugPort: () => 9333,
+  resolvePageTarget: state.resolvePage,
   resolveTargetId: state.resolveTarget,
   setDevToolsViewBounds: state.setBounds,
 }));
@@ -187,6 +189,31 @@ describe('devtoolbox IPC per window (P4b)', () => {
 
     expect(result).toMatchObject({ ok: true, result: 2 });
     expect(state.bridges.get(2)!.send).toHaveBeenCalled();
+  });
+
+  it('reports no-view for a tab without a BrowserView so the renderer stops retrying', async () => {
+    // about:newtab / 内置页面没有 BrowserView，永远不会有 page target：
+    // 渲染层只有拿到这个明确原因才能停止 20s 的退避重试（日志刷屏的根因）。
+    state.resolvePage.mockResolvedValueOnce({ targetId: null, reason: 'no-view' });
+
+    const result = await state.handlers.get('devtoolbox:bridge-attach')!(
+      { sender: { id: winA.webContents.id } },
+      { target: 'page', tabId: 'tab-no-view' },
+    );
+
+    expect(result).toMatchObject({ ok: false, error: { message: 'no-view' } });
+    expect(state.bridges.get(1)).toBeUndefined();
+  });
+
+  it('attaches the bridge to the page target resolved from the explicit tabId', async () => {
+    const result = await state.handlers.get('devtoolbox:bridge-attach')!(
+      { sender: { id: winA.webContents.id } },
+      { target: 'page', tabId: 'tab-y' },
+    );
+
+    expect(result).toMatchObject({ ok: true, targetId: 'target-1', sessionId: 's-1' });
+    expect(state.resolvePage).toHaveBeenCalledWith('tab-y', 1);
+    expect(state.bridges.get(1)!.attach).toHaveBeenCalledWith('target-1', 9333);
   });
 
   it('does not trust window A frontend when it claims window B', async () => {

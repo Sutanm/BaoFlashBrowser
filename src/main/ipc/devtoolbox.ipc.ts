@@ -14,6 +14,7 @@ import {
   openNativeDevTools,
   probeActivePage,
   resolveDebugPort,
+  resolvePageTarget,
   resolveTargetId,
   setDevToolsViewBounds,
 } from '../modules/devtoolbox';
@@ -275,8 +276,14 @@ export function registerDevToolboxIPC(): void {
     // **tabId 必须由渲染层给**：切标签是渲染层先更新、主进程后跟上的，用主进程的
     // "活动标签"会在这段窗口里绑到上一个页面（实测：切到新标签页后仍显示旧页面的
     // Elements，且因为 URL 恒定再也不会重解析）。
-    const targetId = await resolveTargetId(args?.target === 'shell' ? 'shell' : 'page', args?.tabId, winId);
-    if (!targetId) return { ok: false, error: { message: 'no-target' } };
+    const isShell = args?.target === 'shell';
+    const resolved = isShell
+      ? { targetId: await resolveTargetId('shell', args?.tabId, winId), reason: 'no-target' as const }
+      : await resolvePageTarget(args?.tabId, winId);
+    // 失败时把原因（no-view / no-target / no-port）带回去：渲染层靠它决定要不要
+    // 继续重试。无 BrowserView 的标签重试多久都不会有 target。
+    if (!resolved.targetId) return { ok: false, error: { message: resolved.reason } };
+    const targetId = resolved.targetId;
     try {
       const { sessionId } = await bridgeFor(winId).attach(targetId, port);
       return { ok: true, targetId, sessionId };

@@ -26,8 +26,10 @@ export {
 export {
   getDevToolsTargetUrl,
   resolveActivePageTargetId,
+  resolvePageTarget,
   resolveTargetId,
 } from './devtoolbox-target-resolve';
+export type { PageTargetFailure, PageTargetResolution } from './devtoolbox-target-resolve';
 export {
   attachDevToolsView,
   closeDevToolsWindow,

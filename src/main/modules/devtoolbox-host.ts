@@ -120,7 +120,7 @@ export async function attachDevToolsView(winId: number, target: 'page' | 'shell'
 
   const resolved = await getDevToolsTargetUrl(target, tabId, winId);
   if (!resolved.url) return { ok: false, error: resolved.reason };
-  log.info('[DevToolbox] attach embedded view window=%s target=%s url=%s', winId, target, resolved.url.slice(0, 60));
+  log.info(`[DevToolbox] attach embedded view window=${winId} target=${target} url=${resolved.url.slice(0, 60)}`);
 
   // 新容器 = 新前端实例：先把旧实例的在途请求静默作废，再挂桥、建视图。
   // 顺序不能反：旧请求的 id 空间作废之后，它们才不会在新实例里"认领"别人的请求。
@@ -172,13 +172,13 @@ export function setDevToolsViewBounds(winId: number, rect: { x: number; y: numbe
     // 每个窗口只记一次，避免频繁拖拽刷日志。
     if (!boundsMissLogged.has(winId)) {
       boundsMissLogged.add(winId);
-      log.info('[DevToolbox] bounds 上报但视图不存在 window=%s', winId);
+      log.info(`[DevToolbox] bounds 上报但视图不存在 window=${winId}`);
     }
     return;
   }
   host.boundsMissLog += 1;
   if (host.boundsLog++ < (process.env.BAO_DEVTOOLS_BOUNDS_LOG === '1' ? 400 : 3)) {
-    log.info('[DevToolbox] bounds → window=%s x=%s y=%s w=%s h=%s', winId, Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height));
+    log.info(`[DevToolbox] bounds → window=${winId} x=${Math.round(rect.x)} y=${Math.round(rect.y)} w=${Math.round(rect.width)} h=${Math.round(rect.height)}`);
   }
   host.view.setBounds({
     x: Math.round(rect.x),

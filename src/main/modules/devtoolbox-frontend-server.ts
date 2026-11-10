@@ -108,7 +108,7 @@ export function installDevToolsFileGuard(): void {
     log.warn('[DevToolbox] 前端分区拒绝越界 file 请求:', request.url.slice(0, 120));
     callback({ error: -10 }); // net::ERR_ACCESS_DENIED
   });
-  log.info('[DevToolbox] file guard on %s registered=%s root=%s', DEVTOOLS_PARTITION, registered, root);
+  log.info(`[DevToolbox] file guard on ${DEVTOOLS_PARTITION} registered=${registered} root=${root}`);
 }
 
 let frontendPort: number | null = null;
