@@ -32,15 +32,25 @@ export function mergeSettings(current: Settings, changed: Partial<Settings>): Se
   return { ...current, ...changed };
 }
 
-/** 收藏是"全量列表"API：只删除本窗口确实删掉的 id，别的窗口新增的条目保留。 */
+/**
+ * 收藏是"全量列表"API：只删除本窗口确实删掉的条目，别的窗口新增的条目保留。
+ *
+ * **删除必须按主键 `url` 算**：`db.favorites` 的 schema 是 `'url'`（见
+ * `services/db.ts`），而 `Table.bulkDelete(keys)` 只认主键。早先这里返回的是
+ * 收藏的 `id`，`bulkDelete(['<id>'])` 删不到任何行、随后的 `bulkPut` 又把列表原样
+ * 写回，liveQuery 一回灌就"取消收藏没反应"（2026-11-10 真机复现）。
+ *
+ * 同时给缺少 `id` 的历史行（localStorage 迁移来的、P5b 之前新增的）补一个：
+ * 类型上 `BookmarkEntry.id` 必填，缺 id 的行走过 store 后再写回时应当被规范化。
+ */
 export function planFavoriteWrites(previous: BookmarkEntry[], next: BookmarkEntry[]): {
-  removedIds: string[];
+  removedKeys: string[];
   put: Array<BookmarkEntry & { _idx: number }>;
 } {
-  const previousIds = new Set(previous.map((item) => item.id));
-  const nextIds = new Set(next.map((item) => item.id));
+  const previousKeys = new Set(previous.map((item) => item.url));
+  const nextKeys = new Set(next.map((item) => item.url));
   return {
-    removedIds: [...previousIds].filter((id) => !nextIds.has(id)),
-    put: next.map((item, index) => ({ ...item, _idx: index })),
+    removedKeys: [...previousKeys].filter((key) => !nextKeys.has(key)),
+    put: next.map((item, index) => ({ ...item, id: item.id || item.url, _idx: index })),
   };
 }

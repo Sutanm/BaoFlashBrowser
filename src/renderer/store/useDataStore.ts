@@ -65,9 +65,10 @@ function enqueuePersistence(label: string, operation: () => Promise<void>): void
 let skipPersist = false;
 
 async function replaceFavorites(previous: BookmarkEntry[], next: BookmarkEntry[]): Promise<void> {
-  const { removedIds, put } = planFavoriteWrites(previous, next);
+  const { removedKeys, put } = planFavoriteWrites(previous, next);
   await db.transaction('rw', db.favorites, async () => {
-    if (removedIds.length > 0) await db.favorites.bulkDelete(removedIds);
+    // removedKeys 是主键（url），不是收藏 id：表 schema 见 services/db.ts 的 `favorites: 'url'`。
+    if (removedKeys.length > 0) await db.favorites.bulkDelete(removedKeys);
     if (put.length > 0) await db.favorites.bulkPut(put);
   });
 }

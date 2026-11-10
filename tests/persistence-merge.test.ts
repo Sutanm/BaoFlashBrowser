@@ -21,7 +21,7 @@ describe('persistence merge (P5)', () => {
     expect(merged.searchEngine).toBe('google');
   });
 
-  it('deletes only favorite ids removed locally and reindexes the rest', () => {
+  it('deletes only favorites removed locally, keyed by the table primary key (url)', () => {
     const previous = [
       { id: 'a', title: 'A', url: 'https://a.example' },
       { id: 'b', title: 'B', url: 'https://b.example' },
@@ -31,8 +31,10 @@ describe('persistence merge (P5)', () => {
       { id: 'c', title: 'C', url: 'https://c.example' },
     ];
 
+    // db.favorites 的主键是 url（services/db.ts: `favorites: 'url'`），
+    // bulkDelete 只认主键 —— 这里回归的是"按 id 删 = 静默空操作、取消收藏无效"。
     expect(planFavoriteWrites(previous, next)).toEqual({
-      removedIds: ['a'],
+      removedKeys: ['https://a.example'],
       put: [
         { id: 'b', title: 'B', url: 'https://b.example', _idx: 0 },
         { id: 'c', title: 'C', url: 'https://c.example', _idx: 1 },
@@ -40,10 +42,18 @@ describe('persistence merge (P5)', () => {
     });
   });
 
-  it('never deletes ids that another window added', () => {
+  it('never deletes entries that another window added', () => {
     const previous = [{ id: 'a', title: 'A', url: 'https://a.example' }];
     const next = [{ id: 'a', title: 'A', url: 'https://a.example' }];
 
-    expect(planFavoriteWrites(previous, next).removedIds).toEqual([]);
+    expect(planFavoriteWrites(previous, next).removedKeys).toEqual([]);
+  });
+
+  it('backfills the id of legacy rows that were migrated without one', () => {
+    const legacy = { title: 'Legacy', url: 'https://legacy.example' } as unknown as { id: string; title: string; url: string };
+    const { put } = planFavoriteWrites([legacy], [legacy]);
+
+    expect(put[0].id).toBe('https://legacy.example');
+    expect(put[0]._idx).toBe(0);
   });
 });
