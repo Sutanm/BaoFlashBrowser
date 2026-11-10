@@ -75,6 +75,12 @@
 `value` 非空、等于 `placeholder`/`aria-label`、且等于 HTML 上的 `value` 属性
 （即从未被改写过）。用户自己敲进去的同名文字（`value` 属性为空）不受影响。
 
+**账号名在"上报时刻"回读（2026-11-10）**：站点常由脚本直接给账号框赋值、不派发
+`input` 事件，于是捕获闭包里的 `_rawUser` 一直是空的 —— 记录会存成"空账号"，
+既对不上已有条目（去重失效、多出重复记录），保存提示看起来也毫无意义。
+现在 `report()` 与 xhr/fetch/URL 三条上报路径统一走 `captureUsername()`：
+优先用调用方解析到的账号，其次在**上报那一刻**回读 DOM 里的账号框。
+
 `password-fill.ts` 直接 `wc.debugger.attach('1.3')` 的窗口会与捕获竞争：
 `4f124b4` 起按 250/500/1000/2000/3000ms 有限重试，成功即清表，到上限留
 `attach retries exhausted`。

@@ -43,6 +43,13 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>7k7k 形�
     document.getElementById('un_name').addEventListener('click', function () {
       if (this.value === ${JSON.stringify(HINT)}) this.value = '';
     });
+    // 第二阶段用：XHR 提交，body 里只有密码（模拟 7k7k 的 xhr 登录）
+    window.submitViaXhr = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/xhr-login');
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.send('password=' + encodeURIComponent(document.getElementById('un_pass').value));
+    };
     document.getElementById('login').addEventListener('submit', function (event) {
       event.preventDefault();
       // JSONP 式提交：插 script，回调后算成功
@@ -100,6 +107,7 @@ module.exports = {
 
     const server = http.createServer((req, res) => {
       if (String(req.url).startsWith('/jsonp')) { res.writeHead(200, { 'Content-Type': 'text/javascript' }); res.end('window.jsonpDelivered = true;'); return; }
+      if (String(req.url).startsWith('/xhr-login')) { res.writeHead(204); res.end(); return; }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(PAGE);
     });
@@ -146,12 +154,34 @@ module.exports = {
       const first = captured[0];
       const pending = mod.getPendingCredential(first.captureId);
       const credentialsMatch = pending?.password === PASSWORD && pending?.username === 'new-account';
+
+      // 第二阶段：复现 7k7k 的账号名缺失场景 —— 站点先把密码填进 DOM、账号框
+      // 由脚本后补（不发 input 事件），再走 XHR 提交。若捕获只认 _rawUser，
+      // 这里会存下"空账号"；修复后应从 DOM 回读账号名。
+      //
+      // 注意：第一次捕获后 capture 会 detach（防止阻塞站点的 JSONP 回调），
+      // 页面侧脚本的 __baopReport 随之失效。所以先用一次真实点击把捕获重新挂上，
+      // 否则第二阶段根本报不出来 —— 这也正是线上"登录第二次就没有捕获"的机制。
+      await read("document.getElementById('un_pass').click()");
+      await waitFor(() => wc.debugger.isAttached(), { timeoutMs: 8000, intervalMs: 100, label: 'capture re-armed after detach' });
+      await wait(300);
+      await read(`(function(){
+        document.getElementById('un_name').value = '';
+        var pass = document.getElementById('un_pass');
+        pass.value = ${JSON.stringify(PASSWORD + '-2')};
+        pass.dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('un_name').value = 'late-user';
+        window.submitViaXhr();
+      })()`);
+      await waitFor(() => captured.length > 1, { timeoutMs: 8000, intervalMs: 100, label: 'xhr capture arrived' });
+      const xhrCapture = mod.getPendingCredential(captured[captured.length - 1].captureId);
+      const xhrUsernameOk = xhrCapture?.username === 'late-user' && xhrCapture?.password === PASSWORD + '-2';
       return {
-        ok: credentialsMatch,
-        summary: credentialsMatch
-          ? '隐藏登录层→点开→输入→提交仍然捕获到新账号（含密码落库取回校验）'
-          : `capture arrived but credentials mismatch: ${JSON.stringify({ pending, captured: captured.length })}`,
-        detail: { captured, formDetected, debuggerAttached: wc.debugger.isAttached() },
+        ok: credentialsMatch && xhrUsernameOk,
+        summary: credentialsMatch && xhrUsernameOk
+          ? '隐藏登录层→点开→输入→提交捕获到新账号；账号框不发 input 事件的 XHR 登录也能从 DOM 回读账号名'
+          : `capture mismatch: ${JSON.stringify({ username: pending?.username, xhr: xhrCapture?.username, captured: captured.length })}`,
+        detail: { captured, pending, xhrCapture, formDetected, debuggerAttached: wc.debugger.isAttached() },
       };
     } finally {
       mod.tabManager.destroyAll();
@@ -159,7 +189,11 @@ module.exports = {
       for (const [name, handler] of Object.entries(handlers)) ipcMain.removeListener(name, handler);
       if (!win.isDestroyed()) win.destroy();
       delete globalThis.__baoCapturePopupWindow;
-      await new Promise((resolve) => server.close(resolve));
+      try { server.close(); } catch { /* best effort: keep-alive 连接不应拖住探针 */ }
     }
   },
 };
+
+
+
+

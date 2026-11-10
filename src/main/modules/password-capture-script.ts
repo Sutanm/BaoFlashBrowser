@@ -62,9 +62,23 @@ export const CAPTURE_SCRIPT = `
     }
     return null;
   }
-  function report(src) {
+  // 账号名解析（2026-11-10）：站点常常不派发账号框的 input 事件（脚本直接赋值），
+  // 于是 _rawUser 是空的，捕获出来的记录账号名为空 —— 既会和已有条目对不上、
+  // 造成重复的"空账号"记录，也让用户的保存提示看起来毫无意义。
+  // 这里在真要上报的时刻再回读一次 DOM：优先用调用方给的值，其次看页面当前状态。
+  function captureUsername(preferred) {
+    if (preferred) return String(preferred);
+    try {
+      var pass = document.querySelector('input[type="password"]');
+      var scope = pass ? (pass.form || pass.closest('form') || pass.closest('[class*="login" i], [class*="passport" i], [id*="login" i]') || document) : document;
+      var found = findUserInput(scope);
+      if (found && found.value) return String(found.value);
+    } catch(e) {}
+    return _rawUser || '';
+  }
+  function report(src, preferredUser) {
     if(!_rawPass||_rawPass.length<2)return;
-    _baopEmit({_type:'baop_capture',user:_rawUser||'',pass:_rawPass,host:location.hostname,origin:location.href,title:document.title,source:src});
+    _baopEmit({_type:'baop_capture',user:captureUsername(preferredUser),pass:_rawPass,host:location.hostname,origin:location.href,title:document.title,source:src});
     _rawPass='';_rawUser='';
   }
   _baopOn(document,'input',function(e){
@@ -153,7 +167,7 @@ export const CAPTURE_SCRIPT = `
       if (!s || s.length < 2) return;
       var parsed = extractCredentialPayload(s);
       if (!parsed) return;
-      var user = parsed.username || _rawUser || '';
+      var user = captureUsername(parsed.username);
       _baopEmit({_type:'baop_capture',user:user,pass:parsed.password,host:location.hostname,origin:location.href,title:document.title,source:src});
       _rawPass='';_rawUser='';
     } catch(e) {}
@@ -259,7 +273,7 @@ export const CAPTURE_SCRIPT = `
       var u = findUserInput(container);
       if (u && u.value) userNow = u.value;
       _baopEmit({_type:'baop_diag',msg:'click trigger isBtn='+isButton+' isLogin='+isLoginText+' host='+location.hostname});
-      report('click-login');
+      report('click-login', userNow);
     } catch(e) {}
   }, true);
 
@@ -296,8 +310,7 @@ export const CAPTURE_SCRIPT = `
       if (!urlStr || urlStr.length < 8 || !_rawPass) return;
       var parsed = extractCredentialParams(String(urlStr));
       if (!parsed) return;
-      var pw = parsed.password, user = parsed.username;
-      if (!user) user = _rawUser || '';
+      var pw = parsed.password, user = captureUsername(parsed.username);
       _baopEmit({_type:'baop_diag',msg:'url trigger src='+src+' pwLen='+pw.length+' host='+location.hostname});
       _baopEmit({_type:'baop_capture',user:user||'',pass:pw,host:location.hostname,origin:location.href,title:document.title,source:src});
       _rawPass='';_rawUser='';
@@ -359,3 +372,4 @@ export const CAPTURE_SCRIPT = `
     } catch(e) {}
   }
 })()`;
+
