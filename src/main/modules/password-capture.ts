@@ -1,4 +1,5 @@
 // CDP password capture — keep debugger attached (aligned with working demos)
+import crypto from 'crypto';
 import type { WebContents } from 'electron';
 import log from 'electron-log';
 import { getMainWindow } from './window';
@@ -29,8 +30,15 @@ interface CaptureState {
   cdpLease: CdpLease;
 }
 
-export function addBoundedCaptureKey(keys: Set<string>, key: string, maxSize = 200): void {
-  if (maxSize <= 0) return;
+/**
+ * 账号指纹：只用于在日志里比较"两次登录是不是同一个账号"，不可逆且截断。
+ * 凭据类信息一律不写日志，所以查重结论只记指纹，不记用户名本身。
+ */
+export function credentialFingerprint(username: string): string {
+  try { return crypto.createHash('sha256').update(String(username)).digest('hex').slice(0, 8); } catch { return 'n/a'; }
+}
+
+export function addBoundedCaptureKey(keys: Set<string>, key: string, maxSize = 200): void {  if (maxSize <= 0) return;
   if (!keys.has(key) && keys.size >= maxSize) {
     const oldest = keys.values().next().value;
     if (oldest) keys.delete(oldest);
@@ -286,20 +294,30 @@ export function setupCapture(wc: WebContents): void {
         //   同账号 + 密码已变 → 照常提示（save-confirm 会覆盖旧条目，即"更新密码"）
         //   解不出明文（密钥不可用）→ 沿用旧的静默行为，不误报成"新密码"
         // 此前一律静默，用户无法区分"没捕获"和"已保存过"，是多次误判成功能坏了的直接来源。
+        //
+        // 2026-11-10：查重结论只记"账号指纹"（sha256 前 8 位），不记账号本身 ——
+        // 排查"我明明用了新账号却被当成已保存"时，比较两次登录的 `user#` 与
+        // 库里条目的 `saved#` 就能定论，而不必把用户名写进日志。
         if (!skipToast) {
           try {
             const saved = getMetaForHost(data.host).find((e) => e.username === username);
-            if (saved) {
-              const known = getDecryptedPassword(saved.id);
-              if (known === null) {
-                log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (key unavailable)');
-                skipToast = true;
-              } else if (known === String(data.pass)) {
-                log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (same password)');
-                skipToast = true;
-              } else {
-                log.info('[PasswordCapture] password changed host=' + data.host + ' — prompting update');
-              }
+            const known = saved ? getDecryptedPassword(saved.id) : null;
+            const verdict = !saved ? 'no-entry'
+              : known === null ? 'key-unavailable'
+                : known === String(data.pass) ? 'same-password' : 'password-changed';
+            // 沿用既有文案（文档与排障都靠它 grep），并把指纹+结论并入同一段日志。
+            log.info('[PasswordCapture] dedupe host=' + data.host
+              + ' user#' + credentialFingerprint(username)
+              + ' saved#' + (saved ? credentialFingerprint(saved.username) : 'none')
+              + ' verdict=' + verdict);
+            if (verdict === 'key-unavailable') {
+              log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (key unavailable)');
+              skipToast = true;
+            } else if (verdict === 'same-password') {
+              log.info('[PasswordCapture] skip already-saved host=' + data.host + ' (same password)');
+              skipToast = true;
+            } else if (verdict === 'password-changed') {
+              log.info('[PasswordCapture] password changed host=' + data.host + ' — prompting update');
             }
           } catch { /* password-store 未初始化时忽略 */ }
         }
