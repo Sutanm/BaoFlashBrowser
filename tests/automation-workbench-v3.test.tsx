@@ -89,4 +89,28 @@ describe('Automation 2.0 workbench creation', () => {
     expect(activate).toHaveBeenCalledWith('game');
     expect(useTabsStore.getState().activeTabId).toBe('game');
   });
+
+  it('returns from a single persisted run log back to the run list', async () => {
+    const listPersistedRunLogs = vi.fn().mockResolvedValue([
+      { name: '261110-12-47-脚本A-记录1.json', sizeLabel: '12 KB', scriptName: '脚本A', startedAt: 1762300000000 },
+    ]);
+    const readPersistedRunLog = vi.fn().mockResolvedValue([
+      { timestamp: 1762300000000, level: 'info', message: '开始运行脚本' },
+    ]);
+    Object.assign(window.electronAPI.automationV3, { listPersistedRunLogs, readPersistedRunLog });
+
+    render(<TypesafeI18n locale="zh-CN"><AutomationPage /></TypesafeI18n>);
+    fireEvent.click(screen.getAllByRole('button', { name: '运行历史' })[0]);
+
+    fireEvent.click(await screen.findByRole('button', { name: /脚本A/u }));
+    expect(await screen.findByText('开始运行脚本')).toBeInTheDocument();
+    expect(listPersistedRunLogs).toHaveBeenCalledTimes(1);
+
+    // 明细页的「← 运行历史」曾经什么也不做：它调用的 openHistory 只重拉列表，
+    // 不清 persistedLogEntries，抽屉就一直停在明细页。这里锁住回归。
+    fireEvent.click(screen.getByRole('button', { name: /←/u }));
+    await waitFor(() => expect(screen.queryByText('开始运行脚本')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /脚本A/u })).toBeInTheDocument();
+    expect(listPersistedRunLogs).toHaveBeenCalledTimes(1);
+  });
 });

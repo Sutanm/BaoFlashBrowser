@@ -2606,6 +2606,28 @@ body.dark .awb-docs .doc-callout.doc-warn {
   align-items: center;
   gap: 6px;
 }
+/* 历史范围切换：默认「当前脚本」，可切「全部脚本」 */
+.awb-history-scope {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 6px;
+}
+.awb-history-scope button {
+  padding: 3px 9px;
+  border: 1px solid var(--border, #dfe3eb);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.awb-history-scope button.awb-history-scope-active {
+  border-color: var(--accent, #3d7eff);
+  background: var(--accent, #3d7eff);
+  color: #fff;
+}
 .awb-history-close {
   display: inline-flex;
   border: none;
@@ -2671,6 +2693,14 @@ body.dark .awb-docs .doc-callout.doc-warn {
   color: var(--text-secondary, #778093);
   font-size: 11px;
   text-align: center;
+}
+/* 明细页：返回按钮固定在上方，条目列表自己滚动（否则长日志会把返回键挤出可视区） */
+.awb-history-entries {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .awb-history-back {
   align-self: flex-start;

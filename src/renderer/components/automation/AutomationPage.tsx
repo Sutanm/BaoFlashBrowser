@@ -59,9 +59,11 @@ export default function AutomationPage(): React.JSX.Element {
       {workbench.dialog && <AutomationDialogModal {...workbench} />}
       <AutomationRunHistoryDrawer
         historyOpen={workbench.historyOpen}
+        historyScope={workbench.historyScope}
         persistedRunLogs={workbench.persistedRunLogs}
         persistedLogEntries={workbench.persistedLogEntries}
-        openHistory={workbench.openHistory}
+        backToHistoryList={workbench.backToHistoryList}
+        selectHistoryScope={workbench.selectHistoryScope}
         closeHistory={workbench.closeHistory}
         openPersistedRunLog={workbench.openPersistedRunLog}
         openPersistedRunLogFile={workbench.openPersistedRunLogFile}

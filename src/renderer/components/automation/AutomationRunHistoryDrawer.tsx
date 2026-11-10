@@ -5,7 +5,7 @@ import type { AutomationWorkbench } from './useAutomationWorkbench';
 
 type Props = Pick<
   AutomationWorkbench,
-  'historyOpen' | 'persistedRunLogs' | 'persistedLogEntries' | 'openHistory' | 'closeHistory' | 'openPersistedRunLog' | 'openPersistedRunLogFile'
+  'historyOpen' | 'historyScope' | 'persistedRunLogs' | 'persistedLogEntries' | 'backToHistoryList' | 'selectHistoryScope' | 'closeHistory' | 'openPersistedRunLog' | 'openPersistedRunLogFile'
 >;
 
 const LEVEL_KEY = { info: 'info', success: 'success', error: 'error' } as const;
@@ -19,12 +19,15 @@ function formatTime(timestamp: number): string {
 /**
  * 历史运行抽屉：内存里的 runStatus.logs 只保留最近 2 000 条，
  * 更早的记录走落盘 JSON（automation-logs/YYMMDD-HH-MM-脚本名-记录N.json）在这里回看。
+ * 默认只看当前脚本，可切「全部脚本」——归属按日志首行的 packageId 判定。
  */
 export function AutomationRunHistoryDrawer({
   historyOpen,
+  historyScope,
   persistedRunLogs,
   persistedLogEntries,
-  openHistory,
+  backToHistoryList,
+  selectHistoryScope,
   closeHistory,
   openPersistedRunLog,
   openPersistedRunLogFile,
@@ -36,6 +39,24 @@ export function AutomationRunHistoryDrawer({
     <div className="awb-history-drawer" role="dialog" aria-label={t.runHistory()}>
       <div className="awb-history-head">
         <strong><History size={14} /> {t.runHistory()}</strong>
+        <div className="awb-history-scope" role="group" aria-label={t.runHistory()}>
+          <button
+            type="button"
+            aria-pressed={historyScope === 'current'}
+            className={historyScope === 'current' ? 'awb-history-scope-active' : ''}
+            onClick={() => void selectHistoryScope('current')}
+          >
+            {t.historyScopeCurrent()}
+          </button>
+          <button
+            type="button"
+            aria-pressed={historyScope === 'all'}
+            className={historyScope === 'all' ? 'awb-history-scope-active' : ''}
+            onClick={() => void selectHistoryScope('all')}
+          >
+            {t.historyScopeAll()}
+          </button>
+        </div>
         <button type="button" className="awb-history-close" onClick={closeHistory} aria-label={t.close()}>
           <X size={14} />
         </button>
@@ -62,11 +83,13 @@ export function AutomationRunHistoryDrawer({
             ))}
           </ul>
         ) : (
-          <p className="awb-history-empty">{t.noPersistedRunLogs()}</p>
+          <p className="awb-history-empty">
+            {historyScope === 'current' ? t.noPersistedRunLogsForScript() : t.noPersistedRunLogs()}
+          </p>
         )
       ) : (
         <div className="awb-history-entries">
-          <button type="button" className="awb-history-back" onClick={() => void openHistory()}>
+          <button type="button" className="awb-history-back" onClick={backToHistoryList} title={t.runHistory()}>
             ← {t.runHistory()}
           </button>
           <ul>

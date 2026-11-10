@@ -380,7 +380,7 @@ declare global {
           currentStep?: string; executedSteps: number; message?: string; startedAt?: number; finishedAt?: number;
           logs: Array<{ timestamp: number; level: 'info' | 'success' | 'error'; message: string }>;
         }>;
-        listPersistedRunLogs(): Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>>;
+        listPersistedRunLogs(filter?: { packageId?: string; packageName?: string }): Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number; packageId?: string; identity?: 'meta' | 'legacy-name' }>>;
         readPersistedRunLog(name: string): Promise<Array<{ timestamp: number; level: 'info' | 'success' | 'error'; message: string; system?: boolean }>>;
         openPersistedRunLog(name: string): Promise<{ opened: true }>;
         start(packageId: string, frontendId: string, tabId: string, profilePath?: string): Promise<{ runId: string }>;

@@ -368,9 +368,21 @@ type RootTranslation = {
 		 */
 		runHistory: string
 		/**
+		 * 当​前​脚​本
+		 */
+		historyScopeCurrent: string
+		/**
+		 * 全​部​脚​本
+		 */
+		historyScopeAll: string
+		/**
 		 * 还​没​有​落​盘​的​运​行​记​录
 		 */
 		noPersistedRunLogs: string
+		/**
+		 * 这​个​脚​本​还​没​有​运​行​记​录
+		 */
+		noPersistedRunLogsForScript: string
 		/**
 		 * 用​系​统​默​认​程​序​打​开
 		 */
@@ -3004,9 +3016,21 @@ export type TranslationFunctions = {
 		 */
 		runHistory: () => LocalizedString
 		/**
+		 * 当前脚本
+		 */
+		historyScopeCurrent: () => LocalizedString
+		/**
+		 * 全部脚本
+		 */
+		historyScopeAll: () => LocalizedString
+		/**
 		 * 还没有落盘的运行记录
 		 */
 		noPersistedRunLogs: () => LocalizedString
+		/**
+		 * 这个脚本还没有运行记录
+		 */
+		noPersistedRunLogsForScript: () => LocalizedString
 		/**
 		 * 用系统默认程序打开
 		 */

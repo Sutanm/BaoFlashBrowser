@@ -28,6 +28,20 @@ import { AUTHORING_BEST_CANDIDATE_THRESHOLD, AutomationVisionService } from './v
 import { AutomationTextRecognitionService } from './text-recognition-service';
 import type { AutomationCapturedFrame } from './capability-contracts';
 import { evaluateStructuredColorMatch } from './color-structure-policy';
+// 运行日志的落盘格式、归属元信息与查询都在 run-log-store（不依赖 Electron，可单测）。
+import {
+  isLegacyRunLogFileName,
+  isRunLogFileName,
+  listRunLogFiles,
+  readRunLogEntries,
+  sanitizeScriptName,
+  writeRunLogMeta,
+  type RunLogFileSummary,
+  type RunLogFilter,
+} from './run-log-store';
+
+export { isRunLogFileName, sanitizeScriptName } from './run-log-store';
+export type { RunLogFileSummary, RunLogFilter, RunLogMeta } from './run-log-store';
 
 export type AutomationPackageV3Detail = {
   readonly packageId: string;
@@ -59,22 +73,6 @@ export type AutomationRunStatus = {
   readonly finishedAt?: number;
   readonly logs: readonly AutomationRunLog[];
 };
-
-/** 运行日志文件名：YYMMDD-HH-MM-脚本名称-记录N.json（脚本名已做文件名安全化）。 */
-const RUN_LOG_FILE_PATTERN = /^\d{6}-\d{2}-\d{2}-[^\\/:*?"<>|\p{Cc}]+-记录\d{1,6}\.json$/u;
-/** 旧格式（run-<ts>-<rand>.jsonl）只用于清理，不再列出。 */
-const LEGACY_RUN_LOG_PATTERN = /^run-\d{13}-[a-z0-9]{6}\.jsonl$/u;
-
-/** 文件名白名单校验：格式、长度、基名（防目录穿越）。 */
-export function isRunLogFileName(name: string): boolean {
-  return name.length <= 160 && RUN_LOG_FILE_PATTERN.test(name) && name === path.basename(name) && !name.includes('..');
-}
-
-/** 脚本名进文件名前替换 Windows 非法字符，避免写盘失败。 */
-function sanitizeScriptName(name: string): string {
-  const cleaned = String(name).replace(/[\\/:*?"<>|\p{Cc}]/gu, '_').replace(/\s+/gu, ' ').trim().slice(0, 40);
-  return cleaned || '未命名脚本';
-}
 
 function cropPreview(image: NativeImage, region: { x: number; y: number; width: number; height: number } | undefined): { image: NativeImage; origin: { x: number; y: number } } {
   if (!region) return { image, origin: { x: 0, y: 0 } };
@@ -137,6 +135,15 @@ export class AutomationV3Service {
     return `${prefix}${Date.now()}.json`;
   }
 
+  /** 写首行归属元信息。失败不影响运行：列表会回退到文件名解析。 */
+  private async writeRunLogMeta(meta: { packageId: string; packageName: string; frontendId?: string; startedAt: number }): Promise<void> {
+    const file = this.currentLogFile;
+    if (!file) return;
+    try {
+      await writeRunLogMeta(path.join(app.getPath('userData'), 'automation-logs', file), meta);
+    } catch { /* 元信息写失败不影响运行 */ }
+  }
+
   private async persistRunLog(entry: AutomationRunLog): Promise<void> {
     // 先取快照：调用方是 fire-and-forget，运行结束时 currentLogFile 可能已被清空。
     const file = this.currentLogFile;
@@ -157,11 +164,11 @@ export class AutomationV3Service {
       names = await fs.promises.readdir(logDirectory);
     } catch { return; }
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const files = names.filter((name) => (RUN_LOG_FILE_PATTERN.test(name) || LEGACY_RUN_LOG_PATTERN.test(name)) && name !== this.currentLogFile);
+    const files = names.filter((name) => (isRunLogFileName(name) || isLegacyRunLogFileName(name)) && name !== this.currentLogFile);
     const stats = await Promise.all(files.map(async (name) => {
       try {
         const stat = await fs.promises.stat(path.join(logDirectory, name));
-        return { name, mtime: stat.mtimeMs, legacy: LEGACY_RUN_LOG_PATTERN.test(name) };
+        return { name, mtime: stat.mtimeMs, legacy: isLegacyRunLogFileName(name) };
       } catch { return null; }
     }));
     const kept = stats
@@ -173,42 +180,19 @@ export class AutomationV3Service {
       .map((item) => fs.promises.unlink(path.join(logDirectory, item.name)).catch(() => undefined)));
   }
 
-  /** 列出落盘的运行日志（新→旧），文件名白名单校验在 readPersistedRunLog。 */
-  async listPersistedRunLogs(): Promise<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>> {
-    let names: string[];
-    let logDirectory: string;
-    try {
-      logDirectory = path.join(app.getPath('userData'), 'automation-logs');
-      names = await fs.promises.readdir(logDirectory);
-    } catch { return []; }
-    const files = names.filter((name) => isRunLogFileName(name));
-    const stats = await Promise.all(files.map(async (name) => {
-      try {
-        const stat = await fs.promises.stat(path.join(logDirectory, name));
-        return { name, mtime: stat.mtimeMs, bytes: stat.size };
-      } catch { return null; }
-    }));
-    return stats
-      .filter((item): item is { name: string; mtime: number; bytes: number } => item !== null)
-      .sort((a, b) => b.mtime - a.mtime)
-      .map((item) => ({
-        name: item.name,
-        sizeLabel: item.bytes >= 1024 ? `${(item.bytes / 1024).toFixed(1)} KB` : `${item.bytes} B`,
-        // 从文件名还原脚本名：YYMMDD-HH-MM-脚本名称-记录N.json
-        scriptName: item.name.replace(/^\d{6}-\d{2}-\d{2}-/u, '').replace(/-记录\d+\.json$/u, ''),
-        startedAt: item.mtime,
-      }));
+  /**
+   * 列出落盘的运行日志（新→旧）。
+   * 传 `filter.packageId` 时只返回该脚本的运行（按日志首行元信息头精确归属；
+   * 2026-11 之前没有元信息头的老文件回退到"文件名脚本名 == filter.packageName"）。
+   */
+  async listPersistedRunLogs(filter?: RunLogFilter): Promise<RunLogFileSummary[]> {
+    return listRunLogFiles(path.join(app.getPath('userData'), 'automation-logs'), filter);
   }
 
-  /** 读取单个落盘日志；文件名必须是白名单格式，防目录穿越。 */
+  /** 读取单个落盘日志；文件名必须是白名单格式，防目录穿越。首行元信息已被剔除。 */
   async readPersistedRunLog(name: string): Promise<AutomationRunLog[]> {
     if (!isRunLogFileName(name)) throw new Error('invalid automation log name');
-    const target = path.join(app.getPath('userData'), 'automation-logs', name);
-    let raw: string;
-    try { raw = await fs.promises.readFile(target, 'utf8'); } catch { return []; }
-    return raw.split('\n').filter(Boolean).map((line) => {
-      try { return JSON.parse(line) as AutomationRunLog; } catch { return null; }
-    }).filter((entry): entry is AutomationRunLog => entry !== null);
+    return readRunLogEntries(path.join(app.getPath('userData'), 'automation-logs', name));
   }
 
   /** 用系统默认程序打开日志文件（JSON 会落到编辑器/浏览器），返回错误文本或空串。 */
@@ -342,6 +326,9 @@ export class AutomationV3Service {
     this.starting = true;
     this.runStatus = { state: 'preparing', packageId, frontendId, workflowName: source.manifest.name, currentStep: '正在准备目标页面', executedSteps: 0, startedAt: Date.now(), logs: [] };
     this.currentLogFile = await this.createRunLogFileName(source.manifest.name);
+    // 首行写归属元信息：历史列表按 packageId 精确判定"这条属于哪个脚本"，
+    // 文件名里的脚本名只留作可读性（改名/重名时按名字归属会错配）。
+    await this.writeRunLogMeta({ packageId, packageName: source.manifest.name, frontendId, startedAt: this.runStatus.startedAt ?? Date.now() });
     void this.pruneRunLogs().catch(() => undefined);
     this.appendRunLog('info', `开始运行「${source.manifest.name}」· ${frontendId === 'workflow' ? 'Blockly 主流程' : frontendId}`);
     let tab: ReturnType<typeof tabManager.beginAutomation> | undefined;

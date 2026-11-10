@@ -117,10 +117,15 @@ export function registerAutomationAssistantBridge(prefix: string, allowed: (wcId
   });
 
   ipcMain.handle(`${prefix}logs-list`, async (event, raw: unknown) => {
-    const parsed = z.object({ scriptId: z.string() }).strict().safeParse(raw);
+    // packageId/packageName 存在时只返回该脚本的运行记录（历史列表按脚本隔离）。
+    const parsed = z.object({
+      scriptId: z.string(),
+      packageId: z.string().min(1).max(128).optional(),
+      packageName: z.string().min(1).max(200).optional(),
+    }).strict().safeParse(raw);
     const service = getAutomationV3Service();
     if (!parsed.success || !service || !allowed(event.sender.id, parsed.data.scriptId)) throw new Error('automation assistant access denied');
-    return service.listPersistedRunLogs();
+    return service.listPersistedRunLogs({ packageId: parsed.data.packageId, packageName: parsed.data.packageName });
   });
 
   ipcMain.handle(`${prefix}logs-read`, async (event, raw: unknown) => {

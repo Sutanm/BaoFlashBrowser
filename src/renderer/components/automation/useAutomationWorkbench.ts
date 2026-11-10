@@ -71,7 +71,9 @@ export function useAutomationWorkbench() {
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState<string>(t.automationCoreReady());
   /** 落盘历史运行日志列表（新→旧），打开历史抽屉时拉取。 */
-  const [persistedRunLogs, setPersistedRunLogs] = useState<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number }>>([]);
+  const [persistedRunLogs, setPersistedRunLogs] = useState<Array<{ name: string; sizeLabel: string; scriptName: string; startedAt: number; packageId?: string }>>([]);
+  /** 历史抽屉的查看范围：默认只看当前脚本，可切到全部脚本。 */
+  const [historyScope, setHistoryScope] = useState<'current' | 'all'>('current');
   /** 当前查看的落盘日志条目；null 表示抽屉里还没选中任何一次运行。 */
   const [persistedLogEntries, setPersistedLogEntries] = useState<Array<{ timestamp: number; level: 'info' | 'success' | 'error'; message: string; system?: boolean }> | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -246,15 +248,40 @@ export function useAutomationWorkbench() {
     setRunning(false);
     setNotice(t.stopped());
   };
-  /** 打开历史抽屉并拉取落盘日志列表；文件名来自白名单接口，防目录穿越。 */
-  const openHistory = async (): Promise<void> => {
-    setHistoryOpen(true);
+  /**
+   * 拉取落盘日志列表。`scope='current'` 时按当前脚本的 packageId 过滤（主进程按日志首行的
+   * 归属元信息匹配，老日志回退文件名）；`'all'` 则列出全部脚本的运行。
+   */
+  const loadHistory = async (scope: 'current' | 'all'): Promise<void> => {
+    const filter = scope === 'current' && detail?.packageId ? { packageId: detail.packageId, packageName: detail.name } : {};
     try {
-      const logs = await window.electronAPI.automationV3.listPersistedRunLogs();
-      setPersistedRunLogs(logs);
+      setPersistedRunLogs(await window.electronAPI.automationV3.listPersistedRunLogs(filter));
     } catch (error) {
       showError(error);
     }
+  };
+  /**
+   * 打开历史抽屉并拉取落盘日志列表；文件名来自白名单接口，防目录穿越。
+   * 必须同时清掉已选中的条目视图——否则抽屉里残留上一次的运行明细，
+   * `persistedLogEntries !== null` 会让抽屉一直停在明细页，看上去像"点了没反应"。
+   */
+  const openHistory = async (): Promise<void> => {
+    setHistoryOpen(true);
+    setPersistedLogEntries(null);
+    setCurrentLogFile(null);
+    await loadHistory(historyScope);
+  };
+  /** 明细页的「← 运行历史」：回到列表（列表已在 openHistory 里载入，不重复拉取）。 */
+  const backToHistoryList = (): void => {
+    setPersistedLogEntries(null);
+    setCurrentLogFile(null);
+  };
+  /** 切换「当前脚本 / 全部脚本」，并清掉已选中的旧记录（可能已不在新列表里）。 */
+  const selectHistoryScope = async (scope: 'current' | 'all'): Promise<void> => {
+    setHistoryScope(scope);
+    setPersistedLogEntries(null);
+    setCurrentLogFile(null);
+    await loadHistory(scope);
   };
   /** 读取某次落盘运行的完整日志条目；文件名白名单校验交给主进程，防目录穿越。 */
   const openPersistedRunLog = async (name: string): Promise<void> => {
@@ -549,10 +576,13 @@ export function useAutomationWorkbench() {
     running,
     notice,
     historyOpen,
+    historyScope,
     persistedRunLogs,
     persistedLogEntries,
     currentPersistedRunLog,
     openHistory,
+    backToHistoryList,
+    selectHistoryScope,
     closeHistory,
     openPersistedRunLog,
     openPersistedRunLogFile,
