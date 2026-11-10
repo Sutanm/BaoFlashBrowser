@@ -199,6 +199,13 @@ node tools/probe/host.cjs --only 21             # 契约探针
   判定新鲜度，并观察 `style`/`class`——否则又退化成"必须点一下输入框"。
 - **fill 与 capture 争抢 debugger**：排查先搜 `CDP is already attached` 与
   `attach retries exhausted`。
+- **跨站 iframe 里的登录表单捕获不到（已知限制，探针 56 固定）**：捕获脚本只注入主
+  target 的 execution context；不同站点的子帧（OOPIF，如 7k7k 玩法页把游戏 HTML 放在
+  `web.7k7k.com` 那层）不在该列表里，而 Electron 11 的 `debugger` 只能 attach 到
+  webContents，拿不到 OOPIF 的 CDP session。判别方法（2026-11-10 起 `frame info`
+  带三个字段）：主文档报 `pwInputs=N pwVisible=0 top=1`、整段会话**没有一条
+  `first keydown` / `input pw`**，说明键盘输入根本没进被注入的文档 ——
+  此时该站在哪一层登录，决定这条能不能支持。
 - **纯 Node（vitest）下 electron-log 会写真实 `logs/main.log`**，含 `/mock/` 路径的行
   是单测噪声；先按来源区分，否则会把单测告警当成真机故障。
 - 门禁在解密之前；不要把"已授权"缓存到 module 级变量。

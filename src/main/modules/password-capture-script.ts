@@ -250,14 +250,30 @@ export const CAPTURE_SCRIPT = `
     } catch(e) {}
   }, true);
 
-  // 诊断（2026-09-21）：延迟上报"本 frame 里到底有没有密码框"。
-  // 只报有密码框的 frame，避免每个 ad/空 frame 都刷一行；用于回答
-  // "登录框在哪个 frame"——若没有任何 frame 报 pwInputs，说明密码框不在可注入上下文内
-  // （弹窗/未注入 frame/自绘控件）。
+  // 诊断（2026-09-21，2026-11-10 扩充）：延迟上报"本 frame 里到底有没有能填的密码框"。
+  // 只报有密码框的 frame，避免每个 ad/空 frame 都刷一行。用于回答三件事：
+  //   pwInputs  本帧密码框数量 —— 0 说明登录框不在本帧；
+  //   pwVisible 其中此刻真正可见的数量 —— 0 说明只是隐藏模板（如 7k7k #union 的
+  //             #un_pass/#un_repass），用户的登录框在别处；
+  //   top       本帧是不是主框架 —— 跨站子帧（OOPIF）不会出现在主 target 的
+  //             execution context 列表里，捕获脚本根本注入不进去（探针 56 固定了这条）。
+  // 排查"登录了但没弹保存提示"时：若日志里只有 pwVisible=0 / top=0，且整段会话没有
+  // 'first keydown' 诊断，就说明键盘输入没进任何被注入的文档（跨站 iframe 或插件内）。
+  // page 只取 origin+pathname，绝不带 query。
   setTimeout(function() {
     try {
-      var n = document.querySelectorAll('input[type="password"]').length;
-      if (n > 0) _baopEmit({_type:'baop_diag',msg:'frame info pwInputs='+n+' host='+location.hostname});
+      var all = Array.prototype.slice.call(document.querySelectorAll('input[type="password"]'));
+      if (!all.length) return;
+      var visible = 0;
+      for (var index = 0; index < all.length; index += 1) {
+        var input = all[index];
+        var rect = input.getBoundingClientRect();
+        var style = window.getComputedStyle(input);
+        if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') visible += 1;
+      }
+      _baopEmit({_type:'baop_diag',msg:'frame info pwInputs='+all.length+' pwVisible='+visible
+        +' top='+(window.top === window.self ? 1 : 0)
+        +' page='+location.origin+location.pathname+' host='+location.hostname});
     } catch(e) {}
   }, 1500);
 
