@@ -3,7 +3,7 @@ import { X as XIcon } from 'lucide-react';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import { useDataStore } from '@renderer/store/useDataStore';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
-import { getHost } from '@renderer/services/url-utils';
+import { resolveFaviconSrc } from '@renderer/services/url-utils';
 import { generateId } from '@renderer/services/id.service';
 
 interface FavoritesPanelProps {
@@ -11,11 +11,6 @@ interface FavoritesPanelProps {
   currentTitle: string;
   currentFavicon?: string;
   onOpenUrl: (url: string, newTab: boolean) => void;
-}
-
-function getFaviconUrl(favicon: string | undefined, url: string): string {
-  if (favicon) return favicon;
-  return `https://www.google.com/s2/favicons?domain=${getHost(url)}&sz=16`;
 }
 
 // 与标签栏收藏按钮保持一致：若 title 缺失或本身就是 http(s) URL，则退化为 hostname
@@ -60,22 +55,30 @@ const FavoritesPanel: React.FC<FavoritesPanelProps> = ({ currentUrl, currentTitl
         {favs.length === 0 ? (
           <div className="sidebar-empty">{LL.favorites.empty()}</div>
         ) : (
-          favs.map((f) => (
-            <div key={f.url} className="fav-item"
-              onClick={() => onOpenUrl(f.url, currentUrl !== 'about:newtab')}
-              title={f.url}
-            >
-              <img src={getFaviconUrl(f.favicon, f.url)} className="w-4 h-4 flex-shrink-0" alt=""
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="fav-item-title">{f.title || f.url}</span>
-                <span className="fav-item-url">{f.url}</span>
+          favs.map((f) => {
+            const iconSrc = resolveFaviconSrc(f.favicon, f.url);
+            const firstChar = (f.title || f.url).charAt(0).toUpperCase();
+            return (
+              <div key={f.url} className="fav-item"
+                onClick={() => onOpenUrl(f.url, currentUrl !== 'about:newtab')}
+                title={f.url}
+              >
+                {iconSrc ? (
+                  <img src={iconSrc} className="w-4 h-4 flex-shrink-0" alt=""
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                ) : (
+                  <span className="favicon-fallback" aria-hidden="true">{firstChar}</span>
+                )}
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="fav-item-title">{f.title || f.url}</span>
+                  <span className="fav-item-url">{f.url}</span>
+                </div>
+                <button onClick={(e) => removeFav(e, f.url)} className="fav-remove" title={LL.delete()}>
+                  <XIcon className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <button onClick={(e) => removeFav(e, f.url)} className="fav-remove" title={LL.delete()}>
-                <XIcon className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </>

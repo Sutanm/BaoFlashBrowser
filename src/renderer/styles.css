@@ -297,6 +297,21 @@ body.dark {
   }
   .fav-item:hover .fav-remove { opacity: 1; }
 
+  /* 没有 favicon（或条目是本机地址）时的首字母占位。
+     以前这种情况会去请求 www.google.com/s2/favicons，国内连不上，
+     每条都卡到超时，把外壳控制台刷满 ERR_CONNECTION_TIMED_OUT。 */
+  .favicon-fallback {
+    @apply flex items-center justify-center flex-shrink-0;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--text-secondary);
+    opacity: 0.75;
+  }
+
   .history-search-bar {
     @apply flex items-center gap-2 py-2;
     padding-left: 4px;

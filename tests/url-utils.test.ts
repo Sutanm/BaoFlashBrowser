@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isNewtabUrl } from '../src/renderer/services/url-utils';
+import { isLocalAddress, isNewtabUrl, resolveFaviconSrc } from '../src/renderer/services/url-utils';
 import { isUrl, normalizeUrl } from '../src/renderer/services/id.service';
 
 describe('URL normalization', () => {
@@ -27,5 +27,33 @@ describe('URL normalization', () => {
     expect(isNewtabUrl('about:newtab')).toBe(true);
     expect(isNewtabUrl('about:blank')).toBe(true);
     expect(isNewtabUrl('https://example.com')).toBe(false);
+  });
+});
+
+describe('favicon source resolution', () => {
+  it('never invents a remote fallback when no favicon was stored', () => {
+    expect(resolveFaviconSrc(undefined, 'https://www.baidu.com')).toBeNull();
+    expect(resolveFaviconSrc('', 'https://www.baidu.com')).toBeNull();
+  });
+
+  it('keeps a stored favicon for normal sites', () => {
+    expect(resolveFaviconSrc('https://www.baidu.com/favicon.ico', 'https://www.baidu.com'))
+      .toBe('https://www.baidu.com/favicon.ico');
+  });
+
+  it('keeps inline data/blob icons, they cost no network request', () => {
+    const dataUrl = 'data:image/png;base64,AAAA';
+    expect(resolveFaviconSrc(dataUrl, 'https://example.com')).toBe(dataUrl);
+  });
+
+  it('drops icons for loopback entries so stopped debug servers stay quiet', () => {
+    expect(isLocalAddress('http://localhost:8090/x')).toBe(true);
+    expect(isLocalAddress('http://127.0.0.1:18673')).toBe(true);
+    expect(isLocalAddress('https://example.com')).toBe(false);
+    // 条目本身是本地服务，或存下来的 favicon 指向本地服务，都不请求
+    expect(resolveFaviconSrc('http://127.0.0.1:18673/favicon.ico', 'http://127.0.0.1:18673'))
+      .toBeNull();
+    expect(resolveFaviconSrc('http://localhost:8090/favicon.ico', 'https://example.com'))
+      .toBeNull();
   });
 });

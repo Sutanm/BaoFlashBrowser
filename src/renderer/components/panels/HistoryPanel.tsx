@@ -4,7 +4,7 @@ import dayjs from 'dayjs';
 import { useDataStore } from '@renderer/store/useDataStore';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
 import type { HistoryEntry } from '@shared/types/history';
-import { getHost } from '@renderer/services/url-utils';
+import { getHost, resolveFaviconSrc } from '@renderer/services/url-utils';
 
 interface HistoryPanelProps {
   currentUrl: string;
@@ -24,11 +24,6 @@ function getDateGroup(ts: number): DateGroup {
 
 function formatTime(ts: number): string {
   return dayjs(ts).format('HH:mm');
-}
-
-function getHistFaviconUrl(entry: HistoryEntry): string {
-  if (entry.favicon) return entry.favicon;
-  return `https://www.google.com/s2/favicons?domain=${getHost(entry.url)}&sz=16`;
 }
 
 const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) => {
@@ -140,12 +135,16 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ currentUrl, onOpenUrl }) =>
                     }}
                     title={entry.url}
                   >
-                    <img
-                      src={getHistFaviconUrl(entry)}
-                      style={{ width: 16, height: 16, borderRadius: 3, flexShrink: 0 }}
-                      alt=""
-                      onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="%23e0e0e0"/></svg>'; }}
-                    />
+                    {resolveFaviconSrc(entry.favicon, entry.url) ? (
+                      <img
+                        src={resolveFaviconSrc(entry.favicon, entry.url) ?? ''}
+                        style={{ width: 16, height: 16, borderRadius: 3, flexShrink: 0 }}
+                        alt=""
+                        onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="%23e0e0e0"/></svg>'; }}
+                      />
+                    ) : (
+                      <span className="favicon-fallback" aria-hidden="true">{(entry.title || getHost(entry.url)).charAt(0).toUpperCase()}</span>
+                    )}
                     <div className="flex flex-col min-w-0 flex-1">
                       <span className="fav-item-title">{entry.title || getHost(entry.url)}</span>
                       <span className="fav-item-url">

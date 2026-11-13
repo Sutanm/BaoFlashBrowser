@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { BookmarkEntry } from '@shared/types/bookmarks';
 import { PROJECT_PROVENANCE, PROVENANCE_SHORT_ID } from '@shared/provenance';
 import { useI18nContext } from '@renderer/i18n/i18n-react';
-import { getHost } from '@renderer/services/url-utils';
+import { resolveFaviconSrc } from '@renderer/services/url-utils';
 
 interface NewTabPageProps {
   onNavigate: (url: string) => void;
@@ -38,7 +38,7 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
           {bookmarks.map((fav, i) => {
             const firstChar = (fav.title || fav.url).charAt(0).toUpperCase();
             const color = COLORS[i % COLORS.length];
-            const imgSrc = fav.favicon || `https://www.google.com/s2/favicons?domain=${getHost(fav.url)}&sz=16`;
+            const imgSrc = resolveFaviconSrc(fav.favicon, fav.url);
             return (
               <div
                 key={fav.url}
@@ -46,7 +46,7 @@ const NewTabPage: React.FC<NewTabPageProps> = ({ onNavigate, bookmarks }) => {
                 onClick={() => onNavigate(fav.url)}
                 title={fav.url}
               >
-                {fav.favicon ? (
+                {imgSrc ? (
                   <img src={imgSrc} className="newtab-bookmark-favicon" alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                 ) : (
                   <div className="newtab-bookmark-fallback" style={{ background: color }}>{firstChar}</div>
