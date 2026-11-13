@@ -103,7 +103,17 @@ function bootstrap(): void {
   // resolveDebugPort() 从那里发现它。固定端口既占着不放（还要躲 Windows
   // 保留端口段），也没有必要——消费者全在应用内部。安全面：只绑 127.0.0.1，
   // 等于本机进程可调试本应用，与 DevTools 前端 iframe 的既有暴露一致。
-  app.commandLine.appendSwitch('remote-debugging-port', '0');
+  //
+  // 诊断开关：BAO_NO_DEBUG_PORT=1 时完全不启用远程调试端口（工具箱随之不可用）。
+  // 用于把"远程调试是否导致站点风控"这一项单独隔离出来——空白 Electron 示例
+  // 没有这个开关，而它能通过百度验证（2026-11-13）。
+  if (process.env.BAO_NO_DEBUG_PORT !== '1') {
+    app.commandLine.appendSwitch('remote-debugging-port', '0');
+    // 远程调试端口会把页面的 navigator.webdriver 置为 true —— 实测 Chrome 为
+    // false/undefined、本项目为 true。只关掉 AutomationControlled 这个 blink
+    // feature，不影响 CDP 传输层与 DevToolbox。
+    app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+  }
   app.commandLine.appendSwitch('disable-flash-sandbox');
 
   if (config.lowEndMode) {

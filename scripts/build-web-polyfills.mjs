@@ -1,16 +1,23 @@
 // Builds the core-js page-world polyfill bundle (C87 lacks modern Web APIs;
 // a missing API crashes whole site bundles — GitHub needed randomUUID and
 // .at() separately). Selected core-js modules are bundled to a single IIFE
-// and emitted as a TS string module embedded into webview-preload, which
-// injects it into the PAGE main world at document-start via
-// webFrame.executeJavaScript.
+// and emitted as a TS string module under src/shared, so BOTH the main
+// process and webview-preload can import it.
+//
+// 2026-11-13: the payload used to be injected from webview-preload via
+// webFrame.executeJavaScript. That call is documented as "code execution
+// will be suspended until web page stop loading" (electron.d.ts), which
+// contradicts a document-start polyfill — it never reached the page main
+// world, so Chromium 87 ran bare and modern site scripts threw. The main
+// process now injects it on `dom-ready` with webContents.executeJavaScript,
+// which has no such suspension semantics.
 import esbuild from 'esbuild';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OUT = path.join(__dirname, '..', 'src', 'webview-preload', 'web-api-polyfills.generated.ts');
+const OUT = path.join(__dirname, '..', 'src', 'shared', 'web-api-polyfills.generated.ts');
 
 const result = await esbuild.build({
   bundle: true,

@@ -9,6 +9,7 @@ import type { PasswordFillResult } from './password-fill';
 import type { FillCredential } from './password-store';
 import type { UserscriptManager } from './userscripts/userscript-manager';
 import type { TabSnapshotEntry } from '@shared/types/ipc';
+import { buildPageWorldPolyfillScript } from '@shared/web-polyfills';
 
 export interface OptionalTabServices {
   passwords?: {
@@ -37,6 +38,23 @@ const passwordCapture = {
   setup(wc: Electron.WebContents): void { optionalServices.passwords?.setupCapture(wc); },
   teardown(wc: Electron.WebContents, reason?: string): void { optionalServices.passwords?.teardownCapture(wc, reason); },
 };
+
+/**
+ * 100KB+ 的注入负载只拼一次（payload 是常量，与页面无关）。
+ * `null` 表示 BAO_POLYFILL_MODE=off，完全不注入。
+ */
+let cachedPagePolyfillScript: string | null | undefined;
+function pagePolyfillScript(): string | null {
+  if (cachedPagePolyfillScript === undefined) {
+    cachedPagePolyfillScript = buildPageWorldPolyfillScript();
+    // BAO_POLYFILL_MODE=off 会让注入整体跳过。这条日志是刻意的：没有它，
+    // "注入没跑" 和 "注入了但失败" 在日志里长得一模一样（2026-11-13 踩过）。
+    if (cachedPagePolyfillScript === null) {
+      log.warn('[Polyfill] disabled by BAO_POLYFILL_MODE=off — pages run on bare Chromium 87');
+    }
+  }
+  return cachedPagePolyfillScript;
+}
 
 function userscriptManager(): UserscriptManager | null {
   return optionalServices.getUserscriptManager?.() ?? null;
@@ -593,6 +611,13 @@ class TabManager {
       if (this._isCurrentWebContents(tabId, wc)) this._detachDebuggerBeforeNavigate(wc);
     });
     wc.on('dom-ready', () => {
+      // Web API polyfills must land before the page's own scripts run, but the
+      // old preload path could not do that: webFrame.executeJavaScript suspends
+      // until the page stops loading, so the main world never received them and
+      // Chromium 87 ran bare (modern site scripts threw; Baidu's risk control
+      // read that as an abnormal environment). webContents.executeJavaScript
+      // has no such suspension, so inject here instead.
+      this._injectPagePolyfills(wc, tabId);
       // SWF file: Chromium's internal plugin viewer sets body{height:100%} but
       // NOT html{height:100%}, so the percentage collapses to the SWF's stage
       // height instead of the viewport. The preload cannot fix this because
@@ -805,6 +830,28 @@ class TabManager {
       if (enabled && !this.automationTargets.has(tabId)) passwordCapture.setup(wc);
       else passwordCapture.teardown(wc, 'capture-disabled');
     }
+  }
+
+  /**
+   * 把 Chromium 87 缺的现代 Web API 注入页面主世界。
+   *
+   * 上一版由 preload 的 `webFrame.executeJavaScript` 负责，但那个 API 会挂起到
+   * 页面加载完成，实测主世界一直是裸的（`[].at` / `crypto.randomUUID` 均为
+   * undefined）。注入结果必须留痕：静默失败正是这个问题潜伏这么久的原因。
+   */
+  private _injectPagePolyfills(wc: Electron.WebContents, tabId: string): void {
+    const script = pagePolyfillScript();
+    if (!script || wc.isDestroyed()) return;
+    void wc.executeJavaScript(script)
+      .then((outcome: unknown) => {
+        const result = typeof outcome === 'string' ? outcome : String(outcome);
+        if (result === 'applied') log.info(`[Polyfill] applied tab=${tabId}`);
+        else if (result === 'already') log.debug(`[Polyfill] already present tab=${tabId}`);
+        else log.warn(`[Polyfill] unexpected outcome tab=${tabId} result=${result}`);
+      })
+      .catch((error: unknown) => {
+        log.warn(`[Polyfill] injection failed tab=${tabId}`, error instanceof Error ? error.message : error);
+      });
   }
 
   private _clearPasswordFillTimers(wcId: number): void {
