@@ -49,7 +49,9 @@ BrowserView 容器（"可感知容积包裹"）技术上成立——bounds 全�
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/main/modules/devtoolbox.ts` | 采集管道：`console-message` 订阅、electron-log hook、快照、求值、页面探测、打开原生面板 |
+| `src/main/modules/devtoolbox.ts` | 桶文件（47 行）：只做 re-export，实现已分散到下面的 `devtoolbox-*` 模块 |
+| `src/main/modules/devtoolbox-collector.ts` | 采集管道：`console-message` 订阅、electron-log hook、条目入缓冲 |
+| `src/main/modules/devtoolbox-snapshot.ts` | 快照求值、打开原生面板 |
 | `src/main/modules/devtoolbox-buffer.ts` | 纯逻辑：文本截断、等级映射、日志分类、双队列缓冲（可单测，不依赖 Electron） |
 | `src/main/modules/devtoolbox-probe.ts` | Flash 探测的 CDP 深探：跨域 / OOPIF / 无 JS 上下文的 frame 逐个求值（走独立 page 连接，不碰 `wc.debugger`） |
 | `src/main/ipc/devtoolbox.ipc.ts` | `snapshot` / `clear` / `evaluate` / `open-native` / `probe-page` |
@@ -67,7 +69,7 @@ BrowserView 容器（"可感知容积包裹"）技术上成立——bounds 全�
 BrowserView / 外壳 WebContents
         │  console-message（Electron 事件，无需 DevTools 打开）
         ▼
-devtoolbox.ts emit()  ──►  EntryBuffer(2000)  ──►  80ms 批量 ──►  'devtoolbox:entries'
+devtoolbox-collector.ts emit()  ──►  EntryBuffer(2000)  ──►  80ms 批量  ──►  'devtoolbox:entries'
         ▲                                                        │
         │  electron-log hooks（每个 transport 都会触发）           ▼
 主进程 log.info('[PasswordCapture] …')                  useDevToolStore.ingest()
@@ -212,12 +214,24 @@ Electron 11 的 webRequest 监听是「后者覆盖前者」。要做必须先�
 | --- | --- |
 | `assets/devtools-frontend/` | 上游前端资源（取自 chii 的构建产物，面板版本约 M97，640 文件 / 14MB） |
 | `scripts/build-devtools-frontend.cjs` | 降级到 Chromium 87：摘 top-level await、esbuild 语法降级、注入 polyfill、补 `-webkit-mask` 前缀 |
-| `dist/devtools-frontend/` | 构建产物；开发时由主进程静态托管，打包时进 `resources/devtools-frontend` |
-| `src/main/modules/devtoolbox.ts` | `ensureFrontendServer()`（127.0.0.1 + 系统分配端口）、`getDevToolsTargetUrl()` |
+| `dist/devtools-frontend/` | 构建产物。**默认由 `file://` 直接加载**（B2 去端口，origin 恒定 → DevTools 设置可跨启动保留）；打包时进 `resources/devtools-frontend` |
+| `src/main/modules/devtoolbox-target-resolve.ts` | 入口地址解析 + target 解析（`getDevToolsTargetUrl` / `resolvePageTarget`） |
+| `src/main/modules/devtoolbox-bridge.ts` | 桥：browser 级 ws + flatten session，前端经 preload 的 `bfbBridge` 走 IPC 到这里 |
+| `src/main/modules/devtoolbox-frontend-server.ts` | http 静态服务，**只在 `BAO_DEVTOOLS_LEGACY_HTTP=1` 回退时启用** |
+| `src/main/modules/devtoolbox-{buffer,collector,host,probe,probe-page,snapshot,targets,workspace}.ts` | 采集、宿主、Flash 深探、快照、工作区等按职责拆分的模块 |
 | `src/renderer/components/devtools/DevToolsTab.tsx` | iframe 宿主 + 「当前页面 / 外壳界面」目标切换（**选择按标签记**，见 `useDevToolStore.tabTarget`） |
 
-传输链：`iframe(http://127.0.0.1:<static>/devtools_app.html?ws=127.0.0.1:<cdp>/devtools/page/<id>&can_dock=true)`
-→ Chromium 的 CDP 端口 → 目标 WebContents。**前端只会说 WebSocket，端口是它的传输层。**
+传输链有两条，**默认走桥**：
+
+- **桥（默认，B3）**：`iframe(file:///<dist>/devtools_app.html?can_dock=true)` → preload 暴露的
+  `bfbBridge` → IPC → 主进程桥 → browser 级 ws（从 `/json/version` 取 `webSocketDebuggerUrl`）
+  + flatten session。**URL 刻意不带 target id**：切标签只换绑定不换 URL，iframe 不重载，
+  Elements 选中与 Console 历史因此得以保留。
+- **page-ws（回退，`BAO_DEVTOOLS_PAGE_WS=1`）**：URL 带
+  `?ws=127.0.0.1:<cdp>/devtools/page/<id>&can_dock=true`，前端直连 CDP 端口。
+
+两条都要 **CDP 端口**（Chromium 的 CDP 只有 ws 这一种传输，端口去不掉），但都**不再需要
+http 静态服务端口**——那正是 B2（`6718d95`）去掉的那个。别把两者混为一谈。
 
 **壳的选择（2026-11-06）**：入口用 `devtools_app.html` + `can_dock=true`，而不是
 `inspector.html`。M97 前端按 `getRegisteredAppProviders()` 的 order 选壳：
@@ -231,7 +245,7 @@ docked 语义（默认 `right`），构建期把 `updateForDocked()` 末尾的 `
 没有空白占位也没有 screencast。
 
 **目标跟随（2026-11-06）**：页面目标走主进程的 `tabId → targetId` 绑定表
-（`devtoolbox.ts` 的 `pickTargetForTab`），不再按 URL 实时匹配。page target id
+（`devtoolbox-target-resolve.ts` 的 `resolvePageTarget`），不再按 URL 实时匹配。page target id
 在同一 WebContents 生命周期内跨导航恒定，因此：
 - 切标签 → 绑定表换 targetId → iframe 重连新标签的 target；
 - 同标签内导航 → targetId 不变 → iframe 不重载，前端经 CDP 事件自动跟随
@@ -281,7 +295,11 @@ Chromium 87 是 Flash PPAPI 的硬约束，而 M97 前端用了它不认的东�
   | screenshot HTTP（仅开发态 opt-in） | `0` 随机（env 可钉死） | electron-log（与 token 一起打印） |
 - **CDP 全版本常开**：主进程 `bootstrap()` 里 `appendSwitch('remote-debugging-port', '0')`，
   打包版与开发版一致，抽屉 DevTools 无需任何启动参数。`start:debug` 与普通启动
-  唯一区别只剩构建产物新鲜度。安全面：只绑 `127.0.0.1`，等于本机进程可调试本
+  唯一区别只剩构建产物新鲜度。诊断开关 `BAO_NO_DEBUG_PORT=1` 会整体跳过这个端口
+  （同时也不加 `--disable-blink-features=AutomationControlled`），用于隔离"远程调试
+  是否触发了站点风控"——此时工具箱显示"未开启调试端口"，属预期。
+  该端口会把页面的 `navigator.webdriver` 置为 true，故一并加 `disable-blink-features=AutomationControlled`；
+  关掉该 blink feature 后属性在 Chromium 87 上**不存在**（`undefined`），这正是真 Chrome 87 的形态。安全面：只绑 `127.0.0.1`，等于本机进程可调试本
   应用；外部 ws 客户端与 embedded debugger 实测共存（§1 共存性），开端口不影响
   密码捕获/填充。B3 之后前端不再自己拿端口（URL 里没有 `ws`），端口只出现在
   主进程的桥里——但**威胁模型没变**：端口本身仍在、仍无鉴权。
