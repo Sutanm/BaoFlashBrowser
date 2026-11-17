@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Bao CEF comparison</title>
+<style>
+  body { margin: 0; }
+  header { height: 64px; font: 20px system-ui; }
+  header:has(span) { background-color: rgb(23, 111, 55); color: white; }
+  canvas { display: block; }
+</style>
+<header><span>Modern Chromium | CEF 87 Flash worker</span></header>
+<canvas width="550" height="420"></canvas>
+<script>
+  if (getComputedStyle(document.querySelector('header')).backgroundColor === 'rgb(23, 111, 55)') {
+    console.log('bao-css-ok');
+  }
+</script>

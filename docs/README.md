@@ -50,7 +50,19 @@
 | 主题 | 文档 | 说明 |
 | --- | --- | --- |
 | Chrome 功能对照清单 | [`chrome-feature-parity.md`](chrome-feature-parity.md) | 1.1.2 现状、缺口、建议批次（含 1.1.3 候选）与待验证项 |
+| 高版本内核 Flash 复核 | [`specs/2026-11-11-qax-chromium102-flash.md`](specs/2026-11-11-qax-chromium102-flash.md) | 奇安信 102 与 360 极速 X 132 的 PPAPI 实测、注册层恢复路径、单内核/外挂/双内核三条路线成本 |
+| 138 单内核移植历程 | [`specs/2026-11-14-electron138-flash-port.md`](specs/2026-11-14-electron138-flash-port.md) | 自建 Electron 37 / Chromium 138 的完整历程：源码获取、四道注册门、Flash 加载实测、87→138 漂移修复、后续计划 |
+| Flash 接入复现手册（AI 版） | [`specs/2026-11-14-flash-port-ai-runbook.md`](specs/2026-11-14-flash-port-ai-runbook.md) | 给另一个 AI/另一台机器的可执行 runbook：环境、源码、构建、四道注册门、87→138 移植补丁、错误字典、自检脚本 |
+| 往上推进版本可行性 | [`specs/2026-11-15-forward-version-feasibility.md`](specs/2026-11-15-forward-version-feasibility.md) | 138→140/142/144/150 的实测评估：删除面、依赖漂移、legacy IPC 断崖、Blink 稳定性、工作量与决策建议（**§1.14.11 为 140 最终状态**） |
+| **Chromium 140 复活手册（AI 版）** | [`specs/2026-11-17-chromium140-ppapi-revival-ai-guide.md`](specs/2026-11-17-chromium140-ppapi-revival-ai-guide.md) | 面向 AI 的 140 二次实现说明书：分阶段验收、逐文件清单、`Make` 顺序与 `FlushAck` 两个关键坑、25 条错误字典、验证 harness |
+| Chromium 144 Spike 计划 | [`specs/2026-11-15-chromium144-spike-plan.md`](specs/2026-11-15-chromium144-spike-plan.md) | 15 个工作日、D10 止损的 144（Electron 40）移植执行计划：sccache 配置、vendor 清单、IPC 适配、逐日里程碑 |
 
+## 对外分享
+
+| 主题 | 文档 | 说明 |
+| --- | --- | --- |
+| 博客：高版本 Flash 不是不可能 | [`blog/2026-11-14-high-version-flash-is-possible.md`](blog/2026-11-14-high-version-flash-is-possible.md) | 面向社区的技术分享：Chromium 138 上跑通原生 PPAPI Flash 的结论、路径、能力边界与成本 |
+| 博客：138 → 140 再推两个大版本 | [`blog/2026-11-17-chromium140-flash-revival.md`](blog/2026-11-17-chromium140-flash-revival.md) | 纪念向分享：Chromium 140 / Electron 38 出帧实录、两个"一行级"坑、版本时间炸弹经验与成本 |
 ## 构建、发布与验证
 
 | 主题 | 文档 |
@@ -59,6 +71,7 @@
 | 1.1.2 回归基线 | [`FINAL_REGRESSION.md`](FINAL_REGRESSION.md)（2026-11-04 实跑结果） |
 | 发行说明与制品 | 根目录 [`RELEASE_NOTES.md`](../RELEASE_NOTES.md)、`release/SHA256SUMS-1.1.2.txt` |
 | OCR 引擎对比 | [`reports/2026-11-02-tesseract-x86-comparison.md`](reports/2026-11-02-tesseract-x86-comparison.md) |
+| **138/140 出帧代码保存方案** | [eports/2026-11-17-port-preservation-plan.md](reports/2026-11-17-port-preservation-plan.md) | 本地快照（分支+提交）/ 补丁归档 / 远程 fork / 冷备四方案对比与执行细节，含已完成留痕清单 |
 
 ## 事故与诊断记录
 

@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Bao CEF independent rendering control</title>
+<style>html, body { margin: 0; width: 100%; height: 100%; }</style>
+<script>
+  const colors = ['#ef2938', '#27c670', '#2a56ef'];
+  function paint() {
+    document.documentElement.style.background = colors[Math.floor(performance.now() / 310) % colors.length];
+    requestAnimationFrame(paint);
+  }
+  requestAnimationFrame(paint);
+</script>
