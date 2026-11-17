@@ -7,7 +7,18 @@
 
 ## 0. 一句话
 
-**先本地留痕（本轮已完成），再按需远程 fork（方案 A）；两条线互补，不冲突。**
+**先本地留痕，再远程 fork（方案 A）——两条线都已完成。**
+
+> **2026-11-17 23:20 更新：已通过 v2rayN SOCKS5（127.0.0.1:10808）完成全部推送**
+>
+> | 仓库 | 分支 / 提交 | 内容 |
+> | --- | --- | --- |
+> | [`Sutanm/bao-flash-chromium-port`](https://github.com/Sutanm/bao-flash-chromium-port)（private） | `main` @ `c5b6cda` | 补丁 + 清单 + 恢复/校验脚本（12 MB） |
+> | [`Sutanm/chromium`](https://github.com/Sutanm/chromium)（fork of chromium/chromium） | `bao/140-verified` @ `08ee1eba6ffe3` | Chromium 140 / Electron 38 移植快照（1782 文件） |
+> | 同上 | `bao/138-verified` @ `32b3d14f10612` | Chromium 138 / Electron 37 基线快照（83 文件） |
+> | [`Sutanm/BaoFlashBrowser`](https://github.com/Sutanm/BaoFlashBrowser) | `docs/port-138-140` @ `b0e4c84` | 本项目文档（含本方案、140 手册、博客） |
+>
+> 重新拉取验证：`git clone -b bao/140-verified https://github.com/Sutanm/chromium.git`（约 12 MB 增量对象；完整 clone 需下 Chromium 历史）。
 
 原因：Chromium 源码树体积巨大（138/140 各约 120–150 GB 工作副本、git 目录数十 GB），而"我们真正写在里面的东西"只有
 **11.8 MB 补丁**（140）+ **0.22 MB 补丁**（138）。所以正确顺序是：**先把"差异"固化下来，再把"差异"推到远端**，
