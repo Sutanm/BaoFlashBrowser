@@ -72,6 +72,7 @@
 | 发行说明与制品 | 根目录 [`RELEASE_NOTES.md`](../RELEASE_NOTES.md)、`release/SHA256SUMS-1.1.2.txt` |
 | OCR 引擎对比 | [`reports/2026-11-02-tesseract-x86-comparison.md`](reports/2026-11-02-tesseract-x86-comparison.md) |
 | **138/140 出帧代码保存方案** | [eports/2026-11-17-port-preservation-plan.md](reports/2026-11-17-port-preservation-plan.md) | 本地快照（分支+提交）/ 补丁归档 / 远程 fork / 冷备四方案对比与执行细节，含已完成留痕清单 |
+| **140 缺陷定性实验** | [eports/2026-11-18-140-experiments.md](reports/2026-11-18-140-experiments.md) | 用 [ppexp] 探针实测：LSO/存档确认不可用、PPB_Flash 单例消息全无宿主、视频其实能播、Flash 会创建 3D 上下文 |
 
 ## 事故与诊断记录
 

@@ -35,3 +35,7 @@ test-results/
 
 # Local captures, downloaded site assets and diagnostic reports
 artifacts/
+
+# Flash 探针编译产物
+tests/flash-probes/out/
+out.res
