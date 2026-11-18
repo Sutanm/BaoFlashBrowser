@@ -855,7 +855,7 @@ Flash 29 + FlxInvaders: interactive=3, digests=3098cac21a2e / 245eefe2a7d0 / b39
 
 **遗留工作（按优先级）**
 
-1. **`FlushAck` 时机**：当前临时在 `PepperGraphics2DHost::PrepareTransferableResource()` 里发 ack。三种终态方案评估：
+1. ~~**`FlushAck` 时机**~~：**已完成（2026-11-18，方案 A，见 §1.14.12）**。曾经的临时做法与三方案评估：
    - **A（推荐）**：`PepperPluginInstanceImpl` 用 `WebFrameWidget::InsertVisualStateRequest()`（140 有，语义=呈现后回调）→ 回调里 `ViewInitiatedPaint()`；需 `返回 false 立即 ack` + 100–250ms 兜底超时；不碰 Blink，覆盖 2D 与 3D。
    - **B（最省）**：16ms 单次定时器；与呈现无关，仅 pacing。
    - **C（最忠实 138）**：改 5 个文件恢复 `WidgetBase::DidCommitAndDrawCompositorFrame → WebFrameWidgetImpl → WebLocalFrameClient → RenderFrameImpl` 链路（约 20 行，其中 2 个是 blink core，rebase 有成本）。
@@ -867,3 +867,32 @@ Flash 29 + FlxInvaders: interactive=3, digests=3098cac21a2e / 245eefe2a7d0 / b39
 4. **环境项**：系统级 `%WINDIR%\SysWOW64\Macromed\Flash\mms.cfg` 需加 `EOLUninstallDisable=1` 才能彻底压掉 Flash 34 的 EOL 提示（需管理员，产品安装期写）。
 
 **16 个阶段、逐文件清单与 25 条错误字典**见 [`2026-11-17-chromium140-ppapi-revival-ai-guide.md`](2026-11-17-chromium140-ppapi-revival-ai-guide.md)。
+
+#### 1.14.12 方案 A 落地（2026-11-18）：FlushAck 改为"帧呈现后"发送
+
+**背景**：§1.14.9 的临时方案是在 `PrepareTransferableResource()`（资源交给合成器时）立刻发 `Graphics2D FlushAck`，
+只能保证"能出帧"，节奏与真实呈现无关。本日按 §1.14.11 的 **A 方案**改成"呈现后发"。
+
+**实现（3 个文件）**
+
+| 文件 | 改动 |
+| --- | --- |
+| `content/renderer/pepper/pepper_graphics_2d_host.{h,cc}` | 新增 `RequestFlushAckAfterPresentation()`：用 `blink::WebFrameWidget::InsertVisualStateRequest()` 注册回调，回调在**下一帧被 display compositor 呈现之后**触发 → `SendFlushAck()`；无合成器则立即 ack；另加 **250ms 兜底定时器**（隐藏标签页 / 零尺寸不产生帧时不能卡死 Flash）。新增 `flush_ack_owed_` 状态保证"呈现回调"与"兜底定时器"只发一次 ack；`HasPendingFlush()` 把它算作待回包 |
+| `content/browser/renderer_host/render_frame_host_impl_ppapi_support.cc` | `DidCreateOutOfProcessPepperInstance()` 里调一次 `RenderWidgetHostImpl::InsertVisualStateCallback()` |
+
+**关键坑（不修则永远走不到呈现回调）**
+
+`WidgetBase::InsertVisualStateRequest()` 依赖 `widget_compositor_`，而它**只在浏览器调用
+`RenderWidgetHostImpl::InsertVisualStateCallback()` 时懒绑定**（`render_widget_host_impl.cc:2107`）。
+绑定之前渲染进程侧一直返回 `false`，代码会静默退化到"立即 ack"（第一版实测：55 次全部落到
+`no compositor` 分支）。所以必须在实例创建时由浏览器触发一次绑定。
+
+**验证（Flash 29.0.0.171 / Chromium 140.0.7339.41）**
+
+| 用例 | 结果 |
+| --- | --- |
+| FlxInvaders.swf | `interactiveFrames=3`，三帧 digest 各不相同；**等待呈现 56 次 / 兜底 0 次 / 无合成器 0 次**，ack 数 == 等待数（无重复 ack）；无 CHECK/FATAL |
+| button.swf | `interactiveFrames=3`，digest 与"立即 ack"版本**完全一致**（`6b11eb2f5636 / d5685c48c4bf / e3159d7b5f91`），说明像素结果不变、只是节奏变化 |
+| 探针清理 | 该文件里的临时 `[ppdbg]`（含 `Init` 时的调色预填）已全部移除 |
+
+**提交**：`bao/140-verified` @ `a54a191522a6e`（"feat(pepper): 方案 A —— FlushAck 改为'帧呈现后'发送"）。

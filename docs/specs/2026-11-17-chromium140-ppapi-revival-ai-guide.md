@@ -281,7 +281,42 @@ scoped_refptr<gpu::ClientSharedImage> resource_image = shared_image;
 整段消失 → `PepperGraphics2DHost::ViewInitiatedPaint()` 不再被调用 → 不发 `PpapiPluginMsg_Graphics2D_FlushAck`
 → **Flash 画完第一帧（清屏白）就停住等 ack**。
 
-临时修法（本文实测可用）：在 `PepperGraphics2DHost::PrepareTransferableResource()` 的两个 `return true;` 之前：
+**已采用的终态方案（方案 A，2026-11-18 落地并验证）**：把 ack 放到"帧被 display compositor 呈现之后"。
+
+```cpp
+// pepper_graphics_2d_host.cc
+void PepperGraphics2DHost::RequestFlushAckAfterPresentation() {
+  if (!need_flush_ack_) return;
+  need_flush_ack_ = false;                    // 由本函数负责这次 ack
+  flush_ack_fallback_timer_.Start(            // 兜底：不产生帧时也要 ack
+      FROM_HERE, base::Milliseconds(250),
+      base::BindOnce(&PepperGraphics2DHost::OnFlushAckPresentationTimeout,
+                     weak_ptr_factory_.GetWeakPtr()));
+  blink::WebFrameWidget* widget = nullptr;
+  if (bound_instance_ && bound_instance_->render_frame())
+    widget = bound_instance_->render_frame()->GetLocalRootWebFrameWidget();
+  if (widget && widget->InsertVisualStateRequest(
+                    base::BindOnce(&PepperGraphics2DHost::SendFlushAck,
+                                   weak_ptr_factory_.GetWeakPtr())))
+    return;                                   // 呈现后回调
+  SendFlushAck();                             // 无合成器：立即 ack
+}
+```
+
+**必踩的坑**：`WidgetBase::InsertVisualStateRequest()` 依赖 `widget_compositor_`，而它只在浏览器调用
+`RenderWidgetHostImpl::InsertVisualStateCallback()` 时**懒绑定**（`render_widget_host_impl.cc:2107`）。
+不绑定的话渲染进程侧恒返回 `false`，代码会静默退化到"立即 ack"。
+因此要在 `RenderFrameHostImplPpapiSupport::DidCreateOutOfProcessPepperInstance()` 里先触发一次：
+
+```cpp
+if (auto* rwh = render_frame_host_->GetRenderWidgetHost())
+  rwh->InsertVisualStateCallback(base::BindOnce([](bool) {}));
+```
+
+另需 `flush_ack_owed_` 保证"呈现回调"与"兜底定时器"只发一次 ack，并让 `HasPendingFlush()` 包含它。
+实测：FlxInvaders 每帧 56 次 ack 全部走呈现回调、0 次兜底；button.swf 像素与"立即 ack"版本一致。
+
+下面是**最早的临时做法**（仅作参考，已被上面替代）：
 
 ```cpp
 if (need_flush_ack_) {
