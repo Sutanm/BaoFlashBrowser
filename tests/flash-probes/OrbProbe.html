@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>orb</title>
+<script>
+window.__orb = { page: {} };
+// 页面侧（带 initiator 的 no-cors 请求）—— ORB 应仍然拦截
+window.addEventListener('load', function () {
+  var url = 'https://q.ms.huanlecdn.com/4399/cdn.123u.com/config/Authenticate.xml?v=889e0c96';
+  fetch(url, { mode: 'no-cors', credentials: 'omit' })
+    .then(function (r) { window.__orb.page.fetch = 'resolved type=' + r.type + ' status=' + r.status; })
+    .catch(function (e) { window.__orb.page.fetch = 'REJECTED ' + String(e); });
+  // 用 <script> 触发一次 no-cors 子资源加载（ORB 也会管这种）
+  var s = document.createElement('script');
+  s.src = url;
+  s.onload = function () { window.__orb.page.script = 'loaded'; };
+  s.onerror = function () { window.__orb.page.script = 'ERROR(blocked)'; };
+  document.head.appendChild(s);
+});
+</script></head>
+<body style="margin:0;background:#111">
+<embed id="orb" type="application/x-shockwave-flash" src="OrbProbe.swf" width="700" height="120" allowscriptaccess="always">
+</body></html>
