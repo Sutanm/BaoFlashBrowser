@@ -896,3 +896,52 @@ Flash 29 + FlxInvaders: interactive=3, digests=3098cac21a2e / 245eefe2a7d0 / b39
 | 探针清理 | 该文件里的临时 `[ppdbg]`（含 `Init` 时的调色预填）已全部移除 |
 
 **提交**：`bao/140-verified` @ `a54a191522a6e`（"feat(pepper): 方案 A —— FlushAck 改为'帧呈现后'发送"）。
+
+#### 1.14.13 2026-11-18 三个回归修复：脚本桥 / Socket / ORB
+
+> 本节为事后追记，数据来源是 `bao/140-verified` 上三个提交 + 140 树代码核对。标"实测"的是运行验证过的，标"待验"的是代码推断出来的连带面。
+
+| 提交 | 修的问题 | 改动 |
+| --- | --- | --- |
+| `4db44a541aa40` | JS ↔ Flash 脚本桥（4399 等站点识别不到 Flash） | 恢复 `PepperPluginInstanceImpl` 的脚本对象接线 |
+| `a8e2aacb8149e` | Flash Socket / XMLSocket 全静默失效（联网游戏卡加载/登录） | `render_frame_impl.cc:1923` 用 `CreateParams::routing_id` 初始化 `pepper_routing_id_` |
+| `26c7a5aec4280` | 跨域配置加载卡 75%（联网游戏） | `url_loader_factory_params_helper.cc` 关闭 ORB（对齐 87 无 ORB 的行为），留注释与 TODO |
+
+**Socket 根因链（`a8e2aacb8149e`）**
+
+140 删 PPAPI 时把 `pepper_routing_id_` 的赋值一起删了，只留 `render_frame_impl.h:1254` 的 `int pepper_routing_id_ = -1;`。于是：
+
+1. `RenderFrameImpl::GetRoutingID()`（`:7038-7040`）恒返回 `-1`；
+2. 插件进程创建实例时把 `-1` 当 `render_frame_id` 报给浏览器 → `BrowserPpapiHostImpl::AddInstance` 存进 `instance_map_`；
+3. `PepperTCPSocketMessageFilter::OnMsgConnect`（`pepper_tcp_socket_message_filter.cc:384`）里 `RenderFrameHost::FromID(render_process_id_, -1)` 返回 null → `PP_ERROR_FAILED`。
+
+**为什么是静默的**：`GetRenderFrameIDsForInstance`（`browser_ppapi_host_impl.cc:86-100`）只要 instance 在 map 里就返回 `true`，只是写出去的 frame id 是 `-1`；filter 构造处的 `NOTREACHED()` 因此不会触发，失败发生在几百行之后的 Connect 内。另注意 `GetNetworkContext()`（`:1353-1362`）只依赖 process id，所以 `rph=4` 是正常的——失败点确实只在 frame 校验。
+
+**实测**（自建 `SocketProbe.swf`：Socket + XMLSocket 连 127.0.0.1:18099）
+
+| 版本 | 本地监听端口收到 |
+| --- | --- |
+| C87（Electron 11） | `<policy-file-request/>` → `HELLO` → `<ping/>` |
+| 140 修复前 | 一个连接都没有 |
+| 140 修复后 | 与 C87 完全一致；AS3 侧另得 `socket DATA ECHO-OK` |
+
+**同一个 `-1` 的连带影响面**（修复前一起坏、修复后应一起恢复）
+
+| 消费点 | 位置 | 修复前行为 | 状态 |
+| --- | --- | --- | --- |
+| TCP Socket connect | `pepper_tcp_socket_message_filter.cc:384-386` | `PP_ERROR_FAILED` | 实测已好 |
+| UDP Socket | `pepper_udp_socket_message_filter.cc:375-378` | `PP_ERROR_NOACCESS` | 待验（同构） |
+| HostResolver | `pepper_host_resolver_message_filter.cc:140-142` | `PP_ERROR_FAILED` | 待验（Flash 不直接用，域名走 Connect 的 host 参数） |
+| 音频输入 | `pepper_platform_audio_input.cc:140,287` | `FromRoutingId` 返回 null → `return false` | 待验 |
+| 音频输出 | `pepper_platform_audio_output_dev.cc:261` | 同上 | 待验 |
+| 摄像头 / 视频捕获 | `pepper_platform_camera_device.cc:100,125`、`pepper_platform_video_capture.cc:106,164` | 同上 | 待验 |
+
+**renderer 侧的隐性坑**：`g_routing_id_frame_map->emplace(pepper_routing_id_, this)`（`render_frame_impl.cc:1939`）在修复前给每个 frame 都用 `-1` 当 key，`emplace` 对重复 key 不覆盖 → 整张表实际只登记了第一个 frame，首个 frame 析构时 `erase(-1)` 还会把表清空。`RenderFrameImpl::FromRoutingId`（`:7047`）因此对任何真实 routing id 都返回 null——这正是上表媒体接口一起失效的原因。
+
+**不受影响、不要误查的三处**
+
+- `PepperTCPServerSocketMessageFilter`：只用 process id + `GetStoragePartition()`，不查 frame；
+- `PepperNetworkProxyHost` / `PepperNetworkMonitorHost`：`CanUseSocketAPIs`（`pepper_socket_utils.cc:45-50`）对 `!external_plugin` 直接 `return true`，命令行注册的 Flash 走不到 `RenderFrameHost::FromID`；
+- `PepperFileIOHost` / `PepperFileRefHost` / `PepperFlashFileMessageFilter` / `PepperFlashBrowserHost`：只取 `render_process_id`（修复前就是对的），Flash 本地存储不受这批改动影响。
+
+**仍未解决（与本节无关，独立线）**：Stage3D / 2D-GPU 合成白屏——已确认合成链全通、`GL_FRAMEBUFFER_COMPLETE`、Flash 只发 `glClear`（白）而**零次 DrawArrays/DrawElements**，断点在 Flash 的 GL 会话内部或客户端 validation 丢弃。判据与探针方案见对话记录，尚未定案。
