@@ -22,7 +22,7 @@
 | 146 / 148 / 149 | ❌ 同 144，风险更高 | 同上 + 更多漂移（`content_plugin_info.h` 在 149 也被删） | 3 个月+ | 低 |
 | **150 / E43** | ⚠️ 可行，但成本最高 | 远程实测：Blink 插件 API 与 `OverrideCreatePlugin` 仍在；需重下 150 源码 + 承担 144 档适配 | 10–14 周 | 中 |
 
-### 0.1 最新进展（2026-11-19）
+### 0.1 最新进展（2026-11-20）
 
 | 事项 | 状态 |
 | --- | --- |
@@ -30,6 +30,7 @@
 | **dist 发布** | ✅ https://github.com/Sutanm/chromium/releases/tag/bao-v140-baseline （170 MB 压缩 / 395 MB 解压） |
 | 代码层缺口收口 | ✅ 4 个内核提交（Clipboard / DrawGlyphs / Menu / [ppexp] 诊针），P3 五项实测全不需要补 |
 | 端到端验证 | ✅ 4399 联网游戏登录并进入战斗关卡 |
+| **142 空载编译** | ✅ `142.0.7444.52` + Electron `v39.0.0` 在本机从源码编出并启动（`chrome=142.0.7444.52`、`appReady=true`），详见 [`reports/2026-11-20-142-build-bringup.md`](../reports/2026-11-20-142-build-bringup.md) |
 
 **补一个本表未覆盖的量化数据**：`140.0.7339.41 → 142.0.7444.52` 共 **13,494 个提交**
 （其中 `content/` 602 个、`third_party/blink/` 1,176 个），与已完成的 `138 → 140`

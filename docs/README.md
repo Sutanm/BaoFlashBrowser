@@ -73,6 +73,7 @@
 | OCR 引擎对比 | [`reports/2026-11-02-tesseract-x86-comparison.md`](reports/2026-11-02-tesseract-x86-comparison.md) |
 | **138/140 出帧代码保存方案** | [eports/2026-11-17-port-preservation-plan.md](reports/2026-11-17-port-preservation-plan.md) | 本地快照（分支+提交）/ 补丁归档 / 远程 fork / 冷备四方案对比与执行细节，含已完成留痕清单 |
 | **140 缺陷定性实验** | [eports/2026-11-18-140-experiments.md](reports/2026-11-18-140-experiments.md) | 用 [ppexp] 探针实测：LSO/存档确认不可用、PPB_Flash 单例消息全无宿主、视频其实能播、Flash 会创建 3D 上下文 |
+| **142 空载编译打通** | [reports/2026-11-20-142-build-bringup.md](reports/2026-11-20-142-build-bringup.md) | Chromium 142 / Electron 39 本机从源码编出并启动成功；含 7 项环境缺口清单、断网依赖同步方案、142 与 140 的上游差异实测 |
 
 ## 事故与诊断记录
 
