@@ -58,11 +58,37 @@ function denyDownloads(target: Session): Session {
  * 页面会话本身**不再**全局补 `Access-Control-Allow-Origin` —— 那等于移除页面 JS 的
  * 同源策略（内网设备、公共接口可读）。
  */
+/**
+ * 把 broker 打的 `X-Bao-Referer` 标记还原成真正的 `Referer`。
+ *
+ * Chromium 不接受在 `net.request`/`net.fetch` 的 header 里直接设 `Referer`
+ * （会以 `ERR_BLOCKED_BY_CLIENT` 拒绝），只能在 `onBeforeSendHeaders` 里改。
+ * 真实站点（4399）缺 Referer 时会返回「访问错误」内容而不是正版 SWF。
+ */
+function restoreBrokerReferer(target: Session): Session {
+  target.webRequest.onBeforeSendHeaders({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
+    const headers: Record<string, string> = { ...details.requestHeaders }
+    const marker = headers['X-Bao-Referer'] ?? headers['x-bao-referer']
+    if (!marker) {
+      callback({ requestHeaders: headers })
+      return
+    }
+    try {
+      headers.Referer = decodeURIComponent(marker)
+    } catch {
+      // 标记损坏时保持原样，不阻断请求
+    }
+    delete headers['X-Bao-Referer']
+    delete headers['x-bao-referer']
+    callback({ requestHeaders: headers })
+  })
+  return target
+}
 let pageSession: Session | undefined
 let shellSession: Session | undefined
 
 export function getPageSession(): Session {
-  pageSession ??= denyDownloads(applyPermissionPolicy(session.fromPartition(PAGE_PARTITION)))
+  pageSession ??= restoreBrokerReferer(denyDownloads(applyPermissionPolicy(session.fromPartition(PAGE_PARTITION))))
   return pageSession
 }
 

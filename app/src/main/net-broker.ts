@@ -45,7 +45,12 @@ interface BrokerBytes {
   body: Uint8Array
 }
 
-function requestBytes(url: string, headers: Record<string, string>, timeoutMs: number): Promise<BrokerBytes> {
+function requestBytes(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+  target: Electron.Session
+): Promise<BrokerBytes> {
   return new Promise((resolve, reject) => {
     let settled = false
     const finish = (error: Error | null, value?: BrokerBytes): void => {
@@ -56,7 +61,12 @@ function requestBytes(url: string, headers: Record<string, string>, timeoutMs: n
       else resolve(value as BrokerBytes)
     }
 
-    const request: ClientRequest = net.request({ method: 'GET', url, redirect: 'follow' })
+    const request: ClientRequest = net.request({
+      method: 'GET',
+      url,
+      redirect: 'follow',
+      session: target
+    })
     const timer = setTimeout(() => {
       request.abort()
       finish(new Error('timeout'))
@@ -102,14 +112,17 @@ export function registerNetBroker(): void {
     }
 
     // 补齐 Flash 会带的请求头：
+    // - Referer：flash 的 URLLoader 带发起文档地址；4399 的 CDN 缺它会返回 23KB 的
+    //   「访问错误」内容（正版 2.7MB）。Chromium 不接受 header 直接设 Referer
+    //   （ERR_BLOCKED_BY_CLIENT），改用 `X-Bao-Referer` 标记，由页面会话的
+    //   `onBeforeSendHeaders` 还原成真正的 Referer（见 sessions.ts）。
     // - Cookie：Flash 对目标域会带 cookie（登录后的游戏接口依赖它）。
     // - User-Agent：沿用页面视图的 UA，避免站点按 Electron 默认 UA 区分。
-    // 注意**不要**直接设 `Referer`：Chromium 会以 ERR_BLOCKED_BY_CLIENT 拒绝
-    // （实测 2026-11-22，带 Referer 的 net.request 全部被拦，不带的返回 200）。
     const headers: Record<string, string> = {
       'User-Agent': event.sender.getUserAgent() || 'Mozilla/5.0',
       Accept: '*/*'
     }
+    if (initiator) headers['X-Bao-Referer'] = encodeURIComponent(initiator)
     try {
       const cookies = await event.sender.session.cookies.get({ url })
       if (cookies.length > 0) {
@@ -120,7 +133,7 @@ export function registerNetBroker(): void {
     }
 
     try {
-      const bytes = await requestBytes(url, headers, TIMEOUT_MS)
+      const bytes = await requestBytes(url, headers, TIMEOUT_MS, event.sender.session)
       if (bytes.body.byteLength > MAX_BODY_BYTES) return { proxied: false, reason: 'too-large' }
       return {
         proxied: true,
