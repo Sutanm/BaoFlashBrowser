@@ -102,19 +102,38 @@
 
 ## 4.2 真实站点对照（2026-11-22）
 
-样本：<https://www.4399.com/flash/254626_3.htm>（狂扁外星人）。加载链：页面 → `gameloader2.swf` → 游戏 `szhong.4399.com/4399swf/upload_swf/ftp52/gamehwq/20250905/15b.swf`。
+**样本一**：<https://www.4399.com/flash/254626_3.htm>（狂扁外星人）。加载链：页面 → `gameloader2.swf` → 游戏 `szhong.4399.com/4399swf/upload_swf/ftp52/gamehwq/20250905/15b.swf`。
 
 | 引擎 | 结果 | 证据 |
 | --- | --- | --- |
 | 原生 PPAPI | 页面加载、`Pepper Plugin` 进程存在、SWF 链路全部 200、游戏首帧渲染 | [截图](../evidence/2026-11-22-4399-254626-ppapi.png) |
 | Ruffle 0.8.0 | 修复 `publicPath` 与 SWF CORS 两处后：加载器运行、游戏 SWF 成功 fetch、游戏首帧渲染 | [截图](../evidence/2026-11-22-4399-254626-ruffle.png) |
 
-该对照直接产出了上表的两个修复（`publicPath` 合法性、SWF CORS 兼容层）。**只覆盖单个页面**：4399 的登录/防沉迷弹窗流程、其他站点、Ruffle 的 Stage3D 与音频、站点版本门（UA / 插件版本通告 / `mms.cfg` / SWFObject）仍未验证。
+该对照直接产出了上表的两个修复（`publicPath` 合法性、SWF CORS 兼容层）。
+
+**样本二**：<http://mole.61.com/>（摩尔庄园登录页，淘米）。用来判定「站点版本门」是否成立。
+
+| 引擎 | 结果 | 证据 |
+| --- | --- | --- |
+| 原生 PPAPI | 登录面板与游戏公告**完整渲染**，控制台 **0 条**消息 | [截图](../evidence/2026-11-22-mole-61-ppapi.jpg) |
+| Ruffle 0.8.0 | 登录页渲染正常，但客户端数据层报三类错误（见下） | [截图](../evidence/2026-11-22-mole-61-ruffle.jpg) |
+
+**版本门结论**：该站点**不做** Flash 版本门或 UA 门。`navigator.plugins` 报 `Shockwave Flash 29.0 r0`、UA 是 Chromium 142，站点照常加载登录面板与 12 个客户端 SWF（`Login.swf`、`TaomeeCoreDLL.swf`、`ClientSocketDLL.swf`、`ClientAppDLL.swf` 等）。E39 缺少 `ppapi-flash-version` 开关这一风险在此站未暴露；是否需要版本伪装仍缺证据。
+
+Ruffle 在同一站点暴露的三个**客户端层**问题（都不是版本门）：
+
+| 问题 | 证据 | 归属 |
+| --- | --- | --- |
+| 跨源 iframe 无法 polyfill | `Couldn't load Ruffle into IFRAME[]: SecurityError: Failed to read a named property 'document'` | 我们的页面 preload 只注入主帧；需要 `nodeIntegrationInSubFrames` 让 Ruffle 引导进子帧 |
+| 数据请求的 CORS 被拦 | `Access to fetch at 'http://newmisc.taomee.com/misc.js?...' blocked by CORS policy` | 我们的 CORS 垫片只覆盖 `*.swf`；该数据地址以 `.js` 结尾 |
+| `URLStream` 未实现 | `Encountered stub: AVM2 flash.net.URLStream constructor streaming support` | Ruffle 自身能力缺口，应用层无法修复 |
+
+**只覆盖两个页面**：登录后的游戏本体、4399 的防沉迷弹窗流程、其他站点、Ruffle 的 Stage3D 与音频仍未验证。
 
 ## 5. 未验证与遗留
 
 - **弹窗的 `window.opener`**：以「新标签」承载弹窗会丢失 `window.opener` 与带 features 的独立弹窗窗口。真实站点若用 `opener.postMessage`/`opener.location` 做 lobby→game 交接，需要改成 `overrideBrowserWindowOptions` 的真实弹窗窗口（142 报告的探针形态）。本增量按约定不做真站回归，该限制未在真实站点上验证。
-- **站点版本门**：UA 与插件版本通告未做兼容处理（`navigator.plugins` 报 `29.0 r0`）。E39 已无 `ppapi-flash-version` 开关，若门禁要求更高版本需用 preload 只读伪装，待真站对照决定。
+- **站点版本门**：两个真实站点（4399、淘米摩尔庄园）都**不做**版本门或 UA 门，`Shockwave Flash 29.0 r0` + Chromium 142 可正常加载。E39 已无 `ppapi-flash-version` 开关，若后续遇到门禁要求更高版本，需要用 preload 做只读伪装（尚未实现）。
 - **Ruffle 画布焦点**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖）。
 - **插件内的 IME 组合**：`plugin-input.test.cjs` 只覆盖 keydown/`charCode`；CDP 的 `Input.imeSetComposition` 只对 HTML 页面验证过，IME 组合输入到 PPAPI 插件内部未测。
 - **引擎切换失败回退**：`navigationHistory.restore()` 抛错的分支已实现（保留原引擎并给出提示），但没有构造出失败用例；POST 体等无法还原的状态只按文档记录，未实测。
