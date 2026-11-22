@@ -1,0 +1,887 @@
+{
+  "at": "2026-11-22T13:59:09.401Z",
+  "modes": {
+    "direct": {
+      "summary": {
+        "specific": 12,
+        "wildcard": 4,
+        "html-page": 3,
+        "http-503": 3,
+        "error": 1,
+        "http-400": 2,
+        "missing": 8,
+        "http-403": 2
+      },
+      "results": [
+        {
+          "host": "www.4399.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.4399pk.com,*.4399.com,4399pk.com,wma.4399pk.net)",
+          "bytes": 253,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.4399pk.com\" /> <allow-access-from domain=\"*.4399.com\" /> <allow-acc"
+        },
+        {
+          "host": "szhong.4399.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.4399pk.com,*.4399.com,4399pk.com,wma.4399pk.net…)",
+          "bytes": 300,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.4399pk.com\" /> <allow-access-from domain=\"*.4399.com\" /> <allow-acc"
+        },
+        {
+          "host": "www.7k7k.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 106,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*\" /> </cross-domain-policy> "
+        },
+        {
+          "host": "www.2144.cn",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 4009,
+          "excerpt": "<!DOCTYPE html> <html lang=\"zh-CN\"> <head> <meta charset=\"UTF-8\"> <meta http-equiv=\"X-UA-Compatible\" content=\"ie=edge\"> <meta name=\"renderer"
+        },
+        {
+          "host": "www.3366.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "mole.61.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.taomee.com,*.61.com,*.51mole.com)",
+          "bytes": 265,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*.taomee.com\" /"
+        },
+        {
+          "host": "www.61.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.taomee.com,*.61.com)",
+          "bytes": 218,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*.taomee.com\" /"
+        },
+        {
+          "host": "www.taomee.com",
+          "scheme": "http",
+          "status": 0,
+          "policy": "error(AbortError: This operation was aborted)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "newmisc.taomee.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 177,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*\" to-ports=\"*\""
+        },
+        {
+          "host": "www.17yy.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.17yy.com)",
+          "bytes": 150,
+          "excerpt": "<cross-domain-policy> <site-control permitted-cross-domain-policies=\"master-only\"/> <allow-access-from domain=\"*.17yy.com\"/> </cross-domain-"
+        },
+        {
+          "host": "www.973.com",
+          "scheme": "http",
+          "status": 400,
+          "policy": "http-400",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.07073.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.07073.com,*.073img.com,*.baidu.com,*.qq.com)",
+          "bytes": 248,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.07073.com\" /> <allow-access-from domain=\"*.073img.com\" /> <allow-ac"
+        },
+        {
+          "host": "www.5068.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 4234,
+          "excerpt": "<!doctype html> <html> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, user-scalable=no, initial-scale=1.0,"
+        },
+        {
+          "host": "www.9553.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.87g.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.265g.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.yxdown.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.100bt.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.100bt.com)",
+          "bytes": 114,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.100bt.com\" /> </cross-domain-policy>"
+        },
+        {
+          "host": "www.leiting.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.9game.cn",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.51.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.51img1.com,*.51.com)",
+          "bytes": 150,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.51img1.com\" /> <allow-access-from domain=\"*.51.com\" /> </cross-doma"
+        },
+        {
+          "host": "www.37.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.37wan.com)",
+          "bytes": 89,
+          "excerpt": "<cross-domain-policy> <allow-access-from domain=\"*.37wan.com\" /> </cross-domain-policy>"
+        },
+        {
+          "host": "www.7k7k.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 106,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*\" /> </cross-domain-policy> "
+        },
+        {
+          "host": "www.kongregate.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(internal.kongregate.com)",
+          "bytes": 282,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.newgrounds.com",
+          "scheme": "https",
+          "status": 403,
+          "policy": "http-403",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.miniclip.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 143332,
+          "excerpt": "<!doctype html> <html data-n-head-ssr lang=\"en-US\" data-n-head=\"%7B%22lang%22:%7B%22ssr%22:%22en-US%22%7D%7D\"> <head> <meta data-n-head=\"ssr"
+        },
+        {
+          "host": "www.armorgames.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(armorgames.com,services.armorgames.com,cache.armorgames.com,agi.armorgames.com…)",
+          "bytes": 495,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.addictinggames.com",
+          "scheme": "https",
+          "status": 403,
+          "policy": "http-403",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.y8.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 216,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.crazygames.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "poki.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.friv.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.silvergames.com",
+          "scheme": "http",
+          "status": 400,
+          "policy": "http-400",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.gameflare.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.gameflare.com,gameflare.com,*.zahraj.sk,zahraj.sk…)",
+          "bytes": 791,
+          "excerpt": "<?xml version=\"1.0\" ?> <cross-domain-policy> <allow-access-from domain=\"*.gameflare.com\" /> <allow-access-from domain=\"gameflare.com\" /> <al"
+        },
+        {
+          "host": "www.flasharch.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        }
+      ]
+    },
+    "socks5-10808": {
+      "summary": {
+        "specific": 12,
+        "wildcard": 4,
+        "html-page": 3,
+        "http-503": 3,
+        "error": 1,
+        "http-400": 1,
+        "missing": 9,
+        "http-403": 2
+      },
+      "results": [
+        {
+          "host": "www.4399.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.4399pk.com,*.4399.com,4399pk.com,wma.4399pk.net)",
+          "bytes": 253,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.4399pk.com\" /> <allow-access-from domain=\"*.4399.com\" /> <allow-acc"
+        },
+        {
+          "host": "szhong.4399.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.4399pk.com,*.4399.com,4399pk.com,wma.4399pk.net…)",
+          "bytes": 300,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.4399pk.com\" /> <allow-access-from domain=\"*.4399.com\" /> <allow-acc"
+        },
+        {
+          "host": "www.7k7k.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 106,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*\" /> </cross-domain-policy> "
+        },
+        {
+          "host": "www.2144.cn",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 4009,
+          "excerpt": "<!DOCTYPE html> <html lang=\"zh-CN\"> <head> <meta charset=\"UTF-8\"> <meta http-equiv=\"X-UA-Compatible\" content=\"ie=edge\"> <meta name=\"renderer"
+        },
+        {
+          "host": "www.3366.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "mole.61.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.taomee.com,*.61.com,*.51mole.com)",
+          "bytes": 265,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*.taomee.com\" /"
+        },
+        {
+          "host": "www.61.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.taomee.com,*.61.com)",
+          "bytes": 218,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*.taomee.com\" /"
+        },
+        {
+          "host": "www.taomee.com",
+          "scheme": "http",
+          "status": 0,
+          "policy": "error(AbortError: This operation was aborted)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "newmisc.taomee.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 177,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*\" to-ports=\"*\""
+        },
+        {
+          "host": "www.17yy.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.17yy.com)",
+          "bytes": 150,
+          "excerpt": "<cross-domain-policy> <site-control permitted-cross-domain-policies=\"master-only\"/> <allow-access-from domain=\"*.17yy.com\"/> </cross-domain-"
+        },
+        {
+          "host": "www.973.com",
+          "scheme": "http",
+          "status": 400,
+          "policy": "http-400",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.07073.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.07073.com,*.073img.com,*.baidu.com,*.qq.com)",
+          "bytes": 248,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.07073.com\" /> <allow-access-from domain=\"*.073img.com\" /> <allow-ac"
+        },
+        {
+          "host": "www.5068.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 4234,
+          "excerpt": "<!doctype html> <html> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, user-scalable=no, initial-scale=1.0,"
+        },
+        {
+          "host": "www.9553.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.87g.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.265g.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.yxdown.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.100bt.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.100bt.com)",
+          "bytes": 114,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.100bt.com\" /> </cross-domain-policy>"
+        },
+        {
+          "host": "www.leiting.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.9game.cn",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.51.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.51img1.com,*.51.com)",
+          "bytes": 150,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.51img1.com\" /> <allow-access-from domain=\"*.51.com\" /> </cross-doma"
+        },
+        {
+          "host": "www.37.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.37wan.com)",
+          "bytes": 89,
+          "excerpt": "<cross-domain-policy> <allow-access-from domain=\"*.37wan.com\" /> </cross-domain-policy>"
+        },
+        {
+          "host": "www.7k7k.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 106,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*\" /> </cross-domain-policy> "
+        },
+        {
+          "host": "www.kongregate.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(internal.kongregate.com)",
+          "bytes": 282,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.newgrounds.com",
+          "scheme": "https",
+          "status": 403,
+          "policy": "http-403",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.miniclip.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 143332,
+          "excerpt": "<!doctype html> <html data-n-head-ssr lang=\"en-US\" data-n-head=\"%7B%22lang%22:%7B%22ssr%22:%22en-US%22%7D%7D\"> <head> <meta data-n-head=\"ssr"
+        },
+        {
+          "host": "www.armorgames.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(armorgames.com,services.armorgames.com,cache.armorgames.com,agi.armorgames.com…)",
+          "bytes": 495,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.addictinggames.com",
+          "scheme": "https",
+          "status": 403,
+          "policy": "http-403",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.y8.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 216,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.crazygames.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "poki.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.friv.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.silvergames.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.gameflare.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.gameflare.com,gameflare.com,*.zahraj.sk,zahraj.sk…)",
+          "bytes": 791,
+          "excerpt": "<?xml version=\"1.0\" ?> <cross-domain-policy> <allow-access-from domain=\"*.gameflare.com\" /> <allow-access-from domain=\"gameflare.com\" /> <al"
+        },
+        {
+          "host": "www.flasharch.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        }
+      ]
+    },
+    "http-10809": {
+      "summary": {
+        "specific": 12,
+        "wildcard": 4,
+        "html-page": 3,
+        "http-503": 3,
+        "error": 1,
+        "http-400": 2,
+        "missing": 8,
+        "http-403": 2
+      },
+      "results": [
+        {
+          "host": "www.4399.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.4399pk.com,*.4399.com,4399pk.com,wma.4399pk.net)",
+          "bytes": 253,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.4399pk.com\" /> <allow-access-from domain=\"*.4399.com\" /> <allow-acc"
+        },
+        {
+          "host": "szhong.4399.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.4399pk.com,*.4399.com,4399pk.com,wma.4399pk.net…)",
+          "bytes": 300,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.4399pk.com\" /> <allow-access-from domain=\"*.4399.com\" /> <allow-acc"
+        },
+        {
+          "host": "www.7k7k.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 106,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*\" /> </cross-domain-policy> "
+        },
+        {
+          "host": "www.2144.cn",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 4009,
+          "excerpt": "<!DOCTYPE html> <html lang=\"zh-CN\"> <head> <meta charset=\"UTF-8\"> <meta http-equiv=\"X-UA-Compatible\" content=\"ie=edge\"> <meta name=\"renderer"
+        },
+        {
+          "host": "www.3366.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "mole.61.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.taomee.com,*.61.com,*.51mole.com)",
+          "bytes": 265,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*.taomee.com\" /"
+        },
+        {
+          "host": "www.61.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.taomee.com,*.61.com)",
+          "bytes": 218,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*.taomee.com\" /"
+        },
+        {
+          "host": "www.taomee.com",
+          "scheme": "http",
+          "status": 0,
+          "policy": "error(AbortError: This operation was aborted)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "newmisc.taomee.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 177,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <site-control permitted-cross-domain-policies=\"all\"/> <allow-access-from domain=\"*\" to-ports=\"*\""
+        },
+        {
+          "host": "www.17yy.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.17yy.com)",
+          "bytes": 150,
+          "excerpt": "<cross-domain-policy> <site-control permitted-cross-domain-policies=\"master-only\"/> <allow-access-from domain=\"*.17yy.com\"/> </cross-domain-"
+        },
+        {
+          "host": "www.973.com",
+          "scheme": "http",
+          "status": 400,
+          "policy": "http-400",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.07073.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.07073.com,*.073img.com,*.baidu.com,*.qq.com)",
+          "bytes": 248,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.07073.com\" /> <allow-access-from domain=\"*.073img.com\" /> <allow-ac"
+        },
+        {
+          "host": "www.5068.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 4234,
+          "excerpt": "<!doctype html> <html> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, user-scalable=no, initial-scale=1.0,"
+        },
+        {
+          "host": "www.9553.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.87g.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.265g.com",
+          "scheme": "http",
+          "status": 503,
+          "policy": "http-503",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.yxdown.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.100bt.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.100bt.com)",
+          "bytes": 114,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.100bt.com\" /> </cross-domain-policy>"
+        },
+        {
+          "host": "www.leiting.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.9game.cn",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.51.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.51img1.com,*.51.com)",
+          "bytes": 150,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*.51img1.com\" /> <allow-access-from domain=\"*.51.com\" /> </cross-doma"
+        },
+        {
+          "host": "www.37.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.37wan.com)",
+          "bytes": 89,
+          "excerpt": "<cross-domain-policy> <allow-access-from domain=\"*.37wan.com\" /> </cross-domain-policy>"
+        },
+        {
+          "host": "www.7k7k.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 106,
+          "excerpt": "<?xml version=\"1.0\"?> <cross-domain-policy> <allow-access-from domain=\"*\" /> </cross-domain-policy> "
+        },
+        {
+          "host": "www.kongregate.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(internal.kongregate.com)",
+          "bytes": 282,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.newgrounds.com",
+          "scheme": "https",
+          "status": 403,
+          "policy": "http-403",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.miniclip.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "html-page",
+          "bytes": 143332,
+          "excerpt": "<!doctype html> <html data-n-head-ssr lang=\"en-US\" data-n-head=\"%7B%22lang%22:%7B%22ssr%22:%22en-US%22%7D%7D\"> <head> <meta data-n-head=\"ssr"
+        },
+        {
+          "host": "www.armorgames.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(armorgames.com,services.armorgames.com,cache.armorgames.com,agi.armorgames.com…)",
+          "bytes": 495,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.addictinggames.com",
+          "scheme": "https",
+          "status": 403,
+          "policy": "http-403",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.y8.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "wildcard",
+          "bytes": 216,
+          "excerpt": "<?xml version=\"1.0\"?> <!DOCTYPE cross-domain-policy SYSTEM \"http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd\"> <cross-domain-polic"
+        },
+        {
+          "host": "www.crazygames.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "poki.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.friv.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.silvergames.com",
+          "scheme": "http",
+          "status": 400,
+          "policy": "http-400",
+          "bytes": 0,
+          "excerpt": ""
+        },
+        {
+          "host": "www.gameflare.com",
+          "scheme": "https",
+          "status": 200,
+          "policy": "specific(*.gameflare.com,gameflare.com,*.zahraj.sk,zahraj.sk…)",
+          "bytes": 791,
+          "excerpt": "<?xml version=\"1.0\" ?> <cross-domain-policy> <allow-access-from domain=\"*.gameflare.com\" /> <allow-access-from domain=\"gameflare.com\" /> <al"
+        },
+        {
+          "host": "www.flasharch.com",
+          "scheme": "https",
+          "status": 404,
+          "policy": "missing(404)",
+          "bytes": 0,
+          "excerpt": ""
+        }
+      ]
+    }
+  }
+}

@@ -165,17 +165,38 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 2. **覆盖范围**：Ruffle 的取数路径有多条（wasm-bindgen 的 `__wbg_fetch_*` import ×2、WASM loader、字体、`URLLoader`），只替换 import 不覆盖全部，需逐条实测。
 3. **实验性 API**：`executeInMainWorld` 是实验接口，OOPIF、初始化抢占、跨桥 Promise/typed array/错误传播都需实测。
 
-**决定：M1 暂不迁移。** 保留全局垫片并记录取舍；把「broker + 策略层」作为 M2 立项（设计方向已明确，机制已验证）。
+**最终实现（2026-11-22，已落地并验证）：引擎网络 broker。**
 
-**M2 验收要点**（独立复核提出，避免把"机制可用"误当成"安全已收口"）：
+全局 CORS 垫片**已移除**（`sessions.ts` 不再给响应补 `Access-Control-Allow-Origin`）。改为主进程 broker 按目标站 `crossdomain.xml` 判定：
 
-- 必须**分别**证明两件事：①页面原生 `fetch` 的 SOP 未被修改；②页面**无法借引擎**读到本不该读的内容。URL 标签、一次性 nonce/handle、blob URL、闭包都**不**自动满足 ②。
-- 最小要求：限制 root/data 的 MIME 与来源、校验 provenance、拒绝未许可的响应；更严格的做法是把「原始任意跨域字节」留在隔离世界或独立宿主，主世界只拿非特权结果。
-- 用例要能测出「未授权 URL 不发出、或不回传主世界」，并在**导航 / iframe 销毁后作废该文档的能力**；不要只做窗口全局枚举（需覆盖 `Promise`/`Response`/`WebAssembly.instantiate`/DOM setter 的替换，以及 player/config 与自定义 SWF + `ExternalInterface` 的联动）。
+| 组件 | 文件 | 作用 |
+| --- | --- | --- |
+| 策略 | `src/main/crossdomain.ts` | 按目标 `host:port` 取 `crossdomain.xml`（6s 超时、64KB 上限、10 分钟缓存），解析 `allow-access-from` 的 domain / `secure` |
+| broker | `src/main/net-broker.ts` | IPC 入口：校验发送者是页面视图，来源用 `event.senderFrame.url`（浏览器认证、页面无法伪造），放行则 `net.fetch` 取字节回传，拒绝则让调用方回退浏览器 fetch |
+| 垫片 | `src/preload/page.ts` | 主世界 `window.fetch` 换成经 broker 的版本；`executeInMainWorld` 把 preload 私有 transport 代理进主世界 |
 
-补充核实：淘米的 `http://newmisc.taomee.com/misc.js` 请求来源已确认是 **Ruffle 自己**（控制台 `core/src/loader.rs:1327` 的 `URLError`），不是站点页面 JS 发出——所以这不是「页面 JS 被误放行」的案例，放宽确有必要。
+**两个语义修正（都靠实测发现）**：
 
-**若 M2 重开此项**：受限 broker + `crossdomain.xml` 策略（让放行判定与 Flash 一致，而不是无条件 `*`）。
+1. **端口必须保留**：策略文件按「目标 `host:port`」取。最初只用了 hostname，导致 `127.0.0.1:PORT` 去 80 端口找策略，全部误判为「无策略」。
+2. **`secure` 的语义不是「只允许 https 来源」**：它只禁止 **http 来源 → https 目标** 这一种组合，http→http、https→http、https→https 都允许。真实站点（4399 的 https 策略、淘米的 http 策略）都没写 `secure="false"`，正是依赖这条规则（依据：[Adobe AS3 开发指南](https://help.adobe.com/zh_TW/as3/dev/as3_devguide.pdf) 与[规则总结](https://developer.aliyun.com/article/425658)）。
+
+**真站验收**（broker 生效后，Ruffle 引擎）：
+
+| 站点 | 结果 | CORS 错误 |
+| --- | --- | --- |
+| `https://www.4399.com/flash/254626_3.htm` | `canvas: true`，游戏 SWF 经 broker 加载 | 0（仅 cnzz 统计脚本的 `document.write` 提示） |
+| `http://mole.61.com/` | `canvas: true`，客户端数据经 broker 加载 | 0 |
+
+**保留的已知边界**：
+
+- Ruffle 0.8.0 **没有请求重定向钩子**（`urlRewriteRules` 只作用于 SWF 发起的运行时请求，根 SWF 不经过），所以只能在页面主世界替换 `window.fetch`——这是**页面可见**的改动（站点能检测到 fetch 非原生）。
+- 策略文件被 WAF 拦（503/400/403）的站点按「无策略」拒绝；Flash 当年同样是同 IP 取策略，行为一致。
+- `to-ports` 未单独实现：策略按目标 `host:port` 取，端口天然一致。
+- Ruffle 自身的 `SharedObject`/`tag_utils` URL 解析报错与 CORS 无关，属其能力缺口。
+
+补充核实：淘米的 `http://newmisc.taomee.com/misc.js` 请求来源已确认是 **Ruffle 自己**（控制台 `core/src/loader.rs:1327` 的 `URLError`），不是站点页面 JS 发出。
+
+**兼容性提醒**：mole.61.com 只推进到「开始」界面，`URLStream` 仍是 Ruffle 的 stub，不能承诺完整兼容。
 
 **兼容性提醒**：mole.61.com 只推进到「开始」界面，`URLStream` 仍是 Ruffle 的 stub，不能承诺完整兼容。
 

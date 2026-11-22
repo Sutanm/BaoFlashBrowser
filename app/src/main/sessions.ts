@@ -54,47 +54,15 @@ function denyDownloads(target: Session): Session {
 }
 
 /**
- * Ruffle 兼容层：跨源请求的 CORS 放行（架构 §3 引擎、§4 webRequest 策略）。
- *
- * 两种引擎的网络模型不同：原生 PPAPI 插件进程自己发请求、不受 CORS 约束；Ruffle 用页面
- * `fetch()` 取资源，跨域 CDN 没给 `Access-Control-Allow-Origin` 就会被浏览器拦掉。
- * 真实站点对照（2026-11-22）复现了两类：4399 的 SWF 在 `szhong.4399.com`、
- * 淘米客户端的数据地址 `newmisc.taomee.com/misc.js`。
- *
- * 范围取舍：站点不可穷举，逐站维护白名单不现实，因此**对页面会话的全部 http(s) 响应**
- * 补齐放行头 —— 与「每站实测」相比，这是可维护性与安全面的显式交换：
- * - 只补**缺失**的 `Access-Control-Allow-Origin`，服务端已有的头（含带凭据的精确源）保持不动；
- * - 只写 `*`，不写 `Access-Control-Allow-Credentials`（两者互斥），因此带凭据的跨源读取仍然不通；
- * - 只作用于页面会话，外壳（本地 `file:`）不受影响。
- * 后续做站点规则时，可以把这里收窄成「按站点/按请求类型」的策略。
+ * 跨源读权限由主进程 broker 按站点 `crossdomain.xml` 判定（见 `net-broker.ts`）。
+ * 页面会话本身**不再**全局补 `Access-Control-Allow-Origin` —— 那等于移除页面 JS 的
+ * 同源策略（内网设备、公共接口可读）。
  */
-const HTTP_URLS = ['http://*/*', 'https://*/*']
-
-function relaxCors(target: Session): Session {
-  target.webRequest.onHeadersReceived({ urls: HTTP_URLS }, (details, callback) => {
-    const headers: Record<string, string[]> = {}
-    let hasOrigin = false
-    for (const [name, value] of Object.entries(details.responseHeaders ?? {})) {
-      if (name.toLowerCase() === 'access-control-allow-origin') hasOrigin = true
-      headers[name] = value
-    }
-    if (hasOrigin) {
-      callback({ responseHeaders: headers })
-      return
-    }
-    headers['Access-Control-Allow-Origin'] = ['*']
-    headers['Access-Control-Allow-Headers'] = ['*']
-    headers['Access-Control-Allow-Methods'] = ['GET, POST, HEAD, OPTIONS']
-    callback({ responseHeaders: headers })
-  })
-  return target
-}
-
 let pageSession: Session | undefined
 let shellSession: Session | undefined
 
 export function getPageSession(): Session {
-  pageSession ??= denyDownloads(relaxCors(applyPermissionPolicy(session.fromPartition(PAGE_PARTITION))))
+  pageSession ??= denyDownloads(applyPermissionPolicy(session.fromPartition(PAGE_PARTITION)))
   return pageSession
 }
 

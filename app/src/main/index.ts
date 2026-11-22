@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { createBrowserWindow, registerBrowserIpc } from './browser-window'
 import { configureFlashPlugin } from './plugins'
 import { registerRuffleIpc, registerRuffleScheme } from './ruffle'
+import { registerNetBroker } from './net-broker'
 
 app.setName('BaoFlashBrowser Next')
 
@@ -18,6 +19,8 @@ registerRuffleScheme()
 const flash = configureFlashPlugin()
 registerBrowserIpc()
 registerRuffleIpc()
+// 引擎网络 broker：按 crossdomain.xml 放行 Ruffle 的跨域读（架构 §3 引擎）。
+registerNetBroker()
 
 function shellDocument(): string {
   const devUrl = !app.isPackaged && process.env.ELECTRON_RENDERER_URL

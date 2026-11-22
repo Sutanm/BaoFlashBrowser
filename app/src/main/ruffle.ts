@@ -3,6 +3,7 @@ import type { Session } from 'electron'
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
+import { isPageView } from './page-views'
 
 /**
  * Ruffle 本地资源（架构 §3 引擎：「Ruffle 使用版本固定的本地资源」）。
@@ -148,18 +149,12 @@ export function bindRuffleProtocol(pageSession: Session): void {
  * 用同步 IPC 而不是 `fetch('ruffle-resource://…')`：站点的 `connect-src` CSP 会拦页面
  * 世界的 fetch，而 preload 的 IPC 不受 CSP 约束（架构 §3 IPC：校验发送者身份）。
  *
- * 发送者校验用「视图登记表」而不是 URL：preload 在文档提交前执行，此时 `getURL()` 还是
+ * 发送者校验用「页面视图登记表」而不是 URL：preload 在文档提交前执行，此时 `getURL()` 还是
  * 空的，按 URL 判断会把自己人挡掉。
  */
-const pageViewIds = new Set<number>()
-
-export function registerPageView(contentsId: number): void {
-  pageViewIds.add(contentsId)
-}
-
 export function registerRuffleIpc(): void {
   ipcMain.on('bao:ruffle-bundle', (event) => {
-    if (!pageViewIds.has(event.sender.id)) {
+    if (!isPageView(event.sender.id)) {
       console.warn(`[ruffle] 拒绝来源 ${event.sender.getURL() || '(空)'} 的运行时请求`)
       event.returnValue = ''
       return

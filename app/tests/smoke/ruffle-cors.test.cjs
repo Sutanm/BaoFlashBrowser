@@ -33,8 +33,10 @@ test('Ruffle 跨源加载：SWF、数据请求与跨源 iframe 子帧', { timeou
   // 三个源，避免"同源冒充跨源"的假阳性：
   //   A 页面（pageServer）→ B 数据/iframe（dataServer）→ C SWF（swfServer）
   // A→C、B→C 都是跨源，且两个服务器都不发 Access-Control-Allow-Origin。
-  const swfServer = await startFixtureServer()
+  const WILDCARD = '<?xml version="1.0"?><cross-domain-policy><allow-access-from domain="*" /></cross-domain-policy>'
+  const swfServer = await startFixtureServer({ '/crossdomain.xml': WILDCARD })
   const dataServer = await startFixtureServer({
+    '/crossdomain.xml': WILDCARD,
     '/data.json': 'ok',
     '/embed.html': `<!doctype html><meta charset="utf-8"><title>子帧</title>
       <embed id="flash" src="${swfServer.baseUrl}/probe.swf" type="application/x-shockwave-flash"
@@ -60,12 +62,13 @@ test('Ruffle 跨源加载：SWF、数据请求与跨源 iframe 子帧', { timeou
     await address.press('Enter')
     await shell.getByRole('button', { name: '跨源插件页面', exact: true }).waitFor({ timeout: 30_000 })
 
-    // 1) 跨源数据请求：验证 CORS 兼容层（**页面 JS 也会被放开**，这是已知取舍，见报告）
-    const cors = await waitFor(async () => {
+    // 1) 页面 JS 自己的跨源 fetch：原生引擎下没有 broker 垫片，应按 CORS 被拦
+    //    （这条守卫「页面同源策略未被放宽」；跨源读的放行路径由 engine-broker.test.cjs 覆盖）
+    const pageFetch = await waitFor(async () => {
       const value = await viewEval(app, shell, 'window.__cors')
       return value && value !== 'pending' ? value : null
-    }, { message: '跨源数据请求被 CORS 拦住。' })
-    assert.equal(cors, 'ok')
+    }, { message: '页面 fetch 状态未更新。' })
+    assert.ok(pageFetch.startsWith('error:'), `页面 JS 的跨源读未被 CORS 拦住：${pageFetch}`)
 
     // 2) 切到 Ruffle：主帧的 SWF 来自第三个源（A→C）
     await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
