@@ -19,6 +19,21 @@ function denyAllPermissions(target: Session): Session {
 }
 
 /**
+ * 下载默认拒绝（架构 §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」）。
+ *
+ * M1 还没有下载策略（§4 的下载在 M2 立项）。真实站点对照时发现 4399 会触发 SWF 下载，
+ * 落盘位置由浏览器默认值决定 —— 对浏览器外壳来说这是意外副作用。先按白名单思路默认拒绝，
+ * M2 接入下载能力时再把这里换成显式策略（身份、分区、暂停/恢复）。
+ */
+function denyDownloads(target: Session): Session {
+  target.on('will-download', (event, item) => {
+    console.warn(`[download] 已拒绝下载：${item.getURL()}`)
+    event.preventDefault()
+  })
+  return target
+}
+
+/**
  * Ruffle 兼容层：SWF 的 CORS 放行（架构 §3 引擎、§4 webRequest 策略）。
  *
  * 两种引擎的网络模型不同：原生 PPAPI 插件进程自己发请求、不受 CORS 约束；Ruffle 用页面
@@ -50,11 +65,11 @@ let pageSession: Session | undefined
 let shellSession: Session | undefined
 
 export function getPageSession(): Session {
-  pageSession ??= allowSwfCors(denyAllPermissions(session.fromPartition(PAGE_PARTITION)))
+  pageSession ??= denyDownloads(allowSwfCors(denyAllPermissions(session.fromPartition(PAGE_PARTITION))))
   return pageSession
 }
 
 export function getShellSession(): Session {
-  shellSession ??= denyAllPermissions(session.fromPartition(SHELL_PARTITION))
+  shellSession ??= denyDownloads(denyAllPermissions(session.fromPartition(SHELL_PARTITION)))
   return shellSession
 }

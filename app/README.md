@@ -50,7 +50,7 @@ npm run dev
 - 撤销关闭用 E39 导航栈（`getAllEntries()/restore()`）恢复，保留前进/后退历史；无可撤销项时返回稳定错误码 `nothing-to-undo`。
 - 标签级快捷键与 F11 / Esc 全屏都在主进程 `before-input-event` 处理，因此页面（含 Flash）获得焦点时仍然生效。
 - **输入回环**：ASCII 与非 ASCII 字符进页面、IME 组合（`compositionstart/update/end` + 提交文本）、普通字母不被标签快捷键吃掉、地址栏与页面焦点互不串台、F11 全屏后视图跟随内容区、Esc 退出；自编 `keyprobe.swf` 证明键盘事件真的进了 **PPAPI 插件进程**。
-- **双引擎**：每标签一个引擎（原生 PPAPI / Ruffle）。站点规则决定初始引擎，手动切换会新建 WebContents 并恢复导航栈；切换后可「记住此站点」写入规则。Ruffle 使用 `vendor/ruffle` 的固定版本资源（0.8.0），由页面 preload 注入主世界并 polyfill `<embed>`。
+- **双引擎**：每标签一个引擎（原生 PPAPI / Ruffle）。站点规则决定初始引擎，手动切换会新建 WebContents 并恢复导航栈；切换后可「记住此站点」写入规则。Ruffle 使用 `vendor/ruffle` 的固定版本资源（0.8.0），由页面 preload 注入主世界并 polyfill `<embed>`。工具栏用胶囊开关展示当前引擎（红=原生 Flash / 紫=Ruffle），`role="switch"` + `aria-checked`，标题里带引擎来源（默认 / 站点规则 / 手动切换）。
 - **SWF 的 CORS 兼容层**：原生插件进程自己发请求不受 CORS 约束，Ruffle 用页面 `fetch()` 取跨域 CDN 的 SWF 会被拦。页面会话对 `*.swf` 注入放行头（`sessions.ts`），真实站点 4399 的加载链因此可用。
 - 页面会话关闭 Node、开启 context isolation 与 sandbox，权限检查与请求一律拒绝；外壳 IPC 校验发送者、帧与文档来源，失败返回稳定错误码。
 - 本地 PPAPI 样本：`navigator.plugins` 含 `Shockwave Flash`、独立 `Pepper Plugin` 进程、SWF 装载完成（`PercentLoaded = 100`）与 `SetVariable/GetVariable` 变量桥往返。
@@ -66,5 +66,6 @@ npm run dev
 - **快捷键当前只有 `Ctrl+T/W/Tab/Shift+T`**：`Ctrl+Shift+I` 等 DevTools 入口随默认菜单移除而不可用，按 §4「原生 DevTools 优先」在后续增量接入。
 - **引擎相关未验证**：引擎切换失败回退（`restore()` 抛错）没有构造用例；真实站点（4399 等）在两种引擎下的对照未复测；UA、插件版本通告、`mms.cfg`、SWFObject 等站点兼容项按审计 §C7 另行验证。
 - **输入相关未验证**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖，样本见 `tests/smoke/fixtures/README.md`）。
+- **下载默认拒绝**：页面与外壳会话的 `will-download` 一律 `preventDefault()`。真实站点对照时 4399 会触发 SWF 下载，落盘位置由浏览器默认值决定；下载的身份、分区、暂停/恢复按 §4 在 M2 立项。
 - 后台出帧（#52844/#54311/#54090）与真实站点复测按架构 §2 与外壳开发并行推进，当前未开始。
 - 独立复建内核与发布依赖校验仍未完成，验证包只用于受控范围。

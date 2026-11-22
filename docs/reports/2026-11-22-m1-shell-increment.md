@@ -95,6 +95,7 @@
 | Ruffle WASM 文件名带大写哈希 | 0.8.0 的 `ruffle_web_bg.QDRSAAAZ.wasm` 在 `standard` scheme 下会被 `new URL()` 归一成小写；Windows 靠大小写不敏感碰巧能跑，Linux 会 404 | 资源解析做不区分大小写的回退（`resolveResourcePath()`），并在 `vendor/ruffle/PROVENANCE.md` 记录该约束 |
 | Ruffle `publicPath` 不是合法 URL 基址 | `ruffle-resource://` 没有 host，Ruffle 的 `new URL(wasm, publicPath)` 抛 `Invalid URL`，真实站点上表现为 Ruffle 错误面板。本地冒烟只断言 `ruffle-embed` 存在，而错误面板下该元素同样存在 —— **断言过弱** | 改为 `ruffle-resource://assets/`（占位 host + 结尾斜杠）；`engine.test.cjs` / `packaged.test.cjs` 的断言加严到「shadow root 里出现播放器画布」 |
 | SWF 的 CORS 兼容层缺失 | PPAPI 插件进程自己发请求、不受 CORS 约束；Ruffle 用页面 `fetch()` 取跨域 CDN 的 SWF，被 `No 'Access-Control-Allow-Origin'` 拦掉后销毁实例 | 在页面会话对 `*.swf` 注入放行头（`sessions.ts`），并用双源用例 `ruffle-cors.test.cjs` 固化 |
+| 站点可触发意外下载 | 真实站点对照时 4399 触发 SWF 下载，落盘位置由浏览器默认值决定（曾把 2.7 MB 的游戏 SWF 落到工作树里） | M1 先默认拒绝：页面与外壳会话的 `will-download` 一律 `preventDefault()`；下载策略按 §4 在 M2 立项 |
 
 ## 4.2 真实站点对照（2026-11-22）
 
