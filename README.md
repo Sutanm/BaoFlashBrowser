@@ -4,8 +4,12 @@ BaoFlashBrowser Next 从独立的 `next` 分支开始。当前提交收录产品
 
 ## 从这里开始
 
+- [应用初始化与本地启动](app/README.md) · 安装、运行和验证 Win x64 外壳。
+
 - [新版架构设计](docs/discussions/2026-11-22-bfb-next-architecture.md) · 审计后提案，包含产品边界、模块合同和验收顺序。
 - [架构审计](docs/discussions/2026-11-22-bfb-next-architecture-audit.md) · 原稿逐项评估和上游依据。
+- [M1 增量记录：外壳、双标签与本地 PPAPI 样本](docs/reports/2026-11-22-m1-shell-increment.md) · 首个实现增量的条款对应、构建标识与实测输出。
+- [内核补丁记录](docs/kernel/README.md) · 自编译内核的补丁序列、构建标识与复现步骤。
 - [Chromium 142 Flash 运行报告](docs/reports/2026-11-21-142-flash-runtime.md) · 包含 Electron 39.8.10 / Chromium 142.0.7444.265 的构建与验收记录。
 - [142 构建与启动记录](docs/reports/2026-11-20-142-build-bringup.md) · 早期构建与移植过程。
 

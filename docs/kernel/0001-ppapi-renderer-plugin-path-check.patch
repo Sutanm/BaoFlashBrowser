@@ -1,0 +1,79 @@
+diff --git a/content/common/pepper_plugin_list.cc b/content/common/pepper_plugin_list.cc
+index 8fdfce6d47cf2..c225146513ec2 100644
+--- a/content/common/pepper_plugin_list.cc
++++ b/content/common/pepper_plugin_list.cc
+@@ -56,7 +56,8 @@ bool IsAllowedFromCommandLine(const ContentPluginInfo& plugin) {
+ }
+ 
+ // Appends any plugins from the command line to the given vector.
+-void ComputePluginsFromCommandLine(std::vector<ContentPluginInfo>* plugins) {
++void ComputePluginsFromCommandLine(std::vector<ContentPluginInfo>* plugins,
++                                   bool check_file_exists) {
+   // On Linux, once we're sandboxed, we can't know if a plugin is available or
+   // not. But (on Linux) this function is always called once before we're
+   // sandboxed. So when this function is called for the first time we set a
+@@ -114,7 +115,7 @@ void ComputePluginsFromCommandLine(std::vector<ContentPluginInfo>* plugins) {
+     plugin.path = base::FilePath::FromUTF8Unsafe(name_parts[0]);
+ 
+     uint64_t index_mask = 1ULL << i;
+-    if (!(skip_file_check_flags & index_mask)) {
++    if (check_file_exists && !(skip_file_check_flags & index_mask)) {
+       if (base::PathExists(plugin.path)) {
+         skip_file_check_flags |= index_mask;
+       } else {
+@@ -176,14 +177,15 @@ bool MakePepperPluginInfo(const WebPluginInfo& webplugin_info,
+   return true;
+ }
+ 
+-void ComputePepperPluginList(std::vector<ContentPluginInfo>* plugins) {
++void ComputePepperPluginList(std::vector<ContentPluginInfo>* plugins,
++                             bool check_file_exists) {
+   GetContentClient()->AddPlugins(plugins);
+   // It would be nice to gate this behind a field trial but this happens too
+   // early in the startup process. We allow loading from command line for
+   // testing but don't allow for general use cases.
+   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+           switches::kAllowCommandLinePlugins)) {
+-    ComputePluginsFromCommandLine(plugins);
++    ComputePluginsFromCommandLine(plugins, check_file_exists);
+   }
+ }
+ 
+diff --git a/content/common/pepper_plugin_list.h b/content/common/pepper_plugin_list.h
+index 044c5fa433bec..0411bfae0c320 100644
+--- a/content/common/pepper_plugin_list.h
++++ b/content/common/pepper_plugin_list.h
+@@ -25,7 +25,15 @@ bool MakePepperPluginInfo(const WebPluginInfo& webplugin_info,
+                           ContentPluginInfo* pepper_info);
+ 
+ // Computes the list of known pepper plugins.
+-void ComputePepperPluginList(std::vector<ContentPluginInfo>* plugins);
++//
++// PPAPI revival (BaoFlashBrowser Next): `check_file_exists` must be false in
++// sandboxed processes. The command-line plugin path is a file outside the
++// renderer sandbox's read allowlist on Windows, so `base::PathExists()` fails
++// there and the plugin would be dropped silently. The browser process already
++// validated the path when it parsed the switch, so the renderer only needs the
++// metadata.
++void ComputePepperPluginList(std::vector<ContentPluginInfo>* plugins,
++                             bool check_file_exists = true);
+ 
+ }  // namespace content
+ 
+diff --git a/content/renderer/pepper/pepper_plugin_registry.cc b/content/renderer/pepper/pepper_plugin_registry.cc
+index 12d99e681307c..a91c5c744c710 100644
+--- a/content/renderer/pepper/pepper_plugin_registry.cc
++++ b/content/renderer/pepper/pepper_plugin_registry.cc
+@@ -119,7 +119,11 @@ PepperPluginRegistry::~PepperPluginRegistry() {
+ PepperPluginRegistry::PepperPluginRegistry() {}
+ 
+ void PepperPluginRegistry::Initialize() {
+-  ComputePepperPluginList(&plugin_list_);
++  // PPAPI revival (BaoFlashBrowser Next): the renderer is sandboxed on Windows,
++  // so it cannot stat the command-line plugin DLL. The browser already
++  // validated the path; skip the redundant check here or the plugin is dropped
++  // and <embed> silently falls back to a generic element.
++  ComputePepperPluginList(&plugin_list_, /*check_file_exists=*/false);
+ 
+   // Note that in each case, AddLiveModule must be called before completing
+   // initialization. If we bail out (in the continue clauses) before saving
