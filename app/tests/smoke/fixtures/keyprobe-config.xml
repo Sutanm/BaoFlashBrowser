@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  编译 keyprobe.swf（键盘输入探针）。在本目录执行：
+    D:\tools\flex-sdk\bin\mxmlc.bat -load-config=keyprobe-config.xml
+  Flex SDK 4.16.1（Apache Flex），target-player 11.1 与既有探针一致。
+-->
+<flex-config>
+  <target-player>11.1</target-player>
+  <compiler>
+    <debug>false</debug>
+    <accessible>false</accessible>
+  </compiler>
+  <output>keyprobe.swf</output>
+  <file-specs>
+    <path-element>Keyprobe.as</path-element>
+  </file-specs>
+</flex-config>

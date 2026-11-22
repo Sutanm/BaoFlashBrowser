@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>插件输入探针</title>
+<style>
+  html, body { margin: 0; background: #000; color: #0f0; font: 13px/1.5 Consolas, monospace; }
+  embed { display: block; width: 400px; height: 300px; margin: 8px; }
+  pre { margin: 8px; }
+</style>
+</head>
+<body>
+<!--
+  插件内部输入探针：SWF 侧用 ExternalInterface 暴露 keyProbe()，
+  返回它收到的 keydown 列表（keyCode:charCode）。用来证明键盘事件真的进了
+  PPAPI 插件进程，而不只是到渲染进程。
+-->
+<embed
+  id="flash"
+  src="keyprobe.swf"
+  type="application/x-shockwave-flash"
+  width="400"
+  height="300"
+  quality="high"
+  allowscriptaccess="always"
+/>
+<pre id="out">等待插件</pre>
+<script>
+  window.__probe = () => {
+    const flash = document.getElementById('flash')
+    if (!flash || typeof flash.keyProbe !== 'function') return 'unavailable'
+    return String(flash.keyProbe())
+  }
+  window.__probeReady = () => window.__probe() !== 'unavailable'
+</script>
+</body>
+</html>

@@ -7,9 +7,26 @@
 | `flash.html` | 插件枚举 + SWF 装载 + JS↔Flash 变量桥探针。结果写入 `document.title`（`flash:loaded bridge`），供冒烟测试以外壳标签名读取。 |
 | `probe.swf` | `probe.as` 的编译产物（SWF，2D Sprite，绘制品红块并通过 `ExternalInterface` 回调 `console.log`）。 |
 | `probe.as` | SWF 源码。与 `D:\electron-build-142\flashprobe\as3\S3DChild.as` 同源。 |
+| `keyprobe.html` | 插件**内部输入**探针页面：SWF 收到 `keydown` 后通过 `ExternalInterface` 回调把 `keyCode:charCode` 列表暴露给页面 JS。 |
+| `keyprobe.swf` | `Keyprobe.as` 的编译产物，942 B。 |
+| `Keyprobe.as` | 键盘输入探针源码。 |
+| `keyprobe-config.xml` | 编译配置（Apache Flex 4.16.1，`target-player` 11.1）。 |
 
 ```text
-probe.swf  SHA-256  236C48D58406BBE0C08E7F2EC6829EF4022D153E84B3D160816CFEF4A7AF981A
+probe.swf     SHA-256  236C48D58406BBE0C08E7F2EC6829EF4022D153E84B3D160816CFEF4A7AF981A
+keyprobe.swf  SHA-256  3E9D93F9C8D6733020075472CBED1A85E3B60BC7C29F5A8C7F7D0E179AF0E6CA
+```
+
+## 重新编译 keyprobe.swf
+
+本机 Flex SDK 在 `D:\tools\flex-sdk`（Apache Flex 4.16.1，Java 8）。`mxmlc.bat` 的参数顺序很挑，
+**只能把源文件作为唯一位置参数、不传 `-output`**（否则报「默认自变量不能与其它选项交错在一起」），
+并设置 `PLAYERGLOBAL_HOME`：
+
+```powershell
+cd app\tests\smoke\fixtures
+$env:PLAYERGLOBAL_HOME = 'D:\tools\flex-sdk\frameworks\libs\player'
+D:\tools\flex-sdk\bin\mxmlc.bat Keyprobe.as   # 产物即 keyprobe.swf
 ```
 
 ## 运行前提
