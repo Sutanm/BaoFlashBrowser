@@ -12,6 +12,8 @@ import * as engineRules from './engine-rules'
 import { START_PAGE } from './start-page'
 import { windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
+import { overlayChannels } from '../shared/overlay'
+import { createShellOverlays } from './shell-overlays'
 
 /**
  * 标签（架构 §3 主进程与窗口、页面）。
@@ -25,6 +27,8 @@ interface Tab {
   view: WebContentsView
   binding: number
   error: string
+  failedUrl?: string
+  notice?: BrowserTab['notice']
   initialTitle: string
   /** 当前引擎与其来源（架构 §3 引擎）。 */
   engine: BrowserEngine
@@ -41,6 +45,7 @@ interface WindowController extends TabHost {
   readonly flash: boolean
   snapshot(): BrowserState
   run(event: IpcMainInvokeEvent, command: BrowserCommand): BrowserResult | Promise<BrowserResult>
+  readonly overlays: ReturnType<typeof createShellOverlays>
   detachTab(id: number): { tab: Tab; index: number } | undefined
   adoptTab(tab: Tab, index?: number): void
   isEmpty(): boolean
@@ -79,6 +84,7 @@ interface ClosedTab {
 const controllers = new Map<number, WindowController>()
 /** 全局标签 ID 序列：跨窗口唯一（架构 §3「每个标签有稳定业务 ID」）。 */
 let nextTabId = 1
+let nextNoticeId = 1
 
 function fail(code: BrowserFailureCode): BrowserResult {
   return { ok: false, code, message: browserFailureText[code] }
@@ -169,6 +175,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   })
 
   const shellContentsId = window.webContents.id
+  const overlays = createShellOverlays(window, shellUrl, sameDocument, handleShortcut)
   const tabs: Tab[] = []
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined
@@ -200,7 +207,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         loading = safe(() => contents.isLoadingMainFrame(), false)
       }
     }
-    const address = url === START_PAGE ? '' : url
+    const address = tab.failedUrl ?? (url === START_PAGE ? '' : url)
+    const pin = engineRules.resolve(hostOf(address))
     return {
       id: tab.id,
       title: address ? title || address : tab.initialTitle,
@@ -210,9 +218,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       loading,
       crashed,
       error: tab.error,
+      notice: tab.notice,
       engine: tab.engine,
       engineSource: tab.engineSource,
-      pinnedEngine: engineRules.rules()[hostOf(address) ?? '']
+      pinnedEngine: pin.source === 'site-rule' ? pin.engine : undefined
     }
   }
 
@@ -230,18 +239,25 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (closing || !active || !tabs.includes(active)) return
     if (window.isDestroyed() || window.webContents.isDestroyed()) return
     revision += 1
-    window.webContents.send(browserChannels.changed, state())
+    const snapshot = state()
+    window.webContents.send(browserChannels.changed, snapshot)
+    overlays.publish(snapshot)
   }
 
   function notify(tab: Tab): void {
-    if (tabs.includes(tab)) publish()
+    if (!tabs.includes(tab)) return
+    if (active === tab) layout()
+    publish()
   }
 
   function layout(): void {
+    overlays.layout()
     if (!active) return
     const [width, height] = window.getContentSize()
     const y = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT
     active.view.setBounds({ x: 0, y, width, height: Math.max(0, height - y) })
+    // 失败时让外壳绘制带重试动作的内容页，不在工具栏里塞错误文字。
+    active.view.setVisible(!active.error)
   }
 
   /**
@@ -283,7 +299,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const live = () => tab.view === view && tab.binding === binding && !contents.isDestroyed()
 
     contents.on('before-input-event', (event, input) => {
-      if (live() && handleShortcut(input)) event.preventDefault()
+      if (live() && !event.defaultPrevented && handleShortcut(input)) event.preventDefault()
     })
     /**
      * 受控弹窗（架构 §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」）。
@@ -319,8 +335,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       tab.error = ''
       tab.host?.notify(tab)
     })
-    contents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
+    contents.on('did-fail-load', (_event, code, _description, url, isMainFrame) => {
       if (!live() || !isMainFrame || code === -3) return
+      tab.failedUrl = isWebAddress(url) ? url : undefined
       tab.error = TAB_LOAD_FAILED
       tab.host?.notify(tab)
     })
@@ -333,7 +350,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       if (live()) tab.host?.notify(tab)
     })
     contents.on('did-navigate', () => {
-      if (live()) tab.host?.notify(tab)
+      if (!live()) return
+      tab.failedUrl = undefined
+      tab.host?.notify(tab)
     })
     contents.on('did-navigate-in-page', () => {
       if (live()) tab.host?.notify(tab)
@@ -371,6 +390,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       }
       active = tab
       window.contentView.addChildView(tab.view)
+      overlays.setActivePage(tab.view.webContents)
       layout()
     }
     if (focus && !tab.view.webContents.isDestroyed()) tab.view.webContents.focus()
@@ -389,15 +409,18 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.engine = engine
     tab.engineSource = source
     tab.error = ''
+    tab.failedUrl = undefined
+    tab.notice = undefined
     bind(tab, view)
     const measured = active === tab
     if (measured) {
       window.contentView.addChildView(view)
+      overlays.setActivePage(view.webContents)
       layout()
     }
     if (window.contentView.children.includes(previous)) window.contentView.removeChildView(previous)
     if (!previous.webContents.isDestroyed()) previous.webContents.close()
-    if (measured && !view.webContents.isDestroyed()) view.webContents.focus()
+    if (measured && !overlays.panelVisible() && !view.webContents.isDestroyed()) view.webContents.focus()
     return view
   }
 
@@ -414,8 +437,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const index = contents.isDestroyed()
       ? 0
       : safe(() => contents.navigationHistory.getActiveIndex(), Math.max(entries.length - 1, 0))
+    const failedUrl = tab.failedUrl
     swapView(tab, engine, 'manual')
-    void restoreHistory(tab, entries, index)
+    if (failedUrl && entries.length === 0) load(tab, failedUrl)
+    else void restoreHistory(tab, entries, index, '无法恢复完整历史，已尝试重新打开页面')
   }
 
   /**
@@ -426,28 +451,30 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab: Tab,
     entries: NavigationEntry[],
     index: number,
-    failure = browserFailureText['engine-switch-failed']
+    failure: string
   ): Promise<void> {
     if (entries.length === 0) {
       load(tab, START_PAGE)
       return
     }
+    const view = tab.view
     try {
-      await tab.view.webContents.navigationHistory.restore({ entries, index })
+      await view.webContents.navigationHistory.restore({ entries, index })
     } catch (error) {
+      if (tab.view !== view || view.webContents.isDestroyed()) return
       const fallback = entries[index]?.url || entries.at(-1)?.url
-      tab.error = failure
+      tab.notice = { id: nextNoticeId++, message: failure }
       if (fallback) load(tab, fallback)
-      publish()
+      tab.host?.notify(tab)
       console.error('无法恢复导航栈。', error)
     }
   }
 
   /** 把当前标签的引擎记为站点规则（架构 §3 引擎「用户手动切换时可确认记为站点规则」）。 */
   function rememberActiveEngine(tab: Tab): BrowserResult {
-    const host = hostOf(safe(() => tab.view.webContents.getURL(), ''))
+    const host = hostOf(tab.failedUrl ?? safe(() => tab.view.webContents.getURL(), ''))
     if (!host) return fail('no-site')
-    engineRules.remember(host, tab.engine)
+    if (!engineRules.remember(host, tab.engine)) return fail('site-rule-save-failed')
     tab.engineSource = 'site-rule'
     publish()
     return { ok: true, state: state() }
@@ -455,31 +482,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 取消当前站点的引擎规则，回到「手动切换」状态（记住要可撤销）。 */
   function forgetActiveEngine(tab: Tab): BrowserResult {
-    const host = hostOf(safe(() => tab.view.webContents.getURL(), ''))
+    const host = hostOf(tab.failedUrl ?? safe(() => tab.view.webContents.getURL(), ''))
     if (!host) return fail('no-site')
-    engineRules.forget(host)
-    tab.engineSource = 'manual'
-    publish()
-    return { ok: true, state: state() }
-  }
-
-  /**
-   * 四档引擎选择（架构 §3 引擎）：一次设定引擎与「是否记住此站点」。
-   *
-   * 拆成 `set-engine` + `remember-engine` 会先在重建视图后读取 URL、再写规则，
-   * 中间有导航竞态；这里在切换前就把站点定下来。
-   */
-  function applyEngineMode(tab: Tab, engine: BrowserEngine, lock: boolean): BrowserResult {
-    const host = hostOf(safe(() => tab.view.webContents.getURL(), ''))
-    if (!host) return fail('no-site')
-    if (tab.engine !== engine) switchEngine(tab, engine)
-    if (lock) {
-      engineRules.remember(host, engine)
-      tab.engineSource = 'site-rule'
-    } else {
-      engineRules.forget(host)
-      tab.engineSource = 'manual'
-    }
+    if (!engineRules.forget(host)) return fail('site-rule-save-failed')
+    if (tab.engineSource === 'site-rule') tab.engineSource = 'manual'
     publish()
     return { ok: true, state: state() }
   }
@@ -488,10 +494,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const contents = tab.view.webContents
     const url = contents.isDestroyed() ? '' : safe(() => contents.getURL(), '')
     if (contents.isDestroyed() || contents.isCrashed()) {
-      rebuild(tab, url || START_PAGE)
+      rebuild(tab, tab.failedUrl || url || START_PAGE)
       return
     }
-    contents.reload()
+    if (tab.failedUrl) load(tab, tab.failedUrl)
+    else contents.reload()
   }
 
   function rememberClosed(tab: Tab): void {
@@ -599,6 +606,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       active = undefined
       const next = tabs[index] ?? tabs[index - 1]
       if (next) select(next, false)
+      else overlays.setActivePage(undefined)
     }
     publish()
     return { tab, index }
@@ -615,6 +623,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   const controller: WindowController = {
     shellUrl,
     flash: plugins,
+    overlays,
     snapshot: state,
     notify,
     isEmpty: () => tabs.length === 0,
@@ -633,13 +642,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   async function run(event: IpcMainInvokeEvent, command: BrowserCommand): Promise<BrowserResult> {
     if (closing) return fail('window-closed')
-    const frame = event.senderFrame
-    if (event.sender !== window.webContents || !frame || frame !== window.webContents.mainFrame ||
-        !sameDocument(frame.url, shellUrl)) {
-      return fail('forbidden-sender')
-    }
+    const sender = overlays.sender(event)
+    if (!sender) return fail('forbidden-sender')
     if (!command || typeof command !== 'object' || typeof command.type !== 'string') {
       return fail('invalid-command')
+    }
+    if (sender !== 'shell' && command.type !== 'snapshot') {
+      const engineAction = command.type === 'set-engine' || command.type === 'remember-engine' || command.type === 'forget-engine'
+      if (sender !== 'panel' || !overlays.panelVisible() || !engineAction) return fail('forbidden-sender')
     }
 
     switch (command.type) {
@@ -664,18 +674,20 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
         if (command.engine !== 'ppapi' && command.engine !== 'ruffle') return fail('invalid-command')
-        switchEngine(tab, command.engine)
+        if (command.engine === 'ppapi' && !plugins) return fail('engine-unavailable')
+        try {
+          switchEngine(tab, command.engine)
+        } catch (error) {
+          console.error('无法切换渲染引擎。', error)
+          return fail('engine-switch-failed')
+        }
         break
       }
-      case 'engine-mode': {
+      case 'remember-engine':
+      case 'forget-engine': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
-        return applyEngineMode(tab, command.engine, command.lock)
-      }
-      case 'remember-engine': {
-        const tab = activeTab()
-        if (!tab) return fail('unknown-tab')
-        return rememberActiveEngine(tab)
+        return command.type === 'remember-engine' ? rememberActiveEngine(tab) : forgetActiveEngine(tab)
       }
       case 'move': {
         const tab = tabs.find(({ id }) => id === command.id)
@@ -732,7 +744,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('before-input-event', (event, input) => {
-    if (handleShortcut(input)) event.preventDefault()
+    if (overlays.escape(input) || handleShortcut(input)) event.preventDefault()
   })
   window.webContents.on('will-frame-navigate', (event) => event.preventDefault())
   window.webContents.on('will-redirect', (event) => event.preventDefault())
@@ -751,6 +763,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   window.on('closed', () => {
     closing = true
     controllers.delete(shellContentsId)
+    overlays.dispose()
     nativeTheme.off('updated', updateWindowControls)
     for (const tab of tabs) {
       tab.binding += 1
@@ -839,13 +852,23 @@ async function tearOffTab(
 
 let registered = false
 
+function controllerFor(event: IpcMainInvokeEvent): WindowController | undefined {
+  const shell = controllers.get(event.sender.id)
+  if (shell) return shell
+  for (const controller of controllers.values()) {
+    if (controller.overlays.sender(event)) return controller
+  }
+}
+
 /** 全局只注册一次命令通道，按发送者窗口路由；窗口关闭不注销该通道。 */
 export function registerBrowserIpc(): void {
   if (registered) return
   registered = true
   ipcMain.handle(browserChannels.command, (event, command: unknown) => {
-    const controller = controllers.get(event.sender.id)
+    const controller = controllerFor(event)
     if (!controller) return fail('forbidden-sender')
     return controller.run(event, command as BrowserCommand)
   })
+  ipcMain.handle(overlayChannels.command, (event, command: unknown) =>
+    controllerFor(event)?.overlays.command(event, command) ?? false)
 }

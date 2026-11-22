@@ -91,7 +91,7 @@ test('窗口销毁与重建后旧事件和旧标签身份保持隔离', { timeou
     // 渲染进程崩溃后重建 WebContents：旧代际事件作废，旧内容释放。
     const crashedViewId = (await pageViewIds(secondWindow))[0]
     await app.evaluate(({ webContents }, id) => webContents.fromId(id)?.forcefullyCrashRenderer(), crashedViewId)
-    await second.getByRole('status').filter({ hasText: '页面已停止响应' }).waitFor({ timeout: 30_000 })
+    await second.getByRole('heading', { name: /页面已停止响应/ }).waitFor({ timeout: 30_000 })
     const crashedState = await snapshot(second)
     assert.equal(crashedState.tabs.find((tab) => tab.id === crashedState.activeId)?.crashed, true)
 

@@ -3,8 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserTab } from '../shared/browser'
-import type { BrowserEngine } from '../shared/engine'
 import { engineLabels, engineSourceLabels, engineSwitchLabels, otherEngine } from '../shared/engine'
+import { ENGINE_PANEL_INITIAL_HEIGHT, ENGINE_PANEL_WIDTH, OVERLAY_INSET, TOAST_HEIGHT, TOAST_WIDTH } from './overlay-layout'
+import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
 
@@ -47,14 +48,17 @@ watch(() => state.value?.theme, (theme) => {
   if (theme) applyShellTheme(theme)
 })
 
-function run(command: BrowserCommand): Promise<void> {
+function run(command: BrowserCommand): Promise<boolean> {
   return store.run(command)
 }
 
-/** 引擎指示与切换（架构 §3 引擎）：胶囊开关，手动切换后可以记住为站点规则。 */
 const engineTitle = computed(() => {
   const tab = active.value
-  return tab ? `渲染引擎：${engineLabels[tab.engine]}（${engineSourceLabels[tab.engineSource]}）` : ''
+  if (!tab) return ''
+  const current = `渲染引擎：${engineLabels[tab.engine]}`
+  return tab.pinnedEngine
+    ? `${current} · 站点已记住 ${engineLabels[tab.pinnedEngine]}`
+    : `${current}（${engineSourceLabels[tab.engineSource]}）`
 })
 const switchLabel = computed(() => {
   const tab = active.value
@@ -67,58 +71,99 @@ function switchEngine(): void {
   void run({ type: 'set-engine', engine: otherEngine(tab.engine) })
 }
 
-/**
- * 四档选择（架构 §3 引擎）：前两档 Flash、后两档 Ruffle，带锁的档会写成站点规则。
- * 「已锁定」以 `engineSource === 'site-rule'` 判定；默认与手动切换都算未锁定。
- */
-const engineOptions = computed(() => {
-  const tab = active.value
-  const pinned = tab?.engineSource === 'site-rule'
-  // 起始页 / about:blank 没有站点可记，锁定档置灰（否则会收到 no-site 错误）。
-  const canPin = !!tab?.address
-  return [
-    { key: 'lock-ppapi', engine: 'ppapi' as const, lock: true, label: '锁定 Flash', disabled: !canPin, selected: !!tab && tab.engine === 'ppapi' && pinned },
-    { key: 'ppapi', engine: 'ppapi' as const, lock: false, label: 'Flash', disabled: false, selected: !!tab && tab.engine === 'ppapi' && !pinned },
-    { key: 'ruffle', engine: 'ruffle' as const, lock: false, label: 'Ruffle', disabled: false, selected: !!tab && tab.engine === 'ruffle' && !pinned },
-    { key: 'lock-ruffle', engine: 'ruffle' as const, lock: true, label: '锁定 Ruffle', disabled: !canPin, selected: !!tab && tab.engine === 'ruffle' && pinned }
-  ]
-})
-
-/** 外圈：已锁定 = 固定镀层；规则被手动覆盖 = 琥珀色。 */
-const ringState = computed(() => {
-  const tab = active.value
-  if (!tab) return ''
-  if (tab.engineSource === 'site-rule') return 'locked'
-  if (tab.pinnedEngine && tab.pinnedEngine !== tab.engine) return 'overridden'
-  return ''
-})
-
 const enginePanelOpen = ref(false)
-const engineRoot = ref<HTMLElement | null>(null)
+const engineTrigger = ref<HTMLButtonElement>()
+const engineRoot = ref<HTMLElement>()
+const toast = ref('')
+let toastTimer: ReturnType<typeof setTimeout> | undefined
+let detachOverlay: (() => void) | undefined
 
-function toggleEnginePanel(): void {
-  enginePanelOpen.value = !enginePanelOpen.value
+function panelBounds() {
+  const rect = engineRoot.value?.getBoundingClientRect()
+  if (!rect) return null
+  return {
+    x: Math.max(0, Math.round(rect.right) - ENGINE_PANEL_WIDTH + OVERLAY_INSET),
+    y: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT,
+    width: ENGINE_PANEL_WIDTH,
+    height: ENGINE_PANEL_INITIAL_HEIGHT
+  }
+}
+
+async function toggleEnginePanel(): Promise<void> {
+  if (enginePanelOpen.value) {
+    closeEnginePanel()
+    return
+  }
+  const bounds = panelBounds()
+  if (!bounds) return
+  enginePanelOpen.value = true
+  if (!await window.baoOverlay.setPanel(bounds)) enginePanelOpen.value = false
 }
 
 function closeEnginePanel(): void {
-  enginePanelOpen.value = false
-}
-
-function chooseEngineMode(option: { engine: BrowserEngine; lock: boolean }): void {
-  enginePanelOpen.value = false
-  void run({ type: 'engine-mode', engine: option.engine, lock: option.lock })
-}
-
-/** 点面板外关闭（捕获阶段，避免被标签栏的指针手势吞掉）。 */
-function onEnginePointerDown(event: PointerEvent): void {
   if (!enginePanelOpen.value) return
-  const root = engineRoot.value
-  if (root && event.target instanceof Node && !root.contains(event.target)) closeEnginePanel()
+  enginePanelOpen.value = false
+  void window.baoOverlay.setPanel(null)
 }
 
-watch(() => active.value?.id, () => closeEnginePanel())
-onMounted(() => document.addEventListener('pointerdown', onEnginePointerDown, true))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onEnginePointerDown, true))
+/** 网页与浮层有独立 WebContents；这里只处理外壳范围内的点击。 */
+function onEnginePointerDown(event: PointerEvent): void {
+  if (event.target instanceof Node && !engineTrigger.value?.contains(event.target)) closeEnginePanel()
+}
+
+function clearToast(): void {
+  clearTimeout(toastTimer)
+  toast.value = ''
+}
+
+function showToast(text: string): void {
+  clearTimeout(toastTimer)
+  toast.value = text
+  const bounds = {
+    x: 0,
+    y: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT,
+    width: TOAST_WIDTH,
+    height: TOAST_HEIGHT
+  }
+  void window.baoOverlay.setToast({ bounds, text })
+  toastTimer = setTimeout(() => {
+    clearToast()
+    void window.baoOverlay.setToast(null)
+  }, 6500)
+}
+
+watch(message, (text) => { if (text) showToast(text) })
+let lastNoticeId = 0
+watch(() => active.value?.notice, (notice) => {
+  if (notice && notice.id > lastNoticeId) {
+    lastNoticeId = notice.id
+    showToast(notice.message)
+  }
+})
+watch(() => active.value?.id, closeEnginePanel)
+
+function onShellResize(): void {
+  // Close anchored settings rather than leave them detached from the trigger.
+  closeEnginePanel()
+}
+
+onMounted(() => {
+  detachOverlay = window.baoOverlay.subscribe((event) => {
+    if (event.type === 'panel-closed') {
+      enginePanelOpen.value = false
+      if (event.restoreFocus) engineTrigger.value?.focus()
+    } else if (event.type === 'toast-closed') clearToast()
+    else if (event.type === 'failure') showToast(event.text)
+  })
+  document.addEventListener('pointerdown', onEnginePointerDown, true)
+  window.addEventListener('resize', onShellResize)
+})
+onBeforeUnmount(() => {
+  detachOverlay?.()
+  clearToast()
+  document.removeEventListener('pointerdown', onEnginePointerDown, true)
+  window.removeEventListener('resize', onShellResize)
+})
 
 /** 拖出窗口（架构 §3「拖出窗口」）：指针捕获保证移出窗口后仍能拿到释放点。 */
 function startTabDrag(tab: BrowserTab, event: PointerEvent): void {
@@ -320,63 +365,30 @@ onBeforeUnmount(() => store.disconnect())
           spellcheck="false"
         >
       </div>
-      <div v-if="active" ref="engineRoot" class="engine" role="group" aria-label="渲染引擎">
-        <div class="engine-pill" :class="[active.engine, ringState]">
-          <button
-            type="button"
-            class="engine-switch"
-            role="switch"
-            :aria-checked="active.engine === 'ruffle'"
-            :aria-label="switchLabel"
-            :title="engineTitle"
-            @click="switchEngine"
-          >{{ active.engine === 'ruffle' ? 'Ruffle' : 'Flash' }}</button>
-          <span v-if="ringState" class="engine-state" :class="ringState" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 1 1 6 0v3H9Z" />
-            </svg>
+      <div v-if="active" ref="engineRoot" class="engine-pill" role="group" aria-label="渲染引擎">
+        <button type="button" class="engine-switch" role="switch"
+          :aria-checked="active.engine === 'ruffle'" :aria-label="switchLabel" :title="engineTitle" @click="switchEngine">
+          <span class="engine-mark" :class="active.pinnedEngine && active.pinnedEngine !== active.engine ? 'overridden' : active.engine" aria-hidden="true">
+            <ShellIcon v-if="active.pinnedEngine" name="lock" />
+            <span v-else class="engine-dot"></span>
           </span>
-          <button
-            type="button"
-            class="engine-more"
-            :aria-expanded="enginePanelOpen"
-            aria-haspopup="true"
-            aria-label="选择渲染引擎（含锁定此站点）"
-            title="选择渲染引擎"
-            @click="toggleEnginePanel"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </button>
-        </div>
-        <div
-          v-if="enginePanelOpen"
-          class="engine-panel"
-          role="radiogroup"
-          aria-label="渲染引擎"
-          @keydown.esc="closeEnginePanel"
-        >
-          <button
-            v-for="option in engineOptions"
-            :key="option.key"
-            type="button"
-            role="radio"
-            :aria-checked="option.selected"
-            :disabled="option.disabled"
-            :title="option.disabled ? '当前页面没有可记忆的站点' : option.label"
-            class="engine-stop"
-            :class="[option.engine, { on: option.selected, locked: option.lock }]"
-            @click="chooseEngineMode(option)"
-          >
-            <span class="engine-stop-knob" aria-hidden="true">{{ option.engine === 'ppapi' ? 'F' : 'R' }}</span>
-            <span class="engine-stop-label">{{ option.label }}</span>
-          </button>
-        </div>
+          {{ active.engine === 'ruffle' ? 'Ruffle' : 'Flash' }}
+        </button>
+        <button ref="engineTrigger" type="button" class="engine-more" :aria-expanded="enginePanelOpen"
+          aria-label="引擎设置" title="引擎设置" @click="toggleEnginePanel">
+          <ShellIcon name="chevron" />
+        </button>
       </div>
-      <span v-if="message || active?.error" class="message" role="status" :title="message || active?.error">{{ message || active?.error }}</span>
     </form>
   </header>
+  <p class="sr-only" role="status">{{ toast }}</p>
+  <main v-if="active?.error" class="page-error" aria-labelledby="page-error-title">
+    <div>
+      <ShellIcon name="error" />
+      <h1 id="page-error-title">{{ active.error }}</h1>
+      <button type="button" class="page-retry" @click="run({ type: 'reload' })">重试</button>
+    </div>
+  </main>
 </template>
 
 <style>
@@ -591,137 +603,46 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
 }
 .address-bar input { flex: 1; width: 0; padding: 0; border: 0; outline: none; background: transparent; }
 .address-bar input::placeholder { color: var(--text-secondary); opacity: 1; }
-.message {
-  max-width: 34%;
-  margin-left: 6px;
-  color: var(--text-error);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 引擎胶囊开关（Fluent 2 尺寸；红=原生 Flash，紫=Ruffle，与既有产品一致）。 */
-.engine {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
+.engine-pill {
   flex: none;
-  margin-inline-start: var(--space-s);
+  display: grid;
+  grid-template-columns: 66px 25px;
+  height: 28px;
+  margin-inline-start: 3px;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(var(--surface-toolbar), var(--surface-page));
   -webkit-app-region: no-drag;
 }
-
-/* 引擎胶囊（架构 §3 引擎）：实色底 + 白字，右侧 ⌄ 打开四档面板。
-   锁定 = 固定镀层外圈（左上亮、右下暗，不旋转）；规则被覆盖 = 琥珀色外圈。 */
-.engine-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: stretch;
-  height: 26px;
-  border-radius: var(--radius-pill);
-  background: #c0392f;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .16);
-  transition: background-color var(--motion-normal) ease;
-}
-.engine-pill.ruffle { background: #6a4fe0; }
-
+.engine-pill button { display: flex; align-items: center; padding: 0; }
+.engine-pill button:hover, .engine-more[aria-expanded='true'] { background: var(--surface-hover); }
 .engine-switch {
-  padding: 0 2px 0 12px;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .01em;
-  line-height: 26px;
+  gap: 5px;
+  padding-inline-start: 8px !important;
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  font-size: 12px;
+  font-weight: 650;
 }
 .engine-more {
-  display: flex;
-  align-items: center;
-  padding: 0 8px 0 4px;
-  color: rgba(255, 255, 255, .72);
-}
-.engine-more svg { width: 9px; height: 9px; }
-.engine-more:hover { color: #fff; }
-.engine-pill:hover { filter: brightness(1.06); }
-.engine-pill:has(.engine-switch:active) { filter: brightness(.94); }
-.engine-switch:focus-visible,
-.engine-more:focus-visible {
-  outline: 1px solid var(--stroke-focus-outer);
-  outline-offset: 1px;
-  border-radius: var(--radius-pill);
-}
-
-/* 锁定状态标记：26px 高的胶囊上做不出可读的外圈，改用内嵌锁字形。
-   白色 = 已锁定；琥珀 = 站点规则存在但被手动切换覆盖。 */
-.engine-state {
-  align-self: center;
-  display: inline-flex;
-  margin-inline-start: -2px;
-  color: rgba(255, 255, 255, .88);
-}
-.engine-state.overridden { color: #ffd08a; }
-.engine-state svg { width: 10px; height: 10px; }
-
-/* 四档面板 */
-.engine-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 30;
-  display: flex;
-  gap: 2px;
-  width: 276px;
-  padding: 5px;
-  border-radius: var(--radius-surface);
-  background: var(--surface-toolbar);
-  border: 1px solid var(--stroke-divider);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .13), 0 2px 6px rgba(0, 0, 0, .07);
-}
-.engine-stop {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 2px 5px;
-  border-radius: var(--radius-control);
-  color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1;
-  white-space: nowrap;
-}
-.engine-stop:hover:not(:disabled) { background: var(--surface-hover); }
-.engine-stop:disabled { color: var(--text-disabled); cursor: default; }
-.engine-stop-knob {
-  display: flex;
-  align-items: center;
+  position: relative;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: transparent;
-  font-size: 10px;
-  font-weight: 700;
+  color: var(--text-secondary);
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
 }
-.engine-stop.on { color: var(--text-primary); font-weight: 600; }
-.engine-stop.on .engine-stop-knob { color: #fff; }
-.engine-stop.on.ppapi .engine-stop-knob { background: #c0392f; }
-.engine-stop.on.ruffle .engine-stop-knob { background: #6a4fe0; }
-.engine-stop:focus-visible {
-  outline: 1px solid var(--stroke-focus-outer);
-  outline-offset: -1px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .engine-pill { transition: none; }
-}
-
-@media (forced-colors: active) {
-  .engine-pill { border: 1px solid ButtonText; background: ButtonFace; }
-  .engine-pill .engine-switch,
-  .engine-pill .engine-more { color: ButtonText; }
-  .engine-pill.locked::after { background: Highlight; }
-}
+.engine-more::before { content: ''; position: absolute; left: 0; height: 12px; border-left: 1px solid var(--stroke-divider); }
+.engine-more .shell-icon, .engine-mark .shell-icon { width: 12px; height: 12px; }
+.engine-more[aria-expanded='true'] .shell-icon { transform: rotate(180deg); }
+.engine-mark { width: 13px; height: 13px; flex: none; display: grid; place-items: center; }
+.engine-mark.ppapi { color: var(--engine-flash); }
+.engine-mark.ruffle { color: var(--engine-ruffle); }
+.engine-mark.overridden { color: var(--engine-override); }
+.engine-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); }
+.page-error { min-height: calc(100vh - var(--tab-bar-height) - var(--toolbar-height)); display: grid; place-items: center; text-align: center; padding: 24px; }
+.page-error .shell-icon { width: 24px; height: 24px; color: var(--text-error); }
+.page-error h1 { margin: 6px 0 10px; font-size: 16px; }
+.page-retry { padding: 4px 12px; border: 1px solid var(--stroke-control); border-radius: 7px; color: var(--engine-accent); background: var(--engine-selection); }
+.page-retry:hover { background: var(--surface-hover); }
 
 @media (forced-colors: active) {
   .tab.selected { --tab-outline: Highlight; }

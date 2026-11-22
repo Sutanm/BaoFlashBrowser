@@ -36,15 +36,17 @@ function load(): EngineRules {
   return cache
 }
 
-function persist(rules: EngineRules): void {
+function persist(rules: EngineRules): boolean {
   const path = rulesPath()
   const temporary = `${path}.tmp`
   try {
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(temporary, JSON.stringify(rules, null, 2), 'utf8')
     renameSync(temporary, path)
+    return true
   } catch (error) {
     console.error('无法保存站点引擎规则。', error)
+    return false
   }
 }
 
@@ -56,10 +58,11 @@ export function resolve(host: string | undefined): { engine: BrowserEngine; sour
   return resolveEngine(load(), host)
 }
 
-export function remember(host: string, engine: BrowserEngine): void {
+export function remember(host: string, engine: BrowserEngine): boolean {
   const next = { ...load(), [host]: engine }
+  if (!persist(next)) return false
   cache = next
-  persist(next)
+  return true
 }
 
 /**
@@ -68,11 +71,12 @@ export function remember(host: string, engine: BrowserEngine): void {
  * 没有这条时用户只能手改 `engine-rules.json`：UI 上「记住此站点」点完即消失，
  * 属于只有正向、没有回退路径的状态。
  */
-export function forget(host: string): void {
+export function forget(host: string): boolean {
   const current = load()
-  if (!(host in current)) return
+  if (!Object.hasOwn(current, host)) return true
   const next = { ...current }
   delete next[host]
+  if (!persist(next)) return false
   cache = next
-  persist(next)
+  return true
 }

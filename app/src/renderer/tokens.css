@@ -12,6 +12,18 @@
   --new-tab-button-size: 28px;
   --nav-gap: var(--space-xs);
   --address-radius: var(--radius-pill);
+  --engine-flash: #bd4136;
+  --engine-ruffle: #7254d6;
+  --engine-accent: #5940ac;
+  --engine-override: #8f5610;
+  --engine-selection: #eeebfb;
 }
 
-:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --engine-flash: #f0776c;
+  --engine-ruffle: #ad97fe;
+  --engine-accent: #c8b7ff;
+  --engine-override: #efbf78;
+  --engine-selection: #3b3059;
+}

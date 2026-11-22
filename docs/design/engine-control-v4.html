@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BaoFlash · 引擎切换交互稿</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f5f7; --chrome: #f0f1f4; --surface: #fff; --page: #f9fafd;
+    --ink: #232630; --muted: #626879; --line: #dcdfe6; --hover: #eff1f6;
+    --selected: #eeebfb; --accent: #5940ac; --flash: #bd4136; --ruffle: #7254d6;
+    --warn: #8f5610; --error: #a82929; --shadow: 0 12px 36px #24243b22, 0 2px 6px #24243b0c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181d; --chrome: #22232a; --surface: #292b33; --page: #1d1f27;
+      --ink: #f2f2f6; --muted: #b4b7c6; --line: #434552; --hover: #373945;
+      --selected: #3b3059; --accent: #c8b7ff; --flash: #f0776c; --ruffle: #ad97fe;
+      --warn: #efbf78; --error: #ff9a97; --shadow: 0 12px 36px #0006, 0 2px 6px #0003;
+    }
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif; }
+  main { width: min(920px, calc(100% - 32px)); margin: clamp(24px, 6vw, 64px) auto; }
+  h1, h2, p { margin: 0; }
+  h1 { font-size: clamp(23px, 4vw, 32px); margin-bottom: 8px; }
+  h2 { font-size: 14px; }
+  .hint, .desc, .host, .page p { color: var(--muted); }
+  button, input { font: inherit; color: inherit; }
+  button { background: none; border: 0; cursor: pointer; }
+  button:disabled { cursor: default; opacity: .45; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .window { position: relative; border: 1px solid var(--line); border-radius: 14px; background: var(--chrome); box-shadow: var(--shadow); }
+  .tabs { display: flex; align-items: end; height: 41px; padding: 0 10px; gap: 7px; }
+  .tab { background: var(--surface); border-radius: 9px 9px 0 0; min-width: min(180px, 55%); padding: 6px 12px; font-size: 12px; }
+  .new-tab { align-self: center; color: var(--muted); }
+  .toolbar { position: relative; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .icon-btn { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 6px; flex: none; }
+  .icon-btn:not(:disabled):hover, .action:hover, .pill button:hover, .pill button[aria-expanded="true"] { background: var(--hover); }
+  .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+  .address { min-width: 0; flex: 1; height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; background: var(--page); }
+  .engine { flex: none; position: relative; margin-left: 3px; }
+  .pill { display: grid; grid-template-columns: 65px 29px; height: 29px; border: 1px solid var(--line); border-radius: 999px; background: var(--page); }
+  .pill button { display: flex; align-items: center; padding: 0; }
+  #quick { gap: 5px; padding-left: 8px; border-radius: 999px 0 0 999px; font-size: 12px; font-weight: 650; }
+  #expand { justify-content: center; border-left: 1px solid var(--line); border-radius: 0 999px 999px 0; color: var(--muted); }
+  #expand .icon { width: 12px; }
+  #expand[aria-expanded="true"] .icon { transform: rotate(180deg); }
+  .mark { width: 13px; height: 13px; display: grid; place-items: center; flex: none; }
+  .mark .icon { width: 12px; height: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .flash { color: var(--flash); } .ruffle { color: var(--ruffle); } .override { color: var(--warn); }
+  .panel { position: absolute; z-index: 2; right: 0; top: calc(100% + 11px); width: min(300px, calc(100vw - 56px)); padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  .panel h2 { padding: 0 7px 7px; }
+  .choices { display: grid; gap: 3px; }
+  .choice { display: grid; grid-template-columns: 14px 53px 1fr 16px; align-items: center; gap: 8px; padding: 8px; border-radius: 7px; text-align: left; }
+  .choice:hover { background: var(--hover); }
+  .choice[aria-pressed="true"] { background: var(--selected); }
+  .choice .check { color: var(--accent); visibility: hidden; }
+  .choice[aria-pressed="true"] .check { visibility: visible; }
+  .desc, .host, .hint { font-size: 12px; }
+  .site { margin-top: 10px; padding: 10px 7px 1px; border-top: 1px solid var(--line); }
+  .site-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; }
+  .site-control { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 2px; min-height: 28px; }
+  .switch { width: 35px; height: 20px; border: 1px solid var(--line); border-radius: 999px; background: var(--hover); padding: 2px; display: flex; align-items: center; }
+  .switch span { width: 14px; height: 14px; border-radius: 50%; background: var(--muted); }
+  .switch[aria-checked="true"] { justify-content: end; background: var(--accent); border-color: var(--accent); }
+  .switch[aria-checked="true"] span { background: var(--surface); }
+  .site-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .action { padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; background: var(--surface); }
+  .action.primary { color: var(--accent); background: var(--selected); border-color: transparent; font-weight: 600; }
+  .toast { position: absolute; z-index: 1; top: calc(100% + 8px); left: 10px; max-width: calc(100% - 20px); display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); font-size: 12px; }
+  .toast .icon { flex: none; color: var(--error); margin-top: 1px; }
+  .toast .icon-btn { width: 22px; height: 22px; margin: -2px -3px -2px 0; }
+  .toast strong { display: block; }
+  .page { min-height: 286px; display: grid; place-items: center; text-align: center; padding: 28px 14px; border-radius: 0 0 14px 14px; background: var(--page); }
+  .page p { margin: 5px 0 12px; }
+  .sim { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+  .sim strong { font-size: 12px; margin-right: 4px; }
+  @media (forced-colors: active) {
+    .dot { forced-color-adjust: none; background: ButtonText; }
+    .choice[aria-pressed="true"] { outline: 1px solid Highlight; outline-offset: -1px; }
+    .switch span { forced-color-adjust: none; background: ButtonText; }
+    .switch[aria-checked="true"] span { background: Highlight; }
+  }
+  /* Compact visual treatment: ink, tinted engine badges and a quiet browser frame. */
+  main { width: min(740px, calc(100% - 28px)); margin: clamp(22px, 6vw, 52px) auto; }
+  .kicker { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; font-size: 10px; font-weight: 700; letter-spacing: .16em; color: var(--accent); }
+  .kicker::before { content: ''; width: 9px; height: 9px; border-radius: 3px; background: linear-gradient(135deg, var(--flash), var(--ruffle)); }
+  h1 { font-size: clamp(21px, 4vw, 27px); line-height: 1.2; margin-bottom: 15px; letter-spacing: -.025em; }
+  .window { border-radius: 12px; }
+  .tabs { height: 34px; }
+  .tab { min-width: min(160px, 55%); padding: 5px 10px; }
+  .toolbar { padding: 4px 8px; gap: 4px; }
+  .icon-btn { width: 26px; height: 26px; }
+  .address { height: 28px; font-size: 12px; }
+  .pill { height: 28px; grid-template-columns: 66px 25px; background: linear-gradient(var(--surface), var(--page)); }
+  #expand { border-left-color: transparent; position: relative; }
+  #expand::before { content: ''; position: absolute; left: -1px; height: 12px; border-left: 1px solid var(--line); }
+  .panel { top: calc(100% + 9px); width: min(264px, calc(100vw - 48px)); padding: 8px; }
+  .panel h2 { padding: 1px 6px 5px; font-size: 11px; color: var(--muted); }
+  .choices { gap: 2px; }
+  .choice { grid-template-columns: 23px 1fr auto 14px; gap: 7px; padding: 4px 6px; min-height: 32px; border: 1px solid transparent; font-size: 12px; }
+  .choice[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent) 19%, transparent); }
+  .choice .mark { width: 22px; height: 22px; border-radius: 7px; background: color-mix(in srgb, currentColor 13%, transparent); }
+  .choice .mark .icon { width: 13px; height: 13px; }
+  .choice .check { width: 14px; height: 14px; }
+  .desc { font-size: 11px; }
+  .site { margin: 6px 0 0; padding: 6px 6px 1px; }
+  .site-head { font-size: 11px; }
+  .host { background: var(--page); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; font-size: 10px; }
+  .site-control { margin: 2px 0 0; min-height: 27px; font-size: 12px; }
+  .site-actions { margin-top: 5px; }
+  .hint:empty { display: none; }
+  .switch { width: 31px; height: 18px; }
+  .switch span { width: 12px; height: 12px; }
+  .action { padding: 3px 8px; }
+  .page { position: relative; min-height: 210px; border-radius: 0 0 12px 12px; background: radial-gradient(ellipse at 30% 0%, color-mix(in srgb, var(--ruffle) 9%, transparent), transparent 70%), var(--page); }
+  .page::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(circle, color-mix(in srgb, var(--muted) 23%, transparent) 1px, transparent 1px) 0 0 / 15px 15px; mask-image: linear-gradient(#0009, transparent); }
+  .page > div { position: relative; }
+  .page-badge { display: grid; place-items: center; width: 33px; height: 33px; margin: 0 auto 6px; border: 1px solid var(--line); border-radius: 10px; color: var(--accent); background: var(--surface); }
+  .sim { gap: 6px; margin-top: 13px; }
+  .sim strong { color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m12 5-7 7 7 7M5 12h14"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="m12 5 7 7-7 7M5 12h14"/></symbol>
+  <symbol id="i-reload" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.2 6.5M20 5v6h-6"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
+  <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-flash" viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-12h-6z"/></symbol>
+  <symbol id="i-ruffle" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></symbol>
+  <symbol id="i-page" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18m-7 5h4m-2-2v4m-8-2h.01"/></symbol>
+</svg>
+<main>
+  <p class="kicker">BAOFLASH BROWSER</p>
+  <h1>渲染引擎</h1>
+  <section class="window" aria-label="BaoFlash 浏览器演示">
+    <div class="tabs" aria-hidden="true"><span class="tab" id="tab-title">Flash 游戏档案</span><span class="new-tab">＋</span></div>
+    <div class="toolbar" role="toolbar" aria-label="导航工具栏">
+      <button class="icon-btn" aria-label="后退（演示占位）" disabled><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg></button>
+      <button class="icon-btn" aria-label="前进（演示占位）" disabled><svg class="icon" aria-hidden="true"><use href="#i-next"/></svg></button>
+      <button class="icon-btn" id="reload" aria-label="重新加载"><svg class="icon" aria-hidden="true"><use href="#i-reload"/></svg></button>
+      <input class="address" id="address" aria-label="地址栏" placeholder="输入网址" readonly>
+      <div class="engine" id="engine">
+        <div class="pill">
+          <button type="button" id="quick"><span id="mark" class="mark" aria-hidden="true"></span><span id="engine-name">Flash</span></button>
+          <button type="button" id="expand" aria-label="引擎设置" aria-controls="panel" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+        </div>
+        <section class="panel" id="panel" aria-labelledby="panel-title">
+          <h2 id="panel-title">渲染引擎</h2>
+          <div class="choices" role="group" aria-label="选择当前标签的引擎">
+            <button type="button" class="choice" data-engine="Flash" aria-pressed="true"><span class="mark flash" aria-hidden="true"><svg class="icon"><use href="#i-flash"/></svg></span><strong>Flash</strong><span class="desc">原生播放器</span><svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg></button>
+            <button type="button" class="choice" data-engine="Ruffle" aria-pressed="false"><span class="mark ruffle" aria-hidden="true"><svg class="icon"><use href="#i-ruffle"/></svg></span><strong>Ruffle</strong><span class="desc">兼容播放器</span><svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg></button>
+          </div>
+          <div class="site">
+            <div class="site-head"><strong>此站点</strong><span class="host" id="host">flash.example.com</span></div>
+            <div class="site-control" id="normal-rule"><span id="remember-label">记住当前引擎</span><button type="button" class="switch" id="remember" role="switch" aria-labelledby="remember-label" aria-checked="false"><span></span></button></div>
+            <p class="hint" id="rule-hint" aria-live="polite"></p>
+            <div class="site-actions" id="override-actions" hidden>
+              <button type="button" class="action primary" id="replace-rule"></button>
+              <button type="button" class="action" id="forget-rule">取消记住</button>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="toast" id="toast" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-error"/></svg>
+        <div><strong id="toast-title">引擎切换失败</strong><span class="hint" id="toast-text">已保留原引擎与页面，可以再试一次。</span></div>
+        <button type="button" class="icon-btn" id="dismiss" aria-label="关闭提示"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+      </div>
+    </div>
+    <div class="page">
+      <div id="page-normal"><span class="page-badge" aria-hidden="true"><svg class="icon"><use href="#i-page"/></svg></span><h2 id="page-title">Flash 游戏档案</h2></div>
+      <div id="page-error" hidden><h2>无法加载此页面</h2><p>请检查连接，或重新尝试加载。</p><button type="button" class="action primary" id="retry">重试</button></div>
+    </div>
+  </section>
+  <div class="sim" aria-label="演示控制">
+    <strong>演示</strong>
+    <button type="button" class="action" id="fail-switch">模拟切换失败</button>
+    <button type="button" class="action" id="fail-page">模拟页面加载失败</button>
+    <button type="button" class="action" id="toggle-site">打开起始页</button>
+  </div>
+  <p class="hint" id="announce" role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)"></p>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const choices = [...document.querySelectorAll('.choice')];
+  const state = { engine: 'Flash', pinned: null, site: true, pageError: false };
+  let toastTimer;
+  const lockIcon = '<svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>';
+  function otherEngine() { return state.engine === 'Flash' ? 'Ruffle' : 'Flash'; }
+  function render() {
+    const { engine, site, pageError } = state;
+    const pinned = site ? state.pinned : null;
+    const override = Boolean(pinned && pinned !== engine);
+    const status = override ? `站点已记住 ${pinned}，当前使用 ${engine}` : pinned ? `此站点已记住 ${engine}` : '未记住站点引擎';
+    $('engine-name').textContent = engine;
+    $('quick').setAttribute('aria-label', `${status}。当前引擎：${engine}，点击切换到 ${otherEngine()}`);
+    $('quick').title = $('quick').getAttribute('aria-label');
+    $('mark').className = `mark ${override ? 'override' : engine.toLowerCase()}`;
+    $('mark').innerHTML = pinned ? lockIcon : '<span class="dot"></span>';
+    for (const choice of choices) choice.setAttribute('aria-pressed', String(choice.dataset.engine === engine));
+    $('normal-rule').hidden = override;
+    $('override-actions').hidden = !override;
+    $('remember').disabled = !site;
+    $('remember').setAttribute('aria-checked', String(Boolean(pinned && !override)));
+    $('rule-hint').textContent = !site ? '无可用站点' : override ? `已记住 ${pinned} · 当前使用 ${engine}` : '';
+    $('replace-rule').textContent = `改为记住 ${engine}`;
+    $('host').textContent = site ? 'flash.example.com' : '无站点';
+    $('address').value = site ? 'https://flash.example.com/games' : '';
+    $('tab-title').textContent = $('page-title').textContent = site ? 'Flash 游戏档案' : '起始页';
+    $('toggle-site').textContent = site ? '打开起始页' : '返回示例站点';
+    $('page-normal').hidden = pageError;
+    $('page-error').hidden = !pageError;
+    $('fail-page').disabled = !site;
+  }
+  function panel(open, focus = false) {
+    $('expand').setAttribute('aria-expanded', String(open));
+    $('panel').hidden = !open;
+    if (focus) (open ? choices.find(choice => choice.dataset.engine === state.engine) : $('expand')).focus();
+  }
+  function switchEngine(engine) {
+    if (state.engine === engine) return;
+    state.engine = engine;
+    render();
+    $('announce').textContent = `已切换为 ${engine}`;
+  }
+  function hideToast() {
+    clearTimeout(toastTimer);
+    $('toast').hidden = true;
+    if (document.activeElement === $('dismiss')) $('fail-switch').focus();
+  }
+  $('quick').onclick = () => switchEngine(otherEngine());
+  $('expand').onclick = () => panel($('panel').hidden, $('panel').hidden);
+  for (const choice of choices) choice.onclick = () => { switchEngine(choice.dataset.engine); panel(false, true); };
+  $('remember').onclick = () => { state.pinned = state.pinned ? null : state.engine; render(); };
+  $('replace-rule').onclick = () => { state.pinned = state.engine; render(); $('remember').focus(); };
+  $('forget-rule').onclick = () => { state.pinned = null; render(); $('remember').focus(); };
+  document.addEventListener('pointerdown', event => { if (!$('engine').contains(event.target)) panel(false); });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (!$('panel').hidden) panel(false, $('engine').contains(document.activeElement));
+    else if (!$('toast').hidden) hideToast();
+  });
+  $('fail-switch').onclick = () => {
+    clearTimeout(toastTimer);
+    $('toast').hidden = false;
+    $('announce').textContent = '';
+    requestAnimationFrame(() => { $('announce').textContent = '引擎切换失败，已保留原引擎与页面。'; });
+    toastTimer = setTimeout(hideToast, 6500);
+  };
+  $('dismiss').onclick = hideToast;
+  $('toast').addEventListener('focusin', () => clearTimeout(toastTimer));
+  $('fail-page').onclick = () => { state.pageError = true; render(); $('retry').focus(); };
+  $('reload').onclick = $('retry').onclick = () => {
+    const retrying = state.pageError;
+    state.pageError = false;
+    render();
+    if (retrying) { $('reload').focus(); $('announce').textContent = '页面已恢复'; }
+  };
+  $('toggle-site').onclick = () => {
+    state.site = !state.site;
+    state.pageError = false;
+    state.engine = state.site ? state.pinned || 'Flash' : 'Flash';
+    render();
+  };
+  render();
+</script>
+</body>
+</html>

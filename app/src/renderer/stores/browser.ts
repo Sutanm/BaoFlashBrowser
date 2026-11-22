@@ -18,15 +18,19 @@ export const useBrowserStore = defineStore('browser', () => {
     snapshot.value = update
   }
 
-  async function run(command: BrowserCommand): Promise<void> {
+  async function run(command: BrowserCommand): Promise<boolean> {
     message.value = ''
     try {
       const result = await window.baoBrowser.run(command)
-      if (result.ok) apply(result.state)
-      else message.value = result.message
+      if (result.ok) {
+        apply(result.state)
+        return true
+      }
+      message.value = result.message
     } catch {
       message.value = '浏览器操作失败'
     }
+    return false
   }
 
   function connect(): void {

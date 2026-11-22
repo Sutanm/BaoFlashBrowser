@@ -1,0 +1,200 @@
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import type { BrowserCommand } from '../shared/browser'
+import { browserEngines, hostOf } from '../shared/engine'
+import type { BrowserEngine } from '../shared/engine'
+import type { OverlayKind } from '../shared/overlay'
+import { OVERLAY_INSET, OVERLAY_TOP_INSET } from './overlay-layout'
+import ShellIcon from './ShellIcon.vue'
+import { useBrowserStore } from './stores/browser'
+import { applyShellTheme } from './theme'
+
+const props = defineProps<{ kind: OverlayKind }>()
+const store = useBrowserStore()
+const { snapshot, active, message } = storeToRefs(store)
+const panel = ref<HTMLElement>()
+const toast = ref('')
+const busy = ref(false)
+const host = computed(() => hostOf(active.value?.address ?? ''))
+const pinned = computed(() => host.value ? active.value?.pinnedEngine : undefined)
+const override = computed(() => pinned.value && pinned.value !== active.value?.engine)
+const names = { ppapi: 'Flash', ruffle: 'Ruffle' }
+let detach: (() => void) | undefined
+let observer: ResizeObserver | undefined
+let restoreSelection = false
+
+applyShellTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme) })
+
+async function focusSelected(): Promise<void> {
+  await nextTick()
+  panel.value?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus()
+}
+
+watch(() => active.value?.engine, () => {
+  if (restoreSelection) {
+    restoreSelection = false
+    void focusSelected()
+  }
+})
+
+async function submit(command: BrowserCommand): Promise<boolean> {
+  if (busy.value) return false
+  busy.value = true
+  try {
+    const ok = await store.run(command)
+    if (!ok && message.value) await window.baoOverlay.reportFailure(message.value)
+    return ok
+  } finally {
+    busy.value = false
+  }
+}
+
+async function choose(engine: BrowserEngine): Promise<void> {
+  if (engine === active.value?.engine || await submit({ type: 'set-engine', engine })) {
+    await window.baoOverlay.closePanel()
+  }
+}
+
+async function setRule(remember: boolean, fromOverride = false): Promise<void> {
+  if (await submit({ type: remember ? 'remember-engine' : 'forget-engine' }) && fromOverride) {
+    await nextTick()
+    panel.value?.querySelector<HTMLElement>('[role="switch"]')?.focus()
+  }
+}
+
+function dismiss(): void { void window.baoOverlay.dismissToast() }
+
+onMounted(() => {
+  detach = window.baoOverlay.subscribe((event) => {
+    if (event.type === 'toast') toast.value = event.text
+    if (event.type === 'panel-opened') {
+      restoreSelection = !active.value
+      void focusSelected()
+    }
+  })
+  if (props.kind === 'panel' && panel.value) {
+    observer = new ResizeObserver(() => {
+      if (!panel.value) return
+      const height = Math.ceil(panel.value.getBoundingClientRect().height) + OVERLAY_TOP_INSET + OVERLAY_INSET
+      void window.baoOverlay.resizePanel(height)
+    })
+    observer.observe(panel.value)
+  }
+  store.connect()
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  detach?.()
+  store.disconnect()
+})
+</script>
+
+<template>
+  <div class="overlay-frame" :style="{ padding: `${OVERLAY_TOP_INSET}px ${OVERLAY_INSET}px ${OVERLAY_INSET}px` }">
+    <section v-if="kind === 'panel'" ref="panel" class="engine-panel" aria-labelledby="engine-heading">
+      <h2 id="engine-heading">渲染引擎</h2>
+      <div class="engine-choices" role="group" aria-label="选择当前标签的引擎">
+        <button v-for="engine in browserEngines" :key="engine" type="button" class="engine-choice"
+          :aria-pressed="active?.engine === engine" :disabled="!active" @click="choose(engine)">
+          <span class="engine-symbol" :class="engine"><ShellIcon :name="engine === 'ppapi' ? 'flash' : 'ruffle'" /></span>
+          <strong>{{ names[engine] }}</strong>
+          <span class="desc">{{ engine === 'ppapi' ? '原生播放器' : '兼容播放器' }}</span>
+          <ShellIcon name="check" class="choice-check" />
+        </button>
+      </div>
+      <div class="site-rule">
+        <div class="site-head"><strong>此站点</strong><span class="host" :title="host">{{ host || '无站点' }}</span></div>
+        <div v-if="!override" class="site-control">
+          <span id="remember-label">记住当前引擎</span>
+          <button type="button" role="switch" class="remember" aria-labelledby="remember-label"
+            :title="host ? undefined : '当前页面没有可保存规则的站点'" :aria-checked="!!pinned" :disabled="!host"
+            @click="setRule(!pinned)"><span></span></button>
+        </div>
+        <template v-else-if="active && pinned">
+          <p class="override-text">已记住 {{ names[pinned] }} · 当前使用 {{ names[active.engine] }}</p>
+          <div class="site-actions">
+            <button type="button" class="compact-action primary" @click="setRule(true, true)">改为记住 {{ names[active.engine] }}</button>
+            <button type="button" class="compact-action" @click="setRule(false, true)">取消记住</button>
+          </div>
+        </template>
+      </div>
+    </section>
+    <div v-else-if="toast" class="toast">
+      <ShellIcon name="error" class="toast-icon" />
+      <p>{{ toast }}</p>
+      <button type="button" aria-label="关闭提示" class="toast-close" @click="dismiss"><ShellIcon name="close" /></button>
+    </div>
+  </div>
+</template>
+
+<style>
+.shell-overlay, .shell-overlay body { margin: 0; overflow: hidden; background: transparent; }
+.shell-overlay { font: var(--size-body)/1.4 var(--shell-font); color: var(--text-primary); }
+.overlay-frame *, .overlay-frame *::before, .overlay-frame *::after { box-sizing: border-box; }
+:where(.overlay-frame button) { font: inherit; color: inherit; border: 0; background: transparent; }
+.overlay-frame button:not(:disabled) { cursor: pointer; }
+.overlay-frame button:focus-visible { outline: 2px solid var(--brand-stroke); outline-offset: -2px; }
+.engine-panel, .toast {
+  background: var(--surface-toolbar);
+  border: 1px solid var(--stroke-divider);
+  border-radius: var(--radius-surface);
+  box-shadow: 0 4px 11px #15132130, 0 1px 3px #15132116;
+}
+.engine-panel { padding: 8px; }
+.engine-panel h2 { margin: 0; padding: 1px 6px 5px; font-size: 11px; color: var(--text-secondary); }
+.engine-choices { display: grid; gap: 2px; }
+.engine-choice {
+  display: grid; grid-template-columns: 22px 1fr auto 14px; gap: 7px; align-items: center;
+  min-height: 32px; padding: 4px 6px; border-radius: var(--radius-control); border: 1px solid transparent;
+  text-align: left; font-size: 12px;
+}
+.engine-choice:not(:disabled):hover, .compact-action:hover, .toast-close:hover { background: var(--surface-hover); }
+.engine-choice[aria-pressed='true'] {
+  background: var(--engine-selection); border-color: color-mix(in srgb, var(--engine-accent) 20%, transparent);
+}
+.engine-symbol {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px;
+  background: color-mix(in srgb, currentColor 13%, transparent);
+}
+.engine-symbol.ppapi { color: var(--engine-flash); }
+.engine-symbol.ruffle { color: var(--engine-ruffle); }
+.engine-symbol .shell-icon { width: 13px; height: 13px; }
+.choice-check { width: 14px; height: 14px; color: var(--engine-accent); visibility: hidden; }
+.engine-choice[aria-pressed='true'] .choice-check { visibility: visible; }
+.desc { font-size: 11px; color: var(--text-secondary); }
+.site-rule { margin-top: 6px; padding: 6px 6px 1px; border-top: 1px solid var(--stroke-divider); }
+.site-head, .site-control { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.site-head { font-size: 11px; }
+.site-head strong { flex: none; }
+.host {
+  max-width: 76%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px;
+  font-size: 10px; color: var(--text-secondary); border: 1px solid var(--stroke-divider);
+  background: var(--surface-page); border-radius: 5px;
+}
+.site-control { min-height: 27px; margin-top: 2px; font-size: 12px; }
+.remember {
+  width: 31px; height: 18px; border: 1px solid var(--stroke-control); border-radius: var(--radius-pill);
+  background: var(--surface-page); padding: 2px; display: flex; align-items: center; flex: none;
+}
+.remember span { width: 12px; height: 12px; border-radius: 50%; background: var(--text-secondary); }
+.remember[aria-checked='true'] { justify-content: end; background: var(--engine-accent); border-color: var(--engine-accent); }
+.remember[aria-checked='true'] span { background: var(--surface-toolbar); }
+.remember:disabled { opacity: .45; }
+.override-text { margin: 4px 0 0; color: var(--engine-override); font-size: 12px; }
+.site-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.compact-action { border: 1px solid var(--stroke-divider); border-radius: 7px; font-size: 12px; padding: 3px 8px; }
+.compact-action.primary { color: var(--engine-accent); background: var(--engine-selection); border-color: transparent; font-weight: 600; }
+.toast { display: flex; align-items: flex-start; gap: 8px; padding: 8px; font-size: 12px; }
+.toast p { flex: 1; margin: 2px 0; overflow-wrap: anywhere; }
+.toast-icon { color: var(--text-error); margin-top: 2px; }
+.toast-close { display: grid; place-items: center; width: 23px; height: 23px; padding: 0; border-radius: 5px; flex: none; }
+.toast-close .shell-icon { width: 14px; height: 14px; }
+@media (forced-colors: active) {
+  .engine-choice[aria-pressed='true'] { border-color: Highlight; }
+  .remember span { forced-color-adjust: none; background: ButtonText; }
+  .remember[aria-checked='true'] span { background: Highlight; }
+}
+</style>

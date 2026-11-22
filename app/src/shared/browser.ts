@@ -13,12 +13,6 @@ export type BrowserCommand =
   | { type: 'snapshot' | 'add' | 'back' | 'forward' | 'reload' | 'undo-close' | 'remember-engine' | 'forget-engine' }
   | { type: 'select' | 'close'; id: number }
   | { type: 'navigate'; address: string }
-  /**
-   * 四档引擎选择（架构 §3 引擎）：一次性设定引擎与「是否记住此站点」。
-   * 分开调 `set-engine` + `remember-engine` 会在重建视图与写规则之间产生竞态，
-   * 所以合成一个动作。
-   */
-  | { type: 'engine-mode'; engine: BrowserEngine; lock: boolean }
   /** 标签排序（架构 §3「排序」）：把 `id` 移到 `index`。 */
   | { type: 'move'; id: number; index: number }
   /** 把标签拖出窗口：`screenX/screenY` 是释放点的屏幕坐标（架构 §3「拖出窗口」）。 */
@@ -36,6 +30,8 @@ export type BrowserFailureCode =
   | 'tearoff-failed'
   | 'nothing-to-undo'
   | 'engine-switch-failed'
+  | 'engine-unavailable'
+  | 'site-rule-save-failed'
   | 'no-site'
 
 export const browserFailureText: Record<BrowserFailureCode, string> = {
@@ -47,6 +43,8 @@ export const browserFailureText: Record<BrowserFailureCode, string> = {
   'tearoff-failed': '无法在新窗口打开此标签页，已退回原窗口',
   'nothing-to-undo': '没有可恢复的标签页',
   'engine-switch-failed': '引擎切换失败，已保留原引擎与页面',
+  'engine-unavailable': '原生 Flash 不可用，仍使用当前引擎',
+  'site-rule-save-failed': '无法保存站点规则，原有设置未更改',
   'no-site': '当前页面没有可记忆的站点'
 }
 
@@ -60,6 +58,8 @@ export interface BrowserTab {
   /** 渲染进程已崩溃或已销毁，需要重建 WebContents 才能继续。 */
   crashed: boolean
   error: string
+  /** 瞬态操作警告（例如引擎切换后没能恢复完整导航历史）。 */
+  notice?: { id: number; message: string }
   /** 当前标签使用的引擎与其来源（默认 / 站点规则 / 手动切换）。 */
   engine: BrowserEngine
   engineSource: EngineSource
