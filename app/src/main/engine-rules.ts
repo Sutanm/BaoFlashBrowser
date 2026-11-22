@@ -61,3 +61,18 @@ export function remember(host: string, engine: BrowserEngine): void {
   cache = next
   persist(next)
 }
+
+/**
+ * 取消某个站点的引擎规则（架构 §3 引擎「记住」要可撤销）。
+ *
+ * 没有这条时用户只能手改 `engine-rules.json`：UI 上「记住此站点」点完即消失，
+ * 属于只有正向、没有回退路径的状态。
+ */
+export function forget(host: string): void {
+  const current = load()
+  if (!(host in current)) return
+  const next = { ...current }
+  delete next[host]
+  cache = next
+  persist(next)
+}

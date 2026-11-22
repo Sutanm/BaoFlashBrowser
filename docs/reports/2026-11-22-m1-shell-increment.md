@@ -235,6 +235,6 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 9. 撤销关闭只保留导航栈（最多 10 条），不保留渲染进程：`restore()` 只能恢复 URL 与滚动/表单状态，POST 体等无法还原，失败时退到最后一个已知地址并提示。
 10. 快捷键集合当前只有 `Ctrl+T/W/Tab/Shift+T`；`Ctrl+R`、`Ctrl+L`、`Ctrl+数字` 等未加入，避免与页面自身快捷键冲突，等站点规则与 DevTools 接入时统一评审。
 11. 标签栏无障碍采用「按钮 + `aria-pressed`」而不是 `role=tab` 漫游 tabindex：后者会让关闭按钮污染标签的可访问名，现有冒烟选择器也依赖稳定名称。
-12. 引擎来源语义：`default`（无规则）→ `site-rule`（命中规则）→ `manual`（用户在本标签手动切换）。命中 `manual` 后导航不再重新解析规则，直到用户再次手动切换；「记住此站点」把当前引擎写回规则并改回 `site-rule`。
+12. 引擎来源语义：`default`（无规则）→ `site-rule`（命中规则）→ `manual`（用户在本标签手动切换）。命中 `manual` 后导航不再重新解析规则，直到用户再次切换；工具栏胶囊的 `⌄` 打开四档面板（锁定 Flash / Flash / Ruffle / 锁定 Ruffle），锁定档把引擎写回规则并改回 `site-rule`，选回未锁定档会删除规则。
 13. Ruffle 运行时源码走**同步 IPC**（`bao:ruffle-bundle`）而不是页面 `fetch`：站点 `connect-src` CSP 会拦页面世界的 fetch；IPC 用「页面视图登记表」校验发送者（preload 执行时文档 URL 尚未提交，按 URL 会误拒自己人）。
 14. 插件不可用（找不到 `pepflashplayer64.dll`）时所有标签回退到 Ruffle，避免出现「选了 PPAPI 却什么都不显示」。

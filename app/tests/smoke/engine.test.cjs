@@ -83,12 +83,17 @@ test('引擎切换保留导航栈，Ruffle 接管 SWF，站点规则可复用', 
     assert.equal(polyfill.id, 'RUFFLE-EMBED', 'polyfill 丢了元素 id')
     assert.equal(polyfill.canvas, true, 'Ruffle 播放器画布未创建（WASM 未加载）')
 
-    // 记住站点：站点规则生效。
-    await shell.getByRole('button', { name: '记住此站点', exact: true }).click()
+    // 锁定站点：四档面板里选「锁定 Ruffle」，写成站点规则。
+    await shell.getByRole('button', { name: '选择渲染引擎（含锁定此站点）', exact: true }).click()
+    const options = shell.getByRole('radio')
+    assert.equal(await options.count(), 4, '四档面板应有 4 个选项')
+    assert.equal(await shell.getByRole('radio', { name: 'Ruffle', exact: true }).getAttribute('aria-checked'), 'true')
+    await shell.getByRole('radio', { name: '锁定 Ruffle', exact: true }).click()
     state = await waitFor(async () => {
       const next = await snapshot(shell)
       return activeTabOf(next).engineSource === 'site-rule' ? next : null
     }, { message: '未记入站点规则。' })
+    assert.equal(activeTabOf(state).pinnedEngine, 'ruffle', '站点规则未落到 pinnedEngine')
 
     // 新标签打开同站点：自动使用 Ruffle。
     await shell.getByRole('button', { name: '新建标签页', exact: true }).click()
@@ -96,6 +101,15 @@ test('引擎切换保留导航栈，Ruffle 接管 SWF，站点规则可复用', 
     state = await snapshot(shell)
     assert.equal(activeTabOf(state).engine, 'ruffle', '站点规则未决定初始引擎')
     assert.equal(activeTabOf(state).engineSource, 'site-rule')
+
+    // 取消锁定：选回未锁定的「Ruffle」，规则应被删除。
+    await shell.getByRole('button', { name: '选择渲染引擎（含锁定此站点）', exact: true }).click()
+    await shell.getByRole('radio', { name: 'Ruffle', exact: true }).click()
+    state = await waitFor(async () => {
+      const next = await snapshot(shell)
+      return activeTabOf(next).engineSource !== 'site-rule' ? next : null
+    }, { message: '取消锁定后仍是站点规则。' })
+    assert.equal(activeTabOf(state).pinnedEngine, undefined, '取消锁定后规则未删除')
   } finally {
     await close()
     await server.close()

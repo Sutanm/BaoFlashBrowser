@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>引擎面板 · 设计稿 v3</title>
+<style>
+  :root {
+    --surface: #fff; --stroke: #e1e1e1;
+    --text: #1f1f1f; --text-soft: #6b6b6b; --text-dim: #9a9a9a;
+    --flash: #c0392f; --ruffle: #6a4fe0;
+    --track: #ededf0; --dot: #c6c6cc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 32px 72px;
+    font: 13px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    color: var(--text); background: #f4f4f6;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .lede { color: var(--text-soft); margin: 0 0 26px; font-size: 12px; }
+  section {
+    background: var(--surface); border: 1px solid var(--stroke); border-radius: 12px;
+    padding: 20px 22px 24px; margin-bottom: 18px; max-width: 900px;
+  }
+  section h2 { font-size: 13px; font-weight: 600; margin: 0 0 16px; display: flex; gap: 8px; align-items: center; }
+  section h2 .tag { font-size: 11px; font-weight: 500; color: var(--text-soft); border: 1px solid var(--stroke); border-radius: 999px; padding: 1px 8px; }
+  .row { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .cell { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  .cell .caption { font-size: 11px; color: var(--text-soft); text-align: center; line-height: 1.4; }
+  .cell .caption b { color: var(--text); display: block; font-weight: 600; }
+
+  /* ── 触发胶囊：实色背景 + 白字 ── */
+  .trigger {
+    position: relative; display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 9px; border: 0; border-radius: 999px;
+    background: var(--flash); color: #fff; cursor: pointer;
+    font: 600 12px/1 "Segoe UI", system-ui, sans-serif; letter-spacing: .2px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.18);
+  }
+  .trigger[data-engine="ruffle"] { background: var(--ruffle); }
+  .trigger .chevron { width: 9px; height: 9px; opacity: .62; }
+  .trigger:hover { filter: brightness(1.07); }
+  .trigger:active { filter: brightness(.94); }
+  .trigger:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  .trigger[data-lock="locked"]::after {
+    content: ""; position: absolute; inset: -3px; border-radius: 999px; padding: 2px;
+    background: conic-gradient(from 0deg, transparent 0deg, #fff 80deg, transparent 190deg, transparent 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    animation: spin 2.6s linear infinite; pointer-events: none; opacity: .95;
+  }
+  .trigger[data-lock="overridden"]::after {
+    content: ""; position: absolute; inset: -3px; border-radius: 999px; padding: 2px;
+    background: #b07a2a; opacity: .75;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .trigger[data-lock="locked"]::after { animation: none; } }
+
+  /* ── 面板 ── */
+  .popover {
+    background: var(--surface); border: 1px solid var(--stroke); border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06); padding: 13px 13px 11px;
+  }
+  .rail {
+    --w: 232px; --h: 30px; --knob: 26px; --pad: 2px;
+    position: relative; width: var(--w); height: var(--h); border-radius: 999px;
+    background: var(--track); user-select: none; cursor: pointer;
+  }
+  .rail .stopdot { position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: var(--dot); transform: translate(-50%,-50%); }
+  .rail .knob {
+    position: absolute; top: 50%; width: var(--knob); height: var(--knob); margin-top: calc(var(--knob)/-2);
+    border-radius: 50%; background: var(--flash); box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    display: flex; align-items: center; justify-content: center; color: #fff;
+    font: 700 11px/1 "Segoe UI", system-ui, sans-serif;
+    transition: left .16s cubic-bezier(.3,.9,.3,1), background .12s ease;
+  }
+  .rail[data-stop="2"] .knob, .rail[data-stop="3"] .knob { background: var(--ruffle); }
+  .raillabels { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 9px; width: 232px; }
+  .raillabels span { font-size: 10.5px; color: var(--text-dim); text-align: center; white-space: nowrap; }
+  .raillabels span.on { font-weight: 600; }
+  .raillabels span.on.flash { color: var(--flash); }
+  .raillabels span.on.ruffle { color: var(--ruffle); }
+</style>
+</head>
+<body>
+
+<h1>引擎面板 · 设计稿 v3</h1>
+<p class="lede">触发胶囊沿用现在的实色背景 + 白字；面板只留四档滑轨与标签，不写说明。</p>
+<p class="lede" style="color:#8a5a00;background:#fff6e0;border:1px solid #f0dcae;border-radius:8px;padding:8px 12px">
+  实现版差异：26px 高的胶囊上「流动外圈」不可读（白环在浅灰工具栏上几乎不可见，彩色环像双层描边），
+  最终改为<b>胶囊内嵌实心锁字形</b>：白色 = 已锁定，琥珀色 = 站点规则存在但被手动切换覆盖。
+</p>
+
+<section>
+  <h2>触发胶囊 <span class="tag">去掉了小圆点</span></h2>
+  <div class="row">
+    <div class="cell">
+      <button class="trigger" data-engine="ppapi" data-lock="none">Flash
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="caption"><b>未锁定</b>默认</div>
+    </div>
+    <div class="cell">
+      <button class="trigger" data-engine="ruffle" data-lock="none">Ruffle
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="caption"><b>手动切换</b>临时</div>
+    </div>
+    <div class="cell">
+      <button class="trigger" data-engine="ppapi" data-lock="locked">Flash
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="caption"><b>锁定 Flash</b>流动外圈</div>
+    </div>
+    <div class="cell">
+      <button class="trigger" data-engine="ruffle" data-lock="locked">Ruffle
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="caption"><b>锁定 Ruffle</b>流动外圈</div>
+    </div>
+    <div class="cell">
+      <button class="trigger" data-engine="ruffle" data-lock="overridden">Ruffle
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="caption"><b>被覆盖</b>琥珀外圈</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>面板 <span class="tag">只留滑轨和标签</span></h2>
+  <div class="row">
+    <div class="popover">
+      <div class="rail" data-stop="1">
+        <span class="stopdot" style="left:23px"></span>
+        <span class="stopdot" style="left:86px"></span>
+        <span class="stopdot" style="left:149px"></span>
+        <span class="stopdot" style="left:212px"></span>
+        <div class="knob" style="left:2px">F</div>
+      </div>
+      <div class="raillabels">
+        <span>锁定 Flash</span>
+        <span class="on flash">Flash</span>
+        <span>Ruffle</span>
+        <span>锁定 Ruffle</span>
+      </div>
+    </div>
+
+    <div class="popover">
+      <div class="rail" data-stop="3">
+        <span class="stopdot" style="left:23px"></span>
+        <span class="stopdot" style="left:86px"></span>
+        <span class="stopdot" style="left:149px"></span>
+        <span class="stopdot" style="left:212px"></span>
+        <div class="knob" style="left:204px">R</div>
+      </div>
+      <div class="raillabels">
+        <span>锁定 Flash</span>
+        <span>Flash</span>
+        <span>Ruffle</span>
+        <span class="on ruffle">锁定 Ruffle</span>
+      </div>
+    </div>
+
+    <div class="popover">
+      <div class="rail" data-stop="2">
+        <span class="stopdot" style="left:23px"></span>
+        <span class="stopdot" style="left:86px"></span>
+        <span class="stopdot" style="left:149px"></span>
+        <span class="stopdot" style="left:212px"></span>
+        <div class="knob" style="left:103px">R</div>
+      </div>
+      <div class="raillabels">
+        <span>锁定 Flash</span>
+        <span>Flash</span>
+        <span class="on ruffle">Ruffle</span>
+        <span>锁定 Ruffle</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const pad = 2, w = 232, knobW = 26
+  document.querySelectorAll('.rail').forEach((rail) => {
+    rail.addEventListener('click', (event) => {
+      const rect = rail.getBoundingClientRect()
+      const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left - knobW / 2) / (rect.width - knobW)))
+      const stop = Math.round(ratio * 3)
+      rail.dataset.stop = String(stop)
+      const knob = rail.querySelector('.knob')
+      knob.style.left = `${pad + stop * ((w - pad * 2 - knobW) / 3)}px`
+      knob.textContent = stop <= 1 ? 'F' : 'R'
+    })
+  })
+</script>
+</body>
+</html>

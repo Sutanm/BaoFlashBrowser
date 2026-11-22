@@ -211,7 +211,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       crashed,
       error: tab.error,
       engine: tab.engine,
-      engineSource: tab.engineSource
+      engineSource: tab.engineSource,
+      pinnedEngine: engineRules.rules()[hostOf(address) ?? '']
     }
   }
 
@@ -452,6 +453,37 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return { ok: true, state: state() }
   }
 
+  /** 取消当前站点的引擎规则，回到「手动切换」状态（记住要可撤销）。 */
+  function forgetActiveEngine(tab: Tab): BrowserResult {
+    const host = hostOf(safe(() => tab.view.webContents.getURL(), ''))
+    if (!host) return fail('no-site')
+    engineRules.forget(host)
+    tab.engineSource = 'manual'
+    publish()
+    return { ok: true, state: state() }
+  }
+
+  /**
+   * 四档引擎选择（架构 §3 引擎）：一次设定引擎与「是否记住此站点」。
+   *
+   * 拆成 `set-engine` + `remember-engine` 会先在重建视图后读取 URL、再写规则，
+   * 中间有导航竞态；这里在切换前就把站点定下来。
+   */
+  function applyEngineMode(tab: Tab, engine: BrowserEngine, lock: boolean): BrowserResult {
+    const host = hostOf(safe(() => tab.view.webContents.getURL(), ''))
+    if (!host) return fail('no-site')
+    if (tab.engine !== engine) switchEngine(tab, engine)
+    if (lock) {
+      engineRules.remember(host, engine)
+      tab.engineSource = 'site-rule'
+    } else {
+      engineRules.forget(host)
+      tab.engineSource = 'manual'
+    }
+    publish()
+    return { ok: true, state: state() }
+  }
+
   function reloadTab(tab: Tab): void {
     const contents = tab.view.webContents
     const url = contents.isDestroyed() ? '' : safe(() => contents.getURL(), '')
@@ -634,6 +666,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         if (command.engine !== 'ppapi' && command.engine !== 'ruffle') return fail('invalid-command')
         switchEngine(tab, command.engine)
         break
+      }
+      case 'engine-mode': {
+        const tab = activeTab()
+        if (!tab) return fail('unknown-tab')
+        return applyEngineMode(tab, command.engine, command.lock)
       }
       case 'remember-engine': {
         const tab = activeTab()

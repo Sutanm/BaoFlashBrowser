@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserTab } from '../shared/browser'
+import type { BrowserEngine } from '../shared/engine'
 import { engineLabels, engineSourceLabels, engineSwitchLabels, otherEngine } from '../shared/engine'
 import { applyShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
@@ -65,6 +66,59 @@ function switchEngine(): void {
   if (!tab) return
   void run({ type: 'set-engine', engine: otherEngine(tab.engine) })
 }
+
+/**
+ * 四档选择（架构 §3 引擎）：前两档 Flash、后两档 Ruffle，带锁的档会写成站点规则。
+ * 「已锁定」以 `engineSource === 'site-rule'` 判定；默认与手动切换都算未锁定。
+ */
+const engineOptions = computed(() => {
+  const tab = active.value
+  const pinned = tab?.engineSource === 'site-rule'
+  // 起始页 / about:blank 没有站点可记，锁定档置灰（否则会收到 no-site 错误）。
+  const canPin = !!tab?.address
+  return [
+    { key: 'lock-ppapi', engine: 'ppapi' as const, lock: true, label: '锁定 Flash', disabled: !canPin, selected: !!tab && tab.engine === 'ppapi' && pinned },
+    { key: 'ppapi', engine: 'ppapi' as const, lock: false, label: 'Flash', disabled: false, selected: !!tab && tab.engine === 'ppapi' && !pinned },
+    { key: 'ruffle', engine: 'ruffle' as const, lock: false, label: 'Ruffle', disabled: false, selected: !!tab && tab.engine === 'ruffle' && !pinned },
+    { key: 'lock-ruffle', engine: 'ruffle' as const, lock: true, label: '锁定 Ruffle', disabled: !canPin, selected: !!tab && tab.engine === 'ruffle' && pinned }
+  ]
+})
+
+/** 外圈：已锁定 = 固定镀层；规则被手动覆盖 = 琥珀色。 */
+const ringState = computed(() => {
+  const tab = active.value
+  if (!tab) return ''
+  if (tab.engineSource === 'site-rule') return 'locked'
+  if (tab.pinnedEngine && tab.pinnedEngine !== tab.engine) return 'overridden'
+  return ''
+})
+
+const enginePanelOpen = ref(false)
+const engineRoot = ref<HTMLElement | null>(null)
+
+function toggleEnginePanel(): void {
+  enginePanelOpen.value = !enginePanelOpen.value
+}
+
+function closeEnginePanel(): void {
+  enginePanelOpen.value = false
+}
+
+function chooseEngineMode(option: { engine: BrowserEngine; lock: boolean }): void {
+  enginePanelOpen.value = false
+  void run({ type: 'engine-mode', engine: option.engine, lock: option.lock })
+}
+
+/** 点面板外关闭（捕获阶段，避免被标签栏的指针手势吞掉）。 */
+function onEnginePointerDown(event: PointerEvent): void {
+  if (!enginePanelOpen.value) return
+  const root = engineRoot.value
+  if (root && event.target instanceof Node && !root.contains(event.target)) closeEnginePanel()
+}
+
+watch(() => active.value?.id, () => closeEnginePanel())
+onMounted(() => document.addEventListener('pointerdown', onEnginePointerDown, true))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onEnginePointerDown, true))
 
 /** 拖出窗口（架构 §3「拖出窗口」）：指针捕获保证移出窗口后仍能拿到释放点。 */
 function startTabDrag(tab: BrowserTab, event: PointerEvent): void {
@@ -266,26 +320,59 @@ onBeforeUnmount(() => store.disconnect())
           spellcheck="false"
         >
       </div>
-      <div v-if="active" class="engine" role="group" aria-label="渲染引擎">
-        <button
-          type="button"
-          class="engine-toggle"
-          :class="active.engine"
-          role="switch"
-          :aria-checked="active.engine === 'ruffle'"
-          :aria-label="switchLabel"
-          :title="engineTitle"
-          @click="switchEngine"
+      <div v-if="active" ref="engineRoot" class="engine" role="group" aria-label="渲染引擎">
+        <div class="engine-pill" :class="[active.engine, ringState]">
+          <button
+            type="button"
+            class="engine-switch"
+            role="switch"
+            :aria-checked="active.engine === 'ruffle'"
+            :aria-label="switchLabel"
+            :title="engineTitle"
+            @click="switchEngine"
+          >{{ active.engine === 'ruffle' ? 'Ruffle' : 'Flash' }}</button>
+          <span v-if="ringState" class="engine-state" :class="ringState" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 1 1 6 0v3H9Z" />
+            </svg>
+          </span>
+          <button
+            type="button"
+            class="engine-more"
+            :aria-expanded="enginePanelOpen"
+            aria-haspopup="true"
+            aria-label="选择渲染引擎（含锁定此站点）"
+            title="选择渲染引擎"
+            @click="toggleEnginePanel"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+        <div
+          v-if="enginePanelOpen"
+          class="engine-panel"
+          role="radiogroup"
+          aria-label="渲染引擎"
+          @keydown.esc="closeEnginePanel"
         >
-          <span class="engine-toggle-dot" aria-hidden="true"></span>
-          <span class="engine-toggle-label">{{ active.engine === 'ruffle' ? 'Ruffle' : 'Flash' }}</span>
-        </button>
-        <button
-          v-if="active.engineSource === 'manual'"
-          type="button"
-          class="engine-remember"
-          @click="run({ type: 'remember-engine' })"
-        >记住此站点</button>
+          <button
+            v-for="option in engineOptions"
+            :key="option.key"
+            type="button"
+            role="radio"
+            :aria-checked="option.selected"
+            :disabled="option.disabled"
+            :title="option.disabled ? '当前页面没有可记忆的站点' : option.label"
+            class="engine-stop"
+            :class="[option.engine, { on: option.selected, locked: option.lock }]"
+            @click="chooseEngineMode(option)"
+          >
+            <span class="engine-stop-knob" aria-hidden="true">{{ option.engine === 'ppapi' ? 'F' : 'R' }}</span>
+            <span class="engine-stop-label">{{ option.label }}</span>
+          </button>
+        </div>
       </div>
       <span v-if="message || active?.error" class="message" role="status" :title="message || active?.error">{{ message || active?.error }}</span>
     </form>
@@ -515,6 +602,7 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
 
 /* 引擎胶囊开关（Fluent 2 尺寸；红=原生 Flash，紫=Ruffle，与既有产品一致）。 */
 .engine {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-xs);
@@ -523,70 +611,116 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
   -webkit-app-region: no-drag;
 }
 
-.engine-toggle {
+/* 引擎胶囊（架构 §3 引擎）：实色底 + 白字，右侧 ⌄ 打开四档面板。
+   锁定 = 固定镀层外圈（左上亮、右下暗，不旋转）；规则被覆盖 = 琥珀色外圈。 */
+.engine-pill {
   position: relative;
-  display: block;
-  flex: none;
-  width: 68px;
+  display: inline-flex;
+  align-items: stretch;
   height: 26px;
-  padding: 0;
-  overflow: hidden;
   border-radius: var(--radius-pill);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .01em;
   background: #c0392f;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .16);
   transition: background-color var(--motion-normal) ease;
 }
-.engine-toggle.ruffle { background: #6a4fe0; }
+.engine-pill.ruffle { background: #6a4fe0; }
 
-.engine-toggle-dot {
-  position: absolute;
-  top: 4px;
-  left: 5px;
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-pill);
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
-  transition: transform var(--motion-normal) ease;
+.engine-switch {
+  padding: 0 2px 0 12px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  line-height: 26px;
 }
-.engine-toggle.ruffle .engine-toggle-dot { transform: translateX(40px); }
-
-.engine-toggle-label {
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
-  line-height: 1;
+.engine-more {
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 4px;
+  color: rgba(255, 255, 255, .72);
 }
-.engine-toggle.ruffle .engine-toggle-label { right: auto; left: 10px; }
-
-.engine-toggle:hover { filter: brightness(1.08); }
-.engine-toggle:active { filter: brightness(.94); }
-.engine-toggle:focus-visible {
+.engine-more svg { width: 9px; height: 9px; }
+.engine-more:hover { color: #fff; }
+.engine-pill:hover { filter: brightness(1.06); }
+.engine-pill:has(.engine-switch:active) { filter: brightness(.94); }
+.engine-switch:focus-visible,
+.engine-more:focus-visible {
   outline: 1px solid var(--stroke-focus-outer);
   outline-offset: 1px;
+  border-radius: var(--radius-pill);
 }
 
-.engine-remember {
-  padding: 3px var(--space-s);
-  border-radius: var(--button-radius);
-  color: var(--brand-stroke);
-  font-size: var(--size-caption);
+/* 锁定状态标记：26px 高的胶囊上做不出可读的外圈，改用内嵌锁字形。
+   白色 = 已锁定；琥珀 = 站点规则存在但被手动切换覆盖。 */
+.engine-state {
+  align-self: center;
+  display: inline-flex;
+  margin-inline-start: -2px;
+  color: rgba(255, 255, 255, .88);
 }
-.engine-remember:hover { color: inherit; background: var(--surface-hover); }
+.engine-state.overridden { color: #ffd08a; }
+.engine-state svg { width: 10px; height: 10px; }
+
+/* 四档面板 */
+.engine-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  gap: 2px;
+  width: 276px;
+  padding: 5px;
+  border-radius: var(--radius-surface);
+  background: var(--surface-toolbar);
+  border: 1px solid var(--stroke-divider);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .13), 0 2px 6px rgba(0, 0, 0, .07);
+}
+.engine-stop {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 2px 5px;
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.engine-stop:hover:not(:disabled) { background: var(--surface-hover); }
+.engine-stop:disabled { color: var(--text-disabled); cursor: default; }
+.engine-stop-knob {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: transparent;
+  font-size: 10px;
+  font-weight: 700;
+}
+.engine-stop.on { color: var(--text-primary); font-weight: 600; }
+.engine-stop.on .engine-stop-knob { color: #fff; }
+.engine-stop.on.ppapi .engine-stop-knob { background: #c0392f; }
+.engine-stop.on.ruffle .engine-stop-knob { background: #6a4fe0; }
+.engine-stop:focus-visible {
+  outline: 1px solid var(--stroke-focus-outer);
+  outline-offset: -1px;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .engine-toggle,
-  .engine-toggle-dot { transition: none; }
+  .engine-pill { transition: none; }
 }
 
 @media (forced-colors: active) {
-  .engine-toggle { border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
-  .engine-toggle-dot { background: ButtonText; }
+  .engine-pill { border: 1px solid ButtonText; background: ButtonFace; }
+  .engine-pill .engine-switch,
+  .engine-pill .engine-more { color: ButtonText; }
+  .engine-pill.locked::after { background: Highlight; }
 }
 
 @media (forced-colors: active) {
