@@ -64,17 +64,24 @@ test('引擎切换保留导航栈，Ruffle 接管 SWF，站点规则可复用', 
       const facts = await windowHandle.evaluate(async (window) => {
         const view = window.contentView.children
           .find((child) => child.webContents && child.webContents !== window.webContents)
-        return view.webContents.executeJavaScript(`({
-          players: document.querySelectorAll('ruffle-embed, ruffle-object, ruffle-player').length,
-          remaining: document.querySelectorAll('embed').length,
-          id: document.getElementById('flash')?.tagName ?? null
-        })`)
+        return view.webContents.executeJavaScript(`(() => {
+          const player = document.querySelector('ruffle-embed, ruffle-object, ruffle-player')
+          return {
+            players: document.querySelectorAll('ruffle-embed, ruffle-object, ruffle-player').length,
+            remaining: document.querySelectorAll('embed').length,
+            id: document.getElementById('flash')?.tagName ?? null,
+            // 只有 WASM 真的加载成功，Ruffle 才会在 shadow root 里创建播放器画布。
+            // 只断言元素存在会在 Ruffle 报错（例如非法 publicPath）时误判通过。
+            canvas: Boolean(player?.shadowRoot?.querySelector('canvas'))
+          }
+        })()`)
       })
-      return facts.players > 0 ? facts : null
-    }, { message: 'Ruffle 未接管 <embed>。' })
+      return facts.players > 0 && facts.canvas ? facts : null
+    }, { message: 'Ruffle 未接管 <embed>（或播放器未初始化）。' })
     assert.ok(polyfill.players >= 1)
     assert.equal(polyfill.remaining, 0, '原 <embed> 未被替换')
     assert.equal(polyfill.id, 'RUFFLE-EMBED', 'polyfill 丢了元素 id')
+    assert.equal(polyfill.canvas, true, 'Ruffle 播放器画布未创建（WASM 未加载）')
 
     // 记住站点：站点规则生效。
     await shell.getByRole('button', { name: '记住此站点', exact: true }).click()

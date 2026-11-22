@@ -67,8 +67,10 @@ function mimeTypeFor(fileName: string): string {
 function resourceName(requestUrl: string): string | undefined {
   try {
     const url = new URL(requestUrl)
-    // standard scheme：文件名进 hostname；同时接受路径形式，便于将来改 publicPath。
-    const candidate = decodeURIComponent(url.hostname || url.pathname.replace(/^\/+/, ''))
+    // publicPath 是 `ruffle-resource://assets/`，文件名落在 pathname；同时接受 hostname
+    // 形式（`ruffle-resource://<文件名>`），便于将来换布局。
+    const fromPath = url.pathname.replace(/^\/+/, '')
+    const candidate = decodeURIComponent(fromPath || url.hostname)
     if (!candidate || basename(candidate) !== candidate || !SAFE_RESOURCE_NAME.test(candidate)) return undefined
     return candidate
   } catch {

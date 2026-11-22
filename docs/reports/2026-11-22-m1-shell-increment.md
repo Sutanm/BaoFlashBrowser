@@ -66,7 +66,7 @@
 | --- | --- |
 | `npm run typecheck` | 通过（`vue-tsc --noEmit`，无输出） |
 | `npm run build` | 通过（main / preload 0.70 kB / renderer 267.59 kB） |
-| `npm run smoke` | **10/10 通过**（`startup` 1.23 s、`tabs` 1.36 s、`engine` 1.23 s、`input` 0.97 s、`plugin-input` 1.38 s、`flash` 1.98 s、`isolation` 1.51 s、`tearoff` 契约 1.35 s、`tearoff` 手势 1.80 s、`快捷键/撤销` 1.12 s），页面视图 `sandbox: true` |
+| `npm run smoke` | **11/11 通过**（`startup` 1.23 s、`tabs` 1.36 s、`engine` 1.23 s、`input` 0.97 s、`plugin-input` 1.38 s、`flash` 1.98 s、`isolation` 1.51 s、`tearoff` 契约 1.35 s、`tearoff` 手势 0.97 s、`脚印 CORS` 1.50 s、`快捷键/撤销` 1.71 s），页面视图 `sandbox: true` |
 | `npm run pack:win` | 通过，产出 `dist/win-preview-zKYrlB/win-unpacked`（含 `pepflashplayer64.dll` 与 `vendor/ruffle`） |
 | `npm run smoke:packaged` | **通过**（3.22 s，验证包启动 39.8.10 / 142.0.7444.265、加载 PPAPI 样本并注入 Ruffle 运行时） |
 
@@ -93,6 +93,19 @@
 | **PPAPI 在沙箱渲染进程中不实例化** | 插件注册成功但 `<embed>` 拿不到插件对象、无 `ppapi` 子进程，且没有任何日志 | 内核定位到 `ComputePluginsFromCommandLine()` 的 `base::PathExists()` 在沙箱渲染进程里读不到应用目录；改为浏览器校验、渲染进程只取元数据。详见[内核补丁记录](../kernel/README.md) |
 | 站点规则覆盖手动切换 | 手动切到 Ruffle 后，下一次导航又按规则默认值切回 PPAPI，用户选择被无声覆盖 | 按 §3「站点规则决定**初始**引擎」：`engineSource === 'manual'` 的标签导航时沿用用户选择，只有未手动切换过的标签才重新解析规则 |
 | Ruffle WASM 文件名带大写哈希 | 0.8.0 的 `ruffle_web_bg.QDRSAAAZ.wasm` 在 `standard` scheme 下会被 `new URL()` 归一成小写；Windows 靠大小写不敏感碰巧能跑，Linux 会 404 | 资源解析做不区分大小写的回退（`resolveResourcePath()`），并在 `vendor/ruffle/PROVENANCE.md` 记录该约束 |
+| Ruffle `publicPath` 不是合法 URL 基址 | `ruffle-resource://` 没有 host，Ruffle 的 `new URL(wasm, publicPath)` 抛 `Invalid URL`，真实站点上表现为 Ruffle 错误面板。本地冒烟只断言 `ruffle-embed` 存在，而错误面板下该元素同样存在 —— **断言过弱** | 改为 `ruffle-resource://assets/`（占位 host + 结尾斜杠）；`engine.test.cjs` / `packaged.test.cjs` 的断言加严到「shadow root 里出现播放器画布」 |
+| SWF 的 CORS 兼容层缺失 | PPAPI 插件进程自己发请求、不受 CORS 约束；Ruffle 用页面 `fetch()` 取跨域 CDN 的 SWF，被 `No 'Access-Control-Allow-Origin'` 拦掉后销毁实例 | 在页面会话对 `*.swf` 注入放行头（`sessions.ts`），并用双源用例 `ruffle-cors.test.cjs` 固化 |
+
+## 4.2 真实站点对照（2026-11-22）
+
+样本：<https://www.4399.com/flash/254626_3.htm>（狂扁外星人）。加载链：页面 → `gameloader2.swf` → 游戏 `szhong.4399.com/4399swf/upload_swf/ftp52/gamehwq/20250905/15b.swf`。
+
+| 引擎 | 结果 | 证据 |
+| --- | --- | --- |
+| 原生 PPAPI | 页面加载、`Pepper Plugin` 进程存在、SWF 链路全部 200、游戏首帧渲染 | [截图](../evidence/2026-11-22-4399-254626-ppapi.png) |
+| Ruffle 0.8.0 | 修复 `publicPath` 与 SWF CORS 两处后：加载器运行、游戏 SWF 成功 fetch、游戏首帧渲染 | [截图](../evidence/2026-11-22-4399-254626-ruffle.png) |
+
+该对照直接产出了上表的两个修复（`publicPath` 合法性、SWF CORS 兼容层）。**只覆盖单个页面**：4399 的登录/防沉迷弹窗流程、其他站点、Ruffle 的 Stage3D 与音频、站点版本门（UA / 插件版本通告 / `mms.cfg` / SWFObject）仍未验证。
 
 ## 5. 未验证与遗留
 
@@ -100,7 +113,7 @@
 - **插件内的 IME 组合**：`plugin-input.test.cjs` 只覆盖 keydown/`charCode`；CDP 的 `Input.imeSetComposition` 只对 HTML 页面验证过，IME 组合输入到 PPAPI 插件内部未测。
 - **引擎切换失败回退**：`navigationHistory.restore()` 抛错的分支已实现（保留原引擎并给出提示），但没有构造出失败用例；POST 体等无法还原的状态只按文档记录，未实测。
 - **Ruffle 能力边界**：`ExternalInterface` 只覆盖部分 API，本地 PPAPI 样本里的 `PercentLoaded`/`SetVariable` 往返在 Ruffle 引擎下不保证可用；验收断言只覆盖运行时注入与 polyfill 接管。Ruffle 0.5.0 的元素名是 `ruffle-embed`/`ruffle-object`。
-- **真实站点双引擎对照**：4399 等站点在两种引擎下的 UA、插件版本通告、`mms.cfg`、SWFObject、CORS 与私有资源路径均未复测（审计 §C7 的对照项）。
+- **真实站点范围**：只对照了单个 4399 页面（见 §4.2）。UA、插件版本通告、`mms.cfg`、SWFObject、登录/防沉迷弹窗流程、其他站点均未复测（审计 §C7 的其余对照项）。
 - **站点规则存储**：当前是 `userData/engine-rules.json`，M2 引入业务库后迁 SQLite；无版本化与迁移逻辑。
 - **Ruffle 全屏 / 音频 / 后台出帧**：未验证。
 - **引擎切换与光标/焦点**：切换后焦点落在新视图，Flash 内的输入焦点未实测。
@@ -110,7 +123,7 @@
 - **跨窗口移交的其余验证面**：失焦、全屏退出、音频继续播放未测；已实测的是同一 WebContents 复用带来的页面运行时状态与导航历史保留，真实 Flash 标签（4399 等）未复测。
 - **打包发布**：只产出 `--dir` 验证包；签名、分发、独立复建与依赖校验未做。
 - **`npm run dev`（Vite 开发服务器）**：本次未跑，冒烟针对构建产物与验证包；开发入口的 shell URL 分支未实测。
-- **真实站点**：本增量只覆盖本地样本，4399 等站点在 Next 宿主中的行为未复测。
+- **真实站点多页面与登录流程**：未覆盖。
 
 ## 6. 采用的可逆假设
 

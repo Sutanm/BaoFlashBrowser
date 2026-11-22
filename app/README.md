@@ -36,7 +36,7 @@ npm run dev
 | `npm run typecheck` | 检查 TypeScript 和 Vue 类型。 |
 | `npm run build` | 检查类型并编译主进程、预加载和渲染层。 |
 | `npm start` | 使用自编译 Electron 启动已编译的应用。 |
-| `npm run smoke` | 用临时测试 profile 验证无边框外壳、标签栏交互、快捷键、引擎切换与站点规则、输入回环、视图尺寸、Node 隔离、内核版本和本地 PPAPI 样本（10 个用例）。 |
+| `npm run smoke` | 用临时测试 profile 验证无边框外壳、标签栏交互、快捷键、引擎切换与站点规则、输入回环、Ruffle 的 SWF 跨源加载、视图尺寸、Node 隔离、内核版本和本地 PPAPI 样本（11 个用例）。 |
 | `npm run smoke:packaged` | 核对最近一次 `pack:win` 生成的验证包能启动真实内核、加载 PPAPI 样本并带上 Ruffle 运行时。 |
 | `npm run pack:win` | 每次在 `dist/win-preview-*/win-unpacked` 生成独立的 Win x64 验证包，并输出可执行文件路径。 |
 
@@ -51,6 +51,7 @@ npm run dev
 - 标签级快捷键与 F11 / Esc 全屏都在主进程 `before-input-event` 处理，因此页面（含 Flash）获得焦点时仍然生效。
 - **输入回环**：ASCII 与非 ASCII 字符进页面、IME 组合（`compositionstart/update/end` + 提交文本）、普通字母不被标签快捷键吃掉、地址栏与页面焦点互不串台、F11 全屏后视图跟随内容区、Esc 退出；自编 `keyprobe.swf` 证明键盘事件真的进了 **PPAPI 插件进程**。
 - **双引擎**：每标签一个引擎（原生 PPAPI / Ruffle）。站点规则决定初始引擎，手动切换会新建 WebContents 并恢复导航栈；切换后可「记住此站点」写入规则。Ruffle 使用 `vendor/ruffle` 的固定版本资源（0.8.0），由页面 preload 注入主世界并 polyfill `<embed>`。
+- **SWF 的 CORS 兼容层**：原生插件进程自己发请求不受 CORS 约束，Ruffle 用页面 `fetch()` 取跨域 CDN 的 SWF 会被拦。页面会话对 `*.swf` 注入放行头（`sessions.ts`），真实站点 4399 的加载链因此可用。
 - 页面会话关闭 Node、开启 context isolation 与 sandbox，权限检查与请求一律拒绝；外壳 IPC 校验发送者、帧与文档来源，失败返回稳定错误码。
 - 本地 PPAPI 样本：`navigator.plugins` 含 `Shockwave Flash`、独立 `Pepper Plugin` 进程、SWF 装载完成（`PercentLoaded = 100`）与 `SetVariable/GetVariable` 变量桥往返。
 - 窗口销毁与重建：旧窗口的 WebContents 全部释放、旧事件不污染新窗口、标签业务 ID 跨窗口唯一；渲染进程崩溃后重建 WebContents 恢复页面。

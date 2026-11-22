@@ -11,8 +11,14 @@ import { ipcRenderer, webFrame } from 'electron'
  * `connect-src` 会拦掉页面世界的 fetch，而 IPC 不受 CSP 约束。WASM 仍由 Ruffle 自己通过
  * `ruffle-resource://` 取，版本固定。
  */
+/**
+ * `publicPath` 必须是**合法 URL 基址**：Ruffle 用 `new URL(wasmName, publicPath)` 解析 WASM，
+ * 而 `standard` scheme 要求 host 非空 —— `ruffle-resource://` 会直接抛
+ * `Failed to construct 'URL': Invalid URL`（真实站点上表现为 Ruffle 错误面板）。
+ * 因此带一个占位 host 和结尾斜杠：`ruffle-resource://assets/`。
+ */
 const RUFFLE_CONFIG = {
-  publicPath: 'ruffle-resource://',
+  publicPath: 'ruffle-resource://assets/',
   favorFlash: false,
   quality: 'best',
   forceScale: true
