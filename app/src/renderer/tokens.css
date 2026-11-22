@@ -1,0 +1,17 @@
+:root {
+  color-scheme: light;
+  --shell-font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --shell-stroke: 1px;
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+
+  --tab-radius: var(--radius-surface);
+  --button-radius: var(--radius-control);
+  --tab-height: 34px;
+  --tab-foot: var(--radius-control);
+  --new-tab-button-size: 28px;
+  --nav-gap: var(--space-xs);
+  --address-radius: var(--radius-pill);
+}
+
+:root[data-theme="dark"] { color-scheme: dark; }

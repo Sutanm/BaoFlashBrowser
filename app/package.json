@@ -1,0 +1,36 @@
+{
+  "name": "baoflashbrowser-next",
+  "productName": "BaoFlashBrowser Next",
+  "version": "0.0.1",
+  "private": true,
+  "main": "out/main/index.js",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev --host 127.0.0.1",
+    "start": "electron-vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "build": "npm run typecheck && electron-vite build",
+    "smoke": "npm run build && node --test --test-concurrency=1 tests/smoke/startup.test.cjs tests/smoke/tabs.test.cjs tests/smoke/engine.test.cjs tests/smoke/flash.test.cjs tests/smoke/isolation.test.cjs tests/smoke/tearoff.test.cjs",
+    "smoke:packaged": "node --test --test-concurrency=1 tests/smoke/packaged.test.cjs",
+    "pack:win": "npm run build && node scripts/pack-win.cjs",
+    "runtime:prepare": "node scripts/prepare-runtime.cjs"
+  },
+  "dependencies": {
+    "@fluentui/tokens": "1.0.0-alpha.24",
+    "pinia": "3.0.4",
+    "vue": "3.5.46"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@vitejs/plugin-vue": "6.0.11",
+    "electron": "39.8.10",
+    "electron-builder": "26.18.1",
+    "electron-vite": "5.0.0",
+    "playwright": "1.65.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.8",
+    "vue-tsc": "3.3.14"
+  }
+}

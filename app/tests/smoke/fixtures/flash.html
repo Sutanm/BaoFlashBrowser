@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PPAPI 样本</title>
+<style>
+  html, body { margin: 0; background: #000; color: #0f0; font: 13px/1.5 Consolas, monospace; }
+  embed { display: block; width: 400px; height: 300px; margin: 8px; }
+  pre { margin: 8px; }
+</style>
+</head>
+<body>
+<embed
+  id="flash"
+  src="probe.swf"
+  type="application/x-shockwave-flash"
+  width="400"
+  height="300"
+  quality="high"
+  allowscriptaccess="always"
+/>
+<pre id="out">初始化中</pre>
+<script>
+  // 本地 PPAPI 验收样本：插件枚举 + SWF 装载 + JS↔Flash 变量桥。
+  // 结果写入 document.title，通过外壳标签名被冒烟测试读取（WCV 不是 Playwright page）。
+  const lines = []
+  const flash = document.getElementById('flash')
+  const out = document.getElementById('out')
+  function report(line) {
+    lines.push(line)
+    out.textContent = lines.join('\n')
+  }
+
+  report('plugins=' + Array.from(navigator.plugins, (plugin) => plugin.name).join('|'))
+  report('mime=' + String(!!navigator.mimeTypes['application/x-shockwave-flash']))
+
+  let attempts = 0
+  const timer = setInterval(() => {
+    attempts += 1
+    let percent = -1
+    let roundtrip = 'unavailable'
+    try {
+      percent = typeof flash.PercentLoaded === 'function' ? flash.PercentLoaded() : -1
+      if (percent === 100) {
+        flash.SetVariable('baoProbe', 'baoValue')
+        roundtrip = String(flash.GetVariable('baoProbe'))
+      }
+    } catch (error) {
+      roundtrip = 'threw:' + String(error)
+    }
+    if (percent !== 100 && attempts <= 120) return
+
+    clearInterval(timer)
+    const loaded = percent === 100 ? 'loaded' : 'timeout'
+    const bridge = roundtrip === 'baoValue' ? 'bridge' : 'bridge-' + roundtrip
+    report('percent=' + percent)
+    report('bridge=' + roundtrip)
+    document.documentElement.dataset.flash = loaded + ' ' + bridge
+    document.title = 'flash:' + loaded + ' ' + bridge
+  }, 250)
+</script>
+</body>
+</html>
