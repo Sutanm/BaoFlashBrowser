@@ -34,7 +34,7 @@ const INSTALL_BROKER_FETCH = `(() => {
       if (!/^https?:/i.test(url)) return original.call(this, input, init)
       const result = await net.request(url)
       if (!result || !result.proxied) {
-        console.debug('[broker] 未放行', url, result && result.reason, result && result.initiator)
+        console.debug('[broker] 未放行', url, result && result.reason, result && result.error)
         return original.call(this, input, init)
       }
       const headers = new Headers()

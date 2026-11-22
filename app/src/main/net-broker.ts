@@ -1,4 +1,5 @@
 import { ipcMain, net } from 'electron'
+import type { ClientRequest, IncomingMessage } from 'electron'
 import { allowsCrossOrigin } from './crossdomain'
 import { isPageView } from './page-views'
 
@@ -17,9 +18,12 @@ import { isPageView } from './page-views'
  * - 全部走 IPC，来源用 `event.senderFrame.url`（浏览器认证过的文档 URL），页面无法伪造；
  * - 跨源读取要求目标站 `crossdomain.xml` 允许该来源；同源直接放行；
  * - 未放行的请求**原样退回**浏览器 fetch（CORS 规则照常生效），不返回任何字节。
+ *
+ * 请求用 `net.request` 而不是 `net.fetch`：`fetch` 规范禁止设置 `Referer`/`Cookie`，
+ * 而反盗链站点（4399）缺了 `Referer` 会直接返回「访问错误」页。
  */
 const MAX_BODY_BYTES = 32 * 1024 * 1024
-const FETCH_TIMEOUT_MS = 20_000
+const TIMEOUT_MS = 20_000
 
 export interface NetBrokerResult {
   /** true 表示 broker 已取到字节；false 表示调用方应回退到浏览器 fetch。 */
@@ -31,6 +35,59 @@ export interface NetBrokerResult {
   readonly reason?: 'not-page-view' | 'policy-denied' | 'too-large' | 'network-error'
   /** 诊断用：被拒时的来源文档 URL（不含敏感内容）。 */
   readonly initiator?: string
+  /** 诊断用：网络错误的简短描述。 */
+  readonly error?: string
+}
+
+interface BrokerBytes {
+  status: number
+  contentType: string
+  body: Uint8Array
+}
+
+function requestBytes(url: string, headers: Record<string, string>, timeoutMs: number): Promise<BrokerBytes> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (error: Error | null, value?: BrokerBytes): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (error) reject(error)
+      else resolve(value as BrokerBytes)
+    }
+
+    const request: ClientRequest = net.request({ method: 'GET', url, redirect: 'follow' })
+    const timer = setTimeout(() => {
+      request.abort()
+      finish(new Error('timeout'))
+    }, timeoutMs)
+
+    for (const [name, value] of Object.entries(headers)) request.setHeader(name, value)
+    request.on('error', (error) => finish(error as Error))
+    request.on('response', (response: IncomingMessage) => {
+      const chunks: Buffer[] = []
+      let size = 0
+      const contentType = String(response.headers['content-type'] ?? 'application/octet-stream')
+      response.on('data', (chunk: Buffer) => {
+        size += chunk.length
+        if (size > MAX_BODY_BYTES) {
+          request.abort()
+          finish(new Error('too-large'))
+          return
+        }
+        chunks.push(chunk)
+      })
+      response.on('end', () => {
+        finish(null, {
+          status: response.statusCode,
+          contentType: Array.isArray(contentType) ? String(contentType[0]) : contentType,
+          body: new Uint8Array(Buffer.concat(chunks))
+        })
+      })
+      response.on('error', (error) => finish(error as Error))
+    })
+    request.end()
+  })
 }
 
 export function registerNetBroker(): void {
@@ -44,22 +101,36 @@ export function registerNetBroker(): void {
       return { proxied: false, reason: 'policy-denied', initiator }
     }
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    // 补齐 Flash 会带的请求头：
+    // - Cookie：Flash 对目标域会带 cookie（登录后的游戏接口依赖它）。
+    // - User-Agent：沿用页面视图的 UA，避免站点按 Electron 默认 UA 区分。
+    // 注意**不要**直接设 `Referer`：Chromium 会以 ERR_BLOCKED_BY_CLIENT 拒绝
+    // （实测 2026-11-22，带 Referer 的 net.request 全部被拦，不带的返回 200）。
+    const headers: Record<string, string> = {
+      'User-Agent': event.sender.getUserAgent() || 'Mozilla/5.0',
+      Accept: '*/*'
+    }
     try {
-      const response = await net.fetch(url, { signal: controller.signal, redirect: 'follow' })
-      const buffer = await response.arrayBuffer()
-      if (buffer.byteLength > MAX_BODY_BYTES) return { proxied: false, reason: 'too-large' }
-      return {
-        proxied: true,
-        status: response.status,
-        contentType: response.headers.get('content-type') ?? 'application/octet-stream',
-        body: new Uint8Array(buffer)
+      const cookies = await event.sender.session.cookies.get({ url })
+      if (cookies.length > 0) {
+        headers.Cookie = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
       }
     } catch {
-      return { proxied: false, reason: 'network-error' }
-    } finally {
-      clearTimeout(timer)
+      // cookie 取不到不影响主体请求
+    }
+
+    try {
+      const bytes = await requestBytes(url, headers, TIMEOUT_MS)
+      if (bytes.body.byteLength > MAX_BODY_BYTES) return { proxied: false, reason: 'too-large' }
+      return {
+        proxied: true,
+        status: bytes.status,
+        contentType: bytes.contentType,
+        body: bytes.body
+      }
+    } catch (error) {
+      const tooLarge = String(error).includes('too-large')
+      return { proxied: false, reason: tooLarge ? 'too-large' : 'network-error', initiator, error: String(error).slice(0, 120) }
     }
   })
 }

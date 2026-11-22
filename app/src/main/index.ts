@@ -27,8 +27,18 @@ function shellDocument(): string {
   return devUrl ? new URL(devUrl).href : pathToFileURL(join(__dirname, '../renderer/index.html')).href
 }
 
+/** 命令行里第一个 http(s) 参数作为首个标签的地址（`BaoFlashBrowser Next.exe <网址>`）。 */
+function initialAddress(): string | undefined {
+  const args = process.argv.slice(app.isPackaged ? 1 : 2)
+  return args.find((arg) => /^https?:\/\/\S+$/i.test(arg))
+}
+
 async function openShellWindow(): Promise<void> {
-  await createBrowserWindow({ shellUrl: shellDocument(), flash: flash.enabled })
+  await createBrowserWindow({
+    shellUrl: shellDocument(),
+    flash: flash.enabled,
+    initialAddress: initialAddress()
+  })
 }
 
 app.whenReady().then(openShellWindow).catch((error: unknown) => {

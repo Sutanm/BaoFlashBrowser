@@ -54,6 +54,8 @@ export interface BrowserWindowOptions {
   flash?: boolean
   /** 接管一个已存在的标签（跨窗口移动）。 */
   adopt?: Tab
+  /** 首个标签打开的地址（命令行参数）。 */
+  initialAddress?: string
   adoptIndex?: number
   x?: number
   y?: number
@@ -726,6 +728,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   if (options.adopt) {
     adoptTab(options.adopt, options.adoptIndex ?? 0)
+  } else if (options.initialAddress) {
+    // 命令行带了地址：首个标签按站点规则决定引擎后直接打开。
+    const resolved = engineFor(options.initialAddress)
+    const opened = addTab('新标签页', options.initialAddress, resolved.engine, resolved.source)
+    select(opened, true)
   } else {
     // 启动只开一个标签页；多标签由「新建标签页」与冒烟测试覆盖。
     select(addTab('新标签页'), false)
