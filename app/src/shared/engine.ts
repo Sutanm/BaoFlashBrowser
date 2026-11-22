@@ -23,6 +23,12 @@ export const engineSourceLabels: Record<EngineSource, string> = {
   manual: '手动切换'
 }
 
+/** 切换动作的无障碍名称（说明「点了会切到哪个引擎」）。 */
+export const engineSwitchLabels: Record<BrowserEngine, string> = {
+  ppapi: '切换到原生 Flash 引擎',
+  ruffle: '切换到 Ruffle 引擎'
+}
+
 /** 无站点规则时的默认引擎。原生优先，Ruffle 作为兼容回退。 */
 export const DEFAULT_ENGINE: BrowserEngine = 'ppapi'
 

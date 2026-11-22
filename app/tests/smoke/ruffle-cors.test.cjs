@@ -27,7 +27,7 @@ test('Ruffle 通过页面 fetch 加载跨源 SWF（CORS 兼容层）', { timeout
     await address.press('Enter')
     await shell.getByRole('button', { name: '跨源插件页面', exact: true }).waitFor({ timeout: 30_000 })
 
-    await shell.getByRole('button', { name: '切换到Ruffle', exact: true }).click()
+    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
 
     const player = await waitFor(async () => {
       const facts = await viewEval(app, shell, `(() => {

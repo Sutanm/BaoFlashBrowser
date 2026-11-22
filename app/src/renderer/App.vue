@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserTab } from '../shared/browser'
-import { engineLabels, engineSourceLabels, otherEngine } from '../shared/engine'
+import { engineLabels, engineSourceLabels, engineSwitchLabels, otherEngine } from '../shared/engine'
 import { applyShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
 
@@ -50,14 +50,14 @@ function run(command: BrowserCommand): Promise<void> {
   return store.run(command)
 }
 
-/** 引擎指示与切换（架构 §3 引擎）：手动切换后可以记住为站点规则。 */
-const engineText = computed(() => {
+/** 引擎指示与切换（架构 §3 引擎）：胶囊开关，手动切换后可以记住为站点规则。 */
+const engineTitle = computed(() => {
   const tab = active.value
-  return tab ? `${engineLabels[tab.engine]} · ${engineSourceLabels[tab.engineSource]}` : ''
+  return tab ? `渲染引擎：${engineLabels[tab.engine]}（${engineSourceLabels[tab.engineSource]}）` : ''
 })
 const switchLabel = computed(() => {
   const tab = active.value
-  return tab ? `切换到${engineLabels[otherEngine(tab.engine)]}` : ''
+  return tab ? engineSwitchLabels[otherEngine(tab.engine)] : ''
 })
 
 function switchEngine(): void {
@@ -266,9 +266,20 @@ onBeforeUnmount(() => store.disconnect())
           spellcheck="false"
         >
       </div>
-      <div v-if="active" class="engine">
-        <span class="engine-label" role="status">{{ engineText }}</span>
-        <button type="button" class="engine-switch" @click="switchEngine">{{ switchLabel }}</button>
+      <div v-if="active" class="engine" role="group" aria-label="渲染引擎">
+        <button
+          type="button"
+          class="engine-toggle"
+          :class="active.engine"
+          role="switch"
+          :aria-checked="active.engine === 'ruffle'"
+          :aria-label="switchLabel"
+          :title="engineTitle"
+          @click="switchEngine"
+        >
+          <span class="engine-toggle-dot" aria-hidden="true"></span>
+          <span class="engine-toggle-label">{{ active.engine === 'ruffle' ? 'Ruffle' : 'Flash' }}</span>
+        </button>
         <button
           v-if="active.engineSource === 'manual'"
           type="button"
@@ -502,24 +513,81 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
   white-space: nowrap;
 }
 
+/* 引擎胶囊开关（Fluent 2 尺寸；红=原生 Flash，紫=Ruffle，与既有产品一致）。 */
 .engine {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
   flex: none;
-  margin-inline-start: var(--space-xs);
-  font-size: var(--size-caption);
-  color: var(--text-secondary);
+  margin-inline-start: var(--space-s);
+  -webkit-app-region: no-drag;
 }
-.engine-switch,
+
+.engine-toggle {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 68px;
+  height: 26px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  background: #c0392f;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .16);
+  transition: background-color var(--motion-normal) ease;
+}
+.engine-toggle.ruffle { background: #6a4fe0; }
+
+.engine-toggle-dot {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  transition: transform var(--motion-normal) ease;
+}
+.engine-toggle.ruffle .engine-toggle-dot { transform: translateX(40px); }
+
+.engine-toggle-label {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  line-height: 1;
+}
+.engine-toggle.ruffle .engine-toggle-label { right: auto; left: 10px; }
+
+.engine-toggle:hover { filter: brightness(1.08); }
+.engine-toggle:active { filter: brightness(.94); }
+.engine-toggle:focus-visible {
+  outline: 1px solid var(--stroke-focus-outer);
+  outline-offset: 1px;
+}
+
 .engine-remember {
-  padding: 2px var(--space-s);
+  padding: 3px var(--space-s);
   border-radius: var(--button-radius);
-  color: var(--text-secondary);
+  color: var(--brand-stroke);
+  font-size: var(--size-caption);
 }
-.engine-switch:hover,
 .engine-remember:hover { color: inherit; background: var(--surface-hover); }
-.engine-remember { color: var(--brand-stroke); }
+
+@media (prefers-reduced-motion: reduce) {
+  .engine-toggle,
+  .engine-toggle-dot { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .engine-toggle { border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
+  .engine-toggle-dot { background: ButtonText; }
+}
 
 @media (forced-colors: active) {
   .tab.selected { --tab-outline: Highlight; }

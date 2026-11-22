@@ -35,7 +35,7 @@ test('引擎切换保留导航栈，Ruffle 接管 SWF，站点规则可复用', 
     assert.equal(activeTabOf(state).engineSource, 'default')
 
     // 切到 Ruffle：新 WebContents，地址与导航栈保留。
-    await shell.getByRole('button', { name: '切换到Ruffle', exact: true }).click()
+    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
     state = await waitFor(async () => {
       const next = await snapshot(shell)
       return activeTabOf(next).engine === 'ruffle' ? next : null

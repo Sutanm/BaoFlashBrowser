@@ -63,7 +63,7 @@ test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { 
     assert.ok(processes.includes('Pepper Plugin'), `验证包未启动 PPAPI 插件进程：${processes.join(',')}`)
 
     // 验证包里也带着版本固定的 Ruffle 运行时（vendor 必须打进 asar）。
-    await shell.getByRole('button', { name: '切换到Ruffle', exact: true }).click()
+    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
     const windowHandle = await app.browserWindow(shell)
     const polyfilled = await waitForFacts(async () => {
       const facts = await windowHandle.evaluate(async (window) => {
