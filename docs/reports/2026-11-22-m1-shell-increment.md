@@ -122,11 +122,13 @@
 
 Ruffle 在同一站点暴露的三个**客户端层**问题（都不是版本门）：
 
-| 问题 | 证据 | 归属 |
+| 问题 | 证据 | 处置 |
 | --- | --- | --- |
-| 跨源 iframe 无法 polyfill | `Couldn't load Ruffle into IFRAME[]: SecurityError: Failed to read a named property 'document'` | 我们的页面 preload 只注入主帧；需要 `nodeIntegrationInSubFrames` 让 Ruffle 引导进子帧 |
-| 数据请求的 CORS 被拦 | `Access to fetch at 'http://newmisc.taomee.com/misc.js?...' blocked by CORS policy` | 我们的 CORS 垫片只覆盖 `*.swf`；该数据地址以 `.js` 结尾 |
-| `URLStream` 未实现 | `Encountered stub: AVM2 flash.net.URLStream constructor streaming support` | Ruffle 自身能力缺口，应用层无法修复 |
+| 数据请求的 CORS 被拦 | `Access to fetch at 'http://newmisc.taomee.com/misc.js?...' blocked by CORS policy` | **已修**：CORS 垫片从「只覆盖 `*.swf`」扩大到页面会话的全部 http(s) 响应（只补缺失的 `Access-Control-Allow-Origin`，服务端已有的头保持不动；不写 `Allow-Credentials`，带凭据的跨源读取仍不通） |
+| 跨源 iframe 无法 polyfill | `Couldn't load Ruffle into IFRAME[]: SecurityError: Failed to read a named property 'document'` | **已修**：Ruffle 视图开启 `nodeIntegrationInSubFrames`，preload 进每个子帧，各帧实例化自己的 Ruffle（日志出现 4 次 `[ruffle] 引导完成`） |
+| `URLStream` 未实现 | `Encountered stub: AVM2 flash.net.URLStream constructor streaming support` | 应用层无法修复，记入 Ruffle 能力矩阵；这也是「原生引擎默认」的理由之一 |
+
+修复后复测（[截图](../evidence/2026-11-22-mole-61-ruffle-after.jpg)）：Ruffle 从「卡在登录页 / 一直转圈」推进到**游戏「开始」界面**。仍残留的 `Couldn't load Ruffle into IFRAME[]` 是 Ruffle 父帧侧的冗余注入尝试（子帧已有自己的实例），不影响渲染。
 
 **只覆盖两个页面**：登录后的游戏本体、4399 的防沉迷弹窗流程、其他站点、Ruffle 的 Stage3D 与音频仍未验证。
 

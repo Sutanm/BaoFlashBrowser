@@ -51,7 +51,8 @@ npm run dev
 - 标签级快捷键与 F11 / Esc 全屏都在主进程 `before-input-event` 处理，因此页面（含 Flash）获得焦点时仍然生效。
 - **输入回环**：ASCII 与非 ASCII 字符进页面、IME 组合（`compositionstart/update/end` + 提交文本）、普通字母不被标签快捷键吃掉、地址栏与页面焦点互不串台、F11 全屏后视图跟随内容区、Esc 退出；自编 `keyprobe.swf` 证明键盘事件真的进了 **PPAPI 插件进程**。
 - **双引擎**：每标签一个引擎（原生 PPAPI / Ruffle）。站点规则决定初始引擎，手动切换会新建 WebContents 并恢复导航栈；切换后可「记住此站点」写入规则。Ruffle 使用 `vendor/ruffle` 的固定版本资源（0.8.0），由页面 preload 注入主世界并 polyfill `<embed>`。工具栏用胶囊开关展示当前引擎（红=原生 Flash / 紫=Ruffle），`role="switch"` + `aria-checked`，标题里带引擎来源（默认 / 站点规则 / 手动切换）。
-- **SWF 的 CORS 兼容层**：原生插件进程自己发请求不受 CORS 约束，Ruffle 用页面 `fetch()` 取跨域 CDN 的 SWF 会被拦。页面会话对 `*.swf` 注入放行头（`sessions.ts`），真实站点 4399 的加载链因此可用。
+- **SWF 的 CORS 兼容层**：原生插件进程自己发请求不受 CORS 约束，Ruffle 用页面 `fetch()` 取跨域资源会被拦。页面会话对**全部 http(s) 响应**补齐放行头（只补缺失的 `Access-Control-Allow-Origin`，不写 `Allow-Credentials`）。这是「站点不可穷举」与安全面之间的显式交换，后续做站点规则时可收窄。
+- **Ruffle 子帧支持**：Ruffle 视图开启 `nodeIntegrationInSubFrames`，preload 进每个子帧，跨源 iframe 里的客户端 SWF 也能被接管（淘米摩尔庄园的客户端挂在 iframe 里）。
 - 页面会话关闭 Node、开启 context isolation 与 sandbox；**权限白名单**只放行 `fullscreen` / `pointerLock` 且要求 http(s) 来源，其余一律拒绝；**受控弹窗**只允许同站点 http(s) 弹窗（以新标签承载，引擎继承 opener），跨站与非 http(s) 拒绝；外壳 IPC 校验发送者、帧与文档来源，失败返回稳定错误码。
 - 本地 PPAPI 样本：`navigator.plugins` 含 `Shockwave Flash`、独立 `Pepper Plugin` 进程、SWF 装载完成（`PercentLoaded = 100`）与 `SetVariable/GetVariable` 变量桥往返。
 - 窗口销毁与重建：旧窗口的 WebContents 全部释放、旧事件不污染新窗口、标签业务 ID 跨窗口唯一；渲染进程崩溃后重建 WebContents 恢复页面。

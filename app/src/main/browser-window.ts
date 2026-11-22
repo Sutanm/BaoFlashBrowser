@@ -257,7 +257,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         contextIsolation: true,
         sandbox: true,
         webSecurity: true,
-        plugins: !ruffle
+        plugins: !ruffle,
+        /**
+         * Ruffle 需要把引导注入**每个子帧**：站点的客户端 SWF 常挂在跨源 iframe 里
+         * （2026-11-22 淘米对照：`Couldn't load Ruffle into IFRAME[]: SecurityError`），
+         * 父帧的注入被同源策略挡住；让 preload 进子帧后，每个帧各自实例化 Ruffle。
+         * `nodeIntegration` 仍为 false，preload 只在隔离世界运行。
+         */
+        nodeIntegrationInSubFrames: ruffle
       }
     })
     // 登记页面视图：Ruffle 运行时只发给页面视图（架构 §3 IPC 校验发送者）。
