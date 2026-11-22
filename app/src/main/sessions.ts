@@ -12,9 +12,26 @@ import type { Session } from 'electron'
 const PAGE_PARTITION = 'persist:bao-next-pages'
 const SHELL_PARTITION = 'bao-next-shell'
 
-function denyAllPermissions(target: Session): Session {
-  target.setPermissionCheckHandler(() => false)
-  target.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+/**
+ * 权限白名单（架构 §3 权限与会话「按请求来源及嵌入来源处理」）。
+ *
+ * 只放行 Flash 游戏真正需要的两项：`fullscreen`（游戏里的全屏按钮）与 `pointerLock`
+ * （第一人称/拖拽类操作）。其余一律拒绝，且必须来自 http(s) 来源 —— `file:`/`data:`
+ * 等本地文档不参与。旧产品同样只放行这两项，这里保持同一范围。
+ */
+const ALLOWED_PERMISSIONS = new Set(['fullscreen', 'pointerLock'])
+
+function allows(permission: string, url: string | undefined | null): boolean {
+  return ALLOWED_PERMISSIONS.has(permission) && !!url && /^https?:/i.test(url)
+}
+
+function applyPermissionPolicy(target: Session): Session {
+  target.setPermissionCheckHandler((contents, permission, requestingOrigin) =>
+    allows(permission, requestingOrigin || contents?.getURL()))
+  // 请求侧不用 details 的联合类型：直接看发起请求的页面 URL 更稳，语义也一致。
+  target.setPermissionRequestHandler((contents, permission, callback) => {
+    callback(allows(permission, contents?.getURL()))
+  })
   return target
 }
 
@@ -68,11 +85,11 @@ let pageSession: Session | undefined
 let shellSession: Session | undefined
 
 export function getPageSession(): Session {
-  pageSession ??= denyDownloads(allowSwfCors(denyAllPermissions(session.fromPartition(PAGE_PARTITION))))
+  pageSession ??= denyDownloads(allowSwfCors(applyPermissionPolicy(session.fromPartition(PAGE_PARTITION))))
   return pageSession
 }
 
 export function getShellSession(): Session {
-  shellSession ??= denyDownloads(denyAllPermissions(session.fromPartition(SHELL_PARTITION)))
+  shellSession ??= denyDownloads(applyPermissionPolicy(session.fromPartition(SHELL_PARTITION)))
   return shellSession
 }

@@ -106,6 +106,20 @@ function sameDocument(actual: string, expected: string): boolean {
   }
 }
 
+/**
+ * 站点近似（M1 用「注册域」的最后两段）。
+ *
+ * 4399 的启动链跨子域（`news.4399.com` → `my.4399.com`），按源严格比较会误拒；
+ * 多段公共后缀（`co.uk` 等）与 IP 字面量的边界情况留待 M2 用 PSL 处理。
+ */
+function siteOf(url: string): string | undefined {
+  const host = hostOf(url)
+  if (!host) return undefined
+  if (/^\d+(?:\.\d+){3}$/.test(host) || host.includes(':')) return host
+  const labels = host.split('.')
+  return labels.length <= 2 ? host : labels.slice(-2).join('.')
+}
+
 function currentTheme(): ShellTheme {
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
 }
@@ -257,9 +271,31 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const contents = view.webContents
     const live = () => tab.view === view && tab.binding === binding && !contents.isDestroyed()
 
-    contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     contents.on('before-input-event', (event, input) => {
       if (live() && handleShortcut(input)) event.preventDefault()
+    })
+    /**
+     * 受控弹窗（架构 §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」）。
+     *
+     * 只允许**同站点**的 http(s) 弹窗，并以「新标签」承载（引擎与来源继承 opener）；
+     * 跨站、非 http(s)（`file:`/`about:blank`/自定义协议）一律拒绝。
+     *
+     * 已知限制：以标签承载会丢失 `window.opener` 与带 features 的独立弹窗窗口。真实站点
+     * 若依赖 `opener.postMessage`/`opener.location` 做 lobby→game 交接，需要改成
+     * `overrideBrowserWindowOptions` 的真实弹窗窗口（142 报告的探针就是这个形态）。
+     * 该限制在真实站点上未验证（本增量不做真站回归）。
+     */
+    contents.setWindowOpenHandler(({ url }) => {
+      if (!live() || !isWebAddress(url)) return { action: 'deny' }
+      const openerSite = siteOf(safe(() => contents.getURL(), ''))
+      if (!openerSite || openerSite !== siteOf(url)) {
+        console.warn(`[popup] 拒绝跨站弹窗：${url}`)
+        return { action: 'deny' }
+      }
+      const opened = addTab('新标签页', null, tab.engine, tab.engineSource)
+      load(opened, url)
+      select(opened, true)
+      return { action: 'deny' }
     })
     contents.on('will-frame-navigate', (event) => {
       if (live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()

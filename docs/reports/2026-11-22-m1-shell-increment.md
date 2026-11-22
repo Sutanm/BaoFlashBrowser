@@ -34,7 +34,8 @@
 | §3 页面：区分加载、崩溃与销毁后重建 | `BrowserTab.crashed` + `render-process-gone` 状态；`reload` 在崩溃时重建 WebContents | `isolation.test.cjs`（`crashed === true` → 重建 → `crashed === false`） |
 | §3 引擎：原生 PPAPI 启用 | `app/src/main/plugins.ts`：`--allow-command-line-plugins` + `--register-pepper-plugins`（29.0.0.171，`Shockwave Flash 29.0 r0`） | `flash.test.cjs`、`packaged.test.cjs` |
 | §3 标签合同「键盘输入和 IME」「F11」 | 标签级快捷键与 **F11 / Esc 全屏**都在主进程 `before-input-event` 处理（窗口级动作，页面获焦时同样生效）；输入用例走 `webContents.sendInputEvent`（真实浏览器侧输入路径）+ CDP `Input.imeSetComposition`/`Input.insertText` 模拟 IME 提交 | `input.test.cjs`（ASCII 与非 ASCII 进页面、`compositionstart/update/end` 与提交文本到达、不带 Ctrl 的普通字母**不被**快捷键吃掉、地址栏与页面焦点不串台、F11 全屏后视图跟随内容区、Esc 退出）、`plugin-input.test.cjs`（自编 `keyprobe.swf` 通过 `ExternalInterface` 回报 `keyCode:charCode`，证明键盘事件真的进了 **PPAPI 插件进程**） |
-| §3 权限与会话：Node 关闭、context isolation、webSecurity、权限一揽子拒绝 | `app/src/main/sessions.ts` + `webPreferences` | `startup.test.cjs`（`typeof window.require === 'undefined'`、页面拿不到 `baoBrowser`） |
+| §3 权限与会话：Node 关闭、context isolation、webSecurity、权限一揽子拒绝 | `app/src/main/sessions.ts`（权限白名单：只放行 `fullscreen` / `pointerLock`，且必须来自 http(s) 来源） | `startup.test.cjs`（`typeof window.require === 'undefined'`、页面拿不到 `baoBrowser`）、`permissions.test.cjs`（全屏与指针锁放行、geolocation 与 notifications 拒绝） |
+| §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」 | 受控弹窗：同站点 http(s) 弹窗以新标签承载（引擎与来源继承 opener），跨站与非 http(s) 一律拒绝 | `popup.test.cjs`（lobby→game→client 两级弹窗链、标签 ID 唯一、Ruffle 引擎继承、跨站与 `file:` 被拒） |
 | §3 IPC：异步命令、sender/frame/来源校验、稳定错误码 | `BrowserFailureCode` + `browserFailureText`；校验 `event.sender`、`senderFrame === mainFrame` 与文档 URL | `startup.test.cjs`（`invalid-address` 文案） |
 | §3 外壳：Vue 3 + Pinia，瞬态交互留在组件内 | `app/src/renderer/stores/browser.ts` + `App.vue` | `startup.test.cjs`（地址栏、标签、焦点、尺寸） |
 | §6 M1：独立测试 profile | `--user-data-dir` 指向临时目录，页面/外壳分区与会话独立 | `flash.test.cjs`（`app.getPath('userData')` 等于临时 profile） |
@@ -66,7 +67,7 @@
 | --- | --- |
 | `npm run typecheck` | 通过（`vue-tsc --noEmit`，无输出） |
 | `npm run build` | 通过（main / preload 0.70 kB / renderer 267.59 kB） |
-| `npm run smoke` | **11/11 通过**（`startup` 1.23 s、`tabs` 1.36 s、`engine` 1.23 s、`input` 0.97 s、`plugin-input` 1.38 s、`flash` 1.98 s、`isolation` 1.51 s、`tearoff` 契约 1.35 s、`tearoff` 手势 0.97 s、`脚印 CORS` 1.50 s、`快捷键/撤销` 1.71 s），页面视图 `sandbox: true` |
+| `npm run smoke` | **13/13 通过**（`startup` 1.23 s、`tabs` 1.36 s、`engine` 1.23 s、`input` 0.97 s、`plugin-input` 1.38 s、`flash` 1.98 s、`isolation` 1.51 s、`tearoff` 契约 1.35 s、`tearoff` 手势 0.90 s、`CORS` 1.57 s、`弹窗` 2.92 s、`权限白名单` 0.94 s、`快捷键/撤销` 1.11 s），页面视图 `sandbox: true` |
 | `npm run pack:win` | 通过，产出 `dist/win-preview-zKYrlB/win-unpacked`（含 `pepflashplayer64.dll` 与 `vendor/ruffle`） |
 | `npm run smoke:packaged` | **通过**（3.22 s，验证包启动 39.8.10 / 142.0.7444.265、加载 PPAPI 样本并注入 Ruffle 运行时） |
 
@@ -96,6 +97,8 @@
 | Ruffle `publicPath` 不是合法 URL 基址 | `ruffle-resource://` 没有 host，Ruffle 的 `new URL(wasm, publicPath)` 抛 `Invalid URL`，真实站点上表现为 Ruffle 错误面板。本地冒烟只断言 `ruffle-embed` 存在，而错误面板下该元素同样存在 —— **断言过弱** | 改为 `ruffle-resource://assets/`（占位 host + 结尾斜杠）；`engine.test.cjs` / `packaged.test.cjs` 的断言加严到「shadow root 里出现播放器画布」 |
 | SWF 的 CORS 兼容层缺失 | PPAPI 插件进程自己发请求、不受 CORS 约束；Ruffle 用页面 `fetch()` 取跨域 CDN 的 SWF，被 `No 'Access-Control-Allow-Origin'` 拦掉后销毁实例 | 在页面会话对 `*.swf` 注入放行头（`sessions.ts`），并用双源用例 `ruffle-cors.test.cjs` 固化 |
 | 缺少下载策略 | M1 没有下载能力，也没有落盘位置策略；浏览器外壳在没有明确策略前不应静默写文件 | 页面与外壳会话的 `will-download` 一律 `preventDefault()` 并打日志；下载按 §4 在 M2 立项 |
+| 弹窗被一律拒绝 | 页面视图的 `setWindowOpenHandler` 是 `deny` 全拒。142 报告 §10.16 记录的火线精英启动链是 `site → lobby → game client` 两级弹窗，这条链在 Next 里走不到 | 改为受控弹窗：同站点 http(s) 弹窗开新标签（引擎与来源继承 opener），跨站与非 http(s) 拒绝；`popup.test.cjs` 用本地两级弹窗链固化 |
+| 权限一律拒绝 | `fullscreen` 与 `pointerLock` 也被拒，游戏里的全屏按钮点了不生效（旧产品同样只放行这两项） | 权限白名单：只放行这两项且要求 http(s) 来源；`permissions.test.cjs` 断言放行与拒绝两侧 |
 
 ## 4.2 真实站点对照（2026-11-22）
 
@@ -110,6 +113,8 @@
 
 ## 5. 未验证与遗留
 
+- **弹窗的 `window.opener`**：以「新标签」承载弹窗会丢失 `window.opener` 与带 features 的独立弹窗窗口。真实站点若用 `opener.postMessage`/`opener.location` 做 lobby→game 交接，需要改成 `overrideBrowserWindowOptions` 的真实弹窗窗口（142 报告的探针形态）。本增量按约定不做真站回归，该限制未在真实站点上验证。
+- **站点版本门**：UA 与插件版本通告未做兼容处理（`navigator.plugins` 报 `29.0 r0`）。E39 已无 `ppapi-flash-version` 开关，若门禁要求更高版本需用 preload 只读伪装，待真站对照决定。
 - **Ruffle 画布焦点**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖）。
 - **插件内的 IME 组合**：`plugin-input.test.cjs` 只覆盖 keydown/`charCode`；CDP 的 `Input.imeSetComposition` 只对 HTML 页面验证过，IME 组合输入到 PPAPI 插件内部未测。
 - **引擎切换失败回退**：`navigationHistory.restore()` 抛错的分支已实现（保留原引擎并给出提示），但没有构造出失败用例；POST 体等无法还原的状态只按文档记录，未实测。
