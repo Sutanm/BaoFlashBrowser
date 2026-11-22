@@ -30,9 +30,10 @@
 | §3 标签合同「Chrome 式交互」 | 启动单标签；中键关闭、双击标签栏新建、关闭按钮按需显示、`Ctrl+T/W/Tab/Shift+T`；快捷键在**主进程** `before-input-event` 处理 | `startup.test.cjs`（启动 1 个标签）、`tabs.test.cjs`（鼠标手势与快捷键） |
 | §3 引擎：双引擎与「站点规则决定初始引擎」 | `app/src/shared/engine.ts`（纯模型）+ `app/src/main/engine-rules.ts`（`userData/engine-rules.json`，临时文件存储，M2 迁 SQLite）；每标签 `engine` + `engineSource`（默认 / 站点规则 / 手动） | `engine.test.cjs`（默认 PPAPI → 手动切 Ruffle → 记住站点 → 新标签自动 Ruffle） |
 | §3 引擎：「切换使用新 WebContents，先验证 E39 导航栈恢复」 | `swapView()` 统一换视图；`navigationHistory.getAllEntries()/restore()` 恢复地址、历史与滚动/表单状态；无法还原时保留原引擎并给出可理解提示 | `engine.test.cjs`（切换后地址仍为 `/two`、`canGoBack === true`） |
-| §3 引擎：「Ruffle 使用版本固定的本地资源，验证 WASM、CSP 与 SWF 网络链路」 | `app/vendor/ruffle/`（0.5.0，SHA 见 §1）+ `app/src/main/ruffle.ts`（`ruffle-resource://` 特权 scheme + 会话协议）+ 页面 preload（同步 IPC 取源码注入主世界，避开站点 `connect-src` CSP） | `engine.test.cjs`（`RufflePlayer.newest` 存在、`<embed>` 被替换为 `ruffle-embed` 且 `id` 保留）、`packaged.test.cjs`（验证包内含 Ruffle 运行时） |
+| §3 引擎：「Ruffle 使用版本固定的本地资源，验证 WASM、CSP 与 SWF 网络链路」 | `app/vendor/ruffle/`（0.8.0，SHA 见 §1）+ `app/src/main/ruffle.ts`（`ruffle-resource://` 特权 scheme + 会话协议）+ 页面 preload（同步 IPC 取源码注入主世界，避开站点 `connect-src` CSP） | `engine.test.cjs`（`RufflePlayer.newest` 存在、`<embed>` 被替换为 `ruffle-embed` 且 `id` 保留）、`packaged.test.cjs`（验证包内含 Ruffle 运行时） |
 | §3 页面：区分加载、崩溃与销毁后重建 | `BrowserTab.crashed` + `render-process-gone` 状态；`reload` 在崩溃时重建 WebContents | `isolation.test.cjs`（`crashed === true` → 重建 → `crashed === false`） |
 | §3 引擎：原生 PPAPI 启用 | `app/src/main/plugins.ts`：`--allow-command-line-plugins` + `--register-pepper-plugins`（29.0.0.171，`Shockwave Flash 29.0 r0`） | `flash.test.cjs`、`packaged.test.cjs` |
+| §3 标签合同「键盘输入和 IME」「F11」 | 标签级快捷键与 **F11 / Esc 全屏**都在主进程 `before-input-event` 处理（窗口级动作，页面获焦时同样生效）；输入用例走 `webContents.sendInputEvent`（真实浏览器侧输入路径）+ CDP `Input.imeSetComposition`/`Input.insertText` 模拟 IME 提交 | `input.test.cjs`（ASCII 与非 ASCII 进页面、`compositionstart/update/end` 与提交文本到达、不带 Ctrl 的普通字母**不被**快捷键吃掉、地址栏与页面焦点不串台、F11 全屏后视图跟随内容区、Esc 退出） |
 | §3 权限与会话：Node 关闭、context isolation、webSecurity、权限一揽子拒绝 | `app/src/main/sessions.ts` + `webPreferences` | `startup.test.cjs`（`typeof window.require === 'undefined'`、页面拿不到 `baoBrowser`） |
 | §3 IPC：异步命令、sender/frame/来源校验、稳定错误码 | `BrowserFailureCode` + `browserFailureText`；校验 `event.sender`、`senderFrame === mainFrame` 与文档 URL | `startup.test.cjs`（`invalid-address` 文案） |
 | §3 外壳：Vue 3 + Pinia，瞬态交互留在组件内 | `app/src/renderer/stores/browser.ts` + `App.vue` | `startup.test.cjs`（地址栏、标签、焦点、尺寸） |
@@ -65,7 +66,7 @@
 | --- | --- |
 | `npm run typecheck` | 通过（`vue-tsc --noEmit`，无输出） |
 | `npm run build` | 通过（main / preload 0.70 kB / renderer 267.59 kB） |
-| `npm run smoke` | **8/8 通过**（`startup` 1.15 s、`tabs` 1.32 s、`engine` 1.20 s、`flash` 2.03 s、`isolation` 1.70 s、`tearoff` 契约 1.40 s、`tearoff` 手势 1.07 s、`快捷键/撤销` 1.16 s），页面视图 `sandbox: true` |
+| `npm run smoke` | **9/9 通过**（`startup` 1.18 s、`tabs` 1.17 s、`engine` 1.39 s、`input` 1.11 s、`flash` 1.56 s、`isolation` 1.96 s、`tearoff` 契约 1.38 s、`tearoff` 手势 0.89 s、`快捷键/撤销` 1.22 s），页面视图 `sandbox: true` |
 | `npm run pack:win` | 通过，产出 `dist/win-preview-zKYrlB/win-unpacked`（含 `pepflashplayer64.dll` 与 `vendor/ruffle`） |
 | `npm run smoke:packaged` | **通过**（3.22 s，验证包启动 39.8.10 / 142.0.7444.265、加载 PPAPI 样本并注入 Ruffle 运行时） |
 
@@ -95,6 +96,8 @@
 
 ## 5. 未验证与遗留
 
+- **插件内部输入**：只验证了浏览器侧输入路径（浏览器 → 渲染进程 → 页面）。键盘事件能否进 PPAPI 插件需要带输入探针的自编 SWF，当前没有 AS3 编译器，未验证。`
+- **Ruffle 画布焦点**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测。
 - **引擎切换失败回退**：`navigationHistory.restore()` 抛错的分支已实现（保留原引擎并给出提示），但没有构造出失败用例；POST 体等无法还原的状态只按文档记录，未实测。
 - **Ruffle 能力边界**：`ExternalInterface` 只覆盖部分 API，本地 PPAPI 样本里的 `PercentLoaded`/`SetVariable` 往返在 Ruffle 引擎下不保证可用；验收断言只覆盖运行时注入与 polyfill 接管。Ruffle 0.5.0 的元素名是 `ruffle-embed`/`ruffle-object`。
 - **真实站点双引擎对照**：4399 等站点在两种引擎下的 UA、插件版本通告、`mms.cfg`、SWFObject、CORS 与私有资源路径均未复测（审计 §C7 的对照项）。

@@ -481,7 +481,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 只有 `before-input-event` 能覆盖「焦点在网页里」的情况（架构 §3 标签合同、§6 M1 输入）。
    */
   function handleShortcut(input: Input): boolean {
-    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return false
+    if (input.type !== 'keyDown') return false
+    // F11 / Esc 是窗口级动作，不受 Ctrl 修饰键影响（架构 §3 标签合同的 F11 验证项）。
+    if (input.key === 'F11') {
+      window.setFullScreen(!window.isFullScreen())
+      return true
+    }
+    if (input.key === 'Escape' && window.isFullScreen()) {
+      window.setFullScreen(false)
+      return true
+    }
+    if (!input.control || input.alt || input.meta) return false
     if (input.key === 'Tab') {
       cycleTab(input.shift ? -1 : 1)
       return true
