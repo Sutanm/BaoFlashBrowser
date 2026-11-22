@@ -1,0 +1,215 @@
+{
+  "platform": "win32",
+  "dpiScaleFactor": 1.5,
+  "scenarios": [
+    {
+      "name": "zoom-1.0",
+      "zoom": 1,
+      "dpiScaleFactor": 1.5,
+      "cssViewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "logicalSurface": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturePageFull": {
+        "width": 1920,
+        "height": 1080
+      },
+      "epsilonFrame": 1.5,
+      "epsilonContent": 1.5,
+      "expectedContentFormula": 1.5,
+      "rectBehavior": {
+        "candidate": "dip",
+        "dims": {
+          "width": 195,
+          "height": 116
+        },
+        "expectedW": 195,
+        "cropped": true
+      },
+      "cdp": {
+        "variant": "full",
+        "bitmap": {
+          "width": 1920,
+          "height": 1080
+        },
+        "epsilon": 1.5
+      },
+      "patternPixel": {
+        "x": 360,
+        "y": 210,
+        "width": 195,
+        "height": 116
+      },
+      "patternFromEpsilon": 195,
+      "patternErrPx": 0,
+      "ratioErrPct": null,
+      "clickK": 1,
+      "clickLanded": {
+        "x": 305,
+        "y": 178
+      },
+      "clickErrCssPx": 0.5
+    },
+    {
+      "name": "zoom-1.25",
+      "zoom": 1.25,
+      "dpiScaleFactor": 1.5,
+      "cssViewport": {
+        "width": 1024,
+        "height": 576
+      },
+      "logicalSurface": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturePageFull": {
+        "width": 1920,
+        "height": 1080
+      },
+      "epsilonFrame": 1.5,
+      "epsilonContent": 1.875,
+      "expectedContentFormula": 1.875,
+      "rectBehavior": {
+        "candidate": "dip",
+        "dims": {
+          "width": 1920,
+          "height": 1080
+        },
+        "expectedW": 304.7,
+        "cropped": false
+      },
+      "cdp": {
+        "variant": "full",
+        "bitmap": {
+          "width": 1920,
+          "height": 1080
+        },
+        "epsilon": 1.5
+      },
+      "patternPixel": {
+        "x": 450,
+        "y": 263,
+        "width": 244,
+        "height": 144
+      },
+      "patternFromEpsilon": 243.8,
+      "patternErrPx": 0.25,
+      "ratioErrPct": 0.1,
+      "clickK": 1,
+      "clickLanded": {
+        "x": 305,
+        "y": 178
+      },
+      "clickErrCssPx": 0.5
+    },
+    {
+      "name": "zoom-1.5",
+      "zoom": 1.5,
+      "dpiScaleFactor": 1.5,
+      "cssViewport": {
+        "width": 853,
+        "height": 480
+      },
+      "logicalSurface": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturePageFull": {
+        "width": 1920,
+        "height": 1080
+      },
+      "epsilonFrame": 1.5,
+      "epsilonContent": 2.2509,
+      "expectedContentFormula": 2.25,
+      "rectBehavior": {
+        "candidate": "dip",
+        "dims": {
+          "width": 1920,
+          "height": 1080
+        },
+        "expectedW": 438.9,
+        "cropped": false
+      },
+      "cdp": {
+        "variant": "full",
+        "bitmap": {
+          "width": 1920,
+          "height": 1080
+        },
+        "epsilon": 1.5
+      },
+      "patternPixel": {
+        "x": 540,
+        "y": 315,
+        "width": 293,
+        "height": 173
+      },
+      "patternFromEpsilon": 292.6,
+      "patternErrPx": 0.39,
+      "ratioErrPct": 0.13,
+      "clickK": 1,
+      "clickLanded": {
+        "x": 305,
+        "y": 178
+      },
+      "clickErrCssPx": 0.5
+    },
+    {
+      "name": "resize-960-zoom-1.25",
+      "zoom": 1.25,
+      "dpiScaleFactor": 1.5,
+      "cssViewport": {
+        "width": 768,
+        "height": 432
+      },
+      "logicalSurface": {
+        "width": 960,
+        "height": 540
+      },
+      "capturePageFull": {
+        "width": 1440,
+        "height": 810
+      },
+      "epsilonFrame": 1.5,
+      "epsilonContent": 1.875,
+      "expectedContentFormula": 1.875,
+      "rectBehavior": {
+        "candidate": "dip",
+        "dims": {
+          "width": 1440,
+          "height": 810
+        },
+        "expectedW": 304.7,
+        "cropped": false
+      },
+      "cdp": {
+        "variant": "full",
+        "bitmap": {
+          "width": 1440,
+          "height": 810
+        },
+        "epsilon": 1.5
+      },
+      "patternPixel": {
+        "x": 450,
+        "y": 263,
+        "width": 244,
+        "height": 144
+      },
+      "patternFromEpsilon": 243.8,
+      "patternErrPx": 0.25,
+      "ratioErrPct": 0.1,
+      "clickK": 1,
+      "clickLanded": {
+        "x": 305,
+        "y": 178
+      },
+      "clickErrCssPx": 0.5
+    }
+  ],
+  "pass": true
+}
