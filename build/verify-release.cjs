@@ -135,6 +135,14 @@ function expectMachOArch(file, expected, role) {
   }
 }
 
+// Ruffle 的产物布局随版本变化：≤0.7 把播放器核心拆成哈希命名的
+// core.ruffle.<hash>.js；≥0.8 把核心内联进 ruffle.js，并额外提供两个
+// WebAssembly 模块（SIMD 版 + 老浏览器用的 wasm-mvp 版）。这里只约束
+// “必须有可加载的 JS 入口 + 至少一个 .wasm”，不锁定具体文件名。
+function isRuffleCoreFile(name) {
+  return /^core\.ruffle\..+\.js$/.test(name);
+}
+
 function verifyRuffle(root, fromAsar = false) {
   if (fromAsar) return;
   const ruffleDir = path.join(root, 'lib', 'ruffle');
@@ -142,9 +150,8 @@ function verifyRuffle(root, fromAsar = false) {
   record(path.join(ruffleDir, 'SourceHanSansCN-Regular.otf'), 'Ruffle CJK font');
   record(path.join(ruffleDir, 'SourceHanSans-LICENSE.txt'), 'Ruffle CJK font license');
   const files = walk(ruffleDir);
-  if (!files.some((file) => /^core\.ruffle\..+\.js$/.test(path.basename(file)))) fail('missing Ruffle core JavaScript chunk');
   if (!files.some((file) => file.endsWith('.wasm'))) fail('missing Ruffle WebAssembly module');
-  for (const file of files.filter((file) => /(^core\.ruffle\..+\.js$)|\.wasm$/.test(path.basename(file)))) {
+  for (const file of files.filter((file) => isRuffleCoreFile(path.basename(file)) || file.endsWith('.wasm'))) {
     record(file, file.endsWith('.wasm') ? 'Ruffle WebAssembly' : 'Ruffle core');
   }
 }
@@ -377,7 +384,8 @@ function verifyAsar(asarPath) {
       fail('app.asar unexpectedly contains OpenCV.js without the automation module');
     }
   }
-  if (!entries.some((name) => /^dist\/lib\/ruffle\/core\.ruffle\..+\.js$/.test(name))) fail('app.asar is missing a Ruffle core chunk');
+  // ruffle.js（已在上面的 required 中）承载播放器核心；≥0.8 的布局不再有
+  // 独立的 core.ruffle.<hash>.js，因此这里只校验 WebAssembly 是否进包。
   if (!entries.some((name) => /^dist\/lib\/ruffle\/.+\.wasm$/.test(name))) fail('app.asar is missing Ruffle WebAssembly');
   if (entries.some((name) => name.startsWith('dist/dist/'))) fail('app.asar contains stale dist/dist output');
 }

@@ -53,6 +53,14 @@
 （js/wasm/map/ttf/otf）。`ruffle-resource:` 与 `bfb-github-module:` 必须注册到
 `defaultSession` 与 `persist:`；`bf-js-patch:` 是全局 protocol，不受分区限制。
 
+**publicPath 必须带 authority 段**（`ruffle-resource://ruffle/`）。Ruffle ≥0.8 用
+`new URL('./<hash>.wasm', publicPath)` 解析 WASM 组件，而 Chromium 87 拒绝把相对引用
+解析到空 authority 的非标准 URL（`new URL('./x', 'ruffle-resource:///')` 抛
+`Invalid URL`，直接表现为“Failed to load Ruffle WASM”白屏）。handler 因此按
+“跳过名字为 `ruffle` 的首段”归一化文件名；同一 URL 在主进程 WHATWG 解析里落在
+`hostname`、在 Chromium 非标准 scheme 里留在 path 首段，两种形态都要兼容。
+字体源同理使用 `ruffle-resource://ruffle/SourceHanSansCN-Regular.otf`。
+
 ### 3.3 会话网络层（唯一 `onBeforeRequest`）
 
 Electron 11 重复注册会**互相替换**，因此所有重定向共享同一个回调，顺序为：

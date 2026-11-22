@@ -132,7 +132,7 @@ declare global {
         favorFlash: false,
         quality: 'best',
         forceScale: true,
-        fontSources: ['ruffle-resource://SourceHanSansCN-Regular.otf'],
+        fontSources: ['ruffle-resource://ruffle/SourceHanSansCN-Regular.otf'],
         defaultFonts: {
           '_sans': 'Source Han Sans CN',
           '_serif': 'Source Han Sans CN',
@@ -144,7 +144,11 @@ declare global {
           'SimHei': 'Source Han Sans CN',
         },
       };
-      if (_cfg.js) _config.publicPath = 'ruffle-resource://';
+      // publicPath 必须带 authority 段：Ruffle ≥0.8 用
+      // `new URL('./core.wasm', publicPath)` 找 WASM 组件，而 Chromium 87 拒绝
+      // 把相对引用解析到空 authority 的非标准 URL（会抛 Invalid URL）。详见
+      // src/main/modules/ruffle-session-protocol.ts。
+      if (_cfg.js) _config.publicPath = 'ruffle-resource://ruffle/';
       window.RufflePlayer = { config: _config };
       if (_cfg.js) {
         try {

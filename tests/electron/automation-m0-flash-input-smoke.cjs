@@ -61,9 +61,15 @@ function configureFlash() {
 function registerRuffleResources(targetSession) {
   return new Promise((resolve, reject) => {
     const ok = targetSession.protocol.registerBufferProtocol('ruffle-resource', (request, callback) => {
+      // Mirrors src/main/modules/ruffle-session-protocol.ts: publicPath carries
+      // a "ruffle" authority segment because Chromium 87 cannot resolve a
+      // relative URL against an empty-authority non-standard URL.
       const url = new URL(request.url);
-      const fileName = decodeURIComponent(url.hostname || url.pathname.replace(/^\/+/, ''));
-      if (!/^[a-zA-Z0-9._-]+$/.test(fileName)) return callback({ error: -10 });
+      const pathSegments = url.pathname.split('/').filter(Boolean);
+      const segments = pathSegments.length ? pathSegments : (url.hostname ? [url.hostname] : []);
+      if (segments[0] === 'ruffle') segments.shift();
+      const fileName = segments.map((segment) => decodeURIComponent(segment)).join('/');
+      if (!fileName || path.basename(fileName) !== fileName || !/^[a-zA-Z0-9._-]+$/.test(fileName)) return callback({ error: -10 });
       fs.readFile(path.join(RESOURCE_DIR, fileName), (error, data) => {
         if (error) return callback({ error: -6 });
         callback({
@@ -227,7 +233,7 @@ async function runRuffle(swfBase64) {
   await delay(250);
   const ruffleJs = fs.readFileSync(path.join(RESOURCE_DIR, 'ruffle.js'), 'utf8');
   const info = await wc.executeJavaScript(`(async () => {
-    window.RufflePlayer = { config: { publicPath: 'ruffle-resource://', autoplay: 'on', scale: 'showAll' } };
+    window.RufflePlayer = { config: { publicPath: 'ruffle-resource://ruffle/', autoplay: 'on', scale: 'showAll' } };
     new Function(${JSON.stringify(ruffleJs)})();
     const source = window.RufflePlayer.newest();
     const player = source.createPlayer();
