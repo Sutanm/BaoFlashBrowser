@@ -1,6 +1,6 @@
 # BaoFlashBrowser Next 架构审计
 
-2026-11-22 · 审计对象为 [2026-11-21 架构讨论稿](2026-11-21-bfb-next-architecture.md) 的 A–F 全部议题。交叉核对了技术栈讨论、ADR、142 运行报告、截图探针记录及上游资料。这里的真机结论来自仓库已有记录，本次为文档审计，未构建或重跑内核。
+2026-11-22 · 审计对象为 [2026-11-21 架构讨论稿](2026-11-21-bfb-next-architecture.md) 的 A–F 全部议题。交叉核对了技术栈讨论、ADR、142 运行报告、截图探针记录及上游资料。原审计完成后，已补入 39.8.10 构建验收和 #52844 探针的后续结论。
 
 ## 审计判定
 
@@ -8,11 +8,15 @@
 
 优先级用来决定何时解决。P0 阻止相应能力合入或发布，P1 在实现该模块前处理，P2 是文档和选型质量问题。
 
+## 当前开工判定
+
+**可启动 Win x64 外壳与原生 Flash 标签集成。** 当前 39.8.10 构建可用于应用开发，正式发布仍需独立复建和依赖校验。#52844 在 6 轮本地 HTML 对照中有 5 轮全部通过，只有 1 轮同时影响默认节流和关闭节流组，当前暂缓回移。真实 Flash 标签中的后台恢复仍待验收。沿[新版架构的交付顺序](2026-11-22-bfb-next-architecture.md#6-交付顺序和验收)开工。密码、扩展和 Agent 的 P0 各自约束对应能力。
+
 ## P0 核心纠正
 
 | 原稿位置 | 问题与依据 | 审计处置 |
 | --- | --- | --- |
-| C7、F7、ADR 0002 | 142 移植完成是已成立的项目事实。仓库记录验证的是 Win x64 自编译 E39.0.0/M142.0.7444.52 的发布配置，包括 JS 桥、Stage3D AUTO/SOFTWARE 和火线精英启动链路。官方 E39 已于 2026-05-05 停止支持。39.8.10 的 M142.0.7444.265 是可评估的同支系版本，原稿没有证明项目补丁已重放或有后续安全维护。 | 保留移植基线，单独决定发布基线。对任意站点浏览明确补丁维护、更新与退场条件。以 [项目发布构建验收](../reports/2026-11-21-142-flash-runtime.md#1015-outrel-发布配置验收记录2026-11-21-225x)、[Electron 时间表](https://releases.electronjs.org/schedule)、[39.8.10 发布说明](https://releases.electronjs.org/release/v39.8.10) 为准。 |
+| C7、F7、ADR 0002 | 初始记录验证了 Win x64 的 E39.0.0/M142.0.7444.52。后续已在 E39.8.10/M142.0.7444.265 重放项目补丁，并通过 JS 桥、Stage3D AUTO/SOFTWARE 和火线精英启动验收。官方 E39 已于 2026-05-05 停止支持。 | 使用新产物作为工程基线。对公开发布仍需明确补丁维护、更新与退场条件。 [项目发布配置验收 §10.16](../reports/2026-11-21-142-flash-runtime.md) · [Electron 时间表](https://releases.electronjs.org/schedule) · [39.8.10 发布说明](https://releases.electronjs.org/release/v39.8.10) |
 | C4-D1–D3 | **E39 没有异步 safeStorage。** 39.8.10 的文档和原生绑定只导出同步加解密。E42 预发布记录才列出新增异步功能。直接照稿实现会在目标版本上失败。同步存储的 Linux `basic_text` 也达不到强密钥存储要求，账号级 DPAPI 与查看时的人机验证有不同职责。 | 重新打开载体裁决。评估 E39 同步 API 的延迟和后端状态，或暂缓密码功能。密钥读取失败保留原始数据，Linux 无可信后端时默认停用保存。参见 [E39 原生绑定](https://github.com/electron/electron/blob/v39.8.10/shell/browser/api/electron_api_safe_storage.cc#L118-L130)、[E39 safeStorage](https://github.com/electron/electron/blob/v39.8.10/docs/api/safe-storage.md)、[E42 预发布记录](https://releases.electronjs.org/release/v42.0.0-alpha.2)。 |
 | B1/B2、C1、F7 | 每个 WCV 有独立 WebContents，这不能证明每标签固定独占一个 OS renderer。禁用后台节流会影响同一窗口的出帧与交换行为。隐藏、持续出帧、冻结、销毁是不同状态。#52844、#54311 和 #54090 针对不同触发条件，现有证据无法把三条升为 E39 必装组合。 | 在实际 WCV 宿主复现，分别评估前台恢复、节流切回和隐藏跨导航。各场景独立测帧、CPU/GPU、资源释放和前台干扰。[E39 WebPreferences](https://github.com/electron/electron/blob/v39.8.10/docs/api/structures/web-preferences.md)、[Chromium 进程模型](https://chromium.googlesource.com/chromium/src/+/main/docs/process_model_and_site_isolation.md)、[52844](https://releases.electronjs.org/pr/52844)、[54311](https://releases.electronjs.org/pr/54311)、[54090](https://releases.electronjs.org/pr/54090)。 |
 | C8、D4-S1–S5 | D4-S3 套用了原 port bridge 的线协议。Electron `debugger.sendCommand` 返回 Promise，`message` 是解析后的协议事件，应用层无需解析 JSON 或自行按响应 ID 配对。flatten 子协议会话、业务消费者和文档代际是三种身份。DevTools 触发 detach 是 E39 明示行为，退避重挂无法持有被 DevTools 占用的附着。无界队列与 microtask 持续排空会把慢消费者风险传到主进程。 | 重写 D4-S3。使用 E39 API，先验证实际附着与 OOPIF、导航和 DevTools；每类流设预算及可见的溢出语义，凭据事件异常停用捕获并报告，禁止主进程无界缓存。见 [E39 Debugger](https://github.com/electron/electron/blob/v39.8.10/docs/api/debugger.md)、[CDP Target](https://chromedevtools.github.io/devtools-protocol/tot/Target/)、[CDP Runtime](https://chromedevtools.github.io/devtools-protocol/tot/Runtime/)。 |
