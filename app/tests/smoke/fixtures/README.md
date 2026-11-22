@@ -29,6 +29,15 @@ $env:PLAYERGLOBAL_HOME = 'D:\tools\flex-sdk\frameworks\libs\player'
 D:\tools\flex-sdk\bin\mxmlc.bat Keyprobe.as   # 产物即 keyprobe.swf
 ```
 
+## 本地真实游戏样本（不入库）
+
+真实站点的手工对照需要第三方游戏 SWF（例如 4399 的《狂扁小朋友》）。这类素材属于第三方
+内容，**不随仓库分发**，由使用者自行准备，放在 `docs/` 下即可（根 `.gitignore` 已忽略
+`docs/*.swf`）。
+
+- 自动化验收一律用本目录的自编样本，不要依赖真实游戏；
+- 手工对照时把 SWF 放到 `docs/`，再用 `file://` 或本地静态服务器打开即可。
+
 ## 运行前提
 
 - 运行时目录（`app/.runtime/win-x64` 或打包产物）里存在 `pepflashplayer64.dll`（29.0.0.171）。
