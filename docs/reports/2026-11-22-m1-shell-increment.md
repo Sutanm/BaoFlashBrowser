@@ -132,6 +132,53 @@ Ruffle 在同一站点暴露的三个**客户端层**问题（都不是版本门
 
 **只覆盖两个页面**：登录后的游戏本体、4399 的防沉迷弹窗流程、其他站点、Ruffle 的 Stage3D 与音频仍未验证。
 
+## 4.3 跨域读权限：评估与决定
+
+**问题**：Ruffle 在网络上是「页面里的 JS」，它的 `fetch` 受页面 origin 的 CORS 约束；PPAPI 是独立插件进程，浏览器不对插件请求做 CORS 检查，跨域策略由 Flash 自己按 `crossdomain.xml` 判。因此「让 Ruffle 拥有插件级跨域读」必然要给它一个**特权上下文**。
+
+**现状**：页面会话对全部 http(s) 响应补齐 `Access-Control-Allow-Origin`（见 §3 的说明）。代价是页面 JS 的跨源读取被一并放开（内网设备、公共接口可读）。
+
+**已排除的候选**（2026-11-22 评估，含独立子代理复核）：
+
+| 候选 | 排除理由 |
+| --- | --- |
+| 按源 / 注册域收窄垫片 | 4399 页面在 `4399.com`、SWF 在 `szhong.4399.com`；淘米页面在 `61.com`、数据在 `taomee.com`——都是跨注册域，白名单不可维护 |
+| public→private 硬阻断（PNA） | `webRequest` 拿不到解析后 IP，DNS rebinding 可绕；且会误伤本地助手类玩法（本地登录代理、微端） |
+| 扩展 content script + 后台 fetch | **Electron 未实现静态 content script 注入**（源码里只有服务 `chrome.scripting` 的 `ScriptExecutor`，没有 `ContentScriptRunner`）；且 MV3 规范禁止 content script 跨域；主世界仍无特权 |
+| 内核「隔离世界 CORS 豁免」 | Chromium 142 的 `URLLoaderFactoryManager` 只对旧 Chrome Platform Apps 的内容脚本豁免；通用脚本需要独立合成 origin + `SharedCorsOriginAccessList::SetForOrigin`，对 world 0 无效——属于深改 Chromium 安全边界，每次 rebase 都要重审 |
+| CDP `Fetch.fulfillRequest` 代发 | **不能绕过 CORS**：142 源码里 `DevToolsURLLoaderInterceptor::CreateProxyForInterception` 装的 override 是外层 `CorsURLLoader` 的 `inner_url_loader_factory`，响应仍要过 CORS 许可；且 URL/XHR 类型/frameId/自定义 header 都不是权限标记（自定义 header 还会触发预检）。只能用来**观察** initiator |
+| 受限 broker（主世界 facade + 特权网络） | ≤1 周内唯一可行，但**不构成与 PPAPI 的等价**（见下） |
+
+**机制已验证**（2026-11-22，独立 spike，Electron 39.8.10 + 自编译内核）：
+
+```
+pageFetch:        blocked:TypeError: Failed to fetch   ← 页面 JS 仍受 SOP
+facadeFetch:      ok:privileged-bytes                 ← 主世界可信函数拿到跨域字节
+transportVisible: undefined                            ← 页面 JS 摸不到私有传输
+```
+
+做法：`contextBridge.executeInMainWorld({ func, args })` 把可信函数编译进主世界，`args` 里的函数按跨世界代理传入；函数闭包捕获 preload 私有 transport → `ipcRenderer.invoke` → 主进程 `net.fetch`（无 CORS）。页面只看到我们主动暴露的门面，拿不到 transport 引用。
+
+**但完整方案仍超预算**，三个未解问题：
+
+1. **策略层缺失**：页面能在主世界驱动 Ruffle 的 API 拉任意 URL（再让自编 SWF 通过 `ExternalInterface` 把字节吐出来），所以没有策略的 broker **只是把全局放开"洗"成经由 Ruffle 放开**，安全增益有限。要真正收口必须实现 Flash 的 `crossdomain.xml` 语义（根加载 / 相对 URL / 信任来源 / `ExternalInterface` 要分别处理），一周做不完。
+2. **覆盖范围**：Ruffle 的取数路径有多条（wasm-bindgen 的 `__wbg_fetch_*` import ×2、WASM loader、字体、`URLLoader`），只替换 import 不覆盖全部，需逐条实测。
+3. **实验性 API**：`executeInMainWorld` 是实验接口，OOPIF、初始化抢占、跨桥 Promise/typed array/错误传播都需实测。
+
+**决定：M1 暂不迁移。** 保留全局垫片并记录取舍；把「broker + 策略层」作为 M2 立项（设计方向已明确，机制已验证）。
+
+**M2 验收要点**（独立复核提出，避免把"机制可用"误当成"安全已收口"）：
+
+- 必须**分别**证明两件事：①页面原生 `fetch` 的 SOP 未被修改；②页面**无法借引擎**读到本不该读的内容。URL 标签、一次性 nonce/handle、blob URL、闭包都**不**自动满足 ②。
+- 最小要求：限制 root/data 的 MIME 与来源、校验 provenance、拒绝未许可的响应；更严格的做法是把「原始任意跨域字节」留在隔离世界或独立宿主，主世界只拿非特权结果。
+- 用例要能测出「未授权 URL 不发出、或不回传主世界」，并在**导航 / iframe 销毁后作废该文档的能力**；不要只做窗口全局枚举（需覆盖 `Promise`/`Response`/`WebAssembly.instantiate`/DOM setter 的替换，以及 player/config 与自定义 SWF + `ExternalInterface` 的联动）。
+
+补充核实：淘米的 `http://newmisc.taomee.com/misc.js` 请求来源已确认是 **Ruffle 自己**（控制台 `core/src/loader.rs:1327` 的 `URLError`），不是站点页面 JS 发出——所以这不是「页面 JS 被误放行」的案例，放宽确有必要。
+
+**若 M2 重开此项**：受限 broker + `crossdomain.xml` 策略（让放行判定与 Flash 一致，而不是无条件 `*`）。
+
+**兼容性提醒**：mole.61.com 只推进到「开始」界面，`URLStream` 仍是 Ruffle 的 stub，不能承诺完整兼容。
+
 ## 5. 未验证与遗留
 
 - **弹窗的 `window.opener`**：以「新标签」承载弹窗会丢失 `window.opener` 与带 features 的独立弹窗窗口。真实站点若用 `opener.postMessage`/`opener.location` 做 lobby→game 交接，需要改成 `overrideBrowserWindowOptions` 的真实弹窗窗口（142 报告的探针形态）。本增量按约定不做真站回归，该限制未在真实站点上验证。
