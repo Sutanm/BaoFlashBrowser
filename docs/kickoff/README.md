@@ -4,14 +4,14 @@
 
 ## 阶段文件
 
-| 阶段 | 文件名 |
-| --- | --- |
-| M0 · 可复现的运行时 | `m0-reproducible-runtime.md` |
-| M1 · 浏览器薄切片 | [`m1-browser-slice.md`](m1-browser-slice.md)（2026-11-23 验收） |
-| M2 · 测试版 | `m2-beta.md` |
-| M3 · 专项能力 | `m3-specialized-capabilities.md` |
+| 阶段 | 文件 | 状态 |
+| --- | --- | --- |
+| M0 · 可复现的运行时 | [`m0-reproducible-runtime.md`](m0-reproducible-runtime.md) | 已通过（无独立建档，依据见该文件） |
+| M1 · 浏览器薄切片 | [`m1-browser-slice.md`](m1-browser-slice.md) | **已验收**（2026-11-23） |
+| M2 · 测试版 | [`m2-beta.md`](m2-beta.md) | 未验收（占位） |
+| M3 · 专项能力 | [`m3-specialized-capabilities.md`](m3-specialized-capabilities.md) | 未立项（占位） |
 
-每份完成文档记录验收日期、交付范围、构建或提交标识、验收结果、证据链接和遗留事项。验收完成后创建对应文件，并在本页补上链接。
+每份记录包含验收日期、交付范围、构建或提交标识、验收结果、证据链接和遗留事项。**M2/M3 目前是占位文件，验收前不得写入任何「已通过」表述**；占位与回填同样受此约束。
 
 ## 与环境相关的文档
 

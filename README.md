@@ -4,6 +4,7 @@ BaoFlashBrowser Next 从独立的 `next` 分支开始。当前提交收录产品
 
 ## 从这里开始
 
+- [文档地图与单一事实源](docs/README.md) · **建议先读**：哪份文档算数、冲突登记在哪、新文档怎么加。
 - [应用初始化与本地启动](app/README.md) · 安装、运行和验证 Win x64 外壳。
 
 - [新版架构设计](docs/discussions/2026-11-22-bfb-next-architecture.md) · 审计后提案，包含产品边界、模块合同和验收顺序。
