@@ -20,9 +20,14 @@ M1 在此目录下使用单应用包。开工范围和验收要求见[新版架�
 
 使用 Node.js 22.12+ 或 24.x。在本目录执行以下 PowerShell 命令，按本机路径调整自编译产物目录。
 
+> **换机器 / 新成员**：本项目用自编译内核，运行时不在仓库里。先看
+> [`docs/kickoff/dev-environment.md`](../docs/kickoff/dev-environment.md)（快路径：把 `.runtime/win-x64`
+> 从旧机器拷过来，约 30 分钟），并用 `npm run runtime:check` 校验来路。
+
 ```powershell
 npm ci
-npm run runtime:prepare -- 'D:\electron-build-142\dist'
+npm run runtime:prepare -- 'D:\electron-build-142\dist'   # 或从旧机器拷贝 .runtime/win-x64
+npm run runtime:check
 $env:ELECTRON_EXEC_PATH = (Resolve-Path '.runtime/win-x64/electron.exe').Path
 npm run dev
 ```
