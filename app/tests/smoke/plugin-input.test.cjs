@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { hasFlashPlugin, launchApp, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { appNativeFlashSkip, hasFlashPlugin, launchApp, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 async function viewId(app, shell) {
   const handle = await app.browserWindow(shell)
@@ -18,7 +18,7 @@ async function viewEval(app, shell, code) {
   }, code)
 }
 
-test('键盘事件进入 PPAPI 插件进程（插件内部输入回环）', { timeout: 120_000 }, async (context) => {
+test('键盘事件进入 PPAPI 插件进程（插件内部输入回环）', { timeout: 120_000, skip: appNativeFlashSkip() }, async (context) => {
   if (!hasFlashPlugin()) {
     context.skip('未检测到 .runtime/win-x64/pepflashplayer64.dll（BYOP）：跳过插件输入用例。')
     return

@@ -1,9 +1,9 @@
 const assert = require('node:assert/strict')
 const { resolve } = require('node:path')
 const { test } = require('node:test')
-const { hasFlashPlugin, launchApp, startFixtureServer } = require('./helpers.cjs')
+const { appNativeFlashSkip, hasFlashPlugin, launchApp, startFixtureServer } = require('./helpers.cjs')
 
-test('本地 PPAPI 样本在独立测试 profile 中注册插件并保留 JS 桥', { timeout: 150_000 }, async (context) => {
+test('本地 PPAPI 样本在独立测试 profile 中注册插件并保留 JS 桥', { timeout: 150_000, skip: appNativeFlashSkip() }, async (context) => {
   if (!hasFlashPlugin()) {
     // BYOP：开发环境可能没放插件。跳过并说明，避免误判成代码回归。
     context.skip('未检测到 .runtime/win-x64/pepflashplayer64.dll（BYOP）：跳过 PPAPI 用例。')
@@ -22,8 +22,12 @@ test('本地 PPAPI 样本在独立测试 profile 中注册插件并保留 JS 桥
     await tab.waitFor({ timeout: 60_000 })
     assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge')
 
-    const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
-    assert.ok(processes.includes('Pepper Plugin'), `未发现独立 PPAPI 插件进程，实际：${processes.join(',')}`)
+    const plugin = await app.evaluate(({ app }) =>
+      app.getAppMetrics().find((metric) => metric.type === 'Pepper Plugin'))
+    assert.ok(plugin, '未发现独立 PPAPI 插件进程')
+    if (process.platform === 'win32' && process.env.BAO_SMOKE_HIDDEN === '1') {
+      assert.equal(plugin.sandboxed, true, '后台原生 Flash 必须在 PPAPI 进程沙箱内运行')
+    }
 
     const facts = await app.evaluate(async ({ webContents }) => {
       const target = webContents.getAllWebContents().find((contents) => contents.getURL().endsWith('/flash.html'))

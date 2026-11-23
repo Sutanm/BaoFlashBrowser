@@ -1,4 +1,5 @@
-const { existsSync } = require('node:fs')
+const { createHash } = require('node:crypto')
+const { existsSync, readFileSync } = require('node:fs')
 const assert = require('node:assert/strict')
 const { once } = require('node:events')
 const { mkdtemp, readFile, rm } = require('node:fs/promises')
@@ -6,6 +7,25 @@ const { createServer } = require('node:http')
 const { tmpdir } = require('node:os')
 const { extname, isAbsolute, join, resolve } = require('node:path')
 const { _electron: electron } = require('playwright')
+
+// Windows 上 Adobe PPAPI 初始化会启动控制台进程，即使应用窗口隐藏。
+const nativeFlashSkip = process.platform === 'win32' &&
+  (process.env.BAO_SMOKE_HIDDEN === '1' || process.env.BAO_SMOKE_BACKGROUND === '1') &&
+  '未验证此内核的 PPAPI 进程沙箱，请用 --foreground 验收原生 Flash。'
+
+let verifiedPpapiSandbox
+function appNativeFlashSkip() {
+  if (!nativeFlashSkip) return false
+  if (verifiedPpapiSandbox === undefined) {
+    const runtime = require('../../scripts/runtime-manifest.json')
+    const executable = process.env.ELECTRON_EXEC_PATH
+    verifiedPpapiSandbox = runtime.kernel.windowsPpapiProcessSandbox === true &&
+      isAbsolute(executable ?? '') && existsSync(executable) &&
+      createHash('sha256').update(readFileSync(executable)).digest('hex').toUpperCase() ===
+        runtime.files['.runtime/win-x64/electron.exe']
+  }
+  return verifiedPpapiSandbox ? false : nativeFlashSkip
+}
 
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -141,11 +161,13 @@ async function pressShortcut(app, keyCode, modifiers = []) {
 }
 
 module.exports = {
+  appNativeFlashSkip,
   flashPluginPath,
   hasFlashPlugin,
   isShellPage,
   launchApp,
   launchAppAt,
+  nativeFlashSkip,
   page,
   pageViewIds,
   pressShortcut,

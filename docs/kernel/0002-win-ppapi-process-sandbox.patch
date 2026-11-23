@@ -1,0 +1,173 @@
+diff --git a/content/browser/ppapi_plugin_process_host.cc b/content/browser/ppapi_plugin_process_host.cc
+index b5195dbac6fe1..b260c6943210a 100644
+--- a/content/browser/ppapi_plugin_process_host.cc
++++ b/content/browser/ppapi_plugin_process_host.cc
+@@ -270,28 +270,17 @@ bool PpapiPluginProcessHost::Init(const ContentPluginInfo& info) {
+   cmd_line->AppendSwitchASCII(
+       switches::kPpapiSubpixelRenderingSetting,
+       base::NumberToString(font_params.subpixel_rendering));
+-
+-  LOG(WARNING) << "Ppapi sandbox on Windows is not supported.";
+ #endif
+ 
+   if (!plugin_launcher.empty())
+     cmd_line->PrependWrapper(plugin_launcher);
+ 
+-
+-#if BUILDFLAG(IS_WIN)
+-  // PPAPI revival: the ppapi sandbox is not supported on Windows, so the child
+-  // must be explicitly unsandboxed (otherwise
+-  // sandbox::policy::SandboxTypeFromCommandLine() hits NOTREACHED()).
+-  if (!cmd_line->HasSwitch(sandbox::policy::switches::kNoSandbox)) {
+-    cmd_line->AppendSwitch(sandbox::policy::switches::kNoSandbox);
+-  }
+-#endif  // BUILDFLAG(IS_WIN)
+-
+   // On posix, only use the zygote if we are not using a plugin launcher -
+   // having a plugin launcher means we need to use another process instead of
+   // just forking the zygote.
+   process_->Launch(
+-      std::make_unique<PpapiPluginSandboxedProcessLauncherDelegate>(),
++      std::make_unique<PpapiPluginSandboxedProcessLauncherDelegate>(
++          permissions_.HasPermission(ppapi::PERMISSION_FLASH)),
+       std::move(cmd_line), true);
+   return true;
+ }
+diff --git a/content/browser/ppapi_plugin_sandboxed_process_launcher_delegate.cc b/content/browser/ppapi_plugin_sandboxed_process_launcher_delegate.cc
+index e6d53860847b2..abb38b3a85ffa 100644
+--- a/content/browser/ppapi_plugin_sandboxed_process_launcher_delegate.cc
++++ b/content/browser/ppapi_plugin_sandboxed_process_launcher_delegate.cc
+@@ -11,8 +11,18 @@
+ #include "content/public/common/content_switches.h"
+ #include "sandbox/policy/mojom/sandbox.mojom.h"
+ 
++#if BUILDFLAG(IS_WIN)
++#include "sandbox/policy/win/sandbox_win.h"
++#include "sandbox/win/src/process_mitigations.h"
++#include "sandbox/win/src/sandbox_policy.h"
++#endif
++
+ namespace content {
+ 
++PpapiPluginSandboxedProcessLauncherDelegate::
++    PpapiPluginSandboxedProcessLauncherDelegate(bool is_flash)
++    : is_flash_(is_flash) {}
++
+ #if BUILDFLAG(USE_ZYGOTE)
+ ZygoteCommunication* PpapiPluginSandboxedProcessLauncherDelegate::GetZygote() {
+   const base::CommandLine& browser_command_line =
+@@ -28,12 +38,38 @@ ZygoteCommunication* PpapiPluginSandboxedProcessLauncherDelegate::GetZygote() {
+ sandbox::mojom::Sandbox
+ PpapiPluginSandboxedProcessLauncherDelegate::GetSandboxType() {
+ #if BUILDFLAG(IS_WIN)
+-  return sandbox::mojom::Sandbox::kNoSandbox;
++  // Use Chromium's generic Windows sandbox with the Pepper-specific config
++  // below. The standalone PPAPI sandbox type only exists on other platforms.
++  return sandbox::mojom::Sandbox::kUtility;
+ #else
+   return sandbox::mojom::Sandbox::kPpapi;
+ #endif
+ }
+ 
++#if BUILDFLAG(IS_WIN)
++std::string PpapiPluginSandboxedProcessLauncherDelegate::GetSandboxTag() {
++  return sandbox::policy::SandboxWin::GetSandboxTagForDelegate(
++      is_flash_ ? "ppapi-flash" : "ppapi", GetSandboxType());
++}
++
++bool PpapiPluginSandboxedProcessLauncherDelegate::InitializeConfig(
++    sandbox::TargetConfig* config) {
++  if (sandbox::policy::SandboxWin::AddWin32kLockdownPolicy(config) !=
++      sandbox::SBOX_ALL_OK) {
++    return false;
++  }
++
++  // Flash compiles ActionScript at runtime. Keep dynamic code disabled for
++  // other Pepper plugins.
++  if (is_flash_) {
++    return true;
++  }
++  return config->SetDelayedProcessMitigations(
++             config->GetDelayedProcessMitigations() |
++             sandbox::MITIGATION_DYNAMIC_CODE_DISABLE) == sandbox::SBOX_ALL_OK;
++}
++#endif
++
+ #if BUILDFLAG(IS_MAC)
+ bool PpapiPluginSandboxedProcessLauncherDelegate::DisclaimResponsibility() {
+   return true;
+diff --git a/content/browser/ppapi_plugin_sandboxed_process_launcher_delegate.h b/content/browser/ppapi_plugin_sandboxed_process_launcher_delegate.h
+index d203e0131dbac..4a5df55114a1a 100644
+--- a/content/browser/ppapi_plugin_sandboxed_process_launcher_delegate.h
++++ b/content/browser/ppapi_plugin_sandboxed_process_launcher_delegate.h
+@@ -19,7 +19,7 @@ namespace content {
+ class CONTENT_EXPORT PpapiPluginSandboxedProcessLauncherDelegate
+     : public content::SandboxedProcessLauncherDelegate {
+  public:
+-  PpapiPluginSandboxedProcessLauncherDelegate() = default;
++  explicit PpapiPluginSandboxedProcessLauncherDelegate(bool is_flash);
+ 
+   PpapiPluginSandboxedProcessLauncherDelegate(
+       const PpapiPluginSandboxedProcessLauncherDelegate&) = delete;
+@@ -34,10 +34,18 @@ class CONTENT_EXPORT PpapiPluginSandboxedProcessLauncherDelegate
+ 
+   sandbox::mojom::Sandbox GetSandboxType() override;
+ 
++#if BUILDFLAG(IS_WIN)
++  std::string GetSandboxTag() override;
++  bool InitializeConfig(sandbox::TargetConfig* config) override;
++#endif
++
+ #if BUILDFLAG(IS_MAC)
+   bool DisclaimResponsibility() override;
+   bool EnableCpuSecurityMitigations() override;
+ #endif
++
++ private:
++  [[maybe_unused]] const bool is_flash_;
+ };
+ }  // namespace content
+ 
+diff --git a/content/ppapi_plugin/ppapi_plugin_main.cc b/content/ppapi_plugin/ppapi_plugin_main.cc
+index ebfd5bfee13d8..42a313e60d9a5 100644
+--- a/content/ppapi_plugin/ppapi_plugin_main.cc
++++ b/content/ppapi_plugin/ppapi_plugin_main.cc
+@@ -6,9 +6,7 @@
+ #include "base/command_line.h"
+ #include "base/debug/crash_logging.h"
+ #include "base/debug/debugger.h"
+-#include "base/containers/span.h"
+ #include "base/files/file_path.h"
+-#include "base/files/file_util.h"
+ #include "base/i18n/rtl.h"
+ #include "base/path_service.h"
+ #include "base/process/current_process.h"
+@@ -74,12 +72,6 @@ namespace content {
+ // Main function for starting the PPAPI plugin process.
+ int PpapiPluginMain(MainFunctionParams parameters) {
+   const base::CommandLine& command_line = *parameters.command_line;
+-  {
+-    constexpr std::string_view kMainMarker = "entered PpapiPluginMain";
+-    base::WriteFile(base::FilePath(FILE_PATH_LITERAL(
+-                        "D:\\electron-build\\ppapi-main.txt")),
+-                    base::as_byte_span(kMainMarker));
+-  }
+ 
+ #if BUILDFLAG(IS_MAC)
+   // Declare that this process has CPU security mitigations enabled (see
+diff --git a/sandbox/policy/sandbox_type.cc b/sandbox/policy/sandbox_type.cc
+index ba10bfb3519d3..20ac1edcbfb6e 100644
+--- a/sandbox/policy/sandbox_type.cc
++++ b/sandbox/policy/sandbox_type.cc
+@@ -218,9 +218,8 @@ sandbox::mojom::Sandbox SandboxTypeFromCommandLine(
+ #if BUILDFLAG(ENABLE_PPAPI)
+   if (process_type == switches::kPpapiPluginProcess) {
+ #if BUILDFLAG(IS_WIN)
+-    // PPAPI sandboxing is not supported on Windows; the plugin process runs
+-    // unsandboxed like it did before the PPAPI removal.
+-    return Sandbox::kNoSandbox;
++    // Windows uses the utility sandbox as the base policy for Pepper.
++    return Sandbox::kUtility;
+ #else
+     return Sandbox::kPpapi;
+ #endif
