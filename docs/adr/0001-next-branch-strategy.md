@@ -2,7 +2,17 @@
 
 - 状态：**已接受**（2026-11-15）
 - 决策人：项目负责人
-- 关联：[`../specs/2026-11-14-electron138-flash-port.md`](../specs/2026-11-14-electron138-flash-port.md)、[`../specs/2026-11-15-forward-version-feasibility.md`](../specs/2026-11-15-forward-version-feasibility.md)
+- 关联：`../specs/2026-11-14-electron138-flash-port.md`、`../specs/2026-11-15-forward-version-feasibility.md`
+  ——这两个文件**在 `docs/port-138-140` 分支与 `next` 分支**，`main` 上不复制（同一事实不两处维护）
+- 版本线口径：[`../version-lines.md`](../version-lines.md)（2026-11-23 定）
+
+> **后续决策（2026-11-23 补记）**：本文「待定事项」4 项已全部结题——
+> 1. 内核基线 = **Electron 39（v39.8.10）/ Chromium 142.0.7444.265**，非本文当时预想的 E37/138；
+> 2. 前端栈 = **Vue 3 + Pinia**（详见 `next` 分支 ADR 0002 的 11-21 更新）；
+> 3. Flash 策略 = 原生 PPAPI 为主、Ruffle 作回退，维持本文判断；
+> 4. 首发功能集 = 按 `next` 分支架构讨论的 M0–M4 里程碑推进。
+>
+> 正文保持 2026-11-15 原样，不追改。
 
 ## 背景
 

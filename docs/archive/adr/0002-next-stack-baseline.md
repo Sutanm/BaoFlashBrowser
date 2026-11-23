@@ -1,7 +1,17 @@
 # ADR 0002：BaoFlashBrowser Next 技术栈评估（提案）
 
+> **已归档（2026-11-23）**：本文是 2026-11-15 的提案快照，**不再是现行依据**。
+> 其中两处已被实测推翻：
+> - §2 内核基线推荐的 **E37 / Chromium 138** → 实际定为 **Electron 39（v39.8.10）/
+>   Chromium 142.0.7444.265**（142 上原生 PPAPI 已出帧）；
+> - §3 的 UI 框架「待定」 → 定为 **Vue 3 + Pinia**。
+>
+> 权威版与后续更新在 **`next` 分支**的同名文件（`main` 的 [`../../adr/0002-next-stack-baseline.md`](../../adr/0002-next-stack-baseline.md)
+> 只保留指路）。版本线口径见 [`../../version-lines.md`](../../version-lines.md)。
+> 正文保持 2026-11-15 原样，只修正了指向 0001 的相对链接。
+
 - 状态：**提案 / 待决策**（2026-11-15）
-- 关联：[`0001-next-branch-strategy.md`](0001-next-branch-strategy.md)
+- 关联：[`0001-next-branch-strategy.md`](../../adr/0001-next-branch-strategy.md)
 - 原则：**全部重新评估**；87 的实现只作为需求与踩坑参考，不作为架构约束。
 
 ---

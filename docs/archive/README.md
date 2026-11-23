@@ -24,6 +24,7 @@
 | `legacy/blog.md`、`legacy/blog-technical.md` | 1.0.1 发布文章 | 与 1.1.2 无关 |
 | `releases/1.1.1-regression-baseline.md` | 1.1.1 的实际回归结果 | 被 [`../FINAL_REGRESSION.md`](../FINAL_REGRESSION.md) 的 1.1.2 基线取代 |
 | `modules-v1/` | 被重写的模块文档旧版（00、01、02、03、04、05、06、07、08、09） | 每份的现行版本在 `docs/modules/` 同名位置 |
+| `adr/` | Next 技术栈提案的旧快照（ADR 0002，2026-11-15 版） | 内核基线（138）与 UI 框架结论已被 `next` 分支的实测推翻 |
 
 ## 现行版本在哪
 
@@ -36,6 +37,7 @@
 | `legacy/userscript-platform-plan.md` | [`docs/modules/04-userscripts.md`](../modules/04-userscripts.md) + [`docs/userscript-developer-guide.md`](../userscript-developer-guide.md) |
 | `legacy/lessons-learned.md` | 雷区已分散到各模块文档的「雷区」章节与 `AGENTS.md` |
 | `superpowers/specs/*screenshot*` | [`docs/modules/07-screenshots.md`](../modules/07-screenshots.md) |
+| `adr/0002-next-stack-baseline.md` | `next` 分支的 `docs/adr/0002-next-stack-baseline.md`（`main` 上是 [`../adr/0002-next-stack-baseline.md`](../adr/0002-next-stack-baseline.md) 指针） |
 | `automation-v2/*`（行为规则） | [`docs/modules/03-automation.md`](../modules/03-automation.md) |
 
 ## 使用约定
