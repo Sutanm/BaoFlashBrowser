@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
+import { BrowserWindow, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
+import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
 import { browserChannels, browserFailureText, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
@@ -198,7 +199,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   const plugins = options.flash === true
   const shellUrl = options.shellUrl
   /**
-   * 自动化窗口模式（仅未打包构建生效），目的：跑冒烟时**屏幕上什么都不出现**。
+   * 自动化窗口模式：跑冒烟时不显示或不激活原生窗口。
    *
    * 实测教训（2026-11-23）：`showInactive()` 之后再 `setPosition(-32000)` 不生效——
    * Windows 仍按创建时的默认位置摆放，窗口照旧出现在屏幕上。所以位置必须在
@@ -206,9 +207,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * （渲染/合成不被节流，Ruffle 能出帧），但完全透明；同时跳过任务栏、禁用聚焦，
    * 并挂「被激活就 blur」的守卫。弹出窗口也要走同一套（否则它们照样弹出来）。
    */
-  const automated = !app.isPackaged
-  const hidden = automated && process.env.BAO_SMOKE_HIDDEN === '1'
-  const background = automated && process.env.BAO_SMOKE_BACKGROUND === '1'
   const placement = background
     ? { ...placeWindow(options), x: -32000, y: -32000 }
     : placeWindow(options)
@@ -216,7 +214,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     ...placement,
     // 自动化模式下窗口从**创建那一刻**就是透明且不进任务栏的：避免 show 的瞬间
     // 以 opacity 1 闪一下（实测：仅靠 showInactive 之后设 opacity 仍会短暂出现在屏幕上）。
-    ...(background ? { opacity: 0, skipTaskbar: true, focusable: false } : {}),
+    ...(background ? { opacity: 0 } : {}),
+    ...(hidden || background ? { skipTaskbar: true, focusable: false } : {}),
     minWidth: 520,
     minHeight: 360,
     show: false,
@@ -447,7 +446,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           y: size.y,
           // 自动化模式：弹窗从一开始就不显示（否则 Chromium 会在 did-create-window 之后
           // 再 show 一次，屏幕上闪一个窗口）。
-          ...(hidden ? { show: false } : {}),
+          ...(hidden || background ? { show: false, skipTaskbar: true, focusable: false } : {}),
+          ...(background ? { x: -32000, y: -32000, opacity: 0 } : {}),
           // 自绘 chrome：rame: false 去掉原生标题栏（Windows 仍保留 1px 的可调整边框，属正常）。
           frame: false,
           backgroundColor: '#ffffff',
@@ -1248,19 +1248,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
  * 「被激活就 blur」的守卫，保证整轮跑动中前台焦点不被打断。
  */
 function applyAutomationWindowMode(window: BrowserWindow): void {
-  if (app.isPackaged || window.isDestroyed()) return
-  if (process.env.BAO_SMOKE_HIDDEN === '1') {
-    window.hide()
-    return
-  }
-  if (process.env.BAO_SMOKE_BACKGROUND !== '1') return
-  window.setSkipTaskbar(true)
-  window.setOpacity(0)
-  window.setFocusable(false)
-  window.showInactive()
+  if (!background || window.isDestroyed()) return
   window.on('focus', () => {
     if (!window.isDestroyed()) window.blur()
   })
+  window.showInactive()
 }
 
 /** 新窗口落在拖放点附近，并夹到最近的显示器工作区内。 */

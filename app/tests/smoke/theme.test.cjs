@@ -3,7 +3,7 @@ const { test } = require('node:test')
 const { mkdtemp, rm } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
-const { launchApp, launchAppAt, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, launchAppAt, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 async function viewFact(app, shell, code) {
   const handle = await app.browserWindow(shell)
@@ -18,14 +18,14 @@ async function viewFact(app, shell, code) {
 const SURFACE = `getComputedStyle(document.documentElement).getPropertyValue('--surface-toolbar').trim()`
 
 test('暗色模式：跟随原生主题切换外壳与叠加层', { timeout: 120_000 }, async () => {
-  const server = await startFixtureServer()
+  const server = await startFixtureServer({ '/': page('主题测试页') })
   const { app, shell, close } = await launchApp()
   try {
     await app.evaluate(({ nativeTheme }) => { nativeTheme.themeSource = 'light' })
     const address = shell.getByRole('textbox', { name: '地址栏' })
-    await address.fill(`${server.baseUrl}/flash.html`)
+    await address.fill(server.baseUrl)
     await address.press('Enter')
-    await new Promise((done) => setTimeout(done, 1500))
+    await shell.getByRole('button', { name: '主题测试页', exact: true }).waitFor()
 
     const light = await shell.evaluate(`(() => ({
       theme: document.documentElement.dataset.theme,

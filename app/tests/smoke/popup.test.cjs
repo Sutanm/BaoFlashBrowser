@@ -11,6 +11,13 @@ async function viewEval(app, shell, code, userGesture = false) {
   }, { code, userGesture })
 }
 
+async function assertHiddenPopup(app, page) {
+  if (process.env.BAO_SMOKE_HIDDEN !== '1') return
+  const window = await app.browserWindow(page)
+  assert.deepEqual(await window.evaluate((win) => [win.isVisible(), win.isFocusable(), win.isFocused()]),
+    [false, false, false], '测试弹窗必须从创建起就保持隐藏且不可聚焦')
+}
+
 async function snapshot(shell) {
   const result = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
   assert.equal(result.ok, true)
@@ -48,6 +55,7 @@ test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站�
       app.waitForEvent('window', { predicate: (page) => page.url().endsWith('/game'), timeout: 30_000 }),
       viewEval(app, shell, "document.getElementById('open').click()", true)
     ])
+    await assertHiddenPopup(app, game)
     const openerFacts = await game.evaluate(() => ({
       hasOpener: Boolean(window.opener),
       openerUrl: window.opener?.location?.href ?? null
@@ -62,6 +70,7 @@ test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站�
       app.waitForEvent('window', { predicate: (page) => page.url().endsWith('/client'), timeout: 30_000 }),
       game.evaluate(() => document.getElementById('open').click())
     ])
+    await assertHiddenPopup(app, client)
     assert.ok((await client.evaluate(() => Boolean(window.opener))), '二级弹窗丢失 window.opener')
     assert.equal(await windowCount(app), baseWindows + 2)
 
@@ -93,6 +102,7 @@ test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站�
       app.waitForEvent('window', { predicate: (page) => page.url().endsWith('/game'), timeout: 30_000 }),
       viewEval(app, shell, "document.getElementById('open').click()", true)
     ])
+    await assertHiddenPopup(app, rufflePopup)
     const inherited = await waitFor(async () => {
       const value = await rufflePopup.evaluate(() => typeof window.RufflePlayer?.newest)
       return value === 'function' ? value : null
@@ -120,6 +130,8 @@ test('弹窗使用自绘 chrome：无原生边框，控制簇可用', { timeout:
       app.waitForEvent('window', { predicate: (page) => page.url().endsWith('/game'), timeout: 30_000 }),
       viewEval(app, shell, "document.getElementById('open').click()", true)
     ])
+
+    await assertHiddenPopup(app, popup)
 
     // 1) 无原生边框：frameless 窗口的 getBounds 与 getContentBounds 相同。
     const frames = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => ({

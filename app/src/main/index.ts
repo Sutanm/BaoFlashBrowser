@@ -9,6 +9,7 @@ import { registerWindowControlIpc } from './window-control'
 import { registerNetBroker } from './net-broker'
 import { internalSchemePrivileges } from './internal-pages'
 import { closeStorage, initStorage } from './storage'
+import { backgroundSmoke, hiddenSmoke } from './automation'
 
 app.setName('BaoFlashBrowser Next')
 
@@ -17,11 +18,9 @@ app.setName('BaoFlashBrowser Next')
 Menu.setApplicationMenu(null)
 
 /**
- * 自动化模式（`BAO_SMOKE_HIDDEN=1` / `BAO_SMOKE_BACKGROUND=1`，仅未打包构建）：
- * 关掉 Chromium 对「不可见/被遮挡窗口」的节流。否则隐藏窗口里的 Ruffle 不出帧，
- * 冒烟会出现"播放器状态 unavailable"这类假失败。
+ * 自动化模式下关闭 Chromium 的后台节流，避免不可见窗口的页面定时器影响回归结果。
  */
-if (!app.isPackaged && (process.env.BAO_SMOKE_HIDDEN === '1' || process.env.BAO_SMOKE_BACKGROUND === '1')) {
+if (hiddenSmoke || backgroundSmoke) {
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
   app.commandLine.appendSwitch('disable-renderer-backgrounding')
   app.commandLine.appendSwitch('disable-background-timer-throttling')

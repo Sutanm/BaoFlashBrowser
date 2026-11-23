@@ -49,12 +49,12 @@ test('引擎网络 broker：只有 Ruffle 能跨域读，页面脚本的同源�
 
   const { app, shell, close } = await launchApp()
   try {
+    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click({ timeout: 30_000 })
+    await shell.getByRole('switch', { name: '切换到原生 Flash 引擎', exact: true }).waitFor()
     const address = shell.getByRole('textbox', { name: '地址栏' })
     await address.fill(`${pageServer.baseUrl}/page.html`)
     await address.press('Enter')
     await shell.getByRole('button', { name: 'broker 页面', exact: true }).waitFor({ timeout: 30_000 })
-
-    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click({ timeout: 30_000 })
 
     // 1) 根 SWF 跨源加载：Ruffle 自己的 fetch 经策略放行（策略文件 wildcard）。
     const player = await waitFor(async () => {

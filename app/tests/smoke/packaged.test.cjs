@@ -5,7 +5,7 @@ const { tmpdir } = require('node:os')
 const { dirname, join, resolve } = require('node:path')
 const { test } = require('node:test')
 const { _electron: electron } = require('playwright')
-const { startFixtureServer } = require('./helpers.cjs')
+const { nativeFlashSkip, startFixtureServer } = require('./helpers.cjs')
 
 async function waitForFacts(read, message) {
   const deadline = Date.now() + 60_000
@@ -43,17 +43,31 @@ async function latestPackagedExecutable() {
 
 /** 读产物自带的 manifest.json 决定 profile；没有清单按 internal 处理。 */
 async function readPackagedProfile(executablePath) {
-  const manifest = join(dirname(executablePath), 'manifest.json')
-  const text = await readFile(manifest, 'utf8').catch(() => '')
-  if (!text) return 'internal'
-  try {
-    return JSON.parse(text).profile === 'public' ? 'public' : 'internal'
-  } catch {
-    return 'internal'
+  const manifestPath = join(dirname(executablePath), 'manifest.json')
+  const manifest = await readFile(manifestPath, 'utf8').then(JSON.parse).catch(() => null)
+  if (hidden) {
+    assert.equal(manifest?.smokeHiddenSupported, true,
+      '旧产物不支持无窗口启动；请先重新打包，再跑成品冒烟。')
   }
+  return manifest?.profile === 'public' ? 'public' : 'internal'
 }
 
-test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { timeout: 180_000 }, async (context) => {
+const hidden = process.env.BAO_SMOKE_HIDDEN === '1'
+
+async function launchPackaged(executablePath, profilePath) {
+  const args = [`--user-data-dir=${profilePath}`]
+  if (hidden) args.push('--bao-smoke-hidden')
+  return electron.launch({ executablePath, args, timeout: 30_000 })
+}
+
+async function assertHidden(app, shell) {
+  if (!hidden) return
+  const window = await app.browserWindow(shell)
+  assert.deepEqual(await window.evaluate((win) => [win.isVisible(), win.isFocusable(), win.isFocused()]),
+    [false, false, false], '成品冒烟窗口必须保持隐藏且不获取焦点')
+}
+
+test('Win x64 验证包使用自编译运行时并加载 Ruffle', { timeout: 180_000 }, async (context) => {
   const executablePath = await latestPackagedExecutable()
   if (!executablePath) {
     // 审计 P2：成品验证不允许默认跳过，否则「打包通过」会被当成「真产物通过」。
@@ -65,54 +79,57 @@ test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { 
     assert.fail('未找到 dist/win-preview/win-unpacked：先运行 npm run pack:win；若确实只想跑应用冒烟，设置 BAO_SKIP_PACKAGED=1。')
   }
 
-  delete process.env.ELECTRON_RUN_AS_NODE
-  const server = await startFixtureServer()
-  const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-packaged-'))
-  // profile 由产物自带的 manifest.json 决定（internal = 捆插件；public = BYOP 不带插件）。
+  // 先查清单，再启动任何进程或资源（旧产物可能会弹出窗口）。
   const profile = await readPackagedProfile(executablePath)
-  const app = await electron.launch({ executablePath, args: [`--user-data-dir=${profilePath}`], timeout: 30_000 })
+  delete process.env.ELECTRON_RUN_AS_NODE
+  const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-packaged-'))
+  const server = await startFixtureServer()
+  let app
   try {
+    app = await launchPackaged(executablePath, profilePath)
     const isShell = (page) => page.url().endsWith('/out/renderer/index.html')
     const shell = app.windows().find(isShell) ?? await app.waitForEvent('window', { predicate: isShell, timeout: 20_000 })
+    await assertHidden(app, shell)
     assert.deepEqual(await shell.evaluate(() => ({ ...window.baoRuntime })),
       { electron: '39.8.10', chromium: '142.0.7444.265' })
-
     const address = shell.getByRole('textbox', { name: '地址栏' })
-    await address.fill(`${server.baseUrl}/flash.html`)
-    await address.press('Enter')
-    const tab = shell.getByRole('button', { name: /^flash:/ })
-    await tab.waitFor({ timeout: 60_000 })
-
-    const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
-    if (profile === 'internal') {
-      assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge')
-      assert.ok(processes.includes('Pepper Plugin'), `验证包未启动 PPAPI 插件进程：${processes.join(',')}`)
-    } else {
-      // 公开包不携带 Adobe 二进制：插件进程不应出现，页面按 CORS/插件缺失走 Ruffle。
-      assert.ok(!processes.includes('Pepper Plugin'), '公开包里出现了 PPAPI 插件进程')
-      assert.ok((await tab.getAttribute('title')).startsWith('flash:'), '公开包页面未正常加载')
+    const openSample = async () => {
+      await address.fill(`${server.baseUrl}/flash.html`)
+      await address.press('Enter')
     }
 
-    // 验证包里也带着版本固定的 Ruffle 运行时（vendor 必须打进 asar）。
-    // 公开包（BYOP）没有插件，标签本来就在 Ruffle 上，不存在「切到 Ruffle」开关。
     if (profile === 'internal') {
+      await context.test('内部验证包加载 PPAPI 并保留 JS 桥', { skip: nativeFlashSkip }, async () => {
+        await openSample()
+        const tab = shell.getByRole('button', { name: /^flash:/ })
+        await tab.waitFor({ timeout: 60_000 })
+        assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge')
+        const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
+        assert.ok(processes.includes('Pepper Plugin'), `验证包未启动 PPAPI 插件进程：${processes.join(',')}`)
+      })
       await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
     }
+    await shell.getByRole('switch', { name: '切换到原生 Flash 引擎', exact: true }).waitFor()
+    if (profile === 'public' || nativeFlashSkip) await openSample()
+
+    // 验证版本固定的 Ruffle 运行时已打进 asar，并实际接管样本。
     const windowHandle = await app.browserWindow(shell)
-    const polyfilled = await waitForFacts(async () => {
-      const facts = await windowHandle.evaluate(async (window) => {
+    await waitForFacts(() =>
+      windowHandle.evaluate((window) => {
         const view = window.contentView.children
           .find((child) => child.webContents && child.webContents !== window.webContents)
-        return view.webContents.executeJavaScript(`({
-          newest: typeof window.RufflePlayer?.newest,
-          players: document.querySelectorAll('ruffle-embed, ruffle-object, ruffle-player').length
-        })`)
-      })
-      return facts.newest === 'function' && facts.players > 0 ? facts : null
-    }, '验证包未加载 Ruffle 运行时。')
-    assert.ok(polyfilled.players >= 1)
+        return view.webContents.executeJavaScript(`(() => {
+          const player = document.querySelector('ruffle-embed, ruffle-object, ruffle-player')
+          return typeof window.RufflePlayer?.newest === 'function' &&
+            Boolean(player?.shadowRoot?.querySelector('canvas'))
+        })()`)
+      }), '验证包未加载 Ruffle 运行时。')
+    if (profile === 'public' || nativeFlashSkip) {
+      const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
+      assert.ok(!processes.includes('Pepper Plugin'), '后台或公开包 Ruffle 验收启动了 PPAPI 插件')
+    }
   } finally {
-    await app.close().catch(() => {})
+    await app?.close().catch(() => {})
     await server.close()
     await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
   }
@@ -121,7 +138,7 @@ test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { 
  * BYOP 落地验证：公开包不带 Adobe 二进制，但用户把插件放到 `<exe目录>\flash\` 后
  * 原生引擎必须生效。这条只对 public profile 有意义（internal 包自带插件，跳过）。
  */
-test('BYOP：把插件放到 <exe目录>\\flash\\ 后原生引擎生效', { timeout: 180_000 }, async (context) => {
+test('BYOP：把插件放到 <exe目录>\\flash\\ 后原生引擎生效', { timeout: 180_000, skip: nativeFlashSkip }, async (context) => {
   const executablePath = await latestPackagedExecutable()
   if (!executablePath) {
     assert.fail('未找到 dist/win-preview/win-unpacked：先运行 npm run pack:win:public。')
@@ -140,10 +157,12 @@ test('BYOP：把插件放到 <exe目录>\\flash\\ 后原生引擎生效', { time
   await mkdir(dropIn, { recursive: true })
   await copyFile(devPlugin, join(dropIn, 'pepflashplayer64.dll'))
   const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-byop-'))
-  const app = await electron.launch({ executablePath, args: [`--user-data-dir=${profilePath}`], timeout: 30_000 })
+  let app
   try {
+    app = await launchPackaged(executablePath, profilePath)
     const isShell = (page) => page.url().endsWith('/out/renderer/index.html')
     const shell = app.windows().find(isShell) ?? await app.waitForEvent('window', { predicate: isShell, timeout: 20_000 })
+    await assertHidden(app, shell)
     const address = shell.getByRole('textbox', { name: '地址栏' })
     await address.fill(`${server.baseUrl}/flash.html`)
     await address.press('Enter')
@@ -153,8 +172,9 @@ test('BYOP：把插件放到 <exe目录>\\flash\\ 后原生引擎生效', { time
     const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
     assert.ok(processes.includes('Pepper Plugin'), `BYOP 未启动 PPAPI 插件进程：${processes.join(',')}`)
   } finally {
-    await app.close().catch(() => {})
+    await app?.close().catch(() => {})
     await rm(dropIn, { recursive: true, force: true })
     await server.close()
+    await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
   }
 })

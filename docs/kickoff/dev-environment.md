@@ -45,11 +45,11 @@ npm run runtime:export:byop     # byop：不含 Adobe 二进制，许可最干�
 ```
 
 产物在 `app/dist/runtime-win-x64-<kernel-tag>-<profile>.zip`（约 150–160 MB），连同脚本打印的
-ZIP SHA-256 一起放到**私有 Release / 受限云盘**。接收方：
+ZIP SHA-256 一起放到**私有 Release / 受限云盘**。接收方使用和 [运行时清单](../../app/scripts/runtime-manifest.json) 匹配的归档。
+带 Windows PPAPI 进程沙箱的新版运行时可从已安装的机器导出，也可按 [内核补丁记录](../kernel/README.md#windows-ppapi-进程沙箱) 重建。
 
 ```powershell
-gh release download kernel-bao-v142-265-ppapi-sandbox --pattern 'runtime-win-x64-*.zip'   # 或从云盘下载
-npm run runtime:import -- .\runtime-win-x64-bao-v142-265-ppapi-sandbox-internal.zip
+npm run runtime:import -- '<已下载的运行时归档.zip>'
 npm run runtime:check
 ```
 
@@ -61,8 +61,8 @@ tag，只有与仓库 `scripts/runtime-manifest.json` 期望的内核一致才�
 
 | 包 | 内含 | 冒烟结果 | 分发限制 |
 | --- | --- | --- | --- |
-| `internal` | 含 `pepflashplayer64.dll` | **21/21**（PPAPI 用例会跑） | 仅限内部分发（私有 Release / draft / 受限云盘） |
-| `byop` | 不含 Adobe 二进制 | 19 通过 + `flash`/`plugin-input` 两条**跳过并说明原因** | 可较自由分发；需要原生引擎时自己放插件 |
+| `internal` | 含 `pepflashplayer64.dll` | 包含 `flash` 和 `plugin-input` 回归 | 仅限内部分发（私有 Release / draft / 受限云盘） |
+| `byop` | 不含 Adobe 二进制 | 缺少插件时跳过 `flash` 和 `plugin-input` | 可较自由分发；需要原生引擎时自己放插件 |
 
 **B. 旧机器上还留着内核构建产物**（`dist` 目录）
 
@@ -83,7 +83,7 @@ Copy-Item <你的>\pepflashplayer64.dll app\.runtime\win-x64\
 
 ```powershell
 npm run runtime:check   # 校验内核与插件 SHA-256，失败会给出恢复路径
-npm run smoke           # 应用冒烟 21 项
+npm run smoke           # 应用后台冒烟
 npm run typecheck
 ```
 
@@ -109,11 +109,13 @@ npm run typecheck
 | --- | --- |
 | `npm run dev` | Vite 开发服务器（外壳热更新） |
 | `npm run build` | typecheck + 构建 `out/` |
-| `npm run smoke` | 应用冒烟（27 项，临时 profile，窗口会出现在屏幕上并获得焦点） |
-| `npm run smoke:bg` | 同一套冒烟的后台跑法：窗口移到屏幕外、不激活，边工作边跑不抢前台（`permissions` 的 pointerLock/fullscreen 会跳过并说明原因） |
+| `node scripts/test.cjs smoke`（推荐） | 绕过 npm 的命令壳，无窗口跑应用冒烟（临时 profile）；`npm run smoke` / `npm run smoke:bg` 保留为终端里的便捷入口 |
+| `npm run smoke:foreground` | 显式前台验收，覆盖原生 PPAPI 装载与输入、最大化、全屏、指针锁、DevTools 和 Ruffle 画布输入 |
+| `node scripts/test.cjs data` | 无窗口跑设置存储回归，终端可用 `npm run test:data` |
 | `npm run pack:win` | 打内部验证包（带插件，仅供内部） |
 | `npm run pack:win:public` | 打公开包（BYOP，不含 Adobe 二进制） |
-| `npm run smoke:packaged` | 成品冒烟（按产物 `manifest.json` 判定 profile） |
+| `node scripts/test.cjs packaged` | 无窗口验证成品的自编译内核与 Ruffle，终端可用 `npm run smoke:packaged`。旧产物需先重打包 |
+| `npm run smoke:packaged -- --foreground` | 前台验证成品的原生 PPAPI，按产物 `manifest.json` 判定内部包或公开包 |
 | `npm run runtime:check` | 本地运行时自检 |
 | `npm run runtime:prepare -- <dist>` | 从内核构建输出刷新运行时 |
 | `npm run runtime:export` / `runtime:export:byop` | 导出运行时 zip（internal 含插件 / byop 不含 Adobe 二进制） |
@@ -165,8 +167,9 @@ npm run runtime:check
 | 插件缺失 | 原生引擎停用，所有标签回落 Ruffle，引擎面板「Flash」档置灰 | 把 `pepflashplayer64.dll` 放到 `app/.runtime/win-x64/`（开发）或 `<exe目录>\flash\`（打包版） |
 | 目录改名报「路径或设备名称」 | `Rename-Item` 对某些目录失败 | 改用 `Move-Item` |
 | `runtime:prepare` 拒绝执行 | 提示"本地运行时已准备" | 先把旧 `.runtime/win-x64` 移走，这是防混用的保护 |
-| 冒烟抢前台 | 每跑一条用例都弹一个窗口抢焦点 | 用 `npm run smoke:bg`（窗口移到屏幕外且不激活）；只有需要 pointerLock/fullscreen 的那条会跳过 |
-| 后台模式仍失败在 Ruffle 输入 | 窗口完全不显示时 Ruffle 出帧被节流 | 用 `BAO_SMOKE_BACKGROUND=1`（默认后台档），不要用 `BAO_SMOKE_HIDDEN=1` 跑全量 |
+| 冒烟需要验收原生交互 | 默认无窗口模式跳过少数依赖原生窗口或焦点的检查 | 明确需要时运行 `npm run smoke:foreground` |
+| 冒烟需要验收原生 Flash | 匹配运行时清单的 Windows PPAPI 进程沙箱支持应用后台验收 | 旧内核、自定义内核和成品的原生 Flash 用前台模式验收 |
+| 自动化工具弹出终端 | 外层工具启动 `npm` 时可能自行创建控制台 | 将工作目录设为 `app`，让外层工具不显示控制台并直接启动 `node scripts/test.cjs smoke` |
 
 ---
 

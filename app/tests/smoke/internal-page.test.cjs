@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { launchApp, pressShortcut, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, page, pressShortcut, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
  * 内部设置页（`bao://settings`）的合同验证。
@@ -34,7 +34,7 @@ async function inSettings(app, code) {
 const snapshot = (shell) => shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }).then((result) => result.state))
 
 test('设置页：Ctrl+, 打开/复用标签，只有设置桥，写入后外壳同步', { timeout: 180_000 }, async () => {
-  const server = await startFixtureServer()
+  const server = await startFixtureServer({ '/': page('设置测试页') })
   const { app, shell, close } = await launchApp()
   try {
     assert.equal((await snapshot(shell)).tabs.length, 1)
@@ -99,9 +99,9 @@ test('设置页：Ctrl+, 打开/复用标签，只有设置桥，写入后外壳
     assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), 'dark')
 
     // ④ 页面没有设置桥，也不能把自己导航到 bao://settings。
-    await shell.getByRole('textbox', { name: '地址栏' }).fill(`${server.baseUrl}/flash.html`)
+    await shell.getByRole('textbox', { name: '地址栏' }).fill(server.baseUrl)
     await shell.getByRole('textbox', { name: '地址栏' }).press('Enter')
-    await new Promise((done) => setTimeout(done, 800))
+    await shell.getByRole('button', { name: '设置测试页', exact: true }).waitFor()
     const pageFact = await app.evaluate(({ webContents }) => {
       const page = webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').startsWith('http://127.0.0.1'))
       return page ? { id: page.id, bridge: typeof page.executeJavaScript('typeof window.baoSettings') } : null
@@ -133,7 +133,7 @@ test('设置页：Ctrl+, 打开/复用标签，只有设置桥，写入后外壳
     assert.equal(shellUi.address, 'bao://settings/')
     const beforeCount = selected.state.tabs.length
     const navigated = await shell.evaluate((address) =>
-      window.baoBrowser.run({ type: 'navigate', address }), `${server.baseUrl}/flash.html`)
+      window.baoBrowser.run({ type: 'navigate', address }), server.baseUrl)
     assert.equal(navigated.ok, true, `从设置页导航失败：${navigated.code}`)
     const after = navigated.state
     assert.equal(after.tabs.length, beforeCount + 1, '应当新开一个普通标签')
@@ -165,12 +165,12 @@ test('设置页：Ctrl+, 打开/复用标签，只有设置桥，写入后外壳
 })
 
 test('设置页：页面会话无法访问 bao:// 资源', { timeout: 120_000 }, async () => {
-  const server = await startFixtureServer()
+  const server = await startFixtureServer({ '/': page('设置会话测试页') })
   const { app, shell, close } = await launchApp()
   try {
-    await shell.getByRole('textbox', { name: '地址栏' }).fill(`${server.baseUrl}/flash.html`)
+    await shell.getByRole('textbox', { name: '地址栏' }).fill(server.baseUrl)
     await shell.getByRole('textbox', { name: '地址栏' }).press('Enter')
-    await new Promise((done) => setTimeout(done, 800))
+    await shell.getByRole('button', { name: '设置会话测试页', exact: true }).waitFor()
 
     const pageId = await app.evaluate(({ webContents }) =>
       webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').startsWith('http://127.0.0.1'))?.id ?? null)

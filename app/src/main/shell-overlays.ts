@@ -83,7 +83,7 @@ export function createShellOverlays(
     const panel = hosted.panel
     if (!panel?.bounds) return false
     hide(panel)
-    if (restoreFocus && !shell.isDestroyed()) shell.focus()
+    if (restoreFocus && !window.isDestroyed() && window.isFocused() && !shell.isDestroyed()) shell.focus()
     send(shell, { type: 'panel-closed', restoreFocus })
     return true
   }

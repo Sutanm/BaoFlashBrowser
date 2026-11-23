@@ -35,7 +35,8 @@ async function typeInView(app, id, text, { ascii = true } = {}) {
   }, { id, text, ascii })
 }
 
-test('输入回环：页面键盘、IME 组合、焦点交接与 F11 全屏', { timeout: 180_000 }, async () => {
+test('输入回环：页面键盘、IME 组合、焦点交接与 F11 全屏', { timeout: 180_000 }, async (context) => {
+  const automated = process.env.BAO_SMOKE_HIDDEN === '1' || process.env.BAO_SMOKE_BACKGROUND === '1'
   const server = await startFixtureServer({ '/input': page('输入页面') })
   const { app, shell, close } = await launchApp()
   try {
@@ -99,36 +100,40 @@ test('输入回环：页面键盘、IME 组合、焦点交接与 F11 全屏', { 
     await address.fill('')
     await shell.keyboard.type('addr')
     assert.equal(await address.inputValue(), 'addr')
-    await app.evaluate(({ webContents }, viewIdValue) => webContents.fromId(viewIdValue).focus(), id)
+    if (!automated) {
+      await app.evaluate(({ webContents }, viewIdValue) => webContents.fromId(viewIdValue).focus(), id)
+    }
     await typeInView(app, id, 'Z')
     assert.ok((await viewEval(app, shell, "document.querySelector('input').value")).endsWith('Z'))
     assert.equal(await address.inputValue(), 'addr', '页面输入污染了地址栏')
 
     // 6) F11 全屏：视图跟随内容区，Esc 退出
-    const chromeHeight = await shell.evaluate(() =>
-      document.querySelector('header').getBoundingClientRect().height)
-    const windowHandle = await viewHandle(app, shell)
-    await app.evaluate(({ webContents }, viewIdValue) =>
-      webContents.fromId(viewIdValue).sendInputEvent({ type: 'keyDown', keyCode: 'F11' }), id)
-    await waitFor(() => windowHandle.evaluate((window) => window.isFullScreen()), {
-      message: 'F11 未进入全屏。'
-    })
-    const fullscreen = await windowHandle.evaluate((window) => {
-      const view = window.contentView.children
-        .find((child) => child.webContents && child.webContents !== window.webContents)
-      return { size: window.getContentSize(), bounds: view.getBounds() }
-    })
-    assert.deepEqual(fullscreen.bounds, {
-      x: 0,
-      y: chromeHeight,
-      width: fullscreen.size[0],
-      height: fullscreen.size[1] - chromeHeight
-    })
+    await context.test('F11 全屏布局与 Esc 退出', { skip: automated && '原生全屏留给前台测试' }, async () => {
+      const chromeHeight = await shell.evaluate(() =>
+        document.querySelector('header').getBoundingClientRect().height)
+      const windowHandle = await viewHandle(app, shell)
+      await app.evaluate(({ webContents }, viewIdValue) =>
+        webContents.fromId(viewIdValue).sendInputEvent({ type: 'keyDown', keyCode: 'F11' }), id)
+      await waitFor(() => windowHandle.evaluate((window) => window.isFullScreen()), {
+        message: 'F11 未进入全屏。'
+      })
+      const fullscreen = await windowHandle.evaluate((window) => {
+        const view = window.contentView.children
+          .find((child) => child.webContents && child.webContents !== window.webContents)
+        return { size: window.getContentSize(), bounds: view.getBounds() }
+      })
+      assert.deepEqual(fullscreen.bounds, {
+        x: 0,
+        y: chromeHeight,
+        width: fullscreen.size[0],
+        height: fullscreen.size[1] - chromeHeight
+      })
 
-    await app.evaluate(({ webContents }, viewIdValue) =>
-      webContents.fromId(viewIdValue).sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }), id)
-    await waitFor(async () => !(await windowHandle.evaluate((window) => window.isFullScreen())), {
-      message: 'Esc 未退出全屏。'
+      await app.evaluate(({ webContents }, viewIdValue) =>
+        webContents.fromId(viewIdValue).sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }), id)
+      await waitFor(async () => !(await windowHandle.evaluate((window) => window.isFullScreen())), {
+        message: 'Esc 未退出全屏。'
+      })
     })
   } finally {
     await close()

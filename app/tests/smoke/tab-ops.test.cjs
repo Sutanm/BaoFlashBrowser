@@ -116,7 +116,11 @@ test('标签操作：复制、固定排序、静音迁移与拖出判定', { tim
     await server.close()
   }
 })
-test('DevTools：Ctrl+Shift+I 开关页面视图的开发者工具', { timeout: 120_000 }, async () => {
+test('DevTools：Ctrl+Shift+I 开关页面视图的开发者工具', {
+  timeout: 120_000,
+  skip: (process.env.BAO_SMOKE_HIDDEN === '1' || process.env.BAO_SMOKE_BACKGROUND === '1') &&
+    'DevTools 可能打开独立窗口，留给前台测试'
+}, async () => {
   // 独立用例：DevTools 会创建自己的窗口，跟长链路的引擎重建/拖出放在一起容易互相干扰。
   const server = await startFixtureServer({ '/one': '<!doctype html><meta charset="utf-8"><title>one</title><h1>one</h1>' })
   const { app, shell, close } = await launchApp()

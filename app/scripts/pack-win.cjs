@@ -2,6 +2,9 @@ const { spawnSync } = require('node:child_process')
 const { createHash } = require('node:crypto')
 const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } = require('node:fs')
 const { join, resolve } = require('node:path')
+const { build } = require('./build.cjs')
+
+build()
 
 const root = resolve(__dirname, '..')
 const dist = join(root, 'dist')
@@ -222,6 +225,7 @@ const signature = signatureStatus(packaged)
 const manifest = {
   product: 'BaoFlashBrowser Next',
   profile: PROFILE,
+  smokeHiddenSupported: true,
   kernel: manifestSource.kernel,
   generatedAt: new Date().toISOString(),
   executable: {

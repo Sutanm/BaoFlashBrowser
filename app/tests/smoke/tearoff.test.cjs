@@ -169,10 +169,14 @@ test('指针拖出标签触发跨窗口移交', { timeout: 180_000 }, async () =
     // 注意：本产品的 `closeTab` 在标签清零时会补一个新标签（窗口不留空），
     // 所以断言看的是「关掉的是哪个标签」，不是窗口是否消失。
     const targetHandle = await app.browserWindow(target)
+    if (process.env.BAO_SMOKE_HIDDEN === '1') {
+      assert.deepEqual(await targetHandle.evaluate((window) => [window.isVisible(), window.isFocusable(), window.isFocused()]),
+        [false, false, false], '拖出标签创建的新窗口必须保持隐藏且不获取焦点')
+    }
     await targetHandle.evaluate((window) => {
       const view = window.contentView.children
         .find((child) => child.webContents && child.webContents !== window.webContents)
-      view.webContents.focus()
+      if (window.isFocused()) view.webContents.focus()
       view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'W', modifiers: ['control'] })
     })
     await waitFor(async () => {

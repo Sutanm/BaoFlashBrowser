@@ -3,16 +3,16 @@ const { test } = require('node:test')
 const { launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
- * 自动化模式（见 `scripts/smoke-background.cjs`），两种都不抢前台：
+ * 自动化模式：`npm run smoke` 默认隐藏窗口。直接运行此文件仍支持两种模式：
  * - `BAO_SMOKE_HIDDEN=1`：窗口完全不 show（屏幕上什么都没有）；
  * - `BAO_SMOKE_BACKGROUND=1`：窗口在屏幕外、完全透明、跳过任务栏。
- * 前台验收仍是 `npm run smoke`。
+ * 前台验收用 `npm run smoke:foreground`。
  */
 const HIDDEN = process.env.BAO_SMOKE_HIDDEN === '1'
 const BACKGROUND = process.env.BAO_SMOKE_BACKGROUND === '1'
 const AUTOMATED = HIDDEN || BACKGROUND
 
-test('自编译运行时启动无边框外壳并保持单标签、导航与焦点', { timeout: 60_000 }, async () => {
+test('自编译运行时启动无边框外壳并保持单标签、导航与焦点', { timeout: 60_000 }, async (context) => {
   const server = await startFixtureServer({ '/one': page('第一个页面'), '/two': page('第二个页面') })
   const { app, shell, close } = await launchApp()
   try {
@@ -65,6 +65,14 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
       return { size: window.getContentSize(), bounds: view.getBounds() }
     })
 
+    // 前台跑法下窗口是 `show: false` 创建、`loadURL` 完成后再 `show()`；页面在 `show()`
+    // 之前就已经可交互，所以这里等一次可见性，避免把「还没 show」误判成回归。
+    if (!AUTOMATED) {
+      await waitFor(() => windowHandle.evaluate((window) => window.isVisible()), {
+        message: '窗口没有变为可见。'
+      })
+    }
+
     const details = await windowHandle.evaluate(async (window) => {
       const { webContents } = window.contentView.children.find((child) => child.webContents && child.webContents !== window.webContents)
       return {
@@ -74,7 +82,8 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
         isolated: await webContents.executeJavaScript('typeof window.baoBrowser === "undefined" && typeof window.require === "undefined"'),
         // 自动化模式下窗口必须完全透明（否则它会出现在屏幕上）。
         opacity: window.getOpacity(),
-        visible: window.isVisible()
+        visible: window.isVisible(),
+        focusable: window.isFocusable()
       }
     })
     assert.deepEqual(details, {
@@ -83,7 +92,8 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
       focused: !AUTOMATED,
       isolated: true,
       opacity: BACKGROUND ? 0 : 1,
-      visible: !HIDDEN
+      visible: !HIDDEN,
+      focusable: !AUTOMATED
     })
 
     await windowHandle.evaluate(async (window) => {
@@ -96,14 +106,16 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
       x: 0, y: runtime.chromeHeight, width: resized.size[0], height: resized.size[1] - runtime.chromeHeight
     })
 
-    await windowHandle.evaluate(async (window) => {
-      const maximized = new Promise((resolve) => window.once('maximize', resolve))
-      window.maximize()
-      await maximized
-    })
-    const maximized = await geometry()
-    assert.deepEqual(maximized.bounds, {
-      x: 0, y: runtime.chromeHeight, width: maximized.size[0], height: maximized.size[1] - runtime.chromeHeight
+    await context.test('最大化后视图随内容区调整', { skip: AUTOMATED && '原生最大化留给前台测试' }, async () => {
+      await windowHandle.evaluate(async (window) => {
+        const maximized = new Promise((resolve) => window.once('maximize', resolve))
+        window.maximize()
+        await maximized
+      })
+      const maximized = await geometry()
+      assert.deepEqual(maximized.bounds, {
+        x: 0, y: runtime.chromeHeight, width: maximized.size[0], height: maximized.size[1] - runtime.chromeHeight
+      })
     })
 
     await address.fill('file:///C:/Windows')
@@ -114,6 +126,9 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
     assert.equal(await secondTab.getAttribute('aria-pressed'), 'true')
     assert.equal(await app.evaluate(({ webContents }, id) => webContents.fromId(id)?.isDestroyed() ?? true, details.id), true)
     assert.equal(await address.inputValue(), `${server.baseUrl}/two`)
+    if (HIDDEN) {
+      assert.deepEqual(await windowHandle.evaluate((window) => [window.isVisible(), window.isFocused()]), [false, false])
+    }
   } finally {
     await close()
     await server.close()
