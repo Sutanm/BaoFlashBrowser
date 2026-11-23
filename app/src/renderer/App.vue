@@ -385,7 +385,7 @@ onBeforeUnmount(() => store.disconnect())
         @keydown="onTabStripKeydown"
       >
         <div
-          v-for="tab in state?.tabs"
+          v-for="(tab, index) in state?.tabs"
           :key="tab.id"
           class="tab"
           :class="{ selected: tab.id === active?.id, crashed: tab.crashed, dragging: tab.id === draggingId, pinned: tab.pinned, muted: tab.muted }"
@@ -397,6 +397,7 @@ onBeforeUnmount(() => store.disconnect())
           @auxclick="onTabAuxClick(tab, $event)"
           @contextmenu.prevent="run({ type: 'tab-menu', id: tab.id })"
         >
+          <span v-if="index > 0" class="tab-separator" aria-hidden="true"></span>
           <button
             type="button"
             class="tab-title"
@@ -552,6 +553,21 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
 }
 
 .tab:hover { background: var(--surface-hover); }
+/* 标签之间的小竖线：选中/悬停时让位（Edge、Chrome 同款处理） */
+.tab-separator {
+  position: absolute;
+  left: -0.5px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 1px;
+  height: 16px;
+  background: var(--stroke-divider);
+  pointer-events: none;
+}
+.tab.selected .tab-separator,
+.tab:hover .tab-separator,
+.tab.selected + .tab .tab-separator,
+.tab:hover + .tab .tab-separator { opacity: 0; }
 .tab.dragging { opacity: .6; }
 .tab.selected {
   z-index: 1;

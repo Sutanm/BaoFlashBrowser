@@ -206,7 +206,10 @@ h1, h2, p { margin: 0; }
 button, select { font: inherit; color: inherit; }
 button { border: 0; background: none; cursor: pointer; }
 button:disabled { cursor: default; opacity: 0.6; }
-:focus-visible { outline: 2px solid var(--brand-stroke); outline-offset: -2px; }
+/* 只有键盘操作才画焦点环：鼠标点选（包括原生 select）不该出现蓝框 */
+:focus:not(:focus-visible) { outline: none; }
+:focus-visible { outline: 2px solid var(--brand-stroke); outline-offset: -2px; border-radius: 6px; }
+select:focus { outline: none; }
 
 .settings-head {
   display: flex;
@@ -230,29 +233,30 @@ button:disabled { cursor: default; opacity: 0.6; }
 
 .settings-body {
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   height: calc(100vh - 62px);
   min-height: 0;
 }
 .settings-nav {
-  padding: 10px 8px;
+  padding: 12px 10px;
   border-right: 1px solid var(--stroke-divider);
-  background: var(--surface-window);
+  background: transparent;
   overflow: auto;
 }
 .settings-nav button {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 7px 9px;
-  border-radius: 7px;
-  font-size: 12px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 13px;
   text-align: left;
 }
 .settings-nav button[aria-current='page'] {
-  background: var(--engine-selection);
-  color: var(--engine-accent);
+  background: var(--surface-hover);
+  color: var(--text-primary);
   font-weight: 600;
 }
 .settings-nav button:disabled { color: var(--text-secondary); opacity: 0.55; }
@@ -264,17 +268,23 @@ button:disabled { cursor: default; opacity: 0.6; }
   flex: none;
 }
 
+/* 卡片式内容区（对齐 Edge 设置页：居中列 + 每节一张卡片） */
 .settings-content {
-  max-width: 760px;
-  padding: 16px 24px 28px;
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px 28px 32px;
   overflow: auto;
 }
-.settings-content section + section {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--stroke-divider);
+.settings-content section {
+  margin-bottom: 12px;
+  padding: 16px 20px 18px;
+  border: 1px solid var(--stroke-divider);
+  border-radius: 12px;
+  background: var(--surface-toolbar);
 }
-.settings-content h2 { font-size: 14px; font-weight: 650; margin-bottom: 2px; }
+.settings-content section:last-of-type { margin-bottom: 0; }
+.settings-content h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
 .settings-content .lead { font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
 .settings-content code {
   padding: 0 3px;
@@ -285,16 +295,17 @@ button:disabled { cursor: default; opacity: 0.6; }
 
 .settings-theme { padding: 12px 0 3px; }
 
-.choices { display: grid; gap: 4px; max-width: 470px; }
+.choices { display: grid; gap: 2px; }
 .choice {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
-  padding: 7px 9px;
+  min-height: 40px;
+  padding: 6px 10px;
   border: 1px solid transparent;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
 }
 .choice:hover:not([aria-disabled='true']) { background: var(--surface-hover); }
@@ -326,20 +337,26 @@ button:disabled { cursor: default; opacity: 0.6; }
 .select-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  max-width: 470px;
-  padding: 7px 9px;
-  border: 1px solid var(--stroke-control);
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
   border-radius: 8px;
-  background: var(--surface-toolbar);
-  font-size: 12px;
+  font-size: 13px;
 }
+.select-row:hover { background: var(--surface-hover); }
+/* 聚焦不画系统蓝框（鼠标点选时很难看），用行高亮 + 控件描边代替 */
+.select-row:focus-within { background: var(--surface-hover); }
 .select-row select {
-  flex: 1;
-  border: 0;
-  background: none;
-  padding: 2px 0;
+  flex: none;
+  width: 220px;
+  padding: 3px 6px;
+  border: 1px solid var(--stroke-control);
+  border-radius: 6px;
+  background: var(--surface-toolbar);
 }
+.select-row select:focus { border-color: var(--brand-stroke); }
 
 .error { margin-top: 14px; font-size: 12px; color: var(--text-error, #a82929); }
 
