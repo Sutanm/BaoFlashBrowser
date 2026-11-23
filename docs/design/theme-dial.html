@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BaoFlash · 日晷式三档主题开关</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #eef0f4; --surface: #fff; --ink: #232630; --muted: #626879; --line: #dcdfe6;
+    --accent: #5940ac; --selected: #eeebfb;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14151a; --surface: #292b33; --ink: #f2f2f6; --muted: #b4b7c6; --line: #434552;
+    --accent: #c8b7ff; --selected: #3b3059;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif; }
+  main { width: min(820px, calc(100% - 32px)); margin: 28px auto 40px; }
+  h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.02em; }
+  h2 { margin: 26px 0 10px; font-size: 14px; }
+  .lead { margin: 0 0 12px; font-size: 13px; color: var(--muted); max-width: 74ch; }
+  .stage { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+  .card { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .card + .card { margin-top: 10px; }
+  .caption { font-size: 11px; color: var(--muted); margin-top: 10px; text-align: center; }
+
+  /* ---------- 日晷开关 ---------- */
+  .dial {
+    position: relative; flex: none; border: 0; padding: 0; cursor: pointer;
+    background: transparent; border-radius: 999px; outline-offset: 3px;
+  }
+  .dial:focus-visible { outline: 2px solid var(--accent); }
+  .dial .track {
+    position: absolute; inset: 0; border-radius: 999px; overflow: hidden;
+    /* 左日右夜：轨道本身就是一天的光线变化 */
+    background: linear-gradient(90deg, #6aa9d8 0%, #4176a8 34%, #43506e 52%, #232a44 70%, #171d33 100%);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, .28);
+  }
+  .dial .track::after {
+    /* 轨道底部的地平线，和窗口里的地平线同一高度 */
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 32%;
+    background: linear-gradient(180deg, rgba(12, 16, 28, .18), rgba(12, 16, 28, .42));
+  }
+  .dial .knob {
+    position: absolute; top: 4px; left: 4px; border-radius: 50%;
+    background: #0f1420; box-shadow: 0 2px 6px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .22);
+    overflow: hidden;
+    transition: left .34s cubic-bezier(.2, .8, .2, 1);
+  }
+  /* 窗口：天空 + 地平线 + 日/月 + 星星 */
+  .dial .sky { position: absolute; inset: 0; transition: background .34s ease; }
+  .dial .ground {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 30%;
+    background: #0d1220; opacity: .82;
+  }
+  .dial .body {
+    position: absolute; border-radius: 50%; transition: top .34s ease, left .34s ease, background .34s ease, opacity .34s ease;
+  }
+  .dial .sun { width: 34%; height: 34%; left: 33%; top: 18%; background: #ffc21e; box-shadow: 0 0 10px rgba(255, 194, 30, .55); }
+  .dial .sun::after {
+    content: ''; position: absolute; inset: -42%; border-radius: 50%;
+    border: 1px dashed rgba(255, 214, 92, .45);
+  }
+  .dial .moon { width: 30%; height: 30%; left: 35%; top: 20%; background: #c9d0dc; box-shadow: inset -3px -3px 0 rgba(0, 0, 0, .16); }
+  .dial .moon::after {
+    content: ''; position: absolute; width: 26%; height: 26%; border-radius: 50%;
+    left: 22%; top: 46%; background: rgba(120, 128, 145, .55);
+    box-shadow: 38% -190% 0 -1px rgba(120, 128, 145, .45);
+  }
+  .dial .star { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity .34s ease; }
+  .dial .star.s1 { left: 22%; top: 26%; }
+  .dial .star.s2 { left: 70%; top: 18%; width: 1.5px; height: 1.5px; }
+  .dial .star.s3 { left: 60%; top: 40%; width: 1.5px; height: 1.5px; }
+  /* 跟随系统：日/月在地平线上缓慢更替 */
+  @media (prefers-reduced-motion: no-preference) {
+    .dial[data-mode="system"] .sun { animation: sunrise 5.6s ease-in-out infinite alternate; }
+    .dial[data-mode="system"] .moon { animation: moonrise 5.6s ease-in-out infinite alternate-reverse; }
+  }
+  @keyframes sunrise { from { top: 22%; opacity: 1; } to { top: 52%; opacity: .25; } }
+  @keyframes moonrise { from { top: 52%; opacity: .25; } to { top: 22%; opacity: 1; } }
+
+  /* 三个点击区（左/中/右），命中区各占三分之一 */
+  .dial .stop { position: absolute; top: 0; bottom: 0; width: 33.34%; border: 0; padding: 0; background: none; cursor: pointer; }
+  .dial .stop:first-of-type { left: 0; border-radius: 999px 0 0 999px; }
+  .dial .stop:nth-of-type(2) { left: 33.33%; }
+  .dial .stop:nth-of-type(3) { left: 66.66%; border-radius: 0 999px 999px 0; }
+  .dial .stop:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
+
+  .row { display: flex; align-items: center; gap: 16px; }
+  .row .label { font-size: 12px; color: var(--muted); width: 84px; flex: none; }
+  .hint { margin-top: 12px; font-size: 12px; color: var(--muted); }
+  code { padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 14%, transparent); font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>日晷式三档主题</h1>
+  <p class="lead">
+    把旧项目的日夜开关改成三档：轨道左日右夜，滑块是一个「天空窗口」。<strong>浅色</strong>时太阳在正上方（正午）；
+    <strong>深色</strong>时月亮在正上方（午夜）；<strong>跟随系统</strong>时太阳与月亮同时压在地平线上、缓慢交替（像我的世界钟表那样，
+    时间在走）。没有文字说明，图案本身就是状态。
+  </p>
+
+  <h2>可点：三个档位</h2>
+  <div class="card">
+    <div class="row">
+      <span class="label">移动端尺寸</span>
+      <div id="big"></div>
+    </div>
+    <div class="row" style="margin-top:18px">
+      <span class="label">飞窗内尺寸</span>
+      <div id="small"></div>
+    </div>
+    <p class="hint">点左/中/右三段切换；也可以聚焦后用方向键。</p>
+  </div>
+
+  <h2>三档单独看</h2>
+  <div class="card stage" id="states"></div>
+
+  <p class="hint">
+    实现要点：滑块内部是一个 48 px 的圆形窗口（<code>overflow: hidden</code>），里面是天空 + 地平线 + 太阳/月亮 + 星星；
+    切档时只动 <code>left</code>/<code>top</code>/<code>background</code>（0.34 s），「跟随系统」档才开 5.6 s 的交替动画；
+    <code>prefers-reduced-motion</code> 下动画关闭。轨道渐变固定（左日右夜），滑块位置就是档位。
+  </p>
+</main>
+
+<script>
+  const MODES = ['light', 'system', 'dark']
+  const LABELS = { light: '浅色', system: '跟随系统', dark: '深色' }
+
+  function createDial(mount, { width = 200, height = 64, mode = 'light', drivePage = true } = {}) {
+    const dial = document.createElement('div')
+    dial.className = 'dial'
+    dial.setAttribute('role', 'radiogroup')
+    dial.setAttribute('aria-label', '主题')
+    dial.tabIndex = 0
+    dial.style.width = `${width}px`
+    dial.style.height = `${height}px`
+
+    const knobSize = height - 8
+    dial.innerHTML = `
+      <span class="track"></span>
+      <span class="knob" style="width:${knobSize}px;height:${knobSize}px">
+        <span class="sky"></span>
+        <span class="star s1"></span><span class="star s2"></span><span class="star s3"></span>
+        <span class="body sun"></span>
+        <span class="body moon"></span>
+        <span class="ground"></span>
+      </span>
+      ${MODES.map((value) => `<button type="button" class="stop" role="radio" data-mode="${value}" aria-label="${LABELS[value]}"></button>`).join('')}
+    `
+    mount.appendChild(dial)
+
+    const knob = dial.querySelector('.knob')
+    const sky = dial.querySelector('.sky')
+    const sun = dial.querySelector('.sun')
+    const moon = dial.querySelector('.moon')
+    const stars = [...dial.querySelectorAll('.star')]
+
+    function apply(next) {
+      dial.dataset.mode = next
+      const index = MODES.indexOf(next)
+      const travel = width - knobSize - 8
+      knob.style.left = `${4 + (travel / 2) * index}px`
+      for (const stop of dial.querySelectorAll('.stop')) {
+        stop.setAttribute('aria-checked', String(stop.dataset.mode === next))
+      }
+      // 天空：浅色晴朗 → 跟随系统黄昏 → 深色星空
+      if (next === 'light') {
+        sky.style.background = 'linear-gradient(180deg, #7ec0ee, #4a86b8 62%, #2f5c86)'
+        sun.style.cssText = 'width:34%;height:34%;left:33%;top:16%;opacity:1'
+        moon.style.cssText = 'width:30%;height:30%;left:35%;top:20%;opacity:0'
+        for (const star of stars) star.style.opacity = '0'
+      } else if (next === 'system') {
+        sky.style.background = 'linear-gradient(180deg, #6b6f96, #3a3f5e 55%, #22263c)'
+        sun.style.cssText = 'width:28%;height:28%;left:12%;top:48%;opacity:.92'
+        moon.style.cssText = 'width:24%;height:24%;left:64%;top:52%;opacity:.8'
+        for (const star of stars) star.style.opacity = '.7'
+      } else {
+        sky.style.background = 'linear-gradient(180deg, #1b2136, #141828 62%, #0d1120)'
+        sun.style.cssText = 'width:34%;height:34%;left:33%;top:16%;opacity:0'
+        moon.style.cssText = 'width:30%;height:30%;left:35%;top:18%;opacity:1'
+        for (const star of stars) star.style.opacity = '1'
+      }
+      if (!drivePage) return
+      document.documentElement.dataset.theme = next === 'system'
+        ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : next
+    }
+
+    for (const stop of dial.querySelectorAll('.stop')) {
+      stop.addEventListener('click', () => apply(stop.dataset.mode))
+    }
+    dial.addEventListener('keydown', (event) => {
+      const current = MODES.indexOf(dial.dataset.mode)
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        event.preventDefault()
+        apply(MODES[Math.min(current + 1, 2)])
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        apply(MODES[Math.max(current - 1, 0)])
+      }
+    })
+    apply(mode)
+    return dial
+  }
+
+  createDial(document.getElementById('big'), { width: 200, height: 64, mode: 'light' })
+  createDial(document.getElementById('small'), { width: 148, height: 44, mode: 'system' })
+
+  // 三档静态示例
+  const states = document.getElementById('states')
+  for (const mode of MODES) {
+    const box = document.createElement('div')
+    const holder = document.createElement('div')
+    box.appendChild(holder)
+    const caption = document.createElement('p')
+    caption.className = 'caption'
+    caption.textContent = LABELS[mode]
+    box.appendChild(caption)
+    states.appendChild(box)
+    createDial(holder, { width: 148, height: 48, mode, drivePage: false })
+  }
+</script>
+</body>
+</html>
