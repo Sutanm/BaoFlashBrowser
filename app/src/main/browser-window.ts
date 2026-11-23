@@ -1,9 +1,10 @@
 import { BrowserWindow, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
-import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle } from 'electron'
+import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
 import { browserChannels, browserFailureText, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserState, BrowserTab } from '../shared/browser'
 import { hostOf } from '../shared/engine'
+import { isSameSite, siteBoundary } from '../shared/site'
 import type { BrowserEngine, EngineSource } from '../shared/engine'
 import { getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
@@ -40,6 +41,8 @@ interface Tab {
 
 interface TabHost {
   notify(tab: Tab): void
+  /** 按事件所属标签处理快捷键：跨窗移交后由新宿主处理（2026-11-23 审计 P1-4）。 */
+  shortcut(tab: Tab, input: Input): boolean
 }
 
 interface WindowController extends TabHost {
@@ -51,6 +54,8 @@ interface WindowController extends TabHost {
   detachTab(id: number): { tab: Tab; index: number } | undefined
   adoptTab(tab: Tab, index?: number): void
   isEmpty(): boolean
+  /** 按事件所属标签处理快捷键：跨窗移交后由新宿主处理（2026-11-23 审计 P1-4）。 */
+  shortcut(tab: Tab, input: Input): boolean
   bounds(): Rectangle
   closeWindow(): void
 }
@@ -123,14 +128,6 @@ function sameDocument(actual: string, expected: string): boolean {
  * 4399 的启动链跨子域（`news.4399.com` → `my.4399.com`），按源严格比较会误拒；
  * 多段公共后缀（`co.uk` 等）与 IP 字面量的边界情况留待 M2 用 PSL 处理。
  */
-function siteOf(url: string): string | undefined {
-  const host = hostOf(url)
-  if (!host) return undefined
-  if (/^\d+(?:\.\d+){3}$/.test(host) || host.includes(':')) return host
-  const labels = host.split('.')
-  return labels.length <= 2 ? host : labels.slice(-2).join('.')
-}
-
 function currentTheme(): ShellTheme {
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
 }
@@ -177,7 +174,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   })
 
   const shellContentsId = window.webContents.id
-  const overlays = createShellOverlays(window, shellUrl, sameDocument, handleShortcut)
+  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false))
   const tabs: Tab[] = []
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined
@@ -297,36 +294,34 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /** 事件只按 `tab.host` 分发，跨窗口移动时无需重挂监听。 */
-  function bind(tab: Tab, view: WebContentsView): void {
-    const binding = tab.binding
-    const contents = view.webContents
-    const live = () => tab.view === view && tab.binding === binding && !contents.isDestroyed()
-
-    contents.on('before-input-event', (event, input) => {
-      if (live() && !event.defaultPrevented && handleShortcut(input)) event.preventDefault()
-    })
-    /**
-     * 受控弹窗（架构 §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」）。
-     *
-     * 只允许**同站点**的 http(s) 弹窗，其余（跨站、`file:`/`about:blank`/自定义协议）拒绝。
-     *
-     * 用真实子窗口承载而不是新标签：`window.open` 的返回值与 `window.opener` 是 Flash
-     * lobby→game 交接的常见通道（`opener.postMessage` / `opener.location`），以标签承载会
-     * 直接丢掉它们。`overrideBrowserWindowOptions` 让子窗口继承 opener 的会话与引擎偏好：
-     * PPAPI 需要 `plugins: true`，Ruffle 需要页面 preload 与子帧注入。
-     *
-     * 已知限制：子窗口没有工具栏与标签栏（真实弹窗通常也不需要），不参与本窗口的标签
-     * 列表与撤销关闭；关掉 opener 后子窗口独立存活（与应用「最后一个窗口关闭才退出」一致）。
-     */
+  /**
+   * 页面级窗口策略（架构 §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」）。
+   *
+   * 只允许**同站**（协议一致 + 可注册域相同）的 http(s) 弹窗，其余（跨站、`file:`/
+   * `about:blank`/自定义协议）拒绝；非 http(s) 的主帧导航与重定向一并拦截。
+   *
+   * **递归**：真实子窗口自己再开窗、再导航时，装的是同一套策略（2026-11-23 审计 P1-3：
+   * 子窗口原先只登记 WebContents，完全没有策略）。子窗口继承 opener 的引擎偏好——
+   * PPAPI 需要 `plugins: true`，Ruffle 需要页面 preload 与子帧注入。
+   *
+   * 用真实子窗口承载而不是新标签：`window.open` 的返回值与 `window.opener` 是 Flash
+   * lobby→game 交接的常见通道，以标签承载会直接丢掉它们。
+   */
+  function guardContents(
+    contents: WebContents,
+    context: { engine: () => BrowserEngine; openerUrl: () => string | undefined; live: () => boolean }
+  ): void {
     contents.setWindowOpenHandler(({ url }) => {
-      if (!live() || !isWebAddress(url)) return { action: 'deny' }
-      const openerSite = siteOf(safe(() => contents.getURL(), ''))
-      if (!openerSite || openerSite !== siteOf(url)) {
-        console.warn(`[popup] 拒绝跨站弹窗：${url}`)
+      if (!context.live() || !isWebAddress(url)) return { action: 'deny' }
+      const opener = siteBoundary(context.openerUrl())
+      const target = siteBoundary(url)
+      if (!isSameSite(opener, target)) {
+        console.warn(`[popup] 拒绝非同站弹窗：${url}`)
         return { action: 'deny' }
       }
-      const ruffle = tab.engine === 'ruffle' || !plugins
-      console.info(`[popup] 允许同站弹窗：${url}（引擎 ${tab.engine}）`)
+      const engine = context.engine()
+      const ruffle = engine === 'ruffle' || !plugins
+      console.info(`[popup] 允许同站弹窗：${url}（引擎 ${engine}）`)
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -347,19 +342,44 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         }
       }
     })
+
     /**
-     * 真实弹窗窗口同样要登记为「页面视图」，否则 Ruffle 的同步 IPC（`bao:ruffle-bundle`）
-     * 会按发送者校验把子窗口拒掉，弹窗里的 Ruffle 引导拿不到运行时。
-     * `did-create-window` 在导航开始前触发，早于 preload 执行。
+     * 子窗口同样要：① 登记为「页面视图」（否则 Ruffle 的同步 IPC 会把它拒掉）；
+     * ② 装上同一套策略。`did-create-window` 在导航开始前触发，早于 preload 执行。
      */
     contents.on('did-create-window', (child) => {
-      if (child.webContents.isDestroyed()) return
-      registerPageView(child.webContents.id)
+      const childContents = child.webContents
+      if (childContents.isDestroyed()) return
+      registerPageView(childContents.id)
+      const childEngine = context.engine()
+      guardContents(childContents, {
+        engine: () => childEngine,
+        openerUrl: () => safe(() => childContents.getURL(), ''),
+        live: () => !childContents.isDestroyed()
+      })
     })
-    contents.on('will-frame-navigate', (event) => {      if (live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
+
+    contents.on('will-frame-navigate', (event) => {
+      if (context.live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
     })
     contents.on('will-redirect', (event) => {
-      if (live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
+      if (context.live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
+    })
+  }
+
+  function bind(tab: Tab, view: WebContentsView): void {
+    const binding = tab.binding
+    const contents = view.webContents
+    const live = () => tab.view === view && tab.binding === binding && !contents.isDestroyed()
+
+    contents.on('before-input-event', (event, input) => {
+      if (!live() || event.defaultPrevented) return
+    if (tab.host?.shortcut(tab, input)) event.preventDefault()
+    })
+    guardContents(contents, {
+      engine: () => tab.engine,
+      openerUrl: () => safe(() => contents.getURL(), ''),
+      live
     })
     contents.on('did-start-loading', () => {
       if (!live()) return
@@ -653,7 +673,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 标签级快捷键由主进程处理：页面视图获得焦点时渲染层的 keydown 收不到，
    * 只有 `before-input-event` 能覆盖「焦点在网页里」的情况（架构 §3 标签合同、§6 M1 输入）。
    */
-  function handleShortcut(input: Input): boolean {
+  function handleShortcut(tab: Tab, input: Input): boolean {
     if (input.type !== 'keyDown') return false
     // F11 / Esc 是窗口级动作，不受 Ctrl 修饰键影响（架构 §3 标签合同的 F11 验证项）。
     if (input.key === 'F11') {
@@ -676,12 +696,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       return true
     }
     if (key === 'w') {
-      if (active) closeTab(active)
+      // 用事件对应的标签，而不是本窗口的 active：跨窗移交后事件仍由原监听器触发，
+      // 只有按 `tab.host` 分发才不会关错窗口的标签（2026-11-23 审计 P1-4）。
+      if (tabs.includes(tab)) closeTab(tab)
       return true
     }
     // Ctrl+Shift+I：页面视图的原生 DevTools（架构 §4「原生 DevTools 优先」）。
     if (key === 'i' && input.shift) {
-      if (active) toggleDevTools(active)
+      if (tabs.includes(tab)) toggleDevTools(tab)
       return true
     }
     return false
@@ -734,6 +756,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     },
     detachTab,
     adoptTab,
+    shortcut: handleShortcut,
     run
   }
 
@@ -857,7 +880,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('before-input-event', (event, input) => {
-    if (overlays.escape(input) || handleShortcut(input)) event.preventDefault()
+    if (overlays.escape(input) || (active && handleShortcut(active, input))) event.preventDefault()
   })
   window.webContents.on('will-frame-navigate', (event) => event.preventDefault())
   window.webContents.on('will-redirect', (event) => event.preventDefault())
@@ -890,7 +913,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   controllers.set(shellContentsId, controller)
 
   if (options.adopt) {
-    adoptTab(options.adopt, options.adoptIndex ?? 0)
+    // 两阶段接管（2026-11-23 审计 P1-4）：接管放到外壳加载成功之后。
+    // 原先先接管再 loadURL，一旦窗口创建/加载失败，`window.on('closed')` 会把
+    // 被移交标签的 WebContents 一起关掉，源窗口再想接回时页面已经没了。
   } else if (options.initialAddress) {
     // 命令行带了地址：首个标签按站点规则决定引擎后直接打开。
     const resolved = engineFor(options.initialAddress)
@@ -903,6 +928,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   try {
     await window.loadURL(shellUrl)
+    if (options.adopt) adoptTab(options.adopt, options.adoptIndex ?? 0)
     window.show()
   } catch (error) {
     closing = true
@@ -954,6 +980,11 @@ async function tearOffTab(
       height: bounds.height
     })
   } catch (error) {
+    // 两阶段接管后正常路径下视图仍然存活；仍加一道守卫，避免把已销毁的页面挂回去。
+    if (detached.tab.view.webContents.isDestroyed()) {
+      console.error('跨窗口移动失败，且被移交页面已销毁。', error)
+      return fail('tearoff-failed')
+    }
     source.adoptTab(detached.tab, detached.index)
     console.error('跨窗口移动失败，标签已退回原窗口。', error)
     return fail('tearoff-failed')

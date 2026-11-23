@@ -35,7 +35,7 @@
 | §3 引擎：原生 PPAPI 启用 | `app/src/main/plugins.ts`：`--allow-command-line-plugins` + `--register-pepper-plugins`（29.0.0.171，`Shockwave Flash 29.0 r0`） | `flash.test.cjs`、`packaged.test.cjs` |
 | §3 标签合同「键盘输入和 IME」「F11」 | 标签级快捷键与 **F11 / Esc 全屏**都在主进程 `before-input-event` 处理（窗口级动作，页面获焦时同样生效）；输入用例走 `webContents.sendInputEvent`（真实浏览器侧输入路径）+ CDP `Input.imeSetComposition`/`Input.insertText` 模拟 IME 提交 | `input.test.cjs`（ASCII 与非 ASCII 进页面、`compositionstart/update/end` 与提交文本到达、不带 Ctrl 的普通字母**不被**快捷键吃掉、地址栏与页面焦点不串台、F11 全屏后视图跟随内容区、Esc 退出）、`plugin-input.test.cjs`（自编 `keyprobe.swf` 通过 `ExternalInterface` 回报 `keyCode:charCode`，证明键盘事件真的进了 **PPAPI 插件进程**） |
 | §3 权限与会话：Node 关闭、context isolation、webSecurity、权限一揽子拒绝 | `app/src/main/sessions.ts`（权限白名单：只放行 `fullscreen` / `pointerLock`，且必须来自 http(s) 来源） | `startup.test.cjs`（`typeof window.require === 'undefined'`、页面拿不到 `baoBrowser`）、`permissions.test.cjs`（全屏与指针锁放行、geolocation 与 notifications 拒绝） |
-| §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」 | 受控弹窗：同站点 http(s) 弹窗用真实子窗口承载（保留 `window.opener`、继承 opener 引擎），跨站与非 http(s) 一律拒绝 | `popup.test.cjs`（lobby→game→client 两级弹窗链、标签 ID 唯一、Ruffle 引擎继承、跨站与 `file:` 被拒） |
+| §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」 | 受控弹窗：**同站**（协议一致 + 可注册域相同）http(s) 弹窗用真实子窗口承载（保留 `window.opener`、继承 opener 引擎），跨站与非 http(s) 一律拒绝；策略**递归**到每一级子窗口 | `popup.test.cjs`（lobby→game→client 两级弹窗链、标签 ID 唯一、Ruffle 引擎继承、跨站与 `file:` 被拒） |
 | §3 IPC：异步命令、sender/frame/来源校验、稳定错误码 | `BrowserFailureCode` + `browserFailureText`；校验 `event.sender`、`senderFrame === mainFrame` 与文档 URL | `startup.test.cjs`（`invalid-address` 文案） |
 | §3 外壳：Vue 3 + Pinia，瞬态交互留在组件内 | `app/src/renderer/stores/browser.ts` + `App.vue` | `startup.test.cjs`（地址栏、标签、焦点、尺寸） |
 | §6 M1：独立测试 profile | `--user-data-dir` 指向临时目录，页面/外壳分区与会话独立 | `flash.test.cjs`（`app.getPath('userData')` 等于临时 profile） |
@@ -212,6 +212,15 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 **兼容性提醒**：mole.61.com 只推进到「开始」界面，`URLStream` 仍是 Ruffle 的 stub，不能承诺完整兼容。
 
 **兼容性提醒**：mole.61.com 只推进到「开始」界面，`URLStream` 仍是 Ruffle 的 stub，不能承诺完整兼容。
+
+**2026-11-23 审计后补齐（P1-3 / P1-4）**：
+
+- **站点边界**：新增 `src/shared/site.ts`，用精简公共后缀表算可注册域（`a.com.cn` 与 `b.com.cn` 不再被误判同站），同站判定为「协议一致 + 可注册域相同」。
+- **弹窗策略递归**：窗口策略抽成 `guardContents(contents, …)`，标签视图与每一级真实子窗口共用；子窗口再开窗、再导航同样受控（`popup.test.cjs` 现在用**窗口计数**做负向断言，并覆盖"子窗口发起跨站/file: 弹窗"）。
+- **跨窗移交的快捷键归属**：`before-input-event` 改按 `tab.host.shortcut(tab, input)` 分发，不再调用创建时的窗口闭包；`Ctrl+W` / `Ctrl+Shift+I` 用事件所属标签判定归属（`tearoff.test.cjs` 断言新窗口里按 Ctrl+W 关的是新窗口的标签、源窗口标签不受影响）。
+- **两阶段接管**：`createBrowserWindow` 把 `adoptTab` 挪到 `loadURL` 成功之后；否则目标窗口创建/加载失败时 `window.on('closed')` 会连带关闭被移交标签的 WebContents，源窗口接回的已是死页面。`tearOffTab` 的失败回滚增加存活性守卫。
+
+仍待处理：权限白名单未区分请求帧/嵌入源；固定标签与静音在引擎切换/崩溃重建后未迁移；拖出按 X 判定与 `pointercancel` 提交、排序可打破固定前缀；打包门禁仅比大小、成品未签名。
 
 ## 5. 未验证与遗留
 

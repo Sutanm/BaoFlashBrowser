@@ -163,6 +163,25 @@ test('指针拖出标签触发跨窗口移交', { timeout: 180_000 }, async () =
     const sourceState = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
     assert.equal(sourceState.state.tabs.length, 1, '源窗口的标签数不对')
     assert.ok(!sourceState.state.tabs.some((tab) => tab.id === movedId), '源窗口仍持有已移交的标签')
+
+    // 快捷键归属（审计 P1-4）：在新窗口里按 Ctrl+W，必须关**新窗口**的标签，
+    // 而不是穿透到源窗口的旧处理器上关掉源标签。
+    // 注意：本产品的 `closeTab` 在标签清零时会补一个新标签（窗口不留空），
+    // 所以断言看的是「关掉的是哪个标签」，不是窗口是否消失。
+    const targetHandle = await app.browserWindow(target)
+    await targetHandle.evaluate((window) => {
+      const view = window.contentView.children
+        .find((child) => child.webContents && child.webContents !== window.webContents)
+      view.webContents.focus()
+      view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'W', modifiers: ['control'] })
+    })
+    await waitFor(async () => {
+      const state = await target.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
+      return state.state.tabs.length === 1 && state.state.tabs[0].id !== movedId ? state : null
+    }, { message: 'Ctrl+W 没有关掉新窗口里被移交的标签。' })
+    const afterShortcut = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
+    assert.equal(afterShortcut.state.tabs.length, 1, '源窗口的标签被 Ctrl+W 误关')
+    assert.ok(afterShortcut.state.tabs.some((tab) => tab.title === '第二个页面'), '源窗口丢失了原有标签')
   } finally {
     await close()
     await server.close()

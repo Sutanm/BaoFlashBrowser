@@ -17,13 +17,18 @@ async function snapshot(shell) {
   return result.state
 }
 
+/** 原生窗口数：弹窗不进标签列表，负向断言必须直接看窗口被不被创建。 */
+async function windowCount(app) {
+  return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+}
+
 function pageWithButton(title, openUrl) {
   return `<!doctype html><meta charset="utf-8"><title>${title}</title>
     <button id="open" style="margin:8px;padding:8px 16px">进入</button>
     <script>document.getElementById('open').onclick = () => window.open(${JSON.stringify(openUrl)}, '_blank')</script>`
 }
 
-test('受控弹窗：同站开真实窗口并保留 window.opener，跨站与非 http(s) 拒绝', { timeout: 180_000 }, async () => {
+test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站与非 http(s) 拒绝', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({
     '/lobby': pageWithButton('大厅', '/game'),
     '/game': pageWithButton('游戏', '/client'),
@@ -36,40 +41,49 @@ test('受控弹窗：同站开真实窗口并保留 window.opener，跨站与非
     await address.press('Enter')
     await shell.getByRole('button', { name: '大厅', exact: true }).waitFor({ timeout: 30_000 })
     assert.equal((await snapshot(shell)).tabs.length, 1)
+    const baseWindows = await windowCount(app)
 
-    // 第一级：lobby → game。用真实窗口承载，不再是新标签。
+    // 第一级：lobby → game。真实窗口承载，保留 window.opener。
     const [game] = await Promise.all([
       app.waitForEvent('window', { predicate: (page) => page.url().endsWith('/game'), timeout: 30_000 }),
       viewEval(app, shell, "document.getElementById('open').click()", true)
     ])
-    // window.opener 是 Flash lobby→game 交接的常见通道，必须在。
     const openerFacts = await game.evaluate(() => ({
       hasOpener: Boolean(window.opener),
       openerUrl: window.opener?.location?.href ?? null
     }))
     assert.equal(openerFacts.hasOpener, true, '弹窗窗口丢失了 window.opener')
     assert.ok(String(openerFacts.openerUrl).endsWith('/lobby'), `opener 指向异常：${openerFacts.openerUrl}`)
+    assert.equal(await windowCount(app), baseWindows + 1)
     assert.equal((await snapshot(shell)).tabs.length, 1, '弹窗不应变成外壳里的新标签')
 
-    // 第二级：弹窗再弹窗（142 报告里踩过的坑）。
+    // 第二级：弹窗再弹窗（策略必须递归到子窗口）。
     const [client] = await Promise.all([
       app.waitForEvent('window', { predicate: (page) => page.url().endsWith('/client'), timeout: 30_000 }),
       game.evaluate(() => document.getElementById('open').click())
     ])
     assert.ok((await client.evaluate(() => Boolean(window.opener))), '二级弹窗丢失 window.opener')
-    assert.equal((await snapshot(shell)).tabs.length, 1)
+    assert.equal(await windowCount(app), baseWindows + 2)
 
-    // 跨站：拒绝。
+    // 跨站：从外壳拒绝，窗口数不变。
     await viewEval(app, shell, "window.open('https://example.invalid/', '_blank')", true)
     await new Promise((done) => setTimeout(done, 800))
-    assert.equal((await snapshot(shell)).tabs.length, 1)
+    assert.equal(await windowCount(app), baseWindows + 2, '跨站弹窗被放行')
 
-    // 非 http(s)：拒绝。
+    // 跨站：从**子窗口**发起也必须拒绝（审计 P1-3 的核心断言）。
+    await client.evaluate(() => { window.open('https://example.invalid/', '_blank') })
+    await new Promise((done) => setTimeout(done, 800))
+    assert.equal(await windowCount(app), baseWindows + 2, '子窗口未继承跨站拒绝策略')
+
+    // 非 http(s)：外壳与子窗口都拒绝。
     await viewEval(app, shell, "window.open('file:///C:/Windows', '_blank')", true)
     await new Promise((done) => setTimeout(done, 800))
-    assert.equal((await snapshot(shell)).tabs.length, 1)
+    assert.equal(await windowCount(app), baseWindows + 2, 'file: 弹窗被放行（外壳）')
+    await client.evaluate(() => { window.open('file:///C:/Windows', '_blank') })
+    await new Promise((done) => setTimeout(done, 800))
+    assert.equal(await windowCount(app), baseWindows + 2, 'file: 弹窗被放行（子窗口）')
 
-    // 引擎继承：切到 Ruffle 后，弹窗窗口也要注入 Ruffle 引导。
+    // 引擎继承：切到 Ruffle 后，弹窗窗口同样注入 Ruffle 引导。
     await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
     await waitFor(async () => {
       const state = await snapshot(shell)
