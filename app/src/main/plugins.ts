@@ -15,6 +15,8 @@ import { dirname, join } from 'node:path'
  * [142 真机报告 §10.16](../../../docs/reports/2026-11-21-142-flash-runtime.md)
  */
 const PLUGIN_FILE_NAME = 'pepflashplayer64.dll'
+/** 用户自行投放插件的目录名（BYOP）。 */
+const DROPIN_DIR = 'flash'
 const PLUGIN_DESCRIPTION = 'Shockwave Flash'
 const PLUGIN_DISPLAY_VERSION = 'Shockwave Flash 29.0 r0'
 const PLUGIN_VERSION = '29.0.0.171'
@@ -23,19 +25,24 @@ const PLUGIN_MIME = 'application/x-shockwave-flash'
 export interface FlashPluginStatus {
   readonly enabled: boolean
   readonly path?: string
+  /** 用户应把插件放到哪个位置（未检测到时用于提示；本产品**不**随包分发 Flash）。 */
+  readonly hint: string
 }
 
 export function configureFlashPlugin(): FlashPluginStatus {
+  // BYOP：本项目不随包分发 Flash。用户自行把插件放到 exe 同级的 `flash/` 目录即可。
+  const dropIn = join(dirname(process.execPath), DROPIN_DIR, PLUGIN_FILE_NAME)
   const candidates = [
     process.env.BAO_FLASH_PLUGIN,
+    dropIn,
     join(dirname(process.execPath), PLUGIN_FILE_NAME),
     join(process.resourcesPath, PLUGIN_FILE_NAME)
   ].filter((value): value is string => !!value)
 
   const pluginPath = candidates.find((candidate) => existsSync(candidate))
   if (!pluginPath) {
-    console.warn(`[flash] 未找到 ${PLUGIN_FILE_NAME}，原生 PPAPI 引擎停用。`)
-    return { enabled: false }
+    console.warn(`[flash] 未找到 ${PLUGIN_FILE_NAME}，原生 PPAPI 引擎停用。把插件放到：${dropIn}`)
+    return { enabled: false, hint: dropIn }
   }
 
   app.commandLine.appendSwitch('allow-command-line-plugins')
@@ -44,5 +51,5 @@ export function configureFlashPlugin(): FlashPluginStatus {
     `${pluginPath}#${PLUGIN_DESCRIPTION}#${PLUGIN_DISPLAY_VERSION}#${PLUGIN_VERSION};${PLUGIN_MIME}#swf#spl`
   )
 
-  return { enabled: true, path: pluginPath }
+  return { enabled: true, path: pluginPath, hint: dropIn }
 }

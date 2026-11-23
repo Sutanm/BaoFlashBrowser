@@ -66,9 +66,28 @@ for (const entry of readdirSync(dist, { withFileTypes: true })) {
   }
 }
 
-/** 打包版必须带 PPAPI 插件，否则原生引擎在真产物里会静默停用。 */
+/**
+ * 打包 profile（BYOP 拆分，2026-11-23）。
+ *
+ * - `internal`（默认）：带 PPAPI 插件，只做内部验证；**默认拒绝签名**——包内含 Adobe 二进制，
+ *   签名等于以我们的已验证身份背书分发（`BAO_ALLOW_SIGN_INTERNAL=1` 才放行，仅用于内部审计）。
+ * - `public`：**不携带** Adobe 二进制，用户自行把 `pepflashplayer64.dll` 放到
+ *   `<exe目录>\flash\`；产物不含专有组件，可以签名、可以分发。
+ */
+const PROFILE = process.argv.includes('--public') || process.env.BAO_PACK_PROFILE === 'public'
+  ? 'public'
+  : 'internal'
+const signingRequested = Boolean(process.env.WIN_CSC_LINK || process.env.CSC_LINK)
+if (PROFILE === 'internal' && signingRequested && process.env.BAO_ALLOW_SIGN_INTERNAL !== '1') {
+  console.error('[pack] 内部包携带 Adobe Flash 插件，默认不允许签名（签名＝背书分发该二进制）。')
+  console.error('[pack] 若明确知晓风险且仅用于内部审计，设置 BAO_ALLOW_SIGN_INTERNAL=1。')
+  process.exit(1)
+}
+console.log(`[pack] profile=${PROFILE}${signingRequested ? '（已请求签名）' : ''}`)
+
+/** 插件是 BYOP 素材：内部包需要它，公开包必须把它剔掉。 */
 const plugin = join(root, '.runtime', 'win-x64', 'pepflashplayer64.dll')
-if (!existsSync(plugin)) {
+if (PROFILE === 'internal' && !existsSync(plugin)) {
   console.error('缺少 .runtime/win-x64/pepflashplayer64.dll，先运行 npm run runtime:prepare。')
   process.exit(1)
 }
@@ -126,13 +145,33 @@ const walk = (dir) => {
   }
 }
 walk(unpacked)
-if (pluginCopies.length !== 1) {
-  console.error(`包内 Flash 插件应有且只有一份，实际 ${pluginCopies.length} 份：\n${pluginCopies.join('\n')}`)
-  process.exit(1)
-}
-if (sha256(pluginCopies[0]) !== sha256(plugin)) {
-  console.error('包内 Flash 插件与来源文件不一致。')
-  process.exit(1)
+if (PROFILE === 'public') {
+  // BYOP：公开包不带任何 Adobe 二进制。electron-builder 会把内核 dist 目录整体复制过来，
+  // 插件就是随内核目录进来的，所以在打完之后剔除并断言清零。
+  for (const copy of pluginCopies) rmSync(copy, { force: true })
+  const leftover = []
+  const rescan = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) rescan(path)
+      else if (entry.name === 'pepflashplayer64.dll') leftover.push(path)
+    }
+  }
+  rescan(unpacked)
+  if (leftover.length > 0) {
+    console.error(`公开包仍包含 Flash 插件：\n${leftover.join('\n')}`)
+    process.exit(1)
+  }
+  console.log('[pack] 公开包已剔除 Flash 插件（BYOP：由用户自行放到 <exe目录>\\flash\\）')
+} else {
+  if (pluginCopies.length !== 1) {
+    console.error(`包内 Flash 插件应有且只有一份，实际 ${pluginCopies.length} 份：\n${pluginCopies.join('\n')}`)
+    process.exit(1)
+  }
+  if (sha256(pluginCopies[0]) !== sha256(plugin)) {
+    console.error('包内 Flash 插件与来源文件不一致。')
+    process.exit(1)
+  }
 }
 
 const notice = join(unpacked, 'NOTICE.md')
@@ -180,6 +219,7 @@ function signatureStatus(exe) {
 const signature = signatureStatus(packaged)
 const manifest = {
   product: 'BaoFlashBrowser Next',
+  profile: PROFILE,
   kernel: manifestSource.kernel,
   generatedAt: new Date().toISOString(),
   executable: {
@@ -190,11 +230,17 @@ const manifest = {
   },
   components: {
     electron: '.runtime/win-x64/electron.exe',
-    flashPlugin: { file: 'pepflashplayer64.dll', sha256: sha256(pluginCopies[0]) },
     ruffle: Object.entries(manifestSource.files)
       .filter(([file]) => file.startsWith('vendor/ruffle/'))
       .map(([file, hash]) => ({ file: file.replace('vendor/ruffle/', ''), sha256: hash }))
   },
+  flash: PROFILE === 'public'
+    ? {
+        bundled: false,
+        mode: 'byop',
+        hint: '把 pepflashplayer64.dll 放到 <exe目录>\\flash\\ 后重启；本产品不随包分发 Flash'
+      }
+    : { bundled: true, file: 'pepflashplayer64.dll', sha256: sha256(pluginCopies[0]) },
   licenses: {
     notice: 'NOTICE.md',
     electron: 'licenses/LICENSE.electron',
@@ -205,14 +251,25 @@ const manifest = {
   releaseBlockers: [
     '代码签名未完成（未提供 WIN_CSC_LINK / CSC_LINK）',
     'Chromium 许可为同版本近似，需由内核构建生成替换',
-    'Adobe Flash 插件再分发授权未确认',
+    ...(PROFILE === 'internal'
+      ? ['内部包携带 Adobe Flash 插件：仅限内部验证，不得对外分发']
+      : []),
     '独立复建与依赖校验未完成'
   ].filter((item) => !(item.startsWith('代码签名') && signature.signed))
 }
 writeFileSync(join(unpacked, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
 
 console.log('Win x64 验证版：', packaged)
-console.log(`内核校验：运行时 ${runtimeSize} 字节 / 产物 ${packagedSize} 字节`)
-console.log(`插件：1 份，SHA-256 ${sha256(pluginCopies[0]).slice(0, 16)}…；许可：NOTICE.md 已随包`)
+console.log(`profile=${PROFILE}；内核校验：运行时 ${runtimeSize} 字节 / 产物 ${packagedSize} 字节`)
+if (PROFILE === 'public') {
+  console.log('Flash：未随包（BYOP），用户放到 <exe目录>\\flash\\pepflashplayer64.dll')
+} else {
+  console.log(`Flash：1 份，SHA-256 ${sha256(pluginCopies[0]).slice(0, 16)}…（仅限内部验证）`)
+}
+console.log('许可：NOTICE.md + licenses/ 已随包')
 console.log(`[pack] 签名状态：${signature.status}${signature.signed ? '' : '（发布门禁）'}`)
-console.log('[pack] 提醒：Flash 插件再分发授权未确认，仅限内部验证（见 NOTICE.md）；产物清单见 manifest.json。')
+console.log(
+  PROFILE === 'public'
+    ? '[pack] 产物不含 Adobe 二进制（BYOP），许可证齐全；产物清单见 manifest.json。'
+    : '[pack] 内部包携带 Adobe Flash 插件：仅限内部验证，不得对外分发；产物清单见 manifest.json。'
+)

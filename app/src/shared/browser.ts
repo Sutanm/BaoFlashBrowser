@@ -79,6 +79,10 @@ export interface BrowserState {
   activeId: number
   /** 可撤销关闭的标签数量（架构 §3「撤销关闭」）。 */
   undoCount: number
+  /** 原生 Flash 插件是否可用（BYOP：本项目不随包分发，用户自备插件后才为 true）。 */
+  flash: boolean
+  /** 未检测到插件时应放置的路径，用于界面提示。 */
+  flashHint?: string
   tabs: BrowserTab[]
 }
 

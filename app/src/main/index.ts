@@ -37,6 +37,7 @@ async function openShellWindow(): Promise<void> {
   await createBrowserWindow({
     shellUrl: shellDocument(),
     flash: flash.enabled,
+    flashHint: flash.hint,
     initialAddress: initialAddress()
   })
 }

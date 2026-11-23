@@ -15,6 +15,8 @@
     "smoke": "npm run build && node --test --test-concurrency=1 tests/smoke/startup.test.cjs tests/smoke/tabs.test.cjs tests/smoke/tab-ops.test.cjs tests/smoke/engine.test.cjs tests/smoke/input.test.cjs tests/smoke/plugin-input.test.cjs tests/smoke/ruffle-input.test.cjs tests/smoke/ruffle-cors.test.cjs tests/smoke/engine-broker.test.cjs tests/smoke/popup.test.cjs tests/smoke/permissions.test.cjs tests/smoke/flash.test.cjs tests/smoke/isolation.test.cjs tests/smoke/tearoff.test.cjs",
     "smoke:packaged": "node --test --test-concurrency=1 tests/smoke/packaged.test.cjs",
     "pack:win": "npm run build && node scripts/pack-win.cjs",
+    "pack:win:public": "npm run build && node scripts/pack-win.cjs --public",
+    "smoke:packaged:public": "node --test --test-concurrency=1 tests/smoke/packaged.test.cjs",
     "runtime:prepare": "node scripts/prepare-runtime.cjs"
   },
   "dependencies": {

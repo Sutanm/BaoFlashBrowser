@@ -80,3 +80,23 @@ npm run dev
 5. **成品验证不允许默认跳过**：`smoke:packaged` 找不到产物会**失败**（`BAO_SKIP_PACKAGED=1` 才显式跳过）；`BAO_PACKAGED_ROOT` 可指向 CI 本次构建的产物目录。
 6. **许可**：`NOTICE.md` 与 `licenses/`（Chromium 第三方许可 14.4 MB + Electron 许可）随包。Chromium 那份取自**官方 Electron 39.8.10 发行包**（同版本近似，见 `licenses/README.md`），最终应由内核构建生成。Flash 插件再分发授权未确认。
 7. **签名与产物清单**：提供 `WIN_CSC_LINK` / `CSC_LINK`（+ `CSC_KEY_PASSWORD`）时打包会走 electron-builder 签名；无论是否签名，`pack:win` 都会在产物根写 `manifest.json`（组件哈希、许可文件、PE 签名块状态、内核 tag、发布门禁清单）。签名链校验仍需发布时用 signtool 另行验证。
+
+### Flash 插件：BYOP（用户自备）
+
+本项目**不随公开发布包分发 Adobe Flash Player**（其再分发受 Adobe 许可限制）。用户自行准备
+`pepflashplayer64.dll` 并放到：
+
+```text
+<BaoFlashBrowser Next.exe 所在目录>\flash\pepflashplayer64.dll
+```
+
+放好后重启应用即可启用原生引擎；没检测到时所有标签自动回落到 Ruffle，引擎面板里的
+「Flash」档会置灰并在悬停时给出上述路径。解析顺序：`BAO_FLASH_PLUGIN` → `<exe>\flash\` →
+`<exe>\` → `<resources>\`。我们只负责加载用户提供的文件，**不提供来源与下载方式**。
+
+两个打包 profile：
+
+| 命令 | 产物 | 用途 |
+| --- | --- | --- |
+| `npm run pack:win` | internal：带插件 | 内部验证；**默认拒绝签名**（`BAO_ALLOW_SIGN_INTERNAL=1` 才放行），不得对外分发 |
+| `npm run pack:win:public` | public：**不带** Adobe 二进制 | 可签名、可分发；用户按上面的 BYOP 方式自备插件 |

@@ -254,6 +254,13 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 | 方向键焦点 | 方向键切标签后把焦点留在标签栏（`cycleTab` 选中后 `nextTick` 聚焦选中标签），可连续浏览。 |
 | 引擎来源 | `engineSource` 从**存储快照**改为**派生值**（`sourceOf()`：手动覆盖 + 当前 URL 的站点规则），跨站导航不再残留上一个站点的来源；新增用例覆盖「记住规则后换 host」。 |
 
+**2026-11-23 分发形态：BYOP（用户自备 Flash 插件）**
+
+- 公开发布包（`pack:win:public`）**不携带** Adobe 二进制：打包后剔除 `pepflashplayer64.dll` 并断言清零，产物清单把 Flash 段改写为 `{ bundled: false, mode: byop, hint }`；内部包（`pack:win`）仍带插件，仅供内部验证，且**默认拒绝签名**（`BAO_ALLOW_SIGN_INTERNAL=1` 才放行）。
+- 插件解析新增 BYOP 投放目录：`<exe目录>\flash\pepflashplayer64.dll`（在 `BAO_FLASH_PLUGIN` 之后、exe 同目录之前）。未检测到时 `BrowserState` 带 `flash: false` 与 `flashHint`，引擎面板把「Flash」档置灰并提示投放路径；无插件的构建全部回落 Ruffle。
+- 成品验证按产物自带的 `manifest.json` 自动判定 profile：internal 断言 Pepper Plugin 进程与 `flash:loaded bridge`；public 断言无插件进程，并新增一条 BYOP 用例——把开发侧插件复制到 `<exe>\flash\` 后，打包版必须起 Pepper Plugin 进程且页面桥接成功（实测通过）。
+- 结论（许可）：签名不能使含 Adobe 二进制的包变得可分发；BYOP 后我们签名的载荷里没有 Adobe 代码，SignPath Foundation 的「禁止专有组件」条件也不再阻挡。
+
 ## 6. 采用的可逆假设
 
 文档未写清、本次按最小可逆方案处理的细节：

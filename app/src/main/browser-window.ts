@@ -66,6 +66,8 @@ export interface BrowserWindowOptions {
   shellUrl: string
   /** 页面视图启用 PPAPI 插件（架构 §3 引擎）。 */
   flash?: boolean
+  /** 未检测到插件时的期望路径（用于界面提示）。 */
+  flashHint?: string
   /** 接管一个已存在的标签（跨窗口移动）。 */
   adopt?: Tab
   /** 首个标签打开的地址（命令行参数）。 */
@@ -247,6 +249,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       theme: currentTheme(),
       activeId: active?.id ?? -1,
       undoCount: recentlyClosed.length,
+      flash: plugins,
+      flashHint: plugins ? undefined : options.flashHint,
       tabs: tabs.map(describe)
     }
   }

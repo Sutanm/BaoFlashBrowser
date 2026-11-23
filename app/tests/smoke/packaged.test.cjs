@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict')
-const { mkdtemp, readdir, rm, stat } = require('node:fs/promises')
+const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat } = require('node:fs/promises')
+const { existsSync } = require('node:fs')
 const { tmpdir } = require('node:os')
-const { join, resolve } = require('node:path')
+const { dirname, join, resolve } = require('node:path')
 const { test } = require('node:test')
 const { _electron: electron } = require('playwright')
 const { startFixtureServer } = require('./helpers.cjs')
@@ -39,6 +40,19 @@ async function latestPackagedExecutable() {
   return candidates[0]?.path
 }
 
+
+/** 读产物自带的 manifest.json 决定 profile；没有清单按 internal 处理。 */
+async function readPackagedProfile(executablePath) {
+  const manifest = join(dirname(executablePath), 'manifest.json')
+  const text = await readFile(manifest, 'utf8').catch(() => '')
+  if (!text) return 'internal'
+  try {
+    return JSON.parse(text).profile === 'public' ? 'public' : 'internal'
+  } catch {
+    return 'internal'
+  }
+}
+
 test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { timeout: 180_000 }, async (context) => {
   const executablePath = await latestPackagedExecutable()
   if (!executablePath) {
@@ -54,6 +68,8 @@ test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { 
   delete process.env.ELECTRON_RUN_AS_NODE
   const server = await startFixtureServer()
   const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-packaged-'))
+  // profile 由产物自带的 manifest.json 决定（internal = 捆插件；public = BYOP 不带插件）。
+  const profile = await readPackagedProfile(executablePath)
   const app = await electron.launch({ executablePath, args: [`--user-data-dir=${profilePath}`], timeout: 30_000 })
   try {
     const isShell = (page) => page.url().endsWith('/out/renderer/index.html')
@@ -66,13 +82,22 @@ test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { 
     await address.press('Enter')
     const tab = shell.getByRole('button', { name: /^flash:/ })
     await tab.waitFor({ timeout: 60_000 })
-    assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge')
 
     const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
-    assert.ok(processes.includes('Pepper Plugin'), `验证包未启动 PPAPI 插件进程：${processes.join(',')}`)
+    if (profile === 'internal') {
+      assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge')
+      assert.ok(processes.includes('Pepper Plugin'), `验证包未启动 PPAPI 插件进程：${processes.join(',')}`)
+    } else {
+      // 公开包不携带 Adobe 二进制：插件进程不应出现，页面按 CORS/插件缺失走 Ruffle。
+      assert.ok(!processes.includes('Pepper Plugin'), '公开包里出现了 PPAPI 插件进程')
+      assert.ok((await tab.getAttribute('title')).startsWith('flash:'), '公开包页面未正常加载')
+    }
 
     // 验证包里也带着版本固定的 Ruffle 运行时（vendor 必须打进 asar）。
-    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
+    // 公开包（BYOP）没有插件，标签本来就在 Ruffle 上，不存在「切到 Ruffle」开关。
+    if (profile === 'internal') {
+      await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
+    }
     const windowHandle = await app.browserWindow(shell)
     const polyfilled = await waitForFacts(async () => {
       const facts = await windowHandle.evaluate(async (window) => {
@@ -90,5 +115,46 @@ test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { 
     await app.close().catch(() => {})
     await server.close()
     await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
+  }
+})
+/**
+ * BYOP 落地验证：公开包不带 Adobe 二进制，但用户把插件放到 `<exe目录>\flash\` 后
+ * 原生引擎必须生效。这条只对 public profile 有意义（internal 包自带插件，跳过）。
+ */
+test('BYOP：把插件放到 <exe目录>\\flash\\ 后原生引擎生效', { timeout: 180_000 }, async (context) => {
+  const executablePath = await latestPackagedExecutable()
+  if (!executablePath) {
+    assert.fail('未找到 dist/win-preview/win-unpacked：先运行 npm run pack:win:public。')
+  }
+  const profile = await readPackagedProfile(executablePath)
+  if (profile !== 'public') {
+    context.skip('当前产物是 internal profile（自带插件），BYOP 不适用。')
+    return
+  }
+  const devPlugin = resolve(__dirname, '../../.runtime/win-x64/pepflashplayer64.dll')
+  assert.ok(existsSync(devPlugin), '缺少开发侧插件文件，无法模拟用户自备')
+
+  delete process.env.ELECTRON_RUN_AS_NODE
+  const server = await startFixtureServer()
+  const dropIn = join(dirname(executablePath), 'flash')
+  await mkdir(dropIn, { recursive: true })
+  await copyFile(devPlugin, join(dropIn, 'pepflashplayer64.dll'))
+  const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-byop-'))
+  const app = await electron.launch({ executablePath, args: [`--user-data-dir=${profilePath}`], timeout: 30_000 })
+  try {
+    const isShell = (page) => page.url().endsWith('/out/renderer/index.html')
+    const shell = app.windows().find(isShell) ?? await app.waitForEvent('window', { predicate: isShell, timeout: 20_000 })
+    const address = shell.getByRole('textbox', { name: '地址栏' })
+    await address.fill(`${server.baseUrl}/flash.html`)
+    await address.press('Enter')
+    const tab = shell.getByRole('button', { name: /^flash:/ })
+    await tab.waitFor({ timeout: 60_000 })
+    assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge', 'BYOP 插件未被加载')
+    const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
+    assert.ok(processes.includes('Pepper Plugin'), `BYOP 未启动 PPAPI 插件进程：${processes.join(',')}`)
+  } finally {
+    await app.close().catch(() => {})
+    await rm(dropIn, { recursive: true, force: true })
+    await server.close()
   }
 })

@@ -98,7 +98,12 @@ onBeforeUnmount(() => {
       <h2 id="engine-heading">渲染引擎</h2>
       <div class="engine-choices" role="group" aria-label="选择当前标签的引擎">
         <button v-for="engine in browserEngines" :key="engine" type="button" class="engine-choice"
-          :aria-pressed="active?.engine === engine" :disabled="!active" @click="choose(engine)">
+          :aria-pressed="active?.engine === engine"
+          :disabled="!active || (engine === 'ppapi' && snapshot?.flash === false)"
+          :title="engine === 'ppapi' && snapshot?.flash === false
+            ? `未检测到 Flash 插件。把 pepflashplayer64.dll 放到：${snapshot?.flashHint ?? ''} ，然后重启。本产品不随包分发 Flash。`
+            : undefined"
+          @click="choose(engine)">
           <span class="engine-symbol" :class="engine"><ShellIcon :name="engine === 'ppapi' ? 'flash' : 'ruffle'" /></span>
           <strong>{{ names[engine] }}</strong>
           <span class="desc">{{ engine === 'ppapi' ? '原生播放器' : '兼容播放器' }}</span>
