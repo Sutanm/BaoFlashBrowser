@@ -132,10 +132,19 @@ test('指针拖出标签触发跨窗口移交', { timeout: 180_000 }, async () =
     await address.press('Enter')
     await shell.getByRole('button', { name: '第一个页面', exact: true }).waitFor()
 
+    // 先建第二个标签：源窗口移交后仍有标签，不会因「标签数为 0」关闭。
+    // 只留一个标签时源窗口会被关掉，两窗口状态是瞬时的，断言会变成赌时序。
+    await shell.getByRole('button', { name: '新建标签页', exact: true }).click()
+    await address.fill(`${server.baseUrl}/two`)
+    await address.press('Enter')
+    await shell.getByRole('button', { name: '第二个页面', exact: true }).waitFor({ timeout: 30_000 })
+
     const windowHandle = await app.browserWindow(shell)
     const bounds = await windowHandle.evaluate((window) => window.getBounds())
-    const state = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
-    const movedId = state.state.activeId
+    const before = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
+    const moved = before.state.tabs.find((tab) => tab.title === '第一个页面')
+    assert.ok(moved, '未找到要拖出的标签')
+    const movedId = moved.id
 
     const tab = shell.getByRole('button', { name: '第一个页面', exact: true })
     await tab.dispatchEvent('pointerdown', { button: 0, pointerId: 1, screenX: bounds.x + 40, screenY: bounds.y + 12 })
@@ -149,6 +158,11 @@ test('指针拖出标签触发跨窗口移交', { timeout: 180_000 }, async () =
     const target = shells.find((candidate) => candidate !== shell)
     const targetState = await target.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
     assert.equal(targetState.state.activeId, movedId)
+
+    // 源窗口保留其余标签，移交是「移动」而不是「复制」。
+    const sourceState = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
+    assert.equal(sourceState.state.tabs.length, 1, '源窗口的标签数不对')
+    assert.ok(!sourceState.state.tabs.some((tab) => tab.id === movedId), '源窗口仍持有已移交的标签')
   } finally {
     await close()
     await server.close()

@@ -51,7 +51,7 @@ npm run dev
 - 标签级快捷键与 F11 / Esc 全屏都在主进程 `before-input-event` 处理，因此页面（含 Flash）获得焦点时仍然生效。
 - **输入回环**：ASCII 与非 ASCII 字符进页面、IME 组合（`compositionstart/update/end` + 提交文本）、普通字母不被标签快捷键吃掉、地址栏与页面焦点互不串台、F11 全屏后视图跟随内容区、Esc 退出；自编 `keyprobe.swf` 证明键盘事件真的进了 **PPAPI 插件进程**。
 - **双引擎**：每标签一个引擎（原生 PPAPI / Ruffle）。站点规则决定初始引擎，手动切换会新建 WebContents 并恢复导航栈；切换后可「记住此站点」写入规则。Ruffle 使用 `vendor/ruffle` 的固定版本资源（0.8.0），由页面 preload 注入主世界并 polyfill `<embed>`。工具栏用胶囊开关展示当前引擎（红=原生 Flash / 紫=Ruffle），`role="switch"` + `aria-checked`，标题里带引擎来源（默认 / 站点规则 / 手动切换）。
-- **引擎网络 broker**：原生插件进程自己发请求不受 CORS 约束，Ruffle 用页面 `fetch()` 取跨域资源会被拦。页面会话**不再**全局补 `Access-Control-Allow-Origin`；改由主进程 broker 按目标站 `crossdomain.xml` 判定（同源直接放行、跨源要求策略允许，来源用浏览器认证的文档 URL）。放行时主进程 `net.fetch` 取字节，未放行时原样退回浏览器 fetch（CORS 照常）。
+- **引擎网络 broker**：Ruffle 的 SWF/数据请求需要按站点 `crossdomain.xml` 放行跨源读。实现上**不碰页面 `window.fetch`**：注入前重写 wasm-bindgen 的 `__wbg_fetch_*` import，把 Ruffle 自己的 fetch 指向闭包内的私有传输（临时全局立即删除），因此普通网页脚本拿不到特权入口、页面 fetch 语义保持不变。主进程按目标站策略判定，来源取浏览器认证文档的完整 origin；重定向逐跳重新授权；Cookie 交给 `useSessionCookies`；`Referer` 用带随机令牌的私有标记还原（页面无法伪造）。
 - **Ruffle 子帧支持**：Ruffle 视图开启 `nodeIntegrationInSubFrames`，preload 进每个子帧，跨源 iframe 里的客户端 SWF 也能被接管（淘米摩尔庄园的客户端挂在 iframe 里）。
 - 页面会话关闭 Node、开启 context isolation 与 sandbox；**权限白名单**只放行 `fullscreen` / `pointerLock` 且要求 http(s) 来源，其余一律拒绝；**受控弹窗**只允许同站点 http(s) 弹窗（以新标签承载，引擎继承 opener），跨站与非 http(s) 拒绝；外壳 IPC 校验发送者、帧与文档来源，失败返回稳定错误码。
 - 本地 PPAPI 样本：`navigator.plugins` 含 `Shockwave Flash`、独立 `Pepper Plugin` 进程、SWF 装载完成（`PercentLoaded = 100`）与 `SetVariable/GetVariable` 变量桥往返。

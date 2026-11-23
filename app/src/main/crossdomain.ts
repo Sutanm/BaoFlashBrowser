@@ -4,12 +4,17 @@ import { net } from 'electron'
  * Flash 的跨域策略（`crossdomain.xml`）—— 架构 §3 引擎「站点兼容规则」。
  *
  * 语义来源：Flash 只对 **SWF 发起的跨域加载**（`Loader`/`URLLoader`/`Socket`）检查目标站的
- * `crossdomain.xml`；`allow-access-from` 列出**允许读取该目标的来源**，`secure` 默认 true
- * 表示只允许 https 来源（http 站点要写 `secure="false"` 才能被 http 页面读）。
+ * `crossdomain.xml`；`allow-access-from` 列出**允许读取该目标的来源**，`secure` 只禁止
+ * 「http 来源 → https 目标」这一种组合。
  *
  * 2026-11-22 普查（docs/evidence/2026-11-22-crossdomain-survey.json）：34 个站点里 15 个
  * 提供策略，两个实测站点（4399 的 `szhong.4399.com` → `*.4399.com`、淘米的
  * `newmisc.taomee.com` → wildcard）都在放行范围内。
+ *
+ * 2026-11-23 审计修正：
+ * - 策略按**完整来源**（scheme + host + port）缓存与抓取，不再跨协议回退；
+ * - 「同源」比较完整来源，不是 `host`；
+ * - 读取有字节上限，不再整份 `text()` 后截断。
  */
 interface AllowRule {
   /** `*`、`*.example.com` 或精确域（小写） */
@@ -24,6 +29,7 @@ export interface CrossDomainPolicy {
 
 const CACHE_TTL_MS = 10 * 60_000
 const MAX_POLICY_BYTES = 64 * 1024
+const MAX_CACHE_ENTRIES = 200
 const FETCH_TIMEOUT_MS = 6_000
 
 const cache = new Map<string, { at: number; policy: CrossDomainPolicy | null }>()
@@ -39,35 +45,62 @@ function parsePolicy(xml: string): CrossDomainPolicy {
   return { rules }
 }
 
-async function loadPolicy(hostWithPort: string, preferred: string): Promise<CrossDomainPolicy | null> {
-  const cached = cache.get(hostWithPort)
+/** 有字节上限的读取：超出即中止，避免为一份策略文件读进无界内容。 */
+async function readBounded(response: Response, limit: number): Promise<string> {
+  const stream = response.body
+  if (!stream) return ''
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      size += value.byteLength
+      if (size > limit) {
+        await reader.cancel()
+        return ''
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const merged = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(merged)
+}
+
+async function loadPolicy(origin: string): Promise<CrossDomainPolicy | null> {
+  const cached = cache.get(origin)
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.policy
 
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   let policy: CrossDomainPolicy | null = null
-  // 先按目标自身协议取，失败再换另一个（策略文件通常与目标同协议）。
-  const schemes = preferred === 'https:' ? ['https', 'http'] : ['http', 'https']
-  for (const scheme of schemes) {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-    try {
-      // 端口必须保留：策略文件按「目标 host:port」取（与 Flash 一致）。
-      const response = await net.fetch(`${scheme}://${hostWithPort}/crossdomain.xml`, {
-        signal: controller.signal,
-        redirect: 'follow'
-      })
-      if (response.status !== 200) continue
-      const text = (await response.text()).slice(0, MAX_POLICY_BYTES)
-      if (!/<cross-domain-policy/i.test(text)) continue
-      policy = parsePolicy(text)
-      break
-    } catch {
-      // 换下一个协议；都失败按「无策略」处理
-    } finally {
-      clearTimeout(timer)
+  try {
+    // 只按目标自身来源取策略：跨协议回退会绕过 `secure` 的语义（审计 P1-2）。
+    const response = await net.fetch(`${origin}/crossdomain.xml`, {
+      signal: controller.signal,
+      redirect: 'follow'
+    })
+    if (response.status === 200) {
+      const text = await readBounded(response, MAX_POLICY_BYTES)
+      if (/<cross-domain-policy/i.test(text)) policy = parsePolicy(text)
     }
+  } catch {
+    // 取不到策略按「无策略」处理（与 Flash 行为一致：读不到就不放行）
+  } finally {
+    clearTimeout(timer)
   }
 
-  cache.set(hostWithPort, { at: Date.now(), policy })
+  if (cache.size >= MAX_CACHE_ENTRIES) cache.clear()
+  cache.set(origin, { at: Date.now(), policy })
   return policy
 }
 
@@ -79,14 +112,10 @@ function domainMatches(pattern: string, host: string): boolean {
 }
 
 /**
- * 判定「来源 `initiator` 能否读取 `target` 的跨域响应」。
+ * 判定「来源 `initiatorUrl` 能否读取 `targetUrl` 的跨域响应」。
  *
- * 同源直接放行；跨源要求目标站策略文件里有匹配该来源的规则。
- *
- * `secure`（默认 true）的语义**不是**「只允许 https 来源」：它只禁止
- * **http 来源 → https 目标** 这一种组合，其余三种（http→http、https→http、https→https）
- * 都允许。真实站点（4399 的 https 策略、淘米的 http 策略）都没写 `secure="false"`，
- * 正是依赖这条规则。
+ * 同源（scheme + host + port 完全一致）直接放行；跨源要求目标站策略文件里有匹配该来源的
+ * 规则。来源取自浏览器认证的文档 URL；非 http(s)（含 opaque origin）一律拒绝。
  */
 export async function allowsCrossOrigin(targetUrl: string, initiatorUrl: string): Promise<boolean> {
   let target: URL
@@ -99,9 +128,9 @@ export async function allowsCrossOrigin(targetUrl: string, initiatorUrl: string)
   }
   if (target.protocol !== 'http:' && target.protocol !== 'https:') return false
   if (initiator.protocol !== 'http:' && initiator.protocol !== 'https:') return false
-  if (target.host === initiator.host) return true
+  if (target.origin === initiator.origin) return true
 
-  const policy = await loadPolicy(target.host, target.protocol)
+  const policy = await loadPolicy(target.origin)
   if (!policy) return false
 
   const insecureUpgrade = target.protocol === 'https:' && initiator.protocol === 'http:'

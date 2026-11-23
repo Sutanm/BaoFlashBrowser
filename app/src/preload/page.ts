@@ -7,10 +7,20 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron'
  * 把 Ruffle 引导注入页面主世界 —— Ruffle 需要在主世界 polyfill `<embed>/<object>`，
  * 这样页面视图仍然保持 context isolation。
  *
- * 网络（架构 §3 引擎「站点兼容规则」）：Ruffle 的 `fetch` 受页面 CORS 约束，而真实老站点
- * 不返回 `Access-Control-Allow-Origin`。这里把主世界的 `window.fetch` 换成经 broker 的版本：
- * 由主进程按目标站 `crossdomain.xml` 判定是否放行，放行时由主进程 `net.fetch` 取字节并
- * 以同源响应交给 Ruffle；未放行的请求**原样退回**浏览器 fetch（CORS 规则照常）。
+ * ## 网络（2026-11-23 审计后收紧）
+ *
+ * Ruffle 的 SWF/数据请求走 wasm-bindgen 生成的 `__wbg_fetch_*` import（内部是
+ * `window.fetch(request)`）。真实老站点不返回 `Access-Control-Allow-Origin`，所以需要主进程
+ * 按 `crossdomain.xml` 放行。
+ *
+ * **不替换页面的 `window.fetch`**：那是把主进程的网络能力交给普通网页脚本（审计 P1-1）。
+ * 这里改成在注入前重写 wasm-bindgen 的**那一个** import，把 Ruffle 自己的 fetch 指向私有传输：
+ * - 传输是 `executeInMainWorld` 代理进来的函数，只存于本轮注入的 IIFE 闭包；
+ * - 承载它的临时全局在 IIFE 第一行就 `delete`，页面脚本读不到；
+ * - 页面 `window.fetch` 保持原生，页面脚本行为与普通浏览器一致。
+ *
+ * 若 import 模式匹配失败（Ruffle 升级导致），**fail-closed**：注入未打补丁的 bundle，
+ * 只失去跨域兼容（同源照常），绝不退化成特权通道。
  *
  * 运行时源码走**同步 IPC**（而不是页面 fetch）：站点 CSP 的 `connect-src` 会拦页面世界的
  * fetch，而 IPC 不受 CSP 约束。
@@ -22,32 +32,46 @@ const RUFFLE_CONFIG = {
   forceScale: true
 } as const
 
-/** 装 fetch 垫片。在主世界编译，`__baoNet` 由 executeInMainWorld 的 args 代理注入。 */
-const INSTALL_BROKER_FETCH = `(() => {
-  const net = window.__baoNet
-  if (!net || typeof net.request !== 'function') return 'no-transport'
-  const original = window.fetch
-  if (!original || original.__baoBroker) return 'already'
-  const patched = async function (input, init) {
-    try {
-      const url = typeof input === 'string' ? input : (input && input.url) || String(input)
-      if (!/^https?:/i.test(url)) return original.call(this, input, init)
-      const result = await net.request(url)
-      if (!result || !result.proxied) {
-        console.debug('[broker] 未放行', url, result && result.reason, result && result.error)
-        return original.call(this, input, init)
-      }
-      const headers = new Headers()
+/** wasm-bindgen 的 fetch import（`A` 是 window，`e` 是 Request）。 */
+const FETCH_IMPORT = '__wbg_fetch_729fad2e5272298f:function(A,e){return A.fetch(e)}'
+const FETCH_IMPORT_PATCHED = '__wbg_fetch_729fad2e5272298f:function(A,e){return __baoRuffleFetch(e)}'
+
+const TEMP_GLOBAL_PREFIX = '__bao_'
+
+function randomKey(): string {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return `${TEMP_GLOBAL_PREFIX}${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
+}
+
+/** 生成注入脚本；`patched` 为 false 表示没匹配到 fetch import（fail-closed 注入原文）。 */
+function buildInjection(source: string, transportKey: string): { script: string; patched: boolean } {
+  const patchedSource = source.replace(FETCH_IMPORT, FETCH_IMPORT_PATCHED)
+  const patched = patchedSource !== source
+  const config = `window.RufflePlayer = { config: ${JSON.stringify(RUFFLE_CONFIG)} }`
+  const body = patched ? patchedSource : source
+  return {
+    patched,
+    script: `(function () {
+  var __baoTransport = window['${transportKey}']
+  try { delete window['${transportKey}'] } catch (error) {}
+  var __baoRuffleFetch = function (request) {
+    var url = ''
+    try { url = typeof request === 'string' ? request : String((request && request.url) || '') } catch (error) { url = '' }
+    if (!url || !__baoTransport) return fetch(request)
+    return __baoTransport.request(url).then(function (result) {
+      if (!result || !result.proxied) return fetch(request)
+      var headers = new Headers()
       headers.set('content-type', result.contentType || 'application/octet-stream')
-      return new Response(result.body, { status: result.status || 200, headers })
-    } catch {
-      return original.call(this, input, init)
-    }
+      return new Response(result.body, { status: result.status || 200, headers: headers })
+    }, function () { return fetch(request) })
   }
-  patched.__baoBroker = true
-  window.fetch = patched
-  return 'installed'
+  ${config}
+  ${body}
+  //# sourceURL=ruffle-resource://ruffle.js
 })()`
+  }
+}
 
 void (async () => {
   try {
@@ -57,24 +81,21 @@ void (async () => {
       return
     }
 
-    // 1) 把 preload 的私有 transport 代理进主世界（页面 JS 只能看到 window.__baoNet 的
-    //    代理函数；来源判定在主进程，用浏览器认证过的文档 URL，伪造不了）。
-    await contextBridge.executeInMainWorld({
-      func: (transport: { request: (url: string) => Promise<unknown> }) => {
-        ;(window as unknown as { __baoNet: unknown }).__baoNet = { request: transport.request }
-      },
-      args: [{ request: (url: string) => ipcRenderer.invoke('bao:net-request', url) }]
-    })
-
-    // 2) 先装 fetch 垫片，再注入 Ruffle —— 保证 Ruffle 的所有请求都经过 broker。
-    const installed = await webFrame.executeJavaScript(INSTALL_BROKER_FETCH)
-    if (installed !== 'installed' && installed !== 'already') {
-      console.warn(`[ruffle] fetch 垫片未安装：${String(installed)}`)
+    const transportKey = randomKey()
+    const injection = buildInjection(source, transportKey)
+    if (!injection.patched) {
+      console.error('[ruffle] 未能定位 wasm-bindgen 的 fetch import，跨域兼容停用（同源不受影响）')
+    } else {
+      // 把 preload 的私有 transport 代理进主世界；IIFE 第一行就把它从 window 上删掉。
+      await contextBridge.executeInMainWorld({
+        func: (key: string, transport: { request: (url: string) => Promise<unknown> }) => {
+          ;(window as unknown as Record<string, unknown>)[key] = transport
+        },
+        args: [transportKey, { request: (url: string) => ipcRenderer.invoke('bao:net-request', url) }]
+      })
     }
 
-    await webFrame.executeJavaScript(
-      `window.RufflePlayer = { config: ${JSON.stringify(RUFFLE_CONFIG)} };\n${source}\n//# sourceURL=ruffle-resource://ruffle.js`
-    )
+    await webFrame.executeJavaScript(injection.script)
     console.info('[ruffle] 引导完成')
   } catch (error) {
     console.error('[ruffle] 引导失败', error)

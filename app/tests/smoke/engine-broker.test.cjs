@@ -19,8 +19,7 @@ const PLAYER = `(() => {
   }
 })()`
 
-test('引擎网络 broker：按 crossdomain.xml 放行跨源读，未放行的原样走 CORS', { timeout: 180_000 }, async () => {
-  // C 提供 wildcard 策略 → 放行；D 不提供策略 → 拒绝。
+test('引擎网络 broker：只有 Ruffle 能跨域读，页面脚本的同源策略不受影响', { timeout: 180_000 }, async () => {
   const WILDCARD = '<?xml version="1.0"?><cross-domain-policy><allow-access-from domain="*" /></cross-domain-policy>'
   const swfServer = await startFixtureServer({ '/crossdomain.xml': WILDCARD })
   const allowedServer = await startFixtureServer({
@@ -36,18 +35,15 @@ test('引擎网络 broker：按 crossdomain.xml 放行跨源读，未放行的�
       <script>
         window.__allowed = 'pending'
         window.__denied = 'pending'
-        // 延迟到 broker 的 fetch 垫片安装之后再发（垫片由 preload 异步注入；
-        // 解析期的早请求本来就不该经过它）。
-        setTimeout(() => {
-          fetch('${allowedServer.baseUrl}/data')
-            .then((response) => response.text())
-            .then((text) => { window.__allowed = text })
-            .catch((error) => { window.__allowed = 'error:' + String(error).slice(0, 40) })
-          fetch('${deniedServer.baseUrl}/data')
-            .then((response) => response.text())
-            .then((text) => { window.__denied = 'READ:' + text })
-            .catch((error) => { window.__denied = 'blocked:' + String(error).slice(0, 40) })
-        }, 2000)
+        // 页面脚本自己发起的跨源请求：必须按浏览器 CORS 规则被拦（审计 P1-1 的回归守卫）。
+        fetch('${allowedServer.baseUrl}/data')
+          .then((response) => response.text())
+          .then((text) => { window.__allowed = 'READ:' + text })
+          .catch((error) => { window.__allowed = 'blocked:' + String(error).slice(0, 40) })
+        fetch('${deniedServer.baseUrl}/data')
+          .then((response) => response.text())
+          .then((text) => { window.__denied = 'READ:' + text })
+          .catch((error) => { window.__denied = 'blocked:' + String(error).slice(0, 40) })
       </script>`
   })
 
@@ -58,29 +54,40 @@ test('引擎网络 broker：按 crossdomain.xml 放行跨源读，未放行的�
     await address.press('Enter')
     await shell.getByRole('button', { name: 'broker 页面', exact: true }).waitFor({ timeout: 30_000 })
 
-    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
+    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click({ timeout: 30_000 })
 
-    // 1) 根 SWF 跨源加载：SWF host 提供 wildcard 策略 → 放行（flask fixture 服务器没有
-    //    crossdomain.xml，所以这里给 swfServer 也加一份）
+    // 1) 根 SWF 跨源加载：Ruffle 自己的 fetch 经策略放行（策略文件 wildcard）。
     const player = await waitFor(async () => {
       const facts = await viewEval(app, shell, PLAYER)
       return facts.canvas ? facts : null
     }, { message: 'Ruffle 未加载跨源 SWF（broker 放行失败）。' })
     assert.equal(player.canvas, true)
 
-    // 2) wildcard 策略的跨源数据：页面 JS 经 broker 读到
-    const allowed = await waitFor(async () => {
+    // 2) 页面脚本没有特权入口：临时全局已被删除，fetch 保持原生。
+    const surface = await viewEval(app, shell, `(() => {
+      const leftovers = Object.keys(window).filter((key) => key.startsWith('__bao_'))
+      return {
+        leftovers,
+        hasNet: typeof window.__baoNet,
+        nativeFetch: /native code/i.test(Function.prototype.toString.call(window.fetch))
+      }
+    })()`)
+    assert.deepEqual(surface.leftovers, [], `页面世界残留了 broker 入口：${surface.leftovers}`)
+    assert.equal(surface.hasNet, 'undefined')
+    assert.equal(surface.nativeFetch, true, 'window.fetch 被替换了（审计 P1-1）')
+
+    // 3) 页面脚本的跨源请求仍按 CORS 被拦，即使目标站策略是 wildcard。
+    const denied = await waitFor(async () => {
       const value = await viewEval(app, shell, 'window.__allowed')
       return value && value !== 'pending' ? value : null
-    }, { message: 'broker 未放行 wildcard 策略的跨源请求。' })
-    assert.equal(allowed, 'c-data')
+    }, { message: '页面脚本的跨源请求没有结论。' })
+    assert.ok(denied.startsWith('blocked:'), `页面脚本读到了跨域响应：${denied}`)
 
-    // 3) 无策略的跨源数据：broker 拒绝 → 回退浏览器 fetch → CORS 拦住
-    const denied = await waitFor(async () => {
+    const denied2 = await waitFor(async () => {
       const value = await viewEval(app, shell, 'window.__denied')
       return value && value !== 'pending' ? value : null
-    }, { message: '无策略的跨源请求未被拒绝。' })
-    assert.ok(denied.startsWith('blocked:'), `无策略请求被读到了：${denied}`)
+    }, { message: '页面脚本的第二个跨源请求没有结论。' })
+    assert.ok(denied2.startsWith('blocked:'), `页面脚本读到了跨域响应：${denied2}`)
   } finally {
     await close()
     await pageServer.close()

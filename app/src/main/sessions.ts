@@ -1,4 +1,5 @@
 import { session } from 'electron'
+import { BROKER_REFERER_HEADER, readBrokerRefererMarker } from './broker-token'
 import type { Session } from 'electron'
 
 /**
@@ -64,22 +65,23 @@ function denyDownloads(target: Session): Session {
  * Chromium 不接受在 `net.request`/`net.fetch` 的 header 里直接设 `Referer`
  * （会以 `ERR_BLOCKED_BY_CLIENT` 拒绝），只能在 `onBeforeSendHeaders` 里改。
  * 真实站点（4399）缺 Referer 时会返回「访问错误」内容而不是正版 SWF。
+ *
+ * 这个钩子是**整个页面会话**级别的，页面脚本也能写同名头，所以标记值带主进程随机令牌
+ * （见 `broker-token.ts`）：令牌不匹配时**只剥离标记**、不改 Referer，页面无法伪造。
  */
 function restoreBrokerReferer(target: Session): Session {
   target.webRequest.onBeforeSendHeaders({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
     const headers: Record<string, string> = { ...details.requestHeaders }
-    const marker = headers['X-Bao-Referer'] ?? headers['x-bao-referer']
+    const key = BROKER_REFERER_HEADER.toLowerCase()
+    const marker = headers[BROKER_REFERER_HEADER] ?? headers[key]
     if (!marker) {
       callback({ requestHeaders: headers })
       return
     }
-    try {
-      headers.Referer = decodeURIComponent(marker)
-    } catch {
-      // 标记损坏时保持原样，不阻断请求
-    }
-    delete headers['X-Bao-Referer']
-    delete headers['x-bao-referer']
+    const referer = readBrokerRefererMarker(marker)
+    if (referer) headers.Referer = referer
+    delete headers[BROKER_REFERER_HEADER]
+    delete headers[key]
     callback({ requestHeaders: headers })
   })
   return target

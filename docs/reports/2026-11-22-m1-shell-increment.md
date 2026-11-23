@@ -173,7 +173,7 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 | --- | --- | --- |
 | 策略 | `src/main/crossdomain.ts` | 按目标 `host:port` 取 `crossdomain.xml`（6s 超时、64KB 上限、10 分钟缓存），解析 `allow-access-from` 的 domain / `secure` |
 | broker | `src/main/net-broker.ts` | IPC 入口：校验发送者是页面视图，来源用 `event.senderFrame.url`（浏览器认证、页面无法伪造），放行则 `net.fetch` 取字节回传，拒绝则让调用方回退浏览器 fetch |
-| 垫片 | `src/preload/page.ts` | 主世界 `window.fetch` 换成经 broker 的版本；`executeInMainWorld` 把 preload 私有 transport 代理进主世界 |
+| 垫片 | `src/preload/page.ts` | **不替换页面 `window.fetch`**：注入前把 wasm-bindgen 的 `__wbg_fetch_*` import 指到闭包内的私有传输；临时全局在 IIFE 第一行 `delete`；模式匹配失败即 fail-closed 注入原文 |
 
 **两个语义修正（都靠实测发现）**：
 
@@ -186,6 +186,19 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 | --- | --- | --- |
 | `https://www.4399.com/flash/254626_3.htm` | `canvas: true`，游戏 SWF 经 broker 加载 | 0（仅 cnzz 统计脚本的 `document.write` 提示） |
 | `http://mole.61.com/` | `canvas: true`，客户端数据经 broker 加载 | 0 |
+
+**2026-11-23 审计后收紧（P1-1 / P1-2 部分）**：
+
+| 项 | 改动 |
+| --- | --- |
+| 特权网络出口 | 删除页面主世界的 `__baoNet` 与 `window.fetch` 替换，改为重写 wasm-bindgen 的 `__wbg_fetch_*` import；传输只存在于注入 IIFE 的闭包，临时全局立即删除；页面 `fetch` 恢复原生语义（`engine-broker.test.cjs` 现断言页面脚本读不到跨域响应、无 `__bao_*` 残留、`fetch` 为 native） |
+| 来源判定 | 用浏览器认证的 `senderFrame.url` 的**完整 origin**；同源比较 scheme+host+port；非 http(s)（含 opaque origin 的 `about:blank`）直接拒绝 |
+| 策略抓取 | 按**目标自身 origin** 抓取并缓存（不再跨协议回退），读取有 64 KiB 流式上限，缓存容量上限 200 条 |
+| 重定向 | `redirect: 'manual'`，逐跳重新授权，最多 5 跳；跳向未授权目标即拒绝 |
+| Cookie | 不再手工拼 `Cookie` header，改用 `net.request` 的 `useSessionCookies` |
+| Referer 标记 | `X-Bao-Referer: <每启动随机令牌>|<编码 URL>`，只还原令牌匹配的标记，其余剥离不改写——页面无法伪造 Referer |
+
+真站复核（收紧后）：4399（https→https，依赖 Referer）与 `mole.61.com`（http→http，策略 wildcard）在 Ruffle 下均 `canvas: true`、零 CORS/broker 拒绝；两站页面世界均无 `__bao_*` 残留且 `window.fetch` 为 native。
 
 **保留的已知边界**：
 
