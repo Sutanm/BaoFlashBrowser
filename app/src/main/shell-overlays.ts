@@ -14,7 +14,7 @@ interface HostedView {
   text?: string
 }
 
-const KINDS = ['panel', 'toast'] as const
+const KINDS = ['panel', 'quick', 'toast'] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -46,6 +46,25 @@ function clampBounds(bounds: OverlayBounds, width: number, height: number): Over
   }
 }
 
+/**
+ * 锚定在按钮下方的飞窗（引擎面板 / 齿轮快捷设置）的夹取规则：
+ *
+ * **保持顶边不动**，只把高度压到窗口底部以内（`y` 贴着按钮，不能被"整体上移"）。
+ * 用通用的 `clampBounds` 会先夹位置再夹尺寸，结果飞窗会从按钮下沿跳到窗口上沿附近
+ * （2026-11-23 实测：最小窗口下 y 从 62 被夹成 25）。超出部分由面板自己滚动。
+ */
+function clampBelow(bounds: OverlayBounds, width: number, height: number, inset = 8): OverlayBounds {
+  const w = Math.min(width, Math.ceil(bounds.width))
+  const y = Math.max(0, Math.min(height, Math.round(bounds.y)))
+  const h = Math.max(0, Math.min(Math.ceil(bounds.height), height - y - inset))
+  return {
+    x: Math.max(0, Math.min(width - w, Math.round(bounds.x))),
+    y,
+    width: w,
+    height: h
+  }
+}
+
 /** Native sibling views cover the active page without changing its layout. */
 export function createShellOverlays(
   window: BrowserWindow,
@@ -65,7 +84,10 @@ export function createShellOverlays(
     const modes = new URL(frame.url).searchParams.getAll(OVERLAY_QUERY)
     if (event.sender === shell) return modes.length === 0 ? 'shell' : undefined
     const mode = modes.length === 1 ? modes[0] : undefined
-    if ((mode === 'panel' || mode === 'toast') && event.sender === hosted[mode]?.view.webContents) return mode
+    if (mode === undefined) return
+    for (const kind of KINDS) {
+      if (kind === mode && event.sender === hosted[kind]?.view.webContents) return kind
+    }
   }
 
   function send(contents: WebContents, message: OverlayEvent): void {
@@ -79,13 +101,23 @@ export function createShellOverlays(
     if (!window.isDestroyed()) window.contentView.removeChildView(item.view)
   }
 
-  function closePanel(restoreFocus: boolean): boolean {
-    const panel = hosted.panel
-    if (!panel?.bounds) return false
-    hide(panel)
+  function close(kind: 'panel' | 'quick', restoreFocus: boolean): boolean {
+    const item = hosted[kind]
+    if (!item?.bounds) return false
+    hide(item)
     if (restoreFocus && !window.isDestroyed() && window.isFocused() && !shell.isDestroyed()) shell.focus()
-    send(shell, { type: 'panel-closed', restoreFocus })
+    send(shell, kind === 'panel'
+      ? { type: 'panel-closed', restoreFocus }
+      : { type: 'quick-closed', restoreFocus })
     return true
+  }
+
+  function closePanel(restoreFocus: boolean): boolean {
+    return close('panel', restoreFocus)
+  }
+
+  function closeQuick(restoreFocus: boolean): boolean {
+    return close('quick', restoreFocus)
   }
 
   function dismissToast(): boolean {
@@ -96,8 +128,11 @@ export function createShellOverlays(
     return true
   }
 
+  /** Esc 关最先打开的那个浮层（飞窗优先于引擎面板，与视觉层级一致）。 */
   function escape(input: Input): boolean {
-    return input.type === 'keyDown' && input.key === 'Escape' && closePanel(true)
+    if (input.type !== 'keyDown' || input.key !== 'Escape') return false
+    if (closeQuick(true)) return true
+    return closePanel(true)
   }
 
   function onPageInput(event: Event, input: Input): void {
@@ -105,7 +140,9 @@ export function createShellOverlays(
   }
 
   function onPageMouse(_event: Event, input: MouseInputEvent): void {
-    if (input.type === 'mouseDown') closePanel(false)
+    if (input.type !== 'mouseDown') return
+    closePanel(false)
+    closeQuick(false)
   }
 
   function setActivePage(contents: WebContents | undefined): void {
@@ -132,18 +169,21 @@ export function createShellOverlays(
     if (!item?.ready || !item.bounds) return
     const [width, height] = window.getContentSize()
     if (width <= 0 || height <= 0) return
-    const bounds = clampBounds(item.bounds, width, height)
+    // 面板/飞窗贴着按钮，顶边必须保持；toast 是自由定位，用通用夹取。
+    const bounds = kind === 'toast'
+      ? clampBounds(item.bounds, width, height)
+      : clampBelow(item.bounds, width, height)
     const current = item.view.getBounds()
     if (current.x !== bounds.x || current.y !== bounds.y ||
         current.width !== bounds.width || current.height !== bounds.height) item.view.setBounds(bounds)
     if (item.view.getVisible()) return
     item.view.setVisible(true)
     raise()
-    if (kind === 'panel') {
+    if (kind !== 'toast') {
       // 后台窗口不抢前台（与 browser-window 的 focusContents 同一合同）：
-      // 自动化或窗口被盖住时，打开面板不应该把窗口拉到前台。
+      // 自动化或窗口被盖住时，打开飞窗不应该把窗口拉到前台。
       if (window.isFocused()) item.view.webContents.focus()
-      send(item.view.webContents, { type: 'panel-opened' })
+      send(item.view.webContents, { type: kind === 'panel' ? 'panel-opened' : 'quick-opened' })
     }
   }
 
@@ -170,6 +210,7 @@ export function createShellOverlays(
     function invalidate(): void {
       if (disposed || hosted[kind] !== item) return
       if (kind === 'panel') closePanel(false)
+      else if (kind === 'quick') closeQuick(false)
       else dismissToast()
       delete hosted[kind]
       if (!view.webContents.isDestroyed()) view.webContents.close()
@@ -210,6 +251,18 @@ export function createShellOverlays(
         sync('panel')
         return true
       }
+      case 'set-quick': {
+        if (role !== 'shell') return false
+        if (value.bounds === null) {
+          if (hosted.quick) hide(hosted.quick)
+          return true
+        }
+        const bounds = readBounds(value.bounds)
+        if (!bounds) return false
+        ensure('quick').bounds = bounds
+        sync('quick')
+        return true
+      }
       case 'set-toast': {
         if (role !== 'shell') return false
         if (value.toast === null) {
@@ -234,12 +287,21 @@ export function createShellOverlays(
         sync('panel')
         return true
       }
+      case 'resize-quick': {
+        const quick = hosted.quick
+        if (role !== 'quick' || !quick?.bounds || !isFiniteNumber(value.height) || value.height <= 0) return false
+        quick.bounds.height = value.height
+        sync('quick')
+        return true
+      }
       case 'close-panel':
         return role === 'panel' && typeof value.restoreFocus === 'boolean' && closePanel(value.restoreFocus)
+      case 'close-quick':
+        return role === 'quick' && typeof value.restoreFocus === 'boolean' && closeQuick(value.restoreFocus)
       case 'dismiss-toast':
         return role === 'toast' && dismissToast()
       case 'report-failure':
-        if (role !== 'panel' || !isText(value.text)) return false
+        if ((role !== 'panel' && role !== 'quick') || !isText(value.text)) return false
         send(shell, { type: 'failure', text: value.text })
         return true
       default:
@@ -247,7 +309,10 @@ export function createShellOverlays(
     }
   }
 
-  window.on('blur', () => closePanel(false))
+  window.on('blur', () => {
+    closePanel(false)
+    closeQuick(false)
+  })
 
   return {
     command,
@@ -255,6 +320,7 @@ export function createShellOverlays(
     escape,
     setActivePage,
     panelVisible: () => hosted.panel?.view.getVisible() === true,
+    quickVisible: () => hosted.quick?.view.getVisible() === true,
     layout() {
       for (const kind of KINDS) sync(kind)
     },

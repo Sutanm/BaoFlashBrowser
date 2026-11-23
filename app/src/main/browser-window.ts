@@ -988,7 +988,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
     if (sender !== 'shell' && command.type !== 'snapshot') {
       const engineAction = command.type === 'set-engine' || command.type === 'remember-engine' || command.type === 'forget-engine'
-      if (sender !== 'panel' || !overlays.panelVisible() || !engineAction) return fail('forbidden-sender')
+      // 齿轮飞窗（quick）只允许「写设置」和「打开设置页」，引擎操作仍然只属于引擎面板。
+      const settingsAction = command.type === 'set-setting' || command.type === 'open-settings'
+      const fromPanel = sender === 'panel' && overlays.panelVisible() && engineAction
+      const fromQuick = sender === 'quick' && overlays.quickVisible() && settingsAction
+      if (!fromPanel && !fromQuick) return fail('forbidden-sender')
     }
 
     switch (command.type) {

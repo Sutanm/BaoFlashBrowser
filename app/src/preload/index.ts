@@ -44,6 +44,9 @@ const overlay: OverlayBridge = {
   setToast: (toast) => runOverlay({ type: 'set-toast', toast }),
   resizePanel: (height) => runOverlay({ type: 'resize-panel', height }),
   closePanel: (restoreFocus = true) => runOverlay({ type: 'close-panel', restoreFocus }),
+  setQuick: (bounds) => runOverlay({ type: 'set-quick', bounds }),
+  resizeQuick: (height) => runOverlay({ type: 'resize-quick', height }),
+  closeQuick: (restoreFocus = true) => runOverlay({ type: 'close-quick', restoreFocus }),
   dismissToast: () => runOverlay({ type: 'dismiss-toast' }),
   reportFailure: (text) => runOverlay({ type: 'report-failure', text }),
   subscribe(listener) {

@@ -57,7 +57,8 @@ npm run dev
 
 - 无边框两行外壳、Windows 原生窗口控件、Fluent 2 token 与深浅色跟随；默认应用菜单已移除。
 - **主题**：设置项 `theme.mode`（跟随系统 / 浅色 / 深色）1:1 映射 `nativeTheme.themeSource`；外壳 token、叠加层、系统窗口按钮配色、起始页与站点看到的 `prefers-color-scheme` 由同一个解析值派生。
-- **设置页**：`bao://settings` 作为内部页在标签里打开（`Ctrl+,` 或地址栏输入），已存在则复用；内部页跑在 `persist:bao-next-internal`、与页面同一套沙箱，只拿到 `baoSettings`（read/write/subscribe），拿不到外壳桥。在设置页里输入 http(s) 会新开普通标签，设置页原地不动。齿轮快捷叠加层在下一增量。
+- **设置页**：`bao://settings` 作为内部页在标签里打开（`Ctrl+,` 或地址栏输入），已存在则复用；内部页跑在 `persist:bao-next-internal`、与页面同一套沙箱，只拿到 `baoSettings`（read/write/subscribe），拿不到外壳桥。在设置页里输入 http(s) 会新开普通标签，设置页原地不动。
+- **齿轮快捷设置**：工具栏齿轮打开飞窗（主题 / 默认引擎 / 全部设置），与设置页共用同一份 store，任一侧修改两边立刻同步。视觉取 Chromium 数值（圆角 12、`elevation 12` 投影、`kColorMenuBorder` 边框），无关闭按钮（点外部 / Esc 关闭）。飞窗**永远在窗口内**：贴着齿轮按钮下沿、右边缘对齐，超出内容区时面板内部滚动。
 - **启动只有一个标签页**；多标签由「新建标签页」按钮、双击标签栏或 `Ctrl+T` 创建。
 - 标签栏交互：点击/键盘切换、中键关闭、关闭按钮按需显示、拖动排序、拖出窗口（tearoff）、右键菜单（重新加载/复制/固定/静音/关闭/撤销关闭）、`Ctrl+W` 关闭、`Ctrl+Shift+T` 撤销关闭。
 - 撤销关闭用 E39 导航栈（`getAllEntries()/restore()`）恢复，保留前进/后退历史；无可撤销项时返回稳定错误码 `nothing-to-undo`。

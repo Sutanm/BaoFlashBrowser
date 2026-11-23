@@ -78,6 +78,54 @@ const toast = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let detachOverlay: (() => void) | undefined
 
+/**
+ * 齿轮快捷设置飞窗（M2 增量 2 下半）。
+ *
+ * 定位：顶边压在齿轮按钮下沿（0 缝）、右边缘与按钮对齐；横向与高度都交给主进程按窗口
+ * 内容区夹取（`shell-overlays.ts` 的 `clampBounds`），所以飞窗**永远在窗口内**，内容超出
+ * 时由面板自己滚动。宽 320 是 Chromium 菜单的常见宽度，外面留 16 px 给投影。
+ */
+const QUICK_WIDTH = 320
+/** 飞窗在浮层视图里的留白（左/上/下多留一点给投影；右侧只留 8，才能与按钮右缘精确对齐）。 */
+const QUICK_LEFT = 16
+const QUICK_RIGHT = 8
+const QUICK_TOP = 16
+const QUICK_INITIAL_HEIGHT = 320
+const gearRoot = ref<HTMLButtonElement>()
+const quickOpen = ref(false)
+
+function quickBounds(): { x: number; y: number; width: number; height: number } | null {
+  const rect = gearRoot.value?.getBoundingClientRect()
+  if (!rect) return null
+  return {
+    x: Math.round(rect.right) - QUICK_WIDTH - QUICK_LEFT,
+    y: Math.round(rect.bottom) - QUICK_TOP,
+    width: QUICK_WIDTH + QUICK_LEFT + QUICK_RIGHT,
+    height: QUICK_INITIAL_HEIGHT
+  }
+}
+
+async function toggleQuick(): Promise<void> {
+  if (quickOpen.value) {
+    closeQuick(true)
+    return
+  }
+  closeEnginePanel()
+  const bounds = quickBounds()
+  if (!bounds) return
+  quickOpen.value = true
+  if (!await window.baoOverlay.setQuick(bounds)) quickOpen.value = false
+}
+
+function closeQuick(restoreFocus = false): void {
+  if (!quickOpen.value) return
+  quickOpen.value = false
+  // 外壳侧关闭走 `set-quick(null)`：`close-quick` 是飞窗自己（quick 角色）用来关闭并
+  // 请求焦点归还的命令，外壳调用会被发送者校验拒绝。
+  void window.baoOverlay.setQuick(null)
+  if (restoreFocus) gearRoot.value?.focus()
+}
+
 function panelBounds() {
   const rect = engineRoot.value?.getBoundingClientRect()
   if (!rect) return null
@@ -94,6 +142,7 @@ async function toggleEnginePanel(): Promise<void> {
     closeEnginePanel()
     return
   }
+  closeQuick(false)
   const bounds = panelBounds()
   if (!bounds) return
   enginePanelOpen.value = true
@@ -109,6 +158,7 @@ function closeEnginePanel(): void {
 /** 网页与浮层有独立 WebContents；这里只处理外壳范围内的点击。 */
 function onEnginePointerDown(event: PointerEvent): void {
   if (event.target instanceof Node && !engineTrigger.value?.contains(event.target)) closeEnginePanel()
+  if (quickOpen.value && event.target instanceof Node && !gearRoot.value?.contains(event.target)) closeQuick(false)
 }
 
 function clearToast(): void {
@@ -141,10 +191,12 @@ watch(() => active.value?.notice, (notice) => {
   }
 })
 watch(() => active.value?.id, closeEnginePanel)
+watch(() => active.value?.id, () => closeQuick(false))
 
 function onShellResize(): void {
   // Close anchored settings rather than leave them detached from the trigger.
   closeEnginePanel()
+  closeQuick(false)
 }
 
 onMounted(() => {
@@ -152,6 +204,9 @@ onMounted(() => {
     if (event.type === 'panel-closed') {
       enginePanelOpen.value = false
       if (event.restoreFocus) engineTrigger.value?.focus()
+    } else if (event.type === 'quick-closed') {
+      quickOpen.value = false
+      if (event.restoreFocus) gearRoot.value?.focus()
     } else if (event.type === 'toast-closed') clearToast()
     else if (event.type === 'failure') showToast(event.text)
   })
@@ -422,9 +477,17 @@ onBeforeUnmount(() => store.disconnect())
           <ShellIcon name="chevron" />
         </button>
       </div>
+      <button
+        ref="gearRoot"
+        type="button"
+        class="icon-button gear-button"
+        :aria-expanded="quickOpen"
+        aria-label="快捷设置"
+        title="快捷设置"
+        @click="toggleQuick"
+      ><ShellIcon name="gear" /></button>
     </form>
-  </header>
-  <p class="sr-only" role="status">{{ toast }}</p>
+  </header>  <p class="sr-only" role="status">{{ toast }}</p>
   <main v-if="active?.error" class="page-error" aria-labelledby="page-error-title">
     <div>
       <ShellIcon name="error" />
@@ -570,6 +633,9 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
 
 .icon-button:hover:not(:disabled) { color: inherit; background: var(--surface-hover); }
 .icon-button:disabled { color: var(--text-disabled); }
+/* 齿轮：打开时保持按下色，与飞窗形成「同一块」的视觉延续。 */
+.gear-button { margin-inline-start: 2px; }
+.gear-button[aria-expanded='true'] { color: var(--text-primary); background: var(--surface-pressed); }
 .close-tab { width: 22px; height: 22px; opacity: 0; }
 
 /* 固定标签（架构 §3「标签操作」）：只留站点图标，排在最左，没有关闭按钮。 */
@@ -659,8 +725,7 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
 .address-bar input { flex: 1; width: 0; padding: 0; border: 0; outline: none; background: transparent; }
 .address-bar input::placeholder { color: var(--text-secondary); opacity: 1; }
 .engine-pill {
-  flex: none;
-  display: grid;
+  flex: none;  display: grid;
   grid-template-columns: 66px 25px;
   height: 28px;
   margin-inline-start: 3px;
