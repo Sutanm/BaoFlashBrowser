@@ -102,8 +102,8 @@ const flashReady = computed(() => snapshot.value?.flash !== false)
             class="choice"
             role="radio"
             :aria-checked="engine === 'ppapi'"
-            :disabled="busy || !flashReady"
-            :title="flashReady ? undefined : '未检测到 Flash 插件'"
+            :aria-disabled="busy || !flashReady ? 'true' : 'false'"
+            :title="flashReady ? undefined : '未检测到 Flash 插件，当前自动使用 Ruffle'"
             @click="chooseEngine('ppapi')"
           >
             <span class="radio" aria-hidden="true"></span>
@@ -246,7 +246,8 @@ button:disabled { cursor: default; opacity: 0.6; }
   font-size: 12px;
   text-align: left;
 }
-.choice:hover:not(:disabled) { background: var(--surface-hover); }
+.choice:hover:not([aria-disabled='true']) { background: var(--surface-hover); }
+.choice[aria-disabled='true'] { opacity: .55; cursor: default; }
 .choice[aria-checked='true'] {
   background: var(--engine-selection);
   border-color: color-mix(in srgb, var(--engine-accent) 22%, transparent);

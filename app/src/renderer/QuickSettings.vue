@@ -36,6 +36,7 @@ const settings = computed(() => snapshot.value?.settings)
 const theme = computed<ThemeMode>(() => settings.value?.themeMode ?? 'system')
 const engine = computed<BrowserEngine>(() => settings.value?.defaultEngine ?? 'ppapi')
 const flashReady = computed(() => snapshot.value?.flash !== false)
+const flashHint = computed(() => snapshot.value?.flashHint ?? '')
 
 let detach: (() => void) | undefined
 let observer: ResizeObserver | undefined
@@ -83,8 +84,9 @@ function chooseEngine(next: BrowserEngine): void {
 }
 
 async function openSettings(): Promise<void> {
-  await window.baoOverlay.closeQuick(true)
+  // 先开设置页再关飞窗：`open-settings` 的发送者校验要求 quick 仍然可见。
   await store.run({ type: 'open-settings' })
+  await window.baoOverlay.closeQuick(true)
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -138,8 +140,10 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
           class="row engine"
           role="radio"
           :aria-checked="engine === name"
-          :disabled="busy || (name === 'ppapi' && !flashReady)"
-          :title="name === 'ppapi' && !flashReady ? '未检测到 Flash 插件' : undefined"
+          :aria-disabled="busy || (name === 'ppapi' && !flashReady) ? 'true' : 'false'"
+          :title="name === 'ppapi' && !flashReady
+            ? `未检测到 Flash 插件：把 pepflashplayer64.dll 放到 ${flashHint || '<exe目录>\\flash\\'} 后重启。`
+            : undefined"
           @click="chooseEngine(name)"
         >
           <span class="radio" aria-hidden="true"></span>
@@ -194,8 +198,8 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 }
 .row.engine { grid-template-columns: 13px 1fr auto; }
 .row.footer { grid-template-columns: 18px 1fr 14px; min-height: 38px; }
-.row:hover:not(:disabled) { background: var(--surface-hover); }
-.row:disabled { opacity: .45; }
+.row:hover:not([aria-disabled='true']) { background: var(--surface-hover); }
+.row[aria-disabled='true'] { opacity: .45; cursor: default; }
 .row[aria-checked='true'] { background: var(--engine-selection); }
 .row:focus-visible { outline: 2px solid var(--brand-stroke); outline-offset: -2px; }
 

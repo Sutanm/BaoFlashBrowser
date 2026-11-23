@@ -40,7 +40,7 @@ npm run dev
 | --- | --- |
 | `npm run typecheck` | 检查 TypeScript 和 Vue 类型。 |
 | `npm run build` | 检查类型并编译主进程、预加载和渲染层。 |
-| `npm start` | 使用自编译 Electron 启动已编译的应用。 |
+| `npm start` | 使用自编译 Electron 启动已编译的应用（`electron.vite.config.ts` 会把 `ELECTRON_EXEC_PATH` 指到 `.runtime/win-x64`；没有运行时才回落到官方 `node_modules/electron`，此时 Flash 不可用）。 |
 | `node scripts/test.cjs smoke`（推荐） | 不经过 npm 的命令壳；主窗口、拖出窗口和网页弹窗从创建起就不显示、不获取原生焦点。`npm run smoke` / `npm run smoke:bg` 保留为终端里的便捷入口。 |
 | `npm run smoke:foreground` | 显式前台验收，覆盖最大化/全屏、指针锁、DevTools、Ruffle 画布输入和原生 Flash。 |
 | `node scripts/test.cjs data` | 无窗口跑存储合同用例：设置落库与跨重启、非法值拒绝、`engine-rules.json` 一次性迁移与幂等、坏值回落、硬杀后数据完整、写失败不应用。终端可用 `npm run test:data`。 |

@@ -107,7 +107,7 @@ npm run typecheck
 
 | 命令 | 用途 |
 | --- | --- |
-| `npm run dev` | Vite 开发服务器（外壳热更新） |
+| `npm run dev` | Vite 开发服务器（外壳热更新）；`dev` / `start` 会自动用 `.runtime/win-x64` 的自编译内核（`electron.vite.config.ts` 设置 `ELECTRON_EXEC_PATH`），没有运行时时才回落到官方 Electron，此时 Flash 不可用 |
 | `npm run build` | typecheck + 构建 `out/` |
 | `node scripts/test.cjs smoke`（推荐） | 绕过 npm 的命令壳，无窗口跑应用冒烟（临时 profile）；`npm run smoke` / `npm run smoke:bg` 保留为终端里的便捷入口 |
 | `npm run smoke:foreground` | 显式前台验收，覆盖原生 PPAPI 装载与输入、最大化、全屏、指针锁、DevTools 和 Ruffle 画布输入 |

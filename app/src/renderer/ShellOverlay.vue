@@ -99,7 +99,7 @@ onBeforeUnmount(() => {
       <div class="engine-choices" role="group" aria-label="选择当前标签的引擎">
         <button v-for="engine in browserEngines" :key="engine" type="button" class="engine-choice"
           :aria-pressed="active?.engine === engine"
-          :disabled="!active || (engine === 'ppapi' && snapshot?.flash === false)"
+          :aria-disabled="!active || (engine === 'ppapi' && snapshot?.flash === false) ? 'true' : 'false'"
           :title="engine === 'ppapi' && snapshot?.flash === false
             ? `未检测到 Flash 插件。把 pepflashplayer64.dll 放到：${snapshot?.flashHint ?? ''} ，然后重启。本产品不随包分发 Flash。`
             : undefined"
@@ -156,7 +156,7 @@ onBeforeUnmount(() => {
   min-height: 32px; padding: 4px 6px; border-radius: var(--radius-control); border: 1px solid transparent;
   text-align: left; font-size: 12px;
 }
-.engine-choice:not(:disabled):hover, .compact-action:hover, .toast-close:hover { background: var(--surface-hover); }
+.engine-choice:not([aria-disabled='true']):hover, .compact-action:hover, .toast-close:hover { background: var(--surface-hover); }
 .engine-choice[aria-pressed='true'] {
   background: var(--engine-selection); border-color: color-mix(in srgb, var(--engine-accent) 20%, transparent);
 }
