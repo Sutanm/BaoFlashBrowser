@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BaoFlash · 设置界面造型对照（三方案）</title>
+<style>
+  /* ---------- tokens：与 engine-control-v4.html 同一套视觉语言 ---------- */
+  :root {
+    color-scheme: light;
+    --bg: #eef0f4; --chrome: #f0f1f4; --surface: #fff; --page: #f9fafd; --game: #1c2130;
+    --ink: #232630; --muted: #626879; --line: #dcdfe6; --hover: #eff1f6;
+    --selected: #eeebfb; --accent: #5940ac; --flash: #bd4136; --ruffle: #7254d6;
+    --warn: #8f5610; --error: #a82929; --shadow: 0 12px 36px #24243b22, 0 2px 6px #24243b0c;
+    --panel-shadow: 0 16px 44px #24243b2b, 0 2px 8px #24243b14;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14151a; --chrome: #22232a; --surface: #292b33; --page: #1d1f27; --game: #101319;
+    --ink: #f2f2f6; --muted: #b4b7c6; --line: #434552; --hover: #373945;
+    --selected: #3b3059; --accent: #c8b7ff; --flash: #f0776c; --ruffle: #ad97fe;
+    --warn: #efbf78; --error: #ff9a97; --shadow: 0 12px 36px #0006, 0 2px 6px #0003;
+    --panel-shadow: 0 18px 48px #000a, 0 2px 8px #0006;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+  }
+  main { width: min(1000px, calc(100% - 32px)); margin: clamp(20px, 4vw, 44px) auto 64px; }
+  h1, h2, h3, p, ul { margin: 0; }
+  h1 { font-size: clamp(20px, 3.4vw, 26px); letter-spacing: -.025em; margin-bottom: 6px; }
+  h2 { font-size: 15px; letter-spacing: -.01em; }
+  h3 { font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  button, input, select { font: inherit; color: inherit; }
+  button { background: none; border: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .muted, .note, .tradeoffs li { color: var(--muted); }
+  .kicker { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 700; letter-spacing: .16em; color: var(--accent); margin-bottom: 6px; }
+  .kicker::before { content: ''; width: 9px; height: 9px; border-radius: 3px; background: linear-gradient(135deg, var(--flash), var(--ruffle)); }
+  .intro { max-width: 70ch; font-size: 13px; color: var(--muted); }
+  .toolbar-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 14px 0 26px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .toolbar-top strong { font-size: 12px; }
+  .seg { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--page); }
+  .seg button { padding: 3px 10px; border-radius: 6px; font-size: 12px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); font-weight: 600; }
+  :root[data-theme="dark"] .seg button[aria-pressed="true"] { color: #16121f; }
+
+  /* ---------- 浏览器外框（两行布局：40 + 44） ---------- */
+  .variant { margin-bottom: 34px; }
+  .variant > header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .tag { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+         background: var(--selected); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); }
+  .stage { position: relative; }
+  .frame { border: 1px solid var(--line); border-radius: 12px; background: var(--chrome); box-shadow: var(--shadow); overflow: visible; }
+  .tabs { display: flex; align-items: end; gap: 6px; height: 40px; padding: 0 8px; }
+  .tab { display: flex; align-items: center; gap: 6px; min-width: min(170px, 46%); height: 32px; padding: 0 10px;
+         border-radius: 9px 9px 0 0; background: var(--surface); font-size: 12px; }
+  .tab .dot { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--muted); }
+  .tab.add { min-width: 0; width: 30px; justify-content: center; background: none; color: var(--muted); }
+  .win-controls { margin-left: auto; display: flex; gap: 14px; padding-right: 4px; color: var(--muted); font-size: 11px; }
+  .toolbar { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px; background: var(--surface); border-bottom: 1px solid var(--line); border-radius: 0; }
+  .icon-btn { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 6px; flex: none; }
+  .icon-btn:not(:disabled):hover, .gear[aria-expanded="true"] { background: var(--hover); }
+  .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+  .address { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--page); font-size: 12px; }
+  .pill { flex: none; display: grid; grid-template-columns: 66px 25px; height: 28px; border: 1px solid var(--line); border-radius: 999px; background: linear-gradient(var(--surface), var(--page)); }
+  .pill button { display: flex; align-items: center; padding: 0; }
+  .pill button:first-child { gap: 5px; padding-left: 8px; border-radius: 999px 0 0 999px; font-size: 12px; font-weight: 650; }
+  .pill button:last-child { justify-content: center; border-radius: 0 999px 999px 0; color: var(--muted); position: relative; }
+  .pill button:last-child::before { content: ''; position: absolute; left: -1px; height: 12px; border-left: 1px solid var(--line); }
+  .pill .icon { width: 12px; height: 12px; }
+  .flash-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--flash); }
+  .page { position: relative; height: 360px; border-radius: 0 0 12px 12px; overflow: hidden;
+          background: radial-gradient(ellipse at 26% 0%, #7254d622, transparent 62%), var(--game); }
+  .page::after { content: '站点页面（Flash 游戏区域）'; position: absolute; inset: 0; display: grid; place-items: center;
+                 color: #ffffff70; font-size: 12px; letter-spacing: .04em; }
+  /* 面板统一外观 */
+  .panel { position: absolute; z-index: 3; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--panel-shadow); }
+  .group { padding: 10px 12px; }
+  .group + .group { border-top: 1px solid var(--line); }
+  .group h3 { margin-bottom: 7px; }
+  .row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 7px; border-radius: 7px; text-align: left; font-size: 12px; }
+  .row:hover { background: var(--hover); }
+  .row[aria-checked="true"] { background: var(--selected); }
+  .radio { flex: none; width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--muted); display: grid; place-items: center; }
+  .row[aria-checked="true"] .radio { border-color: var(--accent); }
+  .row[aria-checked="true"] .radio::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .row .label { flex: 1; min-width: 0; }
+  .row .sub { display: block; font-size: 11px; color: var(--muted); }
+  .row .check { width: 13px; height: 13px; color: var(--accent); visibility: hidden; }
+  .row[aria-checked="true"] .check { visibility: visible; }
+  .swatch { flex: none; width: 28px; height: 18px; border-radius: 5px; border: 1px solid var(--line); }
+  .swatch i { display: none; }
+  .swatch.sys { background: linear-gradient(90deg, #f6f7fb 50%, #24262f 50%); }
+  .swatch.light { background: linear-gradient(180deg, #ffffff, #e9ebf1); }
+  .swatch.dark { background: linear-gradient(180deg, #2b2d36, #1b1d24); }
+  .footer { padding: 8px 12px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+  .tradeoffs { margin-top: 10px; padding-left: 18px; font-size: 12px; }
+  .tradeoffs li + li { margin-top: 2px; }
+  .tradeoffs b { color: var(--ink); font-weight: 600; }
+
+  /* 方案 A：齿轮 → 设置面板 */
+  .gear { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; margin-left: 2px; color: var(--muted); }
+  #settings-a { top: 88px; right: 8px; width: 312px; }
+  #settings-a .head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 2px; }
+  #settings-a .head h2 { font-size: 13px; }
+  .theme-row { display: grid; grid-template-columns: 13px 1fr auto 13px; align-items: center; gap: 8px; width: 100%; padding: 5px 7px; border-radius: 7px; text-align: left; font-size: 12px; }
+  .theme-row:hover { background: var(--hover); }
+  .theme-row[aria-checked="true"] { background: var(--selected); }
+  .theme-row .radio { width: 13px; height: 13px; }
+  .theme-row[aria-checked="true"] .radio { border-color: var(--accent); }
+  .theme-row[aria-checked="true"] .radio::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .theme-row .check { width: 13px; height: 13px; color: var(--accent); visibility: hidden; }
+  .theme-row[aria-checked="true"] .check { visibility: visible; }
+  .engine-note { padding: 4px 7px 0; font-size: 11px; color: var(--warn); }
+  .lang { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 5px 7px; border-radius: 7px; font-size: 12px; border: 1px solid var(--line); background: var(--page); }
+  .lang span:last-child { color: var(--muted); font-size: 11px; }
+
+  /* 方案 B：并入引擎面板 */
+  #engine-b { top: 88px; right: 74px; width: 268px; padding: 8px; }
+  #engine-b .choices { display: grid; gap: 2px; }
+  #engine-b .choice { display: grid; grid-template-columns: 22px 1fr auto 13px; align-items: center; gap: 7px; min-height: 32px; padding: 4px 6px; border: 1px solid transparent; border-radius: 7px; font-size: 12px; text-align: left; }
+  #engine-b .choice[aria-pressed="true"] { background: var(--selected); border-color: color-mix(in srgb, var(--accent) 19%, transparent); }
+  #engine-b .mark { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: color-mix(in srgb, currentColor 13%, transparent); }
+  #engine-b .mark .icon { width: 13px; height: 13px; }
+  .seg-compact { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--page); }
+  .seg-compact button { padding: 3px 0; border-radius: 5px; font-size: 11px; }
+  .seg-compact button[aria-pressed="true"] { background: var(--surface); border: 1px solid var(--line); font-weight: 600; }
+  .seg-two { grid-template-columns: repeat(2, 1fr); }
+
+  /* 方案 C：独立设置窗口 */
+  .stage-c { display: flex; align-items: flex-start; gap: 0; }
+  .frame-c { width: 560px; flex: none; }
+  .window-c { position: relative; z-index: 2; margin-left: -120px; margin-top: 34px; width: 520px; border: 1px solid var(--line); border-radius: 12px;
+              background: var(--surface); box-shadow: var(--panel-shadow); overflow: hidden; }
+  .window-c .cap { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; background: var(--chrome); border-bottom: 1px solid var(--line); font-size: 12px; }
+  .window-c .cap .title { flex: 1; }
+  .window-c .cap .btn { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; color: var(--muted); }
+  .window-c .cap .btn:hover { background: var(--hover); }
+  .window-c .body { display: grid; grid-template-columns: 128px 1fr; min-height: 296px; }
+  .nav { padding: 10px 8px; border-right: 1px solid var(--line); background: var(--chrome); }
+  .nav button { display: block; width: 100%; padding: 6px 8px; border-radius: 6px; text-align: left; font-size: 12px; }
+  .nav button[aria-current="page"] { background: var(--selected); color: var(--accent); font-weight: 600; }
+  .nav button:not([aria-current]):hover { background: var(--hover); }
+  .pane { padding: 14px 16px; }
+  .pane h2 { font-size: 13px; margin-bottom: 2px; }
+  .pane > p { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .pane .row { padding: 7px 8px; }
+  .pane-actions { display: flex; justify-content: end; gap: 6px; padding: 8px 16px 12px; }
+  .btn-primary { padding: 5px 12px; border-radius: 7px; background: var(--accent); color: var(--surface); font-size: 12px; font-weight: 600; }
+  :root[data-theme="dark"] .btn-primary { color: #16121f; }
+  .btn-quiet { padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line); font-size: 12px; background: var(--surface); }
+  @media (forced-colors: active) {
+    .radio::after { forced-color-adjust: none; background: Highlight; }
+    .row[aria-checked="true"], .theme-row[aria-checked="true"] { outline: 1px solid Highlight; outline-offset: -1px; }
+    .swatch { forced-color-adjust: none; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m12 5-7 7 7 7M5 12h14"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="m12 5 7 7-7 7M5 12h14"/></symbol>
+  <symbol id="i-reload" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.2 6.5M20 5v6h-6"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2.2M12 18.3v2.2M4.9 7.8l1.9 1.1M17.2 15.1l1.9 1.1M4.9 16.2l1.9-1.1M17.2 8.9l1.9-1.1"/></symbol>
+  <symbol id="i-flash" viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-12h-6z"/></symbol>
+  <symbol id="i-ruffle" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-lang" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 3 2.5 15 0 18M12 3c-2.5 3-2.5 15 0 18"/></symbol>
+</svg>
+
+<main>
+  <p class="kicker">BAOFLASH BROWSER · M2 设置入口</p>
+  <h1>设置界面三种落点</h1>
+  <p class="intro">同一个外壳（40 px 标签栏 + 44 px 工具栏）下把「主题开关、默认引擎、语言」放进去的三种做法。页面区域是深色的 Flash 游戏区，正好能看出面板遮不遮内容。<strong>三个方案里的主题单选都能点，整页会跟着切亮/暗</strong> —— 这就是 M2 真实的行为（设置写库 → <code>nativeTheme.themeSource</code> → 外壳与面板同一套 token）。</p>
+
+  <div class="toolbar-top">
+    <strong>整页预览</strong>
+    <div class="seg" role="group" aria-label="预览主题">
+      <button type="button" data-preview-theme="light" aria-pressed="false">浅色</button>
+      <button type="button" data-preview-theme="dark" aria-pressed="true">深色</button>
+    </div>
+    <span class="muted" style="font-size:12px">（对齐真实行为：切主题不重载页面，只换 token）</span>
+  </div>
+
+  <!-- ============ 方案 A ============ -->
+  <article class="variant" id="variant-a">
+    <header>
+      <span class="tag">方案 A</span>
+      <h2>工具栏齿轮 → 独立设置面板</h2>
+      <span class="muted" style="font-size:12px">新增一个 <code>settings</code> 叠加层，复用引擎面板的 WCV 机制</span>
+    </header>
+    <div class="stage">
+      <div class="frame">
+        <div class="tabs">
+          <div class="tab"><span class="dot"></span>Flash 游戏档案</div>
+          <div class="tab add" aria-hidden="true">＋</div>
+          <div class="win-controls" aria-hidden="true"><span>—</span><span>▢</span><span>✕</span></div>
+        </div>
+        <div class="toolbar" role="toolbar" aria-label="导航工具栏">
+          <button class="icon-btn" aria-label="后退" disabled><svg class="icon"><use href="#i-back"/></svg></button>
+          <button class="icon-btn" aria-label="前进" disabled><svg class="icon"><use href="#i-next"/></svg></button>
+          <button class="icon-btn" aria-label="重新加载"><svg class="icon"><use href="#i-reload"/></svg></button>
+          <input class="address" aria-label="地址栏" value="https://flash.example.com/games" readonly>
+          <div class="pill" aria-hidden="true"><button type="button" tabindex="-1"><span class="flash-dot"></span>Flash</button><button type="button" tabindex="-1"><svg class="icon"><use href="#i-chevron"/></svg></button></div>
+          <button class="gear" id="gear-a" aria-label="设置" title="设置" aria-controls="settings-a" aria-expanded="true">
+            <svg class="icon"><use href="#i-gear"/></svg>
+          </button>
+        </div>
+        <div class="page" aria-hidden="true"></div>
+
+        <section class="panel" id="settings-a" aria-labelledby="settings-a-title">
+          <div class="head">
+            <h2 id="settings-a-title">设置</h2>
+            <button class="icon-btn" id="close-a" aria-label="关闭设置"><svg class="icon"><use href="#i-close"/></svg></button>
+          </div>
+          <div class="group">
+            <h3>外观</h3>
+            <div role="radiogroup" aria-label="主题">
+              <button type="button" class="theme-row" role="radio" aria-checked="false" data-set-theme="system">
+                <span class="radio" aria-hidden="true"></span><span class="label">跟随系统</span>
+                <span class="swatch sys" aria-hidden="true"><i></i><i></i></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+              <button type="button" class="theme-row" role="radio" aria-checked="true" data-set-theme="light">
+                <span class="radio" aria-hidden="true"></span><span class="label">浅色</span>
+                <span class="swatch light" aria-hidden="true"><i></i><i></i></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+              <button type="button" class="theme-row" role="radio" aria-checked="false" data-set-theme="dark">
+                <span class="radio" aria-hidden="true"></span><span class="label">深色</span>
+                <span class="swatch dark" aria-hidden="true"><i></i><i></i></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="group">
+            <h3>默认引擎</h3>
+            <div role="radiogroup" aria-label="默认引擎">
+              <button type="button" class="row" role="radio" aria-checked="true" data-set-engine="ppapi">
+                <span class="radio" aria-hidden="true"></span>
+                <span class="label">原生 Flash<span class="sub">新站点默认用 PPAPI</span></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+              <button type="button" class="row" role="radio" aria-checked="false" data-set-engine="ruffle">
+                <span class="radio" aria-hidden="true"></span>
+                <span class="label">Ruffle<span class="sub">兼容优先，不依赖插件</span></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+            </div>
+            <p class="engine-note" id="engine-note-a" hidden>未检测到插件，所有标签会用 Ruffle。</p>
+          </div>
+          <div class="group">
+            <h3>语言</h3>
+            <button type="button" class="lang" aria-describedby="lang-hint-a">
+              <span>简体中文</span><span id="lang-hint-a">随 i18n 落地</span>
+            </button>
+          </div>
+          <p class="footer">设置即时保存，不需要「应用」按钮。</p>
+        </section>
+      </div>
+    </div>
+    <ul class="tradeoffs">
+      <li><b>好处</b>：不遮页面本体（面板只占右上角 312 px）、不新开窗口；焦点/Esc/失焦关闭全部复用 M1 已验收的叠加层语义。</li>
+      <li><b>代价</b>：叠加层要多一个 kind（<code>shell-overlays.ts</code> 的 <code>KINDS</code> + <code>sender()</code> 角色），设置写入要放开给该角色。</li>
+      <li><b>风险</b>：面板不能超出窗口；窗口很窄时要退化成整宽抽屉。</li>
+    </ul>
+  </article>
+
+  <!-- ============ 方案 B ============ -->
+  <article class="variant" id="variant-b">
+    <header>
+      <span class="tag">方案 B</span>
+      <h2>并入现有引擎面板</h2>
+      <span class="muted" style="font-size:12px">不新增界面，在渲染引擎面板底部加「设置」分区</span>
+    </header>
+    <div class="stage">
+      <div class="frame">
+        <div class="tabs">
+          <div class="tab"><span class="dot"></span>Flash 游戏档案</div>
+          <div class="tab add" aria-hidden="true">＋</div>
+          <div class="win-controls" aria-hidden="true"><span>—</span><span>▢</span><span>✕</span></div>
+        </div>
+        <div class="toolbar" role="toolbar" aria-label="导航工具栏">
+          <button class="icon-btn" aria-label="后退" disabled><svg class="icon"><use href="#i-back"/></svg></button>
+          <button class="icon-btn" aria-label="前进" disabled><svg class="icon"><use href="#i-next"/></svg></button>
+          <button class="icon-btn" aria-label="重新加载"><svg class="icon"><use href="#i-reload"/></svg></button>
+          <input class="address" aria-label="地址栏" value="https://flash.example.com/games" readonly>
+          <div class="pill"><button type="button" tabindex="-1"><span class="flash-dot"></span>Flash</button><button type="button" tabindex="-1" aria-label="引擎设置" aria-expanded="true"><svg class="icon"><use href="#i-chevron"/></svg></button></div>
+        </div>
+        <div class="page" aria-hidden="true"></div>
+
+        <section class="panel" id="engine-b" aria-labelledby="engine-b-title">
+          <div class="group" style="padding:2px 0 4px">
+            <h3 id="engine-b-title">渲染引擎</h3>
+            <div class="choices" role="group" aria-label="选择当前标签的引擎">
+              <button type="button" class="choice" aria-pressed="true">
+                <span class="mark" aria-hidden="true" style="color:var(--flash)"><svg class="icon"><use href="#i-flash"/></svg></span>
+                <strong>Flash</strong><span class="muted" style="font-size:11px">原生播放器</span>
+                <svg class="icon check" aria-hidden="true" style="color:var(--accent)"><use href="#i-check"/></svg>
+              </button>
+              <button type="button" class="choice" aria-pressed="false">
+                <span class="mark" aria-hidden="true" style="color:var(--ruffle)"><svg class="icon"><use href="#i-ruffle"/></svg></span>
+                <strong>Ruffle</strong><span class="muted" style="font-size:11px">兼容播放器</span>
+                <svg class="icon check" aria-hidden="true" style="color:var(--accent);visibility:hidden"><use href="#i-check"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="group" style="padding:4px 0 0">
+            <h3>设置</h3>
+            <div class="seg-compact" role="group" aria-label="主题">
+              <button type="button" data-set-theme="system" aria-pressed="false">跟随系统</button>
+              <button type="button" data-set-theme="light" aria-pressed="true">浅色</button>
+              <button type="button" data-set-theme="dark" aria-pressed="false">深色</button>
+            </div>
+            <div class="seg-compact seg-two" role="group" aria-label="默认引擎" style="margin-top:5px">
+              <button type="button" data-set-engine="ppapi" aria-pressed="true">默认 Flash</button>
+              <button type="button" data-set-engine="ruffle" aria-pressed="false">默认 Ruffle</button>
+            </div>
+            <p class="muted" style="font-size:11px;padding:5px 2px 2px">语言、下载位置等留给设置面板；这里只放两项最常用的。</p>
+          </div>
+        </section>
+      </div>
+    </div>
+    <ul class="tradeoffs">
+      <li><b>好处</b>：改动最小（只改 <code>ShellOverlay.vue</code> + 一条命令），没有新叠加层、没有新权限角色。</li>
+      <li><b>代价</b>：面板宽 268 px，主题三项只能用紧凑分段控件；后续加「下载位置、清除数据、书签管理」会挤爆。</li>
+      <li><b>风险</b>：设置是全局的，塞在「当前标签的引擎」面板里，心智模型不一致（用户会以为只影响这个标签）。</li>
+    </ul>
+  </article>
+
+  <!-- ============ 方案 C ============ -->
+  <article class="variant" id="variant-c">
+    <header>
+      <span class="tag">方案 C</span>
+      <h2>独立设置窗口</h2>
+      <span class="muted" style="font-size:12px">自绘 chrome 的第二窗口，左导航 + 内容区</span>
+    </header>
+    <div class="stage stage-c">
+      <div class="frame frame-c">
+        <div class="tabs">
+          <div class="tab"><span class="dot"></span>Flash 游戏档案</div>
+          <div class="tab add" aria-hidden="true">＋</div>
+          <div class="win-controls" aria-hidden="true"><span>—</span><span>▢</span><span>✕</span></div>
+        </div>
+        <div class="toolbar" role="toolbar" aria-label="导航工具栏">
+          <button class="icon-btn" aria-label="后退" disabled><svg class="icon"><use href="#i-back"/></svg></button>
+          <button class="icon-btn" aria-label="前进" disabled><svg class="icon"><use href="#i-next"/></svg></button>
+          <button class="icon-btn" aria-label="重新加载"><svg class="icon"><use href="#i-reload"/></svg></button>
+          <input class="address" aria-label="地址栏" value="https://flash.example.com/games" readonly>
+          <div class="pill" aria-hidden="true"><button type="button" tabindex="-1"><span class="flash-dot"></span>Flash</button><button type="button" tabindex="-1"><svg class="icon"><use href="#i-chevron"/></svg></button></div>
+        </div>
+        <div class="page" aria-hidden="true"></div>
+      </div>
+      <div class="window-c" role="dialog" aria-label="设置">
+        <div class="cap">
+          <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>
+          <span class="title">设置</span>
+          <button class="btn" aria-label="最小化"><svg class="icon"><use href="#i-min"/></svg></button>
+          <button class="btn" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+        </div>
+        <div class="body">
+          <nav class="nav" aria-label="设置分类">
+            <button type="button" aria-current="page">外观</button>
+            <button type="button">引擎</button>
+            <button type="button">语言</button>
+            <button type="button" disabled style="opacity:.45">下载</button>
+            <button type="button" disabled style="opacity:.45">隐私</button>
+          </nav>
+          <div class="pane">
+            <h2>外观</h2>
+            <p>主题只影响浏览器界面；站点看到的是同一套 <code>prefers-color-scheme</code>。</p>
+            <div role="radiogroup" aria-label="主题">
+              <button type="button" class="row" role="radio" aria-checked="false" data-set-theme="system">
+                <span class="radio" aria-hidden="true"></span><span class="label">跟随系统<span class="sub">Windows 切换深浅色时自动跟随</span></span>
+                <span class="swatch sys" aria-hidden="true"><i></i><i></i></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+              <button type="button" class="row" role="radio" aria-checked="true" data-set-theme="light">
+                <span class="radio" aria-hidden="true"></span><span class="label">浅色</span>
+                <span class="swatch light" aria-hidden="true"><i></i><i></i></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+              <button type="button" class="row" role="radio" aria-checked="false" data-set-theme="dark">
+                <span class="radio" aria-hidden="true"></span><span class="label">深色</span>
+                <span class="swatch dark" aria-hidden="true"><i></i><i></i></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+            </div>
+            <h3 style="margin:14px 0 6px">默认引擎</h3>
+            <div role="radiogroup" aria-label="默认引擎">
+              <button type="button" class="row" role="radio" aria-checked="true" data-set-engine="ppapi">
+                <span class="radio" aria-hidden="true"></span><span class="label">原生 Flash<span class="sub">没有插件时自动回落 Ruffle</span></span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+              <button type="button" class="row" role="radio" aria-checked="false" data-set-engine="ruffle">
+                <span class="radio" aria-hidden="true"></span><span class="label">Ruffle</span>
+                <svg class="icon check" aria-hidden="true"><use href="#i-check"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="pane-actions">
+          <button type="button" class="btn-quiet">恢复默认</button>
+          <button type="button" class="btn-primary">完成</button>
+        </div>
+      </div>
+    </div>
+    <ul class="tradeoffs">
+      <li><b>好处</b>：空间够、能长成完整设置中心（下载、隐私、代理）；不依赖叠加层尺寸计算。</li>
+      <li><b>代价</b>：要写第二套窗口生命周期（自绘 chrome、焦点归还、单实例、关窗即丢弃），并新增一个 <code>settings</code> 会话与 IPC 角色。</li>
+      <li><b>风险</b>：与「界面归一化」目标冲突——用户会看到第三种 chrome；且设置窗口被页面遮挡时（Flash 全屏）无提示。</li>
+    </ul>
+  </article>
+
+  <p class="muted" style="font-size:12px;margin-top:8px">
+    说明：这只是造型稿，不含真实存储。点击任一方案的「跟随系统 / 浅色 / 深色」会整页切换，用于比对 token 在两种主题下的观感；
+    「默认引擎」选中态会跟随点击变化。
+  </p>
+</main>
+
+<script>
+  const root = document.documentElement
+  const params = new URLSearchParams(location.search)
+  const systemDark = matchMedia('(prefers-color-scheme: dark)').matches
+  let mode = params.get('theme') || (systemDark ? 'dark' : 'light')
+
+  function resolved(theme) {
+    if (theme === 'system') return systemDark ? 'dark' : 'light'
+    return theme
+  }
+  function apply(theme) {
+    mode = theme
+    root.dataset.theme = resolved(theme)
+    for (const button of document.querySelectorAll('[data-set-theme]')) {
+      button.setAttribute(button.getAttribute('role') === 'radio' ? 'aria-checked' : 'aria-pressed', String(button.dataset.setTheme === theme))
+    }
+  }
+  for (const button of document.querySelectorAll('[data-set-theme]')) {
+    button.addEventListener('click', () => apply(button.dataset.setTheme))
+  }
+  for (const button of document.querySelectorAll('[data-set-engine]')) {
+    button.addEventListener('click', () => {
+      for (const peer of document.querySelectorAll('[data-set-engine]')) {
+        peer.setAttribute(peer.getAttribute('role') === 'radio' ? 'aria-checked' : 'aria-pressed', String(peer === button))
+      }
+    })
+  }
+  for (const button of document.querySelectorAll('[data-preview-theme]')) {
+    button.addEventListener('click', () => {
+      const target = button.dataset.previewTheme
+      apply(target)
+      for (const peer of document.querySelectorAll('[data-preview-theme]')) {
+        peer.setAttribute('aria-pressed', String(peer === button))
+      }
+    })
+  }
+
+  // 方案 A：面板开关（点外部/Esc 关闭，与产品行为一致）
+  const gear = document.getElementById('gear-a')
+  const panelA = document.getElementById('settings-a')
+  let panelOpen = true
+  function setPanel(open, focusTrigger) {
+    panelOpen = open
+    panelA.hidden = !open
+    gear.setAttribute('aria-expanded', String(open))
+    if (focusTrigger) gear.focus()
+  }
+  gear.addEventListener('click', () => setPanel(!panelOpen, false))
+  document.getElementById('close-a').addEventListener('click', () => setPanel(false, true))
+  document.addEventListener('pointerdown', (event) => {
+    if (!panelOpen) return
+    if (panelA.contains(event.target) || gear.contains(event.target)) return
+    setPanel(false, false)
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && panelOpen) setPanel(false, true)
+  })
+
+  apply(mode)
+  for (const peer of document.querySelectorAll('[data-preview-theme]')) {
+    peer.setAttribute('aria-pressed', String(peer.dataset.previewTheme === mode))
+  }
+</script>
+</body>
+</html>
