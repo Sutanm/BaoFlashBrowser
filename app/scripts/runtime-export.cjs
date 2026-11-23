@@ -87,7 +87,7 @@ try {
   const result = spawnSync(powershell, [
     '-NoProfile', '-NonInteractive', '-Command',
     `Compress-Archive -Path '${join(staging, '*').replace(/'/g, "''")}' -DestinationPath '${zip.replace(/'/g, "''")}' -CompressionLevel Optimal`
-  ], { stdio: 'inherit' })
+  ], { stdio: 'inherit', windowsHide: true })
   if (result.status !== 0) {
     console.error('压缩失败。')
     process.exit(1)

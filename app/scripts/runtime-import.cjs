@@ -38,7 +38,7 @@ try {
     'Add-Type -AssemblyName System.IO.Compression.FileSystem',
     `[System.IO.Compression.ZipFile]::ExtractToDirectory('${resolve(zip).replace(/'/g, "''")}', '${staging.replace(/'/g, "''")}')`
   ].join('; ')
-  const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'inherit' })
+  const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'inherit', windowsHide: true })
   if (result.status !== 0) {
     console.error('解压失败。')
     process.exit(1)

@@ -197,9 +197,26 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   bindInternalProtocol(getInternalSession())
   const plugins = options.flash === true
   const shellUrl = options.shellUrl
-  const placement = placeWindow(options)
+  /**
+   * 自动化窗口模式（仅未打包构建生效），目的：跑冒烟时**屏幕上什么都不出现**。
+   *
+   * 实测教训（2026-11-23）：`showInactive()` 之后再 `setPosition(-32000)` 不生效——
+   * Windows 仍按创建时的默认位置摆放，窗口照旧出现在屏幕上。所以位置必须在
+   * `BrowserWindow` 构造时就给定，并且再加一层 `setOpacity(0)`：窗口仍是"可见"状态
+   * （渲染/合成不被节流，Ruffle 能出帧），但完全透明；同时跳过任务栏、禁用聚焦，
+   * 并挂「被激活就 blur」的守卫。弹出窗口也要走同一套（否则它们照样弹出来）。
+   */
+  const automated = !app.isPackaged
+  const hidden = automated && process.env.BAO_SMOKE_HIDDEN === '1'
+  const background = automated && process.env.BAO_SMOKE_BACKGROUND === '1'
+  const placement = background
+    ? { ...placeWindow(options), x: -32000, y: -32000 }
+    : placeWindow(options)
   const window = new BrowserWindow({
     ...placement,
+    // 自动化模式下窗口从**创建那一刻**就是透明且不进任务栏的：避免 show 的瞬间
+    // 以 opacity 1 闪一下（实测：仅靠 showInactive 之后设 opacity 仍会短暂出现在屏幕上）。
+    ...(background ? { opacity: 0, skipTaskbar: true, focusable: false } : {}),
     minWidth: 520,
     minHeight: 360,
     show: false,
@@ -428,6 +445,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           height: size.height,
           x: size.x,
           y: size.y,
+          // 自动化模式：弹窗从一开始就不显示（否则 Chromium 会在 did-create-window 之后
+          // 再 show 一次，屏幕上闪一个窗口）。
+          ...(hidden ? { show: false } : {}),
           // 自绘 chrome：rame: false 去掉原生标题栏（Windows 仍保留 1px 的可调整边框，属正常）。
           frame: false,
           backgroundColor: '#ffffff',
@@ -453,6 +473,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     contents.on('did-create-window', (child) => {
       const childContents = child.webContents
       if (childContents.isDestroyed()) return
+      // 自动化模式下弹窗同样不能出现在屏幕上。
+      applyAutomationWindowMode(child)
       registerPageView(childContents.id)
       // 自绘 chrome：window.open 的窗口没有原生标题栏，控制簇由我们画。
       attachPopupChrome(child)
@@ -581,6 +603,18 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return opened
   }
 
+  /**
+   * 「后台窗口永不抢前台」合同（沿用旧项目 `focusActive()` 的做法，2026-11-23）：
+   * 只有窗口本身已经是前台窗口时，才把焦点交给它的 WebContents。
+   *
+   * 没有这道闸门时，`select()/swapView()/navigate()` 里的 `webContents.focus()` 会把
+   * 一个后台窗口（自动化、或被别的窗口盖住的窗口）拉到前台——用户正在别处打字就被打断。
+   */
+  function focusContents(contents: WebContents): void {
+    if (window.isDestroyed() || !window.isFocused()) return
+    if (!contents.isDestroyed()) contents.focus()
+  }
+
   function select(tab: Tab, focus = true): void {
     if (active !== tab) {
       if (active && window.contentView.children.includes(active.view)) {
@@ -591,7 +625,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       overlays.setActivePage(tab.view.webContents)
       layout()
     }
-    if (focus && !tab.view.webContents.isDestroyed()) tab.view.webContents.focus()
+    if (focus) focusContents(tab.view.webContents)
     publish()
   }
 
@@ -621,7 +655,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
     if (window.contentView.children.includes(previous)) window.contentView.removeChildView(previous)
     if (!previous.webContents.isDestroyed()) previous.webContents.close()
-    if (measured && !overlays.panelVisible() && !view.webContents.isDestroyed()) view.webContents.focus()
+    if (measured && !overlays.panelVisible()) focusContents(view.webContents)
     return view
   }
 
@@ -1070,7 +1104,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           break
         }
         void contents.loadURL(url).catch(() => {})
-        contents.focus()
+        focusContents(contents)
         break
       }
       case 'back': {
@@ -1188,31 +1222,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   try {
     await window.loadURL(shellUrl)
     if (options.adopt) adoptTab(options.adopt, options.adoptIndex ?? 0)
-    /**
-     * 自动化时的「不抢前台」模式（仅未打包构建生效）：
-     * - `BAO_SMOKE_BACKGROUND=1`：`showInactive()` + `focusable: false`，窗口可见但不激活；
-     *   再加一道「被激活就立刻让出」的守卫，防止代码里的 `webContents.focus()` 把它拉到前台。
-     * - `BAO_SMOKE_HIDDEN=1`：干脆不 show（`paintWhenInitiallyHidden` 默认仍渲染），
-     *   屏幕上完全不出现窗口，适合边工作边跑。
-     *
-     * 代价：窗口拿不到焦点，`pointerLock`/`fullscreen` 的用户激活路径不可验证
-     * （`permissions` 用例在后台模式显式跳过并说明原因）。缓存键盘路径已实测可用。
-     */
-    const automated = !app.isPackaged
-    const hidden = automated && process.env.BAO_SMOKE_HIDDEN === '1'
-    const background = automated && process.env.BAO_SMOKE_BACKGROUND === '1'
     if (hidden) {
-      // 保持 show:false。窗口不出现，也就不会抢前台。
+      // 保持 show:false：屏幕与任务栏都不出现（代价：Ruffle 出帧会被节流）。
     } else if (background) {
-      // 移到屏幕外：窗口仍是"可见"状态（渲染/合成不被节流），但用户看不到它。
-      const [width, height] = window.getSize()
-      window.setPosition(-32000 - width, -32000 - height)
-      window.setFocusable(false)
-      window.showInactive()
-      window.on('focus', () => {
-        // 兜底：任何路径（含 webContents.focus）把它激活时，立刻把焦点还回去。
-        if (!window.isDestroyed()) window.blur()
-      })
+      applyAutomationWindowMode(window)
     } else {
       window.show()
     }
@@ -1222,6 +1235,32 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!window.isDestroyed()) window.destroy()
     throw error
   }
+}
+
+/**
+ * 自动化窗口模式：把窗口做成「可见但完全不可见」。
+ *
+ * - 未打包构建 + `BAO_SMOKE_BACKGROUND=1`：跳过任务栏、透明（opacity 0）、不可聚焦、
+ *   `showInactive()`（不激活）；仍然是一次正常 show，所以渲染/合成不被节流。
+ * - `BAO_SMOKE_HIDDEN=1`：直接隐藏（更安静，但 Ruffle 出帧会被节流）。
+ *
+ * 关掉焦点是刻意的：`webContents.focus()`（切标签、引擎切换）会激活窗口，所以还挂了
+ * 「被激活就 blur」的守卫，保证整轮跑动中前台焦点不被打断。
+ */
+function applyAutomationWindowMode(window: BrowserWindow): void {
+  if (app.isPackaged || window.isDestroyed()) return
+  if (process.env.BAO_SMOKE_HIDDEN === '1') {
+    window.hide()
+    return
+  }
+  if (process.env.BAO_SMOKE_BACKGROUND !== '1') return
+  window.setSkipTaskbar(true)
+  window.setOpacity(0)
+  window.setFocusable(false)
+  window.showInactive()
+  window.on('focus', () => {
+    if (!window.isDestroyed()) window.blur()
+  })
 }
 
 /** 新窗口落在拖放点附近，并夹到最近的显示器工作区内。 */

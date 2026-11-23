@@ -16,6 +16,17 @@ app.setName('BaoFlashBrowser Next')
 // 默认菜单的 accelerator 抢走，标签级快捷键无法生效（架构 §3 商标交互沿用 Chrome 式目标）。
 Menu.setApplicationMenu(null)
 
+/**
+ * 自动化模式（`BAO_SMOKE_HIDDEN=1` / `BAO_SMOKE_BACKGROUND=1`，仅未打包构建）：
+ * 关掉 Chromium 对「不可见/被遮挡窗口」的节流。否则隐藏窗口里的 Ruffle 不出帧，
+ * 冒烟会出现"播放器状态 unavailable"这类假失败。
+ */
+if (!app.isPackaged && (process.env.BAO_SMOKE_HIDDEN === '1' || process.env.BAO_SMOKE_BACKGROUND === '1')) {
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+  app.commandLine.appendSwitch('disable-renderer-backgrounding')
+  app.commandLine.appendSwitch('disable-background-timer-throttling')
+}
+
 // 自定义 scheme 必须在 ready 之前登记，而且**只能调用一次**（多次调用会覆盖而不是追加）。
 // Ruffle 的资源协议与内部页 `bao://settings` 因此合并成一次登记。
 protocol.registerSchemesAsPrivileged([...ruffleSchemePrivileges(), ...internalSchemePrivileges()])

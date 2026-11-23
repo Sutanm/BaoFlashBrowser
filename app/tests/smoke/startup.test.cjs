@@ -3,12 +3,14 @@ const { test } = require('node:test')
 const { launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
- * 自动化模式（见 `scripts/smoke-background.cjs`）：
- * - `BAO_SMOKE_BACKGROUND=1`：窗口 `showInactive()` + `focusable: false`（可见但不激活）；
- * - `BAO_SMOKE_HIDDEN=1`：窗口完全不 show。
- * 两种模式都不会让窗口获得焦点，所以焦点断言按模式取值（前台验收仍是 `npm run smoke`）。
+ * 自动化模式（见 `scripts/smoke-background.cjs`），两种都不抢前台：
+ * - `BAO_SMOKE_HIDDEN=1`：窗口完全不 show（屏幕上什么都没有）；
+ * - `BAO_SMOKE_BACKGROUND=1`：窗口在屏幕外、完全透明、跳过任务栏。
+ * 前台验收仍是 `npm run smoke`。
  */
-const AUTOMATED = process.env.BAO_SMOKE_BACKGROUND === '1' || process.env.BAO_SMOKE_HIDDEN === '1'
+const HIDDEN = process.env.BAO_SMOKE_HIDDEN === '1'
+const BACKGROUND = process.env.BAO_SMOKE_BACKGROUND === '1'
+const AUTOMATED = HIDDEN || BACKGROUND
 
 test('自编译运行时启动无边框外壳并保持单标签、导航与焦点', { timeout: 60_000 }, async () => {
   const server = await startFixtureServer({ '/one': page('第一个页面'), '/two': page('第二个页面') })
@@ -69,14 +71,19 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
         id: webContents.id,
         url: webContents.getURL(),
         focused: webContents.isFocused(),
-        isolated: await webContents.executeJavaScript('typeof window.baoBrowser === "undefined" && typeof window.require === "undefined"')
+        isolated: await webContents.executeJavaScript('typeof window.baoBrowser === "undefined" && typeof window.require === "undefined"'),
+        // 自动化模式下窗口必须完全透明（否则它会出现在屏幕上）。
+        opacity: window.getOpacity(),
+        visible: window.isVisible()
       }
     })
     assert.deepEqual(details, {
       id: details.id,
       url: `${server.baseUrl}/one`,
       focused: !AUTOMATED,
-      isolated: true
+      isolated: true,
+      opacity: BACKGROUND ? 0 : 1,
+      visible: !HIDDEN
     })
 
     await windowHandle.evaluate(async (window) => {

@@ -20,15 +20,15 @@ const PAGE = `<!doctype html><meta charset="utf-8"><title>权限探针</title>
   </script>`
 
 /**
- * 后台模式（`npm run smoke:bg`）：窗口 `focusable: false`，pointerLock 与 fullscreen 的
- * 用户激活拿不到（Chromium 要求文档获得焦点），因此放行那半条用例显式跳过并说明原因；
- * 「其余权限一律拒绝」不依赖焦点，仍然在后台模式里跑。
+ * 自动化模式（`npm run smoke:bg`）：窗口不显示且不获焦，pointerLock/fullscreen 的用户激活
+ * 拿不到（Chromium 要求文档获得焦点），所以放行那半条用例显式跳过并说明原因；
+ * 「其余权限一律拒绝」不依赖焦点，仍然在自动化模式里跑。
  */
-const BACKGROUND = process.env.BAO_SMOKE_BACKGROUND === '1'
+const AUTOMATED = process.env.BAO_SMOKE_HIDDEN === '1' || process.env.BAO_SMOKE_BACKGROUND === '1'
 
 test('权限白名单：fullscreen / pointerLock 放行', {
   timeout: 120_000,
-  skip: BACKGROUND ? 'pointerLock/fullscreen 需要文档焦点，后台模式（不抢前台）无法验证' : false
+  skip: AUTOMATED ? 'pointerLock/fullscreen 需要文档焦点，自动化模式（不抢前台）无法验证' : false
 }, async () => {
   const server = await startFixtureServer({ '/perm': PAGE })
   const { app, shell, close } = await launchApp()

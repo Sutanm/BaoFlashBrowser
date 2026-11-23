@@ -140,7 +140,9 @@ export function createShellOverlays(
     item.view.setVisible(true)
     raise()
     if (kind === 'panel') {
-      item.view.webContents.focus()
+      // 后台窗口不抢前台（与 browser-window 的 focusContents 同一合同）：
+      // 自动化或窗口被盖住时，打开面板不应该把窗口拉到前台。
+      if (window.isFocused()) item.view.webContents.focus()
       send(item.view.webContents, { type: 'panel-opened' })
     }
   }

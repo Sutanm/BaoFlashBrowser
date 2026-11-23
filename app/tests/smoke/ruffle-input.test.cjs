@@ -20,7 +20,14 @@ const PROBE = `typeof window.__probe === 'function' ? window.__probe() : 'no-pro
  * pointer 事件，所以必须用 CDP 的 `Input.dispatchMouseEvent` 才能复现真实点击；
  * 键盘仍走 `sendInputEvent`（与产品真实输入路径一致）。
  */
-test('Ruffle 画布焦点：点击播放器后键盘事件进入 SWF', { timeout: 180_000 }, async () => {
+test('Ruffle 画布焦点：点击播放器后键盘事件进入 SWF', {
+  timeout: 180_000,
+  // 隐藏窗口里 Ruffle 播放器报 unavailable（需要真实合成帧）；
+  // 后台跑法（`npm run smoke:bg`）显式跳过，前台跑法覆盖。
+  skip: process.env.BAO_SMOKE_HIDDEN === '1'
+    ? 'Ruffle 播放器需要真实合成帧，隐藏窗口（smoke:bg）下无法验证'
+    : false
+}, async () => {
   const server = await startFixtureServer()
   const { app, shell, close } = await launchApp()
   try {

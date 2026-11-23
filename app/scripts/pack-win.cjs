@@ -113,6 +113,8 @@ const result = spawnSync(process.execPath, [
 ], {
   cwd: root,
   stdio: 'inherit',
+  // 隐藏宿主里跑时不要弹出控制台窗口。
+  windowsHide: true,
   env: { ...process.env, ELECTRON_EXEC_PATH: electronExecutable }
 })
 
