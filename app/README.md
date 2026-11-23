@@ -36,7 +36,7 @@ npm run dev
 | `npm run typecheck` | 检查 TypeScript 和 Vue 类型。 |
 | `npm run build` | 检查类型并编译主进程、预加载和渲染层。 |
 | `npm start` | 使用自编译 Electron 启动已编译的应用。 |
-| `npm run smoke` | 用临时测试 profile 验证无边框外壳、标签栏交互、快捷键、引擎切换与站点规则、输入回环、Ruffle 的 SWF 跨源加载、视图尺寸、Node 隔离、内核版本和本地 PPAPI 样本（17 个用例）。 |
+| `npm run smoke` | 用临时测试 profile 验证无边框外壳、标签栏交互、快捷键、引擎切换与站点规则、输入回环、Ruffle 的 SWF 跨源加载、视图尺寸、Node 隔离、内核版本和本地 PPAPI 样本（18 个用例）。 |
 | `npm run smoke:packaged` | 核对最近一次 `pack:win` 生成的验证包能启动真实内核、加载 PPAPI 样本并带上 Ruffle 运行时。 |
 | `npm run pack:win` | 在固定的 `dist/win-preview/win-unpacked` 生成 Win x64 验证包（每次覆盖，并清理历史随机目录），产物自带 PPAPI 插件；结束时校验产物确实来自自编译内核。 |
 
@@ -64,6 +64,7 @@ npm run dev
 - **站点规则存储**：当前是 `userData/engine-rules.json`（临时方案），M2 引入业务库后迁到 SQLite。
 - **标签合同尚未覆盖**：会话恢复、未加载占位、分组与搜索（固定/复制/静音/右键菜单已实现）。`detachTab/adoptTab` 与 `undo-close` 是这些交互的同一入口。
 - **跨窗口移交的未验证面**：失焦、全屏退出、音频继续播放、Flash 内存态在真实站点下的表现；已实测的是同一 WebContents 复用带来的页面运行时状态与导航历史保留。
+- **Ruffle 的键盘焦点**：Ruffle 0.8 需要用户**先点一次播放器**（它靠 `pointerdown` 把焦点交给内部容器），之后键盘事件才进 SWF；自动化要用 CDP 派发指针事件，`sendInputEvent({type:'mousedown'})` 不够。`ruffle-input.test.cjs` 已覆盖。
 - **快捷键**：`Ctrl+T/W/Tab/Shift+T` 与 `Ctrl+Shift+I`（页面视图 DevTools）。标签分组、标签搜索、未加载占位仍未实现。
 - **引擎相关未验证**：引擎切换失败回退（`restore()` 抛错）没有构造用例；真实站点（4399 等）在两种引擎下的对照未复测；UA、插件版本通告、`mms.cfg`、SWFObject 等站点兼容项按审计 §C7 另行验证。
 - **输入相关未验证**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖，样本见 `tests/smoke/fixtures/README.md`）。

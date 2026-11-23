@@ -204,7 +204,7 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 
 - **弹窗的 `window.opener`**：已改为真实子窗口（`action: 'allow' + overrideBrowserWindowOptions`），`window.opener` 与嵌套弹窗都由 `popup.test.cjs` 覆盖。仍未验证：带 features 的弹窗尺寸/位置（当前固定 1024×768）、`opener.close()` 关闭子窗口、真实站点的 lobby→game 交接。
 - **站点版本门**：两个真实站点（4399、淘米摩尔庄园）都**不做**版本门或 UA 门，`Shockwave Flash 29.0 r0` + Chromium 142 可正常加载。E39 已无 `ppapi-flash-version` 开关，若后续遇到门禁要求更高版本，需要用 preload 做只读伪装（尚未实现）。
-- **Ruffle 画布焦点**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖）。
+- **Ruffle 画布焦点**：已实测（`ruffle-input.test.cjs`）。Ruffle 0.8 靠 **`pointerdown`** 把焦点交给播放器内部容器，键盘事件才进 SWF；`webContents.sendInputEvent({ type: 'mousedown' })` 不产生 pointer 事件，测试改用 CDP `Input.dispatchMouseEvent` 复现真实点击，键盘仍走 `sendInputEvent`。结论：**点一次播放器后 A/S 等按键确实进入 SWF**（`keyprobe.swf` 的 `ExternalInterface` 回调返回 `65:97,83:115`）。仍未验证：真实游戏 SWF 内的方向键/组合键、IME 进入 Ruffle。
 - **插件内的 IME 组合**：`plugin-input.test.cjs` 只覆盖 keydown/`charCode`；CDP 的 `Input.imeSetComposition` 只对 HTML 页面验证过，IME 组合输入到 PPAPI 插件内部未测。
 - **引擎切换失败回退**：`navigationHistory.restore()` 抛错的分支已实现（保留原引擎并给出提示），但没有构造出失败用例；POST 体等无法还原的状态只按文档记录，未实测。
 - **Ruffle 能力边界**：`ExternalInterface` 只覆盖部分 API，本地 PPAPI 样本里的 `PercentLoaded`/`SetVariable` 往返在 Ruffle 引擎下不保证可用；验收断言只覆盖运行时注入与 polyfill 接管。Ruffle 0.5.0 的元素名是 `ruffle-embed`/`ruffle-object`。
