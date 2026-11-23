@@ -60,7 +60,10 @@
   color: var(--text-primary);
   font-weight: 600;
 }
-.bao-theme-switch .theme-stop:focus-visible { outline: none; }
+/* 焦点环只画在胶囊那一行。这里必须同时清掉 outline 与 box-shadow：
+   外壳的全局 `button:focus-visible`（App.vue）给按钮盒子画了一圈 inset 阴影（矩形、无圆角），
+   只清 outline 的话外面还会套一个方框。 */
+.bao-theme-switch .theme-stop:focus-visible { outline: none; box-shadow: none; }
 .bao-theme-switch .theme-stop:focus-visible::after {
   outline: 2px solid var(--brand-stroke);
   outline-offset: 0;
