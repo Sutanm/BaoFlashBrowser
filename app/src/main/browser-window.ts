@@ -1248,6 +1248,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           if (closing || window.isDestroyed()) return
           overlays.prewarm('quick')
         }, 600)
+        // 引擎面板也预热（缓存共用同一个 overlay 文档，第二次只是建视图），错开时间避免抢首屏。
+        setTimeout(() => {
+          if (closing || window.isDestroyed()) return
+          overlays.prewarm('panel')
+        }, 1200)
       })
     }
   } catch (error) {

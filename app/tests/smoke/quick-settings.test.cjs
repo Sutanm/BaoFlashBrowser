@@ -87,6 +87,17 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     const radius = await inQuick(app, `getComputedStyle(document.querySelector('.quick')).borderTopLeftRadius`)
     assert.equal(radius, '12px')
 
+    // 打开时不该有焦点：否则面板会被画上默认焦点环（实测出现过一圈黄边）。
+    assert.equal(await inQuick(app, `document.activeElement?.tagName`), 'BODY', '打开飞窗后不应程序化聚焦任何元素')
+    const afterTab = await app.evaluate(async ({ webContents }, marker) => {
+      const quick = webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').includes(marker))
+      quick.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+      quick.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+      await new Promise((done) => setTimeout(done, 150))
+      return quick.executeJavaScript(`document.activeElement?.className ?? ''`)
+    }, QUICK_URL)
+    assert.match(afterTab, /theme-stop/, '按 Tab 应落到主题开关的选中档')
+
     // ② 面板里改主题：外壳与系统按钮一起变。
     const stops = await inQuick(app, `Array.from(document.querySelectorAll('.theme-stop'), (stop) => [
       stop.getAttribute('aria-label'), stop.getAttribute('aria-checked')

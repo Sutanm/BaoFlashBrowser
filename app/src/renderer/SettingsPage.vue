@@ -168,7 +168,7 @@ function focusFlashSection(): void {
         <h2 id="flash-title">Flash 插件</h2>
         <div class="select-row flash-row">
           <span class="flash-state" :class="{ ready: flash?.ready }">{{ flashStatusText }}</span>
-          <span class="flash-path" :title="flash?.path">{{ flash?.path }}</span>
+          <span class="flash-path" :title="flash?.path">{{ flash?.ready ? '' : flash?.path }}</span>
           <button type="button" class="action" :disabled="flashBusy" @click="importFlash">导入…</button>
         </div>
         <p v-if="flashError" class="error" role="status">{{ flashError }}</p>

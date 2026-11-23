@@ -727,7 +727,8 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
 .engine-pill {
   flex: none;  display: grid;
   grid-template-columns: 66px 25px;
-  height: 28px;
+  /* 与地址栏、图标按钮同高（32px），工具栏看起来才是一条线 */
+  height: 32px;
   margin-inline-start: 3px;
   border: 1px solid var(--stroke-control);
   border-radius: var(--radius-pill);

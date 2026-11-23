@@ -99,9 +99,9 @@ onMounted(() => {
   detach = window.baoOverlay.subscribe((event) => {
     if (event.type === 'quick-opened') {
       void nextTick(() => {
-        // 只把焦点交给面板容器（tabindex=-1），**不**聚焦选中项：
-        // 程序化聚焦会让 :focus-visible 在打开的一瞬间就画出焦点环，正常应该等用户按 Tab。
-        panel.value?.focus()
+        // 不聚焦任何元素：面板用 tabindex 接过焦点会被 Chromium 画上默认焦点环
+        // （打开飞窗就出现一圈黄边）。Tab 从文档进入时会先落到唯一可 tab 的选中档，
+        // Esc 由主进程的 before-input-event 处理，不需要焦点。
         measure()
       })
     }
@@ -126,7 +126,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 <template>
   <div class="quick-frame" @keydown="onKeydown">
-    <section ref="panel" class="quick" :data-kind="props.kind" aria-label="快捷设置" tabindex="-1">
+    <section ref="panel" class="quick" :data-kind="props.kind" aria-label="快捷设置">
       <p class="group-label">主题</p>
       <div class="quick-theme">
         <ThemeSwitch :mode="theme" :busy="busy" compact @select="chooseTheme" />
