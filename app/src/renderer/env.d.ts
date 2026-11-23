@@ -7,5 +7,6 @@ declare global {
     readonly baoRuntime: RuntimeVersions
     readonly baoBrowser: BrowserBridge
     readonly baoOverlay: OverlayBridge
+    readonly baoWindowControl: { toggleMaximize(): Promise<boolean> }
   }
 }

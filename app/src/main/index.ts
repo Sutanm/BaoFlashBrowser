@@ -5,6 +5,7 @@ import { createBrowserWindow, registerBrowserIpc } from './browser-window'
 import { configureFlashPlugin } from './plugins'
 import { registerRuffleIpc, registerRuffleScheme } from './ruffle'
 import { registerPopupChromeIpc } from './popup-chrome'
+import { registerWindowControlIpc } from './window-control'
 import { registerNetBroker } from './net-broker'
 
 app.setName('BaoFlashBrowser Next')
@@ -21,6 +22,7 @@ const flash = configureFlashPlugin()
 registerBrowserIpc()
 registerRuffleIpc()
 registerPopupChromeIpc()
+registerWindowControlIpc()
 // 引擎网络 broker：按 crossdomain.xml 放行 Ruffle 的跨域读（架构 §3 引擎）。
 registerNetBroker()
 

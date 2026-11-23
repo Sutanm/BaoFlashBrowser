@@ -239,6 +239,8 @@ function onTabAuxClick(tab: BrowserTab, event: MouseEvent): void {
 /** 双击标签栏空白处新建标签。 */
 function onStripDoubleClick(event: MouseEvent): void {
   if ((event.target as HTMLElement | null)?.closest('.tab')) return
+  // 标签栏空白双击在 Chrome 里是新建标签页，这里保持；窗口最大化只走标题栏其余空白处。
+  event.stopPropagation()
   void addTab()
 }
 
@@ -253,6 +255,14 @@ async function cycleTab(step: number): Promise<void> {
   const strip = tabStrip.value
   const selected = strip?.querySelector<HTMLElement>('.tab.selected .tab-title')
   selected?.focus()
+}
+
+/** 双击标题栏最大化/还原：系统按钮只管点击，双击语义要自己转发（A5）。 */
+function onTitlebarDoubleClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement | null
+  // 标签、按钮上双击有自己的语义，不触发窗口最大化。
+  if (target?.closest('.tab, button, input')) return
+  void window.baoWindowControl.toggleMaximize()
 }
 
 function onTabStripKeydown(event: KeyboardEvent): void {
@@ -310,7 +320,7 @@ onBeforeUnmount(() => store.disconnect())
 
 <template>
   <header class="shell" :style="shellStyle">
-    <div class="titlebar">
+    <div class="titlebar" @dblclick="onTitlebarDoubleClick">
 
       <div
         ref="tabStrip"

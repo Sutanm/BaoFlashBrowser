@@ -11,6 +11,11 @@ const versions: RuntimeVersions = {
   chromium: process.versions.chrome
 }
 
+// 窗口 chrome（A5）：系统画按钮，双击标题栏最大化由我们显式转发。
+const windowControl = {
+  toggleMaximize: () => ipcRenderer.invoke('bao:window-control', 'toggle-maximize')
+}
+
 const browser: BrowserBridge = {
   run: (command) => ipcRenderer.invoke(browserChannels.command, command),
   subscribe(listener) {
@@ -51,5 +56,6 @@ const overlay: OverlayBridge = {
 }
 
 contextBridge.exposeInMainWorld('baoRuntime', versions)
+contextBridge.exposeInMainWorld('baoWindowControl', windowControl)
 contextBridge.exposeInMainWorld('baoBrowser', browser)
 contextBridge.exposeInMainWorld('baoOverlay', overlay)

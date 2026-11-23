@@ -277,6 +277,14 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 - 实测（`popup.test.cjs` 新增用例）：内容区尺寸等于请求值 1024×768（有原生标题栏时高度会被吃掉约 32px）；窗口–内容差 ≤2px（Windows 可调整无边框窗口的 1px 边框）；chrome 视图存在且关闭按钮生效。全量冒烟 22/22，连续两轮稳定。
 - 已知边界：站点页面顶部 26×96 的右上角区域被控制簇覆盖（抓取/点击落在该处会被 chrome 接收）；窗口只能在抓手处拖动，与「无原生帧」是同一取舍。
 
+**2026-11-23 主窗口 chrome 检查（A5 收尾）**
+
+- 实测布局契约（`titlebar.test.cjs`）：`navigator.windowControlsOverlay` 可用且可见，`titlebar area` 964×40（窗口宽 1100 → 右侧 136px 归系统按钮），`.titlebar` 的 `padding-right` 为 172px（= 按钮宽 + 36px 间隙），因此**标签不会被系统按钮压住**，且随 DPI 自适应（`env(titlebar-area-width)` 生效，未落到 180px 的兜底值）。
+- 拖动契约：`.titlebar` 为 `-webkit-app-region: drag`，`.tabs` 为 `no-drag`。
+- 暗色：外壳 `data-theme` 随 `nativeTheme` 切换；`updateWindowControls()` 在 `nativeTheme.updated` 时调用 `setTitleBarOverlay`，用新 palette 重绘系统按钮。
+- **双击标题栏最大化**：`drag` 区域的双击由浏览器进程命中测试处理，`sendInputEvent` 与 CDP 都到不了那条路径（实测无法自动化）。改为在渲染层显式转发：`.titlebar` 的 `dblclick` → `bao:window-control`（`src/main/window-control.ts`，按发送者取窗口）→ maximize/unmaximize。双击标签或按钮不触发；双击标签栏空白仍按 Chrome 语义新建标签页（`stopPropagation` 防冒泡）。
+- 已知：真实 OS 双击在拖拽区的行为本增量未做人工复测；我们自己的转发保证语义确定，并有 4 条断言（留白、双击最大化、双击还原、双击标签/空白不误触）。
+
 ## 6. 采用的可逆假设
 
 文档未写清、本次按最小可逆方案处理的细节：
