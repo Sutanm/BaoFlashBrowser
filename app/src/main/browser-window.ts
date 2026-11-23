@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
 import { browserChannels, browserFailureText, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
@@ -1188,7 +1188,34 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   try {
     await window.loadURL(shellUrl)
     if (options.adopt) adoptTab(options.adopt, options.adoptIndex ?? 0)
-    window.show()
+    /**
+     * 自动化时的「不抢前台」模式（仅未打包构建生效）：
+     * - `BAO_SMOKE_BACKGROUND=1`：`showInactive()` + `focusable: false`，窗口可见但不激活；
+     *   再加一道「被激活就立刻让出」的守卫，防止代码里的 `webContents.focus()` 把它拉到前台。
+     * - `BAO_SMOKE_HIDDEN=1`：干脆不 show（`paintWhenInitiallyHidden` 默认仍渲染），
+     *   屏幕上完全不出现窗口，适合边工作边跑。
+     *
+     * 代价：窗口拿不到焦点，`pointerLock`/`fullscreen` 的用户激活路径不可验证
+     * （`permissions` 用例在后台模式显式跳过并说明原因）。缓存键盘路径已实测可用。
+     */
+    const automated = !app.isPackaged
+    const hidden = automated && process.env.BAO_SMOKE_HIDDEN === '1'
+    const background = automated && process.env.BAO_SMOKE_BACKGROUND === '1'
+    if (hidden) {
+      // 保持 show:false。窗口不出现，也就不会抢前台。
+    } else if (background) {
+      // 移到屏幕外：窗口仍是"可见"状态（渲染/合成不被节流），但用户看不到它。
+      const [width, height] = window.getSize()
+      window.setPosition(-32000 - width, -32000 - height)
+      window.setFocusable(false)
+      window.showInactive()
+      window.on('focus', () => {
+        // 兜底：任何路径（含 webContents.focus）把它激活时，立刻把焦点还回去。
+        if (!window.isDestroyed()) window.blur()
+      })
+    } else {
+      window.show()
+    }
   } catch (error) {
     closing = true
     controllers.delete(shellContentsId)

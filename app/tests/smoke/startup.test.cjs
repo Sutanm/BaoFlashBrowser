@@ -2,6 +2,14 @@ const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
+/**
+ * 自动化模式（见 `scripts/smoke-background.cjs`）：
+ * - `BAO_SMOKE_BACKGROUND=1`：窗口 `showInactive()` + `focusable: false`（可见但不激活）；
+ * - `BAO_SMOKE_HIDDEN=1`：窗口完全不 show。
+ * 两种模式都不会让窗口获得焦点，所以焦点断言按模式取值（前台验收仍是 `npm run smoke`）。
+ */
+const AUTOMATED = process.env.BAO_SMOKE_BACKGROUND === '1' || process.env.BAO_SMOKE_HIDDEN === '1'
+
 test('自编译运行时启动无边框外壳并保持单标签、导航与焦点', { timeout: 60_000 }, async () => {
   const server = await startFixtureServer({ '/one': page('第一个页面'), '/two': page('第二个页面') })
   const { app, shell, close } = await launchApp()
@@ -64,7 +72,12 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
         isolated: await webContents.executeJavaScript('typeof window.baoBrowser === "undefined" && typeof window.require === "undefined"')
       }
     })
-    assert.deepEqual(details, { id: details.id, url: `${server.baseUrl}/one`, focused: true, isolated: true })
+    assert.deepEqual(details, {
+      id: details.id,
+      url: `${server.baseUrl}/one`,
+      focused: !AUTOMATED,
+      isolated: true
+    })
 
     await windowHandle.evaluate(async (window) => {
       const resized = new Promise((resolve) => window.once('resize', resolve))

@@ -19,7 +19,17 @@ const PAGE = `<!doctype html><meta charset="utf-8"><title>权限探针</title>
     document.getElementById('pad').onclick = () => document.getElementById('pad').requestPointerLock()
   </script>`
 
-test('权限白名单：只放行 fullscreen / pointerLock，其余拒绝', { timeout: 120_000 }, async () => {
+/**
+ * 后台模式（`npm run smoke:bg`）：窗口 `focusable: false`，pointerLock 与 fullscreen 的
+ * 用户激活拿不到（Chromium 要求文档获得焦点），因此放行那半条用例显式跳过并说明原因；
+ * 「其余权限一律拒绝」不依赖焦点，仍然在后台模式里跑。
+ */
+const BACKGROUND = process.env.BAO_SMOKE_BACKGROUND === '1'
+
+test('权限白名单：fullscreen / pointerLock 放行', {
+  timeout: 120_000,
+  skip: BACKGROUND ? 'pointerLock/fullscreen 需要文档焦点，后台模式（不抢前台）无法验证' : false
+}, async () => {
   const server = await startFixtureServer({ '/perm': PAGE })
   const { app, shell, close } = await launchApp()
   try {
@@ -54,6 +64,20 @@ test('权限白名单：只放行 fullscreen / pointerLock，其余拒绝', { ti
     await waitFor(async () => (await viewEval(app, shell, 'document.pointerLockElement !== null')) === true,
       { message: 'pointerLock 被拒绝了。' })
     await viewEval(app, shell, 'document.exitPointerLock()', true)
+  } finally {
+    await close()
+    await server.close()
+  }
+})
+
+test('权限白名单：其余权限一律拒绝', { timeout: 120_000 }, async () => {
+  const server = await startFixtureServer({ '/perm': PAGE })
+  const { app, shell, close } = await launchApp()
+  try {
+    const address = shell.getByRole('textbox', { name: '地址栏' })
+    await address.fill(`${server.baseUrl}/perm`)
+    await address.press('Enter')
+    await shell.getByRole('button', { name: '权限探针', exact: true }).waitFor({ timeout: 30_000 })
 
     // 其余权限：拒绝（证明白名单是选择性的，不是全放行）
     const geolocation = await viewEval(app, shell, "navigator.permissions.query({ name: 'geolocation' }).then((s) => s.state)")

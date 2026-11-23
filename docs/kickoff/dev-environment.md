@@ -109,7 +109,8 @@ npm run typecheck
 | --- | --- |
 | `npm run dev` | Vite 开发服务器（外壳热更新） |
 | `npm run build` | typecheck + 构建 `out/` |
-| `npm run smoke` | 应用冒烟（21 项，临时 profile） |
+| `npm run smoke` | 应用冒烟（27 项，临时 profile，窗口会出现在屏幕上并获得焦点） |
+| `npm run smoke:bg` | 同一套冒烟的后台跑法：窗口移到屏幕外、不激活，边工作边跑不抢前台（`permissions` 的 pointerLock/fullscreen 会跳过并说明原因） |
 | `npm run pack:win` | 打内部验证包（带插件，仅供内部） |
 | `npm run pack:win:public` | 打公开包（BYOP，不含 Adobe 二进制） |
 | `npm run smoke:packaged` | 成品冒烟（按产物 `manifest.json` 判定 profile） |
@@ -164,6 +165,8 @@ npm run runtime:check
 | 插件缺失 | 原生引擎停用，所有标签回落 Ruffle，引擎面板「Flash」档置灰 | 把 `pepflashplayer64.dll` 放到 `app/.runtime/win-x64/`（开发）或 `<exe目录>\flash\`（打包版） |
 | 目录改名报「路径或设备名称」 | `Rename-Item` 对某些目录失败 | 改用 `Move-Item` |
 | `runtime:prepare` 拒绝执行 | 提示"本地运行时已准备" | 先把旧 `.runtime/win-x64` 移走，这是防混用的保护 |
+| 冒烟抢前台 | 每跑一条用例都弹一个窗口抢焦点 | 用 `npm run smoke:bg`（窗口移到屏幕外且不激活）；只有需要 pointerLock/fullscreen 的那条会跳过 |
+| 后台模式仍失败在 Ruffle 输入 | 窗口完全不显示时 Ruffle 出帧被节流 | 用 `BAO_SMOKE_BACKGROUND=1`（默认后台档），不要用 `BAO_SMOKE_HIDDEN=1` 跑全量 |
 
 ---
 
