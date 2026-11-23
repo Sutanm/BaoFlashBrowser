@@ -17,21 +17,44 @@ const SHELL_PARTITION = 'bao-next-shell'
  * 权限白名单（架构 §3 权限与会话「按请求来源及嵌入来源处理」）。
  *
  * 只放行 Flash 游戏真正需要的两项：`fullscreen`（游戏里的全屏按钮）与 `pointerLock`
- * （第一人称/拖拽类操作）。其余一律拒绝，且必须来自 http(s) 来源 —— `file:`/`data:`
- * 等本地文档不参与。旧产品同样只放行这两项，这里保持同一范围。
+ * （第一人称/拖拽类操作）。其余一律拒绝，旧产品同样只放行这两项。
+ *
+ * 2026-11-23 审计 P2：原先只看 WebContents 顶层 URL，无法区分**实际请求帧**与**嵌入来源**
+ * ——被 `file:`/opaque 源嵌入的 iframe 也能借父页面的 http(s) 地址拿到权限。现在：
+ * - 请求侧用 `details.requestingUrl`（真正发起请求的帧）；
+ * - 检查侧用 `requestingOrigin` 与 `details.embeddingOrigin`（跨源子帧才给）；
+ * - 两者出现时都必须是 http(s)：`file:`、`data:`、`about:blank`、`null`（opaque origin）一律拒绝。
  */
 const ALLOWED_PERMISSIONS = new Set(['fullscreen', 'pointerLock'])
 
-function allows(permission: string, url: string | undefined | null): boolean {
-  return ALLOWED_PERMISSIONS.has(permission) && !!url && /^https?:/i.test(url)
+function isHttpUrl(value: string | undefined | null): boolean {
+  return !!value && /^https?:\/\/[^/]/i.test(value)
+}
+
+/** `null` / 空串是 opaque origin 的表示，不是 http(s)，必须拒绝。 */
+function isHttpOrigin(value: string | undefined | null): boolean {
+  if (!value) return false
+  return /^https?:\/\//i.test(value) && value !== 'null'
+}
+
+function allows(
+  permission: string,
+  requestingUrl: string | undefined | null,
+  embeddingOrigin?: string | undefined | null
+): boolean {
+  if (!ALLOWED_PERMISSIONS.has(permission)) return false
+  if (!isHttpUrl(requestingUrl)) return false
+  // 只有跨源子帧才会带 embeddingOrigin；出现就必须也是 http(s)。
+  if (embeddingOrigin !== undefined && !isHttpOrigin(embeddingOrigin)) return false
+  return true
 }
 
 function applyPermissionPolicy(target: Session): Session {
-  target.setPermissionCheckHandler((contents, permission, requestingOrigin) =>
-    allows(permission, requestingOrigin || contents?.getURL()))
-  // 请求侧不用 details 的联合类型：直接看发起请求的页面 URL 更稳，语义也一致。
-  target.setPermissionRequestHandler((contents, permission, callback) => {
-    callback(allows(permission, contents?.getURL()))
+  target.setPermissionCheckHandler((contents, permission, requestingOrigin, details) =>
+    allows(permission, requestingOrigin || contents?.getURL(), details.embeddingOrigin))
+  target.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const requestingUrl = 'requestingUrl' in details ? details.requestingUrl : undefined
+    callback(allows(permission, requestingUrl || contents?.getURL()))
   })
   return target
 }

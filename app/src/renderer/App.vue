@@ -212,7 +212,7 @@ async function endTabDrag(event: PointerEvent): Promise<void> {
   suppressSelect = true
   const screenX = event.screenX || drag.screenX
   const screenY = event.screenY || drag.screenY
-  const index = dropIndex(screenX)
+  const index = dropIndex(screenX, screenY)
   if (index !== undefined) {
     await run({ type: 'move', id: drag.id, index })
     return
@@ -242,26 +242,50 @@ function onStripDoubleClick(event: MouseEvent): void {
   void addTab()
 }
 
-function cycleTab(step: number): void {
+/** 方向键切换标签：切完把焦点留在标签栏，才能连续用方向键浏览（审计 P2）。 */
+async function cycleTab(step: number): Promise<void> {
   const list = state.value?.tabs ?? []
   if (list.length < 2) return
   const current = list.findIndex((tab) => tab.id === active.value?.id)
   const next = (current + step + list.length) % list.length
-  void run({ type: 'select', id: list[next].id })
+  await run({ type: 'select', id: list[next].id })
+  await nextTick()
+  const strip = tabStrip.value
+  const selected = strip?.querySelector<HTMLElement>('.tab.selected .tab-title')
+  selected?.focus()
 }
 
 function onTabStripKeydown(event: KeyboardEvent): void {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
   event.preventDefault()
-  cycleTab(event.key === 'ArrowRight' ? 1 : -1)
+  void cycleTab(event.key === 'ArrowRight' ? 1 : -1)
 }
 
-/** 释放点在标签栏内时给出目标序号；在栏外返回 undefined（交给 tearoff 判定）。 */
-function dropIndex(screenX: number): number | undefined {
+/** 指针被系统取消（触摸被抢走、手势中断等）：丢弃这次拖动，不提交排序或拖出。 */
+function cancelTabDrag(event: PointerEvent): void {
+  if (!tabDrag) return
+  tabDrag = undefined
+  draggingId.value = undefined
+  suppressSelect = true
+  const target = event.currentTarget
+  if (target instanceof HTMLElement) {
+    try {
+      target.releasePointerCapture(event.pointerId)
+    } catch {
+      // 捕获已释放
+    }
+  }
+}
+
+/** 释放点在标签栏内时给出目标序号；栏外（横或纵）返回 undefined，交给 tearoff 判定。 */
+function dropIndex(screenX: number, screenY: number): number | undefined {
   const strip = tabStrip.value
   if (!strip) return undefined
   const rect = strip.getBoundingClientRect()
   const clientX = screenX - window.screenX
+  const clientY = screenY - window.screenY
+  // 审计 P2：原实现只看 X，竖直拖出会被当成排序。两个轴都要在标签栏范围内。
+  if (clientY < rect.top - 4 || clientY > rect.bottom + 4) return undefined
   if (clientX < rect.left - 4 || clientX > rect.right + 4) return undefined
   const items = [...strip.querySelectorAll<HTMLElement>('.tab')]
   let index = 0
@@ -303,7 +327,7 @@ onBeforeUnmount(() => store.disconnect())
           @pointerdown="startTabDrag(tab, $event)"
           @pointermove="moveTabDrag"
           @pointerup="endTabDrag"
-          @pointercancel="endTabDrag"
+          @pointercancel="cancelTabDrag"
           @click="selectTab(tab, $event)"
           @auxclick="onTabAuxClick(tab, $event)"
           @contextmenu.prevent="run({ type: 'tab-menu', id: tab.id })"

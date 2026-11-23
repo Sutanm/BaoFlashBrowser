@@ -74,8 +74,42 @@ test('标签操作：复制、固定排序、静音与 DevTools 快捷键', { ti
     // 静音：来回切换。
     state = await run(shell, { type: 'mute', id: copyId })
     assert.equal(state.tabs.find((tab) => tab.id === copyId).muted, true, '静音未生效')
+    // 静音必须跟着标签走：切引擎会重建 WebContents（审计 P2）。
+    state = await run(shell, { type: 'set-engine', engine: 'ruffle' })
+    assert.equal(state.tabs.find((tab) => tab.id === copyId).muted, true, '切引擎后静音状态丢失')
     state = await run(shell, { type: 'mute', id: copyId })
     assert.equal(state.tabs.find((tab) => tab.id === copyId).muted, false, '取消静音未生效')
+
+    // 固定前缀不能被排序打破（审计 P2）。
+    state = await run(shell, { type: 'pin', id: copyId })
+    assert.equal(state.tabs[0].id, copyId, '固定标签未排到最左')
+    const unpinned = state.tabs.find((tab) => !tab.pinned)
+    state = await run(shell, { type: 'move', id: unpinned.id, index: 0 })
+    assert.equal(state.tabs[0].pinned, true, '未固定标签被排到了固定标签之前')
+    state = await run(shell, { type: 'pin', id: copyId })
+
+    // 竖直拖出不应被当成排序（审计 P2：原来只看 X）。
+    const windowHandle = await app.browserWindow(shell)
+    const bounds = await windowHandle.evaluate((window) => window.getBounds())
+    const orderBefore = (await run(shell, { type: 'snapshot' })).tabs.map((tab) => tab.id)
+    const dragTab = shell.getByRole('button', { name: 'one', exact: true }).first()
+    await dragTab.dispatchEvent('pointerdown', { button: 0, pointerId: 1, screenX: bounds.x + 40, screenY: bounds.y + 20 })
+    await dragTab.dispatchEvent('pointermove', { button: 0, pointerId: 1, screenX: bounds.x + 300, screenY: bounds.y + 400 })
+    await dragTab.dispatchEvent('pointerup', { button: 0, pointerId: 1, screenX: bounds.x + 300, screenY: bounds.y + 400 })
+    await new Promise((done) => setTimeout(done, 600))
+    const orderAfter = (await run(shell, { type: 'snapshot' })).tabs.map((tab) => tab.id)
+    assert.deepEqual(orderAfter, orderBefore, '竖直拖出被当成了排序')
+
+    // 方向键切标签后焦点留在标签栏，才能连续浏览（审计 P2）。
+    await shell.evaluate(() => document.querySelector('.tab-title')?.focus())
+    await shell.keyboard.press('ArrowRight')
+    await waitFor(async () => {
+      const focused = await shell.evaluate(() => ({
+        inStrip: Boolean(document.activeElement?.closest('.tab')),
+        selected: Boolean(document.querySelector('.tab.selected'))
+      }))
+      return focused.inStrip && focused.selected ? focused : null
+    }, { message: '方向键切标签后焦点没有留在标签栏' })
 
     // DevTools：Ctrl+Shift+I 命中页面视图的 before-input-event。
     const { handle } = await viewContents(app, shell)

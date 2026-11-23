@@ -302,3 +302,24 @@ test('地址错误提示不挤动工具栏或页面，加载失败后可以重�
     await new Promise((resolveClose) => server.close(resolveClose))
   }
 })
+test('引擎来源跨站后不残留上一个站点的规则', { timeout: 120_000 }, async () => {
+  const server = await startFixtureServer({ '/one': page('来源刷新页') })
+  const { app, shell, close } = await launchApp()
+  try {
+    await navigate(shell, `${server.baseUrl}/one`, '来源刷新页')
+
+    // 在 127.0.0.1 上记住站点规则 → 来源应为 site-rule。
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'set-engine', engine: 'ruffle' }))
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'remember-engine' }))
+    await expectEngine(shell, 'ruffle', 'site-rule', 'ruffle')
+
+    // 换一个 host（localhost，与 127.0.0.1 不同站点）后，来源必须按新站点重新判定，
+    // 不能继续显示上一个站点的 site-rule（审计 P2：来源原先是存下来的快照）。
+    const port = new URL(server.baseUrl).port
+    await navigate(shell, `http://localhost:${port}/one`, '来源刷新页')
+    await expectEngine(shell, 'ppapi', 'default', undefined)
+  } finally {
+    await close()
+    await server.close()
+  }
+})

@@ -228,7 +228,7 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 - **站点版本门**：两个真实站点（4399、淘米摩尔庄园）都**不做**版本门或 UA 门，`Shockwave Flash 29.0 r0` + Chromium 142 可正常加载。E39 已无 `ppapi-flash-version` 开关，若后续遇到门禁要求更高版本，需要用 preload 做只读伪装（尚未实现）。
 - **Ruffle 画布焦点**：已实测（`ruffle-input.test.cjs`）。Ruffle 0.8 靠 **`pointerdown`** 把焦点交给播放器内部容器，键盘事件才进 SWF；`webContents.sendInputEvent({ type: 'mousedown' })` 不产生 pointer 事件，测试改用 CDP `Input.dispatchMouseEvent` 复现真实点击，键盘仍走 `sendInputEvent`。结论：**点一次播放器后 A/S 等按键确实进入 SWF**（`keyprobe.swf` 的 `ExternalInterface` 回调返回 `65:97,83:115`）。仍未验证：真实游戏 SWF 内的方向键/组合键、IME 进入 Ruffle。
 - **插件内的 IME 组合**：`plugin-input.test.cjs` 只覆盖 keydown/`charCode`；CDP 的 `Input.imeSetComposition` 只对 HTML 页面验证过，IME 组合输入到 PPAPI 插件内部未测。
-- **引擎切换失败回退**：`navigationHistory.restore()` 抛错的分支已实现（保留原引擎并给出提示），但没有构造出失败用例；POST 体等无法还原的状态只按文档记录，未实测。
+- **引擎切换失败回退（口径修正，2026-11-23）**：实现是「先切到新引擎，再在新引擎上恢复导航栈；`restore()` 抛错就在新引擎重开最后地址并给出提示」。此前本文写成「保留原引擎」，与实现不符（审计 P2）。要真正保留原引擎需要两阶段切换（保留旧视图直到恢复成功），尚未实现，记为待办。
 - **Ruffle 能力边界**：`ExternalInterface` 只覆盖部分 API，本地 PPAPI 样本里的 `PercentLoaded`/`SetVariable` 往返在 Ruffle 引擎下不保证可用；验收断言只覆盖运行时注入与 polyfill 接管。Ruffle 0.5.0 的元素名是 `ruffle-embed`/`ruffle-object`。
 - **真实站点范围**：只对照了单个 4399 页面（见 §4.2）。UA、插件版本通告、`mms.cfg`、SWFObject、登录/防沉迷弹窗流程、其他站点均未复测（审计 §C7 的其余对照项）。
 - **站点规则存储**：当前是 `userData/engine-rules.json`，M2 引入业务库后迁 SQLite；无版本化与迁移逻辑。
@@ -242,6 +242,17 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 - **打包发布仍未完成**：产物未签名；自编译内核未生成 `LICENSES.chromium.html`；Flash 插件再分发授权未确认（见 `app/NOTICE.md`）；独立复建与依赖校验未做。
 - **`npm run dev`（Vite 开发服务器）**：本次未跑，冒烟针对构建产物与验证包；开发入口的 shell URL 分支未实测。
 - **真实站点多页面与登录流程**：未覆盖。
+
+**2026-11-23 审计 P2 第二轮修复**：
+
+| 项 | 改动 |
+| --- | --- |
+| 权限白名单 | 请求侧改用 `details.requestingUrl`（真正发起的帧），检查侧同时看 `requestingOrigin` 与 `details.embeddingOrigin`；出现非 http(s)（`file:`/`data:`/`about:blank`/`null`）一律拒绝。**冒烟无法可靠覆盖 frame 分支**（sandbox 无 allow-same-origin 的 iframe 是 opaque origin，父页面读不到其 contentWindow，且 pointerLock/fullscreen 需要该帧的用户激活），只做了代码评审，见 `permissions.test.cjs` 的说明。 |
+| 静音迁移 | 静音状态记在标签上（`Tab.muted`），`swapView` 重建 WebContents 后重新应用；用例断言切引擎后仍静音。 |
+| 固定前缀 | `moveTab` 按分组夹取目标序号：未固定标签不能越过固定标签。用例断言移动后首位仍是固定标签。 |
+| 拖出判定 | `dropIndex` 同时校验横向与纵向是否在标签栏内（原先只看 X，竖直拖出会被当成排序）；`pointercancel` 改走 `cancelTabDrag`，丢弃本次拖动不提交。用例断言竖直拖出后顺序不变。 |
+| 方向键焦点 | 方向键切标签后把焦点留在标签栏（`cycleTab` 选中后 `nextTick` 聚焦选中标签），可连续浏览。 |
+| 引擎来源 | `engineSource` 从**存储快照**改为**派生值**（`sourceOf()`：手动覆盖 + 当前 URL 的站点规则），跨站导航不再残留上一个站点的来源；新增用例覆盖「记住规则后换 host」。 |
 
 ## 6. 采用的可逆假设
 

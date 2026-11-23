@@ -31,11 +31,13 @@ interface Tab {
   failedUrl?: string
   notice?: BrowserTab['notice']
   initialTitle: string
-  /** 当前引擎与其来源（架构 §3 引擎）。 */
+  /** 当前引擎；来源由 `sourceOf()` 按当前 URL 与站点规则**派生**，避免跨站导航后留下陈旧值。 */
   engine: BrowserEngine
-  engineSource: EngineSource
+  manualOverride: boolean
   /** 固定标签：排在最左、只显示站点图标、不显示关闭按钮（架构 §3「标签操作」）。 */
   pinned: boolean
+  /** 音频静音状态：存在标签上，引擎切换与崩溃重建后要迁移到新 WebContents。 */
+  muted: boolean
   host?: TabHost
 }
 
@@ -85,7 +87,7 @@ interface ClosedTab {
   entries: NavigationEntry[]
   index: number
   engine: BrowserEngine
-  engineSource: EngineSource
+  manualOverride: boolean
 }
 
 const controllers = new Map<number, WindowController>()
@@ -188,6 +190,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return resolved
   }
 
+  /**
+   * 引擎来源**派生**值（架构 §3 引擎）。
+   *
+   * 2026-11-23 审计 P2：来源原来是存下来的快照，跨站导航时（引擎恰好没变）不会刷新，
+   * 界面会显示上一个站点的来源。改成按「是否有手动覆盖 + 当前 URL 是否命中站点规则」
+   * 现算，天然不会陈旧。
+   */
+  function sourceOf(tab: Tab): EngineSource {
+    if (tab.manualOverride) return 'manual'
+    const url = tab.failedUrl ?? safe(() => tab.view.webContents.getURL(), '')
+    return engineRules.resolve(hostOf(url === START_PAGE ? '' : url)).source
+  }
+
   function describe(tab: Tab): BrowserTab {
     const contents = tab.view.webContents
     const destroyed = contents.isDestroyed()
@@ -219,10 +234,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       error: tab.error,
       notice: tab.notice,
       engine: tab.engine,
-      engineSource: tab.engineSource,
+      engineSource: sourceOf(tab),
       pinnedEngine: pin.source === 'site-rule' ? pin.engine : undefined,
       pinned: tab.pinned,
-      muted: destroyed ? false : safe(() => contents.isAudioMuted(), false)
+      muted: tab.muted
     }
   }
 
@@ -426,7 +441,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   ): Tab {
     const view = createView(engine)
     const tab: Tab = {
-      id: nextTabId++, view, binding: 1, error: '', initialTitle, engine, engineSource: source, pinned: false, host: controller
+      id: nextTabId++, view, binding: 1, error: '', initialTitle, engine, manualOverride: source === 'manual', pinned: false, muted: false, host: controller
     }
     tabs.push(tab)
     bind(tab, view)
@@ -458,11 +473,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.binding += 1
     tab.view = view
     tab.engine = engine
-    tab.engineSource = source
+    tab.manualOverride = source === 'manual'
     tab.error = ''
     tab.failedUrl = undefined
     tab.notice = undefined
     bind(tab, view)
+    // 静音状态跟着标签走：切引擎重建 WebContents 后必须重新应用（审计 P2）。
+    if (tab.muted && !view.webContents.isDestroyed()) view.webContents.setAudioMuted(true)
     const measured = active === tab
     if (measured) {
       window.contentView.addChildView(view)
@@ -476,7 +493,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   function rebuild(tab: Tab, url: string): void {
-    swapView(tab, tab.engine, tab.engineSource)
+    swapView(tab, tab.engine, tab.manualOverride ? 'manual' : 'default')
     load(tab, url)
   }
 
@@ -526,7 +543,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const host = hostOf(tab.failedUrl ?? safe(() => tab.view.webContents.getURL(), ''))
     if (!host) return fail('no-site')
     if (!engineRules.remember(host, tab.engine)) return fail('site-rule-save-failed')
-    tab.engineSource = 'site-rule'
+    tab.manualOverride = false
     publish()
     return { ok: true, state: state() }
   }
@@ -536,7 +553,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const host = hostOf(tab.failedUrl ?? safe(() => tab.view.webContents.getURL(), ''))
     if (!host) return fail('no-site')
     if (!engineRules.forget(host)) return fail('site-rule-save-failed')
-    if (tab.engineSource === 'site-rule') tab.engineSource = 'manual'
+    tab.manualOverride = true
     publish()
     return { ok: true, state: state() }
   }
@@ -544,7 +561,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /** 复制标签页：同 URL、同引擎，作为新标签插到末尾并激活（架构 §3「标签操作」）。 */
   function duplicateTab(tab: Tab): void {
     const url = safe(() => tab.view.webContents.getURL(), '')
-    const copy = addTab(tab.initialTitle, url && url !== START_PAGE ? url : START_PAGE, tab.engine, tab.engineSource)
+    const copy = addTab(tab.initialTitle, url && url !== START_PAGE ? url : START_PAGE, tab.engine, sourceOf(tab))
     select(copy, true)
   }
 
@@ -573,11 +590,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     publish()
   }
 
-  /** 静音 / 取消静音：走 WebContents 的音频静音，不碰页面 DOM。 */
+  /** 静音 / 取消静音：状态记在标签上，重建后由 `swapView` 迁移。 */
   function toggleMuted(tab: Tab): void {
+    tab.muted = !tab.muted
     const contents = tab.view.webContents
-    if (contents.isDestroyed()) return
-    contents.setAudioMuted(!contents.isAudioMuted())
+    if (!contents.isDestroyed()) contents.setAudioMuted(tab.muted)
     publish()
   }
 
@@ -618,7 +635,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       entries,
       index: safe(() => contents.navigationHistory.getActiveIndex(), entries.length - 1),
       engine: tab.engine,
-      engineSource: tab.engineSource
+      manualOverride: tab.manualOverride
     })
     if (recentlyClosed.length > CLOSED_TAB_LIMIT) recentlyClosed.shift()
   }
@@ -645,7 +662,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function undoClose(): BrowserResult {
     const closed = recentlyClosed.pop()
     if (!closed) return fail('nothing-to-undo')
-    const tab = addTab('新标签页', null, closed.engine, closed.engineSource)
+    const tab = addTab('新标签页', null, closed.engine, closed.manualOverride ? 'manual' : 'default')
     select(tab, true)
     void restoreHistory(tab, closed.entries, closed.index,
       closed.entries[closed.index]?.url ? '无法恢复完整历史，已打开最后一个地址' : '无法恢复此前关闭的标签页')
@@ -653,10 +670,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /** 标签排序：只改顺序，不动 WebContents（架构 §3「排序」）。 */
+  /**
+   * 移动标签（拖动排序）。
+   *
+   * 固定标签必须保持在最左的前缀里（审计 P2：原实现允许把未固定标签拖到固定标签之前，
+   * 打破固定前缀）。目标位置按分组夹取，再夹到数组范围内。
+   */
   function moveTab(tab: Tab, index: number): void {
     const from = tabs.indexOf(tab)
     if (from < 0 || !Number.isFinite(index)) return
-    const to = Math.min(Math.max(Math.trunc(index), 0), tabs.length - 1)
+    const pinnedCount = tabs.filter((item) => item.pinned).length
+    const low = tab.pinned ? 0 : pinnedCount
+    const high = tab.pinned ? Math.max(pinnedCount - 1, 0) : tabs.length - 1
+    const to = Math.min(Math.max(Math.trunc(index), low), high)
     if (to === from) return
     tabs.splice(from, 1)
     tabs.splice(to, 0, tab)
@@ -837,8 +863,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         const url = typeof command.address === 'string' ? parseAddress(command.address) : undefined
         if (!url) return fail('invalid-address')
         // 站点规则只决定「初始」引擎：用户在这个标签上手动切换过，就沿用他的选择。
-        const resolved = target.engineSource === 'manual'
-          ? { engine: target.engine, source: target.engineSource }
+        const resolved = target.manualOverride
+          ? { engine: target.engine, source: 'manual' as EngineSource }
           : engineFor(url)
         if (resolved.engine !== target.engine) {
           swapView(target, resolved.engine, resolved.source)
