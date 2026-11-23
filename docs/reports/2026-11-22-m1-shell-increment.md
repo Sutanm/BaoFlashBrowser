@@ -15,7 +15,7 @@
 | 冒烟样本 `probe.swf` SHA-256 | `236C48D58406BBE0C08E7F2EC6829EF4022D153E84B3D160816CFEF4A7AF981A`（461 B，本项目自编 AS3） |
 | Ruffle 运行时 | `@ruffle-rs/ruffle` **0.8.0**（2026-11-19 发布），`app/vendor/ruffle/`（`ruffle.js` SHA-256 `3ABFDEEE…D99BC8B7`，WASM `AB23C8D2…A25547CB` / `070F9859…0E14DF44`，见该目录 `PROVENANCE.md`） |
 | 工具链 | Node 24.18.0 / npm 11.16.0 / electron-vite 5.0.0 / Vue 3.5.46 / Pinia 3.0.4 / electron-builder 26.18.1 |
-| 验证包 | `app/dist/win-preview-YqwBFQ/win-unpacked/BaoFlashBrowser Next.exe` |
+| 验证包 | `app/dist/win-preview/win-unpacked/BaoFlashBrowser Next.exe` |
 
 ## 2. 条款对应与证据
 
@@ -68,8 +68,8 @@
 | `npm run typecheck` | 通过（`vue-tsc --noEmit`，无输出） |
 | `npm run build` | 通过（main / preload 0.70 kB / renderer 267.59 kB） |
 | `npm run smoke` | **13/13 通过**（`startup` 1.23 s、`tabs` 1.36 s、`engine` 1.23 s、`input` 0.97 s、`plugin-input` 1.38 s、`flash` 1.98 s、`isolation` 1.51 s、`tearoff` 契约 1.35 s、`tearoff` 手势 0.90 s、`CORS` 1.57 s、`弹窗` 2.92 s、`权限白名单` 0.94 s、`快捷键/撤销` 1.11 s），页面视图 `sandbox: true` |
-| `npm run pack:win` | 通过，产出 `dist/win-preview-zKYrlB/win-unpacked`（含 `pepflashplayer64.dll` 与 `vendor/ruffle`） |
-| `npm run smoke:packaged` | **通过**（3.22 s，验证包启动 39.8.10 / 142.0.7444.265、加载 PPAPI 样本并注入 Ruffle 运行时） |
+| `npm run pack:win` | 通过，产出 `dist/win-preview/win-unpacked`（含 `pepflashplayer64.dll` 与 `vendor/ruffle`） |
+| `npm run smoke:packaged` | **通过**（3.14 s，验证包启动 39.8.10 / 142.0.7444.265、启动 Pepper Plugin 进程、加载 PPAPI 样本并注入 Ruffle 运行时） |
 
 关键断言（真实运行时，非 mock）：
 

@@ -16,13 +16,14 @@ async function waitForFacts(read, message) {
   }
 }
 
-// `npm run pack:win` 每次生成 dist/win-preview-<随机>/win-unpacked，取最新的一份。
+// `npm run pack:win` 输出到固定的 dist/win-preview/win-unpacked（每次覆盖），
+// 选最新的可执行文件即可；历史随机目录已由打包脚本清理。
 async function latestPackagedExecutable() {
   const dist = resolve(__dirname, '../../dist')
   const entries = await readdir(dist, { withFileTypes: true }).catch(() => [])
   const candidates = []
   for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith('win-preview-')) continue
+    if (!entry.isDirectory() || !entry.name.startsWith('win-preview')) continue
     const unpacked = join(dist, entry.name, 'win-unpacked')
     const files = await readdir(unpacked).catch(() => [])
     for (const file of files) {

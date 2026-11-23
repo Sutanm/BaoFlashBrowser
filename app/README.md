@@ -38,7 +38,7 @@ npm run dev
 | `npm start` | 使用自编译 Electron 启动已编译的应用。 |
 | `npm run smoke` | 用临时测试 profile 验证无边框外壳、标签栏交互、快捷键、引擎切换与站点规则、输入回环、Ruffle 的 SWF 跨源加载、视图尺寸、Node 隔离、内核版本和本地 PPAPI 样本（14 个用例）。 |
 | `npm run smoke:packaged` | 核对最近一次 `pack:win` 生成的验证包能启动真实内核、加载 PPAPI 样本并带上 Ruffle 运行时。 |
-| `npm run pack:win` | 每次在 `dist/win-preview-*/win-unpacked` 生成独立的 Win x64 验证包，并输出可执行文件路径。 |
+| `npm run pack:win` | 在固定的 `dist/win-preview/win-unpacked` 生成 Win x64 验证包（每次覆盖，并清理历史随机目录），产物自带 PPAPI 插件；结束时校验产物确实来自自编译内核。 |
 
 ## 当前增量范围
 
@@ -70,3 +70,8 @@ npm run dev
 - **下载默认拒绝**：页面与外壳会话的 `will-download` 一律 `preventDefault()`。M1 没有下载能力与落盘策略，没有明确策略前不静默写文件；下载的身份、分区、暂停/恢复按 §4 在 M2 立项。
 - 后台出帧（#52844/#54311/#54090）与真实站点复测按架构 §2 与外壳开发并行推进，当前未开始。
 - 独立复建内核与发布依赖校验仍未完成，验证包只用于受控范围。
+### 打包产物的三条约定（2026-11-23 修正）
+
+1. **开发不需要 `dist/`**：`dev` / `start` / `smoke` 都用 `.runtime/win-x64/electron.exe` + `out/`，`dist/` 只有 `pack:win` 与 `smoke:packaged` 用得到，随时可以整个删掉重打。
+2. **必须带自编译内核**：未设置 `ELECTRON_EXEC_PATH` 时 electron-builder 会**静默下载官方 Electron**（产物 ~210MB，自编译运行时 ~232MB），官方内核没有 PPAPI 补丁，`smoke:packaged` 会报 `flash:timeout bridge-unavailable`。`pack-win.cjs` 现在兜底设置该变量，并在结束时断言产物大小与运行时接近，不符就失败。
+3. **必须带 PPAPI 插件**：`pepflashplayer64.dll` 通过 `extraResources` 落到 `resources/`，`plugins.ts` 从 `process.resourcesPath` 找得到；缺失时 `pack-win.cjs` 直接报错。Flash Player 二进制随包分发受 Adobe 许可约束，对外发布前需确认分发范围。
