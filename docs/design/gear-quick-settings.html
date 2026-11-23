@@ -108,8 +108,9 @@
   <p class="kicker">BAOFLASH BROWSER · 齿轮飞窗</p>
   <h1>快捷设置：贴合按钮、无关闭钮、同尺寸入口</h1>
   <p class="lead">
-    按 Edge / Chrome 的飞窗惯例重画：从齿轮按钮右下角长出（紧贴工具栏下沿、右边缘与按钮对齐），
-    <strong>没有 X</strong>（点外部或 Esc 关闭），底部「全部设置」是一个<strong>和其它行同样高度、通栏可点</strong>的入口行。
+    按 Edge / Chrome 的飞窗惯例重画：从齿轮按钮右下角长出（<strong>顶边压在按钮下沿，0 缝</strong>，
+    右边缘与按钮对齐），<strong>没有 X</strong>（点外部或 Esc 关闭），底部「全部设置」是一个
+    <strong>和其它行同样高度、通栏可点</strong>的入口行。
   </p>
 
   <div class="sim" aria-label="演示状态">
@@ -177,8 +178,9 @@
   <p class="toast-note" id="note" role="status"></p>
 
   <p class="foot-note">
-    定位方式（实现时照此计算）：飞窗 `right` = 窗口宽度 − 齿轮按钮右边缘，`top` = 工具栏下沿，
-    横向夹到窗口内边距 8 px；宽度固定 320 px。窄窗口（520 px）下依然右对齐齿轮、左侧留白，不会顶到地址栏。
+    定位方式（实现时照此计算）：飞窗 <strong>顶边压在齿轮按钮的下沿</strong>（0 缝，不再对齐工具栏下沿），
+    `right` = 窗口宽度 − 齿轮按钮右边缘；横向夹到窗口内边距 8 px，宽度固定 320 px。
+    窄窗口（520 px）下依然右对齐齿轮、左侧留白，不会顶到地址栏。
   </p>
 </main>
 
@@ -196,15 +198,13 @@
   function place() {
     if (quick.hidden) return
     const gearBox = gear.getBoundingClientRect()
-    const toolbar = $('toolbar').getBoundingClientRect()
     const frameBox = frame.getBoundingClientRect()
     const width = 320
     const inset = 8
-    // 右边缘与齿轮对齐；左侧夹到 8px，避免窄窗口下越界。
+    // 紧贴按钮：顶边压在齿轮按钮的下沿（0 缝），右边缘与齿轮对齐；横向夹到窗口内边距。
     const right = Math.max(inset, frameBox.right - gearBox.right)
-    const left = Math.min(frameBox.right - gearBox.right - width, width)
     quick.style.right = `${Math.min(right, Math.max(inset, frameBox.width - width - inset))}px`
-    quick.style.top = `${toolbar.bottom - frameBox.top}px`
+    quick.style.top = `${gearBox.bottom - frameBox.top}px`
   }
 
   function render() {
