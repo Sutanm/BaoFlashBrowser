@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ name: 'lock' | 'chevron' | 'flash' | 'ruffle' | 'check' | 'error' | 'close' }>()
+defineProps<{ name: 'lock' | 'chevron' | 'flash' | 'ruffle' | 'check' | 'error' | 'close' | 'gear' }>()
 </script>
 
 <template>
@@ -16,6 +16,10 @@ defineProps<{ name: 'lock' | 'chevron' | 'flash' | 'ruffle' | 'check' | 'error' 
     <g v-else-if="name === 'error'">
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v6m0 4h.01" />
+    </g>
+    <g v-else-if="name === 'gear'">
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 4.2v2M12 17.8v2M5.1 8.1l1.7 1M17.2 14.9l1.7 1M5.1 15.9l1.7-1M17.2 9.1l1.7-1" />
     </g>
     <path v-else d="m6 6 12 12M18 6 6 18" />
   </svg>

@@ -6,11 +6,14 @@ import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserState, B
 import { hostOf } from '../shared/engine'
 import { isSameSite, siteBoundary } from '../shared/site'
 import type { BrowserEngine, EngineSource } from '../shared/engine'
-import { getPageSession, getShellSession } from './sessions'
+import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { setSetting, settings as currentSettings } from './storage'
+import { setSetting, settings as currentSettings, storageStatus } from './storage'
+import { bindInternalProtocol, isSettingsUrl, parseSettingsAddress, SETTINGS_URL } from './internal-pages'
+import { settingsChannels } from '../shared/settings'
+import type { SettingsSnapshot } from '../shared/settings'
 import { START_PAGE } from './start-page'
 import { windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
@@ -40,6 +43,11 @@ interface Tab {
   pinned: boolean
   /** 音频静音状态：存在标签上，引擎切换与崩溃重建后要迁移到新 WebContents。 */
   muted: boolean
+  /**
+   * 内部页标记（架构 §3 外壳）：M2 只有设置页 `bao://settings`。
+   * 内部页不参与引擎切换/站点规则/下载，也没有页面权限。
+   */
+  internal?: 'settings'
   host?: TabHost
 }
 
@@ -64,6 +72,14 @@ interface WindowController extends TabHost {
   closeWindow(): void
   /** 设置变化后重绘：标题栏 overlay 重新着色 + 重新投影（主题/默认引擎可能都变了）。 */
   refreshSettings(): void
+  /** 设置变化后推给本窗口的内部页（`bao://settings` 用独立通道）。 */
+  broadcastSettings(): void
+  /** 该 WebContents 是否属于本窗口的标签（含内部页）。 */
+  ownsContents(contentsId: number): boolean
+  /** 内部设置页的可信判定：本窗口标签 ∧ 主帧 ∧ 文档 URL ∈ bao://settings/*。 */
+  internalSender(event: IpcMainInvokeEvent): boolean
+  /** 内部页读到的设置快照（含解析后的亮/暗）。 */
+  internalSnapshot(): SettingsSnapshot
 }
 
 export interface BrowserWindowOptions {
@@ -94,6 +110,8 @@ interface ClosedTab {
   index: number
   engine: BrowserEngine
   manualOverride: boolean
+  /** 内部页也要能撤销关闭（语义同 Chrome：恢复的是同一个页，不是新标签）。 */
+  internal?: 'settings'
 }
 
 const controllers = new Map<number, WindowController>()
@@ -175,6 +193,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   const pageSession = getPageSession()
   // Ruffle 资源协议按页面会话绑定（每个会话一次）。
   bindRuffleProtocol(pageSession)
+  // 内部页协议只绑内部会话（幂等）：页面会话里加载 `bao://` 会被直接拒绝。
+  bindInternalProtocol(getInternalSession())
   const plugins = options.flash === true
   const shellUrl = options.shellUrl
   const placement = placeWindow(options)
@@ -245,7 +265,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         loading = safe(() => contents.isLoadingMainFrame(), false)
       }
     }
-    const address = tab.failedUrl ?? (url === START_PAGE ? '' : url)
+    // 内部页在首帧加载完成前也要显示自己的地址（Chrome 同样立刻显示 chrome://settings）。
+    const address = tab.failedUrl ?? (tab.internal ? (url || SETTINGS_URL) : (url === START_PAGE ? '' : url))
     const pin = engineRules.resolve(hostOf(address))
     return {
       id: tab.id,
@@ -261,7 +282,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       engineSource: sourceOf(tab),
       pinnedEngine: pin.source === 'site-rule' ? pin.engine : undefined,
       pinned: tab.pinned,
-      muted: tab.muted
+      muted: tab.muted,
+      internal: tab.internal
     }
   }
 
@@ -278,13 +300,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
   }
 
-  function publish(): void {
-    if (closing || !active || !tabs.includes(active)) return
+  function publish(): void {    if (closing || !active || !tabs.includes(active)) return
     if (window.isDestroyed() || window.webContents.isDestroyed()) return
     revision += 1
     const snapshot = state()
     window.webContents.send(browserChannels.changed, snapshot)
     overlays.publish(snapshot)
+  }
+
+  /** 内部页读到的快照：设置 + **解析后**的亮/暗 + 存储状态。 */
+  function internalSnapshot(): SettingsSnapshot {
+    return { settings: currentSettings(), theme: currentTheme(), storage: storageStatus() }
   }
 
   function notify(tab: Tab): void {
@@ -309,7 +335,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * - `ruffle`：关闭插件，挂页面 preload 注入本地 Ruffle 运行时。
    * 两种引擎都保持 `sandbox: true` 与 `contextIsolation: true`（沙箱要求见内核补丁记录）。
    */
-  function createView(engine: BrowserEngine): WebContentsView {
+  function createPageView(engine: BrowserEngine): WebContentsView {
     // 插件不可用时一律走 Ruffle，避免出现「选了 PPAPI 却什么都不显示」。
     const ruffle = engine === 'ruffle' || !plugins
     const view = new WebContentsView({
@@ -335,6 +361,28 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return view
   }
 
+  /**
+   * 内部页视图（`bao://settings`）。
+   *
+   * 与页面视图**同一套沙箱**（`sandbox/contextIsolation/nodeIntegration`），只是换了会话、
+   * preload 与协议；**刻意不调 `registerPageView()`**——内部页不是 Ruffle/broker 的页面视图，
+   * 那两条特权通道对它保持关闭。
+   */
+  function createInternalView(): WebContentsView {
+    return new WebContentsView({
+      webPreferences: {
+        session: getInternalSession(),
+        preload: join(__dirname, '../preload/internal.js'),
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        plugins: false,
+        nodeIntegrationInSubFrames: false
+      }
+    })
+  }
+
   /** 事件只按 `tab.host` 分发，跨窗口移动时无需重挂监听。 */
   /**
    * 页面级窗口策略（架构 §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」）。
@@ -351,11 +399,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    */
   function guardContents(
     contents: WebContents,
-    context: { engine: () => BrowserEngine; openerUrl: () => string | undefined; live: () => boolean }
+    context: {
+      engine: () => BrowserEngine
+      openerUrl: () => string | undefined
+      live: () => boolean
+      /** 该标签允许的文档地址（页面 http(s) / 内部页仅 bao://settings/*）。 */
+      allow: (url: string) => boolean
+    }
   ): void {
     contents.setWindowOpenHandler((details) => {
       const { url } = details
-      if (!context.live() || !isWebAddress(url)) return { action: 'deny' }
+      if (!context.live() || !context.allow(url)) return { action: 'deny' }
       const opener = siteBoundary(context.openerUrl())
       const target = siteBoundary(url)
       if (!isSameSite(opener, target)) {
@@ -406,15 +460,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       guardContents(childContents, {
         engine: () => childEngine,
         openerUrl: () => safe(() => childContents.getURL(), ''),
-        live: () => !childContents.isDestroyed()
+        live: () => !childContents.isDestroyed(),
+        // 子窗口是页面弹窗，只可能是 http(s)。
+        allow: isWebAddress
       })
     })
 
     contents.on('will-frame-navigate', (event) => {
-      if (context.live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
+      if (context.live() && event.isMainFrame && !context.allow(event.url)) event.preventDefault()
     })
     contents.on('will-redirect', (event) => {
-      if (context.live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
+      if (context.live() && event.isMainFrame && !context.allow(event.url)) event.preventDefault()
     })
   }
 
@@ -430,7 +486,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     guardContents(contents, {
       engine: () => tab.engine,
       openerUrl: () => safe(() => contents.getURL(), ''),
-      live
+      live,
+      allow: tab.internal ? isSettingsUrl : isWebAddress
     })
     contents.on('did-start-loading', () => {
       if (!live()) return
@@ -475,7 +532,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     engine: BrowserEngine = engineFor(url ?? undefined).engine,
     source: EngineSource = engineFor(url ?? undefined).source
   ): Tab {
-    const view = createView(engine)
+    const view = createPageView(engine)
     const tab: Tab = {
       id: nextTabId++, view, binding: 1, error: '', initialTitle, engine, manualOverride: source === 'manual', pinned: false, muted: false, host: controller
     }
@@ -483,6 +540,45 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     bind(tab, view)
     if (url !== null) load(tab, url)
     return tab
+  }
+
+  /**
+   * 开一个内部页标签（`bao://settings`）。
+   *
+   * 引擎字段只是占位：内部页没有引擎，也不参与站点规则；`describe()` 会把 `internal`
+   * 带给渲染层，工具栏据此隐藏引擎胶囊。
+   */
+  function openInternalTab(): Tab {
+    const view = createInternalView()
+    const tab: Tab = {
+      id: nextTabId++,
+      view,
+      binding: 1,
+      error: '',
+      initialTitle: '设置',
+      engine: engineFor(undefined).engine,
+      manualOverride: false,
+      pinned: false,
+      muted: false,
+      host: controller,
+      internal: 'settings'
+    }
+    tabs.push(tab)
+    bind(tab, view)
+    load(tab, SETTINGS_URL)
+    return tab
+  }
+
+  /** Edge 语义：已存在就切过去，不存在才新建（P3：每窗口最多一个设置标签）。 */
+  function openSettingsTab(): Tab {
+    const existing = tabs.find((item) => item.internal === 'settings')
+    if (existing) {
+      select(existing, true)
+      return existing
+    }
+    const opened = openInternalTab()
+    select(opened, true)
+    return opened
   }
 
   function select(tab: Tab, focus = true): void {
@@ -505,7 +601,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    */
   function swapView(tab: Tab, engine: BrowserEngine, source: EngineSource): WebContentsView {
     const previous = tab.view
-    const view = createView(engine)
+    // 内部页重建仍是内部页：不能因为崩溃/快捷键把它换成页面视图。
+    const view = tab.internal ? createInternalView() : createPageView(engine)
     tab.binding += 1
     tab.view = view
     tab.engine = engine
@@ -558,7 +655,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     failure: string
   ): Promise<void> {
     if (entries.length === 0) {
-      load(tab, START_PAGE)
+      load(tab, tab.internal ? SETTINGS_URL : START_PAGE)
       return
     }
     const view = tab.view
@@ -638,16 +735,24 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function showTabMenu(tab: Tab): void {
     const contents = tab.view.webContents
     const muted = !contents.isDestroyed() && safe(() => contents.isAudioMuted(), false)
-    const template: MenuItemConstructorOptions[] = [
-      { label: '重新加载', click: () => reloadTab(tab) },
-      { label: '复制标签页', click: () => duplicateTab(tab) },
-      { type: 'separator' },
-      { label: tab.pinned ? '取消固定标签页' : '固定标签页', click: () => setPinned(tab, !tab.pinned) },
-      { label: muted ? '取消静音' : '静音标签页', click: () => toggleMuted(tab) },
-      { type: 'separator' },
-      { label: '关闭标签页', click: () => closeTab(tab) },
-      { label: '撤销关闭的标签页', enabled: recentlyClosed.length > 0, click: () => void undoClose() }
-    ]
+    // 内部页没有引擎/静音/复制语义：只留重载、关闭与撤销。
+    const template: MenuItemConstructorOptions[] = tab.internal
+      ? [
+          { label: '重新加载', click: () => reloadTab(tab) },
+          { type: 'separator' },
+          { label: '关闭标签页', click: () => closeTab(tab) },
+          { label: '撤销关闭的标签页', enabled: recentlyClosed.length > 0, click: () => void undoClose() }
+        ]
+      : [
+          { label: '重新加载', click: () => reloadTab(tab) },
+          { label: '复制标签页', click: () => duplicateTab(tab) },
+          { type: 'separator' },
+          { label: tab.pinned ? '取消固定标签页' : '固定标签页', click: () => setPinned(tab, !tab.pinned) },
+          { label: muted ? '取消静音' : '静音标签页', click: () => toggleMuted(tab) },
+          { type: 'separator' },
+          { label: '关闭标签页', click: () => closeTab(tab) },
+          { label: '撤销关闭的标签页', enabled: recentlyClosed.length > 0, click: () => void undoClose() }
+        ]
     Menu.buildFromTemplate(template).popup({ window })
   }
 
@@ -671,7 +776,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       entries,
       index: safe(() => contents.navigationHistory.getActiveIndex(), entries.length - 1),
       engine: tab.engine,
-      manualOverride: tab.manualOverride
+      manualOverride: tab.manualOverride,
+      internal: tab.internal
     })
     if (recentlyClosed.length > CLOSED_TAB_LIMIT) recentlyClosed.shift()
   }
@@ -698,7 +804,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function undoClose(): BrowserResult {
     const closed = recentlyClosed.pop()
     if (!closed) return fail('nothing-to-undo')
-    const tab = addTab('新标签页', null, closed.engine, closed.manualOverride ? 'manual' : 'default')
+    // 内部页撤销关闭要重建**内部视图**，否则会变成"内部标签里跑页面语义"。
+    const tab = closed.internal
+      ? openInternalTab()
+      : addTab('新标签页', null, closed.engine, closed.manualOverride ? 'manual' : 'default')
     select(tab, true)
     void restoreHistory(tab, closed.entries, closed.index,
       closed.entries[closed.index]?.url ? '无法恢复完整历史，已打开最后一个地址' : '无法恢复此前关闭的标签页')
@@ -747,6 +856,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       return true
     }
     if (!input.control || input.alt || input.meta) return false
+    // Ctrl+, ：设置页（Chrome/Edge 同款入口）。
+    if (input.key === ',' || input.code === 'Comma') {
+      openSettingsTab()
+      return true
+    }
     if (input.key === 'Tab') {
       cycleTab(input.shift ? -1 : 1)
       return true
@@ -820,6 +934,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     adoptTab,
     shortcut: handleShortcut,
     refreshSettings: updateWindowControls,
+    broadcastSettings,
+    ownsContents,
+    internalSender,
+    internalSnapshot,
     run
   }
 
@@ -844,6 +962,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         break
       case 'add':
         select(addTab(), true)
+        break
+      case 'open-settings':
+        openSettingsTab()
         break
       case 'select':
       case 'close': {
@@ -872,6 +993,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'set-engine': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
+        // 内部页没有引擎：静默换视图会让设置页变成网页容器。
+        if (tab.internal) return fail('invalid-command')
         if (command.engine !== 'ppapi' && command.engine !== 'ruffle') return fail('invalid-command')
         if (command.engine === 'ppapi' && !plugins) return fail('engine-unavailable')
         try {
@@ -886,6 +1009,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'forget-engine': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
+        if (tab.internal) return fail('no-site')
         return command.type === 'remember-engine' ? rememberActiveEngine(tab) : forgetActiveEngine(tab)
       }
       /**
@@ -911,6 +1035,24 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'navigate': {
         const target = activeTab()
         if (!target) return fail('unknown-tab')
+        /**
+         * 内部页里的地址栏：
+         * - `bao://settings` → 保持在设置页；
+         * - 其它 http(s) → **新开一个标签**（P2）。内部会话永远不承载网页，否则那个网页
+         *   就能 `fetch('bao://settings/…')`（实测 200），等于给页面开新特权面。
+         */
+        if (target.internal) {
+          const address = typeof command.address === 'string' ? command.address : ''
+          if (parseSettingsAddress(address)) {
+            load(target, SETTINGS_URL)
+            break
+          }
+          const opened = parseAddress(address)
+          if (!opened) return fail('invalid-address')
+          const resolved = engineFor(opened)
+          select(addTab('新标签页', opened, resolved.engine, resolved.source), true)
+          break
+        }
         const url = typeof command.address === 'string' ? parseAddress(command.address) : undefined
         if (!url) return fail('invalid-address')
         // 站点规则只决定「初始」引擎：用户在这个标签上手动切换过，就沿用他的选择。
@@ -971,13 +1113,53 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     publish()
   }
 
-  nativeTheme.on('updated', updateWindowControls)
+  /** 设置变化后推给本窗口的内部页；页面自己决定怎么重绘。 */
+  function broadcastSettings(): void {
+    const snapshot = internalSnapshot()
+    for (const tab of tabs) {
+      if (!tab.internal) continue
+      const contents = tab.view.webContents
+      if (!contents.isDestroyed()) contents.send(settingsChannels.changed, snapshot)
+    }
+  }
+
+  function ownsContents(contentsId: number): boolean {
+    return tabs.some((tab) => tab.view.webContents.id === contentsId)
+  }
+
+  /**
+   * 内部设置页的可信判定（三条件同时成立）：
+   * ① 是本窗口亲自创建的内部页标签视图；② 是主帧；③ 文档 URL ∈ `bao://settings/*`。
+   *
+   * 普通页面三条都过不了：它不在标签的 `internal` 集合里，也已被 `guardContents`
+   * 的 allow 拦在 `bao://` 之外；`registerPageView` / `overlays.sender` 两条既有特权
+   * 通道对它同样是关闭的。
+   */
+  function internalSender(event: IpcMainInvokeEvent): boolean {
+    if (closing) return false
+    const tab = tabs.find((item) => item.internal === 'settings' && item.view.webContents.id === event.sender.id)
+    if (!tab) return false
+    const frame = event.senderFrame
+    if (!frame || frame !== event.sender.mainFrame) return false
+    return isSettingsUrl(frame.url)
+  }
+
+  /**
+   * 系统主题变化（`themeSource: 'system'` 时由操作系统触发）：
+   * 外壳/叠加层重绘 + 内部页也要拿到新的解析主题，否则设置页会停在上一个亮/暗。
+   */
+  function onNativeThemeUpdated(): void {
+    updateWindowControls()
+    broadcastSettings()
+  }
+
+  nativeTheme.on('updated', onNativeThemeUpdated)
   window.on('resize', layout)
   window.on('closed', () => {
     closing = true
     controllers.delete(shellContentsId)
     overlays.dispose()
-    nativeTheme.off('updated', updateWindowControls)
+    nativeTheme.off('updated', onNativeThemeUpdated)
     for (const tab of tabs) {
       tab.binding += 1
       tab.host = undefined
@@ -1075,7 +1257,10 @@ let registered = false
 
 /** 设置是进程级的：一处改动后所有窗口都要重绘（主题/标题栏 overlay/默认引擎）。 */
 function refreshAllWindows(): void {
-  for (const controller of controllers.values()) controller.refreshSettings()
+  for (const controller of controllers.values()) {
+    controller.refreshSettings()
+    controller.broadcastSettings()
+  }
 }
 
 function controllerFor(event: IpcMainInvokeEvent): WindowController | undefined {
@@ -1083,6 +1268,8 @@ function controllerFor(event: IpcMainInvokeEvent): WindowController | undefined 
   if (shell) return shell
   for (const controller of controllers.values()) {
     if (controller.overlays.sender(event)) return controller
+    // 内部设置页（WebContentsView）：按"本窗口的标签表"认领，拖出窗口后仍然成立。
+    if (controller.ownsContents(event.sender.id)) return controller
   }
 }
 
@@ -1097,4 +1284,29 @@ export function registerBrowserIpc(): void {
   })
   ipcMain.handle(overlayChannels.command, (event, command: unknown) =>
     controllerFor(event)?.overlays.command(event, command) ?? false)
+
+  /**
+   * 内部设置页的窄通道（架构 §4 数据 + §3 IPC）。
+   *
+   * 和 `browser:command` 分开注册是刻意的：这个通道**只**接受内部页主帧，
+   * 外壳/叠加层/页面都拿不到它；反过来内部页也拿不到 `baoBrowser`。
+   */
+  ipcMain.handle(settingsChannels.read, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return undefined
+    return controller.internalSnapshot()
+  })
+  ipcMain.handle(settingsChannels.write, (event, payload: unknown) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) {
+      return { ok: false, code: 'forbidden-sender' }
+    }
+    const record = (payload ?? {}) as { key?: unknown; value?: unknown }
+    const outcome = setSetting(record.key, record.value)
+    if (outcome === 'invalid') return { ok: false, code: 'invalid-setting' }
+    if (outcome === 'unavailable') return { ok: false, code: 'storage-unavailable' }
+    if (outcome === 'save-failed') return { ok: false, code: 'settings-save-failed' }
+    refreshAllWindows()
+    return { ok: true, snapshot: controller.internalSnapshot() }
+  })
 }

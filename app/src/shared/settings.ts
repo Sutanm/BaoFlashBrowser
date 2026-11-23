@@ -95,3 +95,40 @@ export const themeModeLabels: Record<ThemeMode, string> = {
   light: '浅色',
   dark: '深色'
 }
+
+/* ------------------------------------------------------------------ *
+ * 内部设置页（`bao://settings`）与主进程之间的窄合同。
+ *
+ * 这里刻意只有三个通道、两个动词：内部页**拿不到** `baoBrowser` / `baoOverlay` /
+ * `baoWindowControl`，也拿不到任意 URL 的读写或文件路径。发送者身份由主进程按
+ * 「本窗口的标签表 ∧ 主帧 ∧ 文档 URL ∈ bao://settings/*」三条件判定。
+ * ------------------------------------------------------------------ */
+
+export const settingsChannels = {
+  read: 'settings:read',
+  write: 'settings:write',
+  changed: 'settings:changed'
+} as const
+
+export interface SettingsSnapshot {
+  settings: Settings
+  /** 解析后的亮/暗：内部页据此上色（`nativeTheme.shouldUseDarkColors` 的结果）。 */
+  theme: 'light' | 'dark'
+  storage: 'ready' | 'unavailable'
+}
+
+export type SettingsWriteFailure =
+  | 'forbidden-sender'
+  | 'invalid-setting'
+  | 'settings-save-failed'
+  | 'storage-unavailable'
+
+export type SettingsWriteResult =
+  | { ok: true; snapshot: SettingsSnapshot }
+  | { ok: false; code: SettingsWriteFailure }
+
+export interface SettingsBridge {
+  read(): Promise<SettingsSnapshot | undefined>
+  write(key: SettingKey, value: SettingValue[SettingKey]): Promise<SettingsWriteResult>
+  subscribe(listener: (snapshot: SettingsSnapshot) => void): () => void
+}

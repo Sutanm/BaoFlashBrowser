@@ -1,12 +1,13 @@
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, Menu, protocol } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createBrowserWindow, registerBrowserIpc } from './browser-window'
 import { configureFlashPlugin } from './plugins'
-import { registerRuffleIpc, registerRuffleScheme } from './ruffle'
+import { ruffleSchemePrivileges, registerRuffleIpc } from './ruffle'
 import { registerPopupChromeIpc } from './popup-chrome'
 import { registerWindowControlIpc } from './window-control'
 import { registerNetBroker } from './net-broker'
+import { internalSchemePrivileges } from './internal-pages'
 import { closeStorage, initStorage } from './storage'
 
 app.setName('BaoFlashBrowser Next')
@@ -15,8 +16,9 @@ app.setName('BaoFlashBrowser Next')
 // 默认菜单的 accelerator 抢走，标签级快捷键无法生效（架构 §3 商标交互沿用 Chrome 式目标）。
 Menu.setApplicationMenu(null)
 
-// 自定义 scheme 必须在 ready 之前登记（架构 §3 引擎：Ruffle 本地资源）。
-registerRuffleScheme()
+// 自定义 scheme 必须在 ready 之前登记，而且**只能调用一次**（多次调用会覆盖而不是追加）。
+// Ruffle 的资源协议与内部页 `bao://settings` 因此合并成一次登记。
+protocol.registerSchemesAsPrivileged([...ruffleSchemePrivileges(), ...internalSchemePrivileges()])
 
 // 内核插件注册必须在 ready 之前写入命令行（架构 §3 引擎）。
 const flash = configureFlashPlugin()

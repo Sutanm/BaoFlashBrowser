@@ -12,6 +12,8 @@ export const browserChannels = {
 
 export type BrowserCommand =
   | { type: 'snapshot' | 'add' | 'back' | 'forward' | 'reload' | 'undo-close' | 'remember-engine' | 'forget-engine' }
+  /** 打开（或切到已存在的）设置标签页（`bao://settings`，Edge 语义）。 */
+  | { type: 'open-settings' }
   | { type: 'select' | 'close'; id: number }
   /** 标签操作（架构 §3）：复制、固定/取消固定、静音/取消静音，以及右键菜单。 */
   | { type: 'duplicate' | 'pin' | 'mute' | 'tab-menu'; id: number }
@@ -85,6 +87,8 @@ export interface BrowserTab {
   pinned: boolean
   /** 页面音频是否被静音。 */
   muted: boolean
+  /** 内部页（`bao://settings`）：没有引擎、站点规则与页面权限。 */
+  internal?: 'settings'
 }
 
 export interface BrowserState {

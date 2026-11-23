@@ -12,6 +12,11 @@ import type { Session } from 'electron'
  */
 const PAGE_PARTITION = 'persist:bao-next-pages'
 const SHELL_PARTITION = 'bao-next-shell'
+/**
+ * 内部页（`bao://settings`）的分区：持久化，因为 `localStorage` 这类纯 UI 偏好可以留在里面
+ * （设置本体在主进程库，不受影响）。**这个会话绝不承载 http(s) 文档**——见 `internal-pages.ts`。
+ */
+const INTERNAL_PARTITION = 'persist:bao-next-internal'
 
 /**
  * 权限白名单（架构 §3 权限与会话「按请求来源及嵌入来源处理」）。
@@ -111,6 +116,7 @@ function restoreBrokerReferer(target: Session): Session {
 }
 let pageSession: Session | undefined
 let shellSession: Session | undefined
+let internalSession: Session | undefined
 
 export function getPageSession(): Session {
   pageSession ??= restoreBrokerReferer(denyDownloads(applyPermissionPolicy(session.fromPartition(PAGE_PARTITION))))
@@ -120,4 +126,13 @@ export function getPageSession(): Session {
 export function getShellSession(): Session {
   shellSession ??= denyDownloads(applyPermissionPolicy(session.fromPartition(SHELL_PARTITION)))
   return shellSession
+}
+
+/**
+ * 内部页会话。权限策略与下载拒绝照旧复用：`allows()` 只认 http(s)，`bao:` 来源连
+ * `fullscreen` 都拿不到——这正是我们要的（内部页不需要任何站点权限）。
+ */
+export function getInternalSession(): Session {
+  internalSession ??= denyDownloads(applyPermissionPolicy(session.fromPartition(INTERNAL_PARTITION)))
+  return internalSession
 }

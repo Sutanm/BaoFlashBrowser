@@ -41,7 +41,7 @@ npm run dev
 | `npm run typecheck` | 检查 TypeScript 和 Vue 类型。 |
 | `npm run build` | 检查类型并编译主进程、预加载和渲染层。 |
 | `npm start` | 使用自编译 Electron 启动已编译的应用。 |
-| `npm run smoke` | 用临时测试 profile 跑 24 个用例：外壳/标签/快捷键/引擎与站点规则/输入回环/Ruffle 跨源/网络边界/弹窗/权限/主题/PPAPI 样本。无插件时 `flash` 与 `plugin-input` 两条会跳过并说明原因。 |
+| `npm run smoke` | 用临时测试 profile 跑 26 个用例：外壳/标签/快捷键/引擎与站点规则/输入回环/Ruffle 跨源/网络边界/弹窗/权限/主题/内部设置页/PPAPI 样本。无插件时 `flash` 与 `plugin-input` 两条会跳过并说明原因。 |
 | `npm run test:data` | 存储合同用例（6 条）：设置落库与跨重启、非法值拒绝、`engine-rules.json` 一次性迁移与幂等、坏值回落、硬杀后数据完整、写失败不应用。用系统 Node 直接打开真库校验。 |
 | `npm run runtime:check` | 校验 `.runtime/win-x64` 的内核与插件 SHA-256（按 `scripts/runtime-manifest.json`），失败时给出拷贝/重建两条恢复路径。 |
 | `npm run runtime:export` / `:byop` | 导出运行时 zip（`internal` 含插件、`byop` 不含 Adobe 二进制）+ 包内 `RUNTIME-MANIFEST.json`，供其它机器搭建环境。 |
@@ -54,7 +54,8 @@ npm run dev
 已实测（`bao-v142-265-ppapi-sandbox`，Electron 39.8.10 / Chromium 142.0.7444.265）：
 
 - 无边框两行外壳、Windows 原生窗口控件、Fluent 2 token 与深浅色跟随；默认应用菜单已移除。
-- **主题**：设置项 `theme.mode`（跟随系统 / 浅色 / 深色）1:1 映射 `nativeTheme.themeSource`；外壳 token、叠加层、系统窗口按钮配色、起始页与站点看到的 `prefers-color-scheme` 由同一个解析值派生。设置界面在增量 2，当前由 `set-setting` 命令驱动。
+- **主题**：设置项 `theme.mode`（跟随系统 / 浅色 / 深色）1:1 映射 `nativeTheme.themeSource`；外壳 token、叠加层、系统窗口按钮配色、起始页与站点看到的 `prefers-color-scheme` 由同一个解析值派生。
+- **设置页**：`bao://settings` 作为内部页在标签里打开（`Ctrl+,` 或地址栏输入），已存在则复用；内部页跑在 `persist:bao-next-internal`、与页面同一套沙箱，只拿到 `baoSettings`（read/write/subscribe），拿不到外壳桥。在设置页里输入 http(s) 会新开普通标签，设置页原地不动。齿轮快捷叠加层在下一增量。
 - **启动只有一个标签页**；多标签由「新建标签页」按钮、双击标签栏或 `Ctrl+T` 创建。
 - 标签栏交互：点击/键盘切换、中键关闭、关闭按钮按需显示、拖动排序、拖出窗口（tearoff）、右键菜单（重新加载/复制/固定/静音/关闭/撤销关闭）、`Ctrl+W` 关闭、`Ctrl+Shift+T` 撤销关闭。
 - 撤销关闭用 E39 导航栈（`getAllEntries()/restore()`）恢复，保留前进/后退历史；无可撤销项时返回稳定错误码 `nothing-to-undo`。
@@ -76,7 +77,7 @@ npm run dev
 - **标签合同尚未覆盖**：会话恢复、未加载占位、分组与搜索（固定/复制/静音/右键菜单已实现）。`detachTab/adoptTab` 与 `undo-close` 是这些交互的同一入口。
 - **跨窗口移交的未验证面**：失焦、全屏退出、音频继续播放、Flash 内存态在真实站点下的表现；已实测的是同一 WebContents 复用带来的页面运行时状态与导航历史保留。
 - **Ruffle 的键盘焦点**：Ruffle 0.8 需要用户**先点一次播放器**（它靠 `pointerdown` 把焦点交给内部容器），之后键盘事件才进 SWF；自动化要用 CDP 派发指针事件，`sendInputEvent({type:'mousedown'})` 不够。`ruffle-input.test.cjs` 已覆盖。
-- **快捷键**：`Ctrl+T/W/Tab/Shift+T` 与 `Ctrl+Shift+I`（页面视图 DevTools）。标签分组、标签搜索、未加载占位仍未实现。
+- **快捷键**：`Ctrl+T/W/Tab/Shift+T`、`Ctrl+Shift+I`（页面视图 DevTools）与 `Ctrl+,`（设置页）。标签分组、标签搜索、未加载占位仍未实现。
 - **引擎相关未验证**：引擎切换失败回退（`restore()` 抛错）没有构造用例；真实站点（4399 等）在两种引擎下的对照未复测；UA、插件版本通告、`mms.cfg`、SWFObject 等站点兼容项按审计 §C7 另行验证。
 - **输入相关未验证**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖，样本见 `tests/smoke/fixtures/README.md`）。
 - **下载默认拒绝**：页面与外壳会话的 `will-download` 一律 `preventDefault()`。M1 没有下载能力与落盘策略，没有明确策略前不静默写文件；下载的身份、分区、暂停/恢复按 §4 在 M2 立项。

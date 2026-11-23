@@ -95,9 +95,14 @@ function resolveResourcePath(fileName: string): string | undefined {
   }
 }
 
-/** 必须在 `app.whenReady()` 之前调用。 */
-export function registerRuffleScheme(): void {
-  protocol.registerSchemesAsPrivileged([{
+/**
+ * 必须在 `app.whenReady()` 之前调用——但**只能有一个** `registerSchemesAsPrivileged`
+ * 调用点：多次调用会覆盖而不是追加（2026-11-23 实测：第二次调用后 Ruffle 的资源协议
+ * 失去 standard/secure/corsEnabled，页面注入直接失败）。所以这里只导出描述符，
+ * 由 `index.ts` 把全部 scheme 一次性登记。
+ */
+export function ruffleSchemePrivileges(): Parameters<typeof protocol.registerSchemesAsPrivileged>[0] {
+  return [{
     scheme: RUFFLE_SCHEME,
     privileges: {
       standard: true,
@@ -106,7 +111,7 @@ export function registerRuffleScheme(): void {
       corsEnabled: true,
       stream: true
     }
-  }])
+  }]
 }
 
 const bound = new WeakSet<Session>()

@@ -5,7 +5,9 @@ import type { ShellTheme } from '../shared/shell-theme'
 export function applyShellTheme(mode: ShellTheme): void {
   const theme = shellThemes[mode]
   const root = document.documentElement
-  if (root.dataset.theme === mode) return
+  // 用独立标记判断「这份文档是否已经应用过」：`data-theme` 由 HTML/CSS 预置（例如设置页
+  // 的 `<html data-theme="light">`），拿它当幂等键会让我们跳过首次的颜色变量写入。
+  if (root.dataset.shellTheme === mode) return
 
   const aliases = {
     '--surface-window': windowPalette[mode].color,
@@ -33,5 +35,6 @@ export function applyShellTheme(mode: ShellTheme): void {
   }
 
   root.dataset.theme = mode
+  root.dataset.shellTheme = mode
   for (const [name, value] of Object.entries(aliases)) root.style.setProperty(name, value)
 }

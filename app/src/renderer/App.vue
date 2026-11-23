@@ -349,7 +349,8 @@ onBeforeUnmount(() => store.disconnect())
             :aria-busy="tab.loading"
             :title="tab.title"
           >
-            <span class="glyph page site-icon" :class="{ loading: tab.loading }" aria-hidden="true"></span>
+            <span v-if="tab.internal" class="site-icon settings-icon" aria-hidden="true"><ShellIcon name="gear" /></span>
+            <span v-else class="glyph page site-icon" :class="{ loading: tab.loading }" aria-hidden="true"></span>
             <span v-if="!tab.pinned" class="tab-label">{{ tab.title }}</span>
             <span v-if="tab.muted" class="muted-mark" aria-hidden="true">
               <svg viewBox="0 0 16 16">
@@ -407,7 +408,7 @@ onBeforeUnmount(() => store.disconnect())
           spellcheck="false"
         >
       </div>
-      <div v-if="active" ref="engineRoot" class="engine-pill" role="group" aria-label="渲染引擎">
+      <div v-if="active && !active.internal" ref="engineRoot" class="engine-pill" role="group" aria-label="渲染引擎">
         <button type="button" class="engine-switch" role="switch"
           :aria-checked="active.engine === 'ruffle'" :aria-label="switchLabel" :title="engineTitle" @click="switchEngine">
           <span class="engine-mark" :class="active.pinnedEngine && active.pinnedEngine !== active.engine ? 'overridden' : active.engine" aria-hidden="true">
@@ -543,6 +544,8 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
 .tab.selected .tab-title { font-weight: 600; }
 .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .site-icon { color: var(--text-secondary); }
+.settings-icon { display: inline-flex; align-items: center; }
+.settings-icon .shell-icon { width: 14px; height: 14px; }
 .tab.selected .site-icon { color: var(--brand-stroke); }
 .tab.crashed .site-icon { color: var(--text-error); }
 .glyph.page.loading::before { inset: 2px; border-radius: 50%; border-inline-end-color: transparent; }
