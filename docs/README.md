@@ -1,6 +1,9 @@
 # BaoFlashBrowser 文档索引
 
-> 当前版本：**1.1.2**。全量复核日期：**2026-11-04**（按源码 + git 提交逐条核对）。
+> **两条线**（2026-11-23 起）：**87 线** = `main`，当前版本 `1.1.2`（Electron 11.5.0 /
+> Chromium 87，唯一交付线）；**Next 线** = `next` 分支，版本从 `0.x` 起（Electron 39 /
+> Chromium 142，文档只在该分支）。版本语义与功能归属见 [`version-lines.md`](version-lines.md)。
+> 全量复核日期：**2026-11-04**（按源码 + git 提交逐条核对）；2026-11-23 重排版本线与索引。
 > 本文同时承担"文档索引"与"现行/历史边界"两个职责；原 `documentation-status.md` 已归档
 > 到 [`archive/legacy/documentation-status.md`](archive/legacy/documentation-status.md)。
 
@@ -32,6 +35,14 @@
 | 09 构建发布 | [`modules/09-build-release-test.md`](modules/09-build-release-test.md) | 命令、模块裁剪、OCR 打包、CI、测试分层 |
 | 10 网络代理 | [`modules/10-network-proxy.md`](modules/10-network-proxy.md) | Electron 11 映射、连接检测、与下载/模块的关系 |
 | 11 语言主题更新 | [`modules/11-i18n-theme-update.md`](modules/11-i18n-theme-update.md) | 双轨语言、nativeTheme、GitHub Release 检查 |
+| 12 开发者工具箱 | [`modules/12-devtoolbox.md`](modules/12-devtoolbox.md) | chii 前端降级构建、CDP 桥垫片与会话轮换、端口避坑、不占 CDP 租约 |
+
+## 决策记录（ADR）
+
+| 编号 | 文档 | 状态 |
+| --- | --- | --- |
+| 0001 | [`adr/0001-next-branch-strategy.md`](adr/0001-next-branch-strategy.md) | 已接受（2026-11-15）：Next 独立分支，87 线不追内核 |
+| 0002 | [`adr/0002-next-stack-baseline.md`](adr/0002-next-stack-baseline.md) | **`main` 上仅指针**：权威版在 `next` 分支，旧快照已归档 `archive/adr/` |
 
 ## 使用指南
 
@@ -49,6 +60,7 @@
 
 | 主题 | 文档 | 说明 |
 | --- | --- | --- |
+| 版本线与版本号 | [`version-lines.md`](version-lines.md) | 87 线 `1.1.x` / Next `0.x` 的编号规则、1.1.3 归属划分、Next 里程碑映射 |
 | Chrome 功能对照清单 | [`chrome-feature-parity.md`](chrome-feature-parity.md) | 1.1.2 现状、缺口、建议批次（含 1.1.3 候选）与待验证项 |
 
 ## 构建、发布与验证
@@ -83,12 +95,14 @@
 | `automation-v2/` | Automation 2.0 的 ADR、phases、审计与 benchmark |
 | `legacy/` | 早期架构手册、经验记录、整改计划、旧博客、文档状态说明 |
 | `modules-v1/` | 被重写的模块文档旧版 |
+| `adr/0002-next-stack-baseline.md` | Next 技术栈提案旧快照（内核 138 / UI 待定），权威版在 `next` 分支 |
 | `releases/1.1.1-regression-baseline.md` | 1.1.1 回归快照 |
 
 ## 维护规则
 
-1. **版本变化时**至少复核：本文、`FINAL_REGRESSION.md`、`PACKAGE.md`、`RELEASE_NOTES.md`、
-   `modules/00-overview.md`、[`chrome-feature-parity.md`](chrome-feature-parity.md)。
+1. **版本变化时**至少复核：本文、[`version-lines.md`](version-lines.md)、`FINAL_REGRESSION.md`、
+   `PACKAGE.md`、`RELEASE_NOTES.md`、`modules/00-overview.md`、
+   [`chrome-feature-parity.md`](chrome-feature-parity.md)。
 2. 文档中的命令必须来自 `package.json`；CI 平台与触发条件必须来自 `.github/workflows/`。
    不允许凭记忆写命令。
 3. 现行文档**不固定写测试数量、文件数和本机耗时**，这类数据只写入带日期的验证记录
