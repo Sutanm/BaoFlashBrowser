@@ -561,7 +561,8 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
   translate: 0 -50%;
   width: 1px;
   height: 16px;
-  background: var(--stroke-divider);
+  /* 比 --stroke-divider（Fluent stroke2）深一档：直接用它几乎看不见 */
+  background: color-mix(in srgb, var(--text-primary) 30%, transparent);
   pointer-events: none;
 }
 .tab.selected .tab-separator,
