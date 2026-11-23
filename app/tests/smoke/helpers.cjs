@@ -1,3 +1,4 @@
+const { existsSync } = require('node:fs')
 const assert = require('node:assert/strict')
 const { once } = require('node:events')
 const { mkdtemp, readFile, rm } = require('node:fs/promises')
@@ -119,4 +120,27 @@ async function pressShortcut(app, keyCode, modifiers = []) {
   }, { keyCode, modifiers })
 }
 
-module.exports = { isShellPage, launchApp, page, pageViewIds, pressShortcut, startFixtureServer, waitFor }
+module.exports = {
+  flashPluginPath,
+  hasFlashPlugin,
+  isShellPage,
+  launchApp,
+  page,
+  pageViewIds,
+  pressShortcut,
+  startFixtureServer,
+  waitFor
+}
+/**
+ * 本地是否有 PPAPI 插件（BYOP：开发环境可能没放）。
+ *
+ * 依赖插件的用例（`flash`、`plugin-input`）在没有插件时应当**跳过并说明原因**，
+ * 而不是报「页面加载超时」——否则 BYOP 机器上永远一片红，新人会以为代码坏了。
+ */
+function flashPluginPath() {
+  return join(__dirname, '..', '..', '.runtime', 'win-x64', 'pepflashplayer64.dll')
+}
+
+function hasFlashPlugin() {
+  return existsSync(flashPluginPath())
+}

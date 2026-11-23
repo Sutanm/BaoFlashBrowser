@@ -18,7 +18,10 @@
     "pack:win:public": "npm run build && node scripts/pack-win.cjs --public",
     "smoke:packaged:public": "node --test --test-concurrency=1 tests/smoke/packaged.test.cjs",
     "runtime:prepare": "node scripts/prepare-runtime.cjs",
-    "runtime:check": "node scripts/runtime-check.cjs"
+    "runtime:check": "node scripts/runtime-check.cjs",
+    "runtime:export": "node scripts/runtime-export.cjs",
+    "runtime:export:byop": "node scripts/runtime-export.cjs --byop",
+    "runtime:import": "node scripts/runtime-import.cjs"
   },
   "dependencies": {
     "@fluentui/tokens": "1.0.0-alpha.24",

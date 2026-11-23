@@ -1,9 +1,14 @@
 const assert = require('node:assert/strict')
 const { resolve } = require('node:path')
 const { test } = require('node:test')
-const { launchApp, startFixtureServer } = require('./helpers.cjs')
+const { hasFlashPlugin, launchApp, startFixtureServer } = require('./helpers.cjs')
 
-test('本地 PPAPI 样本在独立测试 profile 中注册插件并保留 JS 桥', { timeout: 150_000 }, async () => {
+test('本地 PPAPI 样本在独立测试 profile 中注册插件并保留 JS 桥', { timeout: 150_000 }, async (context) => {
+  if (!hasFlashPlugin()) {
+    // BYOP：开发环境可能没放插件。跳过并说明，避免误判成代码回归。
+    context.skip('未检测到 .runtime/win-x64/pepflashplayer64.dll（BYOP）：跳过 PPAPI 用例。')
+    return
+  }
   const server = await startFixtureServer()
   const { app, shell, profilePath, close } = await launchApp()
   try {

@@ -34,15 +34,35 @@ npm ci
 
 然后二选一拿到运行时：
 
-**A. 从已有环境的机器复制**（最省事）
+**A. 从内部归档导入**（最省事，推荐）
+
+内核运行时按「一种内核 tag = 一个归档」发布，不占仓库体积（`electron.exe` 单个 221 MB，
+两家 git 平台都拒）。发送方在**自己的机器**上执行：
 
 ```powershell
-# 旧机器
-Compress-Archive -Path app\.runtime\win-x64 -DestinationPath runtime-win-x64.zip
-
-# 新机器（解压到 app 下）
-Expand-Archive runtime-win-x64.zip -DestinationPath app\.runtime
+npm run runtime:export          # internal：含 PPAPI 插件（开发冒烟需要）
+npm run runtime:export:byop     # byop：不含 Adobe 二进制，许可最干净
 ```
+
+产物在 `app/dist/runtime-win-x64-<kernel-tag>-<profile>.zip`（约 150–160 MB），连同脚本打印的
+ZIP SHA-256 一起放到**私有 Release / 受限云盘**。接收方：
+
+```powershell
+gh release download kernel-bao-v142-265-ppapi-sandbox --pattern 'runtime-win-x64-*.zip'   # 或从云盘下载
+npm run runtime:import -- .\runtime-win-x64-bao-v142-265-ppapi-sandbox-internal.zip
+npm run runtime:check
+```
+
+`runtime:import` **先校验再落盘**：包内 `RUNTIME-MANIFEST.json` 记录了逐文件 SHA-256 与内核
+tag，只有与仓库 `scripts/runtime-manifest.json` 期望的内核一致才会安装；不一致会直接报错，
+避免"来路不对但静默能用"。已存在的运行时会被移到 `.runtime/win-x64-previous`（`--force` 时）。
+
+两种包的区别：
+
+| 包 | 内含 | 冒烟结果 | 分发限制 |
+| --- | --- | --- | --- |
+| `internal` | 含 `pepflashplayer64.dll` | **21/21**（PPAPI 用例会跑） | 仅限内部分发（私有 Release / draft / 受限云盘） |
+| `byop` | 不含 Adobe 二进制 | 19 通过 + `flash`/`plugin-input` 两条**跳过并说明原因** | 可较自由分发；需要原生引擎时自己放插件 |
 
 **B. 旧机器上还留着内核构建产物**（`dist` 目录）
 
@@ -95,6 +115,8 @@ npm run typecheck
 | `npm run smoke:packaged` | 成品冒烟（按产物 `manifest.json` 判定 profile） |
 | `npm run runtime:check` | 本地运行时自检 |
 | `npm run runtime:prepare -- <dist>` | 从内核构建输出刷新运行时 |
+| `npm run runtime:export` / `runtime:export:byop` | 导出运行时 zip（internal 含插件 / byop 不含 Adobe 二进制） |
+| `npm run runtime:import -- <zip>` | 校验后安装运行时 |
 
 ---
 

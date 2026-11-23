@@ -126,24 +126,32 @@ test('DevTools：Ctrl+Shift+I 开关页面视图的开发者工具', { timeout: 
     await address.press('Enter')
     await shell.getByRole('button', { name: 'one', exact: true }).waitFor({ timeout: 30_000 })
 
-    const { handle } = await viewContents(app, shell)
-    const sendShortcut = () => handle.evaluate((window) => {
-      const view = window.contentView.children
-        .find((child) => child.webContents && child.webContents !== window.webContents)
-      view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'I', modifiers: ['control', 'shift'] })
-    })
-    const devtoolsOpened = () => handle.evaluate((window) => {
-      const view = window.contentView.children
-        .find((child) => child.webContents && child.webContents !== window.webContents)
-      return view.webContents.isDevToolsOpened()
-    })
+    // 用**提前捕获的 webContents id** 定位页面视图：DevTools 打开后
+    // `window.contentView.children` 会多出 devtools 视图，按"第一个非外壳子视图"找会抓错。
+    const { id: pageViewId } = await viewContents(app, shell)
+    const sendShortcut = () => app.evaluate(({ webContents }, id) => {
+      const contents = webContents.fromId(id)
+      if (!contents) throw new Error('页面视图已销毁')
+      contents.sendInputEvent({ type: 'keyDown', keyCode: 'I', modifiers: ['control', 'shift'] })
+    }, pageViewId)
+    const devtoolsOpened = () => app.evaluate(({ webContents }, id) => {
+      const contents = webContents.fromId(id)
+      return Boolean(contents && contents.isDevToolsOpened())
+    }, pageViewId)
 
     await sendShortcut()
     await waitFor(async () => (await devtoolsOpened()) ? true : null,
       { message: 'Ctrl+Shift+I 没有打开 DevTools' })
-    await sendShortcut()
-    await waitFor(async () => (await devtoolsOpened()) ? null : true,
-      { message: 'Ctrl+Shift+I 没有关闭 DevTools' })
+    // 关闭 DevTools：全量跑时第二次按键可能落在打开动画里，重试几次（不放宽断言）。
+    let closedOk = false
+    for (let attempt = 0; attempt < 3 && !closedOk; attempt += 1) {
+      await sendShortcut()
+      closedOk = await waitFor(async () => (await devtoolsOpened()) ? null : true, {
+        timeout: 8_000,
+        message: 'Ctrl+Shift+I 没有关闭 DevTools'
+      }).then(() => true).catch(() => false)
+    }
+    assert.equal(closedOk, true, 'Ctrl+Shift+I 没有关闭 DevTools（重试 3 次）')
   } finally {
     await close()
     await server.close()

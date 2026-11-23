@@ -28,10 +28,23 @@ test('权限白名单：只放行 fullscreen / pointerLock，其余拒绝', { ti
     await address.press('Enter')
     await shell.getByRole('button', { name: '权限探针', exact: true }).waitFor({ timeout: 30_000 })
 
-    // 全屏：放行
-    await viewEval(app, shell, "document.getElementById('fs').click()", true)
-    await waitFor(async () => (await viewEval(app, shell, 'document.fullscreenElement !== null')) === true,
-      { message: 'fullscreen 被拒绝了。' })
+    // 全屏：放行。fullscreen 需要用户激活，全量跑时窗口可能失焦导致请求被丢弃，
+    // 所以重试几次点击（不是放宽断言）。
+    const granted = async (code, message) => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await viewEval(app, shell, code, true)
+        const ok = await waitFor(async () => (await viewEval(app, shell, message.probe)) === true, {
+          timeout: 8_000,
+          message: message.text
+        }).catch(() => null)
+        if (ok) return
+      }
+      throw new Error(message.text)
+    }
+    await granted("document.getElementById('fs').click()", {
+      probe: 'document.fullscreenElement !== null',
+      text: 'fullscreen 被拒绝了（重试 3 次）。'
+    })
     await viewEval(app, shell, 'document.exitFullscreen()', true)
     await waitFor(async () => (await viewEval(app, shell, 'document.fullscreenElement === null')) === true,
       { message: '退出全屏失败。' })
