@@ -1,6 +1,6 @@
 const { spawnSync } = require('node:child_process')
 const { createHash } = require('node:crypto')
-const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } = require('node:fs')
+const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 
 const root = resolve(__dirname, '..')
@@ -54,9 +54,10 @@ function verifyProvenance() {
     process.exit(1)
   }
   console.log(`[pack] 来源校验通过（内核 tag ${manifest.kernel?.tag ?? '未知'}）：${Object.keys(manifest.files).length} 个文件`)
+  return manifest
 }
 
-verifyProvenance()
+const manifestSource = verifyProvenance()
 
 rmSync(output, { recursive: true, force: true })
 for (const entry of readdirSync(dist, { withFileTypes: true })) {
@@ -106,7 +107,9 @@ const packaged = join(unpacked, 'BaoFlashBrowser Next.exe')
 const runtimeSize = statSync(electronExecutable).size
 const packagedSize = statSync(packaged).size
 // PE 资源写入会让产物与运行时差几十字节到几 KB；差到 MB 级说明换了内核。
-if (Math.abs(packagedSize - runtimeSize) > 128 * 1024) {
+// 签名/资源编辑会改变 PE 体积，有证书时放宽到 1MB。
+const sizeTolerance = process.env.WIN_CSC_LINK || process.env.CSC_LINK ? 1024 * 1024 : 128 * 1024
+if (Math.abs(packagedSize - runtimeSize) > sizeTolerance) {
   console.error(
     `打包产物不是自编译内核：运行时 ${runtimeSize} 字节，产物 ${packagedSize} 字节。` +
     ' 请确认 ELECTRON_EXEC_PATH 指向自编译 Electron。'
@@ -133,12 +136,83 @@ if (sha256(pluginCopies[0]) !== sha256(plugin)) {
 }
 
 const notice = join(unpacked, 'NOTICE.md')
+const licenseFiles = [join(unpacked, 'licenses', 'LICENSES.chromium.html'), join(unpacked, 'licenses', 'LICENSE.electron')]
 if (!existsSync(notice)) {
   console.error('包内缺少 NOTICE.md（第三方组件与许可说明）。')
   process.exit(1)
 }
+for (const file of licenseFiles) {
+  if (!existsSync(file) || statSync(file).size === 0) {
+    console.error(`包内缺少许可文件：${file}`)
+    process.exit(1)
+  }
+}
+
+/**
+ * 代码签名状态（发布门禁）。
+ *
+ * 直接解析 PE 的**证书表**（可选头数据目录第 4 项）判断有没有签名块：
+ * 运行环境里 `powershell.exe` 常常加载不了 Security 模块（受限环境），PowerShell 不可靠。
+ * 这里只判断「有没有签名块」，签名链是否可信需发布时用 signtool 另行验证。
+ */
+function hasCertificateTable(exe) {
+  const buffer = readFileSync(exe)
+  if (buffer.length < 0x40) return false
+  const peOffset = buffer.readUInt32LE(0x3c)
+  if (peOffset + 0x18 > buffer.length) return false
+  if (buffer.readUInt32LE(peOffset) !== 0x00004550) return false
+  const optionalHeader = peOffset + 0x18
+  const magic = buffer.readUInt16LE(optionalHeader)
+  const directoriesOffset = optionalHeader + (magic === 0x20b ? 112 : 96)
+  if (directoriesOffset + 8 * 5 > buffer.length) return false
+  const certificateEntry = directoriesOffset + 8 * 4
+  const size = buffer.readUInt32LE(certificateEntry + 4)
+  return size > 0
+}
+
+function signatureStatus(exe) {
+  const signed = hasCertificateTable(exe)
+  return {
+    signed,
+    status: signed ? 'signed (certificate table present; chain not verified)' : 'not-signed'
+  }
+}
+const signature = signatureStatus(packaged)
+const manifest = {
+  product: 'BaoFlashBrowser Next',
+  kernel: manifestSource.kernel,
+  generatedAt: new Date().toISOString(),
+  executable: {
+    name: 'BaoFlashBrowser Next.exe',
+    bytes: packagedSize,
+    runtimeBytes: runtimeSize,
+    signature
+  },
+  components: {
+    electron: '.runtime/win-x64/electron.exe',
+    flashPlugin: { file: 'pepflashplayer64.dll', sha256: sha256(pluginCopies[0]) },
+    ruffle: Object.entries(manifestSource.files)
+      .filter(([file]) => file.startsWith('vendor/ruffle/'))
+      .map(([file, hash]) => ({ file: file.replace('vendor/ruffle/', ''), sha256: hash }))
+  },
+  licenses: {
+    notice: 'NOTICE.md',
+    electron: 'licenses/LICENSE.electron',
+    chromium: 'licenses/LICENSES.chromium.html',
+    chromiumNote: '取自官方 Electron 39.8.10 发行包（同版本近似），非本内核构建产物',
+    ruffle: ['vendor/ruffle/LICENSE_MIT', 'vendor/ruffle/LICENSE_APACHE']
+  },
+  releaseBlockers: [
+    '代码签名未完成（未提供 WIN_CSC_LINK / CSC_LINK）',
+    'Chromium 许可为同版本近似，需由内核构建生成替换',
+    'Adobe Flash 插件再分发授权未确认',
+    '独立复建与依赖校验未完成'
+  ].filter((item) => !(item.startsWith('代码签名') && signature.signed))
+}
+writeFileSync(join(unpacked, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
 
 console.log('Win x64 验证版：', packaged)
 console.log(`内核校验：运行时 ${runtimeSize} 字节 / 产物 ${packagedSize} 字节`)
 console.log(`插件：1 份，SHA-256 ${sha256(pluginCopies[0]).slice(0, 16)}…；许可：NOTICE.md 已随包`)
-console.log('[pack] 提醒：产物未签名；Flash 插件再分发授权未确认，仅限内部验证（见 NOTICE.md）。')
+console.log(`[pack] 签名状态：${signature.status}${signature.signed ? '' : '（发布门禁）'}`)
+console.log('[pack] 提醒：Flash 插件再分发授权未确认，仅限内部验证（见 NOTICE.md）；产物清单见 manifest.json。')

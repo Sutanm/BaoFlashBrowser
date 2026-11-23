@@ -78,4 +78,5 @@ npm run dev
 3. **必须带 PPAPI 插件**：插件随内核 dist 目录进入 `win-unpacked/`（与 exe 同目录，`plugins.ts` 的第二候选路径），**不再复制到 `resources/`**——之前 extraResources 会让包里出现两份 30MB DLL。打包脚本会断言「包内有且只有一份插件」且哈希与来源一致。
 4. **来源门禁**：`scripts/runtime-manifest.json` 记录内核 EXE、插件与 Ruffle 运行时的期望 SHA-256，`pack:win` 逐项校验，不匹配即失败。换内核/插件必须同步更新清单，并在提交信息里写明来源与 tag；临时放行用 `BAO_ALLOW_UNVERIFIED_RUNTIME=1`（会告警）。
 5. **成品验证不允许默认跳过**：`smoke:packaged` 找不到产物会**失败**（`BAO_SKIP_PACKAGED=1` 才显式跳过）；`BAO_PACKAGED_ROOT` 可指向 CI 本次构建的产物目录。
-6. **许可**：`app/NOTICE.md` 随包（`extraFiles`）。产物未签名、自编译内核缺 `LICENSES.chromium.html`、Flash 插件再分发授权未确认——对外分发前必须解决。
+6. **许可**：`NOTICE.md` 与 `licenses/`（Chromium 第三方许可 14.4 MB + Electron 许可）随包。Chromium 那份取自**官方 Electron 39.8.10 发行包**（同版本近似，见 `licenses/README.md`），最终应由内核构建生成。Flash 插件再分发授权未确认。
+7. **签名与产物清单**：提供 `WIN_CSC_LINK` / `CSC_LINK`（+ `CSC_KEY_PASSWORD`）时打包会走 electron-builder 签名；无论是否签名，`pack:win` 都会在产物根写 `manifest.json`（组件哈希、许可文件、PE 签名块状态、内核 tag、发布门禁清单）。签名链校验仍需发布时用 signtool 另行验证。

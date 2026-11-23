@@ -20,7 +20,7 @@ async function viewContents(app, shell) {
   return { handle, id }
 }
 
-test('标签操作：复制、固定排序、静音与 DevTools 快捷键', { timeout: 180_000 }, async () => {
+test('标签操作：复制、固定排序、静音迁移与拖出判定', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({
     '/one': '<!doctype html><meta charset="utf-8"><title>one</title><h1>one</h1>',
     '/two': '<!doctype html><meta charset="utf-8"><title>two</title><h1>two</h1>'
@@ -111,34 +111,39 @@ test('标签操作：复制、固定排序、静音与 DevTools 快捷键', { ti
       return focused.inStrip && focused.selected ? focused : null
     }, { message: '方向键切标签后焦点没有留在标签栏' })
 
-    // DevTools：Ctrl+Shift+I 命中页面视图的 before-input-event。
+  } finally {
+    await close()
+    await server.close()
+  }
+})
+test('DevTools：Ctrl+Shift+I 开关页面视图的开发者工具', { timeout: 120_000 }, async () => {
+  // 独立用例：DevTools 会创建自己的窗口，跟长链路的引擎重建/拖出放在一起容易互相干扰。
+  const server = await startFixtureServer({ '/one': '<!doctype html><meta charset="utf-8"><title>one</title><h1>one</h1>' })
+  const { app, shell, close } = await launchApp()
+  try {
+    const address = shell.getByRole('textbox', { name: '地址栏' })
+    await address.fill(`${server.baseUrl}/one`)
+    await address.press('Enter')
+    await shell.getByRole('button', { name: 'one', exact: true }).waitFor({ timeout: 30_000 })
+
     const { handle } = await viewContents(app, shell)
     const sendShortcut = () => handle.evaluate((window) => {
       const view = window.contentView.children
         .find((child) => child.webContents && child.webContents !== window.webContents)
       view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'I', modifiers: ['control', 'shift'] })
-      return view.webContents.id
     })
+    const devtoolsOpened = () => handle.evaluate((window) => {
+      const view = window.contentView.children
+        .find((child) => child.webContents && child.webContents !== window.webContents)
+      return view.webContents.isDevToolsOpened()
+    })
+
     await sendShortcut()
-    const opened = await waitFor(async () => {
-      const value = await handle.evaluate((window) => {
-        const view = window.contentView.children
-          .find((child) => child.webContents && child.webContents !== window.webContents)
-        return view.webContents.isDevToolsOpened()
-      })
-      return value ? value : null
-    }, { message: 'Ctrl+Shift+I 没有打开 DevTools' })
-    assert.equal(opened, true)
+    await waitFor(async () => (await devtoolsOpened()) ? true : null,
+      { message: 'Ctrl+Shift+I 没有打开 DevTools' })
     await sendShortcut()
-    const closed = await waitFor(async () => {
-      const value = await handle.evaluate((window) => {
-        const view = window.contentView.children
-          .find((child) => child.webContents && child.webContents !== window.webContents)
-        return view.webContents.isDevToolsOpened()
-      })
-      return value ? null : true
-    }, { message: 'Ctrl+Shift+I 没有关闭 DevTools' })
-    assert.equal(closed, true)
+    await waitFor(async () => (await devtoolsOpened()) ? null : true,
+      { message: 'Ctrl+Shift+I 没有关闭 DevTools' })
   } finally {
     await close()
     await server.close()

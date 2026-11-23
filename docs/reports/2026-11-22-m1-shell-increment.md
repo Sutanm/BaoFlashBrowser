@@ -239,7 +239,7 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 - **DevTools 入口**：`Ctrl+Shift+I` 已接入（页面视图 `openDevTools({ mode: 'bottom' })`，由 `tab-ops.test.cjs` 覆盖开关两态）。
 - **跨窗口移交的其余验证面**：失焦、全屏退出、音频继续播放未测；已实测的是同一 WebContents 复用带来的页面运行时状态与导航历史保留，真实 Flash 标签（4399 等）未复测。
 - **打包门禁（2026-11-23 补齐，审计 P2）**：`pack:win` 按 `scripts/runtime-manifest.json` 校验内核 EXE、PPAPI 插件与 Ruffle 运行时的 SHA-256（不匹配即失败；`BAO_ALLOW_UNVERIFIED_RUNTIME=1` 才放行并告警）；打包后自检「产物大小≈运行时」「包内 Flash 插件有且只有一份」「NOTICE.md 已随包」。`smoke:packaged` 不再默认跳过：缺产物直接失败（`BAO_SKIP_PACKAGED=1` 才显式跳过），并支持 `BAO_PACKAGED_ROOT` 指向 CI 的本次产物。
-- **打包发布仍未完成**：产物未签名；自编译内核未生成 `LICENSES.chromium.html`；Flash 插件再分发授权未确认（见 `app/NOTICE.md`）；独立复建与依赖校验未做。
+- **打包发布（2026-11-23 第二轮）**：许可已随包（`NOTICE.md` + `licenses/LICENSES.chromium.html` 14.4 MB + `licenses/LICENSE.electron`，Chromium 那份取自**官方 Electron 39.8.10 发行包**，属同版本近似，最终应由内核构建生成）；签名接入点已就绪（`WIN_CSC_LINK`/`CSC_LINK` 时走 electron-builder 签名，未提供则产物清单标记 `signed: false`）；`pack:win` 现在会在产物根写 `manifest.json`（组件哈希、许可文件、PE 证书表状态、内核 tag、发布门禁清单），并校验许可文件存在。**仍未完成**：产物未签名（PE 证书表为空）、签名链未验证、Flash 插件再分发授权未确认、独立复建与依赖校验未做。
 - **`npm run dev`（Vite 开发服务器）**：本次未跑，冒烟针对构建产物与验证包；开发入口的 shell URL 分支未实测。
 - **真实站点多页面与登录流程**：未覆盖。
 
