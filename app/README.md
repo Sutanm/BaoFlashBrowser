@@ -41,7 +41,8 @@ npm run dev
 | `npm run typecheck` | 检查 TypeScript 和 Vue 类型。 |
 | `npm run build` | 检查类型并编译主进程、预加载和渲染层。 |
 | `npm start` | 使用自编译 Electron 启动已编译的应用。 |
-| `npm run smoke` | 用临时测试 profile 跑 23 个用例：外壳/标签/快捷键/引擎与站点规则/输入回环/Ruffle 跨源/网络边界/弹窗/权限/主题/PPAPI 样本。无插件时 `flash` 与 `plugin-input` 两条会跳过并说明原因。 |
+| `npm run smoke` | 用临时测试 profile 跑 24 个用例：外壳/标签/快捷键/引擎与站点规则/输入回环/Ruffle 跨源/网络边界/弹窗/权限/主题/PPAPI 样本。无插件时 `flash` 与 `plugin-input` 两条会跳过并说明原因。 |
+| `npm run test:data` | 存储合同用例（6 条）：设置落库与跨重启、非法值拒绝、`engine-rules.json` 一次性迁移与幂等、坏值回落、硬杀后数据完整、写失败不应用。用系统 Node 直接打开真库校验。 |
 | `npm run runtime:check` | 校验 `.runtime/win-x64` 的内核与插件 SHA-256（按 `scripts/runtime-manifest.json`），失败时给出拷贝/重建两条恢复路径。 |
 | `npm run runtime:export` / `:byop` | 导出运行时 zip（`internal` 含插件、`byop` 不含 Adobe 二进制）+ 包内 `RUNTIME-MANIFEST.json`，供其它机器搭建环境。 |
 | `npm run runtime:import -- <zip>` | 校验逐文件 SHA-256 与内核 tag 后安装运行时；不一致直接拒绝。 |
@@ -53,7 +54,7 @@ npm run dev
 已实测（`bao-v142-265-ppapi-sandbox`，Electron 39.8.10 / Chromium 142.0.7444.265）：
 
 - 无边框两行外壳、Windows 原生窗口控件、Fluent 2 token 与深浅色跟随；默认应用菜单已移除。
-- **主题**：跟随系统明暗（`nativeTheme`），外壳与叠加层同时切换；暂无手动开关（等 M2 设置存储）。
+- **主题**：设置项 `theme.mode`（跟随系统 / 浅色 / 深色）1:1 映射 `nativeTheme.themeSource`；外壳 token、叠加层、系统窗口按钮配色、起始页与站点看到的 `prefers-color-scheme` 由同一个解析值派生。设置界面在增量 2，当前由 `set-setting` 命令驱动。
 - **启动只有一个标签页**；多标签由「新建标签页」按钮、双击标签栏或 `Ctrl+T` 创建。
 - 标签栏交互：点击/键盘切换、中键关闭、关闭按钮按需显示、拖动排序、拖出窗口（tearoff）、右键菜单（重新加载/复制/固定/静音/关闭/撤销关闭）、`Ctrl+W` 关闭、`Ctrl+Shift+T` 撤销关闭。
 - 撤销关闭用 E39 导航栈（`getAllEntries()/restore()`）恢复，保留前进/后退历史；无可撤销项时返回稳定错误码 `nothing-to-undo`。
@@ -70,7 +71,8 @@ npm run dev
 
 - **内核要求**：原生 PPAPI 需要 `bao-v142-265-ppapi-sandbox`（提交 `9de35f61aea60`）或更新。此前为了让插件实例化曾关闭页面视图的渲染进程沙箱；根因是渲染进程里的插件路径复核，已由[内核补丁](../docs/kernel/README.md)修复，外壳与页面视图现在都保持 `sandbox: true`。
 - **Ruffle 的能力边界**：`ExternalInterface` 只覆盖部分 API，PPAPI 样本里的 `PercentLoaded`/`SetVariable` 往返在 Ruffle 引擎下不保证可用；验收断言只看运行时注入与 polyfill 接管。
-- **站点规则存储**：当前是 `userData/engine-rules.json`（临时方案），M2 引入业务库后迁到 SQLite。
+- **站点规则与设置存储**：统一在 `userData/db/browser.sqlite3`（SQLite + WAL，`node:sqlite`），主进程单写者。M1 的 `userData/engine-rules.json` 在首次启动时一次性导入（事务内），成功后归档为 `engine-rules.json.migrated-1`（保留不删）。库打不开时以默认设置运行并拒绝写入，不会回头写 JSON 造成两套数据。
+- **`node:sqlite` 是实验性 API**（Node 稳定性 1.1）：绑定层由 `app/src/main/db/sqlite.ts` 隔离（拒绝 `Date`/`NaN` 静默写 NULL、显式 busy timeout、SAVEPOINT 事务、错误码归一）；启动时有 `quick_check` 自检，换内核时必须重跑 `npm run test:data`。
 - **标签合同尚未覆盖**：会话恢复、未加载占位、分组与搜索（固定/复制/静音/右键菜单已实现）。`detachTab/adoptTab` 与 `undo-close` 是这些交互的同一入口。
 - **跨窗口移交的未验证面**：失焦、全屏退出、音频继续播放、Flash 内存态在真实站点下的表现；已实测的是同一 WebContents 复用带来的页面运行时状态与导航历史保留。
 - **Ruffle 的键盘焦点**：Ruffle 0.8 需要用户**先点一次播放器**（它靠 `pointerdown` 把焦点交给内部容器），之后键盘事件才进 SWF；自动化要用 CDP 派发指针事件，`sendInputEvent({type:'mousedown'})` 不够。`ruffle-input.test.cjs` 已覆盖。

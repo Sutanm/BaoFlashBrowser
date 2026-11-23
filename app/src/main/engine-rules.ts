@@ -1,82 +1,34 @@
-import { app } from 'electron'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { isBrowserEngine, resolveEngine } from '../shared/engine'
+import { resolveEngine } from '../shared/engine'
 import type { BrowserEngine, EngineRules, EngineSource } from '../shared/engine'
+import { engineRules, forgetRule, rememberRule, settings } from './storage'
 
 /**
- * 站点引擎规则持久化（架构 §4 数据：M2 之前先落单个 JSON 文件）。
+ * 站点引擎规则（架构 §3 引擎、§4 数据）。
  *
- * 主进程持业务权威；写入走「临时文件 + rename」保证不会留下半截文件。
- * M2 引入业务库时整体迁到 SQLite，接口保持 `resolve/remember` 不变。
+ * M1 是 `userData/engine-rules.json`（临时方案）；M2 的 v1 迁移把它一次性导入
+ * `engine_rules` 表，本文件只剩「读快照 + 写库」的薄封装，`resolve/remember/forget`
+ * 三个签名保持不变，调用方（`browser-window.ts`）无需改动。
+ *
+ * 默认引擎也来自设置库（`engine.default`）：`resolve()` 在无站点规则时用它兜底。
  */
-const FILE_NAME = 'engine-rules.json'
-
-function rulesPath(): string {
-  return join(app.getPath('userData'), FILE_NAME)
-}
-
-let cache: EngineRules | undefined
-
-function load(): EngineRules {
-  if (cache) return cache
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(rulesPath(), 'utf8'))
-    const rules: Record<string, BrowserEngine> = {}
-    if (parsed && typeof parsed === 'object') {
-      for (const [host, engine] of Object.entries(parsed as Record<string, unknown>)) {
-        if (isBrowserEngine(engine)) rules[host] = engine
-      }
-    }
-    cache = rules
-  } catch {
-    // 文件不存在或损坏都退化为「无规则」：默认引擎仍然可用。
-    cache = {}
-  }
-  return cache
-}
-
-function persist(rules: EngineRules): boolean {
-  const path = rulesPath()
-  const temporary = `${path}.tmp`
-  try {
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(temporary, JSON.stringify(rules, null, 2), 'utf8')
-    renameSync(temporary, path)
-    return true
-  } catch (error) {
-    console.error('无法保存站点引擎规则。', error)
-    return false
-  }
-}
-
 export function rules(): EngineRules {
-  return load()
+  return engineRules()
 }
 
 export function resolve(host: string | undefined): { engine: BrowserEngine; source: EngineSource } {
-  return resolveEngine(load(), host)
+  return resolveEngine(engineRules(), host, settings().defaultEngine)
 }
 
 export function remember(host: string, engine: BrowserEngine): boolean {
-  const next = { ...load(), [host]: engine }
-  if (!persist(next)) return false
-  cache = next
-  return true
+  return rememberRule(host, engine)
 }
 
 /**
  * 取消某个站点的引擎规则（架构 §3 引擎「记住」要可撤销）。
  *
- * 没有这条时用户只能手改 `engine-rules.json`：UI 上「记住此站点」点完即消失，
- * 属于只有正向、没有回退路径的状态。
+ * 没有这条时用户只能手改数据文件：UI 上「记住此站点」点完即消失，属于只有正向、
+ * 没有回退路径的状态。
  */
 export function forget(host: string): boolean {
-  const current = load()
-  if (!Object.hasOwn(current, host)) return true
-  const next = { ...current }
-  delete next[host]
-  if (!persist(next)) return false
-  cache = next
-  return true
+  return forgetRule(host)
 }

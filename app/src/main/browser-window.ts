@@ -10,6 +10,7 @@ import { getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
+import { setSetting, settings as currentSettings } from './storage'
 import { START_PAGE } from './start-page'
 import { windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
@@ -61,6 +62,8 @@ interface WindowController extends TabHost {
   shortcut(tab: Tab, input: Input): boolean
   bounds(): Rectangle
   closeWindow(): void
+  /** 设置变化后重绘：标题栏 overlay 重新着色 + 重新投影（主题/默认引擎可能都变了）。 */
+  refreshSettings(): void
 }
 
 export interface BrowserWindowOptions {
@@ -266,6 +269,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return {
       revision,
       theme: currentTheme(),
+      settings: currentSettings(),
       activeId: active?.id ?? -1,
       undoCount: recentlyClosed.length,
       flash: plugins,
@@ -815,6 +819,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     detachTab,
     adoptTab,
     shortcut: handleShortcut,
+    refreshSettings: updateWindowControls,
     run
   }
 
@@ -882,6 +887,20 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
         return command.type === 'remember-engine' ? rememberActiveEngine(tab) : forgetActiveEngine(tab)
+      }
+      /**
+       * 设置写入（架构 §4 数据）。
+       *
+       * 顺序是刻意的：先落库（失败就返回稳定错误码、**不应用**），成功后才广播。
+       * 反过来的话，磁盘满/只读时会变成「界面变了但重启后自己变回去」。
+       */
+      case 'set-setting': {
+        const outcome = setSetting(command.key, command.value)
+        if (outcome === 'invalid') return fail('invalid-setting')
+        if (outcome === 'unavailable') return fail('storage-unavailable')
+        if (outcome === 'save-failed') return fail('settings-save-failed')
+        refreshAllWindows()
+        break
       }
       case 'move': {
         const tab = tabs.find(({ id }) => id === command.id)
@@ -1053,6 +1072,11 @@ async function tearOffTab(
 }
 
 let registered = false
+
+/** 设置是进程级的：一处改动后所有窗口都要重绘（主题/标题栏 overlay/默认引擎）。 */
+function refreshAllWindows(): void {
+  for (const controller of controllers.values()) controller.refreshSettings()
+}
 
 function controllerFor(event: IpcMainInvokeEvent): WindowController | undefined {
   const shell = controllers.get(event.sender.id)

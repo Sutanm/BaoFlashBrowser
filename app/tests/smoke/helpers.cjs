@@ -96,6 +96,26 @@ async function launchApp() {
   }
 }
 
+/** 用**已存在**的 profile 再启动一次（跨重启验证）；不删除该目录，调用方自己清理。 */
+async function launchAppAt(profilePath) {
+  const app = await electron.launch({
+    executablePath: resolveExecutable(),
+    args: [resolve(__dirname, '../..'), `--user-data-dir=${profilePath}`],
+    timeout: 20_000
+  })
+  const shell = app.windows().find(isShellPage) ??
+    await app.waitForEvent('window', { predicate: isShellPage, timeout: 10_000 })
+  shell.setDefaultTimeout(10_000)
+  return {
+    app,
+    shell,
+    profilePath,
+    async close() {
+      await app.close().catch(() => {})
+    }
+  }
+}
+
 /** 主进程里当前窗口的页面视图（外壳之外唯一挂载的 WebContentsView）。 */
 function pageViewIds(windowHandle) {
   return windowHandle.evaluate((window) =>
@@ -125,6 +145,7 @@ module.exports = {
   hasFlashPlugin,
   isShellPage,
   launchApp,
+  launchAppAt,
   page,
   pageViewIds,
   pressShortcut,

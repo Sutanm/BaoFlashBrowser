@@ -1,5 +1,6 @@
 import type { ShellTheme } from './shell-theme'
 import type { BrowserEngine, EngineSource } from './engine'
+import type { Locale, SettingKey, Settings, ThemeMode } from './settings'
 
 export const TAB_BAR_HEIGHT = 40
 export const TOOLBAR_HEIGHT = 44
@@ -21,6 +22,13 @@ export type BrowserCommand =
   | { type: 'tearoff'; id: number; screenX: number; screenY: number }
   /** 引擎切换（架构 §3 引擎）：用新 WebContents 重建标签并恢复导航栈。 */
   | { type: 'set-engine'; engine: BrowserEngine }
+  /**
+   * 写入一条设置（架构 §4 数据：主进程持业务权威）。
+   *
+   * 只有外壳（以及后续的设置页）能发；页面永远拿不到这个命令。值由主进程按
+   * `shared/settings.ts` 的键白名单再校验一次，非法值返回 `invalid-setting`。
+   */
+  | { type: 'set-setting'; key: SettingKey; value: ThemeMode | BrowserEngine | Locale }
 
 /** 稳定错误代码。渲染层按代码取文案，主进程只附加允许公开的详情。 */
 export type BrowserFailureCode =
@@ -35,6 +43,9 @@ export type BrowserFailureCode =
   | 'engine-unavailable'
   | 'site-rule-save-failed'
   | 'no-site'
+  | 'invalid-setting'
+  | 'settings-save-failed'
+  | 'storage-unavailable'
 
 export const browserFailureText: Record<BrowserFailureCode, string> = {
   'forbidden-sender': '当前页面无法操作浏览器外壳',
@@ -47,7 +58,10 @@ export const browserFailureText: Record<BrowserFailureCode, string> = {
   'engine-switch-failed': '引擎切换失败，已保留原引擎与页面',
   'engine-unavailable': '原生 Flash 不可用，仍使用当前引擎',
   'site-rule-save-failed': '无法保存站点规则，原有设置未更改',
-  'no-site': '当前页面没有可记忆的站点'
+  'no-site': '当前页面没有可记忆的站点',
+  'invalid-setting': '无效的设置项',
+  'settings-save-failed': '设置未能保存，已保留原值',
+  'storage-unavailable': '设置存储不可用，本次无法保存'
 }
 
 export interface BrowserTab {
@@ -76,6 +90,8 @@ export interface BrowserTab {
 export interface BrowserState {
   revision: number
   theme: ShellTheme
+  /** 用户选择的主题模式（`theme` 是它按系统状态解析后的结果）。 */
+  settings: Settings
   activeId: number
   /** 可撤销关闭的标签数量（架构 §3「撤销关闭」）。 */
   undoCount: number

@@ -7,6 +7,7 @@ import { registerRuffleIpc, registerRuffleScheme } from './ruffle'
 import { registerPopupChromeIpc } from './popup-chrome'
 import { registerWindowControlIpc } from './window-control'
 import { registerNetBroker } from './net-broker'
+import { closeStorage, initStorage } from './storage'
 
 app.setName('BaoFlashBrowser Next')
 
@@ -46,10 +47,23 @@ async function openShellWindow(): Promise<void> {
   })
 }
 
-app.whenReady().then(openShellWindow).catch((error: unknown) => {
-  console.error('浏览器外壳启动失败。', error)
-  app.exit(1)
-})
+/**
+ * 启动顺序（架构 §4 数据）：先开业务库并应用设置，**再**建窗口。
+ *
+ * 主题必须在第一个窗口之前就位，否则暗色下会先闪一下亮色；存储失败不阻断浏览，
+ * `initStorage()` 会退化成默认设置并让写入返回稳定错误码。
+ */
+app.whenReady()
+  .then(async () => {
+    await initStorage()
+    await openShellWindow()
+  })
+  .catch((error: unknown) => {
+    console.error('浏览器外壳启动失败。', error)
+    app.exit(1)
+  })
+
+app.on('will-quit', () => closeStorage())
 
 /**
  * 新建窗口请求。当前默认生命周期仍是单窗口，此事件留给多窗口入口与真实产物冒烟：

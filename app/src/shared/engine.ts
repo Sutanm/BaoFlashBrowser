@@ -55,10 +55,14 @@ export interface EngineRules {
   readonly [host: string]: BrowserEngine
 }
 
-export function resolveEngine(rules: EngineRules, host: string | undefined): { engine: BrowserEngine; source: EngineSource } {
+export function resolveEngine(
+  rules: EngineRules,
+  host: string | undefined,
+  fallback: BrowserEngine = DEFAULT_ENGINE
+): { engine: BrowserEngine; source: EngineSource } {
   if (host) {
     const rule = rules[host]
     if (isBrowserEngine(rule)) return { engine: rule, source: 'site-rule' }
   }
-  return { engine: DEFAULT_ENGINE, source: 'default' }
+  return { engine: fallback, source: 'default' }
 }
