@@ -35,3 +35,7 @@ test-results/
 
 # Local captures, downloaded site assets and diagnostic reports
 artifacts/
+
+# Flash 探针编译产物（.as 源与 out/ 只在 docs/port-138-140 分支维护，main 不留产物）
+out.res
+tests/flash-probes/out/
