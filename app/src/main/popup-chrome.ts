@@ -1,5 +1,6 @@
-import { BrowserWindow, ipcMain, WebContentsView } from 'electron'
+import { BrowserWindow, ipcMain, nativeTheme, WebContentsView } from 'electron'
 import { join } from 'node:path'
+import { shellThemes, windowPalette, type ShellTheme } from '../shared/shell-theme'
 
 /**
  * 弹窗窗口的自绘 chrome（架构 A5「界面归一化」：用户可见的界面只有一种视觉语言）。
@@ -7,48 +8,73 @@ import { join } from 'node:path'
  * 为什么不能"美化原生帧"：Windows 没有给原生窗口换肤的 API。要么 `titleBarStyle: hidden`
  * + `titleBarOverlay`（系统按钮在，但站点页面没有拖动区 → 窗口拖不动），要么完全自绘。
  *
- * 这里选自绘，并且把侵入压到最小：**只在右上角浮一个小控制簇**（拖动抓手 + 最小化 + 关闭），
- * 不铺满整条 32px，站点内容不会被大面积遮挡，页面视口也保持站点请求的尺寸。
+ * 控制条在右上角提供拖动、最小化和关闭，页面视口保持站点请求的尺寸。
  */
 const CHROME_WIDTH = 96
-const CHROME_HEIGHT = 28
+const CHROME_HEIGHT = 32
 const CHROME_MARGIN = 4
 
-const CHROME_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+function popupTheme(): ShellTheme {
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+}
+
+function themeCss(theme: ShellTheme): string {
+  const tokens = shellThemes[theme]
+  const palette = windowPalette[theme]
+  return `
+  :root[data-theme="${theme}"] {
+    color-scheme: ${theme};
+    --surface: ${palette.color};
+    --foreground: ${palette.symbolColor};
+    --secondary: ${tokens.colorNeutralForeground3};
+    --border: ${tokens.colorNeutralStroke1};
+    --divider: ${tokens.colorNeutralStroke2};
+    --hover: ${tokens.colorNeutralBackground1Hover};
+    --pressed: ${tokens.colorNeutralBackground1Pressed};
+    --focus: ${tokens.colorStrokeFocus2};
+  }`
+}
+
+function chromeHtml(): string {
+  return `<!doctype html><html lang="zh-CN" data-theme="${popupTheme()}"><head><meta charset="utf-8">
 <title>弹窗控制</title>
 <style>
-  :root { color-scheme: light dark; }
-  html, body { margin: 0; height: 100%; background: transparent; }
+  ${themeCss('light')}
+  ${themeCss('dark')}
+  html { height: 100%; background: transparent; }
   body {
-    display: flex; align-items: center; gap: 2px; padding: 0 4px;
-    font: 12px/1 "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
-    color: #fff; justify-content: flex-end;
+    box-sizing: border-box; height: 100%; margin: 0;
+    display: grid; grid-template-columns: 24px repeat(2, minmax(0, 1fr));
+    overflow: hidden; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--foreground);
   }
   .grip {
-    width: 20px; height: 20px; margin-inline-end: auto; border-radius: 6px;
-    -webkit-app-region: drag; background: rgba(0, 0, 0, .28);
-    display: flex; align-items: center; justify-content: center;
+    display: grid; place-items: center;
+    border-inline-end: 1px solid var(--divider); color: var(--secondary);
+    -webkit-app-region: drag;
   }
-  .grip:hover { background: rgba(0, 0, 0, .42); }
   button {
-    width: 22px; height: 22px; border: 0; padding: 0; border-radius: 6px;
-    background: rgba(0, 0, 0, .28); color: inherit; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
+    display: grid; place-items: center; border: 0; padding: 0;
+    background: transparent; color: inherit; cursor: pointer;
     -webkit-app-region: no-drag;
   }
-  button:hover { background: rgba(0, 0, 0, .42); }
-  #close:hover { background: #c0392f; }
-  svg { width: 10px; height: 10px; }
+  button:hover { background: var(--hover); }
+  button:active { background: var(--pressed); }
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
+  #close:hover { background: #c42b1c; color: #fff; }
+  #close:active { background: #a4261a; color: #fff; }
+  svg { width: 14px; height: 14px; pointer-events: none; }
 </style></head>
 <body>
-  <div class="grip" aria-hidden="true"><svg viewBox="0 0 10 10" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="7" cy="7" r="1"/></svg></div>
-  <button id="min" aria-label="最小化弹窗" title="最小化"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 5h6"/></svg></button>
-  <button id="close" aria-label="关闭弹窗" title="关闭"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="m2.5 2.5 5 5m0-5-5 5"/></svg></button>
+  <div class="grip" aria-hidden="true"><svg viewBox="0 0 14 14" fill="currentColor"><circle cx="5" cy="3" r="1"/><circle cx="9" cy="3" r="1"/><circle cx="5" cy="7" r="1"/><circle cx="9" cy="7" r="1"/><circle cx="5" cy="11" r="1"/><circle cx="9" cy="11" r="1"/></svg></div>
+  <button id="min" aria-label="最小化弹窗" title="最小化"><svg aria-hidden="true" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 7h9"/></svg></button>
+  <button id="close" aria-label="关闭弹窗" title="关闭"><svg aria-hidden="true" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="m3 3 8 8m0-8-8 8"/></svg></button>
   <script>
     document.getElementById('min').addEventListener('click', () => window.baoPopupChrome.minimize())
     document.getElementById('close').addEventListener('click', () => window.baoPopupChrome.close())
   </script>
 </body></html>`
+}
 
 /** chrome 视图的 webContents id → 它所属的弹窗窗口。 */
 const chromeOwners = new Map<number, BrowserWindow>()
@@ -80,21 +106,32 @@ export function attachPopupChrome(window: BrowserWindow): void {
   })
   view.setBackgroundColor('#00000000')
   window.contentView.addChildView(view)
-  chromeOwners.set(view.webContents.id, window)
+  const contents = view.webContents
+  chromeOwners.set(contents.id, window)
   placeChrome(window, view)
 
   const relayout = () => {
-    if (window.isDestroyed() || view.webContents.isDestroyed()) return
+    if (window.isDestroyed() || contents.isDestroyed()) return
     placeChrome(window, view)
   }
+  const syncTheme = () => {
+    if (contents.isDestroyed() || !contents.getURL()) return
+    void contents.executeJavaScript(`document.documentElement.dataset.theme = '${popupTheme()}'`).catch(() => {})
+  }
+  const id = contents.id
   window.on('resize', relayout)
-  view.webContents.on('destroyed', () => {
-    chromeOwners.delete(view.webContents.id)
+  nativeTheme.on('updated', syncTheme)
+  contents.once('dom-ready', syncTheme)
+  contents.once('destroyed', () => {
+    chromeOwners.delete(id)
+    nativeTheme.off('updated', syncTheme)
     window.off('resize', relayout)
   })
-  window.once('closed', () => chromeOwners.delete(view.webContents.id))
+  window.once('closed', () => {
+    if (!contents.isDestroyed()) contents.close()
+  })
 
-  void view.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(CHROME_HTML)}`)
+  void contents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(chromeHtml())}`)
 }
 
 /** 注册 chrome 的 IPC。发送者必须是已登记的 chrome 视图。 */

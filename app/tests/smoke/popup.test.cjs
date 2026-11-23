@@ -133,7 +133,6 @@ test('弹窗使用自绘 chrome：无原生边框，控制簇可用', { timeout:
 
     await assertHiddenPopup(app, popup)
 
-    // 1) 无原生边框：frameless 窗口的 getBounds 与 getContentBounds 相同。
     const frames = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => ({
       url: window.webContents.getURL(),
       bounds: window.getBounds(),
@@ -148,33 +147,50 @@ test('弹窗使用自绘 chrome：无原生边框，控制簇可用', { timeout:
     assert.ok(popupFrame.bounds.width - popupFrame.content.width <= 2, '弹窗边框过宽（可能是原生帧）')
     assert.ok(popupFrame.bounds.height - popupFrame.content.height <= 2, '弹窗边框过宽（可能是原生帧）')
 
-    // 2) 自绘控制簇存在，且拖动抓手确实声明了 app-region: drag。
-    // chrome 视图是异步 loadURL 的，轮询到它加载完成再断言。
-    const chrome = await waitFor(async () => {
-      const value = await app.evaluate(async ({ webContents }) => {
-        const target = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('data:text/html'))
-        if (!target || target.isLoading()) return null
-        return target.executeJavaScript(`(() => {
-          const grip = document.querySelector('.grip')
-          if (!grip) return null
-          return {
-            hasClose: Boolean(document.getElementById('close')),
-            gripRegion: getComputedStyle(grip).webkitAppRegion ?? getComputedStyle(grip).getPropertyValue('-webkit-app-region')
-          }
-        })()`)
-      }).catch(() => null)
-      return value && value.hasClose ? value : null
-    }, { message: '弹窗没有 chrome 控制簇' })
-    assert.ok(chrome, '弹窗没有 chrome 控制簇')
-    assert.equal(chrome.hasClose, true)
-    assert.equal(String(chrome.gripRegion).trim(), 'drag', '拖动抓手不是 app-region: drag')
+    const popupWindow = await app.browserWindow(popup)
+    const controls = async (theme) => {
+      await app.evaluate(({ nativeTheme }, value) => { nativeTheme.themeSource = value }, theme)
+      return waitFor(async () => {
+        const value = await popupWindow.evaluate(async (win) => {
+          const view = win.contentView.children.find((child) => child.webContents?.getURL().startsWith('data:text/html'))
+          if (!view || view.webContents.isLoading()) return null
+          return view.webContents.executeJavaScript(`(() => {
+            const grip = document.querySelector('.grip')
+            return {
+              theme: document.documentElement.dataset.theme,
+              surface: getComputedStyle(document.body).backgroundColor,
+              gripRegion: getComputedStyle(grip).getPropertyValue('-webkit-app-region'),
+              buttons: Array.from(document.querySelectorAll('button'), (button) => {
+                const { x, y, width, height } = button.getBoundingClientRect()
+                const center = { x: Math.floor(x + width / 2), y: Math.floor(y + height / 2) }
+                return { x, width, height, center, hit: document.elementFromPoint(center.x, center.y) === button }
+              })
+            }
+          })()`)
+        })
+        return value?.theme === theme ? value : null
+      }, { message: `弹窗控制条未显示${theme}配色` })
+    }
+    const light = await controls('light')
+    const dark = await controls('dark')
+    assert.notEqual(light.surface, dark.surface, '弹窗控制条应跟随应用主题')
+    assert.equal(dark.gripRegion.trim(), 'drag')
+    assert.equal(dark.buttons.length, 2)
+    const [minimize, closeButton] = dark.buttons
+    assert.ok(Math.abs(minimize.x + minimize.width - closeButton.x) < 0.5, '最小化和关闭应并排相接')
+    for (const button of dark.buttons) {
+      assert.ok(button.width >= 32 && button.height >= 28 && button.hit, '按钮的中心应可点击，并有足够的点击区域')
+    }
 
-    // 3) 关闭按钮生效：点自绘关闭，窗口数回落。
-    await app.evaluate(async ({ webContents }) => {
-      const target = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('data:text/html'))
-      await target.executeJavaScript(`document.getElementById('close').click()`)
-    })
-    await popup.waitForEvent('close', { timeout: 10_000 }).catch(() => {})
+    // 用指针事件验证关闭按钮的命中与 IPC，避免 DOM click 绕过布局。
+    await Promise.all([
+      popup.waitForEvent('close', { timeout: 10_000 }),
+      popupWindow.evaluate((win, center) => {
+        const view = win.contentView.children.find((child) => child.webContents?.getURL().startsWith('data:text/html'))
+        view.webContents.sendInputEvent({ type: 'mouseDown', ...center, button: 'left', clickCount: 1 })
+        view.webContents.sendInputEvent({ type: 'mouseUp', ...center, button: 'left', clickCount: 1 })
+      }, closeButton.center)
+    ])
     const closed = await waitFor(async () => {
       const count = await windowCount(app)
       return count === baseWindows ? count : null
