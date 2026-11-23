@@ -75,4 +75,7 @@ npm run dev
 
 1. **开发不需要 `dist/`**：`dev` / `start` / `smoke` 都用 `.runtime/win-x64/electron.exe` + `out/`，`dist/` 只有 `pack:win` 与 `smoke:packaged` 用得到，随时可以整个删掉重打。
 2. **必须带自编译内核**：未设置 `ELECTRON_EXEC_PATH` 时 electron-builder 会**静默下载官方 Electron**（产物 ~210MB，自编译运行时 ~232MB），官方内核没有 PPAPI 补丁，`smoke:packaged` 会报 `flash:timeout bridge-unavailable`。`pack-win.cjs` 现在兜底设置该变量，并在结束时断言产物大小与运行时接近，不符就失败。
-3. **必须带 PPAPI 插件**：`pepflashplayer64.dll` 通过 `extraResources` 落到 `resources/`，`plugins.ts` 从 `process.resourcesPath` 找得到；缺失时 `pack-win.cjs` 直接报错。Flash Player 二进制随包分发受 Adobe 许可约束，对外发布前需确认分发范围。
+3. **必须带 PPAPI 插件**：插件随内核 dist 目录进入 `win-unpacked/`（与 exe 同目录，`plugins.ts` 的第二候选路径），**不再复制到 `resources/`**——之前 extraResources 会让包里出现两份 30MB DLL。打包脚本会断言「包内有且只有一份插件」且哈希与来源一致。
+4. **来源门禁**：`scripts/runtime-manifest.json` 记录内核 EXE、插件与 Ruffle 运行时的期望 SHA-256，`pack:win` 逐项校验，不匹配即失败。换内核/插件必须同步更新清单，并在提交信息里写明来源与 tag；临时放行用 `BAO_ALLOW_UNVERIFIED_RUNTIME=1`（会告警）。
+5. **成品验证不允许默认跳过**：`smoke:packaged` 找不到产物会**失败**（`BAO_SKIP_PACKAGED=1` 才显式跳过）；`BAO_PACKAGED_ROOT` 可指向 CI 本次构建的产物目录。
+6. **许可**：`app/NOTICE.md` 随包（`extraFiles`）。产物未签名、自编译内核缺 `LICENSES.chromium.html`、Flash 插件再分发授权未确认——对外分发前必须解决。

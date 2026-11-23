@@ -238,7 +238,8 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 - **标签分组、标签搜索、未加载占位（discard）、会话恢复**：未实现（分组/搜索属 M1 后续增量，会话恢复移交 M2）。固定、复制、静音、右键菜单已在 2026-11-23 实现并由 `tab-ops.test.cjs` 覆盖。`detachTab/adoptTab` 与 `undo-close` 已按「同一 Tab 身份」建模，是这些交互的同一入口。
 - **DevTools 入口**：`Ctrl+Shift+I` 已接入（页面视图 `openDevTools({ mode: 'bottom' })`，由 `tab-ops.test.cjs` 覆盖开关两态）。
 - **跨窗口移交的其余验证面**：失焦、全屏退出、音频继续播放未测；已实测的是同一 WebContents 复用带来的页面运行时状态与导航历史保留，真实 Flash 标签（4399 等）未复测。
-- **打包发布**：只产出 `--dir` 验证包；签名、分发、独立复建与依赖校验未做。
+- **打包门禁（2026-11-23 补齐，审计 P2）**：`pack:win` 按 `scripts/runtime-manifest.json` 校验内核 EXE、PPAPI 插件与 Ruffle 运行时的 SHA-256（不匹配即失败；`BAO_ALLOW_UNVERIFIED_RUNTIME=1` 才放行并告警）；打包后自检「产物大小≈运行时」「包内 Flash 插件有且只有一份」「NOTICE.md 已随包」。`smoke:packaged` 不再默认跳过：缺产物直接失败（`BAO_SKIP_PACKAGED=1` 才显式跳过），并支持 `BAO_PACKAGED_ROOT` 指向 CI 的本次产物。
+- **打包发布仍未完成**：产物未签名；自编译内核未生成 `LICENSES.chromium.html`；Flash 插件再分发授权未确认（见 `app/NOTICE.md`）；独立复建与依赖校验未做。
 - **`npm run dev`（Vite 开发服务器）**：本次未跑，冒烟针对构建产物与验证包；开发入口的 shell URL 分支未实测。
 - **真实站点多页面与登录流程**：未覆盖。
 

@@ -18,8 +18,11 @@ async function waitForFacts(read, message) {
 
 // `npm run pack:win` 输出到固定的 dist/win-preview/win-unpacked（每次覆盖），
 // 选最新的可执行文件即可；历史随机目录已由打包脚本清理。
+// `BAO_PACKAGED_ROOT` 可指向别的产物根目录，供 CI / 门禁脚本校验**本次生成的**产物。
 async function latestPackagedExecutable() {
-  const dist = resolve(__dirname, '../../dist')
+  const dist = process.env.BAO_PACKAGED_ROOT
+    ? resolve(process.env.BAO_PACKAGED_ROOT)
+    : resolve(__dirname, '../../dist')
   const entries = await readdir(dist, { withFileTypes: true }).catch(() => [])
   const candidates = []
   for (const entry of entries) {
@@ -39,8 +42,13 @@ async function latestPackagedExecutable() {
 test('Win x64 验证包运行真实自编译运行时并加载 PPAPI 样本', { timeout: 180_000 }, async (context) => {
   const executablePath = await latestPackagedExecutable()
   if (!executablePath) {
-    context.skip('未找到 dist/win-preview-*/win-unpacked，先运行 npm run pack:win。')
-    return
+    // 审计 P2：成品验证不允许默认跳过，否则「打包通过」会被当成「真产物通过」。
+    // 只允许显式声明本次不验成品（例如只跑应用冒烟时）。
+    if (process.env.BAO_SKIP_PACKAGED === '1') {
+      context.skip('BAO_SKIP_PACKAGED=1：本次显式跳过成品验证。')
+      return
+    }
+    assert.fail('未找到 dist/win-preview/win-unpacked：先运行 npm run pack:win；若确实只想跑应用冒烟，设置 BAO_SKIP_PACKAGED=1。')
   }
 
   delete process.env.ELECTRON_RUN_AS_NODE

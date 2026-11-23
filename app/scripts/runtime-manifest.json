@@ -1,0 +1,16 @@
+{
+  "说明": "打包门禁：编译/准备阶段产物的期望 SHA-256。pack-win.cjs 在打包前逐项校验，不匹配即失败。更新内核或插件后必须同步更新本文件并在提交信息里写明来源。",
+  "kernel": {
+    "tag": "bao-v142-265-ppapi-sandbox",
+    "commit": "9de35f61aea60",
+    "fallbackTag": "bao-v142-265-verified",
+    "记录": "docs/kernel/README.md"
+  },
+  "files": {
+    ".runtime/win-x64/electron.exe": "68CF2350DAEAB2FD8906AC4FFE282B1136AC3B8A864D80C223E89070C52C8020",
+    ".runtime/win-x64/pepflashplayer64.dll": "85A836F347D7B3EB06DDDA6573A70C2BC46D03F4B52FDEB4D884E2D71A20B51F",
+    "vendor/ruffle/ruffle.js": "3ABFDEEE9373E3AD654973D31CBB255D75DFDCBF44124D5D9882F026D99BC8B7",
+    "vendor/ruffle/ruffle_web_bg.QDRSAAAZ.wasm": "AB23C8D226603425F4F4B620AA035C64DF46DBA9E8149E7E33EF54E0A25547CB",
+    "vendor/ruffle/ruffle_web-wasm_mvp_bg.UMWKJ7EM.wasm": "070F9859D2EBE421388CC437CCF950FE98C344850BA91FAF340730A00E14DF44"
+  }
+}
