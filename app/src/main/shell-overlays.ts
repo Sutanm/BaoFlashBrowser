@@ -321,6 +321,10 @@ export function createShellOverlays(
     setActivePage,
     panelVisible: () => hosted.panel?.view.getVisible() === true,
     quickVisible: () => hosted.quick?.view.getVisible() === true,
+    /** 预热：提前建好隐藏的视图（首次打开只差一次 setBounds），不改变可见性。 */
+    prewarm(kind: OverlayKind) {
+      ensure(kind)
+    },
     layout() {
       for (const kind of KINDS) sync(kind)
     },

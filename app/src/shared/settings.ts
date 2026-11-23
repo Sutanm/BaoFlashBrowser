@@ -107,8 +107,29 @@ export const themeModeLabels: Record<ThemeMode, string> = {
 export const settingsChannels = {
   read: 'settings:read',
   write: 'settings:write',
-  changed: 'settings:changed'
+  changed: 'settings:changed',
+  /** 读 Flash 插件状态（是否就绪 / 版本 / 是否需要重启）。 */
+  flashStatus: 'settings:flash-status',
+  /** 打开文件选择框导入插件（复制到 `<userData>/flash/`）。 */
+  flashImport: 'settings:flash-import'
 } as const
+
+export type FlashPluginSource = 'env' | 'user' | 'exe' | 'resources'
+
+export interface FlashPluginState {
+  ready: boolean
+  /** 实际加载的插件路径（未就绪时是期望的投放路径）。 */
+  path: string
+  version?: string
+  size?: number
+  source?: FlashPluginSource
+  /** 磁盘上有插件但本进程启动时没注册上 → 需要重启。 */
+  restartRequired: boolean
+}
+
+export type FlashImportResult =
+  | { ok: true; status: FlashPluginState }
+  | { ok: false; code: 'forbidden-sender' | 'cancelled' | 'invalid' | 'copy-failed' }
 
 export interface SettingsSnapshot {
   settings: Settings
@@ -132,5 +153,7 @@ export type SettingsWriteResult =
 export interface SettingsBridge {
   read(): Promise<SettingsSnapshot | undefined>
   write(key: SettingKey, value: SettingValue[SettingKey]): Promise<SettingsWriteResult>
+  flashStatus(): Promise<FlashPluginState | undefined>
+  flashImport(): Promise<FlashImportResult>
   subscribe(listener: (snapshot: SettingsSnapshot) => void): () => void
 }

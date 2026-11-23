@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
+import { BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
@@ -15,6 +15,8 @@ import { setSetting, settings as currentSettings, storageStatus } from './storag
 import { bindInternalProtocol, isSettingsUrl, parseSettingsAddress, SETTINGS_URL } from './internal-pages'
 import { settingsChannels } from '../shared/settings'
 import type { SettingsSnapshot } from '../shared/settings'
+import { importFlashPlugin } from './flash-plugin'
+import { flashStatus } from './plugins'
 import { START_PAGE } from './start-page'
 import { windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
@@ -993,9 +995,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
     if (sender !== 'shell' && command.type !== 'snapshot') {
       const engineAction = command.type === 'set-engine' || command.type === 'remember-engine' || command.type === 'forget-engine'
-      // 齿轮飞窗（quick）只允许「写设置」和「打开设置页」，引擎操作仍然只属于引擎面板。
+      // 齿轮飞窗（quick）只允许「写设置」和「打开设置页」；引擎面板只允许引擎操作，
+      // 外加「打开设置页」（插件缺失时点 Flash 档要跳到设置页的导入入口）。
       const settingsAction = command.type === 'set-setting' || command.type === 'open-settings'
-      const fromPanel = sender === 'panel' && overlays.panelVisible() && engineAction
+      const fromPanel = sender === 'panel' && overlays.panelVisible() &&
+        (engineAction || command.type === 'open-settings')
       const fromQuick = sender === 'quick' && overlays.quickVisible() && settingsAction
       if (!fromPanel && !fromQuick) return fail('forbidden-sender')
     }
@@ -1237,6 +1241,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       applyAutomationWindowMode(window)
     } else {
       window.show()
+      // 预热齿轮飞窗（首次打开不卡）：真实使用下提前建好隐藏的 WebContentsView，
+      // 打开时只需 setBounds。自动化模式不预热——那会给「页面视图计数」类断言多一个子视图。
+      window.once('ready-to-show', () => {
+        setTimeout(() => {
+          if (closing || window.isDestroyed()) return
+          overlays.prewarm('quick')
+        }, 600)
+      })
     }
   } catch (error) {
     closing = true
@@ -1375,5 +1387,33 @@ export function registerBrowserIpc(): void {
     if (outcome === 'save-failed') return { ok: false, code: 'settings-save-failed' }
     refreshAllWindows()
     return { ok: true, snapshot: controller.internalSnapshot() }
+  })
+
+  /**
+   * Flash 插件状态 / 导入（BYOP）。
+   *
+   * 只有内部设置页能调；对话框由主进程弹（页面拿不到任意文件路径）。导入只把文件复制到
+   * `<userData>/flash/`，插件注册发生在下一次启动，所以结果里带 `restartRequired`。
+   */
+  ipcMain.handle(settingsChannels.flashStatus, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return undefined
+    return flashStatus()
+  })
+  ipcMain.handle(settingsChannels.flashImport, async (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return { ok: false, code: 'forbidden-sender' }
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = {
+      title: '选择 Flash 插件',
+      properties: ['openFile'],
+      filters: process.platform === 'win32'
+        ? [{ name: 'Flash 插件', extensions: ['dll'] }]
+        : [{ name: 'Flash 插件', extensions: ['so', 'dylib'] }]
+    }
+    const picked = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+    if (picked.canceled || !picked.filePaths[0]) return { ok: false, code: 'cancelled' }
+    const current = flashStatus()
+    return importFlashPlugin(picked.filePaths[0], current.ready)
   })
 }

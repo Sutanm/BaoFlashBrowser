@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { SettingsSnapshot, ThemeMode } from '../shared/settings'
+import type { FlashPluginState } from '../shared/settings'
 import type { BrowserEngine } from '../shared/engine'
 import ThemeSwitch from './ThemeSwitch.vue'
 import { applyShellTheme } from './theme'
@@ -39,6 +40,7 @@ onMounted(async () => {
   const initial = await window.baoSettings.read()
   if (initial) apply(initial)
   detach = window.baoSettings.subscribe(apply)
+  await loadFlash()
 })
 
 onBeforeUnmount(() => detach?.())
@@ -61,11 +63,50 @@ function chooseTheme(mode: ThemeMode): void {
 }
 
 function chooseEngine(next: BrowserEngine): void {
-  if (next === 'ppapi' && !flashReady.value) return
+  if (next === 'ppapi' && !flashReady.value) {
+    focusFlashSection()
+    return
+  }
   void write({ key: 'engine.default', value: next })
 }
 
 const flashReady = computed(() => snapshot.value?.flash !== false)
+
+/** Flash 插件（BYOP）：状态 + 导入入口。 */
+const flash = ref<FlashPluginState>()
+const flashBusy = ref(false)
+const flashError = ref('')
+const flashStatusText = computed(() => {
+  const state = flash.value
+  if (!state) return '读取中…'
+  if (state.ready) return state.version ? `已就绪 · v${state.version}` : '已就绪'
+  if (state.version) return `已导入 v${state.version}，重启后生效`
+  return '未提供'
+})
+
+async function loadFlash(): Promise<void> {
+  flash.value = await window.baoSettings.flashStatus()
+}
+
+async function importFlash(): Promise<void> {
+  if (flashBusy.value) return
+  flashBusy.value = true
+  flashError.value = ''
+  try {
+    const result = await window.baoSettings.flashImport()
+    if (result.ok) flash.value = result.status
+    else if (result.code !== 'cancelled') {
+      flashError.value = result.code === 'invalid' ? '不是可用的插件文件' : '复制失败，请检查文件权限'
+    }
+  } finally {
+    flashBusy.value = false
+  }
+}
+
+/** 插件缺失时点「原生 Flash」直接跳到这一节，而不是弹一句失败提示。 */
+function focusFlashSection(): void {
+  document.getElementById('flash-section')?.scrollIntoView({ block: 'nearest' })
+}
 
 </script>
 
@@ -121,6 +162,16 @@ const flashReady = computed(() => snapshot.value?.flash !== false)
             <span class="label">Ruffle</span>
           </button>
         </div>
+      </section>
+
+      <section id="flash-section" aria-labelledby="flash-title">
+        <h2 id="flash-title">Flash 插件</h2>
+        <div class="select-row flash-row">
+          <span class="flash-state" :class="{ ready: flash?.ready }">{{ flashStatusText }}</span>
+          <span class="flash-path" :title="flash?.path">{{ flash?.path }}</span>
+          <button type="button" class="action" :disabled="flashBusy" @click="importFlash">导入…</button>
+        </div>
+        <p v-if="flashError" class="error" role="status">{{ flashError }}</p>
       </section>
 
       <section aria-labelledby="language-title">
@@ -291,6 +342,21 @@ button:disabled { cursor: default; opacity: 0.6; }
 }
 
 .error { margin-top: 14px; font-size: 12px; color: var(--text-error, #a82929); }
+
+/* Flash 插件：一行状态 + 路径 + 导入按钮，不写说明文字 */
+.flash-row { gap: 10px; }
+.flash-state { flex: none; font-size: 12px; color: var(--text-secondary); }
+.flash-state.ready { color: var(--engine-accent); font-weight: 600; }
+.flash-path {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; color: var(--text-secondary); direction: rtl; text-align: left;
+}
+.action {
+  flex: none; padding: 3px 10px; border: 1px solid var(--stroke-control); border-radius: 7px;
+  background: var(--surface-toolbar); font-size: 12px; cursor: pointer;
+}
+.action:hover:not(:disabled) { background: var(--surface-hover); }
+.action:disabled { opacity: .6; cursor: default; }
 
 @media (forced-colors: active) {
   .choice[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }

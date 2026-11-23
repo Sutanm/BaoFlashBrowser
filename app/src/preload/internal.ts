@@ -13,6 +13,8 @@ import type { SettingsBridge, SettingsSnapshot, SettingsWriteResult } from '../s
 const bridge: SettingsBridge = {
   read: () => ipcRenderer.invoke(settingsChannels.read),
   write: (key, value) => ipcRenderer.invoke(settingsChannels.write, { key, value }),
+  flashStatus: () => ipcRenderer.invoke(settingsChannels.flashStatus),
+  flashImport: () => ipcRenderer.invoke(settingsChannels.flashImport),
   subscribe(listener) {
     const relay = (_event: IpcRendererEvent, snapshot: SettingsSnapshot) => listener(snapshot)
     ipcRenderer.on(settingsChannels.changed, relay)

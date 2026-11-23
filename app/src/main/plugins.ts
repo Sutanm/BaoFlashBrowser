@@ -1,6 +1,6 @@
 import { app } from 'electron'
-import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { flashCandidates, flashPluginStatus, resolveFlashPlugin } from './flash-plugin'
 
 /**
  * 内核自带的 PPAPI Flash 插件（29.0.0.171）。
@@ -9,18 +9,18 @@ import { dirname, join } from 'node:path'
  * `--allow-command-line-plugins` 放行命令行插件，`--register-pepper-plugins`
  * 注册 MIME 与版本通告。版本串只用于站点版本门，不冒充其它 Flash 版本。
  *
- * 假设（文档未定，采用可逆最小方案）：插件 DLL 与 electron.exe 同目录时默认启用，
- * `BAO_FLASH_PLUGIN` 可指向其它路径；找不到 DLL 时整体停用并记录原因。
- * 站点级启用范围与沙箱例外属于后续按证据决定的事项。
+ * 插件路径解析见 `flash-plugin.ts`（环境变量 → 用户导入的 `<userData>/flash/` →
+ * exe 同级目录）。注册只在启动时做一次，所以**导入后需要重启**。
  * [142 真机报告 §10.16](../../../docs/reports/2026-11-21-142-flash-runtime.md)
  */
-const PLUGIN_FILE_NAME = 'pepflashplayer64.dll'
-/** 用户自行投放插件的目录名（BYOP）。 */
-const DROPIN_DIR = 'flash'
+const PLUGIN_FILE_NAME = process.platform === 'win32' ? 'pepflashplayer64.dll' : 'libpepflashplayer.so'
 const PLUGIN_DESCRIPTION = 'Shockwave Flash'
 const PLUGIN_DISPLAY_VERSION = 'Shockwave Flash 29.0 r0'
 const PLUGIN_VERSION = '29.0.0.171'
 const PLUGIN_MIME = 'application/x-shockwave-flash'
+
+/** 本进程启动时是否成功注册了插件（用于区分「就绪」与「已导入但需重启」）。 */
+let loaded = false
 
 export interface FlashPluginStatus {
   readonly enabled: boolean
@@ -30,17 +30,11 @@ export interface FlashPluginStatus {
 }
 
 export function configureFlashPlugin(): FlashPluginStatus {
-  // BYOP：本项目不随包分发 Flash。用户自行把插件放到 exe 同级的 `flash/` 目录即可。
-  const dropIn = join(dirname(process.execPath), DROPIN_DIR, PLUGIN_FILE_NAME)
-  const candidates = [
-    process.env.BAO_FLASH_PLUGIN,
-    dropIn,
-    join(dirname(process.execPath), PLUGIN_FILE_NAME),
-    join(process.resourcesPath, PLUGIN_FILE_NAME)
-  ].filter((value): value is string => !!value)
-
-  const pluginPath = candidates.find((candidate) => existsSync(candidate))
-  if (!pluginPath) {
+  // BYOP：本项目不随包分发 Flash。用户自行把插件放到 exe 同级的 `flash/` 目录，
+  // 或在设置页里导入（复制到 userData/flash）。
+  const dropIn = join(dirname(process.execPath), 'flash', PLUGIN_FILE_NAME)
+  const resolved = resolveFlashPlugin()
+  if (!resolved) {
     console.warn(`[flash] 未找到 ${PLUGIN_FILE_NAME}，原生 PPAPI 引擎停用。把插件放到：${dropIn}`)
     return { enabled: false, hint: dropIn }
   }
@@ -48,8 +42,16 @@ export function configureFlashPlugin(): FlashPluginStatus {
   app.commandLine.appendSwitch('allow-command-line-plugins')
   app.commandLine.appendSwitch(
     'register-pepper-plugins',
-    `${pluginPath}#${PLUGIN_DESCRIPTION}#${PLUGIN_DISPLAY_VERSION}#${PLUGIN_VERSION};${PLUGIN_MIME}#swf#spl`
+    `${resolved.path}#${PLUGIN_DESCRIPTION}#${PLUGIN_DISPLAY_VERSION}#${PLUGIN_VERSION};${PLUGIN_MIME}#swf#spl`
   )
 
-  return { enabled: true, path: pluginPath, hint: dropIn }
+  loaded = true
+  return { enabled: true, path: resolved.path, hint: dropIn }
 }
+
+/** 设置页读到的插件状态（版本、大小、是否需要重启）。 */
+export function flashStatus() {
+  return flashPluginStatus(loaded)
+}
+
+export { flashCandidates }

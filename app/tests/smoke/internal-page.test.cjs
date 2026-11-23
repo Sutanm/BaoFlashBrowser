@@ -193,3 +193,28 @@ test('设置页：页面会话无法访问 bao:// 资源', { timeout: 120_000 },
     await server.close()
   }
 })
+
+test('设置页：Flash 插件状态可读（版本号来自 PE 资源）', { timeout: 120_000 }, async () => {
+  const { hasFlashPlugin } = require('./helpers.cjs')
+  if (!hasFlashPlugin()) {
+    // BYOP：没有插件时这条没有意义（导入入口靠 UI 手工验证）。
+    return
+  }
+  const { app, shell, close } = await launchApp()
+  try {
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'open-settings' }))
+    const id = await waitFor(async () => {
+      const value = await app.evaluate(({ webContents }) =>
+        webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').startsWith('bao://settings'))?.id ?? null)
+      return value
+    }, { message: '设置页没有打开' })
+    const status = await app.evaluate(({ webContents }, target) =>
+      webContents.fromId(target).executeJavaScript('window.baoSettings.flashStatus()'), id)
+    assert.equal(status.ready, true, '运行中的内核应已注册插件')
+    assert.equal(status.version, '29.0.0.171', `PE 版本解析结果不对：${status.version}`)
+    assert.ok(String(status.path).toLowerCase().includes('pepflashplayer64.dll'), `插件路径不对：${status.path}`)
+    assert.equal(status.restartRequired, false, '已注册的插件不应该要求重启')
+  } finally {
+    await close()
+  }
+})

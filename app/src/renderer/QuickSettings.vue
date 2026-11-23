@@ -99,7 +99,9 @@ onMounted(() => {
   detach = window.baoOverlay.subscribe((event) => {
     if (event.type === 'quick-opened') {
       void nextTick(() => {
-        panel.value?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
+        // 只把焦点交给面板容器（tabindex=-1），**不**聚焦选中项：
+        // 程序化聚焦会让 :focus-visible 在打开的一瞬间就画出焦点环，正常应该等用户按 Tab。
+        panel.value?.focus()
         measure()
       })
     }
@@ -124,7 +126,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 <template>
   <div class="quick-frame" @keydown="onKeydown">
-    <section ref="panel" class="quick" :data-kind="props.kind" aria-label="快捷设置">
+    <section ref="panel" class="quick" :data-kind="props.kind" aria-label="快捷设置" tabindex="-1">
       <p class="group-label">主题</p>
       <div class="quick-theme">
         <ThemeSwitch :mode="theme" :busy="busy" compact @select="chooseTheme" />

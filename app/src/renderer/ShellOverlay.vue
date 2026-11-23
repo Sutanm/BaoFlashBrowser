@@ -52,6 +52,13 @@ async function submit(command: BrowserCommand): Promise<boolean> {
 }
 
 async function choose(engine: BrowserEngine): Promise<void> {
+  // 插件缺失时「原生 Flash」是不可用档：不弹失败提示（那只会打断人），
+  // 直接跳到设置页的 Flash 插件区，让用户看到导入入口。
+  if (engine === 'ppapi' && snapshot.value?.flash === false) {
+    await window.baoOverlay.closePanel(false)
+    await store.run({ type: 'open-settings' })
+    return
+  }
   if (engine === active.value?.engine || await submit({ type: 'set-engine', engine })) {
     await window.baoOverlay.closePanel()
   }
@@ -142,13 +149,15 @@ onBeforeUnmount(() => {
 :where(.overlay-frame button) { font: inherit; color: inherit; border: 0; background: transparent; }
 .overlay-frame button:not(:disabled) { cursor: pointer; }
 .overlay-frame button:focus-visible { outline: 2px solid var(--brand-stroke); outline-offset: -2px; }
+/* 与齿轮飞窗（quick）统一：同一个面、同样的 12px 圆角与 elevation 12 投影。 */
 .engine-panel, .toast {
   background: var(--surface-toolbar);
   border: 1px solid var(--stroke-divider);
-  border-radius: var(--radius-surface);
-  box-shadow: 0 4px 11px #15132130, 0 1px 3px #15132116;
+  border-radius: 12px;
+  box-shadow: 0 12px 48px color-mix(in srgb, #3c4043 24%, transparent),
+              0 0 24px color-mix(in srgb, #3c4043 12%, transparent);
 }
-.engine-panel { padding: 8px; }
+.engine-panel { padding: 6px; }
 .engine-panel h2 { margin: 0; padding: 1px 6px 5px; font-size: 11px; color: var(--text-secondary); }
 .engine-choices { display: grid; gap: 2px; }
 .engine-choice {
