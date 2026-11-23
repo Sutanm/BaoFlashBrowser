@@ -261,6 +261,14 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 - 成品验证按产物自带的 `manifest.json` 自动判定 profile：internal 断言 Pepper Plugin 进程与 `flash:loaded bridge`；public 断言无插件进程，并新增一条 BYOP 用例——把开发侧插件复制到 `<exe>\flash\` 后，打包版必须起 Pepper Plugin 进程且页面桥接成功（实测通过）。
 - 结论（许可）：签名不能使含 Adobe 二进制的包变得可分发；BYOP 后我们签名的载荷里没有 Adobe 代码，SignPath Foundation 的「禁止专有组件」条件也不再阻挡。
 
+**2026-11-23 暗色模式收尾（i18n 暂缓）**
+
+- 现状核查：颜色 token 全部由 `renderer/theme.ts` 按 Fluent `webLightTheme`/`webDarkTheme` 注入，`tokens.css` 里只有引擎配色（明暗各一套）与尺寸；外壳与叠加层都读 `BrowserState.theme`，主进程按 `nativeTheme.shouldUseDarkColors` 跟随系统并在 `nativeTheme.updated` 时重绘标题栏 overlay 与广播状态。硬编码颜色仅剩面板阴影一处（深色调阴影，两套主题通用）。
+- 目检（`nativeTheme.themeSource` 强制 dark/light）：外壳、引擎面板叠加层、引擎胶囊、地址栏焦点环、标签与图标对比度均正常；标题栏按钮由 `windowPalette` 的暗色 palette 提供。
+- 新增 `theme.test.cjs`：切暗色后外壳 `data-theme` 与 `--surface-toolbar` 变化、叠加层同步变暗；切回亮色同样生效。
+- **i18n 暂缓**：主进程 + 渲染层共 165 处中文字面量，且 locale 需要持久化，而设置存储属于 M2；当前无多语言需求，UI 仍在改动（引擎面板一天内三版）。待 M2 设置库落地后一起做，届时 locale 只是设置表里的一行。
+- 未做：手动「亮/暗/跟随系统」开关（需要设置存储）、强制网页深色（老站点样式会碎，Flash 内容多在 canvas/插件内本就不受影响）。
+
 ## 6. 采用的可逆假设
 
 文档未写清、本次按最小可逆方案处理的细节：
