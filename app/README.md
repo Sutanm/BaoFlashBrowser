@@ -41,7 +41,7 @@ npm run dev
 | `npm run typecheck` | 检查 TypeScript 和 Vue 类型。 |
 | `npm run build` | 检查类型并编译主进程、预加载和渲染层。 |
 | `npm start` | 使用自编译 Electron 启动已编译的应用。 |
-| `npm run smoke` | 用临时测试 profile 跑 21 个用例：外壳/标签/快捷键/引擎与站点规则/输入回环/Ruffle 跨源/网络边界/弹窗/权限/主题/PPAPI 样本。无插件时 `flash` 与 `plugin-input` 两条会跳过并说明原因。 |
+| `npm run smoke` | 用临时测试 profile 跑 22 个用例：外壳/标签/快捷键/引擎与站点规则/输入回环/Ruffle 跨源/网络边界/弹窗/权限/主题/PPAPI 样本。无插件时 `flash` 与 `plugin-input` 两条会跳过并说明原因。 |
 | `npm run runtime:check` | 校验 `.runtime/win-x64` 的内核与插件 SHA-256（按 `scripts/runtime-manifest.json`），失败时给出拷贝/重建两条恢复路径。 |
 | `npm run runtime:export` / `:byop` | 导出运行时 zip（`internal` 含插件、`byop` 不含 Adobe 二进制）+ 包内 `RUNTIME-MANIFEST.json`，供其它机器搭建环境。 |
 | `npm run runtime:import -- <zip>` | 校验逐文件 SHA-256 与内核 tag 后安装运行时；不一致直接拒绝。 |

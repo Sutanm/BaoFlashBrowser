@@ -103,3 +103,73 @@ test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站�
     await server.close()
   }
 })
+test('弹窗使用自绘 chrome：无原生边框，控制簇可用', { timeout: 120_000 }, async () => {
+  const server = await startFixtureServer({
+    '/lobby': pageWithButton('大厅', '/game'),
+    '/game': '<!doctype html><meta charset="utf-8"><title>游戏</title><h1>game</h1>'
+  })
+  const { app, shell, close } = await launchApp()
+  try {
+    const address = shell.getByRole('textbox', { name: '地址栏' })
+    await address.fill(`${server.baseUrl}/lobby`)
+    await address.press('Enter')
+    await shell.getByRole('button', { name: '大厅', exact: true }).waitFor({ timeout: 30_000 })
+    const baseWindows = await windowCount(app)
+
+    const [popup] = await Promise.all([
+      app.waitForEvent('window', { predicate: (page) => page.url().endsWith('/game'), timeout: 30_000 }),
+      viewEval(app, shell, "document.getElementById('open').click()", true)
+    ])
+
+    // 1) 无原生边框：frameless 窗口的 getBounds 与 getContentBounds 相同。
+    const frames = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => ({
+      url: window.webContents.getURL(),
+      bounds: window.getBounds(),
+      content: window.getContentBounds()
+    })))
+    const popupFrame = frames.find((item) => item.url.endsWith('/game'))
+    assert.ok(popupFrame, '未找到弹窗窗口')
+    // 1) 无原生标题栏：内容区尺寸应等于请求值（有标题栏时高度会被吃掉约 32px）；
+    //    Windows 上可调整的无边框窗口仍带 1px 边框，允许 ≤2px 差额。
+    assert.equal(popupFrame.content.width, 1024, '弹窗内容宽度不等于请求值')
+    assert.equal(popupFrame.content.height, 768, '弹窗仍带原生标题栏（内容高度被吃掉）')
+    assert.ok(popupFrame.bounds.width - popupFrame.content.width <= 2, '弹窗边框过宽（可能是原生帧）')
+    assert.ok(popupFrame.bounds.height - popupFrame.content.height <= 2, '弹窗边框过宽（可能是原生帧）')
+
+    // 2) 自绘控制簇存在，且拖动抓手确实声明了 app-region: drag。
+    // chrome 视图是异步 loadURL 的，轮询到它加载完成再断言。
+    const chrome = await waitFor(async () => {
+      const value = await app.evaluate(async ({ webContents }) => {
+        const target = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('data:text/html'))
+        if (!target || target.isLoading()) return null
+        return target.executeJavaScript(`(() => {
+          const grip = document.querySelector('.grip')
+          if (!grip) return null
+          return {
+            hasClose: Boolean(document.getElementById('close')),
+            gripRegion: getComputedStyle(grip).webkitAppRegion ?? getComputedStyle(grip).getPropertyValue('-webkit-app-region')
+          }
+        })()`)
+      }).catch(() => null)
+      return value && value.hasClose ? value : null
+    }, { message: '弹窗没有 chrome 控制簇' })
+    assert.ok(chrome, '弹窗没有 chrome 控制簇')
+    assert.equal(chrome.hasClose, true)
+    assert.equal(String(chrome.gripRegion).trim(), 'drag', '拖动抓手不是 app-region: drag')
+
+    // 3) 关闭按钮生效：点自绘关闭，窗口数回落。
+    await app.evaluate(async ({ webContents }) => {
+      const target = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('data:text/html'))
+      await target.executeJavaScript(`document.getElementById('close').click()`)
+    })
+    await popup.waitForEvent('close', { timeout: 10_000 }).catch(() => {})
+    const closed = await waitFor(async () => {
+      const count = await windowCount(app)
+      return count === baseWindows ? count : null
+    }, { message: '自绘关闭按钮没有关闭弹窗' })
+    assert.equal(closed, baseWindows)
+  } finally {
+    await close()
+    await server.close()
+  }
+})

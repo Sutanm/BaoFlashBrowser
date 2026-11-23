@@ -269,6 +269,14 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 - **i18n 暂缓**：主进程 + 渲染层共 165 处中文字面量，且 locale 需要持久化，而设置存储属于 M2；当前无多语言需求，UI 仍在改动（引擎面板一天内三版）。待 M2 设置库落地后一起做，届时 locale 只是设置表里的一行。
 - 未做：手动「亮/暗/跟随系统」开关（需要设置存储）、强制网页深色（老站点样式会碎，Flash 内容多在 canvas/插件内本就不受影响）。
 
+**2026-11-23 弹窗 chrome 归一化（架构 A5）**
+
+- 缺口：站点弹窗（`window.open`）此前用 `overrideBrowserWindowOptions` 只给了尺寸与背景，拿到的是 **Windows 原生标题栏**，与 A5「用户可见的界面只有一种视觉语言」冲突。
+- 实现：`frame: false` + 右上角自绘控制簇（`src/main/popup-chrome.ts` + `src/preload/popup-chrome.ts`）：26px 高的半透明条里放拖动抓手（`-webkit-app-region: drag`）、最小化、关闭；只在右上角浮一小块，不铺满整条，站点视口保持请求尺寸。窗口控制走 `bao:popup-chrome` IPC，主进程按「发送者是否为该 chrome 视图」校验。
+- 顺带修正审计 P2 的「弹窗窗口固定 1024×768」：现在解析 `window.open` 的 `features`（width/height/left/top，含 screenx/screeny 别名，夹到合理范围）。
+- 实测（`popup.test.cjs` 新增用例）：内容区尺寸等于请求值 1024×768（有原生标题栏时高度会被吃掉约 32px）；窗口–内容差 ≤2px（Windows 可调整无边框窗口的 1px 边框）；chrome 视图存在且关闭按钮生效。全量冒烟 22/22，连续两轮稳定。
+- 已知边界：站点页面顶部 26×96 的右上角区域被控制簇覆盖（抓取/点击落在该处会被 chrome 接收）；窗口只能在抓手处拖动，与「无原生帧」是同一取舍。
+
 ## 6. 采用的可逆假设
 
 文档未写清、本次按最小可逆方案处理的细节：

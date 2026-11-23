@@ -15,6 +15,7 @@ import { windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
 import { overlayChannels } from '../shared/overlay'
 import { createShellOverlays } from './shell-overlays'
+import { attachPopupChrome } from './popup-chrome'
 
 /**
  * 标签（架构 §3 主进程与窗口、页面）。
@@ -99,6 +100,24 @@ let nextNoticeId = 1
 
 function fail(code: BrowserFailureCode): BrowserResult {
   return { ok: false, code, message: browserFailureText[code] }
+}
+
+
+/**
+ * 解析 window.open 的 features（归档审计 P2：「弹窗窗口固定 1024×768」）。
+ * 支持 width/height/left/top（含 screenx/screeny 别名），并夹到合理范围。
+ */
+function popupSize(details: { features?: string }): { width: number; height: number; x?: number; y?: number } {
+  const features = details.features ?? ''
+  const read = (name: string): number | undefined => {
+    const match = new RegExp(`${name}\\s*=\\s*(\\d+)`, 'i').exec(features)
+    return match ? Number(match[1]) : undefined
+  }
+  const width = Math.min(Math.max(read('width') ?? 1024, 320), 3840)
+  const height = Math.min(Math.max(read('height') ?? 768, 240), 2160)
+  const x = read('left') ?? read('screenx') ?? read('x')
+  const y = read('top') ?? read('screeny') ?? read('y')
+  return { width, height, x, y }
 }
 
 function isWebAddress(value: string): boolean {
@@ -330,7 +349,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     contents: WebContents,
     context: { engine: () => BrowserEngine; openerUrl: () => string | undefined; live: () => boolean }
   ): void {
-    contents.setWindowOpenHandler(({ url }) => {
+    contents.setWindowOpenHandler((details) => {
+      const { url } = details
       if (!context.live() || !isWebAddress(url)) return { action: 'deny' }
       const opener = siteBoundary(context.openerUrl())
       const target = siteBoundary(url)
@@ -341,11 +361,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       const engine = context.engine()
       const ruffle = engine === 'ruffle' || !plugins
       console.info(`[popup] 允许同站弹窗：${url}（引擎 ${engine}）`)
+      // 自绘 chrome（架构 A5）：frame:false，右上角浮一个小控制簇，不用 Windows 原生帧。
+      const size = popupSize(details)
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
-          width: 1024,
-          height: 768,
+          width: size.width,
+          height: size.height,
+          x: size.x,
+          y: size.y,
+          // 自绘 chrome：rame: false 去掉原生标题栏（Windows 仍保留 1px 的可调整边框，属正常）。
+          frame: false,
           backgroundColor: '#ffffff',
           autoHideMenuBar: true,
           webPreferences: {
@@ -370,6 +396,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       const childContents = child.webContents
       if (childContents.isDestroyed()) return
       registerPageView(childContents.id)
+      // 自绘 chrome：window.open 的窗口没有原生标题栏，控制簇由我们画。
+      attachPopupChrome(child)
       const childEngine = context.engine()
       guardContents(childContents, {
         engine: () => childEngine,

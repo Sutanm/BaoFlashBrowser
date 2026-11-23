@@ -8,9 +8,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          // 外壳 preload（受信任 UI）与页面 preload（Ruffle 引擎）分开打包。
+          // 外壳 preload（受信任 UI）、页面 preload（Ruffle 引擎）、弹窗 chrome preload 分开打包。
           index: resolve(__dirname, 'src/preload/index.ts'),
-          page: resolve(__dirname, 'src/preload/page.ts')
+          page: resolve(__dirname, 'src/preload/page.ts'),
+          'popup-chrome': resolve(__dirname, 'src/preload/popup-chrome.ts')
         }
       }
     }

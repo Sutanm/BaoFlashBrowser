@@ -56,6 +56,7 @@ OS Menu / 系统通知）不是没做设计，是**做不了**——B1 置顶约
 | OS 语义 | 文件选择/保存、右键菜单、系统通知 | 原生保留（Chrome 同款；文件对话框系统级体验） | 原生（不变） |
 | 安全语义 | view-gate 门禁等防伪造 UI | **OS 原生强制**（网页不可伪造性优先，B 区已定） | OS 鉴权（不变） |
 | 页面语义 | `alert/confirm/prompt` | Chromium 自绘样式（对齐 Chrome，不干预；拦截可行性留 POC 可选） | 默认 |
+| 窗口 chrome | 主窗口 / 站点弹窗（`window.open`） | **全部自绘**：主窗口 `titleBarStyle: hidden` + `titleBarOverlay`；弹窗 `frame: false` + 右上角自绘控制簇（拖动抓手 / 最小化 / 关闭），站点弹窗不再出现 Windows 原生标题栏（2026-11-23 落地） | 原生 Windows 帧 |
 
 **对话框服务设计要点**：
 1. 全尺寸子 WCV = 遮罩模式天然成立（模态 = 吃掉全部点击正是所需）；非模态 popover
