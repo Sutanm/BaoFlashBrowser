@@ -154,18 +154,13 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
           role="radio"
           :aria-checked="engine === name"
           :disabled="busy || (name === 'ppapi' && !flashReady)"
-          :title="name === 'ppapi' && !flashReady ? '未检测到 Flash 插件，会自动回落 Ruffle' : undefined"
+          :title="name === 'ppapi' && !flashReady ? '未检测到 Flash 插件' : undefined"
           @click="chooseEngine(name)"
         >
           <span class="radio" aria-hidden="true"></span>
-          <span class="label">
-            {{ engineLabels[name] }}
-            <span v-if="name === 'ppapi'" class="sub" :class="{ hint: !flashReady }">
-              {{ flashReady ? '新站点默认使用' : '未检测到插件，会自动回落 Ruffle' }}
-            </span>
-            <span v-else class="sub">不依赖插件</span>
-          </span>
-          <ShellIcon name="check" class="check" />
+          <span>{{ engineLabels[name] }}</span>
+          <ShellIcon v-if="name === 'ppapi' && !flashReady" name="error" class="warn" />
+          <ShellIcon v-else name="check" class="check" />
         </button>
       </div>
 
@@ -228,11 +223,9 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .swatch.light { background: linear-gradient(180deg, #fff, #e9ebf1); }
 .swatch.dark { background: linear-gradient(180deg, #2b2d36, #1b1d24); }
 
-.row .label { min-width: 0; }
-.row .sub { display: block; font-size: 11px; color: var(--text-secondary); }
-.row .sub.hint { color: var(--engine-override); }
 .row .check { width: 13px; height: 13px; color: var(--engine-accent); visibility: hidden; }
 .row[aria-checked='true'] .check { visibility: visible; }
+.row .warn { width: 13px; height: 13px; color: var(--engine-override); }
 
 .row.footer .lead-icon, .row.footer .chev { display: grid; place-items: center; color: var(--text-secondary); }
 .row.footer .lead-icon .shell-icon { width: 15px; height: 15px; }

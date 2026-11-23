@@ -324,9 +324,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     overlays.publish(snapshot)
   }
 
-  /** 内部页读到的快照：设置 + **解析后**的亮/暗 + 存储状态。 */
+  /** 内部页读到的快照：设置 + **解析后**的亮/暗 + 存储状态 + 插件可用性。 */
   function internalSnapshot(): SettingsSnapshot {
-    return { settings: currentSettings(), theme: currentTheme(), storage: storageStatus() }
+    return {
+      settings: currentSettings(),
+      theme: currentTheme(),
+      storage: storageStatus(),
+      flash: plugins
+    }
   }
 
   function notify(tab: Tab): void {

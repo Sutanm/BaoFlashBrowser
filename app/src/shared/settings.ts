@@ -115,6 +115,8 @@ export interface SettingsSnapshot {
   /** 解析后的亮/暗：内部页据此上色（`nativeTheme.shouldUseDarkColors` 的结果）。 */
   theme: 'light' | 'dark'
   storage: 'ready' | 'unavailable'
+  /** 原生 Flash 插件是否可用（BYOP：没放插件时引擎项置灰）。 */
+  flash: boolean
 }
 
 export type SettingsWriteFailure =

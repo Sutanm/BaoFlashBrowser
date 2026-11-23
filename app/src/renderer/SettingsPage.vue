@@ -61,13 +61,16 @@ function chooseTheme(mode: ThemeMode): void {
 }
 
 function chooseEngine(next: BrowserEngine): void {
+  if (next === 'ppapi' && !flashReady.value) return
   void write({ key: 'engine.default', value: next })
 }
 
-const themes: Array<{ mode: ThemeMode; description: string }> = [
-  { mode: 'system', description: '跟随 Windows 的浅色/深色' },
-  { mode: 'light', description: '始终使用浅色' },
-  { mode: 'dark', description: '始终使用深色' }
+const flashReady = computed(() => snapshot.value?.flash !== false)
+
+const themes: Array<{ mode: ThemeMode }> = [
+  { mode: 'system' },
+  { mode: 'light' },
+  { mode: 'dark' }
 ]
 </script>
 
@@ -91,9 +94,6 @@ const themes: Array<{ mode: ThemeMode; description: string }> = [
     <main class="settings-content">
       <section aria-labelledby="theme-title">
         <h2 id="theme-title">主题</h2>
-        <p class="lead">
-          只影响浏览器界面与站点看到的 <code>prefers-color-scheme</code>；Flash 内容不会被反色。
-        </p>
         <div class="theme-cards" role="radiogroup" aria-label="主题">
           <button
             v-for="item in themes"
@@ -102,7 +102,7 @@ const themes: Array<{ mode: ThemeMode; description: string }> = [
             class="theme-card"
             role="radio"
             :aria-checked="theme === item.mode"
-            :aria-label="`${themeModeLabels[item.mode]}：${item.description}`"
+            :aria-label="themeModeLabels[item.mode]"
             :disabled="busy"
             @click="chooseTheme(item.mode)"
           >
@@ -117,21 +117,18 @@ const themes: Array<{ mode: ThemeMode; description: string }> = [
 
       <section aria-labelledby="engine-title">
         <h2 id="engine-title">默认引擎</h2>
-        <p class="lead">站点规则优先于这里；在标签上手动切换过就沿用那次选择。</p>
         <div role="radiogroup" aria-label="默认引擎" class="choices">
           <button
             type="button"
             class="choice"
             role="radio"
             :aria-checked="engine === 'ppapi'"
-            :disabled="busy"
+            :disabled="busy || !flashReady"
+            :title="flashReady ? undefined : '未检测到 Flash 插件'"
             @click="chooseEngine('ppapi')"
           >
             <span class="radio" aria-hidden="true"></span>
-            <span class="label">
-              原生 Flash（PPAPI）
-              <span class="sub">新站点默认使用；未检测到插件时自动回落 Ruffle</span>
-            </span>
+            <span class="label">原生 Flash（PPAPI）</span>
           </button>
           <button
             type="button"
@@ -142,14 +139,13 @@ const themes: Array<{ mode: ThemeMode; description: string }> = [
             @click="chooseEngine('ruffle')"
           >
             <span class="radio" aria-hidden="true"></span>
-            <span class="label">Ruffle<span class="sub">不依赖插件，兼容优先</span></span>
+            <span class="label">Ruffle</span>
           </button>
         </div>
       </section>
 
       <section aria-labelledby="language-title">
         <h2 id="language-title">语言</h2>
-        <p class="lead">界面语言即时生效，不需要重启。</p>
         <label class="select-row">
           <span>界面语言</span>
           <select :value="current?.locale ?? 'zh-CN'" :disabled="busy" @change="write({ key: 'locale', value: ($event.target as HTMLSelectElement).value })">

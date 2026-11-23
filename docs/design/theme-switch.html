@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BaoFlash · 日夜开关 vs 三态主题选择</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #eef0f4; --surface: #fff; --ink: #232630; --muted: #626879; --line: #dcdfe6;
+    --hover: #eff1f6; --selected: #eeebfb; --accent: #5940ac;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14151a; --surface: #292b33; --ink: #f2f2f6; --muted: #b4b7c6; --line: #434552;
+    --hover: #373945; --selected: #3b3059; --accent: #c8b7ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif; }
+  main { width: min(820px, calc(100% - 32px)); margin: 28px auto 40px; }
+  h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.02em; }
+  h2 { margin: 26px 0 8px; font-size: 14px; }
+  .lead { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .row + .row { margin-top: 10px; }
+  .row .label { width: 120px; flex: none; font-size: 12px; color: var(--muted); }
+  /* ---- 旧项目 ThemeToggle（原样移植） ---- */
+  .theme-toggle { position: relative; overflow: hidden; padding: 0; border: 0; cursor: pointer; }
+  .theme-toggle * { box-sizing: border-box; }
+  .theme-cloud { position: absolute; animation-name: drift; animation-timing-function: linear; animation-iteration-count: infinite; }
+  .theme-stars { position: absolute; }
+  .theme-star { animation: twinkle 2.6s ease-in-out infinite; transform-origin: center; }
+  @keyframes drift { from { transform: translateX(0); } to { transform: translateX(38%); } }
+  @keyframes twinkle { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+  .system-row { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 10px; font-size: 13px; }
+  .switch { width: 37px; height: 22px; border: 1px solid var(--line); border-radius: 999px; background: var(--hover); padding: 2px; display: flex; align-items: center; cursor: pointer; }
+  .switch span { width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .12s ease; }
+  .switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+  .switch[aria-checked="true"] span { background: var(--surface); transform: translateX(15px); }
+  /* ---- 现方案：三态分段 ---- */
+  .segmented { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--hover); }
+  .segmented button { padding: 5px 10px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+  .segmented button[aria-checked="true"] { background: var(--surface); font-weight: 600; }
+  .note { margin-top: 8px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>日夜开关 vs 三态主题</h1>
+  <p class="lead">上面是旧项目 <code>ThemeToggle.tsx</code> 的移植（云、星星、日月，尺寸随高度缩放），下面是现在飞窗里的三态分段。两行都可点。</p>
+
+  <h2>旧项目：日夜开关（大小两种尺寸）</h2>
+  <div class="row">
+    <span class="label">大 200×80</span>
+    <div id="big"></div>
+  </div>
+  <div class="row">
+    <span class="label">内联 96×38</span>
+    <div id="small"></div>
+  </div>
+
+  <h2>现方案：三态分段（设置页用三张卡片）</h2>
+  <div class="row">
+    <span class="label">三态</span>
+    <div class="segmented" role="radiogroup" aria-label="主题">
+      <button type="button" role="radio" data-mode="system" aria-checked="false">跟随系统</button>
+      <button type="button" role="radio" data-mode="light" aria-checked="true">浅色</button>
+      <button type="button" role="radio" data-mode="dark" aria-checked="false">深色</button>
+    </div>
+  </div>
+
+  <p class="note">关键差别：日夜开关只表达「亮 / 暗」两态，要「跟随系统」就得再配一个开关（旧项目正是这么做的，见下）。三态分段一个控件表达三种，代价是没有那点动画趣味。</p>
+  <div class="row">
+    <span class="label">旧项目的第二控件</span>
+    <div class="system-row" style="max-width:200px"><span>跟随系统</span><button type="button" class="switch" id="system" aria-checked="false"><span></span></button></div>
+  </div>
+</main>
+
+<script>
+  const NIGHT = [23, 29, 51], DAY = [65, 132, 196], MOON = [194, 201, 211], SUN = [255, 193, 30]
+  const STARS = [
+    'M207,0s0,25.11-16.74,41.86S148.45,58.6,148.45,58.6s25.11,0,41.86,16.74S207,117.19,207,117.19s0-25.11,16.74-41.86S265.65,58.6,265.65,58.6s-25.11,0-41.86-16.74S207,0,207,0Z',
+    'M631.34,73.48s0,23.92-15.94,39.86-39.86,15.94-39.86,15.94,23.92,0,39.86,15.94,15.94,39.86,15.94,39.86,0-23.92,15.94-39.86,39.86-15.94,39.86-15.94-23.92,0-39.86-15.94S631.34,73.48,631.34,73.48Z',
+    'M275.37,203.25s0,19.13-12.76,31.89-31.89,12.76-31.89,12.76,19.13,0,31.89,12.76,12.76,31.89,12.76,31.89,0-19.13,12.76-31.89S320,247.89,320,247.89s-19.13,0-31.89-12.76S275.37,203.25,275.37,203.25Z',
+    'M44.65,88.49s0,19.13-12.76,31.89S0,133.13,0,133.13s19.13,0,31.89,12.76,12.76,31.89,12.76,31.89,0-19.13,12.76-31.89,31.89-12.76,31.89-12.76-19.13,0-31.89-12.76S44.65,88.49,44.65,88.49Z',
+    'M504.56,333.95s0,19.13-12.76,31.89-31.89,12.76-31.89,12.76,19.13,0,31.89,12.76,12.76,31.89,12.76,31.89,0-19.13,12.76-31.89,31.89-12.76,31.89-12.76-19.13,0-31.89-12.76S504.56,333.95,504.56,333.95Z',
+    'M597.85,229.68s0,9.57-6.38,15.94S575.53,252,575.53,252s9.57,0,15.94,6.38,6.38,15.94,6.38,15.94,0-9.57,6.38-15.94S620.18,252,620.18,252s-9.57,0-15.94-6.38S597.85,229.68,597.85,229.68Z',
+    'M431.62,88.49s0,9.57-6.38,15.94-15.94,6.38-15.94,6.38,9.57,0,15.94,6.38,6.38,15.94,6.38,15.94,0-9.57,6.38-15.94,15.94-6.38,15.94-6.38-9.57,0-15.94-6.38S431.62,88.49,431.62,88.49Z',
+    'M375.94,190.55s0,9.57-6.38,15.94-15.94,6.38-15.94,6.38,9.57,0,15.94,6.38,6.38,15.94,6.38,15.94,0-9.57,6.38-15.94,15.94-6.38,15.94-6.38-9.57,0-15.94-6.38S375.94,190.55,375.94,190.55Z',
+    'M85,258.51s0,9.57-6.38,15.94-15.94,6.38-15.94,6.38,9.57,0,15.94,6.38S85,303.15,85,303.15s0-9.57,6.38-15.94,15.94-6.38,15.94-6.38-9.57,0-15.94-6.38S85,258.51,85,258.51Z',
+    'M22.32,346s0,9.57-6.38,15.94S0,368.36,0,368.36s9.57,0,15.94,6.38,6.38,15.94,6.38,15.94,0-9.57,6.38-15.94,15.94-6.38,15.94-6.38-9.57,0-15.94-6.38S22.32,346,22.32,346Z',
+    'M230.72,378.59s0,9.57-6.38,15.94-15.94,6.38-15.94,6.38,9.57,0,15.94,6.38,6.38,15.94,6.38,15.94,0-9.57,6.38-15.94S253,400.92,253,400.92s-9.57,0-15.94-6.38S230.72,378.59,230.72,378.59Z'
+  ]
+  const CLOUD = 'M0,528S22.93,365.3,142.56,346.54c74.41-11.67,110.66,37.39,110.66,37.39s24.6-33.27,98.88-45.7C433.43,324.62,491.32,362,491.32,362s9-75.47,108.71-89c99.38-13.52,128.37,51,128.37,51s23.67-20.19,54.81-20.73c40.44-.7,67.84,17.42,67.84,17.42s19.19-39.61,59.54-67.78c40.74-28.44,94.41-29.44,94.41-29.44S983.06,116.78,1081.24,49c114.62-79.19,197.66-38.5,197.66-38.5l-64,731.23L53.19,641.56Z'
+
+  const lerp = (a, b, t) => a * (1 - t) + b * t
+  const rgb = (r, g, b) => [r, g, b].map((v) => Math.round(v)).join(',')
+  const motion = (x) => x * x * 3 - x * x * x * 2
+
+  function createToggle(mount, { width = 200, height = 80, dark = false } = {}) {
+    const state = { dark, progress: dark ? 1 : 0 }
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'theme-toggle'
+    button.setAttribute('role', 'switch')
+    button.setAttribute('aria-checked', 'false')
+    button.style.width = `${width}px`
+    button.style.height = `${height}px`
+    button.style.borderRadius = `${height / 2}px`
+    button.style.boxShadow = `${height * 0.1}px ${height * 0.1}px ${height * 0.25}px 0 rgba(0,0,0,.8) inset,`
+      + `${-height * 0.1}px ${-height * 0.1}px ${height * 0.25}px 0 rgba(0,0,0,.3) inset, 0 4px 12px rgba(0,0,0,.2)`
+    mount.appendChild(button)
+
+    // 云：两个漂移的 SVG
+    const clouds = [
+      { left: 0.15, top: -0.2, w: 2.45, opacity: 0.4 },
+      { left: 0.25, top: 0.2, w: 2.35, opacity: 1 }
+    ].map((cloud, index) => {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      svg.setAttribute('class', 'theme-cloud')
+      svg.setAttribute('viewBox', '0 0 1278.9 741.68')
+      svg.style.left = `${height * cloud.left}px`
+      svg.style.top = `${height * cloud.top}px`
+      svg.style.width = `${height * cloud.w}px`
+      svg.style.animationDuration = `${9 + index * 2.5}s`
+      svg.style.animationDelay = `${index * -2.8}s`
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', CLOUD)
+      svg.appendChild(path)
+      button.appendChild(svg)
+      return { svg, path, opacity: cloud.opacity }
+    })
+
+    // 星星
+    const stars = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    stars.setAttribute('class', 'theme-stars')
+    stars.setAttribute('viewBox', '0 0 687.15 423.24')
+    stars.style.left = `${height * 0.25}px`
+    stars.style.width = `${height * 1.2}px`
+    const starGroups = STARS.map((d, index) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+      g.setAttribute('class', 'theme-star')
+      g.style.animationDelay = `${(index % 5) * 0.7}s`
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', d)
+      path.setAttribute('fill', 'rgba(255,255,255,1)')
+      g.appendChild(path)
+      stars.appendChild(g)
+      return g
+    })
+    button.appendChild(stars)
+
+    // 四个光晕 + 太阳/月亮（半径沿用原组件公式）
+    const gap = Math.max(8, Math.round(height * 0.15))
+    const dR = height * 0.36
+    const xMax = width - height
+    const coreR = height / 2 - gap
+    const radii = [coreR + dR * 3, coreR + dR * 2, coreR + dR, coreR]
+    const orbs = radii.map((radius, index) => {
+      const orb = document.createElement('div')
+      orb.style.position = 'absolute'
+      orb.style.borderRadius = `${radius}px`
+      orb.style.width = `${radius * 2}px`
+      orb.style.height = `${radius * 2}px`
+      button.appendChild(orb)
+      return { orb, radius, main: index === 3 }
+    })
+    // 月亮上的三个陨石坑
+    const craters = [
+      { top: 0.4, left: 0.22, size: 0.24 },
+      { top: 0.23, left: 0.46, size: 0.15 },
+      { top: 0.55, left: 0.55, size: 0.15 }
+    ].map((crater) => {
+      const dot = document.createElement('div')
+      dot.style.position = 'absolute'
+      dot.style.width = `${height * crater.size}px`
+      dot.style.height = `${height * crater.size}px`
+      dot.style.borderRadius = `${height}px`
+      button.appendChild(dot)
+      return { dot, crater }
+    })
+
+    function paint() {
+      const t = motion(state.progress)
+      button.style.background = `rgba(${rgb(lerp(DAY[0], NIGHT[0], t), lerp(DAY[1], NIGHT[1], t), lerp(DAY[2], NIGHT[2], t))}, 1)`
+      for (const cloud of clouds) cloud.path.setAttribute('fill', `rgba(255,255,255,${cloud.opacity * (1 - t)})`)
+      stars.style.top = `${height * 0.115 + (1 - t) * -height * 0.85}px`
+      stars.style.opacity = String(lerp(0.1, 1, t))
+      for (const star of starGroups) star.style.opacity = ''
+      for (const { orb, radius, main } of orbs) {
+        // 原组件：top = height/2 - r，left = height/2 - r + xMax * t
+        orb.style.top = `${height / 2 - radius}px`
+        orb.style.left = `${height / 2 - radius + xMax * t}px`
+        if (main) {
+          orb.style.background = `rgba(${rgb(lerp(SUN[0], MOON[0], t), lerp(SUN[1], MOON[1], t), lerp(SUN[2], MOON[2], t))}, 1)`
+          orb.style.boxShadow = `${height * 0.05}px ${height * 0.05}px ${height * 0.1}px 0 rgba(0,0,0,.4),`
+            + `${height * 0.08}px ${height * 0.08}px ${height * 0.13}px 0 rgba(255,255,230,.6) inset,`
+            + `${-height * 0.08}px ${-height * 0.08}px ${height * 0.013}px 0 rgba(0,0,0,${0.2 + t * 0.2}) inset`
+        } else {
+          orb.style.background = `rgba(255,255,255,${0.2 - t * 0.1})`
+        }
+      }
+      for (const { dot, crater } of craters) {
+        dot.style.top = `${height * crater.top}px`
+        dot.style.left = `${height * crater.left + xMax * t}px`
+        dot.style.background = `rgba(150,163,182,${t})`
+        dot.style.border = `${height * 0.015}px solid rgba(120,120,120,${t * 0.5})`
+        dot.style.boxShadow = `${height * 0.015}px ${height * 0.015}px ${height * 0.065}px 0 rgba(0,0,0,${t * 0.4}) inset,`
+          + `${-height * 0.015}px ${-height * 0.015}px ${height * 0.065}px 0 rgba(255,255,255,${t * 0.5}) inset`
+      }
+      button.setAttribute('aria-checked', String(state.dark))
+    }
+
+    function animate() {
+      const target = state.dark ? 1 : 0
+      if (state.progress === target) return
+      state.progress += state.progress < target ? 0.02 : -0.02
+      if ((state.progress < target && target - state.progress < 0.02) || (state.progress > target && state.progress - target < 0.02)) {
+        state.progress = target
+      }
+      paint()
+      requestAnimationFrame(animate)
+    }
+
+    button.addEventListener('click', () => {
+      state.dark = !state.dark
+      document.documentElement.dataset.theme = state.dark ? 'dark' : 'light'
+      animate()
+    })
+    paint()
+    return button
+  }
+
+  const startDark = new URLSearchParams(location.search).has('dark')
+  if (startDark) document.documentElement.dataset.theme = 'dark'
+  createToggle(document.getElementById('big'), { width: 200, height: 80, dark: startDark })
+  createToggle(document.getElementById('small'), { width: 96, height: 38, dark: startDark })
+
+  // 三态分段：与飞窗一致
+  for (const button of document.querySelectorAll('[data-mode]')) {
+    button.addEventListener('click', () => {
+      for (const peer of document.querySelectorAll('[data-mode]')) {
+        peer.setAttribute('aria-checked', String(peer === button))
+      }
+      document.documentElement.dataset.theme = button.dataset.mode === 'system'
+        ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : button.dataset.mode
+    })
+  }
+
+  // 旧项目配套的「跟随系统」开关
+  const system = document.getElementById('system')
+  system.addEventListener('click', () => {
+    system.setAttribute('aria-checked', String(system.getAttribute('aria-checked') !== 'true'))
+  })
+</script>
+</body>
+</html>
