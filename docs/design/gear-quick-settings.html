@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BaoFlash · 齿轮快捷设置（对齐 Edge / Chrome 飞窗）</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #eef0f4; --chrome: #f0f1f4; --surface: #fff; --page: #f9fafd; --game: #1c2130;
+    --ink: #232630; --muted: #626879; --line: #dcdfe6; --hover: #eff1f6; --pressed: #e4e7ee;
+    --selected: #eeebfb; --accent: #5940ac; --flash: #bd4136; --ruffle: #7254d6;
+    --warn: #8f5610; --shadow: 0 8px 24px #24243b26, 0 1px 3px #24243b14;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14151a; --chrome: #22232a; --surface: #292b33; --page: #1d1f27; --game: #101319;
+    --ink: #f2f2f6; --muted: #b4b7c6; --line: #434552; --hover: #373945; --pressed: #2f313b;
+    --selected: #3b3059; --accent: #c8b7ff; --flash: #f0776c; --ruffle: #ad97fe;
+    --warn: #efbf78; --shadow: 0 10px 28px #000a, 0 1px 3px #0006;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif; }
+  main { width: min(820px, calc(100% - 28px)); margin: 24px auto 32px; }
+  h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: -.025em; }
+  .kicker { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 700; letter-spacing: .16em; color: var(--accent); margin-bottom: 5px; }
+  .kicker::before { content: ''; width: 9px; height: 9px; border-radius: 3px; background: linear-gradient(135deg, var(--flash), var(--ruffle)); }
+  .lead { margin: 0 0 12px; font-size: 13px; color: var(--muted); max-width: 72ch; }
+  .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+  .sim { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+  .sim strong { font-size: 11px; color: var(--muted); }
+  .action { padding: 4px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); font-size: 12px; color: inherit; cursor: pointer; }
+  .action[aria-pressed="true"] { background: var(--selected); border-color: transparent; color: var(--accent); font-weight: 600; }
+
+  /* ---------- 浏览器外框 ---------- */
+  .frame { position: relative; border: 1px solid var(--line); border-radius: 12px; background: var(--chrome); box-shadow: 0 10px 30px #24243b1f; }
+  .frame.narrow { width: 520px; }
+  .tabs { display: flex; align-items: end; gap: 6px; height: 40px; padding: 0 8px; }
+  .tab { display: flex; align-items: center; gap: 6px; width: 186px; height: 32px; padding: 0 10px; border-radius: 9px 9px 0 0; background: var(--surface); font-size: 12px; }
+  .tab .dot { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--muted); }
+  .win-controls { margin-left: auto; display: flex; gap: 14px; padding-right: 4px; color: var(--muted); font-size: 11px; }
+  .toolbar { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .icon-btn { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 6px; background: none; color: inherit; flex: none; }
+  .icon-btn:hover { background: var(--hover); }
+  .address { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--page); font-size: 12px; color: inherit; }
+  .pill { flex: none; display: grid; grid-template-columns: 66px 25px; height: 28px; border: 1px solid var(--line); border-radius: 999px; background: linear-gradient(var(--surface), var(--page)); }
+  .pill-main { display: flex; align-items: center; gap: 5px; padding-left: 8px; font-size: 12px; font-weight: 650; }
+  .pill-more { position: relative; display: grid; place-items: center; color: var(--muted); }
+  .pill-more::before { content: ''; position: absolute; left: 0; height: 12px; border-left: 1px solid var(--line); }
+  .flash-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--flash); }
+  /* 齿轮按钮：打开时高亮，飞窗从它的右下角长出来 */
+  .gear { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+  .gear:hover { background: var(--hover); }
+  .gear[aria-expanded="true"] { background: var(--pressed); color: var(--ink); }
+  .page { height: 300px; border-radius: 0 0 12px 12px; background: radial-gradient(ellipse at 26% 0%, #7254d622, transparent 62%), var(--game); position: relative; }
+  .page::after { content: '站点页面（Flash 游戏区域）'; position: absolute; inset: 0; display: grid; place-items: center; color: #ffffff70; font-size: 12px; }
+
+  /* ---------- 飞窗：位置由脚本按齿轮按钮计算（紧贴工具栏下沿、右边缘对齐齿轮） ---------- */
+  .quick {
+    position: absolute; z-index: 5; width: 320px; padding: 6px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+  }
+  .row {
+    display: grid; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 0 9px;
+    border: 0; border-radius: 7px; background: none; color: inherit; text-align: left; font-size: 12px; cursor: pointer;
+  }
+  .row.theme { grid-template-columns: 13px 1fr auto; }
+  .row.engine { grid-template-columns: 13px 1fr auto; }
+  .row.footer { grid-template-columns: 18px 1fr 14px; min-height: 38px; }
+  .row:hover:not(:disabled) { background: var(--hover); }
+  .row:disabled { opacity: .45; cursor: default; }
+  .row[aria-checked="true"] { background: var(--selected); }
+  .row .radio { width: 13px; height: 13px; border: 1.5px solid var(--muted); border-radius: 50%; display: grid; place-items: center; }
+  .row[aria-checked="true"] .radio { border-color: var(--accent); }
+  .row[aria-checked="true"] .radio::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .row .check { width: 13px; height: 13px; color: var(--accent); visibility: hidden; }
+  .row[aria-checked="true"] .check { visibility: visible; }
+  .swatch { width: 30px; height: 18px; border: 1px solid var(--line); border-radius: 4px; }
+  .swatch.system { background: linear-gradient(90deg, #f6f7fb 50%, #24262f 50%); }
+  .swatch.light { background: linear-gradient(180deg, #fff, #e9ebf1); }
+  .swatch.dark { background: linear-gradient(180deg, #2b2d36, #1b1d24); }
+  .sub { display: block; font-size: 11px; color: var(--muted); }
+  .group-label { padding: 6px 9px 2px; font-size: 11px; color: var(--muted); }
+  .divider { height: 1px; margin: 6px 4px; background: var(--line); }
+  .row.footer .lead-icon { display: grid; place-items: center; color: var(--muted); }
+  .row.footer .chev { display: grid; place-items: center; color: var(--muted); }
+  .row.footer:hover .chev, .row.footer:hover .lead-icon { color: var(--ink); }
+  .row .hint { font-size: 11px; color: var(--warn); }
+  .toast-note { margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px; }
+  .foot-note { margin-top: 14px; font-size: 12px; color: var(--muted); max-width: 78ch; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m12 5-7 7 7 7M5 12h14"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="m12 5 7 7-7 7M5 12h14"/></symbol>
+  <symbol id="i-reload" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.2 6.5M20 5v6h-6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chevd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 4.2v2M12 17.8v2M5.1 8.1l1.7 1M17.2 14.9l1.7 1M5.1 15.9l1.7-1M17.2 9.1l1.7-1"/></symbol>
+  <symbol id="i-flash" viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-12h-6z"/></symbol>
+  <symbol id="i-ruffle" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></symbol>
+</svg>
+
+<main>
+  <p class="kicker">BAOFLASH BROWSER · 齿轮飞窗</p>
+  <h1>快捷设置：贴合按钮、无关闭钮、同尺寸入口</h1>
+  <p class="lead">
+    按 Edge / Chrome 的飞窗惯例重画：从齿轮按钮右下角长出（紧贴工具栏下沿、右边缘与按钮对齐），
+    <strong>没有 X</strong>（点外部或 Esc 关闭），底部「全部设置」是一个<strong>和其它行同样高度、通栏可点</strong>的入口行。
+  </p>
+
+  <div class="sim" aria-label="演示状态">
+    <strong>演示</strong>
+    <button class="action" id="demo-light" aria-pressed="true">浅色</button>
+    <button class="action" id="demo-dark">深色</button>
+    <button class="action" id="demo-missing">插件缺失</button>
+    <button class="action" id="demo-narrow">窄窗口 520</button>
+  </div>
+
+  <section class="frame" id="frame" aria-label="浏览器演示">
+    <div class="tabs" aria-hidden="true">
+      <div class="tab"><span class="dot"></span>Flash 游戏档案</div>
+      <div class="win-controls"><span>—</span><span>▢</span><span>✕</span></div>
+    </div>
+    <div class="toolbar" id="toolbar" role="toolbar" aria-label="导航工具栏">
+      <button class="icon-btn" aria-label="后退" tabindex="-1"><svg class="icon"><use href="#i-back"/></svg></button>
+      <button class="icon-btn" aria-label="前进" tabindex="-1"><svg class="icon"><use href="#i-next"/></svg></button>
+      <button class="icon-btn" aria-label="重新加载" tabindex="-1"><svg class="icon"><use href="#i-reload"/></svg></button>
+      <input class="address" aria-label="地址栏" value="https://flash.example.com/games" readonly>
+      <div class="pill" aria-hidden="true"><span class="pill-main"><i class="flash-dot"></i>Flash</span><span class="pill-more"><svg class="icon" style="width:12px;height:12px"><use href="#i-chevd"/></svg></span></div>
+      <button class="gear" id="gear" aria-label="快捷设置" aria-expanded="false" aria-controls="quick">
+        <svg class="icon"><use href="#i-gear"/></svg>
+      </button>
+    </div>
+    <div class="page"></div>
+
+    <section class="quick" id="quick" aria-label="快捷设置" hidden>
+      <div class="group-label">主题</div>
+      <button class="row theme" role="radio" aria-checked="false" data-theme-choice="system">
+        <span class="radio" aria-hidden="true"></span><span>跟随系统</span>
+        <span class="swatch system" aria-hidden="true"></span>
+      </button>
+      <button class="row theme" role="radio" aria-checked="true" data-theme-choice="light">
+        <span class="radio" aria-hidden="true"></span><span>浅色</span>
+        <span class="swatch light" aria-hidden="true"></span>
+      </button>
+      <button class="row theme" role="radio" aria-checked="false" data-theme-choice="dark">
+        <span class="radio" aria-hidden="true"></span><span>深色</span>
+        <span class="swatch dark" aria-hidden="true"></span>
+      </button>
+
+      <div class="divider" role="presentation"></div>
+      <div class="group-label">默认引擎</div>
+      <button class="row engine" role="radio" aria-checked="true" data-engine-choice="ppapi" id="engine-ppapi">
+        <span class="radio" aria-hidden="true"></span>
+        <span>原生 Flash<span class="sub" id="ppapi-sub">新站点默认使用</span></span>
+        <svg class="icon check"><use href="#i-check"/></svg>
+      </button>
+      <button class="row engine" role="radio" aria-checked="false" data-engine-choice="ruffle">
+        <span class="radio" aria-hidden="true"></span>
+        <span>Ruffle<span class="sub">不依赖插件</span></span>
+        <svg class="icon check"><use href="#i-check"/></svg>
+      </button>
+
+      <div class="divider" role="presentation"></div>
+      <button class="row footer" id="open-settings">
+        <span class="lead-icon"><svg class="icon" style="width:15px;height:15px"><use href="#i-gear"/></svg></span>
+        <span>全部设置</span>
+        <span class="chev"><svg class="icon" style="width:14px;height:14px"><use href="#i-chev"/></svg></span>
+      </button>
+    </section>
+  </section>
+
+  <p class="toast-note" id="note" role="status"></p>
+
+  <p class="foot-note">
+    定位方式（实现时照此计算）：飞窗 `right` = 窗口宽度 − 齿轮按钮右边缘，`top` = 工具栏下沿，
+    横向夹到窗口内边距 8 px；宽度固定 320 px。窄窗口（520 px）下依然右对齐齿轮、左侧留白，不会顶到地址栏。
+  </p>
+</main>
+
+<script>
+  const root = document.documentElement
+  const $ = (id) => document.getElementById(id)
+  const frame = $('frame')
+  const gear = $('gear')
+  const quick = $('quick')
+  const note = $('note')
+  const state = { theme: 'light', engine: 'ppapi', missing: false, open: true }
+
+  const resolved = (mode) => mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode
+
+  function place() {
+    if (quick.hidden) return
+    const gearBox = gear.getBoundingClientRect()
+    const toolbar = $('toolbar').getBoundingClientRect()
+    const frameBox = frame.getBoundingClientRect()
+    const width = 320
+    const inset = 8
+    // 右边缘与齿轮对齐；左侧夹到 8px，避免窄窗口下越界。
+    const right = Math.max(inset, frameBox.right - gearBox.right)
+    const left = Math.min(frameBox.right - gearBox.right - width, width)
+    quick.style.right = `${Math.min(right, Math.max(inset, frameBox.width - width - inset))}px`
+    quick.style.top = `${toolbar.bottom - frameBox.top}px`
+  }
+
+  function render() {
+    root.dataset.theme = resolved(state.theme)
+    for (const button of document.querySelectorAll('[data-theme-choice]')) {
+      button.setAttribute('aria-checked', String(button.dataset.themeChoice === state.theme))
+    }
+    for (const button of document.querySelectorAll('[data-engine-choice]')) {
+      button.setAttribute('aria-checked', String(button.dataset.engineChoice === state.engine))
+      button.disabled = state.missing && button.dataset.engineChoice === 'ppapi'
+    }
+    $('ppapi-sub').textContent = state.missing ? '未检测到插件，会自动回落 Ruffle' : '新站点默认使用'
+    $('ppapi-sub').classList.toggle('hint', state.missing)
+    gear.setAttribute('aria-expanded', String(state.open))
+    quick.hidden = !state.open
+    place()
+    // 演示按钮
+    $('demo-light').setAttribute('aria-pressed', String(state.theme === 'light'))
+    $('demo-dark').setAttribute('aria-pressed', String(state.theme === 'dark'))
+    $('demo-missing').setAttribute('aria-pressed', String(state.missing))
+    $('demo-narrow').setAttribute('aria-pressed', String(frame.classList.contains('narrow')))
+  }
+
+  gear.addEventListener('click', () => { state.open = !state.open; note.textContent = ''; render() })
+  for (const button of document.querySelectorAll('[data-theme-choice]')) {
+    button.addEventListener('click', () => { state.theme = button.dataset.themeChoice; render() })
+  }
+  for (const button of document.querySelectorAll('[data-engine-choice]')) {
+    button.addEventListener('click', () => {
+      if (button.disabled) return
+      state.engine = button.dataset.engineChoice
+      render()
+    })
+  }
+  $('open-settings').addEventListener('click', () => {
+    state.open = false
+    render()
+    note.textContent = '→ 关闭飞窗，切到「设置」标签页（同一个 store，两边同步）。'
+  })
+  document.addEventListener('pointerdown', (event) => {
+    if (!state.open) return
+    if (quick.contains(event.target) || gear.contains(event.target)) return
+    state.open = false
+    render()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.open) { state.open = false; render(); gear.focus() }
+  })
+  $('demo-light').onclick = () => { state.theme = 'light'; render() }
+  $('demo-dark').onclick = () => { state.theme = 'dark'; render() }
+  $('demo-missing').onclick = () => { state.missing = !state.missing; render() }
+  $('demo-narrow').onclick = () => { frame.classList.toggle('narrow'); render() }
+  addEventListener('resize', place)
+  render()
+</script>
+</body>
+</html>
