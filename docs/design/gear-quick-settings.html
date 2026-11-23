@@ -60,6 +60,19 @@
   .quick {
     position: absolute; z-index: 5; width: 320px; padding: 6px;
     background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+    transition: box-shadow var(--motion, 0ms) ease;
+  }
+  /* 嵌入态：与工具栏同一块面——无投影、无顶部边框、顶部不圆角，等于工具栏向下延伸 */
+  .quick.flat {
+    border-top-color: transparent;
+    border-radius: 0 0 10px 10px;
+    box-shadow: none;
+  }
+  .quick.flat::before {
+    /* 只在左右和底部留一条发丝线，顶部与工具栏完全连续 */
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    box-shadow: inset 0 -1px 0 var(--line), inset 1px 0 0 var(--line), inset -1px 0 0 var(--line);
+    border-radius: 0 0 10px 10px;
   }
   .row {
     display: grid; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 0 9px;
@@ -108,9 +121,9 @@
   <p class="kicker">BAOFLASH BROWSER · 齿轮飞窗</p>
   <h1>快捷设置：贴合按钮、无关闭钮、同尺寸入口</h1>
   <p class="lead">
-    按 Edge / Chrome 的飞窗惯例重画：从齿轮按钮右下角长出（<strong>顶边压在按钮下沿，0 缝</strong>，
-    右边缘与按钮对齐），<strong>没有 X</strong>（点外部或 Esc 关闭），底部「全部设置」是一个
-    <strong>和其它行同样高度、通栏可点</strong>的入口行。
+    定位与「嵌入式」处理：顶边压在齿轮按钮下沿（0 缝）、右边缘与按钮对齐；默认用<strong>嵌入态</strong>
+    ——与工具栏同一块面、无投影、顶部无边框无圆角，等于工具栏向下延伸；点「嵌入/浮层」可切到
+    带投影的浮层态做对比。没有 X（点外部或 Esc 关闭），底部「全部设置」与其它行同高、通栏可点。
   </p>
 
   <div class="sim" aria-label="演示状态">
@@ -119,6 +132,7 @@
     <button class="action" id="demo-dark">深色</button>
     <button class="action" id="demo-missing">插件缺失</button>
     <button class="action" id="demo-narrow">窄窗口 520</button>
+    <button class="action" id="demo-flat" aria-pressed="true">嵌入（无投影）</button>
   </div>
 
   <section class="frame" id="frame" aria-label="浏览器演示">
@@ -191,7 +205,7 @@
   const gear = $('gear')
   const quick = $('quick')
   const note = $('note')
-  const state = { theme: 'light', engine: 'ppapi', missing: false, open: true }
+  const state = { theme: 'light', engine: 'ppapi', missing: false, open: true, flat: true }
 
   const resolved = (mode) => mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode
 
@@ -220,12 +234,14 @@
     $('ppapi-sub').classList.toggle('hint', state.missing)
     gear.setAttribute('aria-expanded', String(state.open))
     quick.hidden = !state.open
+    quick.classList.toggle('flat', state.flat)
     place()
     // 演示按钮
     $('demo-light').setAttribute('aria-pressed', String(state.theme === 'light'))
     $('demo-dark').setAttribute('aria-pressed', String(state.theme === 'dark'))
     $('demo-missing').setAttribute('aria-pressed', String(state.missing))
     $('demo-narrow').setAttribute('aria-pressed', String(frame.classList.contains('narrow')))
+    $('demo-flat').setAttribute('aria-pressed', String(state.flat))
   }
 
   gear.addEventListener('click', () => { state.open = !state.open; note.textContent = ''; render() })
@@ -257,6 +273,7 @@
   $('demo-dark').onclick = () => { state.theme = 'dark'; render() }
   $('demo-missing').onclick = () => { state.missing = !state.missing; render() }
   $('demo-narrow').onclick = () => { frame.classList.toggle('narrow'); render() }
+  $('demo-flat').onclick = () => { state.flat = !state.flat; render() }
   addEventListener('resize', place)
   render()
 </script>
