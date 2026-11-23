@@ -7,7 +7,7 @@
 | 阶段 | 文件名 |
 | --- | --- |
 | M0 · 可复现的运行时 | `m0-reproducible-runtime.md` |
-| M1 · 浏览器薄切片 | `m1-browser-slice.md` |
+| M1 · 浏览器薄切片 | [`m1-browser-slice.md`](m1-browser-slice.md)（2026-11-23 验收） |
 | M2 · 测试版 | `m2-beta.md` |
 | M3 · 专项能力 | `m3-specialized-capabilities.md` |
 
