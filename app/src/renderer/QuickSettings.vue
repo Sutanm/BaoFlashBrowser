@@ -3,9 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { browserEngines, engineLabels } from '../shared/engine'
 import type { BrowserEngine } from '../shared/engine'
-import { themeModeLabels } from '../shared/settings'
 import type { ThemeMode } from '../shared/settings'
 import ShellIcon from './ShellIcon.vue'
+import ThemeSwitch from './ThemeSwitch.vue'
 import { applyShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
 
@@ -36,8 +36,6 @@ const settings = computed(() => snapshot.value?.settings)
 const theme = computed<ThemeMode>(() => settings.value?.themeMode ?? 'system')
 const engine = computed<BrowserEngine>(() => settings.value?.defaultEngine ?? 'ppapi')
 const flashReady = computed(() => snapshot.value?.flash !== false)
-
-const themes: ThemeMode[] = ['system', 'light', 'dark']
 
 let detach: (() => void) | undefined
 let observer: ResizeObserver | undefined
@@ -126,21 +124,8 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
   <div class="quick-frame" @keydown="onKeydown">
     <section ref="panel" class="quick" :data-kind="props.kind" aria-label="快捷设置">
       <p class="group-label">主题</p>
-      <div role="radiogroup" aria-label="主题">
-        <button
-          v-for="mode in themes"
-          :key="mode"
-          type="button"
-          class="row theme"
-          role="radio"
-          :aria-checked="theme === mode"
-          :disabled="busy"
-          @click="chooseTheme(mode)"
-        >
-          <span class="radio" aria-hidden="true"></span>
-          <span>{{ themeModeLabels[mode] }}</span>
-          <span class="swatch" :class="mode" aria-hidden="true"></span>
-        </button>
+      <div class="quick-theme">
+        <ThemeSwitch :mode="theme" :busy="busy" compact @select="chooseTheme" />
       </div>
 
       <div class="divider" role="presentation"></div>
@@ -207,7 +192,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
   display: grid; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 0 9px;
   border-radius: 7px; text-align: left; font-size: 12px;
 }
-.row.theme, .row.engine { grid-template-columns: 13px 1fr auto; }
+.row.engine { grid-template-columns: 13px 1fr auto; }
 .row.footer { grid-template-columns: 18px 1fr 14px; min-height: 38px; }
 .row:hover:not(:disabled) { background: var(--surface-hover); }
 .row:disabled { opacity: .45; }
@@ -218,10 +203,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .row[aria-checked='true'] .radio { border-color: var(--engine-accent); }
 .row[aria-checked='true'] .radio::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--engine-accent); }
 
-.swatch { width: 30px; height: 18px; border: 1px solid var(--stroke-divider); border-radius: 4px; }
-.swatch.system { background: linear-gradient(90deg, #f6f7fb 50%, #24262f 50%); }
-.swatch.light { background: linear-gradient(180deg, #fff, #e9ebf1); }
-.swatch.dark { background: linear-gradient(180deg, #2b2d36, #1b1d24); }
+.quick-theme { padding: 5px 9px 8px; }
 
 .row .check { width: 13px; height: 13px; color: var(--engine-accent); visibility: hidden; }
 .row[aria-checked='true'] .check { visibility: visible; }
@@ -236,6 +218,5 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 @media (forced-colors: active) {
   .row[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
-  .swatch { forced-color-adjust: none; }
 }
 </style>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { themeModeLabels } from '../shared/settings'
 import type { SettingsSnapshot, ThemeMode } from '../shared/settings'
 import type { BrowserEngine } from '../shared/engine'
+import ThemeSwitch from './ThemeSwitch.vue'
 import { applyShellTheme } from './theme'
 
 /**
@@ -67,11 +67,6 @@ function chooseEngine(next: BrowserEngine): void {
 
 const flashReady = computed(() => snapshot.value?.flash !== false)
 
-const themes: Array<{ mode: ThemeMode }> = [
-  { mode: 'system' },
-  { mode: 'light' },
-  { mode: 'dark' }
-]
 </script>
 
 <template>
@@ -94,24 +89,8 @@ const themes: Array<{ mode: ThemeMode }> = [
     <main class="settings-content">
       <section aria-labelledby="theme-title">
         <h2 id="theme-title">主题</h2>
-        <div class="theme-cards" role="radiogroup" aria-label="主题">
-          <button
-            v-for="item in themes"
-            :key="item.mode"
-            type="button"
-            class="theme-card"
-            role="radio"
-            :aria-checked="theme === item.mode"
-            :aria-label="themeModeLabels[item.mode]"
-            :disabled="busy"
-            @click="chooseTheme(item.mode)"
-          >
-            <span class="preview" :class="item.mode" aria-hidden="true">
-              <span class="bar"><i></i><i></i><i></i></span>
-              <span class="body"><i></i><i></i><i></i></span>
-            </span>
-            <span class="caption">{{ themeModeLabels[item.mode] }}</span>
-          </button>
+        <div class="settings-theme">
+          <ThemeSwitch :mode="theme" :busy="busy" @select="chooseTheme" />
         </div>
       </section>
 
@@ -253,54 +232,7 @@ button:disabled { cursor: default; opacity: 0.6; }
   font-size: 11px;
 }
 
-.theme-cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  max-width: 470px;
-}
-.theme-card {
-  padding: 6px 6px 8px;
-  border: 1px solid var(--stroke-control);
-  border-radius: 9px;
-  background: var(--surface-toolbar);
-  text-align: center;
-}
-.theme-card[aria-checked='true'] {
-  border-color: var(--brand-stroke);
-  box-shadow: inset 0 0 0 1px var(--brand-stroke);
-}
-.theme-card .caption { display: block; margin-top: 6px; font-size: 11px; }
-.theme-card[aria-checked='true'] .caption { color: var(--brand-stroke); font-weight: 600; }
-
-.preview {
-  display: flex;
-  flex-direction: column;
-  height: 58px;
-  border: 1px solid var(--stroke-divider);
-  border-radius: 5px;
-  overflow: hidden;
-  background: #fff;
-}
-.preview .bar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 10px;
-  padding: 0 3px;
-  background: #dfe3ea;
-}
-.preview .bar i { width: 3px; height: 3px; border-radius: 50%; background: #8b8f9c66; }
-.preview .body { flex: 1; padding: 4px; display: grid; gap: 3px; align-content: start; }
-.preview .body i { height: 3px; border-radius: 2px; background: #626879; opacity: 0.28; }
-.preview .body i:nth-child(2) { width: 62%; }
-.preview .body i:nth-child(3) { width: 44%; }
-.preview.light { background: #fff; }
-.preview.dark { background: #23252d; }
-.preview.dark .bar { background: #3a3d48; }
-.preview.dark .body i { background: #f2f2f6; opacity: 0.25; }
-.preview.system { background: linear-gradient(90deg, #fff 50%, #23252d 50%); }
-.preview.system .bar { background: linear-gradient(90deg, #dfe3ea 50%, #3a3d48 50%); }
+.settings-theme { padding: 12px 0 3px; }
 
 .choices { display: grid; gap: 4px; max-width: 470px; }
 .choice {
@@ -360,8 +292,6 @@ button:disabled { cursor: default; opacity: 0.6; }
 .error { margin-top: 14px; font-size: 12px; color: var(--text-error, #a82929); }
 
 @media (forced-colors: active) {
-  .choice[aria-checked='true'],
-  .theme-card[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
-  .preview { forced-color-adjust: none; }
+  .choice[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
 }
 </style>

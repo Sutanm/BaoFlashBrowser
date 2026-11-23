@@ -92,7 +92,7 @@ test('设置页：Ctrl+, 打开/复用标签，只有设置桥，写入后外壳
     await waitFor(async () => (await inSettings(app, `document.documentElement.dataset.theme`)) === 'dark'
       ? true : null, { message: '设置页自身没有重绘' })
 
-    const checked = await inSettings(app, `document.querySelector('.theme-card[aria-checked="true"] .caption')?.textContent?.trim()`)
+    const checked = await inSettings(app, `document.querySelector('.theme-stop[aria-checked="true"]')?.getAttribute('aria-label')`)
     assert.equal(checked, '深色', '设置页的选中态没有跟随写入结果')
 
     assert.equal((await snapshot(shell)).settings.themeMode, 'dark')

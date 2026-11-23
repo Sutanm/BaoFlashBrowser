@@ -88,9 +88,31 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     assert.equal(radius, '12px')
 
     // ② 面板里改主题：外壳与系统按钮一起变。
-    const initial = await inQuick(app, `document.querySelector('.row.theme[aria-checked="true"]')?.textContent?.trim()`)
-    assert.match(initial, /跟随系统/)
-    await inQuick(app, `[...document.querySelectorAll('.row.theme')][2].click()`)
+    const stops = await inQuick(app, `Array.from(document.querySelectorAll('.theme-stop'), (stop) => [
+      stop.getAttribute('aria-label'), stop.getAttribute('aria-checked')
+    ])`)
+    assert.deepEqual(stops, [['浅色', 'false'], ['跟随系统', 'true'], ['深色', 'false']])
+    const clock = await inQuick(app, `(() => {
+      const rotor = document.querySelector('.theme-rotor')
+      const orbit = rotor.getAnimations()[0]
+      const RealDate = Date
+      try {
+        const phases = [0, 12, 18].map((hour) => {
+          window.Date = class extends RealDate {
+            constructor() { super(2026, 0, 1, hour) }
+          }
+          window.dispatchEvent(new Event('focus'))
+          return orbit.currentTime
+        })
+        return { phases, duration: orbit.effect.getTiming().duration }
+      } finally {
+        window.Date = RealDate
+        window.dispatchEvent(new Event('focus'))
+      }
+    })()`)
+    const hour = 60 * 60 * 1000
+    assert.deepEqual(clock, { phases: [0, 12 * hour, 18 * hour], duration: 24 * hour })
+    await inQuick(app, `document.querySelector('.theme-stop[aria-label="深色"]').click()`)
     await waitFor(async () => (await shellFacts(app, shell)).theme === 'dark' ? true : null,
       { message: '飞窗改主题后外壳没有变暗' })
     const facts = await shellFacts(app, shell)
@@ -110,14 +132,14 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
       return target.executeJavaScript(payload.code)
     }, { id: settingsId, code })
     const pageChecked = await waitFor(async () => {
-      const value = await settingsEval(`document.querySelector('.theme-card[aria-checked="true"] .caption')?.textContent?.trim()`)
+      const value = await settingsEval(`document.querySelector('.theme-stop[aria-checked="true"]')?.getAttribute('aria-label')`)
       return value === '深色' ? value : null
     }, { message: '设置页没有同步到飞窗写入的主题' })
     assert.equal(pageChecked, '深色')
 
     await settingsEval(`window.baoSettings.write('theme.mode', 'light')`)
     const quickChecked = await waitFor(async () => {
-      const value = await inQuick(app, `document.querySelector('.row.theme[aria-checked="true"]')?.textContent?.trim()`)
+      const value = await inQuick(app, `document.querySelector('.theme-stop[aria-checked="true"]')?.getAttribute('aria-label')`)
       return value?.includes('浅色') ? value : null
     }, { message: '设置页改主题后飞窗没有同步' })
     assert.match(quickChecked, /浅色/)

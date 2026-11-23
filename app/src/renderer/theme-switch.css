@@ -1,0 +1,297 @@
+.bao-theme-switch {
+  --size: 80px;
+  --ratio: 2.5;
+  --label-space: 22px;
+  /* 场景（外壳）与表盘（旋钮内部）分开：场景只随档位变，不跟真实时间漂移 */
+  --scene-night: 0;
+  --scene-twilight: 0;
+  --night: var(--scene-night);
+  --twilight: var(--scene-twilight);
+  --day-sky: #4184c4;
+  --night-sky: #171d33;
+  --orb-x: calc(var(--size) * .5);
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, calc(var(--size) * var(--ratio)));
+  height: calc(var(--size) + var(--label-space));
+  isolation: isolate;
+}
+
+.bao-theme-switch--compact { --size: 48px; --ratio: 2.875; }
+/* 跟随系统：场景固定在黄昏（不随真实时间变），只有旋钮里的表盘在走 */
+.bao-theme-switch[data-mode='system'] {
+  --scene-night: .34;
+  --scene-twilight: .58;
+  --orb-x: 50%;
+}
+.bao-theme-switch[data-mode='dark'] {
+  --scene-night: 1;
+  --orb-x: calc(100% - var(--size) * .5);
+}
+
+.bao-theme-switch .theme-stop {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: var(--size) var(--label-space);
+  place-items: end center;
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bao-theme-switch .theme-stop-label { grid-row: 2; }
+/* 焦点环只包住「胶囊那一行」，不要连下面的文字一起框进去 */
+.bao-theme-switch .theme-stop::after {
+  content: '';
+  position: absolute;
+  inset: 2px 2px auto;
+  height: calc(var(--size) - 4px);
+  border-radius: 999px;
+  pointer-events: none;
+}
+.bao-theme-switch .theme-stop[aria-checked='true'] {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.bao-theme-switch .theme-stop:focus-visible { outline: none; }
+.bao-theme-switch .theme-stop:focus-visible::after {
+  outline: 2px solid var(--brand-stroke);
+  outline-offset: 0;
+}
+.bao-theme-switch .theme-stop[aria-disabled='true'] { cursor: default; }
+
+.bao-theme-switch .theme-scene {
+  --sky: color-mix(in srgb, var(--day-sky), var(--night-sky) calc(var(--night) * 100%));
+  position: absolute;
+  inset: 0 0 var(--label-space);
+  overflow: hidden;
+  border-radius: var(--size);
+  background-color: color-mix(in srgb, var(--sky), #887799 calc(var(--twilight) * 70%));
+  box-shadow: 0 .12em .28em #10172a38, 0 1px 1px #fff4;
+  font-size: var(--size);
+  pointer-events: none;
+  transition: background-color .55s ease;
+}
+.bao-theme-switch .theme-scene::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset .085em .085em .22em #050916ad, inset -.045em -.06em .18em #070d2659;
+}
+
+.bao-theme-switch .theme-cloud {
+  position: absolute;
+  width: calc((var(--ratio) - .08) * 1em);
+  left: .17em;
+  top: -.22em;
+  color: #e7f3ff;
+  fill: currentColor;
+  opacity: calc(.49 * (1 - var(--night)));
+  transition: opacity .48s ease, color .48s ease;
+  animation: bao-cloud-drift 9s ease-in-out infinite;
+}
+.bao-theme-switch .theme-cloud--front {
+  left: .25em;
+  top: .22em;
+  color: color-mix(in srgb, #fff, #ffd8af calc(var(--twilight) * 75%));
+  opacity: calc(1 - var(--night));
+  animation-duration: 11.5s;
+  animation-delay: -2.8s;
+}
+.bao-theme-switch .theme-stars {
+  position: absolute;
+  width: 1.22em;
+  left: .25em;
+  top: calc(-.54em + .66em * var(--night));
+  fill: #fff;
+  opacity: var(--night);
+  transition: top .55s ease, opacity .48s ease;
+}
+.bao-theme-switch .theme-stars path { animation: bao-star-twinkle 3s ease-in-out infinite; }
+.bao-theme-switch .theme-stars path:nth-child(3n + 1) { animation-delay: -.7s; }
+.bao-theme-switch .theme-stars path:nth-child(3n + 2) { animation-delay: -2.1s; }
+
+.bao-theme-switch .theme-halos,
+.bao-theme-switch .theme-orb {
+  position: absolute;
+  left: var(--orb-x);
+  top: 50%;
+  translate: -50% -50%;
+  width: .72em;
+  height: .72em;
+  border-radius: 50%;
+  transition: left .55s cubic-bezier(.22,.75,.23,1);
+}
+.bao-theme-switch .theme-halos {
+  color: rgb(255 255 255 / calc(.20 - var(--night) * .10));
+  box-shadow: 0 0 0 .36em currentColor;
+}
+.bao-theme-switch .theme-halos::before,
+.bao-theme-switch .theme-halos::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 .72em currentColor;
+}
+.bao-theme-switch .theme-halos::after { box-shadow: 0 0 0 1.08em currentColor; }
+
+.bao-theme-switch .theme-orb {
+  z-index: 1;
+  isolation: isolate;
+}
+.bao-theme-switch .theme-orb::before,
+.bao-theme-switch .theme-craters { position: absolute; inset: 0; border-radius: inherit; }
+.bao-theme-switch .theme-orb::before {
+  content: '';
+  background-color: color-mix(in srgb, #ffc11e, #c2c9d3 calc(var(--night) * 100%));
+  box-shadow: .04em .055em .12em #050a1773, inset .067em .075em .125em #ffffe9a6,
+              inset -.055em -.07em .025em #29304347;
+  transition: background-color .48s ease, opacity .36s ease;
+}
+.bao-theme-switch[data-mode='system'] .theme-orb {
+  filter: drop-shadow(0 .04em .065em #050a1766);
+}
+.bao-theme-switch[data-mode='system'] .theme-orb::before,
+.bao-theme-switch[data-mode='system'] .theme-craters { opacity: 0; }
+.bao-theme-switch .theme-craters {
+  opacity: var(--night);
+  transition: opacity .4s ease;
+}
+.bao-theme-switch .theme-craters span {
+  position: absolute;
+  width: 21%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #97a3b6;
+  box-shadow: inset .019em .025em .05em #313b5055, inset -.01em -.014em .025em #f6fcff55;
+}
+.bao-theme-switch .theme-craters span:nth-child(1) { left: 13%; top: 35%; width: 33%; }
+.bao-theme-switch .theme-craters span:nth-child(2) { left: 48%; top: 12%; }
+.bao-theme-switch .theme-craters span:nth-child(3) { left: 62%; top: 57%; }
+
+.bao-theme-switch .theme-clock {
+  --sky-top: color-mix(in srgb, #4385be, #141d37 calc(var(--clock-night) * 100%));
+  --sky-horizon: color-mix(in srgb, #9ac7db, #394866 calc(var(--clock-night) * 100%));
+  --clock-play-state: paused;
+  position: absolute;
+  inset: 0;
+  mask-image: radial-gradient(circle closest-side, #000 calc(100% - 1.6px), transparent 100%);
+  opacity: 0;
+  background: linear-gradient(var(--sky-top), color-mix(in srgb, var(--sky-horizon), #efa18b calc(var(--clock-twilight) * 74%)) 50%);
+  transition: opacity .36s ease;
+}
+.bao-theme-switch[data-mode='system'] .theme-clock {
+  --clock-play-state: running;
+  opacity: 1;
+}
+.bao-theme-switch .theme-clock::before {
+  content: '';
+  position: absolute;
+  inset: 12% -10% 54%;
+  background:
+    radial-gradient(ellipse 16% 20% at 26% 58%, #e8f7fdd1, transparent),
+    radial-gradient(ellipse 21% 17% at 70% 77%, #d6edffb0, transparent);
+  opacity: calc((1 - var(--clock-night)) * .82);
+  animation: bao-dial-clouds 14s ease-in-out infinite alternate;
+  animation-play-state: var(--clock-play-state);
+}
+.bao-theme-switch .theme-clock-stars {
+  --star: rgb(233 242 255 / calc(var(--clock-night) * .9));
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 21% 37%, var(--star) 0 .006em, transparent .015em),
+    radial-gradient(circle at 32% 19%, var(--star) 0 .004em, transparent .012em),
+    radial-gradient(circle at 67% 16%, var(--star) 0 .006em, transparent .014em),
+    radial-gradient(circle at 77% 35%, var(--star) 0 .007em, transparent .016em);
+  animation: bao-star-twinkle 4.8s ease-in-out infinite;
+  animation-play-state: var(--clock-play-state);
+}
+.bao-theme-switch .theme-rotor {
+  position: absolute;
+  inset: 8%;
+}
+.bao-theme-switch .theme-clock-sun,
+.bao-theme-switch .theme-clock-moon {
+  position: absolute;
+  left: 36%;
+  width: 28%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+.bao-theme-switch .theme-clock-sun {
+  top: 10%;
+  background: radial-gradient(circle at 35% 32%, #ffec9c, #ffc11e 65%, #de8b25);
+  box-shadow: 0 0 .095em #ffee988c, 0 0 0 .016em #fff2a54d;
+}
+.bao-theme-switch .theme-clock-moon {
+  bottom: 10%;
+  background: radial-gradient(circle at 34% 42%, #8899b2 0 16%, transparent 22%),
+              radial-gradient(circle at 64% 66%, #98a6bd 0 11%, transparent 16%),
+              linear-gradient(145deg, #e0ecff, #a0acc8);
+  box-shadow: 0 0 .055em #c8def675;
+}
+.bao-theme-switch .theme-clock-shore {
+  --sea: color-mix(in srgb, #337e97, #1b314e calc(var(--clock-night) * 100%));
+  --surf: color-mix(in srgb, #80b8be, #3a5570 calc(var(--clock-night) * 100%));
+  position: absolute;
+  inset: 50% 0 0;
+  overflow: hidden;
+  background: linear-gradient(color-mix(in srgb, var(--surf), #d69a8a calc(var(--clock-twilight) * 48%)), var(--sea) 30%, #142a3b);
+}
+.bao-theme-switch .theme-clock-shore::before,
+.bao-theme-switch .theme-clock-shore::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.bao-theme-switch .theme-clock-shore::before {
+  background:
+    radial-gradient(ellipse 22% 4% at 61% 24%, #d0e3e8bb, transparent),
+    radial-gradient(ellipse 18% 4% at 73% 44%, #afd1de86, transparent),
+    radial-gradient(ellipse 15% 4% at 62% 61%, #b2d9da69, transparent);
+  animation: bao-dial-ripples 6.5s ease-in-out infinite alternate;
+  animation-play-state: var(--clock-play-state);
+}
+.bao-theme-switch .theme-clock-shore::after {
+  clip-path: polygon(0 10%, 13% 20%, 25% 39%, 37% 46%, 48% 63%, 62% 75%, 71% 95%, 100% 100%, 0 100%);
+  clip-path: shape(from 0 7%,
+    curve to 29% 41% with 11% 10% / 18% 31%,
+    curve to 55% 65% with 42% 54% / 46% 50%,
+    curve to 83% 100% with 66% 76% / 75% 94%,
+    line to 0 100%, close);
+  background: linear-gradient(color-mix(in srgb, #315959, #26374b calc(var(--clock-night) * 100%)), #14262d);
+}
+@keyframes bao-cloud-drift { 50% { transform: translateY(-.055em); } }
+@keyframes bao-star-twinkle { 50% { opacity: .30; } }
+@keyframes bao-dial-clouds {
+  from { transform: translateX(-.055em); }
+  to { transform: translateX(.085em); }
+}
+@keyframes bao-dial-ripples {
+  from { transform: translate(-.025em, -.008em); opacity: .58; }
+  to { transform: translate(.036em, .012em); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bao-theme-switch *,
+  .bao-theme-switch *::before,
+  .bao-theme-switch *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .bao-theme-switch .theme-scene { forced-color-adjust: none; }
+  .bao-theme-switch .theme-stop[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -2px; }
+}
