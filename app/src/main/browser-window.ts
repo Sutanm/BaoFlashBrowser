@@ -1,5 +1,5 @@
-import { BrowserWindow, ipcMain, nativeTheme, screen, WebContentsView } from 'electron'
-import type { Input, IpcMainInvokeEvent, NavigationEntry, Rectangle } from 'electron'
+import { BrowserWindow, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
+import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle } from 'electron'
 import { join } from 'node:path'
 import { browserChannels, browserFailureText, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserState, BrowserTab } from '../shared/browser'
@@ -33,6 +33,8 @@ interface Tab {
   /** 当前引擎与其来源（架构 §3 引擎）。 */
   engine: BrowserEngine
   engineSource: EngineSource
+  /** 固定标签：排在最左、只显示站点图标、不显示关闭按钮（架构 §3「标签操作」）。 */
+  pinned: boolean
   host?: TabHost
 }
 
@@ -221,7 +223,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       notice: tab.notice,
       engine: tab.engine,
       engineSource: tab.engineSource,
-      pinnedEngine: pin.source === 'site-rule' ? pin.engine : undefined
+      pinnedEngine: pin.source === 'site-rule' ? pin.engine : undefined,
+      pinned: tab.pinned,
+      muted: destroyed ? false : safe(() => contents.isAudioMuted(), false)
     }
   }
 
@@ -304,13 +308,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     /**
      * 受控弹窗（架构 §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」）。
      *
-     * 只允许**同站点**的 http(s) 弹窗，并以「新标签」承载（引擎与来源继承 opener）；
-     * 跨站、非 http(s)（`file:`/`about:blank`/自定义协议）一律拒绝。
+     * 只允许**同站点**的 http(s) 弹窗，其余（跨站、`file:`/`about:blank`/自定义协议）拒绝。
      *
-     * 已知限制：以标签承载会丢失 `window.opener` 与带 features 的独立弹窗窗口。真实站点
-     * 若依赖 `opener.postMessage`/`opener.location` 做 lobby→game 交接，需要改成
-     * `overrideBrowserWindowOptions` 的真实弹窗窗口（142 报告的探针就是这个形态）。
-     * 该限制在真实站点上未验证（本增量不做真站回归）。
+     * 用真实子窗口承载而不是新标签：`window.open` 的返回值与 `window.opener` 是 Flash
+     * lobby→game 交接的常见通道（`opener.postMessage` / `opener.location`），以标签承载会
+     * 直接丢掉它们。`overrideBrowserWindowOptions` 让子窗口继承 opener 的会话与引擎偏好：
+     * PPAPI 需要 `plugins: true`，Ruffle 需要页面 preload 与子帧注入。
+     *
+     * 已知限制：子窗口没有工具栏与标签栏（真实弹窗通常也不需要），不参与本窗口的标签
+     * 列表与撤销关闭；关掉 opener 后子窗口独立存活（与应用「最后一个窗口关闭才退出」一致）。
      */
     contents.setWindowOpenHandler(({ url }) => {
       if (!live() || !isWebAddress(url)) return { action: 'deny' }
@@ -319,13 +325,38 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         console.warn(`[popup] 拒绝跨站弹窗：${url}`)
         return { action: 'deny' }
       }
-      const opened = addTab('新标签页', null, tab.engine, tab.engineSource)
-      load(opened, url)
-      select(opened, true)
-      return { action: 'deny' }
+      const ruffle = tab.engine === 'ruffle' || !plugins
+      console.info(`[popup] 允许同站弹窗：${url}（引擎 ${tab.engine}）`)
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 1024,
+          height: 768,
+          backgroundColor: '#ffffff',
+          autoHideMenuBar: true,
+          webPreferences: {
+            session: pageSession,
+            preload: ruffle ? join(__dirname, '../preload/page.js') : undefined,
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            webSecurity: true,
+            plugins: !ruffle,
+            nodeIntegrationInSubFrames: ruffle
+          }
+        }
+      }
     })
-    contents.on('will-frame-navigate', (event) => {
-      if (live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
+    /**
+     * 真实弹窗窗口同样要登记为「页面视图」，否则 Ruffle 的同步 IPC（`bao:ruffle-bundle`）
+     * 会按发送者校验把子窗口拒掉，弹窗里的 Ruffle 引导拿不到运行时。
+     * `did-create-window` 在导航开始前触发，早于 preload 执行。
+     */
+    contents.on('did-create-window', (child) => {
+      if (child.webContents.isDestroyed()) return
+      registerPageView(child.webContents.id)
+    })
+    contents.on('will-frame-navigate', (event) => {      if (live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
     })
     contents.on('will-redirect', (event) => {
       if (live() && event.isMainFrame && !isWebAddress(event.url)) event.preventDefault()
@@ -375,7 +406,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   ): Tab {
     const view = createView(engine)
     const tab: Tab = {
-      id: nextTabId++, view, binding: 1, error: '', initialTitle, engine, engineSource: source, host: controller
+      id: nextTabId++, view, binding: 1, error: '', initialTitle, engine, engineSource: source, pinned: false, host: controller
     }
     tabs.push(tab)
     bind(tab, view)
@@ -490,6 +521,63 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return { ok: true, state: state() }
   }
 
+  /** 复制标签页：同 URL、同引擎，作为新标签插到末尾并激活（架构 §3「标签操作」）。 */
+  function duplicateTab(tab: Tab): void {
+    const url = safe(() => tab.view.webContents.getURL(), '')
+    const copy = addTab(tab.initialTitle, url && url !== START_PAGE ? url : START_PAGE, tab.engine, tab.engineSource)
+    select(copy, true)
+  }
+
+  /**
+   * 固定 / 取消固定标签。
+   *
+   * 固定标签始终排在未固定标签之前（与浏览器习惯一致）：固定时插到最后一条固定标签之后，
+   * 取消固定时插到第一条未固定标签之前，保持相对顺序。
+   */
+  function setPinned(tab: Tab, pinned: boolean): void {
+    if (tab.pinned === pinned) return
+    const index = tabs.indexOf(tab)
+    if (index < 0) return
+    tabs.splice(index, 1)
+    tab.pinned = pinned
+    if (pinned) {
+      let insertAt = 0
+      for (let cursor = 0; cursor < tabs.length; cursor += 1) {
+        if (tabs[cursor].pinned) insertAt = cursor + 1
+      }
+      tabs.splice(insertAt, 0, tab)
+    } else {
+      const firstUnpinned = tabs.findIndex((item) => !item.pinned)
+      tabs.splice(firstUnpinned < 0 ? tabs.length : firstUnpinned, 0, tab)
+    }
+    publish()
+  }
+
+  /** 静音 / 取消静音：走 WebContents 的音频静音，不碰页面 DOM。 */
+  function toggleMuted(tab: Tab): void {
+    const contents = tab.view.webContents
+    if (contents.isDestroyed()) return
+    contents.setAudioMuted(!contents.isAudioMuted())
+    publish()
+  }
+
+  /** 标签右键菜单：原生菜单，光标位置弹出（比自绘菜单更贴合系统习惯）。 */
+  function showTabMenu(tab: Tab): void {
+    const contents = tab.view.webContents
+    const muted = !contents.isDestroyed() && safe(() => contents.isAudioMuted(), false)
+    const template: MenuItemConstructorOptions[] = [
+      { label: '重新加载', click: () => reloadTab(tab) },
+      { label: '复制标签页', click: () => duplicateTab(tab) },
+      { type: 'separator' },
+      { label: tab.pinned ? '取消固定标签页' : '固定标签页', click: () => setPinned(tab, !tab.pinned) },
+      { label: muted ? '取消静音' : '静音标签页', click: () => toggleMuted(tab) },
+      { type: 'separator' },
+      { label: '关闭标签页', click: () => closeTab(tab) },
+      { label: '撤销关闭的标签页', enabled: recentlyClosed.length > 0, click: () => void undoClose() }
+    ]
+    Menu.buildFromTemplate(template).popup({ window })
+  }
+
   function reloadTab(tab: Tab): void {
     const contents = tab.view.webContents
     const url = contents.isDestroyed() ? '' : safe(() => contents.getURL(), '')
@@ -591,7 +679,20 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       if (active) closeTab(active)
       return true
     }
+    // Ctrl+Shift+I：页面视图的原生 DevTools（架构 §4「原生 DevTools 优先」）。
+    if (key === 'i' && input.shift) {
+      if (active) toggleDevTools(active)
+      return true
+    }
     return false
+  }
+
+  /** 切换当前标签页面的 DevTools。默认应用菜单被移除后这是唯一入口。 */
+  function toggleDevTools(tab: Tab): void {
+    const contents = tab.view.webContents
+    if (contents.isDestroyed()) return
+    if (contents.isDevToolsOpened()) contents.closeDevTools()
+    else contents.openDevTools({ mode: 'bottom' })
   }
 
   /** 摘除标签但保留其 WebContents：跨窗口移动时页面状态与插件内存态不变。 */
@@ -664,6 +765,18 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         if (!tab) return fail('unknown-tab')
         if (command.type === 'select') select(tab)
         else closeTab(tab)
+        break
+      }
+      case 'duplicate':
+      case 'pin':
+      case 'mute':
+      case 'tab-menu': {
+        const tab = tabs.find(({ id }) => id === command.id)
+        if (!tab) return fail('unknown-tab')
+        if (command.type === 'duplicate') duplicateTab(tab)
+        else if (command.type === 'pin') setPinned(tab, !tab.pinned)
+        else if (command.type === 'mute') toggleMuted(tab)
+        else showTabMenu(tab)
         break
       }
       case 'tearoff':

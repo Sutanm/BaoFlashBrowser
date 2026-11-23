@@ -12,6 +12,8 @@ export const browserChannels = {
 export type BrowserCommand =
   | { type: 'snapshot' | 'add' | 'back' | 'forward' | 'reload' | 'undo-close' | 'remember-engine' | 'forget-engine' }
   | { type: 'select' | 'close'; id: number }
+  /** 标签操作（架构 §3）：复制、固定/取消固定、静音/取消静音，以及右键菜单。 */
+  | { type: 'duplicate' | 'pin' | 'mute' | 'tab-menu'; id: number }
   | { type: 'navigate'; address: string }
   /** 标签排序（架构 §3「排序」）：把 `id` 移到 `index`。 */
   | { type: 'move'; id: number; index: number }
@@ -65,6 +67,10 @@ export interface BrowserTab {
   engineSource: EngineSource
   /** 当前站点已记住的引擎（无规则时为空）。用于区分「规则存在但被手动覆盖」。 */
   pinnedEngine?: BrowserEngine
+  /** 固定标签：排在最左、只显示站点图标、无关闭按钮（架构 §3「标签操作」）。 */
+  pinned: boolean
+  /** 页面音频是否被静音。 */
+  muted: boolean
 }
 
 export interface BrowserState {

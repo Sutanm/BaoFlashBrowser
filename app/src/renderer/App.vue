@@ -299,13 +299,14 @@ onBeforeUnmount(() => store.disconnect())
           v-for="tab in state?.tabs"
           :key="tab.id"
           class="tab"
-          :class="{ selected: tab.id === active?.id, crashed: tab.crashed, dragging: tab.id === draggingId }"
+          :class="{ selected: tab.id === active?.id, crashed: tab.crashed, dragging: tab.id === draggingId, pinned: tab.pinned, muted: tab.muted }"
           @pointerdown="startTabDrag(tab, $event)"
           @pointermove="moveTabDrag"
           @pointerup="endTabDrag"
           @pointercancel="endTabDrag"
           @click="selectTab(tab, $event)"
           @auxclick="onTabAuxClick(tab, $event)"
+          @contextmenu.prevent="run({ type: 'tab-menu', id: tab.id })"
         >
           <button
             type="button"
@@ -315,9 +316,16 @@ onBeforeUnmount(() => store.disconnect())
             :title="tab.title"
           >
             <span class="glyph page site-icon" :class="{ loading: tab.loading }" aria-hidden="true"></span>
-            <span class="tab-label">{{ tab.title }}</span>
+            <span v-if="!tab.pinned" class="tab-label">{{ tab.title }}</span>
+            <span v-if="tab.muted" class="muted-mark" aria-hidden="true">
+              <svg viewBox="0 0 16 16">
+                <path d="M8.6 2.6v10.8L5.3 10.5H2.6V5.5h2.7L8.6 2.6Z" fill="currentColor" />
+                <path d="m10.6 6.2 3 3.6m0-3.6-3 3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </span>
           </button>
           <button
+            v-if="!tab.pinned"
             type="button"
             class="icon-button close-tab"
             :aria-label="`关闭标签页：${tab.title}`"
@@ -526,6 +534,16 @@ button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-off
 .icon-button:hover:not(:disabled) { color: inherit; background: var(--surface-hover); }
 .icon-button:disabled { color: var(--text-disabled); }
 .close-tab { width: 22px; height: 22px; opacity: 0; }
+
+/* 固定标签（架构 §3「标签操作」）：只留站点图标，排在最左，没有关闭按钮。 */
+.tab.pinned { flex: 0 0 auto; min-width: 0; width: 44px; }
+.tab.pinned .tab-title { padding: 0; justify-content: center; border-radius: calc(var(--tab-radius) - var(--inset)); }
+.tab.pinned .muted-mark { position: absolute; right: 7px; bottom: 5px; }
+
+/* 静音标记：与站点图标同色的喇叭加斜杠。 */
+.muted-mark { display: inline-flex; align-items: center; color: var(--text-secondary); }
+.muted-mark svg { width: 12px; height: 12px; }
+.tab.selected .muted-mark { color: var(--brand-stroke); }
 .tab:hover .close-tab,
 .tab.selected .close-tab,
 .tab:focus-within .close-tab { opacity: 1; }

@@ -35,7 +35,7 @@
 | §3 引擎：原生 PPAPI 启用 | `app/src/main/plugins.ts`：`--allow-command-line-plugins` + `--register-pepper-plugins`（29.0.0.171，`Shockwave Flash 29.0 r0`） | `flash.test.cjs`、`packaged.test.cjs` |
 | §3 标签合同「键盘输入和 IME」「F11」 | 标签级快捷键与 **F11 / Esc 全屏**都在主进程 `before-input-event` 处理（窗口级动作，页面获焦时同样生效）；输入用例走 `webContents.sendInputEvent`（真实浏览器侧输入路径）+ CDP `Input.imeSetComposition`/`Input.insertText` 模拟 IME 提交 | `input.test.cjs`（ASCII 与非 ASCII 进页面、`compositionstart/update/end` 与提交文本到达、不带 Ctrl 的普通字母**不被**快捷键吃掉、地址栏与页面焦点不串台、F11 全屏后视图跟随内容区、Esc 退出）、`plugin-input.test.cjs`（自编 `keyprobe.swf` 通过 `ExternalInterface` 回报 `keyCode:charCode`，证明键盘事件真的进了 **PPAPI 插件进程**） |
 | §3 权限与会话：Node 关闭、context isolation、webSecurity、权限一揽子拒绝 | `app/src/main/sessions.ts`（权限白名单：只放行 `fullscreen` / `pointerLock`，且必须来自 http(s) 来源） | `startup.test.cjs`（`typeof window.require === 'undefined'`、页面拿不到 `baoBrowser`）、`permissions.test.cjs`（全屏与指针锁放行、geolocation 与 notifications 拒绝） |
-| §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」 | 受控弹窗：同站点 http(s) 弹窗以新标签承载（引擎与来源继承 opener），跨站与非 http(s) 一律拒绝 | `popup.test.cjs`（lobby→game→client 两级弹窗链、标签 ID 唯一、Ruffle 引擎继承、跨站与 `file:` 被拒） |
+| §3 权限与会话「对弹窗、新窗口、导航及外部协议设显式策略」 | 受控弹窗：同站点 http(s) 弹窗用真实子窗口承载（保留 `window.opener`、继承 opener 引擎），跨站与非 http(s) 一律拒绝 | `popup.test.cjs`（lobby→game→client 两级弹窗链、标签 ID 唯一、Ruffle 引擎继承、跨站与 `file:` 被拒） |
 | §3 IPC：异步命令、sender/frame/来源校验、稳定错误码 | `BrowserFailureCode` + `browserFailureText`；校验 `event.sender`、`senderFrame === mainFrame` 与文档 URL | `startup.test.cjs`（`invalid-address` 文案） |
 | §3 外壳：Vue 3 + Pinia，瞬态交互留在组件内 | `app/src/renderer/stores/browser.ts` + `App.vue` | `startup.test.cjs`（地址栏、标签、焦点、尺寸） |
 | §6 M1：独立测试 profile | `--user-data-dir` 指向临时目录，页面/外壳分区与会话独立 | `flash.test.cjs`（`app.getPath('userData')` 等于临时 profile） |
@@ -202,7 +202,7 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 
 ## 5. 未验证与遗留
 
-- **弹窗的 `window.opener`**：以「新标签」承载弹窗会丢失 `window.opener` 与带 features 的独立弹窗窗口。真实站点若用 `opener.postMessage`/`opener.location` 做 lobby→game 交接，需要改成 `overrideBrowserWindowOptions` 的真实弹窗窗口（142 报告的探针形态）。本增量按约定不做真站回归，该限制未在真实站点上验证。
+- **弹窗的 `window.opener`**：已改为真实子窗口（`action: 'allow' + overrideBrowserWindowOptions`），`window.opener` 与嵌套弹窗都由 `popup.test.cjs` 覆盖。仍未验证：带 features 的弹窗尺寸/位置（当前固定 1024×768）、`opener.close()` 关闭子窗口、真实站点的 lobby→game 交接。
 - **站点版本门**：两个真实站点（4399、淘米摩尔庄园）都**不做**版本门或 UA 门，`Shockwave Flash 29.0 r0` + Chromium 142 可正常加载。E39 已无 `ppapi-flash-version` 开关，若后续遇到门禁要求更高版本，需要用 preload 做只读伪装（尚未实现）。
 - **Ruffle 画布焦点**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖）。
 - **插件内的 IME 组合**：`plugin-input.test.cjs` 只覆盖 keydown/`charCode`；CDP 的 `Input.imeSetComposition` 只对 HTML 页面验证过，IME 组合输入到 PPAPI 插件内部未测。
@@ -213,8 +213,8 @@ transportVisible: undefined                            ← 页面 JS 摸不到�
 - **Ruffle 全屏 / 音频 / 后台出帧**：未验证。
 - **引擎切换与光标/焦点**：切换后焦点落在新视图，Flash 内的输入焦点未实测。
 - **后台出帧**：#52844 暂缓回移的结论来自本地 HTML 对照；真实 Flash 标签中的后台恢复仍待复测，#54311 / #54090 未开始。
-- **会话恢复、标签固定/复制/静音/分组与搜索、标签右键菜单、未加载占位**：未实现（M1 后续增量）。`detachTab/adoptTab` 与 `undo-close` 已按「同一 Tab 身份」建模，是这些交互的同一入口。
-- **DevTools 入口**：默认应用菜单移除后 `Ctrl+Shift+I` 不可用，按 §4「原生 DevTools 优先」在后续增量接入。
+- **标签分组、标签搜索、未加载占位（discard）、会话恢复**：未实现（分组/搜索属 M1 后续增量，会话恢复移交 M2）。固定、复制、静音、右键菜单已在 2026-11-23 实现并由 `tab-ops.test.cjs` 覆盖。`detachTab/adoptTab` 与 `undo-close` 已按「同一 Tab 身份」建模，是这些交互的同一入口。
+- **DevTools 入口**：`Ctrl+Shift+I` 已接入（页面视图 `openDevTools({ mode: 'bottom' })`，由 `tab-ops.test.cjs` 覆盖开关两态）。
 - **跨窗口移交的其余验证面**：失焦、全屏退出、音频继续播放未测；已实测的是同一 WebContents 复用带来的页面运行时状态与导航历史保留，真实 Flash 标签（4399 等）未复测。
 - **打包发布**：只产出 `--dir` 验证包；签名、分发、独立复建与依赖校验未做。
 - **`npm run dev`（Vite 开发服务器）**：本次未跑，冒烟针对构建产物与验证包；开发入口的 shell URL 分支未实测。

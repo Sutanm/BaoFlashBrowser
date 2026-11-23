@@ -36,7 +36,7 @@ npm run dev
 | `npm run typecheck` | 检查 TypeScript 和 Vue 类型。 |
 | `npm run build` | 检查类型并编译主进程、预加载和渲染层。 |
 | `npm start` | 使用自编译 Electron 启动已编译的应用。 |
-| `npm run smoke` | 用临时测试 profile 验证无边框外壳、标签栏交互、快捷键、引擎切换与站点规则、输入回环、Ruffle 的 SWF 跨源加载、视图尺寸、Node 隔离、内核版本和本地 PPAPI 样本（14 个用例）。 |
+| `npm run smoke` | 用临时测试 profile 验证无边框外壳、标签栏交互、快捷键、引擎切换与站点规则、输入回环、Ruffle 的 SWF 跨源加载、视图尺寸、Node 隔离、内核版本和本地 PPAPI 样本（17 个用例）。 |
 | `npm run smoke:packaged` | 核对最近一次 `pack:win` 生成的验证包能启动真实内核、加载 PPAPI 样本并带上 Ruffle 运行时。 |
 | `npm run pack:win` | 在固定的 `dist/win-preview/win-unpacked` 生成 Win x64 验证包（每次覆盖，并清理历史随机目录），产物自带 PPAPI 插件；结束时校验产物确实来自自编译内核。 |
 
@@ -46,7 +46,7 @@ npm run dev
 
 - 无边框两行外壳、Windows 原生窗口控件、Fluent 2 token 与深浅色跟随；默认应用菜单已移除。
 - **启动只有一个标签页**；多标签由「新建标签页」按钮、双击标签栏或 `Ctrl+T` 创建。
-- 标签栏交互：点击/键盘切换、中键关闭、关闭按钮按需显示、拖动排序、拖出窗口（tearoff）、`Ctrl+W` 关闭、`Ctrl+Shift+T` 撤销关闭。
+- 标签栏交互：点击/键盘切换、中键关闭、关闭按钮按需显示、拖动排序、拖出窗口（tearoff）、右键菜单（重新加载/复制/固定/静音/关闭/撤销关闭）、`Ctrl+W` 关闭、`Ctrl+Shift+T` 撤销关闭。
 - 撤销关闭用 E39 导航栈（`getAllEntries()/restore()`）恢复，保留前进/后退历史；无可撤销项时返回稳定错误码 `nothing-to-undo`。
 - 标签级快捷键与 F11 / Esc 全屏都在主进程 `before-input-event` 处理，因此页面（含 Flash）获得焦点时仍然生效。
 - **输入回环**：ASCII 与非 ASCII 字符进页面、IME 组合（`compositionstart/update/end` + 提交文本）、普通字母不被标签快捷键吃掉、地址栏与页面焦点互不串台、F11 全屏后视图跟随内容区、Esc 退出；自编 `keyprobe.swf` 证明键盘事件真的进了 **PPAPI 插件进程**。
@@ -62,9 +62,9 @@ npm run dev
 - **内核要求**：原生 PPAPI 需要 `bao-v142-265-ppapi-sandbox`（提交 `9de35f61aea60`）或更新。此前为了让插件实例化曾关闭页面视图的渲染进程沙箱；根因是渲染进程里的插件路径复核，已由[内核补丁](../docs/kernel/README.md)修复，外壳与页面视图现在都保持 `sandbox: true`。
 - **Ruffle 的能力边界**：`ExternalInterface` 只覆盖部分 API，PPAPI 样本里的 `PercentLoaded`/`SetVariable` 往返在 Ruffle 引擎下不保证可用；验收断言只看运行时注入与 polyfill 接管。
 - **站点规则存储**：当前是 `userData/engine-rules.json`（临时方案），M2 引入业务库后迁到 SQLite。
-- **标签合同尚未覆盖**：会话恢复、未加载占位、标签固定、复制、静音、分组与搜索、标签右键菜单。`detachTab/adoptTab` 与 `undo-close` 是这些交互的同一入口。
+- **标签合同尚未覆盖**：会话恢复、未加载占位、分组与搜索（固定/复制/静音/右键菜单已实现）。`detachTab/adoptTab` 与 `undo-close` 是这些交互的同一入口。
 - **跨窗口移交的未验证面**：失焦、全屏退出、音频继续播放、Flash 内存态在真实站点下的表现；已实测的是同一 WebContents 复用带来的页面运行时状态与导航历史保留。
-- **快捷键当前只有 `Ctrl+T/W/Tab/Shift+T`**：`Ctrl+Shift+I` 等 DevTools 入口随默认菜单移除而不可用，按 §4「原生 DevTools 优先」在后续增量接入。
+- **快捷键**：`Ctrl+T/W/Tab/Shift+T` 与 `Ctrl+Shift+I`（页面视图 DevTools）。标签分组、标签搜索、未加载占位仍未实现。
 - **引擎相关未验证**：引擎切换失败回退（`restore()` 抛错）没有构造用例；真实站点（4399 等）在两种引擎下的对照未复测；UA、插件版本通告、`mms.cfg`、SWFObject 等站点兼容项按审计 §C7 另行验证。
 - **输入相关未验证**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖，样本见 `tests/smoke/fixtures/README.md`）。
 - **下载默认拒绝**：页面与外壳会话的 `will-download` 一律 `preventDefault()`。M1 没有下载能力与落盘策略，没有明确策略前不静默写文件；下载的身份、分区、暂停/恢复按 §4 在 M2 立项。
