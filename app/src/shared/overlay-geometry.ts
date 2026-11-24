@@ -55,8 +55,8 @@ export function clampBelow(bounds: OverlayBounds, width: number, height: number,
 export interface FlyoutAnchor {
   /** 锚点按钮的右边缘（CSS 像素，相对窗口内容区）。 */
   anchorRight: number
-  /** 工具栏下沿：飞窗顶边就落在这里。 */
-  toolbarBottom: number
+  /** 锚点按钮的下边缘：飞窗顶边**紧贴按钮**（不是工具栏下沿，那会多出按钮与工具栏底边之间的 6px 缝）。 */
+  anchorBottom: number
   /** 窗口内容区宽度（用来在窄窗口下把飞窗推回可见区）。 */
   viewportWidth: number
 }
@@ -68,7 +68,7 @@ export interface FlyoutAnchor {
 export function flyoutBounds(anchor: FlyoutAnchor, width: number, height: number): OverlayBounds {
   return {
     x: Math.max(0, Math.round(anchor.anchorRight) - width),
-    y: Math.round(anchor.toolbarBottom),
+    y: Math.round(anchor.anchorBottom),
     width,
     height
   }
@@ -81,7 +81,7 @@ export function flyoutBounds(anchor: FlyoutAnchor, width: number, height: number
 export function panelBounds(anchor: FlyoutAnchor, height: number): OverlayBounds {
   return {
     x: Math.max(0, Math.round(anchor.anchorRight) - ENGINE_PANEL_WIDTH + OVERLAY_INSET),
-    y: Math.round(anchor.toolbarBottom),
+    y: Math.round(anchor.anchorBottom),
     width: ENGINE_PANEL_WIDTH,
     height
   }

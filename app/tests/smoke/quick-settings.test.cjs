@@ -75,11 +75,10 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
 
     const geometry = await shell.evaluate(() => {
       const button = document.querySelector('.gear-button').getBoundingClientRect()
-      const toolbar = document.querySelector('.toolbar').getBoundingClientRect()
-      return { right: Math.round(button.right), bottom: Math.round(button.bottom), toolbarBottom: Math.round(toolbar.bottom) }
+      return { right: Math.round(button.right), bottom: Math.round(button.bottom) }
     })
-    // 挂在按钮正下方：顶边落在工具栏下沿、右边缘与按钮右缘对齐；视图不额外留白。
-    assert.equal(opened.bounds.y, geometry.toolbarBottom, '飞窗顶边应落在工具栏下沿')
+    // 紧贴按钮：顶边就是按钮下缘、右边缘与按钮右缘对齐；视图不额外留白。
+    assert.equal(opened.bounds.y, geometry.bottom, '飞窗顶边应贴着按钮下沿')
     assert.equal(opened.bounds.x + opened.bounds.width, geometry.right, '飞窗右边缘应与齿轮按钮对齐')
     assert.equal(opened.bounds.width, 320, '视图宽度就是面板宽度（没有投影留白）')
     assert.ok(opened.bounds.x >= 0 && opened.bounds.y >= 0, '飞窗不能越出窗口左侧/顶部')

@@ -104,9 +104,9 @@ function quickBounds(): OverlayBounds | null {
   return flyoutBounds(anchorOf(rect), QUICK_WIDTH, QUICK_INITIAL_HEIGHT)
 }
 
-/** 锚点：按钮右缘 + 工具栏下沿（按钮在工具栏内部，用按钮底边会让面板压进工具栏）。 */
-function anchorOf(rect: { right: number }): FlyoutAnchor {
-  return { anchorRight: rect.right, toolbarBottom: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT, viewportWidth: window.innerWidth }
+/** 锚点：按钮右缘 + 按钮下缘——飞窗紧贴按钮展开（顶边不再落到工具栏下沿）。 */
+function anchorOf(rect: { right: number; bottom: number }): FlyoutAnchor {
+  return { anchorRight: rect.right, anchorBottom: rect.bottom, viewportWidth: window.innerWidth }
 }
 
 async function toggleQuick(): Promise<void> {

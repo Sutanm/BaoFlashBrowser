@@ -90,12 +90,12 @@ describe('clampBelow（挂在按钮下的飞窗）', () => {
 })
 
 describe('flyoutBounds（齿轮飞窗初始位置）', () => {
-  const anchor = { anchorRight: 1092, toolbarBottom: 84, viewportWidth: 1100 }
+  const anchor = { anchorRight: 1092, anchorBottom: 78, viewportWidth: 1100 }
 
   it('右边与按钮右缘对齐、顶边落在工具栏下沿', () => {
     const bounds = flyoutBounds(anchor, 320, 320)
     expect(bounds.x + bounds.width).toBe(anchor.anchorRight)
-    expect(bounds.y).toBe(anchor.toolbarBottom)
+    expect(bounds.y).toBe(anchor.anchorBottom)
   })
 
   it('视图尺寸就是面板尺寸（不给投影留白，否则会露出「光影」）', () => {
@@ -105,22 +105,22 @@ describe('flyoutBounds（齿轮飞窗初始位置）', () => {
   })
 
   it('窗口太窄时贴左边缘（不能变成负的 x）', () => {
-    const bounds = flyoutBounds({ anchorRight: 200, toolbarBottom: 84, viewportWidth: 320 }, 320, 320)
+    const bounds = flyoutBounds({ anchorRight: 200, anchorBottom: 78, viewportWidth: 320 }, 320, 320)
     expect(bounds.x).toBe(0)
   })
 })
 
 describe('panelBounds（引擎面板初始位置）', () => {
-  const anchor = { anchorRight: 1092, toolbarBottom: 84, viewportWidth: 1100 }
+  const anchor = { anchorRight: 1092, anchorBottom: 78, viewportWidth: 1100 }
 
   it('比飞窗更靠内（让出 OVERLAY_INSET），语义与飞窗一致', () => {
     const bounds = panelBounds(anchor, 232)
     expect(bounds.x + bounds.width).toBe(anchor.anchorRight + OVERLAY_INSET)
-    expect(bounds.y).toBe(anchor.toolbarBottom)
+    expect(bounds.y).toBe(anchor.anchorBottom)
     expect(bounds.width).toBe(ENGINE_PANEL_WIDTH)
   })
 
   it('窄窗口下同样不越出左边缘', () => {
-    expect(panelBounds({ anchorRight: 100, toolbarBottom: 84, viewportWidth: 320 }, 232).x).toBe(0)
+    expect(panelBounds({ anchorRight: 100, anchorBottom: 78, viewportWidth: 320 }, 232).x).toBe(0)
   })
 })
