@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useBrowserStore } from './stores/browser'
 
 /**
  * 飞窗宿主：panel 与 quick **共用同一个文档/渲染进程**，靠事件切换显示哪个组件。
@@ -14,13 +15,33 @@ import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 const ShellOverlay = defineAsyncComponent(() => import('./ShellOverlay.vue'))
 const QuickSettings = defineAsyncComponent(() => import('./QuickSettings.vue'))
 
+const store = useBrowserStore()
 const kind = ref<'panel' | 'quick'>('panel')
+/** 飞窗是否正在显示；隐藏时暂停 CSS 动画与日晷的时钟动画（视图被 detach 后页面仍是 visible）。 */
+const active = ref(false)
 let detach: (() => void) | undefined
 
+function setIdle(idle: boolean): void {
+  document.documentElement.dataset.overlayIdle = idle ? 'true' : 'false'
+}
+
 onMounted(() => {
+  setIdle(true)
+  // 叠加层是常驻文档：主体可能在它加载之后才切主题，仅靠推送会漏。
+  // 每次打开都重新拉一次快照，保证主题/设置与主进程一致。
+  store.connect()
   detach = window.baoOverlay.subscribe((event) => {
-    if (event.type === 'panel-opened') kind.value = 'panel'
-    else if (event.type === 'quick-opened') kind.value = 'quick'
+    if (event.type === 'panel-opened' || event.type === 'quick-opened') void store.run({ type: 'snapshot' })
+    if (event.type === 'panel-opened') {
+      kind.value = 'panel'
+      active.value = true
+    } else if (event.type === 'quick-opened') {
+      kind.value = 'quick'
+      active.value = true
+    } else if (event.type === 'panel-closed' || event.type === 'quick-closed' || event.type === 'overlay-hidden') {
+      active.value = false
+    }
+    setIdle(!active.value)
   })
 })
 onBeforeUnmount(() => detach?.())
@@ -31,7 +52,7 @@ onBeforeUnmount(() => detach?.())
     <ShellOverlay kind="panel" />
   </div>
   <div v-show="kind === 'quick'" class="overlay-slot">
-    <QuickSettings kind="quick" />
+    <QuickSettings kind="quick" :paused="!active" />
   </div>
 </template>
 

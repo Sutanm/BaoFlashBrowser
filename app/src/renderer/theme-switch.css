@@ -298,3 +298,11 @@
   .bao-theme-switch .theme-scene { forced-color-adjust: none; }
   .bao-theme-switch .theme-stop[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -2px; }
 }
+
+/* 飞窗隐藏时暂停全部动画：视图被 detach 后页面仍报告 visible，Chromium 不会自动节流，
+   不主动停就是白烧 CPU/GPU（实测隐藏时仍有 1 个 24h 动画在内）。 */
+[data-overlay-idle='true'] .bao-theme-switch *,
+[data-overlay-idle='true'] .bao-theme-switch *::before,
+[data-overlay-idle='true'] .bao-theme-switch *::after {
+  animation-play-state: paused !important;
+}

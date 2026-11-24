@@ -77,6 +77,8 @@ onMounted(() => {
   detach = window.baoOverlay.subscribe((event) => {
     if (event.type === 'toast') toast.value = event.text
     if (event.type === 'panel-opened') {
+      // 打开事件带着当前主题（常驻文档 + 推送可能早于订阅）。
+      applyShellTheme(event.theme)
       restoreSelection = !active.value
       void focusSelected()
     }

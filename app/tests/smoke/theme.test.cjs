@@ -52,10 +52,29 @@ test('暗色模式：跟随原生主题切换外壳与叠加层', { timeout: 120
       const value = await viewFact(app, shell, `Boolean(document.querySelector('.engine-panel'))`)
       return value ? true : null
     }, { timeout: 60_000, message: '引擎面板没有挂上叠加层视图' })
-    const overlay = await waitFor(async () => {
-      const value = await viewFact(app, shell, `({ theme: document.documentElement.dataset.theme ?? null })`)
-      return value?.theme === 'dark' ? value : null
-    }, { timeout: 60_000, message: '叠加层没有跟随暗色' })
+    // 手写轮询而不是 waitFor：失败时要把「最后看到的真实值」带进错误信息
+    // （waitFor 的 message 是在调用时求值的，抓不到后续观测）。
+    let observed = null
+    const deadline = Date.now() + 20_000
+    for (;;) {
+      observed = await viewFact(app, shell, `({
+        theme: document.documentElement.dataset.theme ?? null,
+        idle: document.documentElement.dataset.overlayIdle ?? null,
+        surface: getComputedStyle(document.documentElement).getPropertyValue('--surface-toolbar').trim(),
+        media: matchMedia('(prefers-color-scheme: dark)').matches,
+        panel: Boolean(document.querySelector('.engine-panel'))
+      })`)
+      if (observed?.theme === 'dark') break
+      if (Date.now() >= deadline) {
+        const children = await app.evaluate(({ BrowserWindow }) => {
+          const win = BrowserWindow.getAllWindows().find((item) => item.webContents.getURL().endsWith('index.html'))
+          return win.contentView.children.map((child) => (child.webContents?.getURL() ?? '').slice(-26))
+        })
+        throw new Error(`叠加层没有跟随暗色：观测=${JSON.stringify(observed)} 子视图=${JSON.stringify(children)}`)
+      }
+      await new Promise((done) => setTimeout(done, 120))
+    }
+    const overlay = observed
     assert.equal(overlay.theme, 'dark')
 
     // 切回亮色同样要生效。

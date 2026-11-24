@@ -19,7 +19,7 @@ import { useBrowserStore } from './stores/browser'
  * 飞窗永远在窗口内（Electron 的 WebContentsView 被窗口裁剪，见
  * `docs/design/gear-quick-settings.html` 的说明），所以内容超出时自身滚动。
  */
-const props = defineProps<{ kind: 'quick' }>()
+const props = defineProps<{ kind: 'quick'; paused?: boolean }>()
 /** 与 App.vue 的 QUICK_* 保持一致：浮层视图给面板四周留出投影空间。 */
 /** 嵌入态：视图与面板同尺寸，不再为投影留白（留白会让面板看起来是悬浮的）。 */
 const GUTTER_TOP = 0
@@ -97,6 +97,8 @@ function onKeydown(event: KeyboardEvent): void {
 onMounted(() => {
   detach = window.baoOverlay.subscribe((event) => {
     if (event.type === 'quick-opened') {
+      // 打开事件带着当前主题：叠加层是常驻文档，光靠推送会漏（文档还没订阅时的事件）。
+      applyShellTheme(event.theme)
       void nextTick(() => {
         // 不聚焦任何元素：面板用 tabindex 接过焦点会被 Chromium 画上默认焦点环
         // （打开飞窗就出现一圈黄边）。Tab 从文档进入时会先落到唯一可 tab 的选中档，
@@ -128,7 +130,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
     <section ref="panel" class="quick" :data-kind="props.kind" aria-label="快捷设置">
       <p class="group-label">主题</p>
       <div class="quick-theme">
-        <ThemeSwitch :mode="theme" :busy="busy" compact @select="chooseTheme" />
+        <ThemeSwitch :mode="theme" :busy="busy" :paused="paused" compact @select="chooseTheme" />
       </div>
 
       <div class="divider" role="presentation"></div>

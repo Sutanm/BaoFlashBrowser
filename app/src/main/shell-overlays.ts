@@ -53,7 +53,8 @@ export function createShellOverlays(
   window: BrowserWindow,
   shellUrl: string,
   sameDocument: (actual: string, expected: string) => boolean,
-  handleShortcut: (input: Input) => boolean
+  handleShortcut: (input: Input) => boolean,
+  currentTheme: () => 'light' | 'dark'
 ) {
   const shell = window.webContents
   let flyout: HostedView | undefined
@@ -78,6 +79,9 @@ export function createShellOverlays(
   }
 
   function hide(item: HostedView): void {
+    // 先告诉文档「我要隐藏了」：视图 detach 后页面仍报告 visible，不主动通知的话
+    // 里面的动画和定时器会一直跑（实测隐藏时仍有 1 个 24h 动画 + 15s 轮询）。
+    if (item === flyout && item.view.getVisible()) send(item.view.webContents, { type: 'overlay-hidden' })
     item.bounds = undefined
     item.text = undefined
     item.kind = undefined
@@ -167,7 +171,11 @@ export function createShellOverlays(
       // 后台窗口不抢前台（与 browser-window 的 focusContents 同一合同）：
       // 自动化或窗口被盖住时，打开飞窗不应该把窗口拉到前台。
       if (window.isFocused()) item.view.webContents.focus()
-      send(item.view.webContents, { type: kind === 'panel' ? 'panel-opened' : 'quick-opened' })
+      // 打开时把当前主题一起带上：叠加层是常驻文档，只靠推送会因为「文档还没订阅」而漏。
+      const theme = currentTheme()
+      send(item.view.webContents, kind === 'panel'
+        ? { type: 'panel-opened', theme }
+        : { type: 'quick-opened', theme })
     }
   }
 
@@ -311,6 +319,9 @@ export function createShellOverlays(
   }
 
   window.on('blur', () => {
+    // 自动化窗口是 `focusable: false`：它不会因为用户操作失焦，但并行跑时会收到伪 blur，
+    // 把刚打开的飞窗关掉（theme 用例曾因此 60 秒都找不到叠加层）。
+    if (!window.isFocusable()) return
     closePanel(false)
     closeQuick(false)
   })

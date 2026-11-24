@@ -18,11 +18,13 @@ export interface OverlayToast {
 }
 
 export type OverlayEvent =
-  | { type: 'panel-opened' }
+  | { type: 'panel-opened'; theme: 'light' | 'dark' }
   | { type: 'panel-closed'; restoreFocus: boolean }
-  | { type: 'quick-opened' }
+  | { type: 'quick-opened'; theme: 'light' | 'dark' }
   | { type: 'quick-closed'; restoreFocus: boolean }
   | { type: 'toast-closed' }
+  /** 飞窗被隐藏（视图 detach）：让它暂停动画/定时器，等下次打开再恢复。 */
+  | { type: 'overlay-hidden' }
   | { type: 'toast'; text: string }
   | { type: 'failure'; text: string }
 
