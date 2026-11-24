@@ -10,11 +10,14 @@ import ShellIcon from './ShellIcon.vue'
 import { useBrowserStore } from './stores/browser'
 import { applyShellTheme } from './theme'
 
-const props = defineProps<{ kind: OverlayKind }>()
+const props = defineProps<{ kind: OverlayKind; text?: string }>()
 const store = useBrowserStore()
 const { snapshot, active, message } = storeToRefs(store)
 const panel = ref<HTMLElement>()
-const toast = ref('')
+const toast = ref(props.text ?? '')
+watch(() => props.text, (value) => {
+  if (value) toast.value = value
+}, { immediate: true })
 const busy = ref(false)
 const host = computed(() => hostOf(active.value?.address ?? ''))
 const pinned = computed(() => host.value ? active.value?.pinnedEngine : undefined)
@@ -102,8 +105,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="overlay-frame" :style="{ padding: `${OVERLAY_TOP_INSET}px ${OVERLAY_INSET}px ${OVERLAY_INSET}px` }">
-    <section v-if="kind === 'panel'" ref="panel" class="engine-panel" aria-labelledby="engine-heading">
+  <div class="overlay-frame" :style="kind === 'toast' ? { padding: `${OVERLAY_TOP_INSET}px ${OVERLAY_INSET}px ${OVERLAY_INSET}px` } : undefined">
+    <section v-if="kind === 'panel'" id="engine-panel" ref="panel" class="engine-panel" role="dialog" aria-labelledby="engine-heading">
       <h2 id="engine-heading">渲染引擎</h2>
       <div class="engine-choices" role="group" aria-label="选择当前标签的引擎">
         <button v-for="engine in browserEngines" :key="engine" type="button" class="engine-choice"
@@ -136,7 +139,7 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </section>
-    <div v-else-if="toast" class="toast">
+    <div v-else-if="toast" class="toast" role="alert">
       <ShellIcon name="error" class="toast-icon" />
       <p>{{ toast }}</p>
       <button type="button" aria-label="关闭提示" class="toast-close" @click="dismiss"><ShellIcon name="close" /></button>

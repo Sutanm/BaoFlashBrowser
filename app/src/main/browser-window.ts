@@ -1253,7 +1253,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       // 预热飞窗：这里外壳文档已经加载完（上面的 await loadURL），立刻建隐藏的叠加层视图，
       // 用户看到窗口、把鼠标移过去时它通常已经热了。自动化模式不预热——那会给
       // 「页面视图计数」类断言多一个子视图。飞窗只有一个视图（panel/quick 共用），预热一次就够。
-      if (!closing && !window.isDestroyed()) overlays.prewarm('quick')
+      if (!closing && !window.isDestroyed()) overlays.prewarm()
     }
   } catch (error) {
     closing = true

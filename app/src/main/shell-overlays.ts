@@ -13,8 +13,8 @@ interface HostedView {
   bounds?: OverlayBounds
   ready: boolean
   text?: string
-  /** 共用的飞窗视图当前在显示哪一种内容（同一个文档按事件切换组件）。 */
-  kind?: 'panel' | 'quick'
+  /** 共用视图当前在显示哪一种内容（同一个文档按事件切换组件）。 */
+  kind?: OverlayKind
 }
 
 const FLYOUT_KINDS = ['panel', 'quick'] as const
@@ -58,7 +58,6 @@ export function createShellOverlays(
 ) {
   const shell = window.webContents
   let flyout: HostedView | undefined
-  let toastItem: HostedView | undefined
   let activePage: WebContents | undefined
   let disposed = false
 
@@ -71,7 +70,6 @@ export function createShellOverlays(
     const mode = modes.length === 1 ? modes[0] : undefined
     if (mode === undefined) return
     if (mode === OVERLAY_MODE && event.sender === flyout?.view.webContents) return flyout?.kind
-    if (mode === 'toast' && event.sender === toastItem?.view.webContents) return 'toast'
   }
 
   function send(contents: WebContents, message: OverlayEvent): void {
@@ -81,7 +79,7 @@ export function createShellOverlays(
   function hide(item: HostedView): void {
     // 先告诉文档「我要隐藏了」：视图 detach 后页面仍报告 visible，不主动通知的话
     // 里面的动画和定时器会一直跑（实测隐藏时仍有 1 个 24h 动画 + 15s 轮询）。
-    if (item === flyout && item.view.getVisible()) send(item.view.webContents, { type: 'overlay-hidden' })
+    if (item.view.getVisible()) send(item.view.webContents, { type: 'overlay-hidden' })
     item.bounds = undefined
     item.text = undefined
     item.kind = undefined
@@ -109,9 +107,8 @@ export function createShellOverlays(
   }
 
   function dismissToast(): boolean {
-    const toast = toastItem
-    if (!toast?.bounds) return false
-    hide(toast)
+    if (flyout?.kind !== 'toast' || !flyout.bounds) return false
+    hide(flyout)
     send(shell, { type: 'toast-closed' })
     return true
   }
@@ -146,15 +143,12 @@ export function createShellOverlays(
   }
 
   function raise(): void {
-    for (const item of [flyout, toastItem]) {
-      if (item?.view.getVisible()) window.contentView.addChildView(item.view)
-    }
+    if (flyout?.view.getVisible()) window.contentView.addChildView(flyout.view)
   }
 
   function sync(kind: OverlayKind): void {
-    const item = kind === 'toast' ? toastItem : flyout
-    if (!item?.ready || !item.bounds) return
-    if (kind !== 'toast' && item.kind !== kind) return
+    const item = flyout
+    if (!item?.ready || !item.bounds || item.kind !== kind) return
     const [width, height] = window.getContentSize()
     if (width <= 0 || height <= 0) return
     // 面板/飞窗贴着按钮，顶边必须保持；toast 是自由定位，用通用夹取。
@@ -179,18 +173,15 @@ export function createShellOverlays(
     }
   }
 
-  function host(kind: OverlayKind): HostedView {
-    if (kind === 'toast') {
-      if (toastItem) return toastItem
-      return createView('toast')
-    }
+  /** 只有一个叠加层视图：panel / quick / toast 共用（见文件头说明）。 */
+  function host(): HostedView {
     if (flyout) return flyout
-    return createView(OVERLAY_MODE)
+    return createView()
   }
 
-  function createView(mode: string): HostedView {
+  function createView(): HostedView {
     const url = new URL(shellUrl)
-    url.searchParams.set(OVERLAY_QUERY, mode)
+    url.searchParams.set(OVERLAY_QUERY, OVERLAY_MODE)
     const view = new WebContentsView({
       webPreferences: {
         session: getShellSession(),
@@ -199,24 +190,22 @@ export function createShellOverlays(
         contextIsolation: true,
         sandbox: true,
         webSecurity: true,
-        // 飞窗视图常驻且经常隐藏：关掉后台节流，隐藏时也保持可交互的帧状态。
+        // 叠加层视图常驻且经常隐藏：关掉后台节流，隐藏时也保持可交互的帧状态。
         backgroundThrottling: false
       }
     })
     view.setVisible(false)
     view.setBackgroundColor('#00000000')
     const item: HostedView = { view, ready: false }
-    if (mode === 'toast') toastItem = item
-    else flyout = item
+    flyout = item
 
-    const isCurrent = () => (mode === 'toast' ? toastItem === item : flyout === item)
+    const isCurrent = () => flyout === item
 
     function invalidate(): void {
       if (disposed || !isCurrent()) return
-      if (mode === 'toast') dismissToast()
+      if (item.kind === 'toast') dismissToast()
       else if (item.kind) close(item.kind, false)
-      if (mode === 'toast') toastItem = undefined
-      else flyout = undefined
+      flyout = undefined
       if (!view.webContents.isDestroyed()) view.webContents.close()
     }
 
@@ -232,17 +221,18 @@ export function createShellOverlays(
     contents.on('did-finish-load', () => {
       if (disposed || !isCurrent()) return
       item.ready = true
-      if (mode === 'toast' && item.text) send(contents, { type: 'toast', text: item.text })
-      if (mode === 'toast') sync('toast')
-      else if (item.kind) sync(item.kind)
+      if (item.kind === 'toast' && item.text) send(contents, { type: 'toast', text: item.text })
+      if (item.kind) sync(item.kind)
     })
     void contents.loadURL(url.href).catch(invalidate)
     return item
   }
 
-  /** 打开（或换内容并重新定位）飞窗。panel 与 quick 用同一个视图。 */
-  function showFlyout(kind: FlyoutKind, bounds: OverlayBounds): void {
-    const item = host(kind)
+  /** 打开（或换内容并重新定位）叠加层。panel / quick / toast 用同一个视图。 */
+  function showOverlay(kind: OverlayKind, bounds: OverlayBounds): void {
+    // toast 与飞窗互斥：先按正常路径关掉当前那种（会通知外壳），再切内容。
+    if (flyout?.kind && flyout.kind !== kind && flyout.kind !== 'toast') close(flyout.kind, false)
+    const item = host()
     item.kind = kind
     item.bounds = bounds
     sync(kind)
@@ -260,7 +250,7 @@ export function createShellOverlays(
         }
         const bounds = readBounds(value.bounds)
         if (!bounds) return false
-        showFlyout('panel', bounds)
+        showOverlay('panel', bounds)
         return true
       }
       case 'set-quick': {
@@ -271,24 +261,24 @@ export function createShellOverlays(
         }
         const bounds = readBounds(value.bounds)
         if (!bounds) return false
-        showFlyout('quick', bounds)
+        showOverlay('quick', bounds)
         return true
       }
       case 'set-toast': {
         if (role !== 'shell') return false
         if (value.toast === null) {
-          if (toastItem) hide(toastItem)
+          if (flyout?.kind === 'toast') hide(flyout)
           return true
         }
         if (!isRecord(value.toast) || !isText(value.toast.text)) return false
         const bounds = readBounds(value.toast.bounds)
         if (!bounds) return false
-        const toast = host('toast')
-        toast.bounds = bounds
-        const updated = toast.text !== value.toast.text
-        toast.text = value.toast.text
-        if (toast.ready && updated) send(toast.view.webContents, { type: 'toast', text: toast.text })
-        sync('toast')
+        const text = value.toast.text
+        const item = host()
+        const updated = item.text !== text
+        item.text = text
+        showOverlay('toast', bounds)
+        if (item.ready && updated) send(item.view.webContents, { type: 'toast', text })
         return true
       }
       case 'resize-panel': {
@@ -333,30 +323,24 @@ export function createShellOverlays(
     setActivePage,
     panelVisible: () => flyout?.kind === 'panel' && flyout.view.getVisible() === true,
     quickVisible: () => flyout?.kind === 'quick' && flyout.view.getVisible() === true,
-    /** 预热：提前建好隐藏的飞窗视图（首次打开只差一次 setBounds），不改变可见性。 */
-    prewarm(_kind: OverlayKind) {
-      host(_kind)
+    /** 预热：提前建好隐藏的叠加层视图（首次打开只差一次 setBounds），不改变可见性。 */
+    prewarm() {
+      host()
     },
     layout() {
       if (flyout?.kind) sync(flyout.kind)
-      sync('toast')
     },
     publish(state: BrowserState) {
-      for (const item of [flyout, toastItem]) {
-        const contents = item?.view.webContents
-        if (contents && !contents.isDestroyed()) contents.send(browserChannels.changed, state)
-      }
+      const contents = flyout?.view.webContents
+      if (contents && !contents.isDestroyed()) contents.send(browserChannels.changed, state)
     },
     dispose() {
       disposed = true
       activePage?.off('before-input-event', onPageInput)
       activePage?.off('before-mouse-event', onPageMouse)
       activePage = undefined
-      for (const item of [flyout, toastItem]) {
-        if (item && !item.view.webContents.isDestroyed()) item.view.webContents.close()
-      }
+      if (flyout && !flyout.view.webContents.isDestroyed()) flyout.view.webContents.close()
       flyout = undefined
-      toastItem = undefined
     }
   }
 }

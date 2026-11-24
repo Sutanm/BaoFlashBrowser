@@ -40,7 +40,8 @@ const panelNames = {
 function overlay(windowHandle, kind, { name, attribute, value, text, click } = {}) {
   return windowHandle.evaluate(async (window, { kind, name, attribute, value, text, click }) => {
     // panel 与 quick 共用同一个叠加层视图（?baoOverlay=overlay），toast 仍是自己的视图。
-    const mode = kind === 'toast' ? 'toast' : 'overlay'
+    // 三种内容共用一个叠加层视图（?baoOverlay=overlay），用根元素区分。
+    const mode = 'overlay'
     const rootSelector = kind === 'quick' ? '.quick' : kind === 'panel' ? '.engine-panel' : '.toast'
     const view = window.contentView.children.find((child) =>
       child.webContents && new URL(child.webContents.getURL() || 'about:blank').searchParams.get('baoOverlay') === mode)

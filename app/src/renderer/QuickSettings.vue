@@ -127,7 +127,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 <template>
   <div class="quick-frame" @keydown="onKeydown">
-    <section ref="panel" class="quick" :data-kind="props.kind" aria-label="快捷设置">
+    <section id="quick-settings" ref="panel" class="quick" :data-kind="props.kind" role="dialog" aria-label="快捷设置">
       <p class="group-label">主题</p>
       <div class="quick-theme">
         <ThemeSwitch :mode="theme" :busy="busy" :paused="paused" compact @select="chooseTheme" />

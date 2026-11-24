@@ -473,7 +473,7 @@ onBeforeUnmount(() => store.disconnect())
           {{ active.engine === 'ruffle' ? 'Ruffle' : 'Flash' }}
         </button>
         <button ref="engineTrigger" type="button" class="engine-more" :aria-expanded="enginePanelOpen"
-          aria-label="引擎设置" title="引擎设置" @click="toggleEnginePanel">
+          aria-haspopup="dialog" aria-label="引擎设置" title="引擎设置" @click="toggleEnginePanel">
           <ShellIcon name="chevron" />
         </button>
       </div>
@@ -482,6 +482,7 @@ onBeforeUnmount(() => store.disconnect())
         type="button"
         class="icon-button gear-button"
         :aria-expanded="quickOpen"
+        aria-haspopup="dialog"
         aria-label="快捷设置"
         title="快捷设置"
         @click="toggleQuick"
