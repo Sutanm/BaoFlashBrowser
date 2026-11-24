@@ -1247,19 +1247,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       applyAutomationWindowMode(window)
     } else {
       window.show()
-      // 预热齿轮飞窗（首次打开不卡）：真实使用下提前建好隐藏的 WebContentsView，
-      // 打开时只需 setBounds。自动化模式不预热——那会给「页面视图计数」类断言多一个子视图。
-      window.once('ready-to-show', () => {
-        setTimeout(() => {
-          if (closing || window.isDestroyed()) return
-          overlays.prewarm('quick')
-        }, 600)
-        // 引擎面板也预热（缓存共用同一个 overlay 文档，第二次只是建视图），错开时间避免抢首屏。
-        setTimeout(() => {
-          if (closing || window.isDestroyed()) return
-          overlays.prewarm('panel')
-        }, 1200)
-      })
+      // 预热飞窗：这里外壳文档已经加载完（上面的 await loadURL），立刻建隐藏的叠加层视图，
+      // 用户看到窗口、把鼠标移过去时它通常已经热了。自动化模式不预热——那会给
+      // 「页面视图计数」类断言多一个子视图。飞窗只有一个视图（panel/quick 共用），预热一次就够。
+      if (!closing && !window.isDestroyed()) overlays.prewarm('quick')
     }
   } catch (error) {
     closing = true

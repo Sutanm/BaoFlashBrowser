@@ -3,14 +3,15 @@ const { test } = require('node:test')
 const { launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
- * 齿轮快捷设置飞窗（`?baoOverlay=quick`）的合同验证。
+ * 齿轮快捷设置飞窗（共用 `?baoOverlay=overlay` 视图，靠根元素区分）的合同验证。
  *
  * 覆盖：入口与定位（顶边压齿轮下沿、永远在窗口内）、Chromium 样式数值（圆角 12）、
  * 写入设置后外壳/设置页同步、底部「全部设置」入口、Esc 与点外部关闭、
  * 最小窗口下的夹取与内部滚动。
  */
 
-const QUICK_URL = 'baoOverlay=quick'
+// panel 与 quick 共用同一个叠加层视图，靠根元素区分内容。
+const QUICK_URL = 'baoOverlay=overlay'
 
 async function quickContentsId(app) {
   return app.evaluate(({ webContents }, marker) => {

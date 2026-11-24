@@ -9,7 +9,7 @@ async function viewFact(app, shell, code) {
   const handle = await app.browserWindow(shell)
   return handle.evaluate(async (window, source) => {
     const view = window.contentView.children.find((child) =>
-      child.webContents && new URL(child.webContents.getURL() || 'about:blank').searchParams.get('baoOverlay') === 'panel')
+      child.webContents && new URL(child.webContents.getURL() || 'about:blank').searchParams.get('baoOverlay') === 'overlay')
     if (!view) return null
     return view.webContents.executeJavaScript(source)
   }, code)

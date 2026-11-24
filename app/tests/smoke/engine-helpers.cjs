@@ -39,9 +39,15 @@ const panelNames = {
 // view by URL, then inspect its renderer DOM or send an actual pointer event to it.
 function overlay(windowHandle, kind, { name, attribute, value, text, click } = {}) {
   return windowHandle.evaluate(async (window, { kind, name, attribute, value, text, click }) => {
+    // panel 与 quick 共用同一个叠加层视图（?baoOverlay=overlay），toast 仍是自己的视图。
+    const mode = kind === 'toast' ? 'toast' : 'overlay'
+    const rootSelector = kind === 'quick' ? '.quick' : kind === 'panel' ? '.engine-panel' : '.toast'
     const view = window.contentView.children.find((child) =>
-      child.webContents && new URL(child.webContents.getURL() || 'about:blank').searchParams.get('baoOverlay') === kind)
+      child.webContents && new URL(child.webContents.getURL() || 'about:blank').searchParams.get('baoOverlay') === mode)
     if (!view?.getVisible()) return null
+    const shown = await view.webContents.executeJavaScript(
+      `Boolean(document.querySelector(${JSON.stringify(rootSelector)})?.offsetParent || document.querySelector(${JSON.stringify(rootSelector)})?.closest('[style*="display: none"]') === null)`)
+    if (!shown) return null
     if (!name) return { bounds: view.getBounds() }
 
     const facts = await view.webContents.executeJavaScript(`(() => {
