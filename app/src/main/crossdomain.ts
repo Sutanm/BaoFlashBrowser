@@ -1,4 +1,6 @@
-import { net } from 'electron'
+import { get as httpGet } from 'node:http'
+import { get as httpsGet } from 'node:https'
+import { registrableDomain } from '../shared/site'
 
 /**
  * Flash 的跨域策略（`crossdomain.xml`）—— 架构 §3 引擎「站点兼容规则」。
@@ -49,51 +51,96 @@ function parsePolicy(xml: string): CrossDomainPolicy {
 /**
  * 取目标 origin 的 `crossdomain.xml`。
  *
- * 关键约束（2026-11-24 审计 P1，本地 SWF 已复现）：策略必须是**目标 origin 自己**返回的。
- * 之前的 `redirect: 'follow'` 会跟到别的 origin，并把结果缓存到目标名下
- * （实测：B 的 crossdomain.xml 302 到 C，broker 接受 C 的策略后 SWF 照样加载）。
+ * 授权要求（2026-11-24 审计 P1）：策略必须是**目标站点自己**返回的。之前 `redirect: 'follow'`
+ * 会跟到任意第三方并把结果缓存到目标名下（本地 SWF 已复现：B 的策略 302 到 C 被接受）。
  *
- * 实测过的 API 限制：
- * - `net.fetch(..., { redirect: 'follow' })` 的 `response.url` 是**空串**，看不出最终 URL；
- * - `net.fetch(..., { redirect: 'manual' })` 对 3xx 直接抛 "Redirect was cancelled"；
- * - `net.request` 在本内核上只发 `close`、不给 `response`，同样不可用。
+ * 但也不能一刀切——真实站点普查里 `www.armorgames.com` / `www.flasharch.com` 的
+ * `/crossdomain.xml` 都是 301 到**裸域**（同站不同 host），这类必须放行。
  *
- * 所以用「manual + 抛错即视为发生了重定向」：只要重定向就不采信该策略；
- * 只额外放行「同主机 http → https」这一种升级（显式再取一次 https 版本，而不是跟随）。
+ * 实现取舍：不用 Electron 的网络 API 走跳转，原因都实测过——
+ * - `net.fetch(manual)` 对 3xx 直接抛 "Redirect was cancelled"，拿不到 Location；
+ * - `net.fetch(follow)` 的 `response.url` 是空串，看不出最终地址；
+ * - `session.fetch` 不经 `webRequest.onBeforeRedirect`（监听器一次都没触发）；
+ * - `net.request` 在本内核上只发 close、不给 response。
+ * 因此用 Node 的 http(s) 自己走跳转链，每一跳都校验「同可注册域 + 不降级到 http」，
+ * 跨站就整份丢弃。代价是不走 Chromium 代理设置（无代理环境无差异）。
  */
-async function readPolicyText(url: string, signal: AbortSignal): Promise<string | 'redirect' | null> {
+/** 一跳是否仍在同一站点：可注册域相同，且不允许 https → http 降级。 */
+function sameSiteHop(from: string, to: string): boolean {
+  let source: URL
+  let target: URL
   try {
-    const response = await net.fetch(url, { signal, redirect: 'manual' })
-    if (response.status !== 200) return null
-    return await readBounded(response, MAX_POLICY_BYTES)
-  } catch (error) {
-    return /Redirect was cancelled|redirect/i.test(String(error)) ? 'redirect' : null
+    source = new URL(from)
+    target = new URL(to)
+  } catch {
+    return false
   }
+  if (source.protocol === 'https:' && target.protocol !== 'https:') return false
+  const sourceSite = registrableDomain(source.hostname) || source.hostname
+  const targetSite = registrableDomain(target.hostname) || target.hostname
+  return sourceSite === targetSite
+}
+const MAX_REDIRECT_HOPS = 5
+
+interface HopResult {
+  status: number
+  location?: string
+  body?: string
+}
+
+function requestOnce(url: string, signal: AbortSignal): Promise<HopResult> {
+  return new Promise((resolve) => {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      resolve({ status: 0 })
+      return
+    }
+    const get = parsed.protocol === 'https:' ? httpsGet : httpGet
+    const request = get(url, { signal, headers: { accept: 'text/x-cross-domain-policy, */*' } }, (response) => {
+      const status = response.statusCode ?? 0
+      const location = response.headers.location
+      if (status >= 300 && status < 400 && location) {
+        response.resume()
+        resolve({ status, location })
+        return
+      }
+      let body = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk: string) => {
+        if (body.length < MAX_POLICY_BYTES) body += chunk
+      })
+      response.on('end', () => resolve({ status, body }))
+      response.on('error', () => resolve({ status: 0 }))
+    })
+    request.on('error', () => resolve({ status: 0 }))
+    request.setTimeout(FETCH_TIMEOUT_MS, () => {
+      request.destroy()
+      resolve({ status: 0 })
+    })
+  })
 }
 
 async function fetchPolicy(origin: string): Promise<CrossDomainPolicy | null> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  let current = `${origin}/crossdomain.xml`
   try {
-    let text = await readPolicyText(`${origin}/crossdomain.xml`, controller.signal)
-    if (text === 'redirect') {
-      let upgraded: string | undefined
-      try {
-        const parsed = new URL(origin)
-        if (parsed.protocol === 'http:') {
-          parsed.protocol = 'https:'
-          upgraded = `${parsed.origin}/crossdomain.xml`
-        }
-      } catch {
-        upgraded = undefined
+    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop += 1) {
+      const result = await requestOnce(current, controller.signal)
+      if (result.status >= 300 && result.status < 400 && result.location) {
+        const next = new URL(result.location, current).href
+        // 跨站跳转直接放弃：谁的策略授权谁，不能被 302 带到别处。
+        if (!sameSiteHop(current, next)) return null
+        current = next
+        continue
       }
-      text = upgraded ? await readPolicyText(upgraded, controller.signal) : null
-      if (text === 'redirect') text = null
+      if (result.status !== 200 || !result.body) return null
+      return /<cross-domain-policy/i.test(result.body) ? parsePolicy(result.body) : null
     }
-    if (typeof text === 'string' && /<cross-domain-policy/i.test(text)) return parsePolicy(text)
     return null
   } finally {
-    clearTimeout(timer)
+    controller.abort()
   }
 }
 async function readBounded(response: Response, limit: number): Promise<string> {

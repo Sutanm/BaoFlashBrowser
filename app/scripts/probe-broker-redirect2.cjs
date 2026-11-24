@@ -55,7 +55,8 @@ async function serve(routes, label) {
     swfRoutes['/policy.xml'] = text(WILDCARD, 'text/x-cross-domain-policy')
   } else {
     // 跨源：B 的策略 302 到 C（审计指出的情形）
-    swfRoutes['/crossdomain.xml'] = redirect(`${cBase}/policy.xml`)
+    // C 用 localhost，与 B（127.0.0.1）算不同站点；能区分「跨站重定向」与「同站不同端口」。
+    swfRoutes['/crossdomain.xml'] = redirect(`${cBase.replace('127.0.0.1', 'localhost')}/policy.xml`)
   }
   const bServer = await serve(swfRoutes, 'B')
   const bBase = `http://127.0.0.1:${bServer.address().port}`

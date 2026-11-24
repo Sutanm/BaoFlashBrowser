@@ -172,10 +172,11 @@ onBeforeUnmount(() => {
 /* 提示条仍是浮层（它出现在页面任意位置）。 */
 .toast {
   background: var(--surface-toolbar);
-  border: 1px solid var(--stroke-divider);
+  /* 与飞窗、引擎面板同一套分层：圆角 + inset 1px 描边，不画外投影
+     （视图与内容同尺寸，投影只会落在视图外被裁掉，反而像一层「光影」）。 */
+  border: 0;
   border-radius: 12px;
-  box-shadow: 0 12px 48px color-mix(in srgb, #3c4043 24%, transparent),
-              0 0 24px color-mix(in srgb, #3c4043 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--stroke-divider);
 }
 .engine-panel { padding: 6px; }
 .engine-panel h2 { margin: 0; padding: 1px 6px 5px; font-size: 11px; color: var(--text-secondary); }

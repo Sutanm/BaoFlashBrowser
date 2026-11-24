@@ -21,13 +21,23 @@ async function quickContentsId(app) {
 }
 
 async function inQuick(app, code) {
-  const id = await quickContentsId(app)
-  assert.ok(id, '没有找到快捷设置飞窗的 WebContents')
-  return app.evaluate(async ({ webContents }, payload) => {
-    const target = webContents.fromId(payload.id)
-    if (!target) throw new Error('飞窗已销毁')
-    return target.executeJavaScript(payload.code)
-  }, { id, code })
+  // 视图可能正处在创建/替换之间（预热、回收、内容切换）：重试一次，避免「Script failed」抖动。
+  let lastError
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const id = await quickContentsId(app)
+    assert.ok(id, '没有找到快捷设置飞窗的 WebContents')
+    try {
+      return await app.evaluate(async ({ webContents }, payload) => {
+        const target = webContents.fromId(payload.id)
+        if (!target) throw new Error('飞窗已销毁')
+        return target.executeJavaScript(payload.code)
+      }, { id, code })
+    } catch (error) {
+      lastError = error
+      await new Promise((done) => setTimeout(done, 250))
+    }
+  }
+  throw lastError
 }
 
 async function quickView(app) {
