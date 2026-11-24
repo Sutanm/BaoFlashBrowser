@@ -243,7 +243,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   })
 
   const shellContentsId = window.webContents.id
-  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background)
+  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background, () => currentSettings().overlayPrewarm)
   const tabs: Tab[] = []
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined

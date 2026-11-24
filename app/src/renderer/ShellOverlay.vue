@@ -58,8 +58,9 @@ async function choose(engine: BrowserEngine): Promise<void> {
   // 插件缺失时「原生 Flash」是不可用档：不弹失败提示（那只会打断人），
   // 直接跳到设置页的 Flash 插件区，让用户看到导入入口。
   if (engine === 'ppapi' && snapshot.value?.flash === false) {
-    await window.baoOverlay.closePanel(false)
+    // 先开设置页再关面板：`open-settings` 的发送者校验要求 panel 仍然可见。
     await store.run({ type: 'open-settings' })
+    await window.baoOverlay.closePanel(false)
     return
   }
   if (engine === active.value?.engine || await submit({ type: 'set-engine', engine })) {

@@ -57,13 +57,17 @@ export function createShellOverlays(
   handleShortcut: (input: Input) => boolean,
   currentTheme: () => 'light' | 'dark',
   /** 自动化模式下不预热：多出来的视图会干扰「页面视图计数」类断言。 */
-  canPrewarm: () => boolean
+  canPrewarm: () => boolean,
+  /** 预热策略：never 不预热；always 不回收；auto 悬停预热 + 空闲回收。 */
+  prewarmPolicy: () => 'auto' | 'always' | 'never'
 ) {
   const shell = window.webContents
   let flyout: HostedView | undefined
   let activePage: WebContents | undefined
   let pendingOpen = 0
   let retireTimer: ReturnType<typeof setTimeout> | undefined
+  /** 上一次真正通知渲染层的内容种类：用来判断「可见但换内容」是否要补发打开事件。 */
+  let shownKind: OverlayKind | undefined
   /** 空闲回收：预热的视图在 5 分钟没有打开就释放（用户可在设置里选「常驻」关掉回收）。 */
   // 默认 5 分钟；BAO_RETIRE_MS 仅供测试/度量缩短短语。
   const RETIRE_AFTER_MS = Number(process.env.BAO_RETIRE_MS ?? 5 * 60_000)
@@ -91,6 +95,7 @@ export function createShellOverlays(
     item.bounds = undefined
     item.text = undefined
     item.kind = undefined
+    shownKind = undefined
     item.view.setVisible(false)
     if (!window.isDestroyed()) window.contentView.removeChildView(item.view)
     armRetire()
@@ -167,10 +172,17 @@ export function createShellOverlays(
     const current = item.view.getBounds()
     if (current.x !== bounds.x || current.y !== bounds.y ||
         current.width !== bounds.width || current.height !== bounds.height) item.view.setBounds(bounds)
-    if (item.view.getVisible()) return
-    item.view.setVisible(true)
-    raise()
-    if (pendingOpen) markVisible(pendingOpen)
+    const alreadyVisible = item.view.getVisible()
+    if (!alreadyVisible) {
+      item.view.setVisible(true)
+      raise()
+      if (pendingOpen) markVisible(pendingOpen)
+    } else if (item.kind !== shownKind) {
+      // 视图已经可见但内容换了（toast ↔ 面板/飞窗）：仍要通知渲染层切换并交接焦点，
+      // 否则会看到「视图亮着、内容不对、Esc 关不掉」。
+      if (pendingOpen) markVisible(pendingOpen)
+    }
+    shownKind = kind
     if (kind !== 'toast') {
       // 后台窗口不抢前台（与 browser-window 的 focusContents 同一合同）：
       // 自动化或窗口被盖住时，打开飞窗不应该把窗口拉到前台。
@@ -192,6 +204,8 @@ export function createShellOverlays(
 
   function armRetire(): void {
     cancelRetire()
+    // 只有「自动」档才做空闲回收；「常驻」是用户明确要求一直热着。
+    if (prewarmPolicy() !== 'auto') return
     retireTimer = setTimeout(() => {
       retireTimer = undefined
       if (flyout?.view.getVisible()) return
@@ -203,7 +217,9 @@ export function createShellOverlays(
   function retireNow(): void {
     cancelRetire()
     if (!flyout) return
-    if (flyout.kind) hide(flyout)
+    // 正在显示的先按正常路径关闭（会通知外壳），再销毁视图，避免「界面没了但外壳以为还开着」。
+    if (flyout.kind === 'toast') dismissToast()
+    else if (flyout.kind) close(flyout.kind, false)
     if (!flyout.view.webContents.isDestroyed()) flyout.view.webContents.close()
     flyout = undefined
   }
@@ -339,7 +355,8 @@ export function createShellOverlays(
       case 'dismiss-toast':
         return role === 'toast' && dismissToast()
       case 'prewarm': {
-        if (role !== 'shell' || !canPrewarm()) return false
+        // 「不预热」档必须真的不预热：悬停事件也不能把视图建起来。
+        if (role !== 'shell' || !canPrewarm() || prewarmPolicy() === 'never') return false
         host()
         armRetire()
         return true
