@@ -58,6 +58,8 @@ interface Tab {
   internal?: 'settings'
   /** 休眠状态：视图已销毁，切回时重建。 */
   discarded?: boolean
+  /** 用户标记「保持活跃」：挂机/游戏标签，永不自动休眠。 */
+  keepAwake?: boolean
   /** 休眠时展示用的缓存（视图没了就读不到）。 */
   lastUrl?: string
   lastTitle?: string
@@ -309,6 +311,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         pinned: tab.pinned,
         muted: tab.muted,
         internal: tab.internal,
+        keepAwake: tab.keepAwake,
         discarded: true
       }
     }
@@ -354,7 +357,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       pinnedEngine: pin.source === 'site-rule' ? pin.engine : undefined,
       pinned: tab.pinned,
       muted: tab.muted,
-      internal: tab.internal
+      internal: tab.internal,
+      keepAwake: tab.keepAwake
     }
   }
 
@@ -725,7 +729,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (currentSettings().tabDiscard === 'never') return
     const now = Date.now()
     for (const tab of tabs) {
-      if (!tab.view || tab === active || tab.internal || tab.pinned) continue
+      if (!tab.view || tab === active || tab.internal || tab.pinned || tab.keepAwake) continue
       const contents = tab.view.webContents
       if (contents.isDestroyed() || contents.isCrashed()) continue
       if (safe(() => contents.isCurrentlyAudible(), false)) continue
@@ -870,6 +874,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function duplicateTab(tab: Tab): void {
     const url = safe(() => tab.view?.webContents.getURL() ?? tab.lastUrl ?? '', '')
     const copy = addTab(tab.initialTitle, url && url !== START_PAGE ? url : START_PAGE, tab.engine, sourceOf(tab))
+    // 复制标签继承「保持活跃」标记（挂机场景复制出来的标签同样不该被休眠）。
+    copy.keepAwake = tab.keepAwake
     select(copy, true)
   }
 
@@ -924,11 +930,24 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           { type: 'separator' },
           { label: tab.pinned ? '取消固定标签页' : '固定标签页', click: () => setPinned(tab, !tab.pinned) },
           { label: muted ? '取消静音' : '静音标签页', click: () => toggleMuted(tab) },
+          {
+            label: tab.keepAwake ? '允许自动休眠' : '保持活跃（不自动休眠）',
+            type: 'checkbox',
+            checked: tab.keepAwake === true,
+            click: () => setKeepAwake(tab, !tab.keepAwake)
+          },
           { type: 'separator' },
           { label: '关闭标签页', click: () => closeTab(tab) },
           { label: '撤销关闭的标签页', enabled: recentlyClosed.length > 0, click: () => void undoClose() }
         ]
     Menu.buildFromTemplate(template).popup({ window })
+  }
+
+  /** 用户标记「保持活跃」：挂机/游戏标签不被自动休眠；取消标记后重新开始计时。 */
+  function setKeepAwake(tab: Tab, value: boolean): void {
+    tab.keepAwake = value
+    tab.backgroundSince = value || tab === active ? undefined : Date.now()
+    publish()
   }
 
   function reloadTab(tab: Tab): void {
@@ -1187,6 +1206,12 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         else if (command.type === 'pin') setPinned(tab, !tab.pinned)
         else if (command.type === 'mute') toggleMuted(tab)
         else showTabMenu(tab)
+        break
+      }
+      case 'keep-awake': {
+        const tab = tabs.find(({ id }) => id === command.id)
+        if (!tab) return fail('unknown-tab')
+        setKeepAwake(tab, command.value)
         break
       }
       case 'tearoff':

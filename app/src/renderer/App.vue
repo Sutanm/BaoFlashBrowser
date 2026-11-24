@@ -392,7 +392,7 @@ onBeforeUnmount(() => store.disconnect())
           v-for="(tab, index) in state?.tabs"
           :key="tab.id"
           class="tab"
-          :class="{ selected: tab.id === active?.id, crashed: tab.crashed, dragging: tab.id === draggingId, pinned: tab.pinned, muted: tab.muted }"
+          :class="{ selected: tab.id === active?.id, crashed: tab.crashed, dragging: tab.id === draggingId, pinned: tab.pinned, muted: tab.muted, sleeping: tab.discarded, awake: tab.keepAwake }"
           @pointerdown="startTabDrag(tab, $event)"
           @pointermove="moveTabDrag"
           @pointerup="endTabDrag"
@@ -412,6 +412,7 @@ onBeforeUnmount(() => store.disconnect())
             <span v-if="tab.internal" class="site-icon settings-icon" aria-hidden="true"><ShellIcon name="gear" /></span>
             <span v-else class="glyph page site-icon" :class="{ loading: tab.loading }" aria-hidden="true"></span>
             <span v-if="!tab.pinned" class="tab-label">{{ tab.title }}</span>
+            <span v-if="tab.keepAwake" class="awake-mark" aria-hidden="true" title="保持活跃（不自动休眠）"></span>
             <span v-if="tab.muted" class="muted-mark" aria-hidden="true">
               <svg viewBox="0 0 16 16">
                 <path d="M8.6 2.6v10.8L5.3 10.5H2.6V5.5h2.7L8.6 2.6Z" fill="currentColor" />
@@ -669,6 +670,10 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 
 /* 静音标记：与站点图标同色的喇叭加斜杠。 */
 .muted-mark { display: inline-flex; align-items: center; color: var(--text-secondary); }
+/* 保持活跃标记：一个小圆点，不抢标题长度。 */
+.awake-mark { width: 6px; height: 6px; border-radius: 50%; background: var(--engine-accent); opacity: .75; flex: none; }
+/* 已休眠：标题弱化，点击即唤醒。 */
+.tab.sleeping .tab-label { opacity: .55; }
 .muted-mark svg { width: 12px; height: 12px; }
 .tab.selected .muted-mark { color: var(--brand-stroke); }
 .tab:hover .close-tab,

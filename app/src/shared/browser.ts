@@ -17,6 +17,7 @@ export type BrowserCommand =
   | { type: 'select' | 'close'; id: number }
   /** 标签操作（架构 §3）：复制、固定/取消固定、静音/取消静音，以及右键菜单。 */
   | { type: 'duplicate' | 'pin' | 'mute' | 'tab-menu'; id: number }
+  | { type: 'keep-awake'; id: number; value: boolean }
   | { type: 'navigate'; address: string }
   /** 标签排序（架构 §3「排序」）：把 `id` 移到 `index`。 */
   | { type: 'move'; id: number; index: number }
@@ -91,6 +92,8 @@ export interface BrowserTab {
   internal?: 'settings'
   /** 已休眠（视图被丢弃）：切回时重建并重新加载。 */
   discarded?: boolean
+  /** 用户标记「保持活跃」：挂机/游戏标签，永不自动休眠。 */
+  keepAwake?: boolean
 }
 
 export interface BrowserState {

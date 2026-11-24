@@ -88,3 +88,41 @@ test('设置 tab.discard=never 时后台标签不被休眠（挂机场景）', {
     clearDiscardEnv()
   }
 })
+
+test('标记「保持活跃」的标签不被休眠，取消标记后恢复休眠', { timeout: 120_000 }, async () => {
+  withDiscardEnv()
+  const server = await startFixtureServer({ '/d': page('D') })
+  const { app, shell, close } = await launchApp()
+  try {
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+    await shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), `${server.baseUrl}/d`)
+    const tab = await waitFor(async () => {
+      const found = (await state(shell)).tabs.find((item) => item.title === 'D' && !item.loading)
+      return found ?? null
+    }, { message: '标签 D 没有加载完' })
+
+    const marked = await shell.evaluate((id) => window.baoBrowser.run({ type: 'keep-awake', id, value: true }), tab.id)
+    assert.equal(marked.ok, true)
+    // 让 D 退到后台：扫描器不会休眠当前标签，所以必须先把别的标签切成活动。
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+    await new Promise((done) => setTimeout(done, 400))
+
+    // 等三倍 TTL：标记期间不应该被休眠
+    await new Promise((done) => setTimeout(done, 3000))
+    const kept = (await state(shell)).tabs.find((item) => item.id === tab.id)
+    assert.equal(kept.discarded, undefined, '标记保持活跃后不应被休眠')
+    assert.equal(kept.keepAwake, true)
+
+    // 取消标记后重新计入后台时间，TTL 到点后应休眠
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'keep-awake', id, value: false }), tab.id)
+    const discarded = await waitFor(async () => {
+      const item = (await state(shell)).tabs.find((entry) => entry.id === tab.id)
+      return item?.discarded ? item : null
+    }, { timeout: 15_000, message: '取消标记后仍未休眠' })
+    assert.equal(discarded.title, 'D')
+  } finally {
+    await close()
+    await server.close()
+    clearDiscardEnv()
+  }
+})
