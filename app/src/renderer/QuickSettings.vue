@@ -3,9 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { browserEngines, engineLabels } from '../shared/engine'
 import type { BrowserEngine } from '../shared/engine'
+import { THEME_MODES, themeModeLabels } from '../shared/settings'
 import type { ThemeMode } from '../shared/settings'
 import ShellIcon from './ShellIcon.vue'
-import ThemeSwitch from './ThemeSwitch.vue'
 import { applyShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
 
@@ -33,6 +33,8 @@ const error = ref('')
 
 const settings = computed(() => snapshot.value?.settings)
 const theme = computed<ThemeMode>(() => settings.value?.themeMode ?? 'system')
+const themeModes = THEME_MODES
+const quickThemeLabels: Record<ThemeMode, string> = { system: '系统', light: '浅色', dark: '深色' }
 const engine = computed<BrowserEngine>(() => settings.value?.defaultEngine ?? 'ppapi')
 const flashReady = computed(() => snapshot.value?.flash !== false)
 const flashHint = computed(() => snapshot.value?.flashHint ?? '')
@@ -81,6 +83,17 @@ async function write(key: 'theme.mode' | 'engine.default', value: string): Promi
 
 function chooseTheme(mode: ThemeMode): void {
   if (mode !== theme.value) void write('theme.mode', mode)
+}
+
+function onThemeKeydown(event: KeyboardEvent, index: number): void {
+  const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key]
+  if (step === undefined || busy.value) return
+  event.preventDefault()
+  const next = (index + step + themeModes.length) % themeModes.length
+  const buttons = (event.currentTarget as HTMLElement).parentElement
+    ?.querySelectorAll<HTMLButtonElement>('.theme-option')
+  buttons?.[next]?.focus()
+  chooseTheme(themeModes[next])
 }
 
 function chooseEngine(next: BrowserEngine): void {
@@ -136,8 +149,23 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
   <div class="quick-frame" @keydown="onKeydown">
     <section id="quick-settings" ref="panel" class="quick" :data-kind="props.kind" role="dialog" aria-label="快捷设置">
       <p class="group-label">主题</p>
-      <div class="quick-theme">
-        <ThemeSwitch :mode="theme" :busy="busy" :paused="paused" compact @select="chooseTheme" />
+      <div class="quick-theme" role="radiogroup" aria-label="主题">
+        <button
+          v-for="(mode, index) in themeModes"
+          :key="mode"
+          type="button"
+          class="theme-option"
+          role="radio"
+          :aria-checked="theme === mode"
+          :aria-label="themeModeLabels[mode]"
+          :title="themeModeLabels[mode]"
+          :tabindex="theme === mode ? 0 : -1"
+          :disabled="busy"
+          @click="chooseTheme(mode)"
+          @keydown="onThemeKeydown($event, index)"
+        >
+          {{ quickThemeLabels[mode] }}
+        </button>
       </div>
 
       <div class="divider" role="presentation"></div>
@@ -225,7 +253,37 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .row[aria-checked='true'] .radio { border-color: var(--engine-accent); }
 .row[aria-checked='true'] .radio::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--engine-accent); }
 
-.quick-theme { padding: 5px 9px 8px; }
+.quick-theme {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  margin: 5px 9px 8px;
+  padding: 3px;
+  border: 1px solid var(--stroke-control);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-page) 72%, var(--surface-toolbar));
+}
+.quick .theme-option {
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 7px;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.quick .theme-option:hover:not(:disabled):not([aria-checked='true']) { background: var(--surface-hover); }
+.quick .theme-option[aria-checked='true'] {
+  color: var(--text-primary);
+  background: var(--surface-toolbar);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+  font-weight: 600;
+}
+.quick .theme-option:focus:not(:focus-visible) { outline: none; }
+.quick .theme-option:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--stroke-focus-ring);
+}
 
 .row .check { width: 13px; height: 13px; color: var(--engine-accent); visibility: hidden; }
 .row[aria-checked='true'] .check { visibility: visible; }
@@ -240,5 +298,6 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 @media (forced-colors: active) {
   .row[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
+  .theme-option[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
 }
 </style>

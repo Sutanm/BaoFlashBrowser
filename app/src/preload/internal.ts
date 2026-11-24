@@ -11,7 +11,7 @@ import type { NtpBridge, NtpCommandResult, NtpSnapshot } from '../shared/ntp'
  * 两种内部页**共用这一个 preload**：同一个 WebContents 会在两个文档之间就地导航
  * （设置覆盖新标签页），而 preload 是按文档执行的，按 kind 换文件会让就地导航后的文档
  * 拿不到桥。安全边界不在这里，而在主进程：每个通道都按「本窗口标签表 ∧ 主帧 ∧ 文档 URL」
- * 判定发送者，NTP 拿不到设置写权限、设置页拿不到新标签页的导航/设置入口。
+ * 判定发送者，NTP 只获得主题这一项的写权限，设置页拿不到新标签页的导航/主题入口。
  *
  * 这里没有 `baoBrowser`、没有 `baoOverlay`、没有 `baoWindowControl`、没有任意 URL 读写。
  */
@@ -19,6 +19,7 @@ const settings: SettingsBridge = {
   read: () => ipcRenderer.invoke(settingsChannels.read),
   write: (key, value) => ipcRenderer.invoke(settingsChannels.write, { key, value }),
   clearSession: () => ipcRenderer.invoke(settingsChannels.sessionClear),
+  clearEngineRules: () => ipcRenderer.invoke(settingsChannels.engineRulesClear),
   flashStatus: () => ipcRenderer.invoke(settingsChannels.flashStatus),
   flashImport: () => ipcRenderer.invoke(settingsChannels.flashImport),
   flashReveal: () => ipcRenderer.invoke(settingsChannels.flashReveal),

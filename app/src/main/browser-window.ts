@@ -11,7 +11,7 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { clearSessionData, setSetting, settings as currentSettings, saveSession, storageStatus } from './storage'
+import { clearEngineRulesData, clearSessionData, setSetting, settings as currentSettings, saveSession, storageStatus } from './storage'
 import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
 import { settingsChannels } from '../shared/settings'
@@ -118,10 +118,12 @@ interface WindowController extends TabHost {
   ntpSender(event: IpcMainInvokeEvent): boolean
   /** 新标签页读到的状态（主题 + 设置子集 + 插件可用性）。 */
   ntpSnapshot(): NtpSnapshot
-  /** 新标签页的两个动词：打开设置、在**本标签**导航。 */
+  /** 新标签页的窄命令：打开设置、在本标签导航、切换主题。 */
   runNtp(event: IpcMainInvokeEvent, command: NtpCommand): NtpCommandResult
   /** 会话数据被用户清除：丢掉仍挂着的崩溃恢复提示（库里已经没有了）。 */
   forgetSessionPrompt(): void
+  /** 规则/设置变化后重新投影（引擎来源胶囊要立刻按新规则重算）。 */
+  refreshProjection(): void
 }
 
 export interface BrowserWindowOptions {
@@ -1727,6 +1729,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     ntpSnapshot: ntpState,
     runNtp,
     forgetSessionPrompt,
+    refreshProjection: () => {
+      if (active) publish()
+    },
     run
   }
 
@@ -1970,7 +1975,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
-   * 新标签页的两个动词。
+   * 新标签页的窄命令。
    *
    * 两个动作都会让发送方文档消失（设置页覆盖 NTP，或 NTP 换成页面视图），所以先返回
    * IPC 结果、再用 `setImmediate` 执行——否则回复会打在已销毁的帧上。
@@ -1991,6 +1996,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       const url = parseAddress(typeof command.address === 'string' ? command.address : '')
       if (!url) return { ok: false, code: 'invalid-address' }
       setImmediate(() => { if (!closing && tabs.includes(tab)) navigateTab(tab, url) })
+      return { ok: true }
+    }
+    if (command.type === 'set-theme') {
+      const outcome = setSetting('theme.mode', (command as { mode?: unknown }).mode)
+      if (outcome === 'invalid') return { ok: false, code: 'invalid-setting' }
+      if (outcome === 'unavailable') return { ok: false, code: 'storage-unavailable' }
+      if (outcome === 'save-failed') return { ok: false, code: 'settings-save-failed' }
+      refreshAllWindows()
       return { ok: true }
     }
     return { ok: false, code: 'invalid-command' }
@@ -2227,6 +2240,21 @@ export function registerBrowserIpc(): void {
     const controller = controllerFor(event)
     if (!controller || !controller.internalSender(event)) return false
     return clearStoredSession()
+  })
+
+  /**
+   * 清除全部站点引擎规则（「数据」分区的第二档）。
+   *
+   * 与会话清理不同，这里不动标签：已打开的标签保持当前引擎，只把"来源"重新算成默认。
+   * 清完要让每个窗口重新投影一次，否则引擎胶囊会停在"站点已记住 Ruffle"上。
+   */
+  ipcMain.handle(settingsChannels.engineRulesClear, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return false
+    if (!clearEngineRulesData()) return false
+    refreshAllWindows()
+    for (const item of controllers.values()) item.refreshProjection()
+    return true
   })
 
   /**

@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, sanitizeSetting } from '../shared/settings'
 import type { SettingKey, Settings } from '../shared/settings'
 import type { BrowserEngine, EngineRules } from '../shared/engine'
 import type { SessionSnapshot } from '../shared/session'
-import { clearSession, deleteRule, openStore, writeRule, writeSession, writeSessionExit, writeSetting } from './db/store'
+import { clearEngineRules, clearSession, deleteRule, openStore, writeRule, writeSession, writeSessionExit, writeSetting } from './db/store'
 import type { OpenedStore, SessionExitState } from './db/store'
 import { toDatabaseError } from './db/sqlite'
 
@@ -161,6 +161,23 @@ export function forgetRule(host: string): boolean {
     return true
   } catch (error) {
     console.error('[storage] 站点规则删除失败。', error)
+    return false
+  }
+}
+
+/**
+ * 清除全部站点引擎规则（分类清理的「规则」档）。
+ *
+ * 规则只影响"新建标签/新建导航"的默认引擎与来源标签，不动已打开的标签；
+ * 失败时保持内存快照不变，UI 据此提示"规则未改动"。
+ */
+export function clearEngineRulesData(): boolean {
+  if (!store) return false
+  try {
+    store.rules = clearEngineRules(store.db)
+    return true
+  } catch (error) {
+    console.error('[storage] 站点规则清除失败。', error)
     return false
   }
 }

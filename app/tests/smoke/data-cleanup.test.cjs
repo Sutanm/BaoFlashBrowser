@@ -65,13 +65,13 @@ test('设置页「数据 → 清除会话」：删掉会话与退出标记，本
       // Ctrl+, 打开设置页（当前标签是网页，所以会新建一个设置标签）。
       await pressShortcut(first.app, ',', ['control'])
       const hasDataSection = await inSettings(first.app, `(() => {
-        const button = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === '清除')
+        const button = document.querySelector('button[aria-label="清除已保存的会话"]')
         return Boolean(button && document.querySelector('#data-title'))
       })()`)
-      assert.equal(hasDataSection, true, '设置页应有「数据」分区与「清除」按钮')
+      assert.equal(hasDataSection, true, '设置页应有「数据」分区与「清除已保存的会话」按钮')
 
       const clicked = await inSettings(first.app, `(() => {
-        const button = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === '清除')
+        const button = document.querySelector('button[aria-label="清除已保存的会话"]')
         if (!button) return false
         button.click()
         return true
@@ -123,6 +123,90 @@ test('设置页「数据 → 清除会话」：删掉会话与退出标记，本
       }, { message: '重启后会话记录能力没有恢复' })
     } finally {
       await third.close()
+    }
+  } finally {
+    await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
+    await server.close()
+  }
+})
+test('设置页「数据 → 清除站点引擎规则」：规则真的删掉，新标签回到默认来源', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/site': page('规则站点') })
+  const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-rules-'))
+  try {
+    const first = await launchAppAt(profilePath)
+    try {
+      const address = first.shell.getByRole('textbox', { name: '地址栏' })
+      await address.fill(`${server.baseUrl}/site`)
+      await address.press('Enter')
+      await first.shell.getByRole('button', { name: '规则站点', exact: true }).waitFor()
+
+      // 造一条真实规则：切到 Ruffle 再「记住当前引擎」。
+      assert.equal((await first.shell.evaluate(() =>
+        window.baoBrowser.run({ type: 'set-engine', engine: 'ruffle' }))).ok, true)
+      await waitFor(async () => {
+        const state = await snapshot(first.shell)
+        const tab = state.tabs.find((item) => item.address.endsWith('/site'))
+        return tab && tab.engine === 'ruffle' && !tab.loading ? state : null
+      }, { message: '标签没有切到 Ruffle' })
+      assert.equal((await first.shell.evaluate(() =>
+        window.baoBrowser.run({ type: 'remember-engine' }))).ok, true)
+      const remembered = await waitFor(async () => {
+        const state = await snapshot(first.shell)
+        const tab = state.tabs.find((item) => item.address.endsWith('/site'))
+        return tab && tab.engineSource === 'site-rule' ? state : null
+      }, { message: '站点规则没有生效' })
+      assert.equal(remembered.tabs.find((tab) => tab.address.endsWith('/site')).pinnedEngine, 'ruffle')
+      assert.equal(inspect(profilePath, 'SELECT host, engine FROM engine_rules').length, 1, '规则应落库')
+
+      // 设置页里点「清除站点引擎规则」。
+      await pressShortcut(first.app, ',', ['control'])
+      const clicked = await waitFor(async () => {
+        const value = await inSettings(first.app, `(() => {
+          const button = document.querySelector('button[aria-label="清除站点引擎规则"]')
+          if (!button) return ''
+          button.click()
+          return 'clicked'
+        })()`)
+        return value === 'clicked' ? value : null
+      }, { message: '没有找到「清除站点引擎规则」按钮' })
+      assert.equal(clicked, 'clicked')
+
+      const notice = await waitFor(() => inSettings(first.app, `(() => {
+        const status = [...document.querySelectorAll('[role="status"]')].map((item) => item.textContent).join(' ')
+        return status.includes('已清除站点引擎规则') ? status : ''
+      })()`), { message: '设置页没有显示规则清理结果' })
+
+      // 真库：规则表被清空。
+      assert.deepEqual(inspect(profilePath, 'SELECT host FROM engine_rules'), [], '规则表应被清空')
+
+      // 已打开的标签不重载，但来源不再是站点规则；新标签回到默认来源。
+      const after = await snapshot(first.shell)
+      const site = after.tabs.find((tab) => tab.address.endsWith('/site'))
+      assert.equal(site.engine, 'ruffle', '已打开的标签不应被重载/换引擎')
+      assert.equal(site.engineSource, 'default', '清除后来源应回到默认')
+      assert.equal(site.pinnedEngine, undefined, '不应再有「已记住」标记')
+
+      const reuse = await first.shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), `${server.baseUrl}/site`)
+      assert.equal(reuse.ok, true)
+      await waitFor(async () => {
+        const state = await snapshot(first.shell)
+        const tab = state.tabs.find((item) => item.address.endsWith('/site') && !item.loading)
+        return tab ? state : null
+      }, { message: '再次导航没有完成' })
+      assert.equal((await snapshot(first.shell)).tabs.some((tab) => tab.engineSource === 'site-rule'), false,
+        '清除后不应再有站点规则来源')
+    } finally {
+      await first.close()
+    }
+
+    // 规则是真的删掉了：重启后依然是空的。
+    assert.deepEqual(inspect(profilePath, 'SELECT host FROM engine_rules'), [], '重启后规则仍应为空')
+    const second = await launchAppAt(profilePath)
+    try {
+      assert.equal((await snapshot(second.shell)).settings.sessionStartup !== undefined, true)
+      assert.deepEqual(inspect(profilePath, 'SELECT host FROM engine_rules'), [])
+    } finally {
+      await second.close()
     }
   } finally {
     await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })

@@ -141,9 +141,16 @@ export const discardModeLabels: Record<DiscardMode, string> = {
   never: '从不（后台标签一直运行）'
 }
 
+/**
+ * 启动行为的选项文案。
+ *
+ * 刻意**不带括号说明**：这两档的区别在设置页里由单选项本身表达，
+ * 括号补丁式解释只会让标签变长、扫描变慢（对齐 Chrome/Edge 的 `On startup` 写法）。
+ * 细节（"崩溃后才提示恢复"）留给文档与报告，不进控件标签。
+ */
 export const sessionStartupLabels: Record<SessionStartupMode, string> = {
-  newtab: '打开新标签页（崩溃后才提示恢复）',
-  continue: '继续上次会话（恢复所有标签）'
+  newtab: '打开新标签页',
+  continue: '打开上一个会话中的标签页'
 }
 
 export const prewarmModeLabels: Record<PrewarmMode, string> = {
@@ -172,6 +179,8 @@ export const settingsChannels = {
   changed: 'settings:changed',
   /** 清除已保存的会话（分类清理的「会话」档，M2 存储清理）。 */
   sessionClear: 'settings:session-clear',
+  /** 清除站点引擎规则（分类清理的「规则」档）。 */
+  engineRulesClear: 'settings:engine-rules-clear',
   /** 读 Flash 插件状态（是否就绪 / 版本 / 是否需要重启）。 */
   flashStatus: 'settings:flash-status',
   /** 打开文件选择框导入插件（复制到 `<userData>/flash/`）。 */
@@ -233,6 +242,12 @@ export interface SettingsBridge {
    * 800 ms 后把当前标签又写回去），下次启动恢复记录能力。
    */
   clearSession(): Promise<boolean>
+  /**
+   * 清除站点引擎规则（「记住的引擎」）。
+   *
+   * 只删规则表，不动任何标签：已打开的标签保持当前引擎，重新计算来源后会显示为默认值。
+   */
+  clearEngineRules(): Promise<boolean>
   flashStatus(): Promise<FlashPluginState | undefined>
   flashImport(): Promise<FlashImportResult>
   /** 在文件管理器里定位当前插件；没有真实文件时返回 false。 */

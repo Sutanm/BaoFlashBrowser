@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
-  DISCARD_MODES, SESSION_STARTUP_MODES, discardModeLabels, prewarmModeLabels, sessionStartupLabels, PREWARM_MODES
+  SESSION_STARTUP_MODES, THEME_MODES, discardModeLabels, prewarmModeLabels, sessionStartupLabels,
+  themeModeLabels, PREWARM_MODES
 } from '../shared/settings'
-import type { SettingsSnapshot, ThemeMode } from '../shared/settings'
+import type { PrewarmMode, SessionStartupMode, SettingsSnapshot, ThemeMode } from '../shared/settings'
 import type { FlashPluginState } from '../shared/settings'
 import type { BrowserEngine } from '../shared/engine'
-import ThemeSwitch from './ThemeSwitch.vue'
+import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme } from './theme'
 
 /**
@@ -33,8 +34,8 @@ const engine = computed(() => current.value?.defaultEngine ?? 'ppapi')
 const prewarm = computed(() => current.value?.overlayPrewarm ?? 'auto')
 const tabDiscard = computed(() => current.value?.tabDiscard ?? 'auto')
 const sessionStartup = computed(() => current.value?.sessionStartup ?? 'newtab')
-const discardModes = DISCARD_MODES
 const prewarmModes = PREWARM_MODES
+const themeModes = THEME_MODES
 const startupModes = SESSION_STARTUP_MODES
 const storage = computed(() => snapshot.value?.storage ?? 'ready')
 
@@ -46,6 +47,24 @@ const storage = computed(() => snapshot.value?.storage ?? 'ready')
  */
 const sessionClearing = ref(false)
 const dataNotice = ref('')
+
+/** 「数据」分区第二档：站点引擎规则（只删规则，不重载已打开的标签）。 */
+const rulesClearing = ref(false)
+const rulesNotice = ref('')
+
+async function clearEngineRules(): Promise<void> {
+  if (rulesClearing.value) return
+  rulesClearing.value = true
+  rulesNotice.value = ''
+  try {
+    const cleared = await window.baoSettings.clearEngineRules()
+    rulesNotice.value = cleared ? '已清除站点引擎规则' : '清除失败，规则未改动'
+  } catch {
+    rulesNotice.value = '清除失败，规则未改动'
+  } finally {
+    rulesClearing.value = false
+  }
+}
 
 async function clearSession(): Promise<void> {
   if (sessionClearing.value) return
@@ -94,6 +113,20 @@ async function write(patch: { key: 'theme.mode' | 'engine.default' | 'locale' | 
 
 function chooseTheme(mode: ThemeMode): void {
   void write({ key: 'theme.mode', value: mode })
+}
+
+/** 启动行为：单选项直写（与默认引擎一致，写成功才更新本地快照）。 */
+function chooseStartup(mode: SessionStartupMode): void {
+  void write({ key: 'session.startup', value: mode })
+}
+
+function choosePrewarm(mode: PrewarmMode): void {
+  void write({ key: 'overlay.prewarm', value: mode })
+}
+
+/** 后台休眠本质是开/关能力，用 switch 比两个互斥选项更直接。 */
+function toggleTabDiscard(): void {
+  void write({ key: 'tab.discard', value: tabDiscard.value === 'auto' ? 'never' : 'auto' })
 }
 
 function chooseEngine(next: BrowserEngine): void {
@@ -160,118 +193,197 @@ function focusFlashSection(): void {
 </script>
 
 <template>
-  <header class="settings-head">
-    <h1>设置</h1>
-    <p class="hint">bao://settings · 内部页，不记录历史</p>
-    <p v-if="storage === 'unavailable'" class="warn" role="alert">
-      设置存储不可用：本次修改不会保存，重启后回到默认值。
-    </p>
-  </header>
-
   <div class="settings-body">
     <nav class="settings-nav" aria-label="设置分类">
-      <button type="button" aria-current="page"><span class="dot" aria-hidden="true"></span>外观</button>
+      <h1 class="nav-title">设置</h1>
+      <button type="button" aria-current="page"><ShellIcon name="gear" />外观与偏好</button>
       <button type="button" disabled>下载</button>
       <button type="button" disabled>隐私与清理</button>
       <button type="button" disabled>关于</button>
     </nav>
 
     <main class="settings-content">
-      <section aria-labelledby="theme-title">
-        <h2 id="theme-title">主题</h2>
-        <div class="settings-theme">
-          <ThemeSwitch :mode="theme" :busy="busy" @select="chooseTheme" />
+      <p v-if="storage === 'unavailable'" class="warn" role="alert">
+        设置存储不可用：本次修改不会保存，重启后回到默认值。
+      </p>
+
+      <section class="setting-section" aria-labelledby="theme-title">
+        <header class="section-heading">
+          <h2 id="theme-title">主题</h2>
+          <p class="section-caption">选择最适合当前环境的界面外观</p>
+        </header>
+        <div class="setting-card setting-card--row">
+          <div class="preference-copy">
+            <h3>整体外观</h3>
+            <p>应用于标签页、页面、对话框和其他菜单</p>
+          </div>
+          <div class="segmented-control" role="radiogroup" aria-label="主题">
+            <button
+              v-for="mode in themeModes"
+              :key="mode"
+              type="button"
+              class="segmented-option theme-stop"
+              role="radio"
+              :aria-checked="theme === mode"
+              :aria-label="themeModeLabels[mode]"
+              :disabled="busy"
+              @click="chooseTheme(mode)"
+            >
+              <span class="theme-mode-icon" :data-mode="mode" aria-hidden="true"></span>
+              <span>{{ themeModeLabels[mode] }}</span>
+            </button>
+          </div>
         </div>
       </section>
 
-      <section aria-labelledby="engine-title">
-        <h2 id="engine-title">默认引擎</h2>
-        <div role="radiogroup" aria-label="默认引擎" class="choices">
-          <button
-            type="button"
-            class="choice"
-            role="radio"
-            :aria-checked="engine === 'ppapi'"
-            :aria-disabled="busy || !flashReady ? 'true' : 'false'"
-            :title="flashReady ? undefined : '未检测到 Flash 插件，当前自动使用 Ruffle'"
-            @click="chooseEngine('ppapi')"
-          >
-            <span class="radio" aria-hidden="true"></span>
-            <span class="label">原生 Flash（PPAPI）</span>
-          </button>
-          <button
-            type="button"
-            class="choice"
-            role="radio"
-            :aria-checked="engine === 'ruffle'"
-            :disabled="busy"
-            @click="chooseEngine('ruffle')"
-          >
-            <span class="radio" aria-hidden="true"></span>
-            <span class="label">Ruffle</span>
-          </button>
+      <section class="setting-section" aria-labelledby="engine-title">
+        <header class="section-heading">
+          <h2 id="engine-title">默认引擎</h2>
+          <p class="section-caption">决定 Flash 内容优先使用的运行方式</p>
+        </header>
+        <div class="setting-card">
+          <div role="radiogroup" aria-label="默认引擎" class="choices">
+            <button
+              type="button"
+              class="choice"
+              role="radio"
+              :aria-checked="engine === 'ppapi'"
+              :aria-disabled="busy || !flashReady ? 'true' : 'false'"
+              :title="flashReady ? undefined : '未检测到 Flash 插件，当前自动使用 Ruffle'"
+              @click="chooseEngine('ppapi')"
+            >
+              <span class="radio" aria-hidden="true"></span>
+              <span class="label">原生 Flash（PPAPI）</span>
+            </button>
+            <button
+              type="button"
+              class="choice"
+              role="radio"
+              :aria-checked="engine === 'ruffle'"
+              :disabled="busy"
+              @click="chooseEngine('ruffle')"
+            >
+              <span class="radio" aria-hidden="true"></span>
+              <span class="label">Ruffle</span>
+            </button>
+          </div>
         </div>
       </section>
 
-      <section id="flash-section" aria-labelledby="flash-title">
-        <h2 id="flash-title">Flash 插件</h2>
-        <div class="select-row flash-row">
-          <span class="flash-state" :class="{ ready: flash?.ready }">{{ flashStatusText }}</span>
-          <span class="flash-path" :title="flash?.path">{{ flash?.path }}</span>
-          <button type="button" class="action" :disabled="!flash?.found" @click="revealFlash">打开所在文件夹</button>
-          <button type="button" class="action" :disabled="flashBusy" @click="importFlash">导入</button>
+      <section id="flash-section" class="setting-section" aria-labelledby="flash-title">
+        <header class="section-heading"><h2 id="flash-title">Flash 插件</h2></header>
+        <div class="setting-card">
+          <div class="select-row flash-row">
+            <span class="flash-state" :class="{ ready: flash?.ready }">{{ flashStatusText }}</span>
+            <span class="flash-path" :title="flash?.path">{{ flash?.path }}</span>
+            <button type="button" class="action" :disabled="!flash?.found" @click="revealFlash">打开所在文件夹</button>
+            <button type="button" class="action" :disabled="flashBusy" @click="importFlash">导入</button>
+          </div>
+          <p v-if="flashMissing" class="lead">
+            已自动查找系统安装的 Flash、Chrome/Chromium 的 PepperFlash、常见双核浏览器与下载目录。
+            需要指定版本时用「导入」，导入的插件优先于自动发现。
+          </p>
+          <p v-if="flashError" class="error" role="status">{{ flashError }}</p>
         </div>
-        <p v-if="flashMissing" class="lead">
-          已自动查找系统安装的 Flash、Chrome/Chromium 的 PepperFlash、常见双核浏览器与下载目录。
-          需要指定版本时用「导入」，导入的插件优先于自动发现。
-        </p>
-        <p v-if="flashError" class="error" role="status">{{ flashError }}</p>
       </section>
 
-      <section aria-labelledby="startup-title">
-        <h2 id="startup-title">启动</h2>
-        <label class="select-row">
-          <span>启动时</span>
-          <select :value="sessionStartup" :disabled="busy" @change="write({ key: 'session.startup', value: ($event.target as HTMLSelectElement).value })">
-            <option v-for="mode in startupModes" :key="mode" :value="mode">{{ sessionStartupLabels[mode] }}</option>
-          </select>
-        </label>
-      </section>
-
-      <section aria-labelledby="perf-title">
-        <h2 id="perf-title">性能</h2>
-        <label class="select-row">
-          <span>飞窗预热</span>
-          <select :value="prewarm" :disabled="busy" @change="write({ key: 'overlay.prewarm', value: ($event.target as HTMLSelectElement).value })">
-            <option v-for="mode in prewarmModes" :key="mode" :value="mode">{{ prewarmModeLabels[mode] }}</option>
-          </select>
-        </label>
-        <label class="select-row">
-          <span>后台标签休眠</span>
-          <select :value="tabDiscard" :disabled="busy" @change="write({ key: 'tab.discard', value: ($event.target as HTMLSelectElement).value })">
-            <option v-for="mode in discardModes" :key="mode" :value="mode">{{ discardModeLabels[mode] }}</option>
-          </select>
-        </label>
-      </section>
-
-      <section aria-labelledby="language-title">
-        <h2 id="language-title">语言</h2>
-        <label class="select-row">
-          <span>界面语言</span>
-          <select :value="current?.locale ?? 'zh-CN'" :disabled="busy" @change="write({ key: 'locale', value: ($event.target as HTMLSelectElement).value })">
-            <option value="zh-CN">简体中文</option>
-          </select>
-        </label>
-      </section>
-
-      <section aria-labelledby="data-title">
-        <h2 id="data-title">数据</h2>
-        <div class="select-row">
-          <span>已保存的会话</span>
-          <button type="button" class="action" :disabled="sessionClearing" @click="clearSession">清除</button>
+      <section class="setting-section" aria-labelledby="startup-title">
+        <header class="section-heading"><h2 id="startup-title">启动</h2></header>
+        <div class="setting-card">
+          <div role="radiogroup" aria-label="启动时" class="choices">
+            <button
+              v-for="mode in startupModes"
+              :key="mode"
+              type="button"
+              class="choice"
+              role="radio"
+              :aria-checked="sessionStartup === mode"
+              :disabled="busy"
+              @click="chooseStartup(mode)"
+            >
+              <span class="radio" aria-hidden="true"></span>
+              <span class="label">{{ sessionStartupLabels[mode] }}</span>
+            </button>
+          </div>
         </div>
-        <p class="lead">删除上次退出时保存的标签记录与崩溃恢复提示。清除后本次运行不再记录会话，下次启动恢复记录。</p>
-        <p v-if="dataNotice" role="status">{{ dataNotice }}</p>
+      </section>
+
+      <section class="setting-section" aria-labelledby="perf-title">
+        <header class="section-heading"><h2 id="perf-title">性能</h2></header>
+        <div class="setting-card">
+          <div class="preference-block">
+            <div class="preference-copy">
+              <h3>飞窗预热</h3>
+              <p>决定飞窗在使用前何时准备好</p>
+            </div>
+            <div role="radiogroup" aria-label="飞窗预热" class="segmented-control segmented-control--prewarm">
+              <button
+                v-for="mode in prewarmModes"
+                :key="mode"
+                type="button"
+                class="segmented-option"
+                role="radio"
+                :aria-checked="prewarm === mode"
+                :disabled="busy"
+                @click="choosePrewarm(mode)"
+              >
+                <span>{{ prewarmModeLabels[mode] }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="preference-divider" aria-hidden="true"></div>
+          <div class="toggle-row">
+            <div class="preference-copy">
+              <h3>后台标签休眠</h3>
+              <p>{{ discardModeLabels[tabDiscard] }}</p>
+            </div>
+            <button
+              type="button"
+              class="toggle"
+              role="switch"
+              :aria-checked="tabDiscard === 'auto'"
+              aria-label="后台标签休眠"
+              :disabled="busy"
+              @click="toggleTabDiscard"
+            >
+              <span class="toggle-knob" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="setting-section" aria-labelledby="language-title">
+        <header class="section-heading"><h2 id="language-title">语言</h2></header>
+        <div class="setting-card">
+          <div class="value-row">
+            <div class="preference-copy">
+              <h3>界面语言</h3>
+              <p>当前版本仅提供一种界面语言</p>
+            </div>
+            <span class="current-value">简体中文</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="setting-section" aria-labelledby="data-title">
+        <header class="section-heading">
+          <h2 id="data-title">数据</h2>
+          <p class="section-caption">管理保存在本机上的浏览会话</p>
+        </header>
+        <div class="setting-card">
+          <div class="select-row">
+            <span>已保存的会话</span>
+            <button type="button" class="action" aria-label="清除已保存的会话" :disabled="sessionClearing" @click="clearSession">清除</button>
+          </div>
+          <p class="lead">删除上次退出时保存的标签记录与崩溃恢复提示。清除后本次运行不再记录会话，下次启动恢复记录。</p>
+          <p v-if="dataNotice" role="status">{{ dataNotice }}</p>
+          <div class="select-row">
+            <span>站点引擎规则</span>
+            <button type="button" class="action" aria-label="清除站点引擎规则" :disabled="rulesClearing" @click="clearEngineRules">清除</button>
+          </div>
+          <p class="lead">删除各站点「记住的引擎」规则；已打开的标签不会重新加载，来源回到默认。</p>
+          <p v-if="rulesNotice" role="status">{{ rulesNotice }}</p>
+        </div>
       </section>
 
       <p v-if="error" class="error" role="status">{{ error }}</p>
@@ -282,7 +394,7 @@ function focusFlashSection(): void {
 <style>
 :root {
   color-scheme: light;
-  font: var(--size-body, 13px)/1.5 var(--shell-font);
+  font: var(--size-body, 14px)/1.5 var(--shell-font);
   color: var(--text-primary);
   background: var(--surface-page);
 }
@@ -290,35 +402,26 @@ function focusFlashSection(): void {
 :root[data-theme='dark'] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
-body { margin: 0; background: var(--surface-page); }
-h1, h2, p { margin: 0; }
-button, select { font: inherit; color: inherit; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 72% -20%, color-mix(in srgb, var(--engine-accent) 8%, transparent), transparent 38%),
+    var(--surface-page);
+}
+h1, h2, h3, p { margin: 0; }
+button { font: inherit; color: inherit; }
 button { border: 0; background: none; cursor: pointer; }
 button:disabled { cursor: default; opacity: 0.6; }
 /* 只有键盘操作才画焦点环：鼠标点选不该出现蓝框。
-   环 = Chrome 同款（2px、外侧、跟随控件圆角），颜色取我们的 accent 62%。
-   <select> 在 Chromium 里鼠标点击也匹配 :focus-visible（CSSWG #5822），
-   这里不额外压掉它——与 Chrome 行为一致。 */
+   环 = Chrome 同款（2px、外侧、跟随控件圆角），颜色取我们的 accent 62%。 */
 :focus:not(:focus-visible) { outline: none; }
 :focus-visible {
   outline: 2px solid var(--stroke-focus-ring);
   outline-offset: 1px;
 }
 
-.settings-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
-  padding: 16px 22px 12px;
-  border-bottom: 1px solid var(--stroke-divider);
-}
-.settings-head h1 { font-size: 17px; letter-spacing: -0.01em; }
-.settings-head .hint { font-size: 11px; color: var(--text-secondary); }
-.settings-head .warn {
-  flex-basis: 100%;
-  margin-top: 6px;
+.settings-content > .warn {
   padding: 6px 9px;
   border-radius: 7px;
   font-size: 12px;
@@ -328,58 +431,82 @@ button:disabled { cursor: default; opacity: 0.6; }
 
 .settings-body {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  height: calc(100vh - 62px);
-  min-height: 0;
+  grid-template-columns: minmax(300px, 1fr) minmax(0, 860px) minmax(0, 1fr);
+  align-items: start;
+  height: 100vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .settings-nav {
-  padding: 12px 10px;
-  border-right: 1px solid var(--stroke-divider);
-  background: transparent;
+  grid-column: 1;
+  justify-self: start;
+  position: sticky;
+  top: 0;
+  width: 300px;
+  height: 100vh;
+  padding: 30px 14px;
   overflow: auto;
+  overscroll-behavior: contain;
+}
+.settings-nav .nav-title {
+  margin: 0 12px 28px;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -.02em;
 }
 .settings-nav button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 6px;
+  min-height: 40px;
+  padding: 0 13px;
+  border-radius: 999px;
   font-size: 13px;
   text-align: left;
+  transition: background var(--motion-fast), color var(--motion-fast);
 }
 .settings-nav button[aria-current='page'] {
-  background: var(--surface-hover);
+  color: var(--engine-accent);
+  background: color-mix(in srgb, var(--engine-accent) 11%, var(--surface-toolbar));
   color: var(--text-primary);
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--engine-accent) 8%, transparent);
 }
+.settings-nav button[aria-current='page'] .shell-icon { color: var(--engine-accent); }
 .settings-nav button:disabled { color: var(--text-secondary); opacity: 0.55; }
-.settings-nav .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  flex: none;
-}
 
-/* 卡片式内容区（对齐 Edge 设置页：居中列 + 每节一张卡片） */
+/* Chromium Settings 的核心是稳定的单列扫描路径；宽屏只增加两侧留白，不重排设置顺序。 */
 .settings-content {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
   width: 100%;
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 20px 28px 32px;
-  overflow: auto;
+  padding: 32px 12px 48px;
 }
-.settings-content section {
-  margin-bottom: 12px;
-  padding: 16px 20px 18px;
-  border: 1px solid var(--stroke-divider);
-  border-radius: 12px;
-  background: var(--surface-toolbar);
+.setting-section {
+  flex: none;
+  min-width: 0;
 }
-.settings-content section:last-of-type { margin-bottom: 0; }
-.settings-content h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.section-heading {
+  padding: 0 12px 10px;
+}
+.setting-card {
+  padding: 18px 22px;
+  border: 1px solid color-mix(in srgb, var(--stroke-control) 70%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-toolbar) 96%, transparent);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 3px 10px rgb(0 0 0 / 2%);
+  overflow: hidden;
+}
+.settings-content h2 { font-size: 16px; line-height: 1.3; font-weight: 650; }
+.settings-content .section-caption {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
 .settings-content .lead { font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
 .settings-content code {
   padding: 0 3px;
@@ -388,7 +515,90 @@ button:disabled { cursor: default; opacity: 0.6; }
   font-size: 11px;
 }
 
-.settings-theme { padding: 12px 0 3px; }
+.setting-card--row,
+.preference-block {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  flex: none;
+  width: min(54%, 330px);
+  padding: 4px;
+  border: 1px solid var(--stroke-control);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-page) 72%, var(--surface-toolbar));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+.segmented-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background var(--motion-fast), box-shadow var(--motion-fast), color var(--motion-fast);
+}
+.segmented-option:hover:not(:disabled):not([aria-checked='true']) { background: var(--surface-hover); }
+.segmented-option[aria-checked='true'] {
+  background: var(--surface-toolbar);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+.segmented-option:disabled { opacity: .6; cursor: default; }
+.segmented-control--prewarm { width: min(62%, 480px); }
+
+.theme-mode-icon {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.theme-mode-icon[data-mode='system']::before {
+  content: '';
+  position: absolute;
+  inset: 2px 1px 4px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+.theme-mode-icon[data-mode='system']::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 1px;
+  left: 4px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.theme-mode-icon[data-mode='light']::before {
+  content: '☼';
+  position: absolute;
+  inset: 0;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 15px;
+  text-align: center;
+}
+.theme-mode-icon[data-mode='dark']::before {
+  content: '☾';
+  position: absolute;
+  inset: -1px 0 0;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+}
 
 .choices { display: grid; gap: 2px; }
 .choice {
@@ -396,8 +606,8 @@ button:disabled { cursor: default; opacity: 0.6; }
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 40px;
-  padding: 6px 10px;
+  min-height: 44px;
+  padding: 7px 11px;
   border: 1px solid transparent;
   border-radius: 8px;
   font-size: 13px;
@@ -429,27 +639,80 @@ button:disabled { cursor: default; opacity: 0.6; }
 .choice .label { flex: 1; min-width: 0; }
 .choice .sub { display: block; font-size: 11px; color: var(--text-secondary); }
 
+.preference-block { padding: 4px 10px 6px; }
+.preference-copy { min-width: 0; }
+.preference-copy h3 {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.preference-copy p {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.preference-divider {
+  height: 1px;
+  margin: 12px 10px;
+  background: var(--stroke-divider);
+}
+.toggle-row,
+.value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 58px;
+  padding: 4px 10px;
+}
+.toggle {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--stroke-control);
+  border-radius: 999px;
+  background: var(--text-secondary);
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+}
+.toggle[aria-checked='true'] {
+  border-color: var(--engine-accent);
+  background: var(--engine-accent);
+}
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface-toolbar);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 28%);
+  transition: translate var(--motion-fast);
+}
+.toggle[aria-checked='true'] .toggle-knob { translate: 18px 0; }
+.current-value {
+  flex: none;
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--surface-hover);
+  font-size: 12px;
+}
+
 .select-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 40px;
-  padding: 6px 10px;
+  min-height: 44px;
+  padding: 7px 10px;
   border-radius: 8px;
   font-size: 13px;
 }
 .select-row:hover { background: var(--surface-hover); }
-.select-row select {
-  flex: none;
-  width: 220px;
-  padding: 3px 6px;
-  border: 1px solid var(--stroke-control);
-  border-radius: 6px;
-  background: var(--surface-toolbar);
-}
-.select-row select:focus { border-color: var(--brand-stroke); }
 
 .error { margin-top: 14px; font-size: 12px; color: var(--text-error, #a82929); }
 
@@ -462,11 +725,36 @@ button:disabled { cursor: default; opacity: 0.6; }
   font-size: 11px; color: var(--text-secondary); direction: rtl; text-align: left;
 }
 .action {
-  flex: none; padding: 3px 10px; border: 1px solid var(--stroke-control); border-radius: 7px;
+  flex: none; min-height: 32px; padding: 4px 12px; border: 1px solid var(--stroke-control); border-radius: 9px;
   background: var(--surface-toolbar); font-size: 12px; cursor: pointer;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 3%);
+  transition: background var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast);
 }
-.action:hover:not(:disabled) { background: var(--surface-hover); }
+.action:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--brand-stroke); transform: translateY(-1px); }
 .action:disabled { opacity: .6; cursor: default; }
+
+@media (max-width: 1100px) {
+  .settings-body { grid-template-columns: 260px minmax(0, 1fr); }
+  .settings-nav { width: 260px; }
+  .settings-content {
+    grid-column: 2;
+    width: 100%;
+    padding: 32px 28px 48px 40px;
+  }
+}
+
+@media (max-width: 720px) {
+  .settings-body { grid-template-columns: 1fr; }
+  .settings-nav { display: none; }
+  .settings-content { grid-column: 1; width: auto; margin: 0; padding: 18px 16px 28px; gap: 12px; }
+  .setting-card { padding: 18px 16px; border-radius: 14px; }
+  .setting-card--row,
+  .preference-block { align-items: stretch; flex-direction: column; gap: 16px; }
+  .segmented-control,
+  .segmented-control--prewarm { width: 100%; }
+  .flash-row { flex-wrap: wrap; }
+  .flash-path { order: 4; flex-basis: 100%; }
+}
 
 @media (forced-colors: active) {
   .choice[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }

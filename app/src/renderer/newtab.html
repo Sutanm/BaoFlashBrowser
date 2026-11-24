@@ -10,11 +10,109 @@
       先铺与 Fluent `colorNeutralBackground2` 相同的底色，Vue 挂载后再由设计 token 接管。
     -->
     <style>
-      html { background: #fafafa; }
-      @media (prefers-color-scheme: dark) { html { background: #1f1f1f; } }
+      :root {
+        --critical-page: #fafafa;
+        --critical-surface: #ffffff;
+        --critical-text: #242424;
+        --critical-muted: #616161;
+        --critical-stroke: #d1d1d1;
+        --critical-accent: #5940ac;
+        --critical-brand: #0f6cbd;
+        background: var(--critical-page);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --critical-page: #1f1f1f;
+          --critical-surface: #292929;
+          --critical-text: #ffffff;
+          --critical-muted: #adadad;
+          --critical-stroke: #666666;
+          --critical-accent: #c8b7ff;
+          --critical-brand: #479ef5;
+        }
+      }
+      html, body, #app { height: 100%; }
+      body { margin: 0; background: var(--critical-page); }
+      #app { position: relative; z-index: 1; opacity: 0; }
+      :root[data-ntp-ready='true'] #app { opacity: 1; }
+      #ntp-first-paint {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        color: var(--critical-text);
+        font: 13px/1.5 "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+      }
+      .critical-main {
+        width: min(960px, 100%);
+        min-height: 100%;
+        margin: 0 auto;
+        padding: clamp(74px, 16vh, 154px) 30px 42px;
+        box-sizing: border-box;
+      }
+      .critical-brand {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 15px;
+        margin-bottom: 28px;
+      }
+      .critical-mark {
+        display: grid;
+        place-items: center;
+        width: 52px;
+        height: 52px;
+        border-radius: 15px;
+        background: linear-gradient(145deg, var(--critical-accent), var(--critical-brand));
+        color: var(--critical-surface);
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: -.04em;
+        box-shadow: 0 8px 24px color-mix(in srgb, var(--critical-accent) 20%, transparent);
+      }
+      .critical-title { font-size: clamp(30px, 3vw, 40px); font-weight: 650; line-height: 1.05; letter-spacing: -.035em; }
+      .critical-tagline { margin-top: 5px; color: var(--critical-muted); }
+      .critical-search {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        height: 58px;
+        padding: 0 7px 0 21px;
+        border: 1px solid var(--critical-stroke);
+        border-radius: 29px;
+        background: var(--critical-surface);
+        box-shadow: 0 5px 18px color-mix(in srgb, var(--critical-text) 9%, transparent);
+        box-sizing: border-box;
+      }
+      .critical-search-icon { position: relative; width: 17px; height: 17px; border: 1.7px solid var(--critical-muted); border-radius: 50%; box-sizing: border-box; }
+      .critical-search-icon::after { position: absolute; right: -5px; bottom: -3px; width: 7px; height: 1.7px; border-radius: 2px; background: var(--critical-muted); content: ''; transform: rotate(45deg); }
+      .critical-placeholder { flex: 1; color: var(--critical-muted); font-size: 15px; }
+      .critical-go { display: grid; place-items: center; width: 76px; height: 44px; border-radius: 23px; background: color-mix(in srgb, var(--critical-surface) 80%, var(--critical-text)); opacity: .6; font-weight: 600; }
+      @media (max-width: 760px) {
+        .critical-main { padding: 52px 20px 30px; }
+        .critical-brand { justify-content: flex-start; }
+        .critical-mark { width: 46px; height: 46px; }
+        .critical-title { font-size: 29px; }
+        .critical-search { height: 54px; }
+      }
     </style>
   </head>
   <body>
+    <div id="ntp-first-paint" aria-hidden="true">
+      <main class="critical-main">
+        <div class="critical-brand">
+          <span class="critical-mark">BF</span>
+          <div>
+            <div class="critical-title">BaoFlashBrowser Next</div>
+            <div class="critical-tagline">为经典网页与 Flash 内容而生</div>
+          </div>
+        </div>
+        <div class="critical-search">
+          <span class="critical-search-icon"></span>
+          <span class="critical-placeholder">搜索或输入网址</span>
+          <span class="critical-go">打开</span>
+        </div>
+      </main>
+    </div>
     <div id="app"></div>
     <script type="module" src="./newtab.ts"></script>
   </body>

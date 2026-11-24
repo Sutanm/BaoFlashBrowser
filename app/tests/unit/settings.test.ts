@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SETTINGS,
+  SESSION_STARTUP_MODES,
   SETTING_KEYS,
   isLocale,
   isThemeMode,
   sanitizeSetting,
+  sessionStartupLabels,
   settingsFromRows,
   settingsToRows
 } from '../../src/shared/settings'
@@ -56,6 +58,14 @@ describe('settingsFromRows', () => {
 
   it('启动行为默认是 newtab（正常退出后重启不恢复）', () => {
     expect(DEFAULT_SETTINGS.sessionStartup).toBe('newtab')
+  })
+
+  it('启动选项的文案不带括号说明（细节归文档，不进控件标签）', () => {
+    for (const mode of SESSION_STARTUP_MODES) {
+      expect(sessionStartupLabels[mode]).not.toMatch(/[（(]/)
+    }
+    expect(sessionStartupLabels.newtab).toBe('打开新标签页')
+    expect(sessionStartupLabels.continue).toBe('打开上一个会话中的标签页')
   })
 
   it('逐行覆盖，坏值单独丢弃', () => {

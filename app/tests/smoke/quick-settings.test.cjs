@@ -115,7 +115,7 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
       await new Promise((done) => setTimeout(done, 150))
       return quick.executeJavaScript(`document.activeElement?.className ?? ''`)
     }, QUICK_URL)
-    assert.match(afterTab, /theme-stop/, '按 Tab 应落到主题开关的选中档')
+    assert.match(afterTab, /theme-option/, '按 Tab 应落到简约主题选择的第一档')
 
     // 菜单式键盘焦点：行用整行高亮，不画环（与 Chrome 菜单一致）。
     const rowFocus = await app.evaluate(async ({ webContents }, marker) => {
@@ -134,31 +134,13 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     assert.notEqual(rowFocus.background, 'rgba(0, 0, 0, 0)', `行应该整行高亮：${JSON.stringify(rowFocus)}`)
 
     // ② 面板里改主题：外壳与系统按钮一起变。
-    const stops = await inQuick(app, `Array.from(document.querySelectorAll('.theme-stop'), (stop) => [
+    const stops = await inQuick(app, `Array.from(document.querySelectorAll('.theme-option'), (stop) => [
       stop.getAttribute('aria-label'), stop.getAttribute('aria-checked')
     ])`)
-    assert.deepEqual(stops, [['浅色', 'false'], ['跟随系统', 'true'], ['深色', 'false']])
-    const clock = await inQuick(app, `(() => {
-      const rotor = document.querySelector('.theme-rotor')
-      const orbit = rotor.getAnimations()[0]
-      const RealDate = Date
-      try {
-        const phases = [0, 12, 18].map((hour) => {
-          window.Date = class extends RealDate {
-            constructor() { super(2026, 0, 1, hour) }
-          }
-          window.dispatchEvent(new Event('focus'))
-          return orbit.currentTime
-        })
-        return { phases, duration: orbit.effect.getTiming().duration }
-      } finally {
-        window.Date = RealDate
-        window.dispatchEvent(new Event('focus'))
-      }
-    })()`)
-    const hour = 60 * 60 * 1000
-    assert.deepEqual(clock, { phases: [0, 12 * hour, 18 * hour], duration: 24 * hour })
-    await inQuick(app, `document.querySelector('.theme-stop[aria-label="深色"]').click()`)
+    assert.deepEqual(stops, [['跟随系统', 'true'], ['浅色', 'false'], ['深色', 'false']])
+    assert.equal(await inQuick(app, `document.querySelector('.theme-rotor')`), null,
+      '快捷面板不再加载动态主题表盘（动画只留在新标签页）')
+    await inQuick(app, `document.querySelector('.theme-option[aria-label="深色"]').click()`)
     await waitFor(async () => (await shellFacts(app, shell)).theme === 'dark' ? true : null,
       { message: '飞窗改主题后外壳没有变暗' })
     const facts = await shellFacts(app, shell)
@@ -185,7 +167,7 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
 
     await settingsEval(`window.baoSettings.write('theme.mode', 'light')`)
     const quickChecked = await waitFor(async () => {
-      const value = await inQuick(app, `document.querySelector('.theme-stop[aria-checked="true"]')?.getAttribute('aria-label')`)
+      const value = await inQuick(app, `document.querySelector('.theme-option[aria-checked="true"]')?.getAttribute('aria-label')`)
       return value?.includes('浅色') ? value : null
     }, { message: '设置页改主题后飞窗没有同步' })
     assert.match(quickChecked, /浅色/)
@@ -231,7 +213,7 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
   }
 })
 
-test('齿轮飞窗：最小窗口下按内容区夹取并内部滚动', { timeout: 120_000 }, async () => {
+test('齿轮飞窗：最小窗口下按内容区夹取，内容需要时可内部滚动', { timeout: 120_000 }, async () => {
   const { app, shell, close } = await launchApp()
   try {
     const windowHandle = await app.browserWindow(shell)
@@ -248,14 +230,14 @@ test('齿轮飞窗：最小窗口下按内容区夹取并内部滚动', { timeou
     assert.ok(view.bounds.y + view.bounds.height <= height, `飞窗越出内容区底部：${JSON.stringify(view.bounds)} vs ${height}`)
     assert.ok(view.bounds.x + view.bounds.width <= width, '飞窗越出内容区右侧')
 
-    // 内容比可用空间高时，面板自身滚动（A 方案：飞窗永远在窗口内）。
+    // 面板始终保留滚动能力；简约主题控件让当前内容可以直接装进最小窗口，不应强造滚动条。
     const overflow = await inQuick(app, `(() => {
       const panel = document.querySelector('.quick')
       return { scrollHeight: panel.scrollHeight, clientHeight: panel.clientHeight, overflowY: getComputedStyle(panel).overflowY }
     })()`)
     assert.equal(overflow.overflowY, 'auto', '夹取后面板必须可滚动')
-    assert.ok(overflow.scrollHeight > overflow.clientHeight,
-      `最小窗口下面板应当溢出并可滚动：${JSON.stringify(overflow)}`)
+    assert.ok(overflow.scrollHeight >= overflow.clientHeight,
+      `最小窗口下面板内容尺寸异常：${JSON.stringify(overflow)}`)
   } finally {
     await close()
   }

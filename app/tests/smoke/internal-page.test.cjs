@@ -297,3 +297,42 @@ test('设置页：焦点环只在键盘操作时出现（鼠标点击不出环�
     await close()
   }
 })
+test('设置页：启动行为是单选项且不带括号说明，点击即写入', { timeout: 120_000 }, async () => {
+  const { app, shell, close } = await launchApp()
+  try {
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'open-settings' }))
+    const id = await waitFor(async () => app.evaluate(({ webContents }) =>
+      webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').startsWith('bao://settings'))?.id ?? null))
+    const inPage = (code) => app.evaluate(({ webContents }, payload) =>
+      webContents.fromId(payload.id).executeJavaScript(payload.code), { id, code })
+    const radios = `[...document.querySelectorAll('[role="radiogroup"][aria-label="启动时"] [role="radio"]')]`
+
+    // 控件形态：单选组、两个选项、文案不带括号（对齐 Chrome/Edge 的 On startup）。
+    const shape = await inPage(`(() => {
+      const options = ${radios}.map((node) => ({
+        text: node.textContent.trim(),
+        checked: node.getAttribute('aria-checked') === 'true'
+      }))
+      return { options }
+    })()`)
+    assert.deepEqual(shape.options.map((option) => option.text),
+      ['打开新标签页', '打开上一个会话中的标签页'], '启动选项的文案不应带括号说明')
+    assert.equal(shape.options[0].checked, true, '默认应选中「打开新标签页」')
+
+    // 点击第二个选项：写入 session.startup，单选状态跟着更新。
+    await inPage(`(() => { ${radios}[1].click(); return true })()`)
+    const written = await waitFor(async () => {
+      const result = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
+      return result.state.settings.sessionStartup === 'continue' ? result.state : null
+    }, { message: '点击「打开上一个会话中的标签页」没有写入设置' })
+    assert.equal(written.settings.sessionStartup, 'continue')
+
+    const after = await waitFor(async () => {
+      const checked = await inPage(`${radios}.map((node) => node.getAttribute('aria-checked') === 'true')`)
+      return Array.isArray(checked) && checked[1] === true ? checked : null
+    }, { message: '单选状态没有跟着写入结果更新' })
+    assert.deepEqual(after, [false, true])
+  } finally {
+    await close()
+  }
+})

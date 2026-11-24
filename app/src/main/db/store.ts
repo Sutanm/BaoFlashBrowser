@@ -301,6 +301,17 @@ export function deleteRule(db: Database, host: string): EngineRules {
   return readRules(db)
 }
 
+/**
+ * 清除全部站点引擎规则（分类清理的「规则」档）。
+ *
+ * 单条 `DELETE` 本身就是原子的，不需要事务；返回删除后的空规则表，
+ * 调用方据此更新内存快照（避免"库里清了、内存还留着旧规则"）。
+ */
+export function clearEngineRules(db: Database): EngineRules {
+  db.run('DELETE FROM engine_rules')
+  return readRules(db)
+}
+
 /** 设置项的类型化取值（供投影与判定使用）。 */
 export function settingValue(settings: Settings, key: SettingKey): SettingValue[SettingKey] {
   switch (key) {

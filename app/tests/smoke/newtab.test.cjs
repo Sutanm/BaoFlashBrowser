@@ -11,6 +11,7 @@ const { launchApp, page, pressShortcut, startFixtureServer, waitFor } = require(
  * - 复用：已经有设置标签时，NTP 上的入口只是切过去，NTP 保留；
  * - 离开：NTP 里输入 http(s) 走同一个标签（内部会话永不承载网页）；
  * - 撤销关闭：纯 NTP 标签不入栈（Chrome 的 `IsTabInteresting`）；
+ * - 主题：艺术拨盘只获得主题这一项设置的写权限，切换后即时同步并持久化；
  * - 边界：NTP 没有任何外壳桥；普通页面也访问不到 `bao://newtab`。
  */
 
@@ -68,14 +69,28 @@ test('新标签页：启动即是真实内部页，地址栏为空、无引擎�
     const visual = await inContents(app, id, `({
       root: getComputedStyle(document.documentElement).backgroundColor,
       body: getComputedStyle(document.body).backgroundColor,
-      animation: getComputedStyle(document.querySelector('.newtab')).animationDuration,
+      criticalFirstPaint: document.querySelector('#ntp-first-paint') !== null,
+      ready: document.documentElement.dataset.ntpReady,
+      realboxWidth: document.querySelector('.realbox').getBoundingClientRect().width,
+      realboxHeight: document.querySelector('.realbox').getBoundingClientRect().height,
+      utilities: document.querySelectorAll('.utility-card').length,
+      themeSwitches: document.querySelectorAll('.theme-shortcut .bao-theme-switch').length,
+      themeStops: document.querySelectorAll('.theme-shortcut [role="radio"]').length,
+      animation: getComputedStyle(document.querySelector('.utility-grid')).animationDuration,
       reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches
     })`)
     const pageColor = state.theme === 'dark' ? 'rgb(31, 31, 31)' : 'rgb(250, 250, 250)'
     assert.equal(visual.root, pageColor, 'NTP 首帧与 Fluent 页面色必须一致')
     assert.equal(visual.body, pageColor, '页面主体不应在挂载后切换底色')
-    assert.equal(visual.animation, visual.reducedMotion ? '0s' : '0.12s',
-      '内容入场应短促，并尊重减少动态效果设置')
+    assert.equal(visual.criticalFirstPaint, false, 'Vue 接管后应移除关键首帧占位')
+    assert.equal(visual.ready, 'true', '关键首帧应完成无空白接管')
+    assert.ok(visual.realboxWidth >= 760, `最大化布局的 realbox 过窄：${visual.realboxWidth}`)
+    assert.equal(visual.realboxHeight, 58, 'realbox 应使用更舒展的 58px 高度')
+    assert.equal(visual.utilities, 3, '新标签页应展示三个真实状态/操作入口')
+    assert.equal(visual.themeSwitches, 1, '新标签页应展示艺术主题拨盘')
+    assert.equal(visual.themeStops, 3, '主题拨盘应提供浅色、跟随系统、深色三档')
+    assert.equal(visual.animation, visual.reducedMotion ? '0s' : '0.1s',
+      '只允许异步状态区短促入场，并尊重减少动态效果设置')
     assert.equal(surface.settings, 'object', '内部页共用 preload（按 kind 换 preload 会打断就地导航）')
     for (const key of ['browser', 'overlay', 'require']) {
       assert.equal(surface[key], 'undefined', `新标签页不该拿到 ${key}`)
@@ -87,7 +102,7 @@ test('新标签页：启动即是真实内部页，地址栏为空、无引擎�
     assert.equal(write.ok, false, '新标签页不该写设置')
     assert.equal(write.code, 'forbidden-sender')
 
-    // 新标签页自己的窄桥：只有状态与两个动词，非法地址在进导航前就被拒。
+    // 新标签页自己的窄桥：只开放页面动作与主题切换，非法地址在进导航前就被拒。
     const ntpFacts = await inContents(app, id, `(async () => {
       const state = await window.baoNtp.read()
       const bad = await window.baoNtp.run({ type: 'navigate', address: 'not a url' })
@@ -105,6 +120,24 @@ test('新标签页：启动即是真实内部页，地址栏为空、无引擎�
     assert.deepEqual(ntpFacts.settings.sort(), ['defaultEngine', 'locale', 'themeMode'])
     assert.equal(ntpFacts.bad.ok, false)
     assert.equal(ntpFacts.bad.code, 'invalid-address')
+
+    // 艺术拨盘可以写主题，但仍不能借此写其它设置。
+    await inContents(app, id, `document.querySelector('.theme-shortcut [aria-label="深色"]').click()`)
+    await waitFor(async () => (await inContents(app, id, `(async () => ({
+      mode: (await window.baoNtp.read())?.settings.themeMode,
+      resolved: document.documentElement.dataset.theme
+    }))()`)).mode === 'dark' ? true : null, { message: '新标签页主题拨盘没有写入深色主题' })
+    const themed = await inContents(app, id, `(async () => ({
+      mode: (await window.baoNtp.read())?.settings.themeMode,
+      resolved: document.documentElement.dataset.theme,
+      selected: document.querySelector('.theme-shortcut [aria-checked="true"]')?.getAttribute('aria-label'),
+      invalid: await window.baoNtp.run({ type: 'set-theme', mode: 'sepia' })
+    }))()`)
+    assert.equal(themed.mode, 'dark')
+    assert.equal(themed.resolved, 'dark')
+    assert.equal(themed.selected, '深色')
+    assert.equal(themed.invalid.ok, false)
+    assert.equal(themed.invalid.code, 'invalid-setting')
 
     // 外壳 UI：地址栏空、没有引擎胶囊。
     const ui = await waitFor(async () => {
@@ -195,7 +228,7 @@ test('新标签页：页面里的设置入口与 realbox 都作用在本标签',
     const tabId = initial.tabs[0].id
 
     // ① 设置入口：与 Ctrl+, 同一条规则 → 同一个标签就地变成设置页。
-    await inContents(app, id, `document.querySelector('.foot .link').click()`).catch(() => {})
+    await inContents(app, id, `document.querySelector('.settings-card').click()`).catch(() => {})
     const settingsState = await waitFor(async () => {
       const state = await snapshot(shell)
       const tab = state.tabs[0]
@@ -252,7 +285,7 @@ test('新标签页：realbox 非 URL 输入给出稳定提示，页面不跳转'
       document.querySelector('.realbox').requestSubmit()
     })()`)
     const text = await waitFor(async () => {
-      const value = await inContents(app, id, `document.querySelector('.error')?.textContent ?? ''`)
+      const value = await inContents(app, id, `document.querySelector('.message.visible')?.textContent ?? ''`)
       return value ? value : null
     }, { message: '非法地址没有给出提示' })
     assert.match(text, /HTTP/)
