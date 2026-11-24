@@ -1253,7 +1253,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       // 预热飞窗：这里外壳文档已经加载完（上面的 await loadURL），立刻建隐藏的叠加层视图，
       // 用户看到窗口、把鼠标移过去时它通常已经热了。自动化模式不预热——那会给
       // 「页面视图计数」类断言多一个子视图。飞窗只有一个视图（panel/quick 共用），预热一次就够。
-      if (!closing && !window.isDestroyed()) overlays.prewarm()
+      // BAO_NO_PREWARM=1 只用于 A/B 度量（对比「预热 / 不预热」的内存与首开延迟）。
+      if (!closing && !window.isDestroyed() && process.env.BAO_NO_PREWARM !== '1') overlays.prewarm()
     }
   } catch (error) {
     closing = true
@@ -1400,6 +1401,17 @@ export function registerBrowserIpc(): void {
    * 只有内部设置页能调；对话框由主进程弹（页面拿不到任意文件路径）。导入只把文件复制到
    * `<userData>/flash/`，插件注册发生在下一次启动，所以结果里带 `restartRequired`。
    */
+  // 叠加层耗时度量（临时）：只有外壳能读，用来决定「悬停预热」是否值得。
+  ipcMain.handle(overlayChannels.metrics, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || controller.overlays.sender(event) !== 'shell') return undefined
+    return controller.overlays.metrics()
+  })
+  ipcMain.handle(overlayChannels.metricsReset, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || controller.overlays.sender(event) !== 'shell') return false
+    return controller.overlays.resetMetrics()
+  })
   ipcMain.handle(settingsChannels.flashStatus, (event) => {
     const controller = controllerFor(event)
     if (!controller || !controller.internalSender(event)) return undefined

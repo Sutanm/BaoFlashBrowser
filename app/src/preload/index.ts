@@ -49,6 +49,9 @@ const overlay: OverlayBridge = {
   closeQuick: (restoreFocus = true) => runOverlay({ type: 'close-quick', restoreFocus }),
   dismissToast: () => runOverlay({ type: 'dismiss-toast' }),
   reportFailure: (text) => runOverlay({ type: 'report-failure', text }),
+  reportReady: () => runOverlay({ type: 'report-ready' }),
+  readMetrics: () => ipcRenderer.invoke(overlayChannels.metrics),
+  resetMetrics: () => ipcRenderer.invoke(overlayChannels.metricsReset),
   subscribe(listener) {
     overlayListeners.add(listener)
     const pending = pendingOverlayEvent

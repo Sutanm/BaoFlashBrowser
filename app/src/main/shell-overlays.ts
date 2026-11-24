@@ -6,6 +6,7 @@ import type { BrowserState } from '../shared/browser'
 import { OVERLAY_QUERY, overlayChannels } from '../shared/overlay'
 import { clampBelow, clampBounds } from '../shared/overlay-geometry'
 import type { OverlayBounds, OverlayEvent, OverlayKind } from '../shared/overlay'
+import { beginOpen, markContent, markVisible, readSamples, resetSamples, summarize } from './overlay-metrics'
 import { getShellSession } from './sessions'
 
 interface HostedView {
@@ -59,6 +60,7 @@ export function createShellOverlays(
   const shell = window.webContents
   let flyout: HostedView | undefined
   let activePage: WebContents | undefined
+  let pendingOpen = 0
   let disposed = false
 
   function sender(event: IpcMainInvokeEvent): 'shell' | 'panel' | 'quick' | 'toast' | undefined {
@@ -161,6 +163,7 @@ export function createShellOverlays(
     if (item.view.getVisible()) return
     item.view.setVisible(true)
     raise()
+    if (pendingOpen) markVisible(pendingOpen)
     if (kind !== 'toast') {
       // 后台窗口不抢前台（与 browser-window 的 focusContents 同一合同）：
       // 自动化或窗口被盖住时，打开飞窗不应该把窗口拉到前台。
@@ -230,6 +233,9 @@ export function createShellOverlays(
 
   /** 打开（或换内容并重新定位）叠加层。panel / quick / toast 用同一个视图。 */
   function showOverlay(kind: OverlayKind, bounds: OverlayBounds): void {
+    // 度量：记录点击那一刻视图处于哪种状态（cold / warming / warm）。
+    const state = flyout ? (flyout.ready ? 'warm' : 'warming') : 'cold'
+    pendingOpen = beginOpen(kind, state)
     // toast 与飞窗互斥：先按正常路径关掉当前那种（会通知外壳），再切内容。
     if (flyout?.kind && flyout.kind !== kind && flyout.kind !== 'toast') close(flyout.kind, false)
     const item = host()
@@ -299,6 +305,11 @@ export function createShellOverlays(
         return role === 'quick' && typeof value.restoreFocus === 'boolean' && closeQuick(value.restoreFocus)
       case 'dismiss-toast':
         return role === 'toast' && dismissToast()
+      case 'report-ready': {
+        if (role !== 'panel' && role !== 'quick' && role !== 'toast') return false
+        if (pendingOpen) markContent(pendingOpen)
+        return true
+      }
       case 'report-failure':
         if ((role !== 'panel' && role !== 'quick') || !isText(value.text)) return false
         send(shell, { type: 'failure', text: value.text })
@@ -323,6 +334,12 @@ export function createShellOverlays(
     setActivePage,
     panelVisible: () => flyout?.kind === 'panel' && flyout.view.getVisible() === true,
     quickVisible: () => flyout?.kind === 'quick' && flyout.view.getVisible() === true,
+    /** 度量：读出/清空打开耗时样本（临时接口，决定悬停预热后移除）。 */
+    metrics: () => ({ samples: readSamples(), summary: summarize(readSamples()) }),
+    resetMetrics: () => {
+      resetSamples()
+      return true
+    },
     /** 预热：提前建好隐藏的叠加层视图（首次打开只差一次 setBounds），不改变可见性。 */
     prewarm() {
       host()

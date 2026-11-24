@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useBrowserStore } from './stores/browser'
 
 /**
@@ -34,6 +34,16 @@ function markOpening(): void {
   openTimer = window.setTimeout(() => { delete root.dataset.overlayOpen }, 180)
 }
 
+/**
+ * 度量：等内容真正提交到一帧之后再回报（`nextTick` 只保证 DOM 更新，
+ * 再加一次 rAF 才接近「渲染层已出画面」；这是代理指标，不是屏幕呈现证明）。
+ */
+function reportReadyAfterPaint(): void {
+  void nextTick(() => {
+    requestAnimationFrame(() => { void window.baoOverlay.reportReady() })
+  })
+}
+
 onMounted(() => {
   setIdle(true)
   store.connect()
@@ -57,6 +67,7 @@ onMounted(() => {
       active.value = false
     }
     setIdle(!active.value)
+    if (active.value) reportReadyAfterPaint()
   })
 })
 

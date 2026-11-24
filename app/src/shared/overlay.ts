@@ -4,7 +4,10 @@ export type OverlayKind = 'panel' | 'toast' | 'quick'
 
 export const overlayChannels = {
   command: 'overlay:command',
-  event: 'overlay:event'
+  event: 'overlay:event',
+  /** 度量（临时）：读取/清空叠加层打开耗时。 */
+  metrics: 'overlay:metrics',
+  metricsReset: 'overlay:metrics-reset'
 } as const
 
 /** Bounds in window client coordinates (device-independent pixels). */
@@ -39,6 +42,8 @@ export type OverlayCommand =
   | { type: 'close-quick'; restoreFocus: boolean }
   | { type: 'dismiss-toast' }
   | { type: 'report-failure'; text: string }
+  /** 叠加层文档报告「本次内容已渲染」（度量用，非产品行为）。 */
+  | { type: 'report-ready' }
 
 export interface OverlayBridge {
   /** Shell only. Non-null opens/repositions, null closes without notification. */
@@ -59,5 +64,10 @@ export interface OverlayBridge {
   dismissToast(): Promise<boolean>
   /** Panel only. Relay a command failure to the shell, which owns toast text. */
   reportFailure(text: string): Promise<boolean>
+  /** 叠加层报告内容已渲染（度量用）。 */
+  reportReady(): Promise<boolean>
+  /** 读取/清空打开耗时样本（shell 侧度量用）。 */
+  readMetrics(): Promise<{ samples: unknown[]; summary: Record<string, { n: number; p50: number; p95: number; p99: number }> }>
+  resetMetrics(): Promise<boolean>
   subscribe(listener: (event: OverlayEvent) => void): () => void
 }
