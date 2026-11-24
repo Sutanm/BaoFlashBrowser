@@ -254,6 +254,7 @@ export function deleteRule(db: Database, host: string): EngineRules {
 export function settingValue(settings: Settings, key: SettingKey): SettingValue[SettingKey] {
   switch (key) {
     case 'overlay.prewarm': return settings.overlayPrewarm
+    case 'tab.discard': return settings.tabDiscard
     case 'theme.mode': return settings.themeMode
     case 'engine.default': return settings.defaultEngine
     case 'locale': return settings.locale

@@ -37,7 +37,8 @@ const windowIcon = process.platform === 'win32'
  */
 interface Tab {
   id: number
-  view: WebContentsView
+  /** 休眠（丢弃）时为空：省掉一整个渲染进程，切回时按 lastUrl 重建。 */
+  view?: WebContentsView
   binding: number
   error: string
   failedUrl?: string
@@ -55,6 +56,13 @@ interface Tab {
    * 内部页不参与引擎切换/站点规则/下载，也没有页面权限。
    */
   internal?: 'settings'
+  /** 休眠状态：视图已销毁，切回时重建。 */
+  discarded?: boolean
+  /** 休眠时展示用的缓存（视图没了就读不到）。 */
+  lastUrl?: string
+  lastTitle?: string
+  /** 进入后台的时刻（毫秒），用于 TTL 判定。 */
+  backgroundSince?: number
   host?: TabHost
 }
 
@@ -278,11 +286,32 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    */
   function sourceOf(tab: Tab): EngineSource {
     if (tab.manualOverride) return 'manual'
-    const url = tab.failedUrl ?? safe(() => tab.view.webContents.getURL(), '')
+    const url = tab.failedUrl ?? tab.lastUrl ?? safe(() => tab.view?.webContents.getURL() ?? '', '')
     return engineRules.resolve(hostOf(url === START_PAGE ? '' : url)).source
   }
 
   function describe(tab: Tab): BrowserTab {
+    // 休眠标签没有视图：用缓存字段展示（标题/地址），其它能力一律为假。
+    if (!tab.view) {
+      const address = tab.lastUrl === START_PAGE ? '' : (tab.lastUrl ?? '')
+      return {
+        id: tab.id,
+        title: tab.lastTitle || tab.initialTitle,
+        address,
+        canGoBack: false,
+        canGoForward: false,
+        loading: false,
+        crashed: false,
+        error: tab.error,
+        notice: tab.notice,
+        engine: tab.engine,
+        engineSource: sourceOf(tab),
+        pinned: tab.pinned,
+        muted: tab.muted,
+        internal: tab.internal,
+        discarded: true
+      }
+    }
     const contents = tab.view.webContents
     const destroyed = contents.isDestroyed()
     const crashed = !destroyed && contents.isCrashed()
@@ -370,6 +399,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     overlays.layout()
     if (!active) return
     const [width, height] = window.getContentSize()
+    if (!active?.view) return
     const y = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT
     active.view.setBounds({ x: 0, y, width, height: Math.max(0, height - y) })
     // 失败时让外壳绘制带重试动作的内容页，不在工具栏里塞错误文字。
@@ -576,6 +606,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   function load(tab: Tab, url: string): void {
+    if (!tab.view) return
     void tab.view.webContents.loadURL(url).catch(() => {})
   }
 
@@ -647,17 +678,92 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!contents.isDestroyed()) contents.focus()
   }
 
+  /** 后台标签休眠阈值：10 分钟（开关见设置项 `tab.discard`）。 */
+  // 默认 10 分钟；BAO_DISCARD_TTL_MS / BAO_DISCARD_SWEEP_MS 仅供测试缩短时间片。
+  const DISCARD_TTL_MS = Number(process.env.BAO_DISCARD_TTL_MS ?? 10 * 60_000)
+  /** 扫描周期：30 秒。 */
+  const DISCARD_SWEEP_MS = Number(process.env.BAO_DISCARD_SWEEP_MS ?? 30_000)
+
+  /** 让标签进入休眠：销毁它的视图（省掉一整个渲染进程），只保留元数据。 */
+  function discardTab(tab: Tab): void {
+    const view = tab.view
+    if (!view) return
+    tab.lastUrl = safe(() => view.webContents.getURL(), tab.lastUrl ?? '')
+    tab.lastTitle = safe(() => view.webContents.getTitle(), tab.lastTitle ?? '')
+    if (window.contentView.children.includes(view)) window.contentView.removeChildView(view)
+    tab.binding += 1
+    tab.view = undefined
+    tab.discarded = true
+    tab.backgroundSince = undefined
+    tab.error = ''
+    tab.notice = undefined
+    if (!view.webContents.isDestroyed()) view.webContents.close()
+    publish()
+  }
+
+  /** 唤醒休眠标签：重建视图并按休眠前的地址重新加载（引擎沿用当前值）。 */
+  function revive(tab: Tab): void {
+    if (tab.view) return
+    const view = tab.internal ? createInternalView() : createPageView(tab.engine)
+    tab.view = view
+    tab.binding += 1
+    tab.discarded = false
+    bind(tab, view)
+    load(tab, tab.lastUrl || (tab.internal ? SETTINGS_URL : START_PAGE))
+    publish()
+  }
+
+  /**
+   * 定时扫描：把「后台超过 TTL」的标签置为休眠。
+   *
+   * 守卫（任何一条命中都不休眠）：当前标签、内部页、置顶标签、正在出声、非 http(s)。
+   * 出声这一条是硬要求：挂机型页面（游戏/自动化）几乎都有声音或需要持续运行，
+   * 用户也可以在设置里把整个机制关掉（`tab.discard = never`）。
+   */
+  function sweepDiscard(): void {
+    if (closing || window.isDestroyed()) return
+    if (currentSettings().tabDiscard === 'never') return
+    const now = Date.now()
+    for (const tab of tabs) {
+      if (!tab.view || tab === active || tab.internal || tab.pinned) continue
+      const contents = tab.view.webContents
+      if (contents.isDestroyed() || contents.isCrashed()) continue
+      if (safe(() => contents.isCurrentlyAudible(), false)) continue
+      if (!isWebAddress(safe(() => contents.getURL(), ''))) continue
+      if (tab.backgroundSince === undefined) {
+        tab.backgroundSince = now
+        continue
+      }
+      if (now - tab.backgroundSince < DISCARD_TTL_MS) continue
+      discardTab(tab)
+    }
+  }
+
+  /** 切换活动标签时维护「后台起点」：新活动标签清零，旧活动标签重新计时。 */
+  function markBackground(tab: Tab | undefined): void {
+    if (!tab) return
+    tab.backgroundSince = undefined
+  }
+
   function select(tab: Tab, focus = true): void {
+    // 休眠标签先唤醒：重建视图 + 重新加载，再走正常的切换流程。
+    if (!tab.view) revive(tab)
+    const view = tab.view
+    if (!view) return
     if (active !== tab) {
-      if (active && window.contentView.children.includes(active.view)) {
-        window.contentView.removeChildView(active.view)
+      const previous = active
+      if (previous && previous.view && window.contentView.children.includes(previous.view)) {
+        window.contentView.removeChildView(previous.view)
       }
       active = tab
-      window.contentView.addChildView(tab.view)
-      overlays.setActivePage(tab.view.webContents)
+      // 新活动标签清零；刚离开的那个从此刻开始计「后台时间」。
+      markBackground(tab)
+      if (previous) previous.backgroundSince = Date.now()
+      window.contentView.addChildView(view)
+      overlays.setActivePage(view.webContents)
       layout()
     }
-    if (focus) focusContents(tab.view.webContents)
+    if (focus) focusContents(view.webContents)
     publish()
   }
 
@@ -685,8 +791,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       overlays.setActivePage(view.webContents)
       layout()
     }
-    if (window.contentView.children.includes(previous)) window.contentView.removeChildView(previous)
-    if (!previous.webContents.isDestroyed()) previous.webContents.close()
+    if (previous && window.contentView.children.includes(previous)) window.contentView.removeChildView(previous)
+    if (previous && !previous.webContents.isDestroyed()) previous.webContents.close()
     if (measured && !overlays.panelVisible()) focusContents(view.webContents)
     return view
   }
@@ -699,7 +805,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /** 引擎切换：新 WebContents 换引擎，再恢复导航栈（架构 §3 引擎）。 */
   function switchEngine(tab: Tab, engine: BrowserEngine): void {
     if (tab.engine === engine) return
-    const contents = tab.view.webContents
+    if (!tab.view) revive(tab)
+    const contents = tab.view?.webContents
+    if (!contents) return
     const entries = contents.isDestroyed() ? [] : safe(() => contents.navigationHistory.getAllEntries(), [])
     const index = contents.isDestroyed()
       ? 0
@@ -725,6 +833,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       return
     }
     const view = tab.view
+    if (!view) return
     try {
       await view.webContents.navigationHistory.restore({ entries, index })
     } catch (error) {
@@ -739,7 +848,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 把当前标签的引擎记为站点规则（架构 §3 引擎「用户手动切换时可确认记为站点规则」）。 */
   function rememberActiveEngine(tab: Tab): BrowserResult {
-    const host = hostOf(tab.failedUrl ?? safe(() => tab.view.webContents.getURL(), ''))
+    const host = hostOf(tab.failedUrl ?? tab.lastUrl ?? safe(() => tab.view?.webContents.getURL() ?? '', ''))
     if (!host) return fail('no-site')
     if (!engineRules.remember(host, tab.engine)) return fail('site-rule-save-failed')
     tab.manualOverride = false
@@ -749,7 +858,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 取消当前站点的引擎规则，回到「手动切换」状态（记住要可撤销）。 */
   function forgetActiveEngine(tab: Tab): BrowserResult {
-    const host = hostOf(tab.failedUrl ?? safe(() => tab.view.webContents.getURL(), ''))
+    const host = hostOf(tab.failedUrl ?? tab.lastUrl ?? safe(() => tab.view?.webContents.getURL() ?? '', ''))
     if (!host) return fail('no-site')
     if (!engineRules.forget(host)) return fail('site-rule-save-failed')
     tab.manualOverride = true
@@ -759,7 +868,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 复制标签页：同 URL、同引擎，作为新标签插到末尾并激活（架构 §3「标签操作」）。 */
   function duplicateTab(tab: Tab): void {
-    const url = safe(() => tab.view.webContents.getURL(), '')
+    const url = safe(() => tab.view?.webContents.getURL() ?? tab.lastUrl ?? '', '')
     const copy = addTab(tab.initialTitle, url && url !== START_PAGE ? url : START_PAGE, tab.engine, sourceOf(tab))
     select(copy, true)
   }
@@ -792,15 +901,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /** 静音 / 取消静音：状态记在标签上，重建后由 `swapView` 迁移。 */
   function toggleMuted(tab: Tab): void {
     tab.muted = !tab.muted
-    const contents = tab.view.webContents
-    if (!contents.isDestroyed()) contents.setAudioMuted(tab.muted)
+    const contents = tab.view?.webContents
+    if (contents && !contents.isDestroyed()) contents.setAudioMuted(tab.muted)
     publish()
   }
 
   /** 标签右键菜单：原生菜单，光标位置弹出（比自绘菜单更贴合系统习惯）。 */
   function showTabMenu(tab: Tab): void {
-    const contents = tab.view.webContents
-    const muted = !contents.isDestroyed() && safe(() => contents.isAudioMuted(), false)
+    const contents = tab.view?.webContents
+    const muted = !!contents && !contents.isDestroyed() && safe(() => contents.isAudioMuted(), false)
     // 内部页没有引擎/静音/复制语义：只留重载、关闭与撤销。
     const template: MenuItemConstructorOptions[] = tab.internal
       ? [
@@ -823,6 +932,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   function reloadTab(tab: Tab): void {
+    if (!tab.view) {
+      // 休眠标签：重新加载等价于唤醒。
+      revive(tab)
+      return
+    }
     const contents = tab.view.webContents
     const url = contents.isDestroyed() ? '' : safe(() => contents.getURL(), '')
     if (contents.isDestroyed() || contents.isCrashed()) {
@@ -834,6 +948,16 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   function rememberClosed(tab: Tab): void {
+    // 休眠标签没有导航栈可留：只记引擎，撤销关闭时按 URL 重建。
+    if (!tab.view) {
+      if (tab.lastUrl) {
+        recentlyClosed.push({
+          entries: [], index: 0, engine: tab.engine, manualOverride: tab.manualOverride, internal: tab.internal
+        })
+        if (recentlyClosed.length > CLOSED_TAB_LIMIT) recentlyClosed.shift()
+      }
+      return
+    }
     const contents = tab.view.webContents
     if (contents.isDestroyed()) return
     const entries = safe(() => contents.navigationHistory.getAllEntries(), [])
@@ -856,9 +980,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tabs.splice(index, 1)
     tab.binding += 1
     tab.host = undefined
-    if (window.contentView.children.includes(tab.view)) window.contentView.removeChildView(tab.view)
+    if (tab.view && window.contentView.children.includes(tab.view)) window.contentView.removeChildView(tab.view)
     if (active === tab) active = undefined
-    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
+    if (tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.close()
     if (wasActive) {
       const next = tabs[index] ?? tabs[index - 1]
       select(next ?? addTab(), true)
@@ -953,6 +1077,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 切换当前标签页面的 DevTools。默认应用菜单被移除后这是唯一入口。 */
   function toggleDevTools(tab: Tab): void {
+    if (!tab.view) return
     const contents = tab.view.webContents
     if (contents.isDestroyed()) return
     if (contents.isDevToolsOpened()) contents.closeDevTools()
@@ -966,7 +1091,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const [tab] = tabs.splice(index, 1)
     const wasActive = active === tab
     tab.host = undefined
-    if (window.contentView.children.includes(tab.view)) window.contentView.removeChildView(tab.view)
+    if (tab.view && window.contentView.children.includes(tab.view)) window.contentView.removeChildView(tab.view)
     if (wasActive) {
       active = undefined
       const next = tabs[index] ?? tabs[index - 1]
@@ -1142,7 +1267,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           load(target, url)
           break
         }
-        const contents = target.view.webContents
+        const contents = target.view?.webContents
+        if (!contents) {
+          // 休眠标签：唤醒后再导航。
+          revive(target)
+          load(target, url)
+          break
+        }
         if (contents.isDestroyed() || contents.isCrashed()) {
           rebuild(target, url)
           break
@@ -1153,13 +1284,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       }
       case 'back': {
         const tab = activeTab()
-        if (!tab) return fail('unknown-tab')
+        if (!tab?.view) return fail('unknown-tab')
         tab.view.webContents.navigationHistory.goBack()
         break
       }
       case 'forward': {
         const tab = activeTab()
-        if (!tab) return fail('unknown-tab')
+        if (!tab?.view) return fail('unknown-tab')
         tab.view.webContents.navigationHistory.goForward()
         break
       }
@@ -1196,13 +1327,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const snapshot = internalSnapshot()
     for (const tab of tabs) {
       if (!tab.internal) continue
-      const contents = tab.view.webContents
-      if (!contents.isDestroyed()) contents.send(settingsChannels.changed, snapshot)
+      const contents = tab.view?.webContents
+      if (contents && !contents.isDestroyed()) contents.send(settingsChannels.changed, snapshot)
     }
   }
 
   function ownsContents(contentsId: number): boolean {
-    return tabs.some((tab) => tab.view.webContents.id === contentsId)
+    return tabs.some((tab) => tab.view?.webContents.id === contentsId)
   }
 
   /**
@@ -1215,7 +1346,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    */
   function internalSender(event: IpcMainInvokeEvent): boolean {
     if (closing) return false
-    const tab = tabs.find((item) => item.internal === 'settings' && item.view.webContents.id === event.sender.id)
+    const tab = tabs.find((item) => item.internal === 'settings' && item.view?.webContents.id === event.sender.id)
     if (!tab) return false
     const frame = event.senderFrame
     if (!frame || frame !== event.sender.mainFrame) return false
@@ -1236,7 +1367,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   nativeTheme.on('updated', onNativeThemeUpdated)
   window.on('resize', layout)
+  // 后台标签休眠扫描：每 30 秒一次；开关在设置里（`tab.discard = never` 时整个机制停用，
+  // 挂机/自动化场景需要后台标签一直运行）。
+  const discardTimer = setInterval(sweepDiscard, DISCARD_SWEEP_MS)
   window.on('closed', () => {
+    clearInterval(discardTimer)
     closing = true
     controllers.delete(shellContentsId)
     overlays.dispose()
@@ -1244,7 +1379,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     for (const tab of tabs) {
       tab.binding += 1
       tab.host = undefined
-      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
+      if (tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.close()
     }
     tabs.length = 0
     active = undefined
@@ -1355,7 +1490,7 @@ async function tearOffTab(
     })
   } catch (error) {
     // 两阶段接管后正常路径下视图仍然存活；仍加一道守卫，避免把已销毁的页面挂回去。
-    if (detached.tab.view.webContents.isDestroyed()) {
+    if (detached.tab.view?.webContents.isDestroyed()) {
       console.error('跨窗口移动失败，且被移交页面已销毁。', error)
       return fail('tearoff-failed')
     }

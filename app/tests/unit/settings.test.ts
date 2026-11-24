@@ -20,6 +20,8 @@ describe('sanitizeSetting', () => {
     expect(sanitizeSetting('theme.mode', 'dark')).toEqual({ key: 'theme.mode', value: 'dark' })
     expect(sanitizeSetting('engine.default', 'ruffle')).toEqual({ key: 'engine.default', value: 'ruffle' })
     expect(sanitizeSetting('locale', 'zh-CN')).toEqual({ key: 'locale', value: 'zh-CN' })
+    expect(sanitizeSetting('overlay.prewarm', 'always')).toEqual({ key: 'overlay.prewarm', value: 'always' })
+    expect(sanitizeSetting('tab.discard', 'never')).toEqual({ key: 'tab.discard', value: 'never' })
   })
 
   it('拒绝越界取值', () => {
@@ -27,6 +29,7 @@ describe('sanitizeSetting', () => {
     expect(sanitizeSetting('theme.mode', '')).toBeUndefined()
     expect(sanitizeSetting('engine.default', 'flash')).toBeUndefined()
     expect(sanitizeSetting('locale', 'en-US')).toBeUndefined()
+    expect(sanitizeSetting('tab.discard', 'aggressive')).toBeUndefined()
   })
 
   it('拒绝非字符串值（数据库被写坏时不会污染设置）', () => {
@@ -53,7 +56,7 @@ describe('settingsFromRows', () => {
       { key: 'locale', value: 'zh-CN' },
       { key: 'unknown.key', value: 'x' }
     ])
-    expect(settings).toEqual({ overlayPrewarm: 'auto', themeMode: 'light', defaultEngine: 'ppapi', locale: 'zh-CN' })
+    expect(settings).toEqual({ overlayPrewarm: 'auto', tabDiscard: 'auto', themeMode: 'light', defaultEngine: 'ppapi', locale: 'zh-CN' })
   })
 
   it('同一个键出现多次时后者生效（迁移/重复写不会留两份状态）', () => {
@@ -66,10 +69,11 @@ describe('settingsFromRows', () => {
 })
 
 describe('settingsToRows', () => {
-  it('摊成固定的四行，键名与表一致', () => {
-    const rows = settingsToRows({ themeMode: 'dark', defaultEngine: 'ruffle', locale: 'zh-CN', overlayPrewarm: 'auto' })
+  it('摊成固定的五行，键名与表一致', () => {
+    const rows = settingsToRows({ themeMode: 'dark', defaultEngine: 'ruffle', locale: 'zh-CN', overlayPrewarm: 'auto', tabDiscard: 'auto' })
     expect(rows).toEqual([
       { key: 'overlay.prewarm', value: 'auto' },
+      { key: 'tab.discard', value: 'auto' },
       { key: 'theme.mode', value: 'dark' },
       { key: 'engine.default', value: 'ruffle' },
       { key: 'locale', value: 'zh-CN' }
@@ -78,7 +82,7 @@ describe('settingsToRows', () => {
   })
 
   it('与 settingsFromRows 互逆', () => {
-    const original = { themeMode: 'light' as const, defaultEngine: 'ruffle' as const, locale: 'zh-CN' as const, overlayPrewarm: 'always' as const }
+    const original = { themeMode: 'light' as const, defaultEngine: 'ruffle' as const, locale: 'zh-CN' as const, overlayPrewarm: 'always' as const, tabDiscard: 'auto' as const }
     expect(settingsFromRows(settingsToRows(original))).toEqual(original)
   })
 })

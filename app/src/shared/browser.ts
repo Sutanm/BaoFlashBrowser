@@ -89,6 +89,8 @@ export interface BrowserTab {
   muted: boolean
   /** 内部页（`bao://settings`）：没有引擎、站点规则与页面权限。 */
   internal?: 'settings'
+  /** 已休眠（视图被丢弃）：切回时重建并重新加载。 */
+  discarded?: boolean
 }
 
 export interface BrowserState {

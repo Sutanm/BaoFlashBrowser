@@ -8,6 +8,9 @@ import type { BrowserEngine } from './engine'
  * nativeTheme、默认引擎会改新标签行为），非法值必须在进库前就被拒绝，不能等用的
  * 时候再兜。这里的 `sanitizeSetting()` 是唯一校验点，主进程不信任渲染层传来的值。
  */
+export const DISCARD_MODES = ['auto', 'never'] as const
+export type DiscardMode = (typeof DISCARD_MODES)[number]
+
 export const PREWARM_MODES = ['auto', 'always', 'never'] as const
 export type PrewarmMode = (typeof PREWARM_MODES)[number]
 
@@ -20,6 +23,8 @@ export type Locale = 'zh-CN'
 export interface Settings {
   /** 叠加层预热策略：auto=悬停预热 + 5 分钟回收；always=窗口创建即常驻；never=用到才建。 */
   overlayPrewarm: PrewarmMode
+  /** 后台标签休眠：auto=后台超过 TTL 丢弃视图（切回重新加载）；never=从不丢弃（挂机场景）。 */
+  tabDiscard: DiscardMode
   themeMode: ThemeMode
   /** 新标签/新站点的默认引擎；站点规则与手动切换优先于它。 */
   defaultEngine: BrowserEngine
@@ -28,6 +33,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   overlayPrewarm: 'auto',
+  tabDiscard: 'auto',
   themeMode: 'system',
   // 原生优先：M1 的默认值，改成设置项后保持同样的行为。
   defaultEngine: 'ppapi',
@@ -37,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
 /** 数据库键 ↔ 设置字段的映射（表里一行一个键，便于迁移与增量）。 */
 export const SETTING_COLUMNS = {
   'overlay.prewarm': 'overlayPrewarm',
+  'tab.discard': 'tabDiscard',
   'theme.mode': 'themeMode',
   'engine.default': 'defaultEngine',
   locale: 'locale'
@@ -48,6 +55,7 @@ export type SettingColumn = (typeof SETTING_COLUMNS)[SettingKey]
 /** 每个键的取值域（写入校验与投影共用同一张表）。 */
 export type SettingValue = {
   'overlay.prewarm': PrewarmMode
+  'tab.discard': DiscardMode
   'theme.mode': ThemeMode
   'engine.default': BrowserEngine
   locale: Locale
@@ -65,7 +73,7 @@ export function isLocale(value: unknown): value is Locale {
 
 export interface SanitizedSetting {
   key: SettingKey
-  value: ThemeMode | BrowserEngine | Locale | PrewarmMode
+  value: ThemeMode | BrowserEngine | Locale | PrewarmMode | DiscardMode
 }
 /**
  * 校验并归一一条设置写入。返回 `undefined` 表示拒绝（未知键或非法值）。
@@ -73,11 +81,16 @@ export interface SanitizedSetting {
  * 拒绝的策略是**整体拒绝**而不是"回落到默认值"：把错的静默改成默认值会让用户以为
  * 设置生效了（例如选了深色却回到跟随系统），比报错更难排查。
  */
+export function isDiscardMode(value: unknown): value is DiscardMode {
+  return typeof value === 'string' && (DISCARD_MODES as readonly string[]).includes(value)
+}
+
 export function isPrewarmMode(value: unknown): value is PrewarmMode {
   return typeof value === 'string' && (PREWARM_MODES as readonly string[]).includes(value)
 }
 
 export function sanitizeSetting(key: unknown, value: unknown): SanitizedSetting | undefined {
+  if (key === 'tab.discard') return isDiscardMode(value) ? { key, value } : undefined
   if (key === 'overlay.prewarm') return isPrewarmMode(value) ? { key, value } : undefined
   if (key === 'theme.mode') return isThemeMode(value) ? { key, value } : undefined
   if (key === 'engine.default') return isBrowserEngine(value) ? { key, value } : undefined
@@ -101,6 +114,11 @@ export function settingsFromRows(rows: ReadonlyArray<{ key: string; value: strin
 /** 把设置对象摊成可写库的行。 */
 export function settingsToRows(settings: Settings): Array<{ key: SettingKey; value: string }> {
   return SETTING_KEYS.map((key) => ({ key, value: String(settings[SETTING_COLUMNS[key]]) }))
+}
+
+export const discardModeLabels: Record<DiscardMode, string> = {
+  auto: '自动（后台 10 分钟后休眠）',
+  never: '从不（后台标签一直运行）'
 }
 
 export const prewarmModeLabels: Record<PrewarmMode, string> = {

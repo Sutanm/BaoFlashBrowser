@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { PREWARM_MODES, prewarmModeLabels } from '../shared/settings'
+import { DISCARD_MODES, discardModeLabels, PREWARM_MODES, prewarmModeLabels } from '../shared/settings'
 import type { SettingsSnapshot, ThemeMode } from '../shared/settings'
 import type { FlashPluginState } from '../shared/settings'
 import type { BrowserEngine } from '../shared/engine'
@@ -29,6 +29,8 @@ const current = computed(() => snapshot.value?.settings)
 const theme = computed(() => current.value?.themeMode ?? 'system')
 const engine = computed(() => current.value?.defaultEngine ?? 'ppapi')
 const prewarm = computed(() => current.value?.overlayPrewarm ?? 'auto')
+const tabDiscard = computed(() => current.value?.tabDiscard ?? 'auto')
+const discardModes = DISCARD_MODES
 const prewarmModes = PREWARM_MODES
 const storage = computed(() => snapshot.value?.storage ?? 'ready')
 
@@ -48,7 +50,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => detach?.())
 
-async function write(patch: { key: 'theme.mode' | 'engine.default' | 'locale' | 'overlay.prewarm'; value: string }): Promise<void> {
+async function write(patch: { key: 'theme.mode' | 'engine.default' | 'locale' | 'overlay.prewarm' | 'tab.discard'; value: string }): Promise<void> {
   if (busy.value) return
   busy.value = true
   error.value = ''
@@ -203,6 +205,12 @@ function focusFlashSection(): void {
           <span>飞窗预热</span>
           <select :value="prewarm" :disabled="busy" @change="write({ key: 'overlay.prewarm', value: ($event.target as HTMLSelectElement).value })">
             <option v-for="mode in prewarmModes" :key="mode" :value="mode">{{ prewarmModeLabels[mode] }}</option>
+          </select>
+        </label>
+        <label class="select-row">
+          <span>后台标签休眠</span>
+          <select :value="tabDiscard" :disabled="busy" @change="write({ key: 'tab.discard', value: ($event.target as HTMLSelectElement).value })">
+            <option v-for="mode in discardModes" :key="mode" :value="mode">{{ discardModeLabels[mode] }}</option>
           </select>
         </label>
       </section>
