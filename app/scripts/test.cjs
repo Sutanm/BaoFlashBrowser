@@ -1,4 +1,5 @@
 const { buildIfChanged, runNode, runPool } = require('./build.cjs')
+const { dirname, resolve } = require('node:path')
 
 const [suite, ...flags] = process.argv.slice(2)
 const suites = {
@@ -10,8 +11,16 @@ const suites = {
 }
 const known = new Set(['--foreground', '--serial'])
 const jobsFlag = flags.find((flag) => flag.startsWith('--jobs='))
-if (!Object.hasOwn(suites, suite) || flags.some((flag) => !known.has(flag) && !flag.startsWith('--jobs='))) {
-  throw new Error('用法：node scripts/test.cjs <smoke|data|packaged> [--foreground] [--jobs=N] [--serial]')
+const isUnit = suite === 'unit'
+if ((!isUnit && !Object.hasOwn(suites, suite)) || flags.some((flag) => !known.has(flag) && !flag.startsWith('--jobs='))) {
+  throw new Error('用法：node scripts/test.cjs <unit|smoke|data|packaged> [--foreground] [--jobs=N] [--serial]')
+}
+
+// 单元层：纯逻辑，不启动 Electron、不需要构建产物，毫秒级跑完。
+if (isUnit) {
+  const vitest = resolve(dirname(require.resolve('vitest/package.json')), 'vitest.mjs')
+  runNode([vitest, 'run'], { env: process.env })
+  process.exit(0)
 }
 
 const env = { ...process.env }

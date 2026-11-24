@@ -75,9 +75,13 @@ export function internalSchemePrivileges(): Parameters<typeof protocol.registerS
   }]
 }
 
-export function isSettingsUrl(url: string): boolean {  try {
+export function isSettingsUrl(url: string): boolean {
+  try {
     const parsed = new URL(url)
-    return parsed.protocol === `${INTERNAL_SCHEME}:` && parsed.hostname === SETTINGS_HOST
+    // `bao:` 不是 special scheme，URL 解析**不会**把主机名转小写
+    // （实测 `new URL('BAO://SETTINGS/').hostname === 'SETTINGS'`），所以这里自己归一，
+    // 否则地址栏输入大写内部地址会识别不出来。
+    return parsed.protocol === `${INTERNAL_SCHEME}:` && parsed.hostname.toLowerCase() === SETTINGS_HOST
   } catch {
     return false
   }

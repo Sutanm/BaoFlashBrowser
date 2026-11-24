@@ -15,7 +15,9 @@
     "smoke": "node scripts/test.cjs smoke",
     "smoke:bg": "node scripts/test.cjs smoke",
     "smoke:foreground": "node scripts/test.cjs smoke --foreground",
+    "test:unit": "node scripts/test.cjs unit",
     "test:data": "node scripts/test.cjs data",
+    "check": "npm run typecheck && node scripts/test.cjs unit && node scripts/test.cjs data && node scripts/test.cjs smoke",
     "smoke:packaged": "node scripts/test.cjs packaged",
     "pack:win": "node scripts/pack-win.cjs",
     "pack:win:public": "node scripts/pack-win.cjs --public",
@@ -40,6 +42,7 @@
     "playwright": "1.65.1",
     "typescript": "5.9.3",
     "vite": "7.3.8",
+    "vitest": "^5.1.1",
     "vue-tsc": "3.3.14"
   }
 }

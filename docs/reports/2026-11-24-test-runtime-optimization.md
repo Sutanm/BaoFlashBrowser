@@ -80,3 +80,21 @@
 1. **文件内复用应用实例**（`before/after` 起一个 app，用例之间做状态重置）：每文件省 1–3 次启动，约 1–3 s；`startup`/`tabs` 这类会改动窗口状态的用例不适合，需逐个评估。
 2. **`--disable-gpu` 等启动参数**先做 A/B（`flash`/`ruffle-*` 必须复测，渲染路径变了）。
 3. CI 上按文件分片（`--shard`），本地保持 `jobs=4`。
+
+## 8. 已落地：单元层（2026-11-24）
+
+原项目「一千多个用例 14.8 s」的前提是那些用例**不启动 Electron**（vitest + jsdom + threads）。我们把纯逻辑拆出一层同样的结构：
+
+| 项 | 内容 |
+| --- | --- |
+| 入口 | `node scripts/test.cjs unit`（等价 `npm run test:unit`）；`npm run check` = typecheck → unit → data → smoke |
+| 运行器 | vitest 5（`pool: threads`，node 环境），配置 `vitest.config.ts` |
+| electron 桩 | `tests/unit/stubs/electron.ts`，只为让「纯解析逻辑 + 顶部 import electron」的模块能在 Node 里导入 |
+| 覆盖 | 5 个文件 45 个用例：`settings`（校验/回落/行↔对象互逆）、`engine`（hostOf/resolveEngine/常量）、`site`（公共后缀、同站判定）、`theme-clock`（日晷换算、取值域）、`internal-address`（`bao://` 解析） |
+| 耗时 | **45 个用例 0.96 s**（vitest 自报 179 ms） |
+| 类型检查 | `tsconfig.json` 已把 `tests/unit/**/*.ts` 与 `vitest.config.ts` 纳入，`vue-tsc --noEmit` 会一起查 |
+
+**它立刻抓到一个真 bug**：`bao:` 不是 special scheme，`new URL('BAO://SETTINGS/').hostname` 保留大写 `"SETTINGS"`，而 `isSettingsUrl()` 直接比小写常量 —— 地址栏输入大写的 `BAO://SETTINGS/` 不会被识别成设置页。已改为 `hostname.toLowerCase()` 比较，用例作为回归守住。
+
+对照：单元层 45 个用例 0.96 s，冒烟层 34 个用例约 37 s。**以后新增逻辑测试默认写单元层，冒烟层只在「跨进程合同」变多时才增长。**
+

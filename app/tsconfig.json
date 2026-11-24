@@ -15,7 +15,9 @@
   },
   "include": [
     "electron.vite.config.ts",
+    "vitest.config.ts",
     "src/**/*.ts",
-    "src/**/*.vue"
+    "src/**/*.vue",
+    "tests/unit/**/*.ts"
   ]
 }
