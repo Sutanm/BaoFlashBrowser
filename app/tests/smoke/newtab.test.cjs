@@ -35,6 +35,50 @@ function inContents(app, id, code) {
   }, { id, code })
 }
 
+test('新标签页：接管已完成首帧的预渲染视图，并在后台补池', { timeout: 120_000 }, async () => {
+  const { app, shell, close } = await launchApp({ env: {
+    BAO_SMOKE_HIDDEN: '0',
+    BAO_SMOKE_BACKGROUND: '1',
+    BAO_NTP_PREWARM_IN_SMOKE: '1'
+  } })
+  try {
+    const views = () => app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find((item) => item.webContents.getURL().endsWith('index.html'))
+      return window?.contentView.children
+        .filter((child) => child.webContents && child.webContents !== window.webContents)
+        .map((child) => ({ id: child.webContents.id, url: child.webContents.getURL() })) ?? []
+    })
+
+    // index 0 是被活动 NTP 完全覆盖的热实例；两次 RAF 完成后页面本体也应已经挂载。
+    const before = await waitFor(async () => {
+      const current = await views()
+      if (current.length !== 2 || current.some(({ url }) => url !== 'bao://newtab/')) return null
+      const ready = await inContents(app, current[0].id, `Boolean(document.querySelector('.newtab'))`)
+      return ready ? current : null
+    }, { message: '新标签页预渲染池没有就绪' })
+
+    await shell.getByRole('button', { name: '新建标签页', exact: true }).click()
+    await waitFor(async () => (await snapshot(shell)).tabs.length === 2 ? true : null,
+      { message: '没有新建标签页' })
+
+    const after = await waitFor(async () => {
+      const current = await views()
+      if (current.length !== 2 || current.some(({ url }) => url !== 'bao://newtab/')) return null
+      return current[0].id !== before[0].id ? current : null
+    }, { message: '接管后没有补充新的预渲染实例' })
+
+    assert.equal(after[1].id, before[0].id, '活动标签必须复用原先已完成首帧的热视图')
+    assert.notEqual(after[0].id, before[0].id, '池中应补入一个新的 NTP 视图')
+    const stateApplied = await waitFor(async () => {
+      const text = await inContents(app, after[1].id, `document.querySelector('.flash')?.textContent ?? ''`)
+      return text ? text : null
+    }, { message: '预渲染视图接管后没有收到 NTP 状态快照' })
+    assert.match(stateApplied, /Flash/)
+  } finally {
+    await close()
+  }
+})
+
 test('新标签页：启动即是真实内部页，地址栏为空、无引擎胶囊', { timeout: 120_000 }, async () => {
   const { app, shell, close } = await launchApp()
   try {

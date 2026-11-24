@@ -109,11 +109,12 @@ async function waitFor(predicate, { timeout = 30_000, interval = 100, message = 
 }
 
 /** 使用独立测试 profile 启动真实自编译运行时。 */
-async function launchApp() {
+async function launchApp(options = {}) {
   const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-smoke-'))
   const app = await electron.launch({
     executablePath: resolveExecutable(),
     args: [resolve(__dirname, '../..'), `--user-data-dir=${profilePath}`],
+    env: { ...process.env, ...(options.env ?? {}) },
     timeout: 20_000
   })
   const shell = app.windows().find(isShellPage) ??

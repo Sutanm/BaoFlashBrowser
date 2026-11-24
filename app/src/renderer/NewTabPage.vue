@@ -51,9 +51,10 @@ function onSystemTheme(): void {
 onMounted(async () => {
   applyTheme()
   systemTheme.addEventListener('change', onSystemTheme)
+  // 先订阅再读初值：预渲染 NTP 被标签接管时主进程会立即补发快照，不能在 read() 往返期间漏掉。
+  detach = window.baoNtp.subscribe(apply)
   const initial = await window.baoNtp.read()
   if (initial) apply(initial)
-  detach = window.baoNtp.subscribe(apply)
 })
 
 onBeforeUnmount(() => {
