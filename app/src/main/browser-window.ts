@@ -243,7 +243,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   })
 
   const shellContentsId = window.webContents.id
-  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme)
+  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background)
   const tabs: Tab[] = []
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined
@@ -980,7 +980,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     detachTab,
     adoptTab,
     shortcut: handleShortcut,
-    refreshSettings: updateWindowControls,
+    refreshSettings: () => {
+      updateWindowControls()
+      // 预热策略切换要立刻生效：改成「常驻」马上升温，改成「不预热」立刻释放（auto 交给 TTL）。
+      const policy = currentSettings().overlayPrewarm
+      if (policy === 'always') overlays.prewarm()
+      else if (policy === 'never') overlays.retire()
+    },
     broadcastSettings,
     ownsContents,
     internalSender,
@@ -1253,8 +1259,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       // 预热飞窗：这里外壳文档已经加载完（上面的 await loadURL），立刻建隐藏的叠加层视图，
       // 用户看到窗口、把鼠标移过去时它通常已经热了。自动化模式不预热——那会给
       // 「页面视图计数」类断言多一个子视图。飞窗只有一个视图（panel/quick 共用），预热一次就够。
-      // BAO_NO_PREWARM=1 只用于 A/B 度量（对比「预热 / 不预热」的内存与首开延迟）。
-      if (!closing && !window.isDestroyed() && process.env.BAO_NO_PREWARM !== '1') overlays.prewarm()
+      // 预热策略（设置项 overlay.prewarm）：
+      // - always：窗口创建即常驻（最快，占 ~100 MB）；
+      // - auto（默认）：入口悬停时预热，空闲 5 分钟回收；
+      // - never：完全不预热，用到才建。
+      // BAO_NO_PREWARM=1 只用于度量。
+      if (!closing && !window.isDestroyed() && process.env.BAO_NO_PREWARM !== '1' &&
+          currentSettings().overlayPrewarm === 'always') overlays.prewarm()
     }
   } catch (error) {
     closing = true

@@ -246,6 +246,7 @@ export function deleteRule(db: Database, host: string): EngineRules {
 /** 设置项的类型化取值（供投影与判定使用）。 */
 export function settingValue(settings: Settings, key: SettingKey): SettingValue[SettingKey] {
   switch (key) {
+    case 'overlay.prewarm': return settings.overlayPrewarm
     case 'theme.mode': return settings.themeMode
     case 'engine.default': return settings.defaultEngine
     case 'locale': return settings.locale

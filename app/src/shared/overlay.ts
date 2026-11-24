@@ -44,6 +44,8 @@ export type OverlayCommand =
   | { type: 'report-failure'; text: string }
   /** 叠加层文档报告「本次内容已渲染」（度量用，非产品行为）。 */
   | { type: 'report-ready' }
+  /** Shell only. 入口悬停时预热叠加层（auto 策略）。 */
+  | { type: 'prewarm' }
 
 export interface OverlayBridge {
   /** Shell only. Non-null opens/repositions, null closes without notification. */
@@ -66,6 +68,8 @@ export interface OverlayBridge {
   reportFailure(text: string): Promise<boolean>
   /** 叠加层报告内容已渲染（度量用）。 */
   reportReady(): Promise<boolean>
+  /** Shell only. 悬停预热（auto 策略下由外壳在入口 pointerenter 时调用）。 */
+  prewarm(): Promise<boolean>
   /** 读取/清空打开耗时样本（shell 侧度量用）。 */
   readMetrics(): Promise<{ samples: unknown[]; summary: Record<string, { n: number; p50: number; p95: number; p99: number }> }>
   resetMetrics(): Promise<boolean>

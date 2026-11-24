@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { PREWARM_MODES, prewarmModeLabels } from '../shared/settings'
 import type { SettingsSnapshot, ThemeMode } from '../shared/settings'
 import type { FlashPluginState } from '../shared/settings'
 import type { BrowserEngine } from '../shared/engine'
@@ -27,6 +28,8 @@ const failureText: Record<string, string> = {
 const current = computed(() => snapshot.value?.settings)
 const theme = computed(() => current.value?.themeMode ?? 'system')
 const engine = computed(() => current.value?.defaultEngine ?? 'ppapi')
+const prewarm = computed(() => current.value?.overlayPrewarm ?? 'auto')
+const prewarmModes = PREWARM_MODES
 const storage = computed(() => snapshot.value?.storage ?? 'ready')
 
 let detach: (() => void) | undefined
@@ -45,7 +48,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => detach?.())
 
-async function write(patch: { key: 'theme.mode' | 'engine.default' | 'locale'; value: string }): Promise<void> {
+async function write(patch: { key: 'theme.mode' | 'engine.default' | 'locale' | 'overlay.prewarm'; value: string }): Promise<void> {
   if (busy.value) return
   busy.value = true
   error.value = ''
@@ -172,6 +175,16 @@ function focusFlashSection(): void {
           <button type="button" class="action" :disabled="flashBusy" @click="importFlash">导入…</button>
         </div>
         <p v-if="flashError" class="error" role="status">{{ flashError }}</p>
+      </section>
+
+      <section aria-labelledby="perf-title">
+        <h2 id="perf-title">性能</h2>
+        <label class="select-row">
+          <span>飞窗预热</span>
+          <select :value="prewarm" :disabled="busy" @change="write({ key: 'overlay.prewarm', value: ($event.target as HTMLSelectElement).value })">
+            <option v-for="mode in prewarmModes" :key="mode" :value="mode">{{ prewarmModeLabels[mode] }}</option>
+          </select>
+        </label>
       </section>
 
       <section aria-labelledby="language-title">

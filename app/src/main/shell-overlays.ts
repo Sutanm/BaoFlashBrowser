@@ -55,12 +55,18 @@ export function createShellOverlays(
   shellUrl: string,
   sameDocument: (actual: string, expected: string) => boolean,
   handleShortcut: (input: Input) => boolean,
-  currentTheme: () => 'light' | 'dark'
+  currentTheme: () => 'light' | 'dark',
+  /** 自动化模式下不预热：多出来的视图会干扰「页面视图计数」类断言。 */
+  canPrewarm: () => boolean
 ) {
   const shell = window.webContents
   let flyout: HostedView | undefined
   let activePage: WebContents | undefined
   let pendingOpen = 0
+  let retireTimer: ReturnType<typeof setTimeout> | undefined
+  /** 空闲回收：预热的视图在 5 分钟没有打开就释放（用户可在设置里选「常驻」关掉回收）。 */
+  // 默认 5 分钟；BAO_RETIRE_MS 仅供测试/度量缩短短语。
+  const RETIRE_AFTER_MS = Number(process.env.BAO_RETIRE_MS ?? 5 * 60_000)
   let disposed = false
 
   function sender(event: IpcMainInvokeEvent): 'shell' | 'panel' | 'quick' | 'toast' | undefined {
@@ -87,6 +93,7 @@ export function createShellOverlays(
     item.kind = undefined
     item.view.setVisible(false)
     if (!window.isDestroyed()) window.contentView.removeChildView(item.view)
+    armRetire()
   }
 
   function close(kind: FlyoutKind, restoreFocus: boolean): boolean {
@@ -176,6 +183,31 @@ export function createShellOverlays(
     }
   }
 
+  function cancelRetire(): void {
+    if (retireTimer) {
+      clearTimeout(retireTimer)
+      retireTimer = undefined
+    }
+  }
+
+  function armRetire(): void {
+    cancelRetire()
+    retireTimer = setTimeout(() => {
+      retireTimer = undefined
+      if (flyout?.view.getVisible()) return
+      if (flyout && !flyout.view.webContents.isDestroyed()) flyout.view.webContents.close()
+      flyout = undefined
+    }, RETIRE_AFTER_MS)
+  }
+
+  function retireNow(): void {
+    cancelRetire()
+    if (!flyout) return
+    if (flyout.kind) hide(flyout)
+    if (!flyout.view.webContents.isDestroyed()) flyout.view.webContents.close()
+    flyout = undefined
+  }
+
   /** 只有一个叠加层视图：panel / quick / toast 共用（见文件头说明）。 */
   function host(): HostedView {
     if (flyout) return flyout
@@ -237,6 +269,7 @@ export function createShellOverlays(
     const state = flyout ? (flyout.ready ? 'warm' : 'warming') : 'cold'
     pendingOpen = beginOpen(kind, state)
     // toast 与飞窗互斥：先按正常路径关掉当前那种（会通知外壳），再切内容。
+    cancelRetire()
     if (flyout?.kind && flyout.kind !== kind && flyout.kind !== 'toast') close(flyout.kind, false)
     const item = host()
     item.kind = kind
@@ -305,6 +338,12 @@ export function createShellOverlays(
         return role === 'quick' && typeof value.restoreFocus === 'boolean' && closeQuick(value.restoreFocus)
       case 'dismiss-toast':
         return role === 'toast' && dismissToast()
+      case 'prewarm': {
+        if (role !== 'shell' || !canPrewarm()) return false
+        host()
+        armRetire()
+        return true
+      }
       case 'report-ready': {
         if (role !== 'panel' && role !== 'quick' && role !== 'toast') return false
         if (pendingOpen) markContent(pendingOpen)
@@ -343,6 +382,11 @@ export function createShellOverlays(
     /** 预热：提前建好隐藏的叠加层视图（首次打开只差一次 setBounds），不改变可见性。 */
     prewarm() {
       host()
+      armRetire()
+    },
+    /** 立即释放叠加层视图（设置切到「不预热」时用）。 */
+    retire() {
+      retireNow()
     },
     layout() {
       if (flyout?.kind) sync(flyout.kind)
@@ -358,6 +402,7 @@ export function createShellOverlays(
       activePage = undefined
       if (flyout && !flyout.view.webContents.isDestroyed()) flyout.view.webContents.close()
       flyout = undefined
+      cancelRetire()
     }
   }
 }

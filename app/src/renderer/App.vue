@@ -121,6 +121,11 @@ async function toggleQuick(): Promise<void> {
   if (!await window.baoOverlay.setQuick(bounds)) quickOpen.value = false
 }
 
+/** 悬停预热（auto 策略）：只预热一次，失败也无所谓——打开时会再兜底。 */
+function prewarmOverlay(): void {
+  void window.baoOverlay.prewarm()
+}
+
 function closeQuick(restoreFocus = false): void {
   if (!quickOpen.value) return
   quickOpen.value = false
@@ -473,7 +478,8 @@ onBeforeUnmount(() => store.disconnect())
           {{ active.engine === 'ruffle' ? 'Ruffle' : 'Flash' }}
         </button>
         <button ref="engineTrigger" type="button" class="engine-more" :aria-expanded="enginePanelOpen"
-          aria-haspopup="dialog" aria-label="引擎设置" title="引擎设置" @click="toggleEnginePanel">
+          aria-haspopup="dialog" aria-label="引擎设置" title="引擎设置"
+          @pointerenter="prewarmOverlay" @click="toggleEnginePanel">
           <ShellIcon name="chevron" />
         </button>
       </div>
@@ -485,6 +491,7 @@ onBeforeUnmount(() => store.disconnect())
         aria-haspopup="dialog"
         aria-label="快捷设置"
         title="快捷设置"
+        @pointerenter="prewarmOverlay"
         @click="toggleQuick"
       ><ShellIcon name="gear" /></button>
     </form>

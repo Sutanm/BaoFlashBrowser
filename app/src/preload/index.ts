@@ -50,6 +50,7 @@ const overlay: OverlayBridge = {
   dismissToast: () => runOverlay({ type: 'dismiss-toast' }),
   reportFailure: (text) => runOverlay({ type: 'report-failure', text }),
   reportReady: () => runOverlay({ type: 'report-ready' }),
+  prewarm: () => runOverlay({ type: 'prewarm' }),
   readMetrics: () => ipcRenderer.invoke(overlayChannels.metrics),
   resetMetrics: () => ipcRenderer.invoke(overlayChannels.metricsReset),
   subscribe(listener) {

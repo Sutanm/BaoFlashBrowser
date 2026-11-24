@@ -53,7 +53,7 @@ describe('settingsFromRows', () => {
       { key: 'locale', value: 'zh-CN' },
       { key: 'unknown.key', value: 'x' }
     ])
-    expect(settings).toEqual({ themeMode: 'light', defaultEngine: 'ppapi', locale: 'zh-CN' })
+    expect(settings).toEqual({ overlayPrewarm: 'auto', themeMode: 'light', defaultEngine: 'ppapi', locale: 'zh-CN' })
   })
 
   it('同一个键出现多次时后者生效（迁移/重复写不会留两份状态）', () => {
@@ -66,9 +66,10 @@ describe('settingsFromRows', () => {
 })
 
 describe('settingsToRows', () => {
-  it('摊成固定的三行，键名与表一致', () => {
-    const rows = settingsToRows({ themeMode: 'dark', defaultEngine: 'ruffle', locale: 'zh-CN' })
+  it('摊成固定的四行，键名与表一致', () => {
+    const rows = settingsToRows({ themeMode: 'dark', defaultEngine: 'ruffle', locale: 'zh-CN', overlayPrewarm: 'auto' })
     expect(rows).toEqual([
+      { key: 'overlay.prewarm', value: 'auto' },
       { key: 'theme.mode', value: 'dark' },
       { key: 'engine.default', value: 'ruffle' },
       { key: 'locale', value: 'zh-CN' }
@@ -77,7 +78,7 @@ describe('settingsToRows', () => {
   })
 
   it('与 settingsFromRows 互逆', () => {
-    const original = { themeMode: 'light' as const, defaultEngine: 'ruffle' as const, locale: 'zh-CN' as const }
+    const original = { themeMode: 'light' as const, defaultEngine: 'ruffle' as const, locale: 'zh-CN' as const, overlayPrewarm: 'always' as const }
     expect(settingsFromRows(settingsToRows(original))).toEqual(original)
   })
 })
