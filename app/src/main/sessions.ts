@@ -1,4 +1,5 @@
 import { session } from 'electron'
+import { trimReferer } from '../shared/referer'
 import { BROKER_REFERER_HEADER, readBrokerRefererMarker } from './broker-token'
 import type { Session } from 'electron'
 
@@ -107,7 +108,13 @@ function restoreBrokerReferer(target: Session): Session {
       return
     }
     const referer = readBrokerRefererMarker(marker)
-    if (referer) headers.Referer = referer
+    // 按 `strict-origin-when-cross-origin` 裁剪：同源发完整 URL，跨源只发 origin，
+    // https→http 不发（审计 P2：之前把完整文档 URL 原样漏给第三方目标）。
+    if (referer) {
+      const trimmed = trimReferer(referer, details.url)
+      if (trimmed) headers.Referer = trimmed
+      else delete headers.Referer
+    }
     delete headers[BROKER_REFERER_HEADER]
     delete headers[key]
     callback({ requestHeaders: headers })

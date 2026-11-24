@@ -46,7 +46,14 @@ test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站�
     const address = shell.getByRole('textbox', { name: '地址栏' })
     await address.fill(`${server.baseUrl}/lobby`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '大厅', exact: true }).waitFor({ timeout: 30_000 })
+    // 事件驱动：等外壳标签栏出现「大厅」这个标签，而不是靠可操作性检查 + 固定超时。
+    // Playwright 的 getByRole(...).waitFor() 在网络/渲染卡顿时会先等 actionability，
+    // 并行跑时容易把「慢」误判成「不存在」（2026-11-24 实测 30 s 超时）。
+    await shell.waitForFunction(
+      () => [...document.querySelectorAll('.tab .tab-label')].some((node) => node.textContent?.trim() === '大厅'),
+      undefined,
+      { timeout: 30_000, polling: 100 }
+    )
     assert.equal((await snapshot(shell)).tabs.length, 1)
     const baseWindows = await windowCount(app)
 
@@ -123,7 +130,14 @@ test('弹窗使用自绘 chrome：无原生边框，控制簇可用', { timeout:
     const address = shell.getByRole('textbox', { name: '地址栏' })
     await address.fill(`${server.baseUrl}/lobby`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '大厅', exact: true }).waitFor({ timeout: 30_000 })
+    // 事件驱动：等外壳标签栏出现「大厅」这个标签，而不是靠可操作性检查 + 固定超时。
+    // Playwright 的 getByRole(...).waitFor() 在网络/渲染卡顿时会先等 actionability，
+    // 并行跑时容易把「慢」误判成「不存在」（2026-11-24 实测 30 s 超时）。
+    await shell.waitForFunction(
+      () => [...document.querySelectorAll('.tab .tab-label')].some((node) => node.textContent?.trim() === '大厅'),
+      undefined,
+      { timeout: 30_000, polling: 100 }
+    )
     const baseWindows = await windowCount(app)
 
     const [popup] = await Promise.all([

@@ -22,8 +22,9 @@ async function settingsViewId(app) {
 }
 
 async function inSettings(app, code) {
-  const id = await settingsViewId(app)
-  assert.ok(id, '没有找到设置页的 WebContents')
+  // 事件驱动：等设置页的 WebContents 出现（并行跑用例时它可能比快捷键晚几十毫秒才建好），
+  // 而不是查一次就断言——「这一刻还没有」不等于「打不开」（2026-11-24 抖动来源）。
+  const id = await waitFor(() => settingsViewId(app), { timeout: 10_000, interval: 30, message: '没有找到设置页的 WebContents' })
   return app.evaluate(async ({ webContents }, payload) => {
     const target = webContents.fromId(payload.id)
     if (!target) throw new Error('设置页已销毁')

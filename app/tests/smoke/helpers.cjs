@@ -84,12 +84,26 @@ function page(title, body = '<input aria-label="输入测试">') {
   return `<!doctype html><meta charset="utf-8"><title>${title}</title><h1>${title}</h1>${body}`
 }
 
+/**
+ * 轮询直到 predicate 返回真值。
+ *
+ * predicate 抛错时**继续重试**而不是立刻失败：并行跑用例、或主进程正忙时，
+ * `electronApplication.evaluate` 会偶发 "Resulting promise was garbage collected" /
+ * "Script failed to execute"——那是「这一刻还没准备好」，不是断言失败。
+ * 到超时仍未满足时，优先抛出 predicate 的最后一次错误（信息更具体）。
+ */
 async function waitFor(predicate, { timeout = 30_000, interval = 100, message = '条件未在超时内满足。' } = {}) {
   const deadline = Date.now() + timeout
+  let lastError
   for (;;) {
-    const value = await predicate()
-    if (value) return value
-    if (Date.now() >= deadline) throw new Error(message)
+    try {
+      const value = await predicate()
+      if (value) return value
+      lastError = undefined
+    } catch (error) {
+      lastError = error
+    }
+    if (Date.now() >= deadline) throw lastError ?? new Error(message)
     await new Promise((resolveWait) => setTimeout(resolveWait, interval))
   }
 }
