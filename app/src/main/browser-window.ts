@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView } from 'electron'
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
@@ -16,7 +16,7 @@ import { bindInternalProtocol, isSettingsUrl, parseSettingsAddress, SETTINGS_URL
 import { settingsChannels } from '../shared/settings'
 import type { SettingsSnapshot } from '../shared/settings'
 import { importFlashPlugin } from './flash-plugin'
-import { flashStatus } from './plugins'
+import { flashLoadedPath, flashStatus } from './plugins'
 import { START_PAGE } from './start-page'
 import { windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
@@ -1407,10 +1407,11 @@ export function registerBrowserIpc(): void {
   })
 
   /**
-   * Flash 插件状态 / 导入（BYOP）。
+   * Flash 插件状态 / 导入 / 定位（BYOP）。
    *
-   * 只有内部设置页能调；对话框由主进程弹（页面拿不到任意文件路径）。导入只把文件复制到
-   * `<userData>/flash/`，插件注册发生在下一次启动，所以结果里带 `restartRequired`。
+   * 只有内部设置页能调；对话框与调用哪个路径都由主进程决定（页面拿不到任意文件路径）。
+   * 导入只把文件复制到 `<userData>/flash/`，插件注册发生在下一次启动，所以结果里带
+   * `restartRequired`。「打开所在文件夹」只接受主进程自己解析出来的路径。
    */
   // 叠加层耗时度量（临时）：只有外壳能读，用来决定「悬停预热」是否值得。
   ipcMain.handle(overlayChannels.metrics, (event) => {
@@ -1428,6 +1429,15 @@ export function registerBrowserIpc(): void {
     if (!controller || !controller.internalSender(event)) return undefined
     return flashStatus()
   })
+  ipcMain.handle(settingsChannels.flashReveal, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return false
+    // 路径只来自主进程解析结果：页面传什么都不采信。
+    const status = flashStatus()
+    if (!status.found) return false
+    shell.showItemInFolder(status.path)
+    return true
+  })
   ipcMain.handle(settingsChannels.flashImport, async (event) => {
     const controller = controllerFor(event)
     if (!controller || !controller.internalSender(event)) return { ok: false, code: 'forbidden-sender' }
@@ -1441,7 +1451,6 @@ export function registerBrowserIpc(): void {
     }
     const picked = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
     if (picked.canceled || !picked.filePaths[0]) return { ok: false, code: 'cancelled' }
-    const current = flashStatus()
-    return importFlashPlugin(picked.filePaths[0], current.ready)
+    return importFlashPlugin(picked.filePaths[0], flashLoadedPath())
   })
 }

@@ -114,7 +114,7 @@ onBeforeUnmount(() => {
           :aria-pressed="active?.engine === engine"
           :aria-disabled="!active || (engine === 'ppapi' && snapshot?.flash === false) ? 'true' : 'false'"
           :title="engine === 'ppapi' && snapshot?.flash === false
-            ? `未检测到 Flash 插件。把 pepflashplayer64.dll 放到：${snapshot?.flashHint ?? ''} ，然后重启。本产品不随包分发 Flash。`
+            ? `未检测到 Flash 插件（已自动查找本机已安装的 Flash）。也可以把 pepflashplayer64.dll 放到：${snapshot?.flashHint ?? ''} ，然后重启。本产品不随包分发 Flash。`
             : undefined"
           @click="choose(engine)">
           <span class="engine-symbol" :class="engine"><ShellIcon :name="engine === 'ppapi' ? 'flash' : 'ruffle'" /></span>

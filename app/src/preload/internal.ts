@@ -15,6 +15,7 @@ const bridge: SettingsBridge = {
   write: (key, value) => ipcRenderer.invoke(settingsChannels.write, { key, value }),
   flashStatus: () => ipcRenderer.invoke(settingsChannels.flashStatus),
   flashImport: () => ipcRenderer.invoke(settingsChannels.flashImport),
+  flashReveal: () => ipcRenderer.invoke(settingsChannels.flashReveal),
   subscribe(listener) {
     const relay = (_event: IpcRendererEvent, snapshot: SettingsSnapshot) => listener(snapshot)
     ipcRenderer.on(settingsChannels.changed, relay)

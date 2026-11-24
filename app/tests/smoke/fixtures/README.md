@@ -41,7 +41,8 @@ D:\tools\flex-sdk\bin\mxmlc.bat Keyprobe.as   # 产物即 keyprobe.swf
 ## 运行前提
 
 - 运行时目录（`app/.runtime/win-x64` 或打包产物）里存在 `pepflashplayer64.dll`（29.0.0.171）。
-  主进程按 `BAO_FLASH_PLUGIN` → `electron.exe` 同目录 → `resources` 的顺序解析。
+  主进程按 `BAO_FLASH_PLUGIN` → 用户导入 → `electron.exe` 同目录 → `resources` → 自动发现
+  （本机已安装的 Flash）的顺序解析。
 - 服务器以 `application/x-shockwave-flash` 返回 `.swf`，否则插件不会接管。
 
 样本只验证「插件注册 + SWF 执行 + 变量桥」这一条链路。站点兼容规则、Stage3D 与全屏等

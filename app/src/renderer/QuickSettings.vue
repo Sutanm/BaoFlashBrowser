@@ -145,7 +145,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
           :aria-checked="engine === name"
           :aria-disabled="busy || (name === 'ppapi' && !flashReady) ? 'true' : 'false'"
           :title="name === 'ppapi' && !flashReady
-            ? `未检测到 Flash 插件：把 pepflashplayer64.dll 放到 ${flashHint || '<exe目录>\\flash\\'} 后重启。`
+            ? `未检测到 Flash 插件（已自动查找本机已安装的 Flash）：把 pepflashplayer64.dll 放到 ${flashHint || '<exe目录>\\flash\\'} 后重启。`
             : undefined"
           @click="chooseEngine(name)"
         >

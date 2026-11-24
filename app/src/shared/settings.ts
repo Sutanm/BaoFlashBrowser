@@ -130,19 +130,28 @@ export const settingsChannels = {
   /** 读 Flash 插件状态（是否就绪 / 版本 / 是否需要重启）。 */
   flashStatus: 'settings:flash-status',
   /** 打开文件选择框导入插件（复制到 `<userData>/flash/`）。 */
-  flashImport: 'settings:flash-import'
+  flashImport: 'settings:flash-import',
+  /** 在系统文件管理器里定位当前插件（路径由主进程解析，页面不能指定）。 */
+  flashReveal: 'settings:flash-reveal'
 } as const
 
-export type FlashPluginSource = 'env' | 'user' | 'exe' | 'resources'
+export type FlashPluginSource = 'env' | 'user' | 'exe' | 'resources' | 'scan'
 
 export interface FlashPluginState {
+  /** 本进程启动时注册的就是磁盘上当前这一份。 */
   ready: boolean
-  /** 实际加载的插件路径（未就绪时是期望的投放路径）。 */
+  /** 磁盘上是否解析到了真实的插件文件；false 时 `path` 只是建议的投放位置。 */
+  found: boolean
+  /** 实际加载的插件路径（未找到时是期望的投放路径）。 */
   path: string
   version?: string
   size?: number
   source?: FlashPluginSource
-  /** 磁盘上有插件但本进程启动时没注册上 → 需要重启。 */
+  /** 自动发现的来源标签（`system-flash` / `chrome` / `downloads` …），仅 `source === 'scan'`。 */
+  origin?: string
+  /** 自动发现结果的扫描时间（毫秒时间戳），仅 `source === 'scan'`。 */
+  discoveredAt?: number
+  /** 磁盘上的插件与本进程启动时注册的不一致（或没注册上）→ 需要重启。 */
   restartRequired: boolean
 }
 
@@ -174,5 +183,7 @@ export interface SettingsBridge {
   write(key: SettingKey, value: SettingValue[SettingKey]): Promise<SettingsWriteResult>
   flashStatus(): Promise<FlashPluginState | undefined>
   flashImport(): Promise<FlashImportResult>
+  /** 在文件管理器里定位当前插件；没有真实文件时返回 false。 */
+  flashReveal(): Promise<boolean>
   subscribe(listener: (snapshot: SettingsSnapshot) => void): () => void
 }

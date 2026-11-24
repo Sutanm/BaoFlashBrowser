@@ -86,7 +86,7 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 | [`kernel/README.md`](kernel/README.md) | 已验证内核补丁登记（含构建标识与 SHA-256） |
 | [`kickoff/README.md`](kickoff/README.md) · [`m1-browser-slice.md`](kickoff/m1-browser-slice.md) | 阶段归档索引与 M1 验收记录（M0 说明、M2/M3 占位） |
 | [`specs/`](specs)（5 篇） | Flash 移植、AI 复现手册、版本可行性、模块影响评估 |
-| [`reports/`](reports)（6 篇） | 140 实验、142 构建与运行、M1 增量、M2 设置页与存储 |
+| [`reports/`](reports)（11 篇） | 140 实验、142 构建与运行、M1 增量、M2 设置页与存储、飞窗合并、Flash 插件自动发现 |
 | [`evidence/`](evidence)（9 件） | 4399/摩尔庄园 双引擎对照图、crossdomain 调查、帧自检结果 |
 | [`design/`](design)（HTML + renders） | 设置页与引擎面板设计稿 |
 | [`blog/assets/`](blog/assets) | 对外文章配图 |

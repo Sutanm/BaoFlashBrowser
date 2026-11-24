@@ -75,20 +75,32 @@ function chooseEngine(next: BrowserEngine): void {
 
 const flashReady = computed(() => snapshot.value?.flash !== false)
 
-/** Flash 插件（BYOP）：状态 + 导入入口。 */
+/** Flash 插件（BYOP）：状态 + 定位入口 + 导入入口。 */
 const flash = ref<FlashPluginState>()
 const flashBusy = ref(false)
 const flashError = ref('')
+
+/** 「就绪」指本进程启动时已经注册；`restartRequired` 表示磁盘上的选择变了。 */
 const flashStatusText = computed(() => {
   const state = flash.value
   if (!state) return '读取中…'
-  if (state.ready) return state.version ? `已就绪 · v${state.version}` : '已就绪'
-  if (state.version) return `已导入 v${state.version}，重启后生效`
-  return '未提供'
+  if (state.ready) return `已就绪${state.version ? ` · v${state.version}` : ''}`
+  if (state.found) return state.version ? `已发现 v${state.version}，重启后生效` : '已找到插件，重启后生效'
+  if (state.restartRequired) return '插件已移除，重启后停用'
+  return '未找到'
 })
+
+/** 只有磁盘上真有插件时才提供「打开所在文件夹」；否则 `path` 只是建议的投放位置。 */
+const flashMissing = computed(() => flash.value?.found === false)
 
 async function loadFlash(): Promise<void> {
   flash.value = await window.baoSettings.flashStatus()
+}
+
+/** 打开插件所在文件夹（路径由主进程解析，页面只发一个"定位"意图）。 */
+async function revealFlash(): Promise<void> {
+  if (!flash.value?.found) return
+  await window.baoSettings.flashReveal()
 }
 
 async function importFlash(): Promise<void> {
@@ -101,7 +113,7 @@ async function importFlash(): Promise<void> {
     else if (result.code !== 'cancelled') {
       flashError.value = result.code === 'invalid' ? '不是可用的插件文件'
         : result.code === 'not-64-bit' ? '这个插件不是 64 位的，本应用只能加载 64 位 PPAPI 插件'
-        : result.code === 'not-pepper' ? '这个 DLL 不是 PPAPI 插件（缺少 NP_GetEntryPoints / NP_Initialize）'
+        : result.code === 'not-pepper' ? '这个文件不是 PPAPI 插件（缺少 PPP_GetInterface 导出）'
         : '复制失败，请检查文件权限'
     }
   } finally {
@@ -174,9 +186,14 @@ function focusFlashSection(): void {
         <h2 id="flash-title">Flash 插件</h2>
         <div class="select-row flash-row">
           <span class="flash-state" :class="{ ready: flash?.ready }">{{ flashStatusText }}</span>
-          <span class="flash-path" :title="flash?.path">{{ flash?.ready ? '' : flash?.path }}</span>
-          <button type="button" class="action" :disabled="flashBusy" @click="importFlash">导入…</button>
+          <span class="flash-path" :title="flash?.path">{{ flash?.path }}</span>
+          <button type="button" class="action" :disabled="!flash?.found" @click="revealFlash">打开所在文件夹</button>
+          <button type="button" class="action" :disabled="flashBusy" @click="importFlash">导入</button>
         </div>
+        <p v-if="flashMissing" class="lead">
+          已自动查找系统安装的 Flash、Chrome/Chromium 的 PepperFlash、常见双核浏览器与下载目录。
+          需要指定版本时用「导入」，导入的插件优先于自动发现。
+        </p>
         <p v-if="flashError" class="error" role="status">{{ flashError }}</p>
       </section>
 

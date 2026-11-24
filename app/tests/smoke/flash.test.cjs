@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
 const { resolve } = require('node:path')
 const { test } = require('node:test')
-const { appNativeFlashSkip, hasFlashPlugin, launchApp, startFixtureServer } = require('./helpers.cjs')
+const { appNativeFlashSkip, hasFlashPlugin, launchApp, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 test('本地 PPAPI 样本在独立测试 profile 中注册插件并保留 JS 桥', { timeout: 150_000, skip: appNativeFlashSkip() }, async (context) => {
   if (!hasFlashPlugin()) {
@@ -51,5 +51,35 @@ test('本地 PPAPI 样本在独立测试 profile 中注册插件并保留 JS 桥
   } finally {
     await close()
     await server.close()
+  }
+})
+
+/**
+ * 自动发现的优先级：本机可能装着系统 Flash（自动发现能找到），但用户自己投放在
+ * `<exe目录>` 的那份必须优先——否则「我明明放了指定版本，实际加载的却是另一份」。
+ */
+test('设置页：手动投放的插件优先于自动发现', { timeout: 120_000, skip: appNativeFlashSkip() }, async (context) => {
+  if (!hasFlashPlugin()) {
+    context.skip('未检测到 .runtime/win-x64/pepflashplayer64.dll（BYOP）：跳过插件来源用例。')
+    return
+  }
+  const { app, shell, close } = await launchApp()
+  try {
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'open-settings' }))
+    const id = await waitFor(async () => app.evaluate(({ webContents }) =>
+      webContents.getAllWebContents()
+        .find((contents) => (contents.getURL() ?? '').startsWith('bao://settings'))?.id ?? null), {
+      message: '设置页没有打开'
+    })
+    const read = (code) => app.evaluate(({ webContents }, payload) =>
+      webContents.fromId(payload.id).executeJavaScript(payload.code), { id, code })
+
+    const status = await read('window.baoSettings.flashStatus()')
+    assert.equal(status.ready, true)
+    assert.equal(status.found, true, '磁盘上应当解析到了插件')
+    assert.equal(status.version, '29.0.0.171', `加载的不是投放的那份插件：${status.path}`)
+    assert.notEqual(status.source, 'scan', '用户投放在 exe 同级的插件应优先于自动发现')
+  } finally {
+    await close()
   }
 })

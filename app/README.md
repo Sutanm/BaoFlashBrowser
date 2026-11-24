@@ -103,18 +103,28 @@ npm run dev
 6. **许可**：`NOTICE.md` 与 `licenses/`（Chromium 第三方许可 14.4 MB + Electron 许可）随包。Chromium 那份取自**官方 Electron 39.8.10 发行包**（同版本近似，见 `licenses/README.md`），最终应由内核构建生成。Flash 插件再分发授权未确认。
 7. **签名与产物清单**：提供 `WIN_CSC_LINK` / `CSC_LINK`（+ `CSC_KEY_PASSWORD`）时打包会走 electron-builder 签名；无论是否签名，`pack:win` 都会在产物根写 `manifest.json`（组件哈希、许可文件、PE 签名块状态、内核 tag、发布门禁清单）。签名链校验仍需发布时用 signtool 另行验证。
 
-### Flash 插件：BYOP（用户自备）
+### Flash 插件：BYOP（用户自备，并自动发现本机已有的那份）
 
-本项目**不随公开发布包分发 Adobe Flash Player**（其再分发受 Adobe 许可限制）。用户自行准备
-`pepflashplayer64.dll` 并放到：
+本项目**不随公开发布包分发 Adobe Flash Player**（其再分发受 Adobe 许可限制）。插件按下面的
+顺序解析，**前面的存在就不会用后面的**——需要指定版本时用设置页「导入」，导入的插件优先于
+自动发现：
 
-```text
-<BaoFlashBrowser Next.exe 所在目录>\flash\pepflashplayer64.dll
-```
+1. `BAO_FLASH_PLUGIN` 环境变量；
+2. 设置页「导入」复制到 `<userData>\flash\pepflashplayer64.dll`；
+3. `<BaoFlashBrowser Next.exe 所在目录>\flash\pepflashplayer64.dll`；
+4. `<BaoFlashBrowser Next.exe 所在目录>\pepflashplayer64.dll`；
+5. 应用 `resources\`；
+6. **自动发现**：在本机常见位置找一份已经存在的插件——`C:\Windows\System32\Macromed\Flash`
+   里 flash.cn 安装的 `pepflashplayer64_34_*.dll`、Chrome/Chromium 的 `PepperFlash`、
+   360/QQ/搜狗等双核浏览器、下载与桌面目录。找到的那份**不复制、不移动**，只记住路径，
+   并且要先过 PE/Pepper 校验（64 位 + `PPP_GetInterface` 导出）才会被加载。
 
-放好后重启应用即可启用原生引擎；没检测到时所有标签自动回落到 Ruffle，引擎面板里的
-「Flash」档会置灰并在悬停时给出上述路径。解析顺序：`BAO_FLASH_PLUGIN` → `<exe>\flash\` →
-`<exe>\` → `<resources>\`。我们只负责加载用户提供的文件，**不提供来源与下载方式**。
+放好后重启应用即可启用原生引擎；自动发现按版本从新到旧挑一份，结果缓存在
+`<userData>\flash\discovery.json`（下次启动只 `stat` 一次，不重扫）。插件换了或删了都要重启
+才生效，设置页会写明是「重启后生效」还是「插件已移除」；「打开所在文件夹」可以直接定位当前
+用的那份 DLL。`BAO_FLASH_DISCOVERY=off` 可彻底关掉自动发现。没检测到时所有标签自动回落到
+Ruffle，引擎面板里的「Flash」档会置灰并在悬停时给出投放路径。我们只负责加载本机已有的文件，
+**不提供来源与下载方式**。
 
 两个打包 profile：
 

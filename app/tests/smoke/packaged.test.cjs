@@ -99,6 +99,9 @@ test('Win x64 验证包使用自编译运行时并加载 Ruffle', { timeout: 180
 
   // 先查清单，再启动任何进程或资源（旧产物可能会弹出窗口）。
   const profile = await readPackagedProfile(executablePath)
+  // 公开包的「没有插件」断言验的是**产物**：本机若装了系统 Flash，自动发现会把那份加载起来，
+  // 断言就变成在验这台机器。显式关掉自动发现；下面的 BYOP 投放用例再验优先级。
+  if (profile === 'public') process.env.BAO_FLASH_DISCOVERY = 'off'
   delete process.env.ELECTRON_RUN_AS_NODE
   const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-packaged-'))
   const server = await startFixtureServer()
@@ -169,6 +172,8 @@ test('BYOP：把插件放到 <exe目录>\\flash\\ 后原生引擎生效', { time
   const devPlugin = resolve(__dirname, '../../.runtime/win-x64/pepflashplayer64.dll')
   assert.ok(existsSync(devPlugin), '缺少开发侧插件文件，无法模拟用户自备')
 
+  // 按用户真实配置运行（自动发现开着）：投放目录优先于自动发现，加载的必须是这份。
+  delete process.env.BAO_FLASH_DISCOVERY
   delete process.env.ELECTRON_RUN_AS_NODE
   const server = await startFixtureServer()
   const dropIn = join(dirname(executablePath), 'flash')

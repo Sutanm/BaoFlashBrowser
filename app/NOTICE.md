@@ -9,7 +9,7 @@
 | Electron | 39.8.10（自编译） | 应用外壳与运行时 | MIT | ✅ `licenses/LICENSE.electron` 随包 |
 | Chromium | 142.0.7444.265（自编译，含 PPAPI 恢复补丁） | 浏览器内核 | BSD-style + 大量第三方许可 | ⚠️ `licenses/LICENSES.chromium.html` 随包，但取自**官方 Electron 39.8.10 发行包**（同版本近似），不是本内核构建产物；来源见 `licenses/README.md` |
 | Ruffle | 0.8.0 | Flash 模拟引擎（`vendor/ruffle/`） | MIT OR Apache-2.0 | ✅ 许可文本随包（`vendor/ruffle/LICENSE_MIT`、`LICENSE_APACHE`） |
-| Adobe Flash Player（PPAPI 插件） | 29.0.0.171 | 原生 Flash 引擎 | **Adobe 最终用户许可协议** | **BYOP**：本项目**不随包分发**。用户自行把 `pepflashplayer64.dll` 放到 `<exe目录>\flash\`；我们只负责加载，不提供来源与下载方式 |
+| Adobe Flash Player（PPAPI 插件） | 29.0.0.171 | 原生 Flash 引擎 | **Adobe 最终用户许可协议** | **BYOP**：本项目**不随包分发**。用户自行把 `pepflashplayer64.dll` 放到 `<exe目录>\flash\`；用户没放时应用会**自动发现本机已安装的那一份**（系统 Macromed、Chrome/Chromium 的 PepperFlash 等，只读不复制），我们只负责加载本机已有文件，不提供来源与下载方式 |
 
 ## 已知缺口（对外发布门禁）
 
