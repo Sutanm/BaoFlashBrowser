@@ -99,7 +99,10 @@ async function importFlash(): Promise<void> {
     const result = await window.baoSettings.flashImport()
     if (result.ok) flash.value = result.status
     else if (result.code !== 'cancelled') {
-      flashError.value = result.code === 'invalid' ? '不是可用的插件文件' : '复制失败，请检查文件权限'
+      flashError.value = result.code === 'invalid' ? '不是可用的插件文件'
+        : result.code === 'not-64-bit' ? '这个插件不是 64 位的，本应用只能加载 64 位 PPAPI 插件'
+        : result.code === 'not-pepper' ? '这个 DLL 不是 PPAPI 插件（缺少 NP_GetEntryPoints / NP_Initialize）'
+        : '复制失败，请检查文件权限'
     }
   } finally {
     flashBusy.value = false

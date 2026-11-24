@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname, extname, join } from 'node:path'
 import type { FlashImportResult, FlashPluginSource, FlashPluginState } from '../shared/settings'
+import { inspectPePlugin, isUsablePepperPlugin } from './pe-plugin'
 import { readPeFileVersion } from './pe-version'
 
 /**
@@ -74,6 +75,12 @@ export function flashPluginStatus(loaded: boolean): FlashPluginState {  const re
 /** 把用户选中的文件复制成 `<userData>/flash/pepflashplayer64.dll`。 */
 export function importFlashPlugin(source: string, loaded: boolean): FlashImportResult {
   if (!ALLOWED_EXTENSIONS.includes(extname(source).toLowerCase())) return { ok: false, code: 'invalid' }
+  // 只按扩展名接受会把「随便一个 dll」复制成插件文件，然后显示「就绪、重启即可」，
+  // 重启后却加载失败（审计 P2）。导入前先做 PE / Pepper 导出检查。
+  const info = inspectPePlugin(source)
+  if (!info) return { ok: false, code: 'invalid' }
+  if (!info.is64) return { ok: false, code: 'not-64-bit' }
+  if (!isUsablePepperPlugin(source)) return { ok: false, code: 'not-pepper' }
   const target = userDropIn()
   try {
     mkdirSync(dirname(target), { recursive: true })
@@ -81,5 +88,8 @@ export function importFlashPlugin(source: string, loaded: boolean): FlashImportR
   } catch {
     return { ok: false, code: 'copy-failed' }
   }
-  return { ok: true, status: flashPluginStatus(loaded) }
+  // 导入写的是 <userData>/flash/；如果环境变量或安装目录里有更高优先级的候选，
+  // 状态里会显示那个（source 字段），这里一并返回，界面据此提示「需要重启」。
+  const status = flashPluginStatus(loaded)
+  return { ok: true, status: { ...status, restartRequired: status.path !== target || !loaded } }
 }

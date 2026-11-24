@@ -185,6 +185,34 @@ test('M1 的 engine-rules.json 一次性迁移：入表、归档、幂等', { ti
   })
 })
 
+test('遗留规则解析失败不写标记，下次启动重试并成功导入（审计 P2）', { timeout: 120_000 }, async () => {
+  await withProfile(async (profilePath) => {
+    const legacy = join(profilePath, 'engine-rules.json')
+    await writeFile(legacy, '{ 这不是合法 JSON', 'utf8')
+
+    const broken = await launch(profilePath)
+    await broken.close()
+
+    assert.equal(existsSync(legacy), true, '解析失败时不能归档（否则用户数据就丢了）')
+    assert.deepEqual(inspect(profilePath, 'SELECT key FROM meta WHERE key = ?', 'migration.engine-rules@1'), [],
+      '解析失败不能写幂等标记，否则下次启动不会再重试')
+    assert.deepEqual(inspect(profilePath, 'SELECT host FROM engine_rules'), [], '解析失败不应导入任何规则')
+
+    // 用户修好文件后重启：必须能导入（旧实现因为已经提交 user_version=1，这里会永久跳过）。
+    await writeFile(legacy, JSON.stringify({ 'retry.example.com': 'ppapi' }), 'utf8')
+    const fixed = await launch(profilePath)
+    await fixed.close()
+
+    assert.deepEqual(
+      inspect(profilePath, 'SELECT host, engine FROM engine_rules ORDER BY host').map((row) => [row.host, row.engine]),
+      [['retry.example.com', 'ppapi']],
+      '修好文件后重启应完成导入')
+    assert.equal(inspect(profilePath, 'SELECT key FROM meta WHERE key = ?', 'migration.engine-rules@1').length, 1,
+      '导入成功后写标记')
+    assert.equal(existsSync(`${legacy}.migrated-1`), true, '导入成功后归档')
+  })
+})
+
 test('库里的坏设置值不影响启动，回落到默认值', { timeout: 120_000 }, async () => {
   await withProfile(async (profilePath) => {
     const first = await launch(profilePath)

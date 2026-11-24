@@ -148,7 +148,7 @@ export interface FlashPluginState {
 
 export type FlashImportResult =
   | { ok: true; status: FlashPluginState }
-  | { ok: false; code: 'forbidden-sender' | 'cancelled' | 'invalid' | 'copy-failed' }
+  | { ok: false; code: 'forbidden-sender' | 'cancelled' | 'invalid' | 'not-64-bit' | 'not-pepper' | 'copy-failed' }
 
 export interface SettingsSnapshot {
   settings: Settings

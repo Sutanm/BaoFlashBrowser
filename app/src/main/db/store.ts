@@ -64,7 +64,7 @@ function stamp(): string {
 }
 
 /** v1：设置、迁移标记、站点引擎规则。 */
-function migrateToV1(db: Database, legacyRulesFile: string | undefined): OpenedStore['legacy'] {
+function migrateToV1(db: Database): void {
   db.exec(`
     CREATE TABLE settings(
       key TEXT PRIMARY KEY,
@@ -82,7 +82,6 @@ function migrateToV1(db: Database, legacyRulesFile: string | undefined): OpenedS
       updated_at INTEGER NOT NULL
     );
   `)
-  return importLegacyRules(db, legacyRulesFile)
 }
 
 /**
@@ -167,12 +166,20 @@ export async function openStore(options: OpenStoreOptions): Promise<OpenedStore>
         backupFile = join(paths.backups, `browser-v${previousVersion}-${stamp()}.sqlite3`)
         await db.snapshotTo(backupFile)
       }
-      legacyResult = db.transaction(() => {
-        const result = migrateToV1(db, legacy)
+      db.transaction(() => {
+        migrateToV1(db)
         db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
-        return result
       })
-      if (legacyResult === 'imported' || legacyResult === 'empty') archiveLegacyRules(legacy)
+    }
+
+    // 遗留规则导入**不在迁移事务里**，而且每次打开都跑：
+    // - 导入失败（JSON 坏了）不写标记，下次启动会重试（审计 P2：之前失败也提交 user_version，
+    //   之后再也不进导入分支，等于永久放弃用户数据）；
+    // - 标记已写但归档没成功（文件还在）时，也在这里补做归档。
+    legacyResult = importLegacyRules(db, legacy)
+    if (legacyResult === 'imported' || legacyResult === 'empty' ||
+        (legacyResult === 'already' && existsSync(legacy))) {
+      archiveLegacyRules(legacy)
     }
 
     // 轻量自检：能发现"文件在但页损坏"（例如断电/杀进程落在坏扇区）。
