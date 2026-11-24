@@ -47,13 +47,20 @@ let observer: ResizeObserver | undefined
  * 面板的 `max-height` 依赖视图高度（`100vh`），用盒子高度会形成
  * 「测量→缩小视图→再测量」的收缩反馈，最后塌成一条（实测踩过）。
  */
+let lastSentHeight = 0
+
 function measure(): void {
   const element = panel.value
   if (!element) return
   const contentHeight = element.scrollHeight
   if (contentHeight < 40) return
   // +2：`scrollHeight` 不含边框，留 1–2 px 余量避免"刚好相等"时冒出滚动条。
-  void window.baoOverlay.resizeQuick(contentHeight + GUTTER_TOP + GUTTER_BOTTOM + 2)
+  const next = contentHeight + GUTTER_TOP + GUTTER_BOTTOM + 2
+  // 高度没变就不上报：ResizeObserver 会在视图 bounds 变化后再次触发，
+  // 每帧都发会变成「测量 ↔ 设 bounds」的正反馈（实测每秒上万次 IPC）。
+  if (Math.abs(next - lastSentHeight) < 1) return
+  lastSentHeight = next
+  void window.baoOverlay.resizeQuick(next)
 }
 
 async function write(key: 'theme.mode' | 'engine.default', value: string): Promise<void> {

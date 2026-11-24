@@ -173,17 +173,22 @@ export function createShellOverlays(
     if (current.x !== bounds.x || current.y !== bounds.y ||
         current.width !== bounds.width || current.height !== bounds.height) item.view.setBounds(bounds)
     const alreadyVisible = item.view.getVisible()
+    // 只有「刚显示」或「内容种类变了」才通知渲染层。
+    // 之前每次 sync() 都重发 `*-opened`（例如每次 resize-quick 之后），渲染层收到就重新挂载/重测，
+    // 于是「测量 → resize → sync → 再测量」变成正反馈：实测每 500 ms 约 4100 次 report-ready +
+    // 6600 次 resize-quick（≈2.2 万次/秒），主进程被拖到单次定时器延迟上百毫秒甚至数秒。
+    const reopened = alreadyVisible && item.kind !== shownKind
     if (!alreadyVisible) {
       item.view.setVisible(true)
       raise()
       if (pendingOpen) markVisible(pendingOpen)
-    } else if (item.kind !== shownKind) {
+    } else if (reopened) {
       // 视图已经可见但内容换了（toast ↔ 面板/飞窗）：仍要通知渲染层切换并交接焦点，
       // 否则会看到「视图亮着、内容不对、Esc 关不掉」。
       if (pendingOpen) markVisible(pendingOpen)
     }
     shownKind = kind
-    if (kind !== 'toast') {
+    if (kind !== 'toast' && (!alreadyVisible || reopened)) {
       // 后台窗口不抢前台（与 browser-window 的 focusContents 同一合同）：
       // 自动化或窗口被盖住时，打开飞窗不应该把窗口拉到前台。
       if (window.isFocused()) item.view.webContents.focus()
@@ -344,6 +349,9 @@ export function createShellOverlays(
       }
       case 'resize-quick': {
         if (role !== 'quick' || flyout?.kind !== 'quick' || !flyout.bounds || !isFiniteNumber(value.height) || value.height <= 0) return false
+        // 高度没变就别再走一遍 sync()：渲染层按 scrollHeight 上报，1–2 px 的抖动会形成
+        // 「设置 bounds → 布局变化 → 再上报」的循环（实测能到每秒上万次）。
+        if (Math.abs(flyout.bounds.height - value.height) < 1) return true
         flyout.bounds.height = value.height
         sync('quick')
         return true
