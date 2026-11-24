@@ -20,7 +20,7 @@ import { ntpChannels } from '../shared/ntp'
 import type { NtpCommand, NtpCommandResult, NtpSnapshot } from '../shared/ntp'
 import { importFlashPlugin } from './flash-plugin'
 import { flashLoadedPath, flashStatus } from './plugins'
-import { windowPalette } from '../shared/shell-theme'
+import { shellThemes, windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
 import { overlayChannels } from '../shared/overlay'
 import { createShellOverlays } from './shell-overlays'
@@ -412,13 +412,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   const tabs: Tab[] = []
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined
-  /**
-   * 已完成文档加载与首帧调度的 NTP 视图。
-   *
-   * 它以正常页面尺寸放在内容树最底层（被活动页完全覆盖），因此 Chromium 不会把它当成
-   * 隐藏页面节流；新建标签时只需把这个现成的 surface 提到前台，不会先露出空白底色。
-   */
-  let preloadedNewTab: { view: WebContentsView; ready: boolean } | undefined
   let revision = 0
   let closing = false
   /** 崩溃会话：用户点「恢复」之前一直挂着，不自动建标签。 */
@@ -594,15 +587,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   function layout(): void {
     overlays.layout()
+    if (!active) return
     const [width, height] = window.getContentSize()
+    if (!active?.view) return
     // 崩溃恢复提示条占一条固定高度：页面视图必须让开，否则会被它压住一截。
     const infobar = sessionPromptOf() ? INFOBAR_HEIGHT : 0
     const y = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT + infobar
-    const bounds = { x: 0, y, width, height: Math.max(0, height - y) }
-    // 预渲染视图必须和最终展示尺寸一致，否则接管时仍要等一次 resize/repaint。
-    preloadedNewTab?.view.setBounds(bounds)
-    if (!active?.view) return
-    active.view.setBounds(bounds)
+    active.view.setBounds({ x: 0, y, width, height: Math.max(0, height - y) })
     // 失败时让外壳绘制带重试动作的内容页，不在工具栏里塞错误文字。
     active.view.setVisible(!active.error)
   }
@@ -651,7 +642,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 权限不靠 preload 区分，靠主进程按「标签身份 ∧ 主帧 ∧ 文档 URL」判定（见 `internalSender`）。
    */
   function createInternalView(): WebContentsView {
-    return new WebContentsView({
+    const view = new WebContentsView({
       webPreferences: {
         session: getInternalSession(),
         preload: join(__dirname, '../preload/internal.js'),
@@ -663,77 +654,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         nodeIntegrationInSubFrames: false
       }
     })
-  }
-
-  /** 正常运行时常备一个 NTP；冒烟默认不建额外 WebContents，专门用例可显式打开。 */
-  function canPreloadNewTab(): boolean {
-    return (!hidden && !background) || process.env.BAO_NTP_PREWARM_IN_SMOKE === '1'
-  }
-
-  /**
-   * 后台准备一个真正出过首帧的 NTP。
-   *
-   * `did-finish-load` 只代表资源与 load 事件完成，不代表合成器已经提交画面；再跨两个 RAF，
-   * 可确保 Vue 已挂载且至少经历一次样式/布局/绘制机会。视图放在 index 0，被活动页面覆盖。
-   */
-  function preloadNewTab(): void {
-    if (!canPreloadNewTab() || closing || preloadedNewTab || window.isDestroyed()) return
-    const view = createInternalView()
-    const entry = { view, ready: false }
-    preloadedNewTab = entry
-    window.contentView.addChildView(view, 0)
-    layout()
-
-    const contents = view.webContents
-    contents.once('render-process-gone', () => {
-      if (preloadedNewTab !== entry) return
-      preloadedNewTab = undefined
-      if (!window.isDestroyed() && window.contentView.children.includes(view)) {
-        window.contentView.removeChildView(view)
-      }
-      if (!contents.isDestroyed()) contents.close()
-      setImmediate(preloadNewTab)
-    })
-    contents.once('did-finish-load', () => {
-      void contents.executeJavaScript(`new Promise((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
-      })`).then(() => {
-        if (!closing && preloadedNewTab === entry && !contents.isDestroyed() && isNewTabUrl(contents.getURL())) {
-          entry.ready = true
-        }
-      }).catch(() => {})
-    })
-    void contents.loadURL(internalUrls.newtab).catch(() => {
-      if (preloadedNewTab !== entry) return
-      preloadedNewTab = undefined
-      if (window.contentView.children.includes(view)) window.contentView.removeChildView(view)
-      if (!contents.isDestroyed()) contents.close()
-    })
-  }
-
-  /** 只接管已完成首帧的实例；仍在预热时宁可沿用冷启动，也不展示半成品。 */
-  function takePreloadedNewTab(): WebContentsView | undefined {
-    const entry = preloadedNewTab
-    if (!entry) return undefined
-    if (entry.view.webContents.isDestroyed() || entry.view.webContents.isCrashed()) {
-      preloadedNewTab = undefined
-      setImmediate(preloadNewTab)
-      return undefined
-    }
-    if (!entry.ready) return undefined
-    preloadedNewTab = undefined
-    if (window.contentView.children.includes(entry.view)) window.contentView.removeChildView(entry.view)
-    return entry.view
-  }
-
-  function disposePreloadedNewTab(): void {
-    const entry = preloadedNewTab
-    preloadedNewTab = undefined
-    if (!entry) return
-    if (!window.isDestroyed() && window.contentView.children.includes(entry.view)) {
-      window.contentView.removeChildView(entry.view)
-    }
-    if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
+    // WebContents 的默认底色是纯白；在内部页 HTML/CSS 到达前先铺最终 Fluent 页面色，
+    // 避免新标签页经历「白 → 临时色 → 页面色」三段跳。这里必须用解析后的当前主题，
+    // 不能只看系统 prefers-color-scheme（用户可能在设置里强制亮色或暗色）。
+    view.setBackgroundColor(shellThemes[currentTheme()].colorNeutralBackground2)
+    return view
   }
 
   /** 事件只按 `tab.host` 分发，跨窗口移动时无需重挂监听。 */
@@ -936,8 +861,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 带给渲染层，工具栏据此隐藏引擎胶囊。
    */
   function openInternalTab(kind: InternalKind): Tab {
-    const preloaded = kind === 'newtab' ? takePreloadedNewTab() : undefined
-    const view = preloaded ?? createInternalView()
+    const view = createInternalView()
     const tab: Tab = {
       id: nextTabId++,
       view,
@@ -953,14 +877,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
     tabs.push(tab)
     bind(tab, view)
-    if (preloaded) {
-      // 预热时页面还没有标签身份，首次 read() 会被安全边界拒绝；接管后主动补发真实快照。
-      view.webContents.send(ntpChannels.changed, ntpState())
-      // 等当前同步的 select() 完成后再把下一张热 NTP 放到底层。
-      setImmediate(preloadNewTab)
-    } else {
-      load(tab, internalUrls[kind])
-    }
+    load(tab, internalUrls[kind])
     return tab
   }
 
@@ -2101,7 +2018,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const finalSession = sessionWindowSnapshot()
     clearInterval(discardTimer)
     closing = true
-    disposePreloadedNewTab()
     controllers.delete(shellContentsId)
     overlays.dispose()
     nativeTheme.off('updated', onNativeThemeUpdated)
@@ -2162,9 +2078,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       if (!closing && !window.isDestroyed() && process.env.BAO_NO_PREWARM !== '1' &&
           currentSettings().overlayPrewarm === 'always') overlays.prewarm()
     }
-    // 活动页已经挂载、窗口也已可见，此时放入底层的 NTP 才能真实走完合成首帧。
-    // 自动化默认由 canPreloadNewTab() 跳过；专项用例使用透明可见窗口验证合成与接管。
-    preloadNewTab()
   } catch (error) {
     closing = true
     controllers.delete(shellContentsId)

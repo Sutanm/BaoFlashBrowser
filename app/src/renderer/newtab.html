@@ -7,10 +7,10 @@
     <!--
       首帧底色：`--surface-page` 由 JS 从 Fluent token 注入，脚本执行前页面是白的——
       深色主题下会闪一下白。这里用 `prefers-color-scheme`（跟随 nativeTheme.themeSource）
-      先铺一层近似底色，Vue 挂载后再由设计 token 覆盖。
+      先铺与 Fluent `colorNeutralBackground2` 相同的底色，Vue 挂载后再由设计 token 接管。
     -->
     <style>
-      html { background: #f5f5f5; }
+      html { background: #fafafa; }
       @media (prefers-color-scheme: dark) { html { background: #1f1f1f; } }
     </style>
   </head>

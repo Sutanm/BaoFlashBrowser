@@ -51,10 +51,9 @@ function onSystemTheme(): void {
 onMounted(async () => {
   applyTheme()
   systemTheme.addEventListener('change', onSystemTheme)
-  // 先订阅再读初值：预渲染 NTP 被标签接管时主进程会立即补发快照，不能在 read() 往返期间漏掉。
-  detach = window.baoNtp.subscribe(apply)
   const initial = await window.baoNtp.read()
   if (initial) apply(initial)
+  detach = window.baoNtp.subscribe(apply)
 })
 
 onBeforeUnmount(() => {
@@ -161,6 +160,16 @@ input:disabled { opacity: 0.7; }
   min-height: 100%;
   margin: 0 auto;
   padding: clamp(72px, 22vh, 200px) 24px 48px;
+  /*
+   * 冷启动不可避免，但底色与几何保持稳定后，只让内容做一次很短的柔和入场。
+   * 这不是遮掩加载的长动画：120ms 内完成，连续 Ctrl+T 也不会拖沓。
+   */
+  animation: ntp-content-enter 120ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes ntp-content-enter {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .wordmark {
@@ -241,5 +250,9 @@ input:disabled { opacity: 0.7; }
 @media (forced-colors: active) {
   .realbox { border-color: CanvasText; }
   .realbox:focus-within { outline: 2px solid Highlight; outline-offset: -2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .newtab { animation: none; }
 }
 </style>
