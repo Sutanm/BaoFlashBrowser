@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { DISCARD_MODES, discardModeLabels, PREWARM_MODES, prewarmModeLabels } from '../shared/settings'
+import {
+  DISCARD_MODES, SESSION_STARTUP_MODES, discardModeLabels, prewarmModeLabels, sessionStartupLabels, PREWARM_MODES
+} from '../shared/settings'
 import type { SettingsSnapshot, ThemeMode } from '../shared/settings'
 import type { FlashPluginState } from '../shared/settings'
 import type { BrowserEngine } from '../shared/engine'
@@ -30,8 +32,10 @@ const theme = computed(() => current.value?.themeMode ?? 'system')
 const engine = computed(() => current.value?.defaultEngine ?? 'ppapi')
 const prewarm = computed(() => current.value?.overlayPrewarm ?? 'auto')
 const tabDiscard = computed(() => current.value?.tabDiscard ?? 'auto')
+const sessionStartup = computed(() => current.value?.sessionStartup ?? 'newtab')
 const discardModes = DISCARD_MODES
 const prewarmModes = PREWARM_MODES
+const startupModes = SESSION_STARTUP_MODES
 const storage = computed(() => snapshot.value?.storage ?? 'ready')
 
 let detach: (() => void) | undefined
@@ -50,7 +54,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => detach?.())
 
-async function write(patch: { key: 'theme.mode' | 'engine.default' | 'locale' | 'overlay.prewarm' | 'tab.discard'; value: string }): Promise<void> {
+async function write(patch: { key: 'theme.mode' | 'engine.default' | 'locale' | 'overlay.prewarm' | 'tab.discard' | 'session.startup'; value: string }): Promise<void> {
   if (busy.value) return
   busy.value = true
   error.value = ''
@@ -197,6 +201,16 @@ function focusFlashSection(): void {
           需要指定版本时用「导入」，导入的插件优先于自动发现。
         </p>
         <p v-if="flashError" class="error" role="status">{{ flashError }}</p>
+      </section>
+
+      <section aria-labelledby="startup-title">
+        <h2 id="startup-title">启动</h2>
+        <label class="select-row">
+          <span>启动时</span>
+          <select :value="sessionStartup" :disabled="busy" @change="write({ key: 'session.startup', value: ($event.target as HTMLSelectElement).value })">
+            <option v-for="mode in startupModes" :key="mode" :value="mode">{{ sessionStartupLabels[mode] }}</option>
+          </select>
+        </label>
       </section>
 
       <section aria-labelledby="perf-title">

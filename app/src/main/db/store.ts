@@ -306,6 +306,7 @@ export function settingValue(settings: Settings, key: SettingKey): SettingValue[
   switch (key) {
     case 'overlay.prewarm': return settings.overlayPrewarm
     case 'tab.discard': return settings.tabDiscard
+    case 'session.startup': return settings.sessionStartup
     case 'theme.mode': return settings.themeMode
     case 'engine.default': return settings.defaultEngine
     case 'locale': return settings.locale

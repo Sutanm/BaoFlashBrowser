@@ -140,6 +140,12 @@ export interface BrowserWindowOptions {
    * 未决定之前会话不写盘，否则 800 ms 后的一次自动保存就会把待恢复的会话覆盖掉。
    */
   crashSession?: SessionSnapshot
+  /**
+   * 启动即恢复的会话：设置项 `session.startup = continue` 时由 `index.ts` 传入。
+   *
+   * 与 `crashSession` 互斥——这是用户主动选择的「继续上次会话」，不需要再问一次。
+   */
+  initialSession?: SessionSnapshot
   adoptIndex?: number
   x?: number
   y?: number
@@ -874,17 +880,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
-   * 用户点了「恢复标签页」：把崩溃会话的标签建进当前窗口。
+   * 把一份会话的标签建进当前窗口。
    *
-   * 多窗口会话会并回当前窗口（M2 首版不还原窗口布局/位置）；固定标签仍插到最左前缀，
-   * 未动过的空白新标签页被覆盖掉（不额外留一个空白页）。
+   * 两条路共用：崩溃恢复（用户点「恢复标签页」）与「继续上次会话」（设置项
+   * `session.startup = continue`）。多窗口会话会并回当前窗口（M2 首版不还原窗口布局）；
+   * 固定标签仍插到最左前缀；只有一个**未动过**的空白新标签页时把它覆盖掉。
    */
-  function restoreCrashSession(): void {
-    const session = crashSession
-    if (!session) return
+  function applySession(session: SessionSnapshot): void {
     const blank = tabs.length === 1 && isBlankNewTab(tabs[0]) ? tabs[0] : undefined
-    crashSession = undefined
-
     const entries = session.windows.flatMap((window) => window.tabs)
     const restored = entries.map(createRestoredTab)
     const pinnedRestored = restored.filter((tab) => tab.pinned)
@@ -896,6 +899,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const chosen = (activeIndex >= 0 ? restored[activeIndex] : undefined) ?? restored[0]
     if (chosen) select(chosen, true)
     if (blank && blank !== chosen) closeTab(blank)
+  }
+
+  /** 用户点了「恢复标签页」：建出崩溃会话的标签，并解除写盘挂起。 */
+  function restoreCrashSession(): void {
+    const session = crashSession
+    if (!session) return
+    crashSession = undefined
+    applySession(session)
     // 用户已经回答，解除写盘挂起：当前状态（恢复后的标签）覆盖磁盘上的崩溃会话。
     releaseSessionHold()
     layout()
@@ -1965,6 +1976,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const resolved = engineFor(options.initialAddress)
     const opened = addTab('新标签页', options.initialAddress, resolved.engine, resolved.source)
     select(opened, true)
+  } else if (options.initialSession && sessionTabCount(options.initialSession) > 0) {
+    // 设置项 `session.startup = continue`：用户主动要求每次恢复，不再提示。
+    applySession(options.initialSession)
   } else {
     // 启动只开一个标签页：正常退出后重启**不恢复**会话，崩溃恢复也要等用户点提示条。
     // 多标签由「新建标签页」、崩溃恢复与冒烟测试覆盖。

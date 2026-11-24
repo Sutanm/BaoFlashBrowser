@@ -106,6 +106,47 @@ test('正常退出后重启：不恢复标签，也没有恢复提示', { timeou
   }
 })
 
+test('设置 session.startup=continue 后：正常退出重启直接恢复标签，没有提示条', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/a': page('A'), '/b': page('B') })
+  try {
+    await withProfile(async (profilePath) => {
+      const first = await launchAppAt(profilePath)
+      try {
+        const setting = await first.shell.evaluate(() =>
+          window.baoBrowser.run({ type: 'set-setting', key: 'session.startup', value: 'continue' }))
+        assert.equal(setting.ok, true, `设置写入失败：${setting.code}`)
+        const { tabB } = await prepareTabs(first.shell, server.baseUrl)
+        assert.equal((await snapshot(first.shell)).activeId, tabB.id)
+      } finally {
+        await first.close()
+      }
+
+      const second = await launchAppAt(profilePath)
+      try {
+        // 用户选了「继续上次会话」：正常退出也要恢复，而且不再问一遍。
+        const state = await waitFor(async () => {
+          const current = await snapshot(second.shell)
+          const b = tabByTitle(current, 'B')
+          return b && !b.loading ? current : null
+        }, { message: 'continue 模式下没有恢复上次标签' })
+        assert.equal(state.sessionPrompt, undefined, 'continue 模式不应再提示')
+        assert.equal(await second.shell.locator('.session-infobar').count(), 0)
+        assert.equal(state.settings.sessionStartup, 'continue', '重启后设置应保留')
+
+        const a = tabByTitle(state, 'A')
+        assert.equal(a.pinned, true, '置顶状态应恢复')
+        assert.equal(a.discarded, true, '非活动标签以休眠状态恢复')
+        assert.equal(tabByTitle(state, 'B').keepAwake, true, '保持活跃应恢复')
+        assert.equal(state.tabs[0].title, 'A', '固定标签恢复后仍应在最左')
+      } finally {
+        await second.close()
+      }
+    })
+  } finally {
+    await server.close()
+  }
+})
+
 test('异常退出后重启：只提示不恢复，点「恢复标签页」才重建并保留置顶/引擎/保持活跃', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({ '/a': page('A'), '/b': page('B') })
   try {

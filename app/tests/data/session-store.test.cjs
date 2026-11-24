@@ -236,6 +236,47 @@ test('会话载荷写入真库；坏载荷不阻断启动且会被重写成合�
   }
 })
 
+test('session.startup=continue：正常退出后重启直接恢复上次标签，不再提示', { timeout: 120_000 }, async () => {
+  const server = await startServer()
+  const target = `${server.baseUrl}/continue`
+  try {
+    await withProfile(async (profilePath) => {
+      const first = await launch(profilePath)
+      try {
+        const setting = await first.run({ type: 'set-setting', key: 'session.startup', value: 'continue' })
+        assert.equal(setting.ok, true, `设置写入失败：${setting.code}`)
+        assert.equal(setting.state.settings.sessionStartup, 'continue', '写回的快照应立刻反映新值')
+        assert.equal((await first.run({ type: 'add' })).ok, true)
+        assert.equal((await first.run({ type: 'navigate', address: target })).ok, true)
+        await waitFor(async () => (await first.state()).tabs.some((tab) => tab.address === target && !tab.loading),
+          { message: '标签没有加载到目标地址' })
+      } finally {
+        await first.close()
+      }
+
+      assert.deepEqual(
+        inspect(profilePath, "SELECT value FROM settings WHERE key = 'session.startup'").map((row) => row.value),
+        ['continue'], '设置必须落库')
+
+      const second = await launch(profilePath)
+      try {
+        // 正常退出（标记是 clean），但用户选了「继续上次会话」：直接恢复，不提示。
+        const state = await waitFor(async () => {
+          const current = await second.state()
+          const tab = current.tabs.find((item) => item.address === target)
+          return tab && !tab.loading ? current : null
+        }, { message: 'continue 模式下没有恢复上次标签' })
+        assert.equal(state.sessionPrompt, undefined, 'continue 模式是用户主动选择，不需要再提示')
+        assert.equal(state.settings.sessionStartup, 'continue', '重启后设置应保留')
+      } finally {
+        await second.close()
+      }
+    })
+  } finally {
+    await server.close()
+  }
+})
+
 test('异常退出（硬杀）后重启：只提示不恢复，用户点「恢复」才重建标签', { timeout: 120_000 }, async () => {
   const server = await startServer()
   const target = `${server.baseUrl}/crash`

@@ -74,9 +74,9 @@
 | 命令 | 结果 |
 | --- | --- |
 | `npm run typecheck` | ✅ |
-| `node scripts/test.cjs unit` | ✅ 14 文件 / **139 通过**（`session.test.ts` 16 条，含 `sessionTabCount`） |
-| `node scripts/test.cjs data` | ✅ 2 文件 / **10 通过**（`session-store.test.cjs` 3 条） |
-| `node scripts/test.cjs smoke` | ✅ **22 文件 / 0 失败**（`session-restore.test.cjs` 3 条，约 14 s） |
+| `node scripts/test.cjs unit` | ✅ 14 文件 / **140 通过**（`session.test.ts` 16 条；`settings.test.ts` 覆盖新键的取值与默认值） |
+| `node scripts/test.cjs data` | ✅ 2 文件 / **11 通过**（`session-store.test.cjs` 4 条） |
+| `node scripts/test.cjs smoke` | ✅ **22 文件 / 0 失败**（`session-restore.test.cjs` 4 条，约 22 s） |
 
 ### 存储层（`tests/data/session-store.test.cjs`，真库 + 真进程）
 
@@ -95,7 +95,9 @@
 2. **异常退出后重启**：提示条出现并含「上次未正常退出」、标签未自动恢复 → 点「恢复标签页」后
    提示消失、A 仍在最左且 `pinned` + `discarded`、B 为活动标签且 `keepAwake`/`engine=ruffle`/
    `engineSource=manual` 全部保留 → 再正常退出重启不再提示；
-3. **异常退出后点「忽略」**：不恢复任何标签，下次启动不再提示。
+3. **异常退出后点「忽略」**：不恢复任何标签，下次启动不再提示；
+4. **`session.startup=continue`**：设置后正常退出再启动，直接恢复（不提示），
+   置顶/休眠状态/保持活跃一并恢复，且设置本身跨重启保留。
 
 用例里"硬杀前必须等会话按期望落盘"（地址 + 引擎 + 保持活跃三者同时满足）——只等地址会在标记
 生效前就把进程杀掉，这是实现过程中真实踩到的坑。
@@ -107,6 +109,7 @@
    但对多步表单场景是可见损失）。
 3. **提示只在启动时出现一次**：用户在提示条上没有任何操作就关闭窗口，会按正常退出处理
    （会话被丢弃）；没有"稍后恢复"的入口（Chrome 有历史菜单里的「最近关闭」）。
+   想要"总是恢复"的用户需要主动把 `session.startup` 改成 `continue`。
 4. **崩溃标记只有一次机会**：`before-quit` 之后若进程卡在退出流程里被强杀，标记仍是 `clean`，
    下次不会提示（宁可漏提示，也不要误提示）。
 5. **会话数据没有清理入口**：属 M2「存储清理」项。
@@ -122,7 +125,31 @@
 | 提示条投影与命令 | `app/src/shared/browser.ts`（`INFOBAR_HEIGHT` / `BrowserState.sessionPrompt` / `restore-session` / `dismiss-session`） |
 | 迁移与载荷读写 | `app/src/main/db/store.ts`（`SCHEMA_VERSION` / `MIGRATIONS` / `migrateToV2` / `readSession` / `writeSession` / `readSessionExit` / `writeSessionExit`） |
 | 存储门面 | `app/src/main/storage.ts`（`session` / `saveSession` / `sessionExit` / `markSessionExit`） |
-| 提示、恢复与保存接线 | `app/src/main/browser-window.ts`（`sessionWindows` / `scheduleSessionSave` / `holdSession` / `releaseSessionHold` / `flushSession` / `createRestoredTab` / `restoreCrashSession` / `dismissCrashSession` / `sessionPromptOf`） |
+| 提示、恢复与保存接线 | `app/src/main/browser-window.ts`（`sessionWindows` / `scheduleSessionSave` / `holdSession` / `releaseSessionHold` / `flushSession` / `createRestoredTab` / `applySession` / `restoreCrashSession` / `dismissCrashSession` / `sessionPromptOf`） |
 | 启动与退出 | `app/src/main/index.ts` |
 | 提示条 UI | `app/src/renderer/App.vue`（`.session-infobar`） |
-| 测试 | `app/tests/unit/session.test.ts`、`app/tests/data/session-store.test.cjs`、`app/tests/smoke/session-restore.test.cjs` |
+| 测试 | `app/tests/unit/session.test.ts`、`app/tests/unit/settings.test.ts`、`app/tests/data/session-store.test.cjs`、`app/tests/smoke/session-restore.test.cjs` |
+
+## 7. 后续增量（同日）：启动策略设置项 `session.startup`
+
+上表是默认行为（Chrome 的 `Open the New Tab page`）。想让"总是恢复"的用户也有正式入口，
+补一个设置项，语义照着 Chrome 的 `On startup`：
+
+| 值 | 行为 |
+| --- | --- |
+| `newtab`（**默认**） | 正常退出 → 新标签页、无提示；异常退出 → 提示条，用户确认后才恢复 |
+| `continue` | 每次启动都恢复上次会话（用户已主动选择，不再提示）；命令行显式带网址时仍不恢复 |
+
+实现要点：
+
+- `shared/settings.ts` 新增键 `session.startup`（`Settings.sessionStartup`，`DEFAULT_SETTINGS.sessionStartup = 'newtab'`），
+  走同一套 `sanitizeSetting`（只认 `newtab` / `continue`，其它值整体拒绝）；
+- `db/store.ts` 的 `settingValue()` 补一个分支（键值表不需要迁移：它是 key-value 结构）；
+- 设置页新增「启动」分区的一个下拉；
+- `index.ts`：`session.startup === 'continue'` 且存有会话时，把会话作为 `initialSession`
+  交给窗口；窗口用与崩溃恢复**同一个** `applySession()` 建标签（不弹提示、不挂起写盘）。
+  两条路共用一套恢复逻辑，避免出现"提示恢复"和"自动恢复"两套实现漂移。
+
+验证：`settings.test.ts` 增加合法/非法取值与默认值用例；`session-store.test.cjs` 增加
+"continue 模式下正常退出重启直接恢复、不提示"；`session-restore.test.cjs` 增加同场景的
+真实 Electron 跨进程用例（含置顶/休眠/保持活跃恢复断言，见 §4）。

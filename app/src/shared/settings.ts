@@ -11,6 +11,15 @@ import type { BrowserEngine } from './engine'
 export const DISCARD_MODES = ['auto', 'never'] as const
 export type DiscardMode = (typeof DISCARD_MODES)[number]
 
+/**
+ * 启动时的标签行为（Chrome 的 `On startup`）。
+ *
+ * - `newtab`（默认）：正常退出后重启只开新标签页；异常退出才提示「恢复标签页」，由用户决定；
+ * - `continue`：每次都恢复上次退出时的标签（`Continue where you left off`）。
+ */
+export const SESSION_STARTUP_MODES = ['newtab', 'continue'] as const
+export type SessionStartupMode = (typeof SESSION_STARTUP_MODES)[number]
+
 export const PREWARM_MODES = ['auto', 'always', 'never'] as const
 export type PrewarmMode = (typeof PREWARM_MODES)[number]
 
@@ -25,6 +34,8 @@ export interface Settings {
   overlayPrewarm: PrewarmMode
   /** 后台标签休眠：auto=后台超过 TTL 丢弃视图（切回重新加载）；never=从不丢弃（挂机场景）。 */
   tabDiscard: DiscardMode
+  /** 启动行为：newtab=正常退出后重启开新标签页（崩溃才提示恢复）；continue=总是恢复上次会话。 */
+  sessionStartup: SessionStartupMode
   themeMode: ThemeMode
   /** 新标签/新站点的默认引擎；站点规则与手动切换优先于它。 */
   defaultEngine: BrowserEngine
@@ -34,6 +45,8 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   overlayPrewarm: 'auto',
   tabDiscard: 'auto',
+  // 默认对齐 Chrome：正常退出后重启是新标签页，只有崩溃才提示恢复。
+  sessionStartup: 'newtab',
   themeMode: 'system',
   // 原生优先：M1 的默认值，改成设置项后保持同样的行为。
   defaultEngine: 'ppapi',
@@ -44,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
 export const SETTING_COLUMNS = {
   'overlay.prewarm': 'overlayPrewarm',
   'tab.discard': 'tabDiscard',
+  'session.startup': 'sessionStartup',
   'theme.mode': 'themeMode',
   'engine.default': 'defaultEngine',
   locale: 'locale'
@@ -56,6 +70,7 @@ export type SettingColumn = (typeof SETTING_COLUMNS)[SettingKey]
 export type SettingValue = {
   'overlay.prewarm': PrewarmMode
   'tab.discard': DiscardMode
+  'session.startup': SessionStartupMode
   'theme.mode': ThemeMode
   'engine.default': BrowserEngine
   locale: Locale
@@ -73,7 +88,7 @@ export function isLocale(value: unknown): value is Locale {
 
 export interface SanitizedSetting {
   key: SettingKey
-  value: ThemeMode | BrowserEngine | Locale | PrewarmMode | DiscardMode
+  value: ThemeMode | BrowserEngine | Locale | PrewarmMode | DiscardMode | SessionStartupMode
 }
 /**
  * 校验并归一一条设置写入。返回 `undefined` 表示拒绝（未知键或非法值）。
@@ -89,8 +104,13 @@ export function isPrewarmMode(value: unknown): value is PrewarmMode {
   return typeof value === 'string' && (PREWARM_MODES as readonly string[]).includes(value)
 }
 
+export function isSessionStartupMode(value: unknown): value is SessionStartupMode {
+  return typeof value === 'string' && (SESSION_STARTUP_MODES as readonly string[]).includes(value)
+}
+
 export function sanitizeSetting(key: unknown, value: unknown): SanitizedSetting | undefined {
   if (key === 'tab.discard') return isDiscardMode(value) ? { key, value } : undefined
+  if (key === 'session.startup') return isSessionStartupMode(value) ? { key, value } : undefined
   if (key === 'overlay.prewarm') return isPrewarmMode(value) ? { key, value } : undefined
   if (key === 'theme.mode') return isThemeMode(value) ? { key, value } : undefined
   if (key === 'engine.default') return isBrowserEngine(value) ? { key, value } : undefined
@@ -119,6 +139,11 @@ export function settingsToRows(settings: Settings): Array<{ key: SettingKey; val
 export const discardModeLabels: Record<DiscardMode, string> = {
   auto: '自动（后台 10 分钟后休眠）',
   never: '从不（后台标签一直运行）'
+}
+
+export const sessionStartupLabels: Record<SessionStartupMode, string> = {
+  newtab: '打开新标签页（崩溃后才提示恢复）',
+  continue: '继续上次会话（恢复所有标签）'
 }
 
 export const prewarmModeLabels: Record<PrewarmMode, string> = {
