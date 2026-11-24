@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
-import { protocol } from 'electron'
+import { net, protocol } from 'electron'
 import type { Session } from 'electron'
 
 /**
@@ -56,6 +56,36 @@ const CONTENT_SECURITY_POLICY = [
 /** 渲染层产物目录（开发与打包同构：`__dirname` 都是 `out/main`）。 */
 function rendererRoot(): string {
   return normalize(join(__dirname, '..', 'renderer'))
+}
+
+/**
+ * 开发态（`electron-vite dev`）的渲染层地址。
+ *
+ * 外壳用的是这个地址，但内部页之前**始终**读 `out/renderer`：没有产物时设置页打不开，
+ * 有旧产物时又会显示上一次构建的页面（审计 P2）。这里让内部页在开发态也走开发服务器。
+ */
+function devRendererUrl(): URL | undefined {
+  const raw = process.env.ELECTRON_RENDERER_URL
+  if (!raw) return undefined
+  try {
+    return new URL(raw)
+  } catch {
+    return undefined
+  }
+}
+
+/** 开发态代理：把 `bao://settings/<path>` 转给 Vite dev server，保持查询串。 */
+async function proxyToDevServer(dev: URL, url: URL): Promise<Response> {
+  const target = new URL(url.pathname === '/' ? '/settings.html' : url.pathname, dev)
+  target.search = url.search
+  const response = await net.fetch(target.href)
+  return new Response(response.body, {
+    status: response.status,
+    headers: {
+      'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
+      'Cache-Control': 'no-store'
+    }
+  })
 }
 
 /**
@@ -127,6 +157,14 @@ export function bindInternalProtocol(target: Session): void {
       return new Response('bad request', { status: 400 })
     }
     if (url.hostname !== SETTINGS_HOST) return new Response('not found', { status: 404 })
+    const dev = devRendererUrl()
+    if (dev) {
+      try {
+        return await proxyToDevServer(dev, url)
+      } catch {
+        return new Response('dev server unavailable', { status: 502 })
+      }
+    }
     const file = resolveFile(url)
     if (!file) return new Response('bad request', { status: 400 })
     try {

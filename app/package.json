@@ -8,7 +8,7 @@
     "node": "^22.12.0 || ^24.0.0"
   },
   "scripts": {
-    "dev": "electron-vite dev --host 127.0.0.1",
+    "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "typecheck": "vue-tsc --noEmit",
     "build": "node scripts/build.cjs",
