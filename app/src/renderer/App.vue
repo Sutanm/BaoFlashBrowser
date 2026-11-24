@@ -85,11 +85,11 @@ let detachOverlay: (() => void) | undefined
  * 内容区夹取（`shell-overlays.ts` 的 `clampBounds`），所以飞窗**永远在窗口内**，内容超出
  * 时由面板自己滚动。宽 320 是 Chromium 菜单的常见宽度，外面留 16 px 给投影。
  */
+/**
+ * 飞窗挂在齿轮按钮下方：右边缘与按钮右缘对齐、顶边贴住按钮下沿。
+ * 视图尺寸 = 面板尺寸（没有给投影预留的透明留白，否则会看到一条「光影」）。
+ */
 const QUICK_WIDTH = 320
-/** 飞窗在浮层视图里的留白（左/上/下多留一点给投影；右侧只留 8，才能与按钮右缘精确对齐）。 */
-const QUICK_LEFT = 16
-const QUICK_RIGHT = 8
-const QUICK_TOP = 16
 const QUICK_INITIAL_HEIGHT = 320
 const gearRoot = ref<HTMLButtonElement>()
 const quickOpen = ref(false)
@@ -98,9 +98,10 @@ function quickBounds(): { x: number; y: number; width: number; height: number } 
   const rect = gearRoot.value?.getBoundingClientRect()
   if (!rect) return null
   return {
-    x: Math.round(rect.right) - QUICK_WIDTH - QUICK_LEFT,
-    y: Math.round(rect.bottom) - QUICK_TOP,
-    width: QUICK_WIDTH + QUICK_LEFT + QUICK_RIGHT,
+    // 右边与齿轮按钮右缘对齐；顶边落在工具栏下沿（按钮在工具栏内部，用按钮底边会让面板压进工具栏）。
+    x: Math.max(0, Math.round(rect.right) - QUICK_WIDTH),
+    y: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT,
+    width: QUICK_WIDTH,
     height: QUICK_INITIAL_HEIGHT
   }
 }

@@ -21,10 +21,9 @@ import { useBrowserStore } from './stores/browser'
  */
 const props = defineProps<{ kind: 'quick' }>()
 /** 与 App.vue 的 QUICK_* 保持一致：浮层视图给面板四周留出投影空间。 */
-const GUTTER_TOP = 16
-const GUTTER_BOTTOM = 16
-const GUTTER_LEFT = 16
-const GUTTER_RIGHT = 8
+/** 嵌入态：视图与面板同尺寸，不再为投影留白（留白会让面板看起来是悬浮的）。 */
+const GUTTER_TOP = 0
+const GUTTER_BOTTOM = 0
 
 const store = useBrowserStore()
 const { snapshot } = storeToRefs(store)
@@ -170,20 +169,19 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 <style>
 /* 单文档、无滚动条跳动：外层只负责留出投影空间（与 App.vue 的 QUICK_* 一致）。 */
 .shell-overlay, .shell-overlay body { margin: 0; overflow: hidden; background: transparent; }
-.quick-frame { box-sizing: border-box; width: 100%; height: 100vh; padding: 16px 8px 16px 16px; display: flex; align-items: flex-start; }
+.quick-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
 
-/* Chromium 菜单数值：圆角 12、阴影 elevation 12、边框 kColorMenuBorder（这里用 token）。 */
+/* Chromium 菜单数值：四角圆角 12、边框 kColorMenuBorder（这里用 token）。
+   没有投影：视图与面板同尺寸，投影只会落在透明留白上，看起来像一层「光影」。 */
 .quick {
   box-sizing: border-box;
   width: 100%;
-  max-height: calc(100vh - 32px);
+  max-height: 100vh;
   overflow: auto;
   padding: 6px;
   border: 1px solid var(--stroke-divider);
   border-radius: 12px;
   background: var(--surface-toolbar);
-  box-shadow: 0 12px 48px color-mix(in srgb, #3c4043 24%, transparent),
-              0 0 24px color-mix(in srgb, #3c4043 12%, transparent);
   font: var(--size-body)/1.4 var(--shell-font);
   color: var(--text-primary);
 }

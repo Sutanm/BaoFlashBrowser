@@ -74,18 +74,25 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
 
     const geometry = await shell.evaluate(() => {
       const button = document.querySelector('.gear-button').getBoundingClientRect()
-      return { right: Math.round(button.right), bottom: Math.round(button.bottom) }
+      const toolbar = document.querySelector('.toolbar').getBoundingClientRect()
+      return { right: Math.round(button.right), bottom: Math.round(button.bottom), toolbarBottom: Math.round(toolbar.bottom) }
     })
-    // 视图在面板四周留白：上/左/下 16 px，右 8 px（右侧留 8 才能与按钮右缘精确对齐）。
-    assert.equal(opened.bounds.y + 16, geometry.bottom, '飞窗顶边应压在齿轮按钮下沿（0 缝，视图留 16 px 投影边距）')
-    assert.equal(opened.bounds.x + opened.bounds.width - 8, geometry.right, '飞窗右边缘应与齿轮按钮对齐')
+    // 挂在按钮正下方：顶边落在工具栏下沿、右边缘与按钮右缘对齐；视图不额外留白。
+    assert.equal(opened.bounds.y, geometry.toolbarBottom, '飞窗顶边应落在工具栏下沿')
+    assert.equal(opened.bounds.x + opened.bounds.width, geometry.right, '飞窗右边缘应与齿轮按钮对齐')
+    assert.equal(opened.bounds.width, 320, '视图宽度就是面板宽度（没有投影留白）')
     assert.ok(opened.bounds.x >= 0 && opened.bounds.y >= 0, '飞窗不能越出窗口左侧/顶部')
     assert.ok(opened.bounds.x + opened.bounds.width <= opened.contentSize[0], '飞窗不能越出窗口右侧')
     assert.ok(opened.bounds.y + opened.bounds.height <= opened.contentSize[1], '飞窗不能越出窗口底部')
 
-    // Chromium 数值：圆角 12（kMenuRadius → kMediumSmall）。
-    const radius = await inQuick(app, `getComputedStyle(document.querySelector('.quick')).borderTopLeftRadius`)
-    assert.equal(radius, '12px')
+    // Chromium 数值：四角圆角 12（kMenuRadius → kMediumSmall），且不要投影。
+    const look = await inQuick(app, `(() => {
+      const style = getComputedStyle(document.querySelector('.quick'))
+      return { top: style.borderTopLeftRadius, bottom: style.borderBottomLeftRadius, shadow: style.boxShadow }
+    })()`)
+    assert.equal(look.top, '12px', '上侧也应是 12px 圆角')
+    assert.equal(look.bottom, '12px', '下侧应是 12px 圆角')
+    assert.equal(look.shadow, 'none', '不该有投影（投影落在留白上会变成一层「光影」）')
 
     // 打开时不该有焦点：否则面板会被画上默认焦点环（实测出现过一圈黄边）。
     assert.equal(await inQuick(app, `document.activeElement?.tagName`), 'BODY', '打开飞窗后不应程序化聚焦任何元素')

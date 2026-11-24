@@ -155,8 +155,14 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--engine-accent) 20%, var(--surface-toolbar));
 }
 .overlay-frame button:focus:not(:focus-visible) { outline: none; }
-/* 与齿轮飞窗（quick）统一：同一个面、同样的 12px 圆角与 elevation 12 投影。 */
-.engine-panel, .toast {
+/* 与齿轮飞窗一致：四角圆角 12、1px 边框、不投影（视图与面板同尺寸，投影只会变成一层光影）。 */
+.engine-panel {
+  background: var(--surface-toolbar);
+  border: 1px solid var(--stroke-divider);
+  border-radius: 12px;
+}
+/* 提示条仍是浮层（它出现在页面任意位置）。 */
+.toast {
   background: var(--surface-toolbar);
   border: 1px solid var(--stroke-divider);
   border-radius: 12px;
