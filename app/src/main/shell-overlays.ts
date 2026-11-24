@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { browserChannels } from '../shared/browser'
 import type { BrowserState } from '../shared/browser'
 import { OVERLAY_QUERY, overlayChannels } from '../shared/overlay'
+import { clampBelow, clampBounds } from '../shared/overlay-geometry'
 import type { OverlayBounds, OverlayEvent, OverlayKind } from '../shared/overlay'
 import { getShellSession } from './sessions'
 
@@ -33,36 +34,6 @@ function readBounds(value: unknown): OverlayBounds | undefined {
 
 function isText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 4096
-}
-
-function clampBounds(bounds: OverlayBounds, width: number, height: number): OverlayBounds {
-  const w = Math.min(width, Math.ceil(bounds.width))
-  const h = Math.min(height, Math.ceil(bounds.height))
-  return {
-    x: Math.max(0, Math.min(width - w, Math.round(bounds.x))),
-    y: Math.max(0, Math.min(height - h, Math.round(bounds.y))),
-    width: w,
-    height: h
-  }
-}
-
-/**
- * 锚定在按钮下方的飞窗（引擎面板 / 齿轮快捷设置）的夹取规则：
- *
- * **保持顶边不动**，只把高度压到窗口底部以内（`y` 贴着按钮，不能被"整体上移"）。
- * 用通用的 `clampBounds` 会先夹位置再夹尺寸，结果飞窗会从按钮下沿跳到窗口上沿附近
- * （2026-11-23 实测：最小窗口下 y 从 62 被夹成 25）。超出部分由面板自己滚动。
- */
-function clampBelow(bounds: OverlayBounds, width: number, height: number, inset = 8): OverlayBounds {
-  const w = Math.min(width, Math.ceil(bounds.width))
-  const y = Math.max(0, Math.min(height, Math.round(bounds.y)))
-  const h = Math.max(0, Math.min(Math.ceil(bounds.height), height - y - inset))
-  return {
-    x: Math.max(0, Math.min(width - w, Math.round(bounds.x))),
-    y,
-    width: w,
-    height: h
-  }
 }
 
 /** Native sibling views cover the active page without changing its layout. */

@@ -1,7 +1,2 @@
-// Shared by the shell anchors and the isolated overlay documents.
-export const OVERLAY_INSET = 12
-export const OVERLAY_TOP_INSET = 4
-export const ENGINE_PANEL_WIDTH = 264 + 2 * OVERLAY_INSET
-export const ENGINE_PANEL_INITIAL_HEIGHT = 208 + 2 * OVERLAY_INSET
-export const TOAST_WIDTH = 320 + 2 * OVERLAY_INSET
-export const TOAST_HEIGHT = 90 + 2 * OVERLAY_INSET
+// 布局常量已移到 shared/overlay-geometry.ts（主进程与渲染层共用，单元层可直接测）。
+export { ENGINE_PANEL_INITIAL_HEIGHT, ENGINE_PANEL_WIDTH, OVERLAY_INSET, OVERLAY_TOP_INSET, TOAST_HEIGHT, TOAST_WIDTH } from '../shared/overlay-geometry'

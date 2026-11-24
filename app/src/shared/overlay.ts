@@ -8,12 +8,9 @@ export const overlayChannels = {
 } as const
 
 /** Bounds in window client coordinates (device-independent pixels). */
-export interface OverlayBounds {
-  x: number
-  y: number
-  width: number
-  height: number
-}
+import type { OverlayBounds } from './overlay-geometry'
+
+export type { OverlayBounds }
 
 export interface OverlayToast {
   bounds: OverlayBounds

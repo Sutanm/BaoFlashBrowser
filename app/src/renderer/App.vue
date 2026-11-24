@@ -4,7 +4,11 @@ import { storeToRefs } from 'pinia'
 import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserTab } from '../shared/browser'
 import { engineLabels, engineSourceLabels, engineSwitchLabels, otherEngine } from '../shared/engine'
-import { ENGINE_PANEL_INITIAL_HEIGHT, ENGINE_PANEL_WIDTH, OVERLAY_INSET, TOAST_HEIGHT, TOAST_WIDTH } from './overlay-layout'
+import type { OverlayBounds } from '../shared/overlay'
+import {
+  ENGINE_PANEL_INITIAL_HEIGHT, TOAST_HEIGHT, TOAST_WIDTH, flyoutBounds, panelBounds as enginePanelBounds
+} from '../shared/overlay-geometry'
+import type { FlyoutAnchor } from '../shared/overlay-geometry'
 import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
@@ -94,16 +98,15 @@ const QUICK_INITIAL_HEIGHT = 320
 const gearRoot = ref<HTMLButtonElement>()
 const quickOpen = ref(false)
 
-function quickBounds(): { x: number; y: number; width: number; height: number } | null {
+function quickBounds(): OverlayBounds | null {
   const rect = gearRoot.value?.getBoundingClientRect()
   if (!rect) return null
-  return {
-    // 右边与齿轮按钮右缘对齐；顶边落在工具栏下沿（按钮在工具栏内部，用按钮底边会让面板压进工具栏）。
-    x: Math.max(0, Math.round(rect.right) - QUICK_WIDTH),
-    y: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT,
-    width: QUICK_WIDTH,
-    height: QUICK_INITIAL_HEIGHT
-  }
+  return flyoutBounds(anchorOf(rect), QUICK_WIDTH, QUICK_INITIAL_HEIGHT)
+}
+
+/** 锚点：按钮右缘 + 工具栏下沿（按钮在工具栏内部，用按钮底边会让面板压进工具栏）。 */
+function anchorOf(rect: { right: number }): FlyoutAnchor {
+  return { anchorRight: rect.right, toolbarBottom: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT, viewportWidth: window.innerWidth }
 }
 
 async function toggleQuick(): Promise<void> {
@@ -127,15 +130,10 @@ function closeQuick(restoreFocus = false): void {
   if (restoreFocus) gearRoot.value?.focus()
 }
 
-function panelBounds() {
+function panelBounds(): OverlayBounds | null {
   const rect = engineRoot.value?.getBoundingClientRect()
   if (!rect) return null
-  return {
-    x: Math.max(0, Math.round(rect.right) - ENGINE_PANEL_WIDTH + OVERLAY_INSET),
-    y: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT,
-    width: ENGINE_PANEL_WIDTH,
-    height: ENGINE_PANEL_INITIAL_HEIGHT
-  }
+  return enginePanelBounds(anchorOf(rect), ENGINE_PANEL_INITIAL_HEIGHT)
 }
 
 async function toggleEnginePanel(): Promise<void> {
