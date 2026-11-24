@@ -153,6 +153,18 @@ function isWebAddress(value: string): boolean {
   return !!url && (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password
 }
 
+/**
+ * 判断标题是不是 Chromium 的「占位标题」（文档还没给出 `<title>` 时它等于 URL）。
+ *
+ * 内部页最容易撞上：标签一建好就有地址，标题先是 `bao://settings`（注意不带结尾斜杠），
+ * 标签栏会闪一下地址。占位判定用「忽略结尾斜杠后相等」+「本身就是 bao: 地址」两条。
+ */
+function placeholderTitle(title: string, address: string): boolean {
+  if (!title) return true
+  if (/^bao:\/\//i.test(title)) return true
+  const normalize = (value: string): string => value.replace(/\/+$/, '')
+  return normalize(title) === normalize(address)
+}
 function parseAddress(input: string): string | undefined {
   const address = input.trim()
   if (!address || /\s/.test(address)) return
@@ -293,7 +305,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const pin = engineRules.resolve(hostOf(address))
     return {
       id: tab.id,
-      title: address ? title || address : tab.initialTitle,
+      // 文档还没给出 <title> 时，Chromium 会把标题当成 URL——直接透出去会让标签栏
+      // 闪一下 `bao://settings/`。所以「标题等于地址（忽略结尾斜杠）」或「标题本身就是
+      // 内部地址」时回落到建标签时给的初始标题。2026-11-24 实测：内部设置页在页面加载
+      // 完成前约 60–200 ms 处于这个状态，且 Chromium 给的占位标题不带结尾斜杠。
+      // 文档还没给出 <title> 时，Chromium 会把标题当成 URL——直接透出去会让标签栏
+      // 闪一下 `bao://settings/`。占位时回落到建标签时给的初始标题。
+      // 2026-11-24 实测：内部设置页在首帧前约 60–200 ms 处于这个状态。
+      title: address ? (placeholderTitle(title, address) ? tab.initialTitle : title) : tab.initialTitle,
       address,
       canGoBack,
       canGoForward,
