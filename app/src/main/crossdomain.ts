@@ -1,5 +1,4 @@
-import { get as httpGet } from 'node:http'
-import { get as httpsGet } from 'node:https'
+import { net } from 'electron'
 import { registrableDomain } from '../shared/site'
 
 /**
@@ -65,6 +64,21 @@ function parsePolicy(xml: string): CrossDomainPolicy {
  * 因此用 Node 的 http(s) 自己走跳转链，每一跳都校验「同可注册域 + 不降级到 http」，
  * 跨站就整份丢弃。代价是不走 Chromium 代理设置（无代理环境无差异）。
  */
+/**
+ * 取目标 origin 的 `crossdomain.xml`。
+ *
+ * 两条约束同时满足才算合格：
+ * 1. **必须是目标站点自己**返回的策略（2026-11-24 审计 P1）：之前 `net.fetch(follow)` 会跟到
+ *    任意第三方并把结果缓存到目标名下（本地 SWF 已复现：B 的策略 302 到 C 被接受）；
+ * 2. **必须走 Chromium 网络栈**，否则系统代理 / PAC 下取不到策略——用 Node http 会静默直连。
+ *
+ * 所以用 `net.request` + `redirect: 'manual'`：它走 Chromium 网络栈（代理、TLS、证书都一致），
+ * 又会在每一跳触发 `redirect` 事件给出目标地址。判定规则：只有**同可注册域**、
+ * 且不退化成 https → http 才继续跟；跨站立刻中止，整份策略不采信。
+ *
+ * 注意：`net.request` 的 `close` 早于 `redirect`/`response` 触发（官方与自编译内核一致），
+ * 不能拿 `close` 当结束信号，否则会漏掉整条响应。
+ */
 /** 一跳是否仍在同一站点：可注册域相同，且不允许 https → http 降级。 */
 function sameSiteHop(from: string, to: string): boolean {
   let source: URL
@@ -82,66 +96,81 @@ function sameSiteHop(from: string, to: string): boolean {
 }
 const MAX_REDIRECT_HOPS = 5
 
-interface HopResult {
-  status: number
-  location?: string
-  body?: string
-}
-
-function requestOnce(url: string, signal: AbortSignal): Promise<HopResult> {
+function fetchPolicy(origin: string): Promise<CrossDomainPolicy | null> {
   return new Promise((resolve) => {
-    let parsed: URL
+    let settled = false
+    let current = `${origin}/crossdomain.xml`
+    let hops = 0
+    let body = ''
+    const finish = (value: CrossDomainPolicy | null): void => {
+      if (settled) return
+      settled = true
+      resolve(value)
+    }
+
+    let request: Electron.ClientRequest
     try {
-      parsed = new URL(url)
+      request = net.request({ url: current, redirect: 'manual' })
     } catch {
-      resolve({ status: 0 })
+      finish(null)
       return
     }
-    const get = parsed.protocol === 'https:' ? httpsGet : httpGet
-    const request = get(url, { signal, headers: { accept: 'text/x-cross-domain-policy, */*' } }, (response) => {
-      const status = response.statusCode ?? 0
-      const location = response.headers.location
-      if (status >= 300 && status < 400 && location) {
-        response.resume()
-        resolve({ status, location })
+
+    const timer = setTimeout(() => {
+      try {
+        request.abort()
+      } catch {
+        // 已结束
+      }
+      finish(null)
+    }, FETCH_TIMEOUT_MS)
+
+    request.on('redirect', (_status, _method, redirectUrl) => {
+      hops += 1
+      if (hops > MAX_REDIRECT_HOPS || !sameSiteHop(current, redirectUrl)) {
+        try {
+          request.abort()
+        } catch {
+          // 已结束
+        }
+        finish(null)
         return
       }
-      let body = ''
-      response.setEncoding('utf8')
-      response.on('data', (chunk: string) => {
-        if (body.length < MAX_POLICY_BYTES) body += chunk
-      })
-      response.on('end', () => resolve({ status, body }))
-      response.on('error', () => resolve({ status: 0 }))
+      current = redirectUrl
+      request.followRedirect()
     })
-    request.on('error', () => resolve({ status: 0 }))
-    request.setTimeout(FETCH_TIMEOUT_MS, () => {
-      request.destroy()
-      resolve({ status: 0 })
-    })
-  })
-}
-
-async function fetchPolicy(origin: string): Promise<CrossDomainPolicy | null> {
-  const controller = new AbortController()
-  let current = `${origin}/crossdomain.xml`
-  try {
-    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop += 1) {
-      const result = await requestOnce(current, controller.signal)
-      if (result.status >= 300 && result.status < 400 && result.location) {
-        const next = new URL(result.location, current).href
-        // 跨站跳转直接放弃：谁的策略授权谁，不能被 302 带到别处。
-        if (!sameSiteHop(current, next)) return null
-        current = next
-        continue
+    request.on('response', (response) => {
+      if (response.statusCode !== 200) {
+        // Electron 的 IncomingMessage 类型没有 resume()；丢掉剩余数据即可。
+        response.on('data', () => undefined)
+        clearTimeout(timer)
+        finish(null)
+        return
       }
-      if (result.status !== 200 || !result.body) return null
-      return /<cross-domain-policy/i.test(result.body) ? parsePolicy(result.body) : null
-    }
-    return null
-  } finally {
-    controller.abort()
-  }
+      // Electron 的 IncomingMessage 类型没声明 setEncoding；数据是 Buffer，自己按 UTF-8 拼接。
+      response.on('data', (chunk) => {
+        if (body.length >= MAX_POLICY_BYTES) return
+        body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+      })
+      response.on('end', () => {
+        clearTimeout(timer)
+        finish(/<cross-domain-policy/i.test(body) ? parsePolicy(body) : null)
+      })
+      response.on('error', () => {
+        clearTimeout(timer)
+        finish(null)
+      })
+    })
+    request.on('error', () => {
+      clearTimeout(timer)
+      finish(null)
+    })
+    request.on('abort', () => {
+      clearTimeout(timer)
+      finish(null)
+    })
+    request.end()
+  })
 }
 async function readBounded(response: Response, limit: number): Promise<string> {
   const stream = response.body
