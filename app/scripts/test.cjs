@@ -4,7 +4,7 @@ const [suite, ...flags] = process.argv.slice(2)
 const suites = {
   smoke: ['startup', 'tabs', 'tab-ops', 'engine', 'input', 'plugin-input', 'ruffle-input',
     'ruffle-cors', 'engine-broker', 'popup', 'permissions', 'theme', 'titlebar',
-    'internal-page', 'quick-settings', 'flash', 'isolation', 'tearoff'].map((name) => `tests/smoke/${name}.test.cjs`),
+    'internal-page', 'quick-settings', 'flash', 'isolation', 'engine-rules', 'tearoff'].map((name) => `tests/smoke/${name}.test.cjs`),
   data: ['tests/data/settings-store.test.cjs'],
   packaged: ['tests/smoke/packaged.test.cjs']
 }

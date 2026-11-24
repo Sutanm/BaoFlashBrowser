@@ -156,8 +156,11 @@ test('指针拖出标签触发跨窗口移交', { timeout: 180_000 }, async () =
       return list.length >= 2 ? list : null
     }, { message: '指针拖出后未创建新窗口。' })
     const target = shells.find((candidate) => candidate !== shell)
-    const targetState = await target.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
-    assert.equal(targetState.state.activeId, movedId)
+    // 新窗口的标签是异步激活的：立即快照可能读到 activeId = -1，这里等状态落定再断言。
+    await waitFor(async () => {
+      const state = await target.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
+      return state.state.activeId === movedId ? state : null
+    }, { message: `移交后的目标窗口没有把标签 ${movedId} 设为当前标签。` })
 
     // 源窗口保留其余标签，移交是「移动」而不是「复制」。
     const sourceState = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
