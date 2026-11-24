@@ -171,15 +171,17 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .shell-overlay, .shell-overlay body { margin: 0; overflow: hidden; background: transparent; }
 .quick-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
 
-/* Chromium 菜单数值：四角圆角 12、边框 kColorMenuBorder（这里用 token）。
-   没有投影：视图与面板同尺寸，投影只会落在透明留白上，看起来像一层「光影」。 */
+/* Chromium 菜单数值：四角圆角 12、**没有外边框**。
+   menu_config.cc 的 InitCommon() 里 `use_outer_border = false`，Windows 走
+   bubble border（圆角 + 阴影），那圈 kColorMenuBorder 只在 use_outer_border 为真时才画。
+   我们也没有投影：视图与面板同尺寸，投影只会落在留白上变成一条「光影」。 */
 .quick {
   box-sizing: border-box;
   width: 100%;
   max-height: 100vh;
   overflow: auto;
   padding: 6px;
-  border: 1px solid var(--stroke-divider);
+  border: 0;
   border-radius: 12px;
   background: var(--surface-toolbar);
   font: var(--size-body)/1.4 var(--shell-font);

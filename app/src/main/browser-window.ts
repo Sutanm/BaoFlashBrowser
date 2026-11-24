@@ -1204,6 +1204,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function onNativeThemeUpdated(): void {
     updateWindowControls()
     broadcastSettings()
+    // 叠加层常驻（合并视图后一直存在），主题变化必须主动推给它；
+    // 之前靠「打开飞窗时顺带 publish」偶然生效，并行/预热的时序一变就漏。
+    publish()
   }
 
   nativeTheme.on('updated', onNativeThemeUpdated)

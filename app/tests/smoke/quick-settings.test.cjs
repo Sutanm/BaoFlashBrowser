@@ -88,11 +88,13 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     // Chromium 数值：四角圆角 12（kMenuRadius → kMediumSmall），且不要投影。
     const look = await inQuick(app, `(() => {
       const style = getComputedStyle(document.querySelector('.quick'))
-      return { top: style.borderTopLeftRadius, bottom: style.borderBottomLeftRadius, shadow: style.boxShadow }
+      return { top: style.borderTopLeftRadius, bottom: style.borderBottomLeftRadius, shadow: style.boxShadow,
+               border: style.borderTopWidth }
     })()`)
     assert.equal(look.top, '12px', '上侧也应是 12px 圆角')
     assert.equal(look.bottom, '12px', '下侧应是 12px 圆角')
     assert.equal(look.shadow, 'none', '不该有投影（投影落在留白上会变成一层「光影」）')
+    assert.equal(look.border, '0px', 'Chromium 菜单没有外边框（use_outer_border = false）')
 
     // 打开时不该有焦点：否则面板会被画上默认焦点环（实测出现过一圈黄边）。
     assert.equal(await inQuick(app, `document.activeElement?.tagName`), 'BODY', '打开飞窗后不应程序化聚焦任何元素')

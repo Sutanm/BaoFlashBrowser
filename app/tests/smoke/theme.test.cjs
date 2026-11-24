@@ -46,11 +46,16 @@ test('暗色模式：跟随原生主题切换外壳与叠加层', { timeout: 120
     assert.notEqual(dark.surface.toLowerCase(), light.surface.toLowerCase(), '暗色下表面色没有变化')
 
     // 引擎面板是同一个窗口里的 WebContentsView 叠加层，也必须走暗色。
+    // 并行跑时机器忙，先等面板挂上（视图是点击后才 attach 的），再等主题生效。
     await shell.getByRole('button', { name: '引擎设置', exact: true }).click()
+    await waitFor(async () => {
+      const value = await viewFact(app, shell, `Boolean(document.querySelector('.engine-panel'))`)
+      return value ? true : null
+    }, { timeout: 60_000, message: '引擎面板没有挂上叠加层视图' })
     const overlay = await waitFor(async () => {
       const value = await viewFact(app, shell, `({ theme: document.documentElement.dataset.theme ?? null })`)
       return value?.theme === 'dark' ? value : null
-    }, { message: '叠加层没有跟随暗色' })
+    }, { timeout: 60_000, message: '叠加层没有跟随暗色' })
     assert.equal(overlay.theme, 'dark')
 
     // 切回亮色同样要生效。
