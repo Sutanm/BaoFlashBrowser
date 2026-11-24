@@ -70,6 +70,18 @@ async function readPackagedProfile(executablePath) {
   return actual
 }
 
+/** 成品里的 PPAPI 插件进程必须真的在系统沙箱里（审计 P1 的发布门禁）。 */
+async function assertPepperSandboxed(app, label) {
+  const metrics = await app.evaluate(({ app: electronApp }) => electronApp.getAppMetrics().map((metric) => ({
+    type: metric.type,
+    pid: metric.pid,
+    sandboxed: metric.sandboxed
+  })))
+  const pepper = metrics.find((metric) => metric.type === 'Pepper Plugin')
+  assert.ok(pepper, `${label}：未启动 PPAPI 插件进程（${metrics.map((item) => item.type).join(',')}）`)
+  assert.equal(pepper.sandboxed, true, `${label}：PPAPI 插件进程没有在系统沙箱里（pid ${pepper.pid}）`)
+  return pepper
+}
 const hidden = process.env.BAO_SMOKE_HIDDEN === '1'
 
 async function launchPackaged(executablePath, profilePath) {
@@ -120,13 +132,13 @@ test('Win x64 验证包使用自编译运行时并加载 Ruffle', { timeout: 180
     }
 
     if (profile === 'internal') {
-      await context.test('内部验证包加载 PPAPI 并保留 JS 桥', { skip: nativeFlashSkip }, async () => {
+
+      await context.test('内部验证包加载 PPAPI 并保留 JS 桥（且插件进程在沙箱内）', { timeout: 120_000 }, async () => {
         await openSample()
         const tab = shell.getByRole('button', { name: /^flash:/ })
         await tab.waitFor({ timeout: 60_000 })
         assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge')
-        const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
-        assert.ok(processes.includes('Pepper Plugin'), `验证包未启动 PPAPI 插件进程：${processes.join(',')}`)
+        await assertPepperSandboxed(app, '内部验证包')
       })
       await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
     }
@@ -192,8 +204,8 @@ test('BYOP：把插件放到 <exe目录>\\flash\\ 后原生引擎生效', { time
     const tab = shell.getByRole('button', { name: /^flash:/ })
     await tab.waitFor({ timeout: 60_000 })
     assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge', 'BYOP 插件未被加载')
-    const processes = await app.evaluate(({ app }) => app.getAppMetrics().map((metric) => metric.type))
-    assert.ok(processes.includes('Pepper Plugin'), `BYOP 未启动 PPAPI 插件进程：${processes.join(',')}`)
+    // 用户自备的插件同样必须跑在沙箱里（审计 P1）。
+    await assertPepperSandboxed(app, 'BYOP 公开包')
   } finally {
     await app?.close().catch(() => {})
     await rm(dropIn, { recursive: true, force: true })
