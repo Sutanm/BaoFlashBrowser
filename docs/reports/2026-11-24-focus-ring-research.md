@@ -93,6 +93,19 @@ Chromium 早期实现（[commit 54193de](https://chromium.googlesource.com/chrom
 
 先做 **A**（半天量级，可验证），把 1 项（select 回退）和 2/3 项（环色、外扩 + 40% alpha）修掉；飞窗内的「行高亮 vs 环」单独作为视觉优化排期（C 的一半）。
 
+## 7.1 已实施：方案 A（2026-11-24，提交见下）
+
+| 改动 | 内容 |
+| --- | --- |
+| 新 token | `--stroke-focus-ring: color-mix(in srgb, var(--engine-accent) 62%, transparent)`（tokens.css）。不透明度取 **62%** 而非 Chrome 的 40%：40% 的紫在白底对比度约 2.1:1，62% 约 3:1，满足「可感知焦点」的基本要求 |
+| 环形状 | 全部改成 **2px 实线、`outline-offset: 1px`（画在控件外侧）**，跟随控件圆角 —— 与 Chrome Views 的 `FocusRing`（2dp、外侧、圆角 +1dp）一致 |
+| 环色 | 从 Fluent 蓝 `#0f6cbd` 改为我们的 accent（紫），与选中态同一色系 |
+| `<select>` | 不再压掉环：鼠标点击也会出现（**与 Chromium/Chrome 行为完全一致**，见 §2 的 #5822），键盘用户恢复焦点指示 |
+| 覆盖范围 | 设置页（全局）、飞窗（`.row`）、引擎面板（`.overlay-frame button`）、主题开关（三档胶囊） |
+| 回归用例 | `internal-page.test.cjs` 新增「焦点环只在键盘操作时出现」：Tab 到引擎选项断言 `outline 2px solid`；鼠标点另一选项断言获得焦点但 `:focus-visible === false` 且 `outline-style: none` |
+
+未做的事：飞窗/面板内的「整行高亮代替环」（方案 C）仍待排期；`forced-colors` 下的环未实机验证。
+
 ## 8. 未验证
 
 - 只在 Windows / Chromium 142 实测；macOS、Linux 的 UA 环颜色与该平台的 `kColorId_FocusedBorderColor` 未测。

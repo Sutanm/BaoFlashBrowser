@@ -206,10 +206,15 @@ h1, h2, p { margin: 0; }
 button, select { font: inherit; color: inherit; }
 button { border: 0; background: none; cursor: pointer; }
 button:disabled { cursor: default; opacity: 0.6; }
-/* 只有键盘操作才画焦点环：鼠标点选（包括原生 select）不该出现蓝框 */
+/* 只有键盘操作才画焦点环：鼠标点选不该出现蓝框。
+   环 = Chrome 同款（2px、外侧、跟随控件圆角），颜色取我们的 accent 62%。
+   <select> 在 Chromium 里鼠标点击也匹配 :focus-visible（CSSWG #5822），
+   这里不额外压掉它——与 Chrome 行为一致。 */
 :focus:not(:focus-visible) { outline: none; }
-:focus-visible { outline: 2px solid var(--brand-stroke); outline-offset: -2px; border-radius: 6px; }
-select:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--stroke-focus-ring);
+  outline-offset: 1px;
+}
 
 .settings-head {
   display: flex;
@@ -346,8 +351,6 @@ select:focus { outline: none; }
   font-size: 13px;
 }
 .select-row:hover { background: var(--surface-hover); }
-/* 聚焦不画系统蓝框（鼠标点选时很难看），用行高亮 + 控件描边代替 */
-.select-row:focus-within { background: var(--surface-hover); }
 .select-row select {
   flex: none;
   width: 220px;

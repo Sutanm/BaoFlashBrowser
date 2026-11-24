@@ -218,3 +218,65 @@ test('设置页：Flash 插件状态可读（版本号来自 PE 资源）', { ti
     await close()
   }
 })
+
+test('设置页：焦点环只在键盘操作时出现（鼠标点击不出环）', { timeout: 120_000 }, async () => {
+  const { app, shell, close } = await launchApp()
+  try {
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'open-settings' }))
+    const id = await waitFor(async () => app.evaluate(({ webContents }) =>
+      webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').startsWith('bao://settings'))?.id ?? null))
+    const probe = (code) => app.evaluate(({ webContents }, payload) =>
+      webContents.fromId(payload.id).executeJavaScript(payload.code), { id, code })
+    const readActive = `(() => {
+      const el = document.activeElement
+      const style = getComputedStyle(el)
+      return { cls: String(el.className), focusVisible: el.matches(':focus-visible'),
+               outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth }
+    })()`
+
+    // ① 键盘：Tab 到引擎选项，应当有 2px 实线环
+    const keyboard = await app.evaluate(async ({ webContents }, target) => {
+      const page = webContents.fromId(target)
+      page.focus()
+      for (let step = 0; step < 6; step += 1) {
+        page.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+        page.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+        await new Promise((done) => setTimeout(done, 90))
+        const cls = await page.executeJavaScript('String(document.activeElement.className)')
+        if (cls.includes('choice')) return cls
+      }
+      return ''
+    }, id)
+    assert.match(keyboard, /choice/, 'Tab 没有落到引擎选项上')
+    const ring = await probe(readActive)
+    assert.equal(ring.focusVisible, true)
+    assert.equal(ring.outlineStyle, 'solid', `键盘焦点应该有环：${JSON.stringify(ring)}`)
+    assert.equal(ring.outlineWidth, '2px')
+
+    // ② 鼠标：点另一个选项（Ruffle），它应获得焦点但不匹配 :focus-visible
+    const point = await probe(`(() => {
+      const el = document.querySelectorAll('.choice')[1]
+      const rect = el.getBoundingClientRect()
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+    })()`)
+    await app.evaluate(({ webContents }, payload) => {
+      const page = webContents.fromId(payload.id)
+      const common = { x: payload.x, y: payload.y, button: 'left', clickCount: 1 }
+      page.sendInputEvent({ type: 'mouseMove', ...common })
+      page.sendInputEvent({ type: 'mouseDown', ...common })
+      page.sendInputEvent({ type: 'mouseUp', ...common })
+    }, { id, ...point })
+    await new Promise((done) => setTimeout(done, 250))
+    const click = await probe(`(() => {
+      const el = document.activeElement
+      const style = getComputedStyle(el)
+      return { text: (el.textContent || '').trim(), focusVisible: el.matches(':focus-visible'),
+               outlineStyle: style.outlineStyle }
+    })()`)
+    assert.match(click.text, /Ruffle/, `鼠标点击没有落到 Ruffle 选项：${JSON.stringify(click)}`)
+    assert.equal(click.focusVisible, false, `鼠标点击不该匹配 :focus-visible：${JSON.stringify(click)}`)
+    assert.equal(click.outlineStyle, 'none', `鼠标点击不该画环：${JSON.stringify(click)}`)
+  } finally {
+    await close()
+  }
+})

@@ -17,6 +17,10 @@
   --engine-accent: #5940ac;
   --engine-override: #8f5610;
   --engine-selection: #eeebfb;
+  /* 焦点环：Chrome（Views）是 2dp、画在控件外侧、圆角 +1dp、取 accent 色。
+     不透明度我们取 62% 而不是它的 40%：40% 的紫在白底上对比度只有 ~2.1:1，
+     62% 能到 3:1 左右（WCAG 2.4.11 的可感知焦点要求），观感仍是柔和的。 */
+  --stroke-focus-ring: color-mix(in srgb, var(--engine-accent) 62%, transparent);
 }
 
 :root[data-theme="dark"] {

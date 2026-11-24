@@ -203,7 +203,8 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .row:hover:not([aria-disabled='true']) { background: var(--surface-hover); }
 .row[aria-disabled='true'] { opacity: .45; cursor: default; }
 .row[aria-checked='true'] { background: var(--engine-selection); }
-.row:focus-visible { outline: 2px solid var(--brand-stroke); outline-offset: -2px; }
+.row:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
+.row:focus:not(:focus-visible) { outline: none; }
 
 .radio { width: 13px; height: 13px; border: 1.5px solid var(--text-secondary); border-radius: 50%; display: grid; place-items: center; }
 .row[aria-checked='true'] .radio { border-color: var(--engine-accent); }

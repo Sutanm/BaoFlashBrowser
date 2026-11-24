@@ -148,7 +148,8 @@ onBeforeUnmount(() => {
 .overlay-frame *, .overlay-frame *::before, .overlay-frame *::after { box-sizing: border-box; }
 :where(.overlay-frame button) { font: inherit; color: inherit; border: 0; background: transparent; }
 .overlay-frame button:not(:disabled) { cursor: pointer; }
-.overlay-frame button:focus-visible { outline: 2px solid var(--brand-stroke); outline-offset: -2px; }
+.overlay-frame button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
+.overlay-frame button:focus:not(:focus-visible) { outline: none; }
 /* 与齿轮飞窗（quick）统一：同一个面、同样的 12px 圆角与 elevation 12 投影。 */
 .engine-panel, .toast {
   background: var(--surface-toolbar);

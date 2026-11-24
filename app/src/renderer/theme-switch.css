@@ -65,8 +65,8 @@
    只清 outline 的话外面还会套一个方框。 */
 .bao-theme-switch .theme-stop:focus-visible { outline: none; box-shadow: none; }
 .bao-theme-switch .theme-stop:focus-visible::after {
-  outline: 2px solid var(--brand-stroke);
-  outline-offset: 0;
+  outline: 2px solid var(--stroke-focus-ring);
+  outline-offset: 1px;
 }
 .bao-theme-switch .theme-stop[aria-disabled='true'] { cursor: default; }
 

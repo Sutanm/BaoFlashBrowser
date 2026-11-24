@@ -510,7 +510,7 @@ body { margin: 0; }
 button, input { font: inherit; color: inherit; }
 button { border: 0; background: transparent; }
 button:not(:disabled) { cursor: pointer; }
-button:focus-visible { outline: 1px solid var(--stroke-focus-outer); outline-offset: -1px; box-shadow: inset 0 0 0 2px var(--stroke-focus-inner); }
+button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
 
 .titlebar {
   display: flex;
