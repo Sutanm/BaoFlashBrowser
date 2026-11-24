@@ -44,8 +44,19 @@ watch([() => active.value?.id, () => active.value?.address], () => {
   message.value = ''
 })
 
-watch(() => active.value?.id, () => {
+watch([() => active.value?.id, () => active.value?.internal], ([id]) => {
   tabStrip.value?.querySelector('.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  /**
+   * 新标签页：焦点进地址栏（Chrome 的 `ShouldFocusLocationBarByDefault`）。
+   * 主进程把焦点交给了外壳（NTP 视图不抢焦点），这里补上「输入框」这一步；
+   * `Ctrl+T`、`+`、从网页 Back 回 NTP 因此行为一致。
+   */
+  const tab = state.value?.tabs.find((item) => item.id === id)
+  if (tab?.internal === 'newtab') {
+    void nextTick(() => {
+      if (document.activeElement !== addressField.value) addressField.value?.focus({ preventScroll: true })
+    })
+  }
 }, { flush: 'post' })
 
 watch(() => state.value?.theme, (theme) => {
@@ -409,7 +420,7 @@ onBeforeUnmount(() => store.disconnect())
             :aria-busy="tab.loading"
             :title="tab.title"
           >
-            <span v-if="tab.internal" class="site-icon settings-icon" aria-hidden="true"><ShellIcon name="gear" /></span>
+            <span v-if="tab.internal === 'settings'" class="site-icon settings-icon" aria-hidden="true"><ShellIcon name="gear" /></span>
             <span v-else class="glyph page site-icon" :class="{ loading: tab.loading }" aria-hidden="true"></span>
             <span v-if="!tab.pinned" class="tab-label">{{ tab.title }}</span>
             <span v-if="tab.keepAwake" class="awake-mark" aria-hidden="true" title="保持活跃（不自动休眠）"></span>

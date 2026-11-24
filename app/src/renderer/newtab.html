@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>新标签页</title>
+    <!--
+      首帧底色：`--surface-page` 由 JS 从 Fluent token 注入，脚本执行前页面是白的——
+      深色主题下会闪一下白。这里用 `prefers-color-scheme`（跟随 nativeTheme.themeSource）
+      先铺一层近似底色，Vue 挂载后再由设计 token 覆盖。
+    -->
+    <style>
+      html { background: #f5f5f5; }
+      @media (prefers-color-scheme: dark) { html { background: #1f1f1f; } }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./newtab.ts"></script>
+  </body>
+</html>

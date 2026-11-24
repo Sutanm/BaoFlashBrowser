@@ -12,12 +12,14 @@ import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
 import { setSetting, settings as currentSettings, storageStatus } from './storage'
-import { bindInternalProtocol, isSettingsUrl, parseSettingsAddress, SETTINGS_URL } from './internal-pages'
+import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
+import type { InternalKind } from './internal-pages'
 import { settingsChannels } from '../shared/settings'
 import type { SettingsSnapshot } from '../shared/settings'
+import { ntpChannels } from '../shared/ntp'
+import type { NtpCommand, NtpCommandResult, NtpSnapshot } from '../shared/ntp'
 import { importFlashPlugin } from './flash-plugin'
 import { flashLoadedPath, flashStatus } from './plugins'
-import { START_PAGE } from './start-page'
 import { windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
 import { overlayChannels } from '../shared/overlay'
@@ -52,10 +54,11 @@ interface Tab {
   /** 音频静音状态：存在标签上，引擎切换与崩溃重建后要迁移到新 WebContents。 */
   muted: boolean
   /**
-   * 内部页标记（架构 §3 外壳）：M2 只有设置页 `bao://settings`。
+   * 内部页标记（架构 §3 外壳）：`newtab`（`bao://newtab`）或 `settings`（`bao://settings`）。
+   * 两种内部页同会话、不同 origin，因此「设置覆盖新标签页」可以就地导航。
    * 内部页不参与引擎切换/站点规则/下载，也没有页面权限。
    */
-  internal?: 'settings'
+  internal?: InternalKind
   /** 休眠状态：视图已销毁，切回时重建。 */
   discarded?: boolean
   /** 用户标记「保持活跃」：挂机/游戏标签，永不自动休眠。 */
@@ -63,6 +66,17 @@ interface Tab {
   /** 休眠时展示用的缓存（视图没了就读不到）。 */
   lastUrl?: string
   lastTitle?: string
+  /**
+   * 该标签的第一个文档是网页，但它是从新标签页进来的：在最早一条历史按 Back 时回到
+   * `bao://newtab`（Chrome 里 NTP 就是历史第 0 项）。
+   *
+   * 为什么用标记而不是把 NTP 塞进历史：从新标签页进入网页要换 WebContents（内部会话
+   * 永不承载 http(s)，见 `leaveNewTab`），NTP 那条历史项留不下来。标记 + 重建 NTP 视图
+   * 是等效的替代，代价是页面状态随 Back 丢失（Forward 重新加载）。
+   */
+  fromNewTab?: boolean
+  /** 从新标签页 Back 回来后，Forward 要重开的网页地址。 */
+  newTabForwardUrl?: string
   /** 进入后台的时刻（毫秒），用于 TTL 判定。 */
   backgroundSince?: number
   host?: TabHost
@@ -97,6 +111,12 @@ interface WindowController extends TabHost {
   internalSender(event: IpcMainInvokeEvent): boolean
   /** 内部页读到的设置快照（含解析后的亮/暗）。 */
   internalSnapshot(): SettingsSnapshot
+  /** 新标签页的可信判定：本窗口标签 ∧ 主帧 ∧ 文档 URL ∈ bao://newtab/*。 */
+  ntpSender(event: IpcMainInvokeEvent): boolean
+  /** 新标签页读到的状态（主题 + 设置子集 + 插件可用性）。 */
+  ntpSnapshot(): NtpSnapshot
+  /** 新标签页的两个动词：打开设置、在**本标签**导航。 */
+  runNtp(event: IpcMainInvokeEvent, command: NtpCommand): NtpCommandResult
 }
 
 export interface BrowserWindowOptions {
@@ -128,7 +148,11 @@ interface ClosedTab {
   engine: BrowserEngine
   manualOverride: boolean
   /** 内部页也要能撤销关闭（语义同 Chrome：恢复的是同一个页，不是新标签）。 */
-  internal?: 'settings'
+  internal?: InternalKind
+  /** 从新标签页进入的网页标签：恢复后仍要能按 Back 回 NTP。 */
+  fromNewTab?: boolean
+  /** 休眠标签没有导航栈：记下地址，撤销关闭时按它重建（而不是开一个空白标签）。 */
+  lastUrl?: string
 }
 
 const controllers = new Map<number, WindowController>()
@@ -287,20 +311,24 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 现算，天然不会陈旧。
    */
   function sourceOf(tab: Tab): EngineSource {
+    // 内部页没有站点概念：来源恒为默认（工具栏对它隐藏引擎胶囊）。
+    if (tab.internal) return 'default'
     if (tab.manualOverride) return 'manual'
     const url = tab.failedUrl ?? tab.lastUrl ?? safe(() => tab.view?.webContents.getURL() ?? '', '')
-    return engineRules.resolve(hostOf(url === START_PAGE ? '' : url)).source
+    return engineRules.resolve(hostOf(url)).source
   }
 
   function describe(tab: Tab): BrowserTab {
     // 休眠标签没有视图：用缓存字段展示（标题/地址），其它能力一律为假。
     if (!tab.view) {
-      const address = tab.lastUrl === START_PAGE ? '' : (tab.lastUrl ?? '')
+      const address = tab.internal === 'newtab'
+        ? ''
+        : tab.internal === 'settings' ? (tab.lastUrl || SETTINGS_URL) : (tab.lastUrl ?? '')
       return {
         id: tab.id,
         title: tab.lastTitle || tab.initialTitle,
         address,
-        canGoBack: false,
+        canGoBack: tab.fromNewTab === true,
         canGoForward: false,
         loading: false,
         crashed: false,
@@ -327,13 +355,20 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       url = safe(() => contents.getURL(), '')
       title = safe(() => contents.getTitle(), '')
       if (!crashed) {
-        canGoBack = safe(() => contents.navigationHistory.canGoBack(), false)
-        canGoForward = safe(() => contents.navigationHistory.canGoForward(), false)
+        const historyCanGoBack = safe(() => contents.navigationHistory.canGoBack(), false)
+        const historyCanGoForward = safe(() => contents.navigationHistory.canGoForward(), false)
+        // 新标签页不在页面视图的历史里（换过 WebContents），用标签标记补齐这一层：
+        // 网页标签的最早一条历史再按 Back → 回到 NTP；回到 NTP 后 Forward → 重开那个网页。
+        canGoBack = historyCanGoBack || (tab.internal === undefined && tab.fromNewTab === true)
+        canGoForward = historyCanGoForward || (tab.internal === 'newtab' && !!tab.newTabForwardUrl)
         loading = safe(() => contents.isLoadingMainFrame(), false)
       }
     }
-    // 内部页在首帧加载完成前也要显示自己的地址（Chrome 同样立刻显示 chrome://settings）。
-    const address = tab.failedUrl ?? (tab.internal ? (url || SETTINGS_URL) : (url === START_PAGE ? '' : url))
+    // 内部页在首帧加载完成前也要显示自己的地址（Chrome 同样立刻显示 chrome://settings）；
+    // 新标签页与 Chrome 一致：地址栏不显示 URL（空串 + 占位文案）。
+    const address = tab.failedUrl ?? (tab.internal === 'settings'
+      ? (url || SETTINGS_URL)
+      : tab.internal === 'newtab' ? '' : url)
     const pin = engineRules.resolve(hostOf(address))
     return {
       id: tab.id,
@@ -443,11 +478,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
-   * 内部页视图（`bao://settings`）。
+   * 内部页视图（`bao://newtab` / `bao://settings`）。
    *
    * 与页面视图**同一套沙箱**（`sandbox/contextIsolation/nodeIntegration`），只是换了会话、
    * preload 与协议；**刻意不调 `registerPageView()`**——内部页不是 Ruffle/broker 的页面视图，
    * 那两条特权通道对它保持关闭。
+   *
+   * 两种内部页共用同一个 preload：同一个 WebContents 会在两个文档之间就地导航，而 preload
+   * 是按文档执行的——按 kind 换 preload 会让「NTP 就地变成设置页」后的设置页拿不到桥。
+   * 权限不靠 preload 区分，靠主进程按「标签身份 ∧ 主帧 ∧ 文档 URL」判定（见 `internalSender`）。
    */
   function createInternalView(): WebContentsView {
     return new WebContentsView({
@@ -575,7 +614,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       engine: () => tab.engine,
       openerUrl: () => safe(() => contents.getURL(), ''),
       live,
-      allow: tab.internal ? isSettingsUrl : isWebAddress
+      // 内部页在同一会话里可以在 `bao://newtab` 与 `bao://settings` 之间就地导航。
+      allow: tab.internal ? isInternalUrl : isWebAddress
     })
     contents.on('did-start-loading', () => {
       if (!live()) return
@@ -596,8 +636,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     contents.on('did-stop-loading', () => {
       if (live()) tab.host?.notify(tab)
     })
-    contents.on('did-navigate', () => {
+    contents.on('did-navigate', (_event, url) => {
       if (!live()) return
+      // 内部页身份以 URL 为准：任何来源的就地导航（地址栏、页内链接）都能被正确归类，
+      // 避免「标签说是新标签页、文档已经是设置页」的陈旧值。
+      if (tab.internal) {
+        const kind = internalKindOf(url)
+        if (kind && kind !== tab.internal) {
+          tab.internal = kind
+          tab.initialTitle = kind === 'newtab' ? '新标签页' : '设置'
+        }
+      }
       tab.failedUrl = undefined
       tab.host?.notify(tab)
     })
@@ -616,10 +665,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** `url === null` 表示不自动导航：撤销关闭与引擎切换要先把导航栈 restore 上去。 */
   function addTab(
-    initialTitle = '新标签页',
-    url: string | null = START_PAGE,
-    engine: BrowserEngine = engineFor(url ?? undefined).engine,
-    source: EngineSource = engineFor(url ?? undefined).source
+    initialTitle: string,
+    url: string | null,
+    engine: BrowserEngine,
+    source: EngineSource
   ): Tab {
     const view = createPageView(engine)
     const tab: Tab = {
@@ -632,42 +681,174 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
-   * 开一个内部页标签（`bao://settings`）。
+   * 开一个内部页标签（`bao://newtab` / `bao://settings`）。
    *
    * 引擎字段只是占位：内部页没有引擎，也不参与站点规则；`describe()` 会把 `internal`
    * 带给渲染层，工具栏据此隐藏引擎胶囊。
    */
-  function openInternalTab(): Tab {
+  function openInternalTab(kind: InternalKind): Tab {
     const view = createInternalView()
     const tab: Tab = {
       id: nextTabId++,
       view,
       binding: 1,
       error: '',
-      initialTitle: '设置',
+      initialTitle: kind === 'newtab' ? '新标签页' : '设置',
       engine: engineFor(undefined).engine,
       manualOverride: false,
       pinned: false,
       muted: false,
       host: controller,
-      internal: 'settings'
+      internal: kind
     }
     tabs.push(tab)
     bind(tab, view)
-    load(tab, SETTINGS_URL)
+    load(tab, internalUrls[kind])
     return tab
   }
 
-  /** Edge 语义：已存在就切过去，不存在才新建（P3：每窗口最多一个设置标签）。 */
+  /** 新建标签页：Chrome 的 `Ctrl+T`/「+」语义是**总是**新增一个 NTP，不复用。 */
+  function openNewTab(): Tab {
+    return openInternalTab('newtab')
+  }
+
+  /** 内部页就地导航（NTP ↔ 设置）：同一会话，历史项追加（与 Chrome 的 CURRENT_TAB 一致）。 */
+  function controlInternal(tab: Tab, target: { kind: InternalKind; url: string }): void {
+    tab.internal = target.kind
+    tab.initialTitle = target.kind === 'newtab' ? '新标签页' : '设置'
+    tab.error = ''
+    tab.failedUrl = undefined
+    tab.notice = undefined
+    // 标签里发生了真实导航：从「新标签页 Back 回来」记下的 Forward 目标不再成立。
+    tab.newTabForwardUrl = undefined
+    // 休眠的内部页先重建视图（两种内部页共用 preload，权限按文档 URL 判定）。
+    if (!tab.view) revive(tab)
+    load(tab, target.url)
+    if (active === tab) layout()
+    publish()
+  }
+
+  /**
+   * 打开内部单例页（当前只有设置页）。
+   *
+   * 对齐 Chrome 的 `ShowSingletonTabOverwritingNTP`（`chrome/browser/ui/singleton_tabs.cc:76-94`）：
+   * ① 窗口内已有设置标签 → 切过去；
+   * ② 当前标签正是新标签页 → **就地覆盖**，不新建标签；
+   * ③ 都没有 → 新建前台标签。
+   */
   function openSettingsTab(): Tab {
     const existing = tabs.find((item) => item.internal === 'settings')
     if (existing) {
       select(existing, true)
       return existing
     }
-    const opened = openInternalTab()
+    const current = active
+    if (current && current.internal === 'newtab') {
+      controlInternal(current, { kind: 'settings', url: SETTINGS_URL })
+      select(current, true)
+      return current
+    }
+    const opened = openInternalTab('settings')
     select(opened, true)
     return opened
+  }
+
+  /**
+   * 导航（外壳地址栏、设置页地址栏，以及后续 NTP realbox 共用）。
+   *
+   * 内部页的规则对齐 Chrome：
+   * - `bao://newtab` / `bao://settings` → 就地切换，历史项追加；
+   * - 新标签页里输入 http(s) → **同一个标签**换成页面视图（内部会话永不承载网页）；
+   * - 设置页里输入 http(s) → 新开普通标签（既有 P2 决策：设置页原地不动）。
+   */
+  function navigateTab(tab: Tab | undefined, raw: unknown): BrowserResult {
+    if (!tab) return fail('unknown-tab')
+    const address = typeof raw === 'string' ? raw : ''
+    if (tab.internal) {
+      const internal = parseInternalAddress(address)
+      if (internal) {
+        const current = safe(() => tab.view?.webContents.getURL() ?? '', '')
+        if (internal.kind !== tab.internal || internal.url !== current) controlInternal(tab, internal)
+        return { ok: true, state: state() }
+      }
+      const opened = parseAddress(address)
+      if (!opened) return fail('invalid-address')
+      if (tab.internal === 'settings') {
+        const resolved = engineFor(opened)
+        select(addTab('新标签页', opened, resolved.engine, resolved.source), true)
+      } else {
+        leaveNewTab(tab, opened)
+      }
+      return { ok: true, state: state() }
+    }
+    const url = parseAddress(address)
+    if (!url) return fail('invalid-address')
+    // 站点规则只决定「初始」引擎：用户在这个标签上手动切换过，就沿用他的选择。
+    const resolved = tab.manualOverride
+      ? { engine: tab.engine, source: 'manual' as EngineSource }
+      : engineFor(url)
+    if (resolved.engine !== tab.engine) {
+      swapView(tab, resolved.engine, resolved.source)
+      load(tab, url)
+      return { ok: true, state: state() }
+    }
+    const contents = tab.view?.webContents
+    if (!contents) {
+      // 休眠标签：唤醒后再导航。
+      revive(tab)
+      load(tab, url)
+      return { ok: true, state: state() }
+    }
+    if (contents.isDestroyed() || contents.isCrashed()) {
+      rebuild(tab, url)
+      return { ok: true, state: state() }
+    }
+    void contents.loadURL(url).catch(() => {})
+    focusContents(contents)
+    return { ok: true, state: state() }
+  }
+
+  /**
+   * 新标签页 → 网页：同一个标签换成页面视图。
+   *
+   * 内部会话永远不承载 http(s)（否则网页能 `fetch('bao://settings/…')`），所以这里没有
+   * 「原地导航」这个选项；NTP 也不在这条新历史里——由 `fromNewTab` + `returnToNewTab`
+   * 补出「Back 回 NTP」（`docs/discussions/2026-11-24-new-tab-page-alignment.md` §7 D1）。
+   */
+  function leaveNewTab(tab: Tab, url: string): void {
+    // 手动切过引擎的标签，Forward 回来要沿用同一个引擎。
+    const resolved = tab.manualOverride
+      ? { engine: tab.engine, source: 'manual' as EngineSource }
+      : engineFor(url)
+    // 先清内部身份：`swapView` 才会建页面视图并走站点规则。
+    tab.internal = undefined
+    tab.initialTitle = '新标签页'
+    tab.fromNewTab = true
+    tab.newTabForwardUrl = undefined
+    swapView(tab, resolved.engine, resolved.source)
+    load(tab, url)
+  }
+
+  /**
+   * 网页标签的 Back 走到最早一条历史：回到新标签页（重建内部视图）。
+   *
+   * 旧 WebContents 连同页面状态一起丢弃；Forward 用 `newTabForwardUrl` 重新加载同一地址
+   * （这是「NTP 不在页面视图历史里」的既定代价，见方案 §7 D1）。
+   */
+  function returnToNewTab(tab: Tab): void {
+    const url = safe(() => tab.view?.webContents.getURL() ?? '', '')
+    tab.newTabForwardUrl = url || undefined
+    tab.internal = 'newtab'
+    tab.initialTitle = '新标签页'
+    tab.error = ''
+    tab.failedUrl = undefined
+    tab.notice = undefined
+    swapView(tab, tab.engine, tab.manualOverride ? 'manual' : 'default')
+    load(tab, internalUrls.newtab)
+    // 与 Chrome 一致：Back 回到 NTP 后焦点落回地址栏（视图已经是 NTP，交给外壳）。
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.focus()
+    if (active === tab) layout()
+    publish()
   }
 
   /**
@@ -715,7 +896,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.binding += 1
     tab.discarded = false
     bind(tab, view)
-    load(tab, tab.lastUrl || (tab.internal ? SETTINGS_URL : START_PAGE))
+    const url = tab.lastUrl || (tab.internal ? internalUrls[tab.internal] : '')
+    if (url) load(tab, url)
     publish()
   }
 
@@ -770,7 +952,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       overlays.setActivePage(view.webContents)
       layout()
     }
-    if (focus) focusContents(view.webContents)
+    if (focus) {
+      // 新标签页与 Chrome 一致：焦点进地址栏（外壳收到状态后聚焦输入框），而不是页面。
+      if (tab.internal === 'newtab') {
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.focus()
+      } else {
+        focusContents(view.webContents)
+      }
+    }
     publish()
   }
 
@@ -836,7 +1025,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     failure: string
   ): Promise<void> {
     if (entries.length === 0) {
-      load(tab, tab.internal ? SETTINGS_URL : START_PAGE)
+      if (tab.internal) load(tab, internalUrls[tab.internal])
       return
     }
     const view = tab.view
@@ -875,10 +1064,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 复制标签页：同 URL、同引擎，作为新标签插到末尾并激活（架构 §3「标签操作」）。 */
   function duplicateTab(tab: Tab): void {
-    const url = safe(() => tab.view?.webContents.getURL() ?? tab.lastUrl ?? '', '')
-    const copy = addTab(tab.initialTitle, url && url !== START_PAGE ? url : START_PAGE, tab.engine, sourceOf(tab))
+    // 内部页复制出同类内部页：用页面视图去加载 `bao://` 会直接失败（协议只在内部会话）。
+    const copy = tab.internal
+      ? openInternalTab(tab.internal)
+      : addTab(
+          tab.initialTitle,
+          safe(() => tab.view?.webContents.getURL() ?? tab.lastUrl ?? '', '') || null,
+          tab.engine,
+          sourceOf(tab)
+        )
     // 复制标签继承「保持活跃」标记（挂机场景复制出来的标签同样不该被休眠）。
     copy.keepAwake = tab.keepAwake
+    // 也从新标签页起步：复制出来同样能按 Back 回 NTP。
+    copy.fromNewTab = tab.fromNewTab
     select(copy, true)
   }
 
@@ -961,20 +1159,34 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
     const contents = tab.view.webContents
     const url = contents.isDestroyed() ? '' : safe(() => contents.getURL(), '')
+    const fallback = tab.failedUrl || url || (tab.internal ? internalUrls[tab.internal] : '')
     if (contents.isDestroyed() || contents.isCrashed()) {
-      rebuild(tab, tab.failedUrl || url || START_PAGE)
+      if (fallback) rebuild(tab, fallback)
       return
     }
     if (tab.failedUrl) load(tab, tab.failedUrl)
     else contents.reload()
   }
 
+  /**
+   * 该标签值不值得放进「最近关闭」。
+   *
+   * 对齐 Chrome 的 `IsTabInteresting`（`components/sessions/core/tab_restore_service_helper.cc:1098-1109`）：
+   * 只有一条导航、且就是新标签页的标签不入栈——「撤销关闭」恢复它没有任何信息量。
+   * 有历史的 NTP（例如 NTP → 设置 → 后退回 NTP）仍然要能恢复。
+   */
+  function isRestorable(entries: NavigationEntry[]): boolean {
+    if (entries.length > 1) return true
+    return !!entries[0] && !isNewTabUrl(entries[0].url)
+  }
+
   function rememberClosed(tab: Tab): void {
     // 休眠标签没有导航栈可留：只记引擎，撤销关闭时按 URL 重建。
     if (!tab.view) {
-      if (tab.lastUrl) {
+      if (tab.lastUrl && !isNewTabUrl(tab.lastUrl)) {
         recentlyClosed.push({
-          entries: [], index: 0, engine: tab.engine, manualOverride: tab.manualOverride, internal: tab.internal
+          entries: [], index: 0, engine: tab.engine, manualOverride: tab.manualOverride,
+          internal: tab.internal, fromNewTab: tab.fromNewTab, lastUrl: tab.lastUrl
         })
         if (recentlyClosed.length > CLOSED_TAB_LIMIT) recentlyClosed.shift()
       }
@@ -983,13 +1195,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const contents = tab.view.webContents
     if (contents.isDestroyed()) return
     const entries = safe(() => contents.navigationHistory.getAllEntries(), [])
-    if (entries.length === 0) return
+    if (entries.length === 0 || !isRestorable(entries)) return
     recentlyClosed.push({
       entries,
       index: safe(() => contents.navigationHistory.getActiveIndex(), entries.length - 1),
       engine: tab.engine,
       manualOverride: tab.manualOverride,
-      internal: tab.internal
+      internal: tab.internal,
+      fromNewTab: tab.fromNewTab
     })
     if (recentlyClosed.length > CLOSED_TAB_LIMIT) recentlyClosed.shift()
   }
@@ -1007,7 +1220,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.close()
     if (wasActive) {
       const next = tabs[index] ?? tabs[index - 1]
-      select(next ?? addTab(), true)
+      select(next ?? openNewTab(), true)
     }
     publish()
   }
@@ -1018,11 +1231,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!closed) return fail('nothing-to-undo')
     // 内部页撤销关闭要重建**内部视图**，否则会变成"内部标签里跑页面语义"。
     const tab = closed.internal
-      ? openInternalTab()
+      ? openInternalTab(closed.internal)
       : addTab('新标签页', null, closed.engine, closed.manualOverride ? 'manual' : 'default')
+    tab.fromNewTab = closed.fromNewTab
     select(tab, true)
-    void restoreHistory(tab, closed.entries, closed.index,
-      closed.entries[closed.index]?.url ? '无法恢复完整历史，已打开最后一个地址' : '无法恢复此前关闭的标签页')
+    if (closed.entries.length === 0 && closed.lastUrl) {
+      // 休眠标签没有导航栈：按关闭前的地址重建（与 Chrome 一样重新加载，不恢复页面状态）。
+      load(tab, closed.lastUrl)
+    } else {
+      void restoreHistory(tab, closed.entries, closed.index,
+        closed.entries[closed.index]?.url ? '无法恢复完整历史，已打开最后一个地址' : '无法恢复此前关闭的标签页')
+    }
     return { ok: true, state: state() }
   }
 
@@ -1080,7 +1299,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const key = input.key.toLowerCase()
     if (key === 't') {
       if (input.shift) undoClose()
-      else select(addTab(), true)
+      else select(openNewTab(), true)
       return true
     }
     if (key === 'w') {
@@ -1157,6 +1376,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     ownsContents,
     internalSender,
     internalSnapshot,
+    ntpSender,
+    ntpSnapshot: ntpState,
+    runNtp,
     run
   }
 
@@ -1186,7 +1408,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'snapshot':
         break
       case 'add':
-        select(addTab(), true)
+        select(openNewTab(), true)
         break
       case 'open-settings':
         openSettingsTab()
@@ -1263,62 +1485,40 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         moveTab(tab, command.index)
         break
       }
-      case 'navigate': {
-        const target = activeTab()
-        if (!target) return fail('unknown-tab')
-        /**
-         * 内部页里的地址栏：
-         * - `bao://settings` → 保持在设置页；
-         * - 其它 http(s) → **新开一个标签**（P2）。内部会话永远不承载网页，否则那个网页
-         *   就能 `fetch('bao://settings/…')`（实测 200），等于给页面开新特权面。
-         */
-        if (target.internal) {
-          const address = typeof command.address === 'string' ? command.address : ''
-          if (parseSettingsAddress(address)) {
-            load(target, SETTINGS_URL)
-            break
-          }
-          const opened = parseAddress(address)
-          if (!opened) return fail('invalid-address')
-          const resolved = engineFor(opened)
-          select(addTab('新标签页', opened, resolved.engine, resolved.source), true)
-          break
-        }
-        const url = typeof command.address === 'string' ? parseAddress(command.address) : undefined
-        if (!url) return fail('invalid-address')
-        // 站点规则只决定「初始」引擎：用户在这个标签上手动切换过，就沿用他的选择。
-        const resolved = target.manualOverride
-          ? { engine: target.engine, source: 'manual' as EngineSource }
-          : engineFor(url)
-        if (resolved.engine !== target.engine) {
-          swapView(target, resolved.engine, resolved.source)
-          load(target, url)
-          break
-        }
-        const contents = target.view?.webContents
-        if (!contents) {
-          // 休眠标签：唤醒后再导航。
-          revive(target)
-          load(target, url)
-          break
-        }
-        if (contents.isDestroyed() || contents.isCrashed()) {
-          rebuild(target, url)
-          break
-        }
-        void contents.loadURL(url).catch(() => {})
-        focusContents(contents)
-        break
-      }
+      case 'navigate':
+        return navigateTab(activeTab(), command.address)
       case 'back': {
         const tab = activeTab()
-        if (!tab?.view) return fail('unknown-tab')
-        tab.view.webContents.navigationHistory.goBack()
+        if (!tab) return fail('unknown-tab')
+        if (tab.internal) {
+          if (!tab.view) return fail('unknown-tab')
+          tab.view.webContents.navigationHistory.goBack()
+          break
+        }
+        const contents = tab.view?.webContents
+        const canGoBack = !!contents && !contents.isDestroyed() &&
+          safe(() => contents.navigationHistory.canGoBack(), false)
+        // 最早一条历史再往后退：这个标签是从新标签页进来的 → 回到 NTP。
+        if (!canGoBack && tab.fromNewTab) {
+          returnToNewTab(tab)
+          break
+        }
+        if (!contents) return fail('unknown-tab')
+        contents.navigationHistory.goBack()
         break
       }
       case 'forward': {
         const tab = activeTab()
-        if (!tab?.view) return fail('unknown-tab')
+        if (!tab) return fail('unknown-tab')
+        if (tab.internal === 'newtab' && tab.newTabForwardUrl) {
+          const view = tab.view
+          const canForward = !!view && safe(() => view.webContents.navigationHistory.canGoForward(), false)
+          if (!canForward) {
+            leaveNewTab(tab, tab.newTabForwardUrl)
+            break
+          }
+        }
+        if (!tab.view) return fail('unknown-tab')
         tab.view.webContents.navigationHistory.goForward()
         break
       }
@@ -1350,13 +1550,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     publish()
   }
 
-  /** 设置变化后推给本窗口的内部页；页面自己决定怎么重绘。 */
+  /** 设置变化后推给本窗口的内部页：设置页拿设置快照，新标签页拿 NTP 快照。 */
   function broadcastSettings(): void {
-    const snapshot = internalSnapshot()
+    const settingsSnapshot = internalSnapshot()
+    const ntpSnapshot = ntpState()
     for (const tab of tabs) {
-      if (!tab.internal) continue
       const contents = tab.view?.webContents
-      if (contents && !contents.isDestroyed()) contents.send(settingsChannels.changed, snapshot)
+      if (!contents || contents.isDestroyed()) continue
+      if (tab.internal === 'settings') contents.send(settingsChannels.changed, settingsSnapshot)
+      else if (tab.internal === 'newtab') contents.send(ntpChannels.changed, ntpSnapshot)
     }
   }
 
@@ -1379,6 +1581,62 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const frame = event.senderFrame
     if (!frame || frame !== event.sender.mainFrame) return false
     return isSettingsUrl(frame.url)
+  }
+
+  /**
+   * 新标签页的可信判定（与设置页同构的三条件）：
+   * ① 是本窗口亲自创建的新标签页视图；② 是主帧；③ 文档 URL ∈ `bao://newtab/*`。
+   */
+  function ntpSender(event: IpcMainInvokeEvent): boolean {
+    if (closing) return false
+    const tab = tabs.find((item) => item.internal === 'newtab' && item.view?.webContents.id === event.sender.id)
+    if (!tab) return false
+    const frame = event.senderFrame
+    if (!frame || frame !== event.sender.mainFrame) return false
+    return isNewTabUrl(frame.url)
+  }
+
+  /** 新标签页读到的状态：设置子集 + 解析后的主题 + 插件可用性。 */
+  function ntpState(): NtpSnapshot {
+    const settings = currentSettings()
+    return {
+      theme: currentTheme(),
+      settings: {
+        themeMode: settings.themeMode,
+        defaultEngine: settings.defaultEngine,
+        locale: settings.locale
+      },
+      flash: plugins,
+      flashHint: plugins ? undefined : options.flashHint,
+      storage: storageStatus()
+    }
+  }
+
+  /**
+   * 新标签页的两个动词。
+   *
+   * 两个动作都会让发送方文档消失（设置页覆盖 NTP，或 NTP 换成页面视图），所以先返回
+   * IPC 结果、再用 `setImmediate` 执行——否则回复会打在已销毁的帧上。
+   */
+  function runNtp(event: IpcMainInvokeEvent, command: NtpCommand): NtpCommandResult {
+    const tab = tabs.find((item) => item.internal === 'newtab' && item.view?.webContents.id === event.sender.id)
+    if (!tab || !isNewTabUrl(safe(() => tab.view?.webContents.getURL() ?? '', ''))) {
+      return { ok: false, code: 'forbidden-sender' }
+    }
+    if (!command || typeof command !== 'object' || typeof command.type !== 'string') {
+      return { ok: false, code: 'invalid-command' }
+    }
+    if (command.type === 'open-settings') {
+      setImmediate(() => { if (!closing) openSettingsTab() })
+      return { ok: true }
+    }
+    if (command.type === 'navigate') {
+      const url = parseAddress(typeof command.address === 'string' ? command.address : '')
+      if (!url) return { ok: false, code: 'invalid-address' }
+      setImmediate(() => { if (!closing && tabs.includes(tab)) navigateTab(tab, url) })
+      return { ok: true }
+    }
+    return { ok: false, code: 'invalid-command' }
   }
 
   /**
@@ -1426,7 +1684,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     select(opened, true)
   } else {
     // 启动只开一个标签页；多标签由「新建标签页」与冒烟测试覆盖。
-    select(addTab('新标签页'), false)
+    select(openNewTab(), false)
   }
 
   try {
@@ -1586,6 +1844,22 @@ export function registerBrowserIpc(): void {
     if (outcome === 'save-failed') return { ok: false, code: 'settings-save-failed' }
     refreshAllWindows()
     return { ok: true, snapshot: controller.internalSnapshot() }
+  })
+
+  /**
+   * 新标签页的窄通道（`bao://newtab`）。
+   *
+   * 与设置页同构：只接受本窗口新标签页的主帧；设置页、外壳与网页都拿不到这个通道。
+   */
+  ipcMain.handle(ntpChannels.read, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.ntpSender(event)) return undefined
+    return controller.ntpSnapshot()
+  })
+  ipcMain.handle(ntpChannels.command, (event, command: unknown) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.ntpSender(event)) return { ok: false, code: 'forbidden-sender' }
+    return controller.runNtp(event, command as NtpCommand)
   })
 
   /**

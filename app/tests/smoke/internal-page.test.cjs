@@ -34,31 +34,47 @@ async function inSettings(app, code) {
 
 const snapshot = (shell) => shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }).then((result) => result.state))
 
-test('设置页：Ctrl+, 打开/复用标签，只有设置桥，写入后外壳同步', { timeout: 180_000 }, async () => {
+test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后外壳同步', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({ '/': page('设置测试页') })
   const { app, shell, close } = await launchApp()
   try {
-    assert.equal((await snapshot(shell)).tabs.length, 1)
+    const initial = await snapshot(shell)
+    assert.equal(initial.tabs.length, 1)
+    assert.equal(initial.tabs[0].internal, 'newtab', '启动首个标签应是新标签页')
+    const tabId = initial.tabs[0].id
 
-    // ① 入口：Ctrl+, 打开设置标签。
+    // ① 入口：在新标签页上按 Ctrl+, → 就地覆盖（Chrome 的 ShowSingletonTabOverwritingNTP）。
     await pressShortcut(app, ',', ['control'])
     const state = await waitFor(async () => {
       const value = await snapshot(shell)
-      if (value.tabs.length !== 2) return null
-      const tab = value.tabs.find((item) => item.internal === 'settings')
-      return tab && tab.address === 'bao://settings/' && tab.title === '设置' ? value : null
-    }, { message: 'Ctrl+, 没有打开设置标签' })
+      const tab = value.tabs[0]
+      return value.tabs.length === 1 && tab?.internal === 'settings' &&
+        tab.address === 'bao://settings/' && tab.title === '设置' ? value : null
+    }, { message: 'Ctrl+, 没有把新标签页就地切换到设置页' })
 
-    const internal = state.tabs.find((tab) => tab.internal === 'settings')
-    assert.ok(internal, '设置标签必须带 internal 标记')
+    const internal = state.tabs[0]
+    assert.equal(internal.id, tabId, '就地覆盖必须保留同一个标签（id/位置不变）')
     assert.equal(internal.address, 'bao://settings/')
     assert.equal(internal.title, '设置')
-    assert.equal(state.activeId, internal.id, '新开的设置标签应当是选中态')
+    assert.equal(state.activeId, internal.id, '设置页应当是选中态')
+    assert.equal(internal.canGoBack, true, '新标签页应当留在历史里（可后退）')
 
-    // 再按一次：Edge 语义，复用而不是再开一个。
+    // 后退：同一个标签回到新标签页（Chrome 的 NTP 是历史第 0 项）。
+    const back = await shell.evaluate(() => window.baoBrowser.run({ type: 'back' }))
+    assert.equal(back.ok, true, `后退失败：${back.code}`)
+    const backState = await waitFor(async () => {
+      const value = await snapshot(shell)
+      return value.tabs[0]?.internal === 'newtab' ? value : null
+    }, { message: '后退没有回到新标签页' })
+    assert.equal(backState.tabs[0].id, tabId)
+
+    // 再按一次：仍然就地覆盖，不会多出第二个设置标签。
     await pressShortcut(app, ',', ['control'])
-    await new Promise((done) => setTimeout(done, 400))
-    assert.equal((await snapshot(shell)).tabs.filter((tab) => tab.internal).length, 1, '设置标签应被复用')
+    const again = await waitFor(async () => {
+      const value = await snapshot(shell)
+      return value.tabs[0]?.internal === 'settings' ? value : null
+    }, { message: '再次 Ctrl+, 没有回到设置页' })
+    assert.equal(again.tabs.length, 1, '设置页应覆盖新标签页，而不是新建')
 
     // ② 桥面：内部页只有设置桥，没有外壳桥。
     const surface = await inSettings(app, `({

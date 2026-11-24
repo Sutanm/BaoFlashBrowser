@@ -38,6 +38,10 @@ test('拖出标签在新窗口保留业务 ID、页面运行时状态与历史',
     await address.fill(`${server.baseUrl}/two`)
     await address.press('Enter')
     await shell.getByRole('button', { name: '第二个页面', exact: true }).waitFor()
+    // 从新标签页导航到网页时是「换视图」，NTP 不进历史；再走一步才有可回退项。
+    await address.fill(`${server.baseUrl}/three`)
+    await address.press('Enter')
+    await shell.getByRole('button', { name: '第三个页面', exact: true }).waitFor()
 
     const windowHandle = await app.browserWindow(shell)
     const before = {
@@ -84,7 +88,7 @@ test('拖出标签在新窗口保留业务 ID、页面运行时状态与历史',
     })
     assert.equal(after.viewId, before.viewId, '跨窗口移动应复用同一 WebContents（内存态与插件实例保留）。')
     assert.equal(after.marker, '{"marker":"tearoff"}')
-    assert.ok(after.url.endsWith('/two'))
+    assert.ok(after.url.endsWith('/three'))
     assert.equal(after.state.state.activeId, movedId, '业务 ID 必须跨窗口稳定。')
     assert.deepEqual(after.state.state.tabs.map((tab) => tab.id), [movedId])
     assert.equal(after.state.state.tabs[0].canGoBack, true, '导航历史应随标签迁移。')

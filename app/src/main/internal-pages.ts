@@ -4,7 +4,8 @@ import { net, protocol } from 'electron'
 import type { Session } from 'electron'
 
 /**
- * 内部页（`bao://settings`）——架构 §3 尾注：设置入口要「对齐 Edge/Chrome 的设置页」。
+ * 内部页（`bao://newtab`、`bao://settings`）——架构 §3 尾注：设置入口要「对齐 Edge/Chrome 的设置页」；
+ * 新标签页要对齐 Chrome 的 NTP：有稳定 URL，才能被单例页（设置/历史/书签）就地覆盖。
  *
  * 为什么用自定义特权 scheme 而不是 `file://`（实测依据，2026-11-23）：
  * - `file://` 文档的 origin 恒为 `file://`，与"任意本地文件页面"同源，而且页面会话
@@ -20,8 +21,26 @@ import type { Session } from 'electron'
 
 export const INTERNAL_SCHEME = 'bao'
 export const SETTINGS_HOST = 'settings'
+export const NEWTAB_HOST = 'newtab'
 /** 规范的设置页地址（尾斜杠保留：`webContents.getURL()` 也返回这个形式）。 */
 export const SETTINGS_URL = 'bao://settings/'
+/** 规范的新标签页地址（与 Chrome 的 `chrome://newtab/` 同构）。 */
+export const NEWTAB_URL = 'bao://newtab/'
+
+/** 内部页种类：新标签页与设置页同会话、不同 origin。 */
+export type InternalKind = 'newtab' | 'settings'
+
+/** 每种内部页的规范地址（导航/恢复时用）。 */
+export const internalUrls: Record<InternalKind, string> = {
+  newtab: NEWTAB_URL,
+  settings: SETTINGS_URL
+}
+
+/** 每种内部页的文档入口（`out/renderer` 下的文件名）。 */
+const ENTRY_FILES: Record<InternalKind, string> = {
+  newtab: 'newtab.html',
+  settings: 'settings.html'
+}
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -74,9 +93,9 @@ function devRendererUrl(): URL | undefined {
   }
 }
 
-/** 开发态代理：把 `bao://settings/<path>` 转给 Vite dev server，保持查询串。 */
-async function proxyToDevServer(dev: URL, url: URL): Promise<Response> {
-  const target = new URL(url.pathname === '/' ? '/settings.html' : url.pathname, dev)
+/** 开发态代理：把 `bao://<host>/<path>` 转给 Vite dev server，保持查询串。 */
+async function proxyToDevServer(dev: URL, url: URL, entry: string): Promise<Response> {
+  const target = new URL(url.pathname === '/' ? `/${entry}` : url.pathname, dev)
   target.search = url.search
   const response = await net.fetch(target.href)
   return new Response(response.body, {
@@ -105,37 +124,65 @@ export function internalSchemePrivileges(): Parameters<typeof protocol.registerS
   }]
 }
 
-export function isSettingsUrl(url: string): boolean {
+/**
+ * 把主机名归一成内部页种类。
+ *
+ * `bao:` 不是 special scheme，URL 解析**不会**把主机名转小写
+ * （实测 `new URL('BAO://SETTINGS/').hostname === 'SETTINGS'`），所以这里自己归一，
+ * 否则地址栏输入大写内部地址会识别不出来。
+ */
+function hostKind(hostname: string): InternalKind | undefined {
+  const host = hostname.toLowerCase()
+  if (host === NEWTAB_HOST) return 'newtab'
+  if (host === SETTINGS_HOST) return 'settings'
+  return undefined
+}
+
+/** 解析内部页地址；端口是非法输入（`bao://settings:8080/` 不是内部页）。 */
+export function internalKindOf(url: string): InternalKind | undefined {
   try {
     const parsed = new URL(url)
-    // `bao:` 不是 special scheme，URL 解析**不会**把主机名转小写
-    // （实测 `new URL('BAO://SETTINGS/').hostname === 'SETTINGS'`），所以这里自己归一，
-    // 否则地址栏输入大写内部地址会识别不出来。
-    return parsed.protocol === `${INTERNAL_SCHEME}:` && parsed.hostname.toLowerCase() === SETTINGS_HOST
+    if (parsed.protocol !== `${INTERNAL_SCHEME}:` || parsed.port) return undefined
+    return hostKind(parsed.hostname)
   } catch {
-    return false
+    return undefined
   }
+}
+
+export function isInternalUrl(url: string): boolean {
+  return internalKindOf(url) !== undefined
+}
+
+export function isSettingsUrl(url: string): boolean {
+  return internalKindOf(url) === 'settings'
+}
+
+export function isNewTabUrl(url: string): boolean {
+  return internalKindOf(url) === 'newtab'
 }
 
 /**
- * 把地址栏输入解析成设置页地址。只接受 `bao://settings` 与 `bao://settings/...`，
+ * 把地址栏输入解析成内部页地址。只接受 `bao://settings…` 与 `bao://newtab…`，
  * 其它 `bao://` 一律拒绝（不是"回落到别的页"，是明确非法地址）。
  */
-export function parseSettingsAddress(input: string): string | undefined {
+export function parseInternalAddress(input: string): { kind: InternalKind; url: string } | undefined {
   const text = input.trim()
   if (!/^bao:\/\//i.test(text)) return
-  if (isSettingsUrl(text)) {
-    const url = new URL(text)
-    if (url.port) return
-    return SETTINGS_URL
-  }
+  const kind = internalKindOf(text)
+  return kind ? { kind, url: internalUrls[kind] } : undefined
 }
 
-/** 把 `bao://settings/<path>` 映射到 `out/renderer` 下的文件；越界一律 400。 */
-function resolveFile(url: URL): string | undefined {
+/** 设置页专用的地址解析（地址栏 `bao://settings` 仍映射到规范地址）。 */
+export function parseSettingsAddress(input: string): string | undefined {
+  const parsed = parseInternalAddress(input)
+  return parsed?.kind === 'settings' ? parsed.url : undefined
+}
+
+/** 把 `bao://<host>/<path>` 映射到 `out/renderer` 下的文件；越界一律 400。 */
+function resolveFile(url: URL, entry: string): string | undefined {
   const root = rendererRoot()
   const relative = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
-  const candidate = normalize(join(root, relative || 'settings.html'))
+  const candidate = normalize(join(root, relative || entry))
   if (candidate !== root && !candidate.startsWith(root + sep)) return
   if (relative.startsWith('..') || relative.includes(`..${sep}`)) return
   return candidate
@@ -156,16 +203,17 @@ export function bindInternalProtocol(target: Session): void {
     } catch {
       return new Response('bad request', { status: 400 })
     }
-    if (url.hostname !== SETTINGS_HOST) return new Response('not found', { status: 404 })
+    const kind = hostKind(url.hostname)
+    if (!kind) return new Response('not found', { status: 404 })
     const dev = devRendererUrl()
     if (dev) {
       try {
-        return await proxyToDevServer(dev, url)
+        return await proxyToDevServer(dev, url, ENTRY_FILES[kind])
       } catch {
         return new Response('dev server unavailable', { status: 502 })
       }
     }
-    const file = resolveFile(url)
+    const file = resolveFile(url, ENTRY_FILES[kind])
     if (!file) return new Response('bad request', { status: 400 })
     try {
       const body = readFileSync(file)

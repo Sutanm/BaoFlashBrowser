@@ -37,9 +37,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          // 两个文档：外壳（含叠加层）与内部设置页。
+          // 三个文档：外壳（含叠加层）、内部设置页与新标签页。
           index: resolve(__dirname, 'src/renderer/index.html'),
-          settings: resolve(__dirname, 'src/renderer/settings.html')
+          settings: resolve(__dirname, 'src/renderer/settings.html'),
+          newtab: resolve(__dirname, 'src/renderer/newtab.html')
         }
       }
     }

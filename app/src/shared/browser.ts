@@ -88,8 +88,11 @@ export interface BrowserTab {
   pinned: boolean
   /** 页面音频是否被静音。 */
   muted: boolean
-  /** 内部页（`bao://settings`）：没有引擎、站点规则与页面权限。 */
-  internal?: 'settings'
+  /**
+   * 内部页（`bao://newtab` / `bao://settings`）：没有引擎、站点规则与页面权限。
+   * 两种内部页同会话、不同 origin，所以「打开设置」可以覆盖当前的新标签页。
+   */
+  internal?: 'newtab' | 'settings'
   /** 已休眠（视图被丢弃）：切回时重建并重新加载。 */
   discarded?: boolean
   /** 用户标记「保持活跃」：挂机/游戏标签，永不自动休眠。 */
