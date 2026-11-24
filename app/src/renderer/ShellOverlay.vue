@@ -158,9 +158,10 @@ onBeforeUnmount(() => {
 /* 与齿轮飞窗一致：四角圆角 12、1px 边框、不投影（视图与面板同尺寸，投影只会变成一层光影）。 */
 .engine-panel {
   background: var(--surface-toolbar);
-  /* 与 Chromium 菜单一致：圆角 + 无描边（use_outer_border = false）。 */
+  /* 圆角 + 无外边框（use_outer_border = false），用 Fluent 的 inset 1px 描边分层。 */
   border: 0;
   border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--stroke-divider);
 }
 /* 提示条仍是浮层（它出现在页面任意位置）。 */
 .toast {

@@ -171,10 +171,10 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .shell-overlay, .shell-overlay body { margin: 0; overflow: hidden; background: transparent; }
 .quick-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
 
-/* Chromium 菜单数值：四角圆角 12、**没有外边框**。
-   menu_config.cc 的 InitCommon() 里 `use_outer_border = false`，Windows 走
-   bubble border（圆角 + 阴影），那圈 kColorMenuBorder 只在 use_outer_border 为真时才画。
-   我们也没有投影：视图与面板同尺寸，投影只会落在留白上变成一条「光影」。 */
+/* 圆角 12、**无外边框**（Chromium menu_config.cc 的 use_outer_border = false）。
+   浮层本身没有阴影空间（视图 = 面板，投影会被裁成一条「光影」），所以按架构铁律
+   「首帧可见表面一律 stroke 分层」用 Fluent 的 shadow-card-stroke 做法：
+   inset 1px 描边，不占外部空间、不被裁切、也不画成工具栏分隔线。 */
 .quick {
   box-sizing: border-box;
   width: 100%;
@@ -183,6 +183,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
   padding: 6px;
   border: 0;
   border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--stroke-divider);
   background: var(--surface-toolbar);
   font: var(--size-body)/1.4 var(--shell-font);
   color: var(--text-primary);
