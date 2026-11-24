@@ -31,6 +31,11 @@ function sha256(file) {
  * Ruffle 运行时。任何一项不匹配即失败——除非显式设置
  * `BAO_ALLOW_UNVERIFIED_RUNTIME=1`（内核开发者换版本时用，且必须在提交信息里写明来源）。
  */
+// profile 先算：来源校验是否要求 Adobe 插件取决于它（public 是 BYOP，不要求）。
+const PROFILE = process.argv.includes('--public') || process.env.BAO_PACK_PROFILE === 'public'
+  ? 'public'
+  : 'internal'
+
 function verifyProvenance() {
   const manifestPath = join(root, 'scripts/runtime-manifest.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
@@ -45,6 +50,8 @@ function verifyProvenance() {
   }
   const problems = []
   for (const [relative, expected] of Object.entries(manifest.files)) {
+    // public 是 BYOP：运行时里本来就可以没有 Adobe 插件，产物反正会剔除。
+    if (PROFILE === 'public' && relative.endsWith('pepflashplayer64.dll')) continue
     // 清单里混了两类路径：`.runtime/win-x64/...`（运行时输入，按实际目录解析）与
     // `vendor/ruffle/...`（应用资源，按仓库根解析）。
     const inRuntime = relative.startsWith('.runtime/win-x64/')
@@ -85,17 +92,7 @@ for (const entry of readdirSync(dist, { withFileTypes: true })) {
   }
 }
 
-/**
- * 打包 profile（BYOP 拆分，2026-11-23）。
- *
- * - `internal`（默认）：带 PPAPI 插件，只做内部验证；**默认拒绝签名**——包内含 Adobe 二进制，
- *   签名等于以我们的已验证身份背书分发（`BAO_ALLOW_SIGN_INTERNAL=1` 才放行，仅用于内部审计）。
- * - `public`：**不携带** Adobe 二进制，用户自行把 `pepflashplayer64.dll` 放到
- *   `<exe目录>\flash\`；产物不含专有组件，可以签名、可以分发。
- */
-const PROFILE = process.argv.includes('--public') || process.env.BAO_PACK_PROFILE === 'public'
-  ? 'public'
-  : 'internal'
+
 const signingRequested = Boolean(process.env.WIN_CSC_LINK || process.env.CSC_LINK)
 if (PROFILE === 'internal' && signingRequested && process.env.BAO_ALLOW_SIGN_INTERNAL !== '1') {
   console.error('[pack] 内部包携带 Adobe Flash 插件，默认不允许签名（签名＝背书分发该二进制）。')
