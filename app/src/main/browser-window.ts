@@ -684,6 +684,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 后台标签休眠阈值：10 分钟（开关见设置项 `tab.discard`）。 */
   // 默认 10 分钟；BAO_DISCARD_TTL_MS / BAO_DISCARD_SWEEP_MS 仅供测试缩短时间片。
+  // TODO(M3)：TTL 做成设置项 tab.discardTtl（5/10/30 分钟），见 docs/reports/2026-11-24-tab-discard.md §4。
   const DISCARD_TTL_MS = Number(process.env.BAO_DISCARD_TTL_MS ?? 10 * 60_000)
   /** 扫描周期：30 秒。 */
   const DISCARD_SWEEP_MS = Number(process.env.BAO_DISCARD_SWEEP_MS ?? 30_000)
@@ -705,7 +706,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     publish()
   }
 
-  /** 唤醒休眠标签：重建视图并按休眠前的地址重新加载（引擎沿用当前值）。 */
+  /** 唤醒休眠标签：重建视图并按休眠前的地址重新加载（引擎沿用当前值）。
+   *  TODO(M3)：可选恢复导航栈与滚动位置，见 docs/reports/2026-11-24-tab-discard.md §4。 */
   function revive(tab: Tab): void {
     if (tab.view) return
     const view = tab.internal ? createInternalView() : createPageView(tab.engine)
@@ -724,6 +726,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 出声这一条是硬要求：挂机型页面（游戏/自动化）几乎都有声音或需要持续运行，
    * 用户也可以在设置里把整个机制关掉（`tab.discard = never`）。
    */
+  // TODO(M3)：守卫链预留给「自动判定挂机」（长时间无交互 + 持续音频输出），见同一份报告的 §4。
   function sweepDiscard(): void {
     if (closing || window.isDestroyed()) return
     if (currentSettings().tabDiscard === 'never') return
