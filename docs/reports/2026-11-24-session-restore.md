@@ -76,7 +76,7 @@
 | `npm run typecheck` | ✅ |
 | `node scripts/test.cjs unit` | ✅ 14 文件 / **140 通过**（`session.test.ts` 16 条；`settings.test.ts` 覆盖新键的取值与默认值） |
 | `node scripts/test.cjs data` | ✅ 2 文件 / **11 通过**（`session-store.test.cjs` 4 条） |
-| `node scripts/test.cjs smoke` | ✅ **22 文件 / 0 失败**（`session-restore.test.cjs` 4 条，约 22 s） |
+| `node scripts/test.cjs smoke` | ✅ **23 文件 / 0 失败**（`session-restore.test.cjs` 4 条，约 22 s；`data-cleanup.test.cjs` 1 条） |
 
 ### 存储层（`tests/data/session-store.test.cjs`，真库 + 真进程）
 
@@ -153,3 +153,21 @@
 验证：`settings.test.ts` 增加合法/非法取值与默认值用例；`session-store.test.cjs` 增加
 "continue 模式下正常退出重启直接恢复、不提示"；`session-restore.test.cjs` 增加同场景的
 真实 Electron 跨进程用例（含置顶/休眠/保持活跃恢复断言，见 §4）。
+
+## 8. 后续增量（同日）：会话数据清理入口
+
+M2 退出条件里的「存储清理」要求**分类清理**。本节只做最小的一档：**会话数据**。
+
+- 入口：`bao://settings` 的「数据」分区 → 「已保存的会话」→「清除」；
+- 主进程：`settingsChannels.sessionClear`（只有本窗口内部设置页主帧能调，与设置写通道同构）
+  → `clearStoredSession()`：`clearSession()` 在一个事务里删掉 `session` 行与
+  `meta.session.last-exit`，然后**挂起本次运行的会话记录**并清掉仍挂着的崩溃恢复提示；
+- 语义（UI 文案里也写明）：清除后本次运行不再记录会话，**下次启动恢复记录能力**。
+  不这么做的话，800 ms 后的一次节流写会把当前标签又写回去，用户会以为按钮没生效；
+- 失败语义：存储不可用或写库失败返回 `false`，页面显示"清除失败，会话数据未改动"，不动现有数据。
+
+验证：`tests/smoke/data-cleanup.test.cjs`（真实 Electron + 真库）——
+点「清除」后 `session` 行与退出标记都消失、页面显示结果；正常退出后库里仍然没有会话
+（证明写盘确实挂起）；重启只有一个新标签页且无恢复提示；再逛一次并退出，会话重新出现
+（证明"下次启动恢复记录能力"）。**未覆盖**：站点规则、设置项、缓存与 Flash 插件的清理
+（分类清理的其余档位，属 M2 剩余工作）。

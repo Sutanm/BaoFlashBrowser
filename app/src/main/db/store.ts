@@ -334,6 +334,19 @@ export function writeSessionExit(db: Database, state: SessionExitState): void {
   )
 }
 
+/**
+ * 清除已保存的会话：会话载荷 + 退出标记。
+ *
+ * 一个事务里做两件事：清掉载荷但留下 `crash` 标记，会在下次启动产生一条"空会话提示"，
+ * 或者反过来留下载荷但没有标记——两种半截状态都不该出现。
+ */
+export function clearSession(db: Database): void {
+  db.transaction(() => {
+    db.run('DELETE FROM session')
+    db.run('DELETE FROM meta WHERE key = ?', SESSION_EXIT_KEY)
+  })
+}
+
 /** 读会话载荷。坏 JSON / 坏结构 / 版本不符一律当作「没有会话」，不阻断启动。 */
 export function readSession(db: Database): SessionSnapshot | undefined {
   const row = db.get('SELECT payload FROM session WHERE id = 0')

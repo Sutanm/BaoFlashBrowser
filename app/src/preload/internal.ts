@@ -18,6 +18,7 @@ import type { NtpBridge, NtpCommandResult, NtpSnapshot } from '../shared/ntp'
 const settings: SettingsBridge = {
   read: () => ipcRenderer.invoke(settingsChannels.read),
   write: (key, value) => ipcRenderer.invoke(settingsChannels.write, { key, value }),
+  clearSession: () => ipcRenderer.invoke(settingsChannels.sessionClear),
   flashStatus: () => ipcRenderer.invoke(settingsChannels.flashStatus),
   flashImport: () => ipcRenderer.invoke(settingsChannels.flashImport),
   flashReveal: () => ipcRenderer.invoke(settingsChannels.flashReveal),

@@ -38,6 +38,31 @@ const prewarmModes = PREWARM_MODES
 const startupModes = SESSION_STARTUP_MODES
 const storage = computed(() => snapshot.value?.storage ?? 'ready')
 
+/**
+ * 「数据」分区：分类清理已保存的会话。
+ *
+ * 清除后本次运行不再记录会话（主进程挂起写盘），所以提示文案要说清楚"下次启动恢复记录"，
+ * 否则用户会以为按钮没生效（`session.startup = continue` 时尤其明显）。
+ */
+const sessionClearing = ref(false)
+const dataNotice = ref('')
+
+async function clearSession(): Promise<void> {
+  if (sessionClearing.value) return
+  sessionClearing.value = true
+  dataNotice.value = ''
+  try {
+    const cleared = await window.baoSettings.clearSession()
+    dataNotice.value = cleared
+      ? '已清除已保存的会话与恢复提示；本次运行不再记录，下次启动恢复记录。'
+      : '清除失败，会话数据未改动'
+  } catch {
+    dataNotice.value = '清除失败，会话数据未改动'
+  } finally {
+    sessionClearing.value = false
+  }
+}
+
 let detach: (() => void) | undefined
 
 function apply(next: SettingsSnapshot): void {
@@ -237,6 +262,16 @@ function focusFlashSection(): void {
             <option value="zh-CN">简体中文</option>
           </select>
         </label>
+      </section>
+
+      <section aria-labelledby="data-title">
+        <h2 id="data-title">数据</h2>
+        <div class="select-row">
+          <span>已保存的会话</span>
+          <button type="button" class="action" :disabled="sessionClearing" @click="clearSession">清除</button>
+        </div>
+        <p class="lead">删除上次退出时保存的标签记录与崩溃恢复提示。清除后本次运行不再记录会话，下次启动恢复记录。</p>
+        <p v-if="dataNotice" role="status">{{ dataNotice }}</p>
       </section>
 
       <p v-if="error" class="error" role="status">{{ error }}</p>

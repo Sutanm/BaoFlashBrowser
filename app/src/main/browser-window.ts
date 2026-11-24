@@ -11,7 +11,7 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { setSetting, settings as currentSettings, saveSession, storageStatus } from './storage'
+import { clearSessionData, setSetting, settings as currentSettings, saveSession, storageStatus } from './storage'
 import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
 import { settingsChannels } from '../shared/settings'
@@ -120,6 +120,8 @@ interface WindowController extends TabHost {
   ntpSnapshot(): NtpSnapshot
   /** 新标签页的两个动词：打开设置、在**本标签**导航。 */
   runNtp(event: IpcMainInvokeEvent, command: NtpCommand): NtpCommandResult
+  /** 会话数据被用户清除：丢掉仍挂着的崩溃恢复提示（库里已经没有了）。 */
+  forgetSessionPrompt(): void
 }
 
 export interface BrowserWindowOptions {
@@ -241,6 +243,29 @@ function releaseSessionHold(): void {
 /** 挂起会话写盘（`index.ts` 在把崩溃会话交给窗口之前调用）。 */
 export function holdSession(): void {
   sessionHeld = true
+  // 挂起要连**排队中的**写盘一起取消，否则刚挂起就被一次迟到的节流写穿透。
+  if (sessionTimer) {
+    clearTimeout(sessionTimer)
+    sessionTimer = undefined
+  }
+}
+
+/**
+ * 清除已保存的会话（设置页「数据」分区的分类清理）。
+ *
+ * 三件事缺一不可：
+ * 1. 删库里的会话载荷与退出标记（`clearSessionData`）；
+ * 2. 挂起本次运行的会话记录——否则 800 ms 后的一次节流写会把当前标签又写回去，
+ *    用户看到"清除了但还在"；
+ * 3. 清掉仍挂着的崩溃恢复提示：那份会话在内存里，留着会出现"库里已删、按钮还在"的矛盾。
+ *
+ * 返回 false 只表示存储不可用或写入失败（UI 据此提示），不影响正在浏览的标签。
+ */
+export function clearStoredSession(): boolean {
+  if (!clearSessionData()) return false
+  holdSession()
+  for (const controller of controllers.values()) controller.forgetSessionPrompt()
+  return true
 }
 
 /**
@@ -917,6 +942,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!crashSession) return
     crashSession = undefined
     releaseSessionHold()
+    publish()
+    layout()
+  }
+
+  /**
+   * 会话数据被清除时调用：丢掉挂起的崩溃会话，提示条随之消失。
+   *
+   * 这里**不**解除写盘挂起——清除的语义是"本次运行不再记录会话"，
+   * 解除挂起会让 800 ms 后的节流写把当前标签又写回去。
+   */
+  function forgetSessionPrompt(): void {
+    if (!crashSession) return
+    crashSession = undefined
     publish()
     layout()
   }
@@ -1654,6 +1692,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     ntpSender,
     ntpSnapshot: ntpState,
     runNtp,
+    forgetSessionPrompt,
     run
   }
 
@@ -2142,6 +2181,18 @@ export function registerBrowserIpc(): void {
     if (outcome === 'save-failed') return { ok: false, code: 'settings-save-failed' }
     refreshAllWindows()
     return { ok: true, snapshot: controller.internalSnapshot() }
+  })
+
+  /**
+   * 清除已保存的会话（设置页「数据」分区的分类清理）。
+   *
+   * 与设置写通道同构：只有本窗口的内部设置页主帧能调。返回 `false` 表示存储不可用
+   * 或写入失败（页面据此提示），不影响已打开的标签。
+   */
+  ipcMain.handle(settingsChannels.sessionClear, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return false
+    return clearStoredSession()
   })
 
   /**

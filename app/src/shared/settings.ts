@@ -170,6 +170,8 @@ export const settingsChannels = {
   read: 'settings:read',
   write: 'settings:write',
   changed: 'settings:changed',
+  /** 清除已保存的会话（分类清理的「会话」档，M2 存储清理）。 */
+  sessionClear: 'settings:session-clear',
   /** 读 Flash 插件状态（是否就绪 / 版本 / 是否需要重启）。 */
   flashStatus: 'settings:flash-status',
   /** 打开文件选择框导入插件（复制到 `<userData>/flash/`）。 */
@@ -224,6 +226,13 @@ export type SettingsWriteResult =
 export interface SettingsBridge {
   read(): Promise<SettingsSnapshot | undefined>
   write(key: SettingKey, value: SettingValue[SettingKey]): Promise<SettingsWriteResult>
+  /**
+   * 清除已保存的会话（会话载荷 + 退出标记）。
+   *
+   * 返回 `true` 表示确实删掉了；清除后**本次运行不再记录会话**（否则节流写会在
+   * 800 ms 后把当前标签又写回去），下次启动恢复记录能力。
+   */
+  clearSession(): Promise<boolean>
   flashStatus(): Promise<FlashPluginState | undefined>
   flashImport(): Promise<FlashImportResult>
   /** 在文件管理器里定位当前插件；没有真实文件时返回 false。 */

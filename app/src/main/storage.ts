@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, sanitizeSetting } from '../shared/settings'
 import type { SettingKey, Settings } from '../shared/settings'
 import type { BrowserEngine, EngineRules } from '../shared/engine'
 import type { SessionSnapshot } from '../shared/session'
-import { deleteRule, openStore, writeRule, writeSession, writeSessionExit, writeSetting } from './db/store'
+import { clearSession, deleteRule, openStore, writeRule, writeSession, writeSessionExit, writeSetting } from './db/store'
 import type { OpenedStore, SessionExitState } from './db/store'
 import { toDatabaseError } from './db/sqlite'
 
@@ -102,6 +102,24 @@ export function saveSession(snapshot: SessionSnapshot): boolean {
     return true
   } catch (error) {
     console.error('[storage] 会话写入失败（本次不保留）。', error)
+    return false
+  }
+}
+
+/**
+ * 清除已保存的会话（会话载荷 + 退出标记），并同步清掉内存快照。
+ *
+ * 失败只记日志并返回 false，调用方据此提示用户；成功返回 true。
+ */
+export function clearSessionData(): boolean {
+  if (!store) return false
+  try {
+    clearSession(store.db)
+    store.session = undefined
+    store.sessionExit = undefined
+    return true
+  } catch (error) {
+    console.error('[storage] 会话数据清除失败。', error)
     return false
   }
 }
