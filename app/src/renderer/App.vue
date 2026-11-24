@@ -554,9 +554,8 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 .titlebar {
   display: flex;
   align-items: center;
-  gap: var(--space-s);
   height: var(--tab-bar-height);
-  padding-inline: var(--space-s) calc(100vw - env(titlebar-area-width, calc(100vw - 144px)) + 36px);
+  padding-inline: 0 calc(100vw - env(titlebar-area-width, calc(100vw - 144px)) + 36px);
   background: var(--surface-window);
   -webkit-app-region: drag;
   user-select: none;
@@ -757,6 +756,11 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
   align-self: end;
   flex: none;
   height: var(--tab-height);
+  /*
+   * Chromium 142 的 NTB 同样是 28px，位置由 12px 标签底角与 6px strip padding
+   * 共同计算。这里的标签脚更小，回收半个脚宽即可；完整回收会让图标贴住轮廓。
+   */
+  margin-inline-start: -2px;
   border-block-start: var(--shell-stroke) solid transparent;
 }
 .add-tab { width: var(--new-tab-button-size); height: var(--new-tab-button-size); }

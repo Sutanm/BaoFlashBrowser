@@ -36,12 +36,18 @@ test('主窗口 chrome：窗口按钮不压标签、双击标题栏最大化、�
     const layout = await shell.evaluate(() => {
       const titlebar = document.querySelector('.titlebar')
       const tabs = document.querySelector('.tabs')
+      const addTab = document.querySelector('.add-tab-slot')
       const overlay = navigator.windowControlsOverlay
       const rect = overlay?.getTitlebarAreaRect?.()
+      const titlebarRect = titlebar.getBoundingClientRect()
+      const tabsRect = tabs.getBoundingClientRect()
+      const addTabRect = addTab.getBoundingClientRect()
       return {
         wcoVisible: overlay?.visible ?? null,
         titlebarAreaWidth: rect ? rect.width : null,
         innerWidth: window.innerWidth,
+        firstTabOffset: tabsRect.left - titlebarRect.left,
+        addTabOffset: addTabRect.left - tabsRect.right,
         paddingRight: parseFloat(getComputedStyle(titlebar).paddingRight),
         titlebarRegion: getComputedStyle(titlebar).getPropertyValue('-webkit-app-region'),
         tabsRegion: getComputedStyle(tabs).getPropertyValue('-webkit-app-region')
@@ -49,6 +55,9 @@ test('主窗口 chrome：窗口按钮不压标签、双击标题栏最大化、�
     })
     assert.equal(layout.titlebarRegion, 'drag', '标题栏必须是拖动区')
     assert.equal(layout.tabsRegion, 'no-drag', '标签必须不是拖动区')
+    assert.ok(Math.abs(layout.firstTabOffset) < 0.5, `标签栏左侧没有贴边：偏移 ${layout.firstTabOffset}px`)
+    assert.ok(Math.abs(layout.addTabOffset + 2) < 0.5,
+      `新建按钮没有保留预期的细缝：偏移 ${layout.addTabOffset}px`)
     if (layout.wcoVisible) {
       const controlsWidth = layout.innerWidth - layout.titlebarAreaWidth
       assert.ok(
