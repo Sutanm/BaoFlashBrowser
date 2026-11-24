@@ -1,7 +1,7 @@
 const { spawnSync } = require('node:child_process')
 const { createHash } = require('node:crypto')
 const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } = require('node:fs')
-const { join, resolve } = require('node:path')
+const { dirname, join, resolve } = require('node:path')
 const { build } = require('./build.cjs')
 
 build()
@@ -35,29 +35,45 @@ function verifyProvenance() {
   const manifestPath = join(root, 'scripts/runtime-manifest.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   const allowUnverified = process.env.BAO_ALLOW_UNVERIFIED_RUNTIME === '1'
+  // 校验**实际会被打包的那份运行时**：electron-builder 从 ELECTRON_EXEC_PATH 所在目录复制，
+  // 而仓库清单里的路径是 `.runtime/win-x64/...`。两者可能不是同一个目录（审计 P1）。
+  const execPath = process.env.ELECTRON_EXEC_PATH ? resolve(process.env.ELECTRON_EXEC_PATH) : undefined
+  const runtimeDir = execPath ? dirname(execPath) : join(root, '.runtime', 'win-x64')
+  if (execPath && !existsSync(execPath)) {
+    console.error(`[pack] ELECTRON_EXEC_PATH 指向不存在的文件：${execPath}`)
+    process.exit(1)
+  }
   const problems = []
   for (const [relative, expected] of Object.entries(manifest.files)) {
-    const file = join(root, relative)
+    // 清单里混了两类路径：`.runtime/win-x64/...`（运行时输入，按实际目录解析）与
+    // `vendor/ruffle/...`（应用资源，按仓库根解析）。
+    const inRuntime = relative.startsWith('.runtime/win-x64/')
+    const rel = inRuntime ? relative.slice('.runtime/win-x64/'.length) : relative
+    const file = inRuntime ? join(runtimeDir, rel) : join(root, rel)
     if (!existsSync(file)) {
-      problems.push(`缺少文件：${relative}`)
+      problems.push(`缺少文件：${rel}`)
       continue
     }
     const actual = sha256(file)
-    if (actual !== expected) problems.push(`SHA-256 不符：${relative}\n  期望 ${expected}\n  实际 ${actual}`)
+    if (actual !== expected) problems.push(`SHA-256 不符：${rel}\n  期望 ${expected}\n  实际 ${actual}`)
   }
+  let verified = true
   if (problems.length > 0) {
     const detail = problems.join('\n')
     if (allowUnverified) {
       console.warn(`[pack] 跳过来源校验（BAO_ALLOW_UNVERIFIED_RUNTIME=1）：\n${detail}`)
-      return
+      verified = false
+    } else {
+      console.error(`[pack] 内核/插件来源校验失败（目录：${runtimeDir}）：\n${detail}\n`)
+      console.error('[pack] 如果确实换了内核或插件，请更新 app/scripts/runtime-manifest.json 并在提交信息里写明来源与 tag。')
+      console.error('[pack] 临时放行（不推荐）：设置 BAO_ALLOW_UNVERIFIED_RUNTIME=1。')
+      process.exit(1)
     }
-    console.error(`[pack] 内核/插件来源校验失败：\n${detail}\n`)
-    console.error('[pack] 如果确实换了内核或插件，请更新 app/scripts/runtime-manifest.json 并在提交信息里写明来源与 tag。')
-    console.error('[pack] 临时放行（不推荐）：设置 BAO_ALLOW_UNVERIFIED_RUNTIME=1。')
-    process.exit(1)
+  } else {
+    console.log(`[pack] 来源校验通过（目录 ${runtimeDir}，内核 tag ${manifest.kernel?.tag ?? '未知'}）：${Object.keys(manifest.files).length} 个文件`)
   }
-  console.log(`[pack] 来源校验通过（内核 tag ${manifest.kernel?.tag ?? '未知'}）：${Object.keys(manifest.files).length} 个文件`)
-  return manifest
+  // 声明必须来自**本次实际校验的输入**：未通过校验时不能沿用仓库内核 tag。
+  return { ...manifest, verified, runtimeDir }
 }
 
 const manifestSource = verifyProvenance()
@@ -193,32 +209,22 @@ for (const file of licenseFiles) {
 }
 
 /**
- * 代码签名状态（发布门禁）。
+ * 代码签名状态（发布门禁）——**真校验**，不是「有没有证书表」。
  *
- * 直接解析 PE 的**证书表**（可选头数据目录第 4 项）判断有没有签名块：
- * 运行环境里 `powershell.exe` 常常加载不了 Security 模块（受限环境），PowerShell 不可靠。
- * 这里只判断「有没有签名块」，签名链是否可信需发布时用 signtool 另行验证。
+ * 旧实现只解析 PE 证书目录大小，把「有签名块」当成「签名有效」；审计用系统检查证明那不等价
+ * （本轮公开包实际是 NotSigned）。现在走 scripts/authenticode.cjs：
+ * signtool → PowerShell Get-AuthenticodeSignature → 都不可用时只报「无法验证」。
  */
-function hasCertificateTable(exe) {
-  const buffer = readFileSync(exe)
-  if (buffer.length < 0x40) return false
-  const peOffset = buffer.readUInt32LE(0x3c)
-  if (peOffset + 0x18 > buffer.length) return false
-  if (buffer.readUInt32LE(peOffset) !== 0x00004550) return false
-  const optionalHeader = peOffset + 0x18
-  const magic = buffer.readUInt16LE(optionalHeader)
-  const directoriesOffset = optionalHeader + (magic === 0x20b ? 112 : 96)
-  if (directoriesOffset + 8 * 5 > buffer.length) return false
-  const certificateEntry = directoriesOffset + 8 * 4
-  const size = buffer.readUInt32LE(certificateEntry + 4)
-  return size > 0
-}
+const { verifyAuthenticode } = require('./authenticode.cjs')
 
 function signatureStatus(exe) {
-  const signed = hasCertificateTable(exe)
+  const result = verifyAuthenticode(exe)
   return {
-    signed,
-    status: signed ? 'signed (certificate table present; chain not verified)' : 'not-signed'
+    signed: result.signed,
+    verified: result.verified,
+    status: result.verified ? 'Valid' : result.status,
+    signer: result.signer,
+    tool: result.tool
   }
 }
 const signature = signatureStatus(packaged)
@@ -226,7 +232,8 @@ const manifest = {
   product: 'BaoFlashBrowser Next',
   profile: PROFILE,
   smokeHiddenSupported: true,
-  kernel: manifestSource.kernel,
+  kernel: manifestSource.verified ? manifestSource.kernel : { ...manifestSource.kernel, tag: String(manifestSource.kernel?.tag ?? 'unknown') + '(unverified)' },
+  runtimeInput: { dir: manifestSource.runtimeDir, verified: manifestSource.verified },
   generatedAt: new Date().toISOString(),
   executable: {
     name: 'BaoFlashBrowser Next.exe',
@@ -261,7 +268,8 @@ const manifest = {
       ? ['内部包携带 Adobe Flash 插件：仅限内部验证，不得对外分发']
       : []),
     '独立复建与依赖校验未完成'
-  ].filter((item) => !(item.startsWith('代码签名') && signature.signed))
+    // 只有**验证通过**（链 + 签名完整）才算关掉这一项；「有证书表」不够。
+  ].filter((item) => !(item.startsWith('代码签名') && signature.verified === true))
 }
 writeFileSync(join(unpacked, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
 

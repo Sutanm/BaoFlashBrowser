@@ -29,6 +29,8 @@ function sha256(file) {
   return createHash('sha256').update(readFileSync(file)).digest('hex').toUpperCase()
 }
 
+// 首次导入时 .runtime 还不存在：先建父目录，否则 mkdtemp 直接 ENOENT（审计复现项）。
+mkdirSync(join(root, '.runtime'), { recursive: true })
 const staging = mkdtempSync(join(root, '.runtime', 'import-'))
 try {
   // 直接用 .NET 解压：Windows PowerShell 5.1 的 Expand-Archive 在部分环境会报
@@ -54,6 +56,11 @@ try {
   const expectedKernel = repoManifest.files['.runtime/win-x64/electron.exe']
   const actualKernel = manifest.files?.['electron.exe']
 
+  // 校验依据以**仓库清单**为准，而不是包内自报的哈希：
+  // 旧实现只比对「包内清单说的哈希」和「包内文件」，篡改者可以两边一起改。
+  const expectedFiles = Object.entries(repoManifest.files ?? {}).map(([key, hash]) => [
+    key.replace(/^\.runtime\/win-x64\//, ''), hash
+  ])
   const problems = []
   if (!actualKernel) problems.push('包内清单没有 electron.exe')
   else if (actualKernel !== expectedKernel) {
@@ -61,13 +68,22 @@ try {
       `包内内核不是本仓库期望的内核\n  包内 ${manifest.kernel?.tag ?? '未知 tag'} / ${actualKernel}\n  期望 ${repoManifest.kernel?.tag ?? '未知 tag'} / ${expectedKernel}`
     )
   }
-  for (const [rel, hash] of Object.entries(manifest.files ?? {})) {
+  for (const [rel, hash] of expectedFiles) {
     const file = join(staging, rel)
     if (!existsSync(file)) {
-      problems.push(`包内缺少文件：${rel}`)
+      problems.push(`包内缺少仓库清单要求的文件：${rel}`)
       continue
     }
-    if (sha256(file) !== hash) problems.push(`文件哈希不符：${rel}`)
+    const actual = sha256(file)
+    if (actual !== hash) problems.push(`文件哈希与仓库清单不符：${rel}（${actual}）`)
+    // 包内清单若声明了同一文件，两处必须一致（防止自报与实测打架）。
+    const claimed = manifest.files?.[rel]
+    if (claimed && claimed !== actual) problems.push(`包内清单与实际文件不符：${rel}`)
+  }
+  // 包里多出来的文件照装会绕过校验，这里至少明确报出来。
+  const declared = new Set(expectedFiles.map(([rel]) => rel))
+  for (const rel of Object.keys(manifest.files ?? {})) {
+    if (rel !== 'RUNTIME-MANIFEST.json' && !declared.has(rel)) problems.push(`包内存在仓库清单未列出的文件：${rel}`)
   }
 
   if (problems.length > 0) {
@@ -76,16 +92,22 @@ try {
     process.exit(1)
   }
 
+  // 先整体换成新目录再清理旧的：逐个文件移动在中途失败会留下半个运行时。
   mkdirSync(join(root, '.runtime'), { recursive: true })
-  const previous = existsSync(target) ? join(root, '.runtime', 'win-x64-previous') : undefined
-  if (previous) {
-    rmSync(previous, { recursive: true, force: true })
-    renameSync(target, previous)
+  const previous = existsSync(target) ? join(root, '.runtime', `win-x64-previous-${Date.now()}`) : undefined
+  if (previous) renameSync(target, previous)
+  try {
+    renameSync(staging, target)
+  } catch (error) {
+    if (previous) renameSync(previous, target)
+    throw error
   }
-  mkdirSync(target, { recursive: true })
-  for (const entry of readdirSync(staging, { withFileTypes: true })) {
-    if (entry.name === 'RUNTIME-MANIFEST.json') continue
-    renameSync(join(staging, entry.name), join(target, entry.name))
+  if (previous) {
+    try {
+      rmSync(previous, { recursive: true, force: true })
+    } catch {
+      console.warn(`旧运行时未能删除，保留在 ${relative(root, previous)}`)
+    }
   }
 
   const fileCount = Object.keys(manifest.files ?? {}).length
