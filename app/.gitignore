@@ -2,3 +2,5 @@ node_modules/
 out/
 dist/
 .runtime/
+# 测试构建指纹与用例耗时缓存（脚本自动读写）
+.cache/
