@@ -41,7 +41,14 @@ async function latestPackagedExecutable() {
 }
 
 
-/** 读产物自带的 manifest.json 决定 profile；没有清单按 internal 处理。 */
+/**
+ * 读产物自带的 manifest.json 决定 profile，并**校验它与命令声明的期望一致**。
+ *
+ * 审计 P1：`smoke:packaged` 与 `smoke:packaged:public` 之前完全相同、按找到的 EXE 自选
+ * profile，于是 public 命令可以在 internal 产物上通过。现在由 `scripts/test.cjs --public`
+ * 下发 `BAO_EXPECT_PROFILE`，不符就直接失败；同时校验「public 包不含 Adobe 二进制、
+ * internal 包必须含」。
+ */
 async function readPackagedProfile(executablePath) {
   const manifestPath = join(dirname(executablePath), 'manifest.json')
   const manifest = await readFile(manifestPath, 'utf8').then(JSON.parse).catch(() => null)
@@ -49,7 +56,18 @@ async function readPackagedProfile(executablePath) {
     assert.equal(manifest?.smokeHiddenSupported, true,
       '旧产物不支持无窗口启动；请先重新打包，再跑成品冒烟。')
   }
-  return manifest?.profile === 'public' ? 'public' : 'internal'
+  const actual = manifest?.profile === 'public' ? 'public' : 'internal'
+  const expected = process.env.BAO_EXPECT_PROFILE
+  if (expected) {
+    assert.equal(actual, expected,
+      `产物 profile 与命令不符：产物=${actual}（${executablePath}），期望=${expected}。` +
+      '换用对应命令，或重新打包。')
+  }
+  const pluginPath = join(dirname(executablePath), 'pepflashplayer64.dll')
+  const pluginPresent = existsSync(pluginPath) || existsSync(join(dirname(executablePath), 'flash', 'pepflashplayer64.dll'))
+  assert.equal(pluginPresent, actual === 'internal',
+    `产物 profile=${actual} 与插件存在性不符（插件 ${pluginPresent ? '存在' : '缺失'}）。`)
+  return actual
 }
 
 const hidden = process.env.BAO_SMOKE_HIDDEN === '1'

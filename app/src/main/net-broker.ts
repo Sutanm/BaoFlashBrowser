@@ -112,11 +112,33 @@ export function registerNetBroker(): void {
     if (typeof url !== 'string' || !isPageView(event.sender.id)) {
       return { proxied: false, reason: 'not-page-view' }
     }
-    // 浏览器认证过的文档 URL：页面 JS 无法伪造来源。
-    const initiator = event.senderFrame?.url ?? ''
-    if (!(await allowsCrossOrigin(url, initiator))) {
-      return { proxied: false, reason: 'policy-denied', initiator }
+    // 来源必须取**浏览器认证的帧 origin**，而不是从文档 URL 反推：
+    // 沙箱化 iframe（sandbox 无 allow-same-origin）的文档 URL 看着正常，但安全 origin 是
+    // opaque（`frame.origin === 'null'`），按 URL 反推会把这种帧当成正常同源调用者。
+    // 2026-11-24 审计 P1。
+    const frame = event.senderFrame
+    const documentUrl = frame?.url ?? ''
+    const frameOrigin = frame?.origin ?? ''
+    let verifiedOrigin: string | undefined
+    try {
+      const parsedOrigin = frameOrigin && frameOrigin !== 'null' ? new URL(frameOrigin) : undefined
+      const parsedUrl = documentUrl ? new URL(documentUrl) : undefined
+      // 三重校验：非 opaque、是 http(s)、且与文档 URL 推导出的 origin 一致。
+      if (parsedOrigin && parsedUrl &&
+          (parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:') &&
+          parsedOrigin.origin === parsedUrl.origin) {
+        verifiedOrigin = parsedOrigin.origin
+      }
+    } catch {
+      verifiedOrigin = undefined
     }
+    if (!verifiedOrigin) {
+      return { proxied: false, reason: 'not-page-view', initiator: documentUrl }
+    }
+    if (!(await allowsCrossOrigin(url, verifiedOrigin))) {
+      return { proxied: false, reason: 'policy-denied', initiator: verifiedOrigin }
+    }
+    const initiator = documentUrl
 
     const headers: Record<string, string> = {
       'User-Agent': event.sender.getUserAgent() || 'Mozilla/5.0',

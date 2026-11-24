@@ -21,7 +21,7 @@
     "smoke:packaged": "node scripts/test.cjs packaged",
     "pack:win": "node scripts/pack-win.cjs",
     "pack:win:public": "node scripts/pack-win.cjs --public",
-    "smoke:packaged:public": "node scripts/test.cjs packaged",
+    "smoke:packaged:public": "node scripts/test.cjs packaged --public",
     "runtime:prepare": "node scripts/prepare-runtime.cjs",
     "runtime:check": "node scripts/runtime-check.cjs",
     "runtime:export": "node scripts/runtime-export.cjs",

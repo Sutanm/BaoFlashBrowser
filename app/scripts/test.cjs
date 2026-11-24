@@ -9,11 +9,11 @@ const suites = {
   data: ['tests/data/settings-store.test.cjs'],
   packaged: ['tests/smoke/packaged.test.cjs']
 }
-const known = new Set(['--foreground', '--serial'])
+const known = new Set(['--foreground', '--serial', '--public'])
 const jobsFlag = flags.find((flag) => flag.startsWith('--jobs='))
 const isUnit = suite === 'unit'
 if ((!isUnit && !Object.hasOwn(suites, suite)) || flags.some((flag) => !known.has(flag) && !flag.startsWith('--jobs='))) {
-  throw new Error('用法：node scripts/test.cjs <unit|smoke|data|packaged> [--foreground] [--jobs=N] [--serial]')
+  throw new Error('用法：node scripts/test.cjs <unit|smoke|data|packaged> [--foreground] [--jobs=N] [--serial] [--public]')
 }
 
 // 单元层：纯逻辑，不启动 Electron、不需要构建产物，毫秒级跑完。
@@ -26,6 +26,9 @@ if (isUnit) {
 const env = { ...process.env }
 delete env.BAO_SMOKE_BACKGROUND
 if (flags.includes('--foreground')) delete env.BAO_SMOKE_HIDDEN
+// 成品门禁：显式声明应为哪种 profile；产物与声明不符时必须失败（审计 P1）。
+if (flags.includes('--public')) env.BAO_EXPECT_PROFILE = 'public'
+else if (suite === 'packaged') env.BAO_EXPECT_PROFILE = 'internal'
 else env.BAO_SMOKE_HIDDEN = '1'
 
 if (suite !== 'packaged') buildIfChanged()
