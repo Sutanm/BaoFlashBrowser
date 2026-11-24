@@ -667,8 +667,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 子窗口原先只登记 WebContents，完全没有策略）。子窗口继承 opener 的引擎偏好——
    * PPAPI 需要 `plugins: true`，Ruffle 需要页面 preload 与子帧注入。
    *
-   * 用真实子窗口承载而不是新标签：`window.open` 的返回值与 `window.opener` 是 Flash
-   * lobby→game 交接的常见通道，以标签承载会直接丢掉它们。
+   * 新窗口的形态按 Chrome 语义区分（2026-11-24 修订，见
+   * `docs/reports/2026-11-24-popup-vs-newtab.md`）：
+   * - **没有 `features`**（`<a target="_blank">`、`window.open(url)`）：开**新标签**。
+   *   这是用户点链接最常见的路径，用弹窗承载会让每次点链接都多一个窗口；
+   * - **有 `features`**（`window.open(url, name, 'width=…')`）或表单 `target=_blank` 的 POST：
+   *   用**真实子窗口**承载，保留 `window.opener` 与返回值——Flash 大厅→游戏的交接通道，
+   *   POST 体也无法用 GET 重放。弹窗继续沿用 M1 的同站限制。
    */
   function guardContents(
     contents: WebContents,
@@ -678,11 +683,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       live: () => boolean
       /** 该标签允许的文档地址（页面 http(s) / 内部页仅 bao://settings/*）。 */
       allow: (url: string) => boolean
+      /** 在所属窗口开新标签（无 features 的新窗口请求走这条路）。 */
+      openTab: (url: string) => void
     }
   ): void {
     contents.setWindowOpenHandler((details) => {
       const { url } = details
       if (!context.live() || !context.allow(url)) return { action: 'deny' }
+      // 没有 features、也不是 POST 表单：按 Chrome 语义开新标签（不建窗口）。
+      const features = (details.features ?? '').trim()
+      if (features === '' && !details.postBody && details.disposition !== 'new-window') {
+        context.openTab(url)
+        return { action: 'deny' }
+      }
       const opener = siteBoundary(context.openerUrl())
       const target = siteBoundary(url)
       if (!isSameSite(opener, target)) {
@@ -742,7 +755,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         openerUrl: () => safe(() => childContents.getURL(), ''),
         live: () => !childContents.isDestroyed(),
         // 子窗口是页面弹窗，只可能是 http(s)。
-        allow: isWebAddress
+        allow: isWebAddress,
+        // 子窗口里点 target=_blank 链接同样并入所属窗口的标签栏。
+        openTab: (url) => openUrlInNewTab(url)
       })
     })
 
@@ -768,7 +783,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       openerUrl: () => safe(() => contents.getURL(), ''),
       live,
       // 内部页在同一会话里可以在 `bao://newtab` 与 `bao://settings` 之间就地导航。
-      allow: tab.internal ? isInternalUrl : isWebAddress
+      allow: tab.internal ? isInternalUrl : isWebAddress,
+      openTab: (url) => openUrlInNewTab(url)
     })
     contents.on('did-start-loading', () => {
       if (!live()) return
@@ -863,6 +879,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /** 新建标签页：Chrome 的 `Ctrl+T`/「+」语义是**总是**新增一个 NTP，不复用。 */
   function openNewTab(): Tab {
     return openInternalTab('newtab')
+  }
+
+  /**
+   * 在**本窗口**开一个新标签并导航过去（`<a target="_blank">`、不带 features 的 `window.open`）。
+   *
+   * 与 `addTab` 的唯一区别是它可能从 `setWindowOpenHandler` 里同步调用：那里窗口可能
+   * 已经在关闭，所以先拦掉；引擎按站点规则/默认值解析（新标签没有"继承上一个引擎"的语义）。
+   */
+  function openUrlInNewTab(url: string): void {
+    if (closing || window.isDestroyed() || !isWebAddress(url)) return
+    const resolved = engineFor(url)
+    const opened = addTab('新标签页', url, resolved.engine, resolved.source)
+    select(opened, true)
   }
 
   /* ------------------------------------------------------------------ *

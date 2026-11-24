@@ -29,10 +29,17 @@ async function windowCount(app) {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
 }
 
+/**
+ * 弹窗（带 features 的 `window.open`）。
+ *
+ * 2026-11-24 起「没有 features 的 window.open / target=_blank」按 Chrome 语义开**新标签**，
+ * 只有带 features 的才算弹窗（见 `docs/reports/2026-11-24-popup-vs-newtab.md`）。
+ * 所以这里的按钮必须显式给 features —— 这也更接近 Flash 大厅→游戏的真实写法。
+ */
 function pageWithButton(title, openUrl) {
   return `<!doctype html><meta charset="utf-8"><title>${title}</title>
     <button id="open" style="margin:8px;padding:8px 16px">进入</button>
-    <script>document.getElementById('open').onclick = () => window.open(${JSON.stringify(openUrl)}, '_blank')</script>`
+    <script>document.getElementById('open').onclick = () => window.open(${JSON.stringify(openUrl)}, '_blank', 'width=1024,height=768')</script>`
 }
 
 test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站与非 http(s) 拒绝', { timeout: 180_000 }, async () => {
@@ -81,21 +88,21 @@ test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站�
     assert.ok((await client.evaluate(() => Boolean(window.opener))), '二级弹窗丢失 window.opener')
     assert.equal(await windowCount(app), baseWindows + 2)
 
-    // 跨站：从外壳拒绝，窗口数不变。
-    await viewEval(app, shell, "window.open('https://example.invalid/', '_blank')", true)
+    // 跨站：从外壳拒绝（带 features 的才是弹窗），窗口数不变。
+    await viewEval(app, shell, "window.open('https://example.invalid/', '_blank', 'width=400,height=300')", true)
     await new Promise((done) => setTimeout(done, 800))
     assert.equal(await windowCount(app), baseWindows + 2, '跨站弹窗被放行')
 
     // 跨站：从**子窗口**发起也必须拒绝（审计 P1-3 的核心断言）。
-    await client.evaluate(() => { window.open('https://example.invalid/', '_blank') })
+    await client.evaluate(() => { window.open('https://example.invalid/', '_blank', 'width=400,height=300') })
     await new Promise((done) => setTimeout(done, 800))
     assert.equal(await windowCount(app), baseWindows + 2, '子窗口未继承跨站拒绝策略')
 
     // 非 http(s)：外壳与子窗口都拒绝。
-    await viewEval(app, shell, "window.open('file:///C:/Windows', '_blank')", true)
+    await viewEval(app, shell, "window.open('file:///C:/Windows', '_blank', 'width=400,height=300')", true)
     await new Promise((done) => setTimeout(done, 800))
     assert.equal(await windowCount(app), baseWindows + 2, 'file: 弹窗被放行（外壳）')
-    await client.evaluate(() => { window.open('file:///C:/Windows', '_blank') })
+    await client.evaluate(() => { window.open('file:///C:/Windows', '_blank', 'width=400,height=300') })
     await new Promise((done) => setTimeout(done, 800))
     assert.equal(await windowCount(app), baseWindows + 2, 'file: 弹窗被放行（子窗口）')
 
