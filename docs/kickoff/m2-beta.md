@@ -17,6 +17,8 @@ M2 的历史退出口径来自旧架构 §6：书签/历史、会话与下载基
 | Flash 插件导入与自动发现 | 已交付；来源校验、有界扫描、手动导入优先 | [自动发现报告](../reports/2026-11-24-flash-auto-discovery.md) |
 | 后台标签休眠 | 已交付；设置开关、TTL、唤醒、用户保持活跃 | [标签休眠报告](../reports/2026-11-24-tab-discard.md) |
 | 新标签页对齐 Chromium | 已交付 P0+P1+P1.5；`bao://newtab` 内部页、设置就地覆盖、realbox/设置入口/Flash 状态、Back 回 NTP | [新标签页报告](../reports/2026-11-24-newtab-alignment.md) |
+| 标签活动租约（A1 第一步） | 已交付；`ActivityLeaseManager`，`keepAwake` 映射为 `user` 长期租约，休眠判定改由租约驱动，关闭/过期确定性清理 | [活动租约报告](../reports/2026-11-24-activity-lease.md) |
+| 会话恢复（崩溃恢复） | 已交付；正常退出后重启不恢复，异常退出才提示，用户点「恢复标签页」才重建；保留置顶/引擎/静音/保持活跃，后台标签以休眠状态恢复，存储升级 schema v2 | [会话恢复报告](../reports/2026-11-24-session-restore.md) |
 | 测试与发布门禁增量 | 已交付部分；并行 smoke、构建缓存、PPAPI 沙箱进程断言、来源校验 | 各增量提交与相关报告 |
 
 “已交付”只描述对应增量，不表示 M2 整体通过。
@@ -32,6 +34,13 @@ A1 属于当前 M2 的基础工作，采用增量重构：
 - 让会话恢复、下载、休眠和 DevTools 使用统一生命周期与租约；
 - 保持现有标签、引擎、休眠和成品 smoke 持续通过。
 
+**进度（2026-11-24）**：Activity Lease 已落地（`user` owner 为唯一生产者，`keepAwake` 已映射为
+无期限 `preventsDiscard` 租约，休眠判定统一走 `blocksDiscard()`，标签关闭/窗口关闭/过期均确定性清理），
+见[活动租约报告](../reports/2026-11-24-activity-lease.md)。注册表提取、显式 actor/target 的 Capability API、
+binding/navigation 代际仍未开始；`session-restore` / `download` / `devtools` / `system` 四种 owner
+仍只有登记能力——会话恢复虽已交付（[报告](../reports/2026-11-24-session-restore.md)），但其恢复过程同步完成、
+后台标签没有 WebContents，用不到租约，故未接生产者。
+
 M2 不包含 CDP Hub、Page Map、Automation Runtime、Agent Host、模型 Adapter 或无人值守写操作；这些从 M3 按 A2–A6 独立立项。
 
 ## 3. 剩余范围
@@ -39,14 +48,14 @@ M2 不包含 CDP Hub、Page Map、Automation Runtime、Agent Host、模型 Adapt
 | 项目 | 当前状态 | M2 退出要求 |
 | --- | --- | --- |
 | 书签与历史 | 未实现 | SQLite 迁移、查询/清理、外壳入口和回归测试 |
-| 会话恢复 | 未实现 | 正常退出、异常退出、休眠标签和引擎信息恢复 |
+| 会话恢复 | 已交付崩溃恢复（正常退出不恢复、异常退出提示 + 用户确认）；遗留：滚动/表单/窗口布局不恢复、无清理入口 | 正常退出、异常退出、休眠标签和引擎信息恢复 |
 | 下载 | 当前默认拒绝 | 身份、分区、策略、UI、暂停/恢复和失败语义 |
 | 标签分组与搜索 | 未实现 | 与稳定 tabId、窗口迁移和会话恢复一致 |
 | i18n | 只有 `zh-CN` 状态位 | 共享词典、缺失检查、设置切换和持久化 |
 | 两阶段引擎切换 | 未实现 | 新引擎恢复成功前保留原视图，失败可回退 |
 | 存储清理与异常退出 | 部分完成 | 分类清理、失败保护和异常退出证据 |
 | 兼容矩阵与发布门禁 | 部分完成 | 独立复建、产物完整性、授权、更新、签名与停止分发条件 |
-| A1 浏览器能力底座 | 未开始正式提取 | 达到权威架构 §18 的 A1 退出条件 |
+| A1 浏览器能力底座 | 部分完成：Activity Lease 已交付；注册表与 Capability API 未开始 | 达到权威架构 §18 的 A1 退出条件 |
 
 ## 4. 阶段退出条件
 

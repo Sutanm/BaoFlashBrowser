@@ -3,8 +3,9 @@ import { join } from 'node:path'
 import { DEFAULT_SETTINGS, sanitizeSetting } from '../shared/settings'
 import type { SettingKey, Settings } from '../shared/settings'
 import type { BrowserEngine, EngineRules } from '../shared/engine'
-import { deleteRule, openStore, writeRule, writeSetting } from './db/store'
-import type { OpenedStore } from './db/store'
+import type { SessionSnapshot } from '../shared/session'
+import { deleteRule, openStore, writeRule, writeSession, writeSessionExit, writeSetting } from './db/store'
+import type { OpenedStore, SessionExitState } from './db/store'
 import { toDatabaseError } from './db/sqlite'
 
 /**
@@ -57,6 +58,52 @@ export function settings(): Settings {
 
 export function engineRules(): EngineRules {
   return store ? store.rules : {}
+}
+
+/** 上次退出时的会话快照（没有会话或载荷损坏时为 `undefined`）。 */
+export function session(): SessionSnapshot | undefined {
+  return store?.session
+}
+
+/** 上次退出的方式；`undefined` = 没有记录（首次运行、旧库或读失败）。 */
+export function sessionExit(): SessionExitState | undefined {
+  return store?.sessionExit
+}
+
+/**
+ * 记录上次退出的方式。
+ *
+ * 语义是「武装/解除」而不是审计：启动时先写 `crash`，正常退出时写 `clean`。
+ * 硬杀来不及写 `clean`，下次启动就能识别为异常退出。失败只记日志。
+ */
+export function markSessionExit(state: SessionExitState): boolean {
+  if (!store) return false
+  try {
+    writeSessionExit(store.db, state)
+    store.sessionExit = state
+    return true
+  } catch (error) {
+    console.error('[storage] 退出标记写入失败。', error)
+    return false
+  }
+}
+
+/**
+ * 覆盖写入会话快照。
+ *
+ * 失败只记日志、返回 false：会话是「可重建的舒适度数据」，写不进去不该让退出或
+ * 切换标签失败。失败时也**不更新内存快照**——否则下次读到的会是没落盘的状态。
+ */
+export function saveSession(snapshot: SessionSnapshot): boolean {
+  if (!store) return false
+  try {
+    // 用主进程校验后的那份更新内存快照：读到的一定是落盘的那份。
+    store.session = writeSession(store.db, snapshot)
+    return true
+  } catch (error) {
+    console.error('[storage] 会话写入失败（本次不保留）。', error)
+    return false
+  }
 }
 
 /** 写入一条设置。成功才更新快照并应用副作用；失败保持旧值（UI 与持久化不分叉）。 */

@@ -4,6 +4,8 @@ import type { Locale, SettingKey, Settings, ThemeMode } from './settings'
 
 export const TAB_BAR_HEIGHT = 40
 export const TOOLBAR_HEIGHT = 44
+/** 崩溃恢复提示条的高度（只在外壳顶部显示，页面视图相应下移）。 */
+export const INFOBAR_HEIGHT = 36
 
 export const browserChannels = {
   command: 'browser:command',
@@ -14,6 +16,11 @@ export type BrowserCommand =
   | { type: 'snapshot' | 'add' | 'back' | 'forward' | 'reload' | 'undo-close' | 'remember-engine' | 'forget-engine' }
   /** 打开（或切到已存在的）设置标签页（`bao://settings`，Edge 语义）。 */
   | { type: 'open-settings' }
+  /**
+   * 崩溃恢复提示的两个回答（Chrome 的「恢复页面」气泡语义）：
+   * 上次没有走正常退出路径时，重启只显示提示条，**用户点「恢复」才真的恢复**。
+   */
+  | { type: 'restore-session' | 'dismiss-session' }
   | { type: 'select' | 'close'; id: number }
   /** 标签操作（架构 §3）：复制、固定/取消固定、静音/取消静音，以及右键菜单。 */
   | { type: 'duplicate' | 'pin' | 'mute' | 'tab-menu'; id: number }
@@ -49,6 +56,7 @@ export type BrowserFailureCode =
   | 'invalid-setting'
   | 'settings-save-failed'
   | 'storage-unavailable'
+  | 'no-session'
 
 export const browserFailureText: Record<BrowserFailureCode, string> = {
   'forbidden-sender': '当前页面无法操作浏览器外壳',
@@ -64,7 +72,8 @@ export const browserFailureText: Record<BrowserFailureCode, string> = {
   'no-site': '当前页面没有可记忆的站点',
   'invalid-setting': '无效的设置项',
   'settings-save-failed': '设置未能保存，已保留原值',
-  'storage-unavailable': '设置存储不可用，本次无法保存'
+  'storage-unavailable': '设置存储不可用，本次无法保存',
+  'no-session': '没有可恢复的上次会话'
 }
 
 export interface BrowserTab {
@@ -99,6 +108,19 @@ export interface BrowserTab {
   keepAwake?: boolean
 }
 
+/**
+ * 崩溃恢复提示（Chrome 的「恢复页面」气泡）。
+ *
+ * 只有**上次没有正常退出**且确实存有会话时才出现；正常退出后重启一律是新标签页，
+ * 不打扰用户。出现时也只是一个提示条，恢复动作必须由用户显式点击触发。
+ */
+export interface BrowserSessionPrompt {
+  /** 可恢复的标签数量（跨上次所有窗口）。 */
+  tabs: number
+  /** 那份会话的写入时刻（毫秒），用于文案与诊断。 */
+  savedAt: number
+}
+
 export interface BrowserState {
   revision: number
   theme: ShellTheme
@@ -111,6 +133,8 @@ export interface BrowserState {
   flash: boolean
   /** 未检测到插件时应放置的路径，用于界面提示。 */
   flashHint?: string
+  /** 崩溃恢复提示；用户回答（恢复/忽略）后消失。 */
+  sessionPrompt?: BrowserSessionPrompt
   tabs: BrowserTab[]
 }
 

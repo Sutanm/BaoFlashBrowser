@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
+import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT, INFOBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserTab } from '../shared/browser'
 import { engineLabels, engineSourceLabels, engineSwitchLabels, otherEngine } from '../shared/engine'
 import type { OverlayBounds } from '../shared/overlay'
@@ -17,7 +17,8 @@ const DRAG_THRESHOLD = 6
 
 const shellStyle = {
   '--tab-bar-height': `${TAB_BAR_HEIGHT}px`,
-  '--toolbar-height': `${TOOLBAR_HEIGHT}px`
+  '--toolbar-height': `${TOOLBAR_HEIGHT}px`,
+  '--infobar-height': `${INFOBAR_HEIGHT}px`
 }
 
 const store = useBrowserStore()
@@ -507,6 +508,25 @@ onBeforeUnmount(() => store.disconnect())
         @click="toggleQuick"
       ><ShellIcon name="gear" /></button>
     </form>
+    <!--
+      崩溃恢复提示（Chrome 的「恢复页面」气泡）：只有上次异常退出时才出现。
+      正常退出后重启没有这条提示，直接就是新标签页。
+    -->
+    <div v-if="state?.sessionPrompt" class="session-infobar" role="region" aria-label="恢复上次会话">
+      <span class="session-infobar-text">
+        上次未正常退出，可以恢复 {{ state.sessionPrompt.tabs }} 个标签页
+      </span>
+      <button
+        type="button"
+        class="session-infobar-action primary"
+        @click="run({ type: 'restore-session' })"
+      >恢复标签页</button>
+      <button
+        type="button"
+        class="session-infobar-action"
+        @click="run({ type: 'dismiss-session' })"
+      >忽略</button>
+    </div>
   </header>  <p class="sr-only" role="status">{{ toast }}</p>
   <main v-if="active?.error" class="page-error" aria-labelledby="page-error-title">
     <div>
@@ -572,6 +592,41 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 }
 
 .tab:hover { background: var(--surface-hover); }
+
+/*
+ * 崩溃恢复提示条：固定高度（与主进程 `INFOBAR_HEIGHT` 一致），页面视图会让开这一段。
+ * 用 info 语义色而不是警告色——"上次没正常退出"是提示，不是错误。
+ */
+.session-infobar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  height: var(--infobar-height);
+  padding-inline: var(--space-s) var(--space-m);
+  background: var(--surface-window);
+  border-bottom: var(--shell-stroke) solid var(--stroke-divider);
+  color: var(--text-primary);
+  font-size: var(--size-caption);
+}
+
+.session-infobar-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.session-infobar-action {
+  flex: 0 0 auto;
+  height: 26px;
+  padding-inline: var(--space-s);
+  border-radius: var(--button-radius);
+  color: var(--text-primary);
+}
+
+.session-infobar-action:hover { background: var(--surface-hover); }
+
+.session-infobar-action.primary {
+  background: var(--engine-accent);
+  color: var(--surface-page);
+}
+
+.session-infobar-action.primary:hover { filter: brightness(1.08); }
 /* 标签之间的小竖线：选中/悬停时让位（Edge、Chrome 同款处理） */
 .tab-separator {
   position: absolute;

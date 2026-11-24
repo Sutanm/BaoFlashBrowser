@@ -1,14 +1,16 @@
 import { app, BrowserWindow, Menu, protocol } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createBrowserWindow, registerBrowserIpc } from './browser-window'
+import { createBrowserWindow, flushSession, holdSession, registerBrowserIpc } from './browser-window'
 import { configureFlashPlugin } from './plugins'
 import { ruffleSchemePrivileges, registerRuffleIpc } from './ruffle'
 import { registerPopupChromeIpc } from './popup-chrome'
 import { registerWindowControlIpc } from './window-control'
 import { registerNetBroker } from './net-broker'
 import { internalSchemePrivileges } from './internal-pages'
-import { closeStorage, initStorage } from './storage'
+import { closeStorage, initStorage, markSessionExit, session as storedSession, sessionExit } from './storage'
+import { sessionTabCount } from '../shared/session'
+import type { SessionSnapshot } from '../shared/session'
 import { backgroundSmoke, hiddenSmoke } from './automation'
 
 app.setName('BaoFlashBrowser Next')
@@ -50,12 +52,13 @@ function initialAddress(): string | undefined {
   return args.find((arg) => /^https?:\/\/\S+$/i.test(arg))
 }
 
-async function openShellWindow(): Promise<void> {
+async function openShellWindow(crashSession?: SessionSnapshot): Promise<void> {
   await createBrowserWindow({
     shellUrl: shellDocument(),
     flash: flash.enabled,
     flashHint: flash.hint,
-    initialAddress: initialAddress()
+    initialAddress: initialAddress(),
+    crashSession
   })
 }
 
@@ -64,10 +67,27 @@ async function openShellWindow(): Promise<void> {
  *
  * 主题必须在第一个窗口之前就位，否则暗色下会先闪一下亮色；存储失败不阻断浏览，
  * `initStorage()` 会退化成默认设置并让写入返回稳定错误码。
+ *
+ * 崩溃恢复（Chrome 的「恢复页面」语义）：
+ * - **正常退出后重启不恢复**，一律是新标签页——用户主动退出就不该被旧标签打扰；
+ * - 只有上次没有正常退出（`session.last-exit === 'crash'`）且确实存有会话时，
+ *   才把会话交给首个窗口**挂起**，由外壳顶部提示条等用户点「恢复标签页」；
+ * - 启动时立刻把标记改回 `crash` 武装：本次运行若再崩溃，下次启动同样能识别；
+ * - 命令行显式带了网址时不提示（用户当下要打开的东西优先）。
  */
 app.whenReady()
   .then(async () => {
     await initStorage()
+    const saved = initialAddress() ? undefined : storedSession()
+    const crashed = sessionExit() === 'crash' && !!saved && sessionTabCount(saved) > 0
+    // 先武装再开窗口：武装失败只影响下一次崩溃检测，不阻断启动。
+    markSessionExit('crash')
+    if (crashed && saved) {
+      // 用户回答之前不许覆盖磁盘上的崩溃会话（否则提示条还在、内容已经没了）。
+      holdSession()
+      await openShellWindow(saved)
+      return
+    }
     await openShellWindow()
   })
   .catch((error: unknown) => {
@@ -75,6 +95,11 @@ app.whenReady()
     app.exit(1)
   })
 
+/** 正常退出：先冻结会话内容，再把退出标记改成 `clean`（硬杀时这两步都来不及）。 */
+app.on('before-quit', () => {
+  flushSession()
+  markSessionExit('clean')
+})
 app.on('will-quit', () => closeStorage())
 
 /**

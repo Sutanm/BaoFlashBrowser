@@ -2,8 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell, 
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
-import { browserChannels, browserFailureText, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
-import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserState, BrowserTab } from '../shared/browser'
+import { browserChannels, browserFailureText, INFOBAR_HEIGHT, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
+import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserSessionPrompt, BrowserState, BrowserTab } from '../shared/browser'
 import { hostOf } from '../shared/engine'
 import { isSameSite, siteBoundary } from '../shared/site'
 import type { BrowserEngine, EngineSource } from '../shared/engine'
@@ -11,7 +11,7 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { setSetting, settings as currentSettings, storageStatus } from './storage'
+import { setSetting, settings as currentSettings, saveSession, storageStatus } from './storage'
 import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
 import { settingsChannels } from '../shared/settings'
@@ -25,6 +25,9 @@ import type { ShellTheme } from '../shared/shell-theme'
 import { overlayChannels } from '../shared/overlay'
 import { createShellOverlays } from './shell-overlays'
 import { attachPopupChrome } from './popup-chrome'
+import { activityLeases } from './activity-lease'
+import { SESSION_VERSION, sessionTabCount } from '../shared/session'
+import type { SessionSnapshot, SessionTab, SessionWindow } from '../shared/session'
 
 const windowIcon = process.platform === 'win32'
   ? join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'assets', 'next-icon.ico')
@@ -61,8 +64,8 @@ interface Tab {
   internal?: InternalKind
   /** 休眠状态：视图已销毁，切回时重建。 */
   discarded?: boolean
-  /** 用户标记「保持活跃」：挂机/游戏标签，永不自动休眠。 */
-  keepAwake?: boolean
+  // 「保持活跃」不是标签字段：它是 `user` owner 的无期限活动租约（`activityLeases`）。
+  // `BrowserState.keepAwake` 由租约现算（见 `keptAwake()`），单一事实源在租约表里。
   /** 休眠时展示用的缓存（视图没了就读不到）。 */
   lastUrl?: string
   lastTitle?: string
@@ -129,6 +132,14 @@ export interface BrowserWindowOptions {
   adopt?: Tab
   /** 首个标签打开的地址（命令行参数）。 */
   initialAddress?: string
+  /**
+   * 崩溃恢复：上次没有正常退出时留下的会话。
+   *
+   * 传进来只是**挂起**，窗口不会自动恢复——外壳顶部显示提示条，等用户点
+   * 「恢复标签页」才真的把标签建出来（Chrome 的「恢复页面」气泡语义）。
+   * 未决定之前会话不写盘，否则 800 ms 后的一次自动保存就会把待恢复的会话覆盖掉。
+   */
+  crashSession?: SessionSnapshot
   adoptIndex?: number
   x?: number
   y?: number
@@ -159,6 +170,83 @@ const controllers = new Map<number, WindowController>()
 /** 全局标签 ID 序列：跨窗口唯一（架构 §3「每个标签有稳定业务 ID」）。 */
 let nextTabId = 1
 let nextNoticeId = 1
+
+/* ------------------------------------------------------------------ *
+ * 会话恢复（M2）：每个窗口把自己的标签投影登记到这张表，节流后整份写入业务库。
+ *
+ * 为什么表在模块级而不是窗口内：会话是**进程级**数据（一次启动的多个窗口要一起写），
+ * 而窗口会在退出过程中一个个销毁——表跟着窗口走，最后一个窗口关闭时就写不出完整会话了。
+ * ------------------------------------------------------------------ */
+
+/** 写盘节流：标题/加载状态会高频变化，但会话只需"最近的样子"。 */
+const SESSION_SAVE_DEBOUNCE_MS = 800
+
+const sessionWindows = new Map<number, SessionWindow>()
+let sessionTimer: ReturnType<typeof setTimeout> | undefined
+/** 退出中：此时窗口接连关闭，会话按"关闭前的样子"保留，不再逐个窗口删除。 */
+let sessionQuitting = false
+/**
+ * 崩溃会话还没被用户回答（恢复/忽略）时为 true：这期间**不写盘**。
+ *
+ * 不挂起的话，启动后第一次 `publish()` 的 800 ms 节流写就会用"空白新标签页"覆盖掉
+ * 待恢复的会话——提示条还在，内容已经没了。
+ */
+let sessionHeld = false
+
+function writeSessionNow(): void {
+  if (sessionTimer) {
+    clearTimeout(sessionTimer)
+    sessionTimer = undefined
+  }
+  // 挂起期间一个字节都不写：磁盘上那份崩溃会话是用户接下来可能恢复的唯一来源。
+  if (sessionHeld) return
+  const snapshot: SessionSnapshot = {
+    version: SESSION_VERSION,
+    savedAt: Date.now(),
+    windows: [...sessionWindows.values()]
+  }
+  // 没有窗口（例如刚启动就被关闭的自动化窗口）时不写：写入空会话等于把上次的会话清掉。
+  if (snapshot.windows.length === 0) return
+  saveSession(snapshot)
+}
+
+/** 登记某个窗口的最新投影，并按节流写盘。 */
+function scheduleSessionSave(shellContentsId: number, snapshot: SessionWindow): void {
+  sessionWindows.set(shellContentsId, snapshot)
+  if (sessionQuitting || sessionHeld || sessionTimer) return
+  sessionTimer = setTimeout(() => {
+    sessionTimer = undefined
+    if (!sessionQuitting) writeSessionNow()
+  }, SESSION_SAVE_DEBOUNCE_MS)
+  sessionTimer.unref?.()
+}
+
+/**
+ * 用户已经回答崩溃恢复提示：解除挂起，并把当前状态立刻写回（覆盖掉磁盘上的崩溃会话）。
+ *
+ * 立即写而不是等节流，是为了让"忽略"真的生效：下次启动不该再提示同一份会话。
+ */
+function releaseSessionHold(): void {
+  if (!sessionHeld) return
+  sessionHeld = false
+  writeSessionNow()
+}
+
+/** 挂起会话写盘（`index.ts` 在把崩溃会话交给窗口之前调用）。 */
+export function holdSession(): void {
+  sessionHeld = true
+}
+
+/**
+ * 立即写盘并在退出期间冻结会话（`index.ts` 在 `before-quit` 调用）。
+ *
+ * 冻结是必要的：随后的窗口 `closed` 会逐个到达，若那时仍按"窗口关闭即删除"处理，
+ * 最终写出的会话会越来越少，用户重启后只能看到最后关闭的那个窗口。
+ */
+export function flushSession(): void {
+  sessionQuitting = true
+  writeSessionNow()
+}
 
 function fail(code: BrowserFailureCode): BrowserResult {
   return { ok: false, code, message: browserFailureText[code] }
@@ -295,6 +383,16 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   let active: Tab | undefined
   let revision = 0
   let closing = false
+  /** 崩溃会话：用户点「恢复」之前一直挂着，不自动建标签。 */
+  let crashSession = options.crashSession
+
+  /** 崩溃恢复提示条的投影；没有待决会话时为空（提示条随之消失，页面视图上移）。 */
+  function sessionPromptOf(): BrowserSessionPrompt | undefined {
+    if (!crashSession) return undefined
+    const count = sessionTabCount(crashSession)
+    if (count === 0) return undefined
+    return { tabs: count, savedAt: crashSession.savedAt }
+  }
 
   /** 站点规则决定初始引擎；插件不可用时回退到 Ruffle。 */
   function engineFor(address: string | undefined): { engine: BrowserEngine; source: EngineSource } {
@@ -318,6 +416,21 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return engineRules.resolve(hostOf(url)).source
   }
 
+  /** 用户「保持活跃」租约的显式 ID：同一标签重复标记是续租，不会叠加。 */
+  function keepAwakeLeaseId(tab: Tab): string {
+    return `keep-awake-${tab.id}`
+  }
+
+  /**
+   * `BrowserState.keepAwake` 的**唯一来源**：该标签此刻是否持有有效的 `user` 租约。
+   *
+   * 界面语义不变（右键菜单勾选、标签栏的活跃标记），但数据不再存两份：
+   * 用户标记 = `user` owner 的无期限 `preventsDiscard` 租约（架构 §7 规则 3）。
+   */
+  function keptAwake(tab: Tab): boolean {
+    return activityLeases.hasOwner(tab.id, 'user')
+  }
+
   function describe(tab: Tab): BrowserTab {
     // 休眠标签没有视图：用缓存字段展示（标题/地址），其它能力一律为假。
     if (!tab.view) {
@@ -339,7 +452,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         pinned: tab.pinned,
         muted: tab.muted,
         internal: tab.internal,
-        keepAwake: tab.keepAwake,
+        keepAwake: keptAwake(tab),
         discarded: true
       }
     }
@@ -366,9 +479,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
     // 内部页在首帧加载完成前也要显示自己的地址（Chrome 同样立刻显示 chrome://settings）；
     // 新标签页与 Chrome 一致：地址栏不显示 URL（空串 + 占位文案）。
+    // 刚从休眠/崩溃恢复唤醒的标签在导航提交前 `getURL()` 是空串：回落到休眠前的地址，
+    // 免得地址栏闪一下空白（此时 `lastUrl` 正是它要加载的那个地址）。
     const address = tab.failedUrl ?? (tab.internal === 'settings'
       ? (url || SETTINGS_URL)
-      : tab.internal === 'newtab' ? '' : url)
+      : tab.internal === 'newtab' ? '' : (url || tab.lastUrl || ''))
     const pin = engineRules.resolve(hostOf(address))
     return {
       id: tab.id,
@@ -393,7 +508,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       pinned: tab.pinned,
       muted: tab.muted,
       internal: tab.internal,
-      keepAwake: tab.keepAwake
+      keepAwake: keptAwake(tab)
     }
   }
 
@@ -406,16 +521,21 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       undoCount: recentlyClosed.length,
       flash: plugins,
       flashHint: plugins ? undefined : options.flashHint,
+      sessionPrompt: sessionPromptOf(),
       tabs: tabs.map(describe)
     }
   }
 
-  function publish(): void {    if (closing || !active || !tabs.includes(active)) return
+  function publish(): void {
+    if (closing || !active || !tabs.includes(active)) return
     if (window.isDestroyed() || window.webContents.isDestroyed()) return
     revision += 1
     const snapshot = state()
     window.webContents.send(browserChannels.changed, snapshot)
     overlays.publish(snapshot)
+    // 会话投影跟着外壳投影走：标题、地址、置顶、保持活跃任何一处变化都会在这里被登记，
+    // 实际写盘由 `scheduleSessionSave()` 节流。
+    if (!sessionQuitting) scheduleSessionSave(shellContentsId, sessionWindowSnapshot())
   }
 
   /** 内部页读到的快照：设置 + **解析后**的亮/暗 + 存储状态 + 插件可用性。 */
@@ -439,7 +559,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!active) return
     const [width, height] = window.getContentSize()
     if (!active?.view) return
-    const y = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT
+    // 崩溃恢复提示条占一条固定高度：页面视图必须让开，否则会被它压住一截。
+    const infobar = sessionPromptOf() ? INFOBAR_HEIGHT : 0
+    const y = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT + infobar
     active.view.setBounds({ x: 0, y, width, height: Math.max(0, height - y) })
     // 失败时让外壳绘制带重试动作的内容页，不在工具栏里塞错误文字。
     active.view.setVisible(!active.error)
@@ -712,6 +834,106 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return openInternalTab('newtab')
   }
 
+  /* ------------------------------------------------------------------ *
+   * 崩溃恢复（M2）：只在上次异常退出、且用户点了「恢复标签页」之后才走这条路。
+   * ------------------------------------------------------------------ */
+
+  /**
+   * 从会话条目建一个标签，但**不创建视图**，也不插进 `tabs`（插入顺序由调用方决定）。
+   *
+   * 只有会话里的活动标签会在恢复后立即加载，其余保持 `discarded` 状态（视图为空），
+   * 切回时由 `select()` → `revive()` 重建并重新加载。
+   */
+  function createRestoredTab(entry: SessionTab): Tab {
+    const tab: Tab = {
+      id: nextTabId++,
+      binding: 1,
+      error: '',
+      initialTitle: entry.title || (entry.internal === 'newtab' ? '新标签页' : entry.url),
+      manualOverride: entry.manualOverride,
+      pinned: entry.pinned,
+      muted: entry.muted,
+      internal: entry.internal,
+      discarded: true,
+      lastUrl: entry.url || undefined,
+      lastTitle: entry.title || undefined,
+      // BYOP：上次退出时用的是原生 Flash，本次启动却没有插件——按 Ruffle 恢复，
+      // 否则会恢复出一个「引擎写着 ppapi 但插件不存在」的空页面。
+      engine: entry.engine === 'ppapi' && !plugins ? 'ruffle' : entry.engine,
+      host: controller
+    }
+    // 用户「保持活跃」跨重启保留：重建同一条 user 租约（架构 §7 规则 3）。
+    if (entry.keepAwake) markKeepAwake(tab)
+    return tab
+  }
+
+  /** 只有一个未动过的新标签页时才允许被恢复覆盖（Chrome 的「恢复页面」语义）。 */
+  function isBlankNewTab(tab: Tab | undefined): boolean {
+    if (!tab || tab.internal !== 'newtab' || !tab.view) return false
+    return isNewTabUrl(safe(() => tab.view?.webContents.getURL() ?? '', ''))
+  }
+
+  /**
+   * 用户点了「恢复标签页」：把崩溃会话的标签建进当前窗口。
+   *
+   * 多窗口会话会并回当前窗口（M2 首版不还原窗口布局/位置）；固定标签仍插到最左前缀，
+   * 未动过的空白新标签页被覆盖掉（不额外留一个空白页）。
+   */
+  function restoreCrashSession(): void {
+    const session = crashSession
+    if (!session) return
+    const blank = tabs.length === 1 && isBlankNewTab(tabs[0]) ? tabs[0] : undefined
+    crashSession = undefined
+
+    const entries = session.windows.flatMap((window) => window.tabs)
+    const restored = entries.map(createRestoredTab)
+    const pinnedRestored = restored.filter((tab) => tab.pinned)
+    const others = restored.filter((tab) => !tab.pinned)
+    tabs.unshift(...pinnedRestored)
+    tabs.push(...others)
+
+    const activeIndex = entries.findIndex((entry) => entry.active)
+    const chosen = (activeIndex >= 0 ? restored[activeIndex] : undefined) ?? restored[0]
+    if (chosen) select(chosen, true)
+    if (blank && blank !== chosen) closeTab(blank)
+    // 用户已经回答，解除写盘挂起：当前状态（恢复后的标签）覆盖磁盘上的崩溃会话。
+    releaseSessionHold()
+    layout()
+  }
+
+  /** 用户点了「忽略」：丢弃崩溃会话，当前窗口保持原样。 */
+  function dismissCrashSession(): void {
+    if (!crashSession) return
+    crashSession = undefined
+    releaseSessionHold()
+    publish()
+    layout()
+  }
+
+  /** 本窗口的会话投影：只记恢复需要的最少字段（滚动位置、表单、导航栈一律不记）。 */
+  function sessionWindowSnapshot(): SessionWindow {
+    const projected: SessionTab[] = []
+    for (const tab of tabs) {
+      // 设置页不落盘：它是随时可重开的内部页，恢复它只会让用户多一个「设置」标签。
+      if (tab.internal === 'settings') continue
+      const liveUrl = safe(() => tab.view?.webContents.getURL() ?? '', '')
+      const liveTitle = safe(() => tab.view?.webContents.getTitle() ?? '', '')
+      const url = tab.internal === 'newtab' ? '' : (tab.failedUrl ?? (liveUrl || tab.lastUrl || ''))
+      projected.push({
+        url,
+        title: liveTitle || tab.lastTitle || tab.initialTitle,
+        engine: tab.engine,
+        manualOverride: tab.manualOverride,
+        pinned: tab.pinned,
+        muted: tab.muted,
+        keepAwake: keptAwake(tab),
+        ...(tab.internal === 'newtab' ? { internal: 'newtab' as const } : {}),
+        ...(tab === active ? { active: true } : {})
+      })
+    }
+    return { tabs: projected }
+  }
+
   /** 内部页就地导航（NTP ↔ 设置）：同一会话，历史项追加（与 Chrome 的 CURRENT_TAB 一致）。 */
   function controlInternal(tab: Tab, target: { kind: InternalKind; url: string }): void {
     tab.internal = target.kind
@@ -904,17 +1126,28 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /**
    * 定时扫描：把「后台超过 TTL」的标签置为休眠。
    *
-   * 守卫（任何一条命中都不休眠）：当前标签、内部页、置顶标签、正在出声、非 http(s)。
+   * 守卫（任何一条命中都不休眠）：当前标签、内部页、置顶标签、有效活动租约、正在出声、非 http(s)。
    * 出声这一条是硬要求：挂机型页面（游戏/自动化）几乎都有声音或需要持续运行，
    * 用户也可以在设置里把整个机制关掉（`tab.discard = never`）。
+   *
+   * 「用户保持活跃」不再单独判断：它是 `user` owner 的租约，和下载 / 会话恢复 / DevTools
+   * 走同一条 `blocksDiscard()` 判定（架构 §7 规则 4）。谁在租约表里，就谁说了算。
    */
   // TODO(M3)：守卫链预留给「自动判定挂机」（长时间无交互 + 持续音频输出），见同一份报告的 §4。
   function sweepDiscard(): void {
     if (closing || window.isDestroyed()) return
-    if (currentSettings().tabDiscard === 'never') return
     const now = Date.now()
+    // 先回收过期租约再判定：owner 崩溃或忘记释放时，标签不会被永久锁活。
+    activityLeases.sweepExpired(now)
+    if (currentSettings().tabDiscard === 'never') return
     for (const tab of tabs) {
-      if (!tab.view || tab === active || tab.internal || tab.pinned || tab.keepAwake) continue
+      if (!tab.view || tab === active || tab.internal || tab.pinned) continue
+      if (activityLeases.blocksDiscard(tab.id, now)) {
+        // 租约期间不计入后台时长：休眠资格从租约结束时刻重新计时，
+        // 否则「挂了 1 小时的标签被下载租约保护 2 分钟」会在租约一结束就被立刻丢弃。
+        tab.backgroundSince = now
+        continue
+      }
       const contents = tab.view.webContents
       if (contents.isDestroyed() || contents.isCrashed()) continue
       if (safe(() => contents.isCurrentlyAudible(), false)) continue
@@ -1073,8 +1306,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           tab.engine,
           sourceOf(tab)
         )
-    // 复制标签继承「保持活跃」标记（挂机场景复制出来的标签同样不该被休眠）。
-    copy.keepAwake = tab.keepAwake
+    // 复制标签继承「保持活跃」标记（挂机场景复制出来的标签同样不该被休眠）：
+    // 租约按 tabId 归属，副本必须**新申请**一条自己的，而不是共享原标签的。
+    if (keptAwake(tab)) setKeepAwake(copy, true)
     // 也从新标签页起步：复制出来同样能按 Back 回 NTP。
     copy.fromNewTab = tab.fromNewTab
     select(copy, true)
@@ -1132,10 +1366,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           { label: tab.pinned ? '取消固定标签页' : '固定标签页', click: () => setPinned(tab, !tab.pinned) },
           { label: muted ? '取消静音' : '静音标签页', click: () => toggleMuted(tab) },
           {
-            label: tab.keepAwake ? '允许自动休眠' : '保持活跃（不自动休眠）',
+            label: keptAwake(tab) ? '允许自动休眠' : '保持活跃（不自动休眠）',
             type: 'checkbox',
-            checked: tab.keepAwake === true,
-            click: () => setKeepAwake(tab, !tab.keepAwake)
+            checked: keptAwake(tab),
+            click: () => setKeepAwake(tab, !keptAwake(tab))
           },
           { type: 'separator' },
           { label: '关闭标签页', click: () => closeTab(tab) },
@@ -1144,10 +1378,38 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     Menu.buildFromTemplate(template).popup({ window })
   }
 
-  /** 用户标记「保持活跃」：挂机/游戏标签不被自动休眠；取消标记后重新开始计时。 */
+  /**
+   * 给标签挂上用户「保持活跃」租约（幂等：显式 leaseId 让重复标记变成续租）。
+   *
+   * 单独拆出来是因为有两个生产者：右键菜单（`setKeepAwake`）和会话恢复
+   * （历史会话里标记过的标签要在重启后重新拿到同一条租约）。
+   */
+  function markKeepAwake(tab: Tab): void {
+    activityLeases.acquire({
+      leaseId: keepAwakeLeaseId(tab),
+      tabId: tab.id,
+      owner: 'user',
+      preventsDiscard: true,
+      reason: '用户标记「保持活跃」（右键菜单）'
+    })
+    tab.backgroundSince = undefined
+  }
+
+  /**
+   * 用户标记「保持活跃」：挂机/游戏标签不被自动休眠；取消标记后重新开始计时。
+   *
+   * 标记 = `user` owner 的无期限 `preventsDiscard` 租约（架构 §7 规则 3）。
+   * 取消标记释放该标签上的全部 `user` 租约，而不是按 ID 删一条：即使有其他入口
+   * 申请过 user 租约，用户关掉开关也应该整体生效。
+   */
   function setKeepAwake(tab: Tab, value: boolean): void {
-    tab.keepAwake = value
-    tab.backgroundSince = value || tab === active ? undefined : Date.now()
+    if (value) {
+      markKeepAwake(tab)
+    } else {
+      activityLeases.releaseOwner(tab.id, 'user')
+      // 取消标记后从此刻重新计休眠时间（而不是沿用标记前的时间戳）。
+      tab.backgroundSince = tab === active ? undefined : Date.now()
+    }
     publish()
   }
 
@@ -1213,6 +1475,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const wasActive = active === tab
     rememberClosed(tab)
     tabs.splice(index, 1)
+    // 标签关闭就清空它的全部租约：不然租约表会随着「标记过保持活跃的标签」一直长。
+    activityLeases.releaseTab(tab.id)
     tab.binding += 1
     tab.host = undefined
     if (tab.view && window.contentView.children.includes(tab.view)) window.contentView.removeChildView(tab.view)
@@ -1439,6 +1703,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         setKeepAwake(tab, command.value)
         break
       }
+      // 崩溃恢复的两个回答（只有外壳能发，sender 校验在前面已经收窄）。
+      case 'restore-session':
+        if (!crashSession) return fail('no-session')
+        restoreCrashSession()
+        break
+      case 'dismiss-session':
+        if (!crashSession) return fail('no-session')
+        dismissCrashSession()
+        break
       case 'tearoff':
         return tearOffTab(controller, command)
       case 'undo-close':
@@ -1657,6 +1930,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   // 挂机/自动化场景需要后台标签一直运行）。
   const discardTimer = setInterval(sweepDiscard, DISCARD_SWEEP_MS)
   window.on('closed', () => {
+    // 最早抓一次会话投影：后面会逐个关闭 WebContents，标题/地址会退化成空值。
+    const finalSession = sessionWindowSnapshot()
     clearInterval(discardTimer)
     closing = true
     controllers.delete(shellContentsId)
@@ -1665,10 +1940,18 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     for (const tab of tabs) {
       tab.binding += 1
       tab.host = undefined
+      // 窗口关闭只清理**仍属于本窗口**的标签租约：拖出中的标签已从 `tabs` 摘除，
+      // 它的租约必须跟着 tabId 活到新窗口（架构 §7：租约按稳定业务身份归属）。
+      activityLeases.releaseTab(tab.id)
       if (tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.close()
     }
     tabs.length = 0
     active = undefined
+    // 会话固化：还有别的窗口时，本窗口应从会话里消失；退出过程中或最后一个窗口时保留
+    // （Windows 上关掉最后一个窗口就是退出，保留它下次才能恢复）。
+    sessionWindows.set(shellContentsId, finalSession)
+    if (!sessionQuitting && sessionWindows.size > 1) sessionWindows.delete(shellContentsId)
+    writeSessionNow()
   })
 
   controllers.set(shellContentsId, controller)
@@ -1678,12 +1961,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     // 原先先接管再 loadURL，一旦窗口创建/加载失败，`window.on('closed')` 会把
     // 被移交标签的 WebContents 一起关掉，源窗口再想接回时页面已经没了。
   } else if (options.initialAddress) {
-    // 命令行带了地址：首个标签按站点规则决定引擎后直接打开。
+    // 命令行带了地址：首个标签按站点规则决定引擎后直接打开（此时不会提示恢复会话）。
     const resolved = engineFor(options.initialAddress)
     const opened = addTab('新标签页', options.initialAddress, resolved.engine, resolved.source)
     select(opened, true)
   } else {
-    // 启动只开一个标签页；多标签由「新建标签页」与冒烟测试覆盖。
+    // 启动只开一个标签页：正常退出后重启**不恢复**会话，崩溃恢复也要等用户点提示条。
+    // 多标签由「新建标签页」、崩溃恢复与冒烟测试覆盖。
     select(openNewTab(), false)
   }
 

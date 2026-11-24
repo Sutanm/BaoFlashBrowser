@@ -5,8 +5,9 @@ const [suite, ...flags] = process.argv.slice(2)
 const suites = {
   smoke: ['startup', 'tabs', 'tab-ops', 'engine', 'input', 'plugin-input', 'ruffle-input',
     'ruffle-cors', 'engine-broker', 'popup', 'permissions', 'theme', 'titlebar',
-    'internal-page', 'newtab', 'quick-settings', 'tab-discard', 'flash', 'isolation', 'engine-rules', 'tearoff'].map((name) => `tests/smoke/${name}.test.cjs`),
-  data: ['tests/data/settings-store.test.cjs'],
+    'internal-page', 'newtab', 'quick-settings', 'tab-discard', 'session-restore', 'flash',
+    'isolation', 'engine-rules', 'tearoff'].map((name) => `tests/smoke/${name}.test.cjs`),
+  data: ['tests/data/settings-store.test.cjs', 'tests/data/session-store.test.cjs'],
   packaged: ['tests/smoke/packaged.test.cjs']
 }
 const known = new Set(['--foreground', '--serial', '--public'])

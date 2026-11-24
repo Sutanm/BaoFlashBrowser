@@ -1,11 +1,16 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { isShellPage, launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
  * 后台标签休眠（丢弃）：后台超过 TTL 的标签销毁视图省内存，切回时按原地址重建。
  *
  * 用 `BAO_DISCARD_TTL_MS` / `BAO_DISCARD_SWEEP_MS` 把时间片缩短到毫秒级，避免测试等 10 分钟。
+ *
+ * 「保持活跃」的判定权威是活动租约（`app/src/main/activity-lease.ts`，架构 §7）：
+ * 用户标记 = `user` owner 的无期限 `preventsDiscard` 租约。租约的纯逻辑分支
+ * （多个 owner、过期清理、按 tabId 隔离）在 `tests/unit/activity-lease.test.ts`；
+ * 这里验证真实 Electron 下的生命周期接线：标记/取消、跨窗口移动、关闭清理。
  */
 
 const state = (shell) => shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' })).then((result) => result.state)
@@ -120,6 +125,121 @@ test('标记「保持活跃」的标签不被休眠，取消标记后恢复休�
       return item?.discarded ? item : null
     }, { timeout: 15_000, message: '取消标记后仍未休眠' })
     assert.equal(discarded.title, 'D')
+  } finally {
+    await close()
+    await server.close()
+    clearDiscardEnv()
+  }
+})
+
+/** 打开一个页面标签并等它加载完（`add` 会新建并选中一个 NTP，随后导航它）。 */
+async function openPage(shell, baseUrl, path, title) {
+  await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+  await shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), `${baseUrl}${path}`)
+  return waitFor(async () => {
+    const found = (await state(shell)).tabs.find((item) => item.title === title && !item.loading)
+    return found ?? null
+  }, { message: `标签 ${title} 没有加载完` })
+}
+
+test('保持活跃只作用于该标签：另一个后台标签照常休眠', { timeout: 120_000 }, async () => {
+  withDiscardEnv()
+  const server = await startFixtureServer({ '/e': page('E'), '/f': page('F') })
+  const { app, shell, close } = await launchApp()
+  try {
+    // E 标记「保持活跃」，F 不标记：两个标签随后都退到后台。
+    const kept = await openPage(shell, server.baseUrl, '/e', 'E')
+    const marked = await shell.evaluate((id) => window.baoBrowser.run({ type: 'keep-awake', id, value: true }), kept.id)
+    assert.equal(marked.ok, true)
+    const plain = await openPage(shell, server.baseUrl, '/f', 'F')
+
+    // 再开一个新标签页，让 E 和 F 都进入后台（扫描器不休眠当前标签）。
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+
+    // 没租约的 F 到点休眠；持有 user 租约的 E 不动：任意一条 preventsDiscard 租约按 tabId 生效。
+    const discarded = await waitFor(async () => {
+      const item = (await state(shell)).tabs.find((entry) => entry.id === plain.id)
+      return item?.discarded ? item : null
+    }, { timeout: 20_000, message: '未标记保持活跃的后台标签没有被休眠' })
+    assert.equal(discarded.title, 'F')
+
+    const awake = (await state(shell)).tabs.find((entry) => entry.id === kept.id)
+    assert.equal(awake.discarded, undefined, '持有 user 租约的标签不应被休眠')
+    assert.equal(awake.keepAwake, true)
+  } finally {
+    await close()
+    await server.close()
+    clearDiscardEnv()
+  }
+})
+
+test('拖出标签到新窗口后仍保留保持活跃租约', { timeout: 180_000 }, async () => {
+  withDiscardEnv()
+  const server = await startFixtureServer({ '/g': page('G') })
+  const { app, shell, close } = await launchApp()
+  try {
+    const moved = await openPage(shell, server.baseUrl, '/g', 'G')
+    const marked = await shell.evaluate((id) => window.baoBrowser.run({ type: 'keep-awake', id, value: true }), moved.id)
+    assert.equal(marked.ok, true)
+
+    // 拖出窗口：标签对象与 tabId 一起换宿主（租约按 tabId 归属，不能跟着窗口走）。
+    const windowHandle = await app.browserWindow(shell)
+    const bounds = await windowHandle.evaluate((window) => window.getBounds())
+    const torn = await shell.evaluate(({ id, x, y }) =>
+      window.baoBrowser.run({ type: 'tearoff', id, screenX: x, screenY: y }),
+      { id: moved.id, x: bounds.x - 240, y: bounds.y + 24 })
+    assert.equal(torn.ok, true)
+
+    const target = await waitFor(async () => {
+      const list = (await app.windows()).filter(isShellPage).filter((candidate) => candidate !== shell)
+      return list.length >= 1 ? list[0] : null
+    }, { message: '拖出标签后未创建新窗口' })
+
+    // 新窗口里再开一个标签，让被移交的标签退到后台；等 1.5 倍 TTL（3 s TTL，留出扫描误差）
+    // 确认它没被休眠。正向对照在下面：取消标记后同一个窗口确实会休眠它，说明扫描器在跑。
+    await target.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+    await new Promise((done) => setTimeout(done, 4500))
+    const movedState = (await state(target)).tabs.find((item) => item.id === moved.id)
+    assert.equal(movedState.keepAwake, true, '跨窗口移动后应仍能看到保持活跃标记')
+    assert.equal(movedState.discarded, undefined, '跨窗口移动后租约丢失，标签被错误休眠')
+
+    // 在新窗口里取消标记：应恢复休眠资格（释放也按 tabId 走，不认原窗口）。
+    await target.evaluate((id) => window.baoBrowser.run({ type: 'keep-awake', id, value: false }), moved.id)
+    const discarded = await waitFor(async () => {
+      const item = (await state(target)).tabs.find((entry) => entry.id === moved.id)
+      return item?.discarded ? item : null
+    }, { timeout: 20_000, message: '跨窗口取消标记后仍未休眠' })
+    assert.equal(discarded.title, 'G')
+  } finally {
+    await close()
+    await server.close()
+    clearDiscardEnv()
+  }
+})
+
+test('关闭持有租约的标签后，其余标签的休眠判定不受影响', { timeout: 120_000 }, async () => {
+  withDiscardEnv()
+  const server = await startFixtureServer({ '/h': page('H'), '/i': page('I') })
+  const { app, shell, close } = await launchApp()
+  try {
+    const kept = await openPage(shell, server.baseUrl, '/h', 'H')
+    assert.equal((await shell.evaluate((id) => window.baoBrowser.run({ type: 'keep-awake', id, value: true }), kept.id)).ok, true)
+    const plain = await openPage(shell, server.baseUrl, '/i', 'I')
+
+    // 关掉持有租约的标签：它的租约必须随标签一起清掉，不能残留成「全局锁」。
+    const closed = await shell.evaluate((id) => window.baoBrowser.run({ type: 'close', id }), kept.id)
+    assert.equal(closed.ok, true)
+    assert.equal((await state(shell)).tabs.some((tab) => tab.id === kept.id), false, '标签 H 应已关闭')
+    assert.equal((await state(shell)).tabs.some((tab) => tab.keepAwake === true), false,
+      '关闭标签后快照里不应残留保持活跃标记')
+
+    // I 进入后台后照常休眠：关闭路径没有把租约表弄脏，也没有让扫描器提前退出。
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+    const discarded = await waitFor(async () => {
+      const item = (await state(shell)).tabs.find((entry) => entry.id === plain.id)
+      return item?.discarded ? item : null
+    }, { timeout: 20_000, message: '关闭持有租约的标签后，普通后台标签不再休眠' })
+    assert.equal(discarded.title, 'I')
   } finally {
     await close()
     await server.close()

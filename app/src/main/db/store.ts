@@ -4,6 +4,8 @@ import { isBrowserEngine } from '../../shared/engine'
 import { sanitizeSetting, settingsFromRows } from '../../shared/settings'
 import type { SettingKey, SettingValue, Settings } from '../../shared/settings'
 import type { BrowserEngine, EngineRules } from '../../shared/engine'
+import { sanitizeSession, sessionFromPayload } from '../../shared/session'
+import type { SessionSnapshot } from '../../shared/session'
 import { Database, DatabaseError, toDatabaseError } from './sqlite'
 
 /**
@@ -21,9 +23,27 @@ import { Database, DatabaseError, toDatabaseError } from './sqlite'
  * ```
  */
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 /** 一次性导入的幂等锚点：以库里的标记为准，而不是 JSON 文件是否还在。 */
 const IMPORT_MARKER = 'migration.engine-rules@1'
+/**
+ * 遗留规则导入步骤的版本号。
+ *
+ * 归档文件名（`engine-rules.json.migrated-<n>`）钉住的是**导入步骤**，不是 schema 版本：
+ * schema 以后还会继续升，但那份归档永远属于 v1 的导入，改名会让已有用户的数据看起来"丢了"。
+ */
+const LEGACY_IMPORT_VERSION = 1
+
+/**
+ * 「上次退出是否正常」的标记键（`meta` 表）。
+ *
+ * 崩溃恢复判定只需要一个布尔，但它必须和会话载荷**分开存**：启动时先把它改回 `crash`
+ * （武装），正常退出时写 `clean`。进程被硬杀时来不及写 `clean`，下次启动据此认出
+ * "上次没正常退出"。存在载荷内部也行，但那样每次武装都要重写整份会话。
+ */
+const SESSION_EXIT_KEY = 'session.last-exit'
+
+export type SessionExitState = 'clean' | 'crash'
 
 export interface StorePaths {
   directory: string
@@ -36,6 +56,10 @@ export interface OpenedStore {
   paths: StorePaths
   settings: Settings
   rules: EngineRules
+  /** 上次退出时的会话快照（没有、损坏或版本不符时为 `undefined`）。 */
+  session?: SessionSnapshot
+  /** 上次退出的方式；`undefined` 表示没有记录（首次运行或旧库）。 */
+  sessionExit?: SessionExitState
   /** 打开前库里的版本（0 = 新建）。 */
   previousVersion: number
   /** 迁移前快照（仅在旧库升级时生成）。 */
@@ -85,6 +109,29 @@ function migrateToV1(db: Database): void {
 }
 
 /**
+ * v2：会话恢复的单行载荷（M2 会话恢复）。
+ *
+ * 为什么整份 JSON 存一行而不是一张标签表：会话是**整体替换**的可重建数据，
+ * 不是可查询的业务实体；一行写入天然原子，恢复时也只需要一次读。
+ * 校验与版本判定在 `shared/session.ts`（进内存前完成，坏载荷整份丢弃）。
+ */
+function migrateToV2(db: Database): void {
+  db.exec(`
+    CREATE TABLE session(
+      id INTEGER PRIMARY KEY CHECK (id = 0),
+      payload TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `)
+}
+
+/** 迁移步骤：按版本号递增执行，只跑比库里 `user_version` 新的那些。 */
+const MIGRATIONS: ReadonlyArray<{ version: number; apply: (db: Database) => void }> = [
+  { version: 1, apply: migrateToV1 },
+  { version: 2, apply: migrateToV2 }
+]
+
+/**
  * 把 M1 的 `engine-rules.json` 导入 `engine_rules` 表。
  *
  * 幂等：以 `meta` 标记为准。用户之后在库里删掉某条规则，不会因为 JSON 还在就被复活。
@@ -125,8 +172,8 @@ function importLegacyRules(db: Database, file: string | undefined): OpenedStore[
 /** 迁移成功后把遗留文件改名保留（不删除）。改名失败不影响数据：标记已经写进库。 */
 function archiveLegacyRules(file: string | undefined): string | undefined {
   if (!file || !existsSync(file)) return undefined
-  let target = `${file}.migrated-${SCHEMA_VERSION}`
-  if (existsSync(target)) target = `${file}.migrated-${SCHEMA_VERSION}-${stamp()}`
+  let target = `${file}.migrated-${LEGACY_IMPORT_VERSION}`
+  if (existsSync(target)) target = `${file}.migrated-${LEGACY_IMPORT_VERSION}-${stamp()}`
   try {
     renameSync(file, target)
     console.info(`[store] 遗留站点规则已归档：${target}`)
@@ -167,7 +214,9 @@ export async function openStore(options: OpenStoreOptions): Promise<OpenedStore>
         await db.snapshotTo(backupFile)
       }
       db.transaction(() => {
-        migrateToV1(db)
+        for (const step of MIGRATIONS) {
+          if (step.version > previousVersion) step.apply(db)
+        }
         db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
       })
     }
@@ -194,6 +243,8 @@ export async function openStore(options: OpenStoreOptions): Promise<OpenedStore>
       paths,
       settings: readSettings(db),
       rules: readRules(db),
+      session: readSession(db),
+      sessionExit: readSessionExit(db),
       previousVersion,
       backupFile,
       legacy: legacyResult
@@ -259,4 +310,49 @@ export function settingValue(settings: Settings, key: SettingKey): SettingValue[
     case 'engine.default': return settings.defaultEngine
     case 'locale': return settings.locale
   }
+}
+
+/** 读上次退出的方式。没有记录（首次运行/旧库）返回 `undefined`。 */
+export function readSessionExit(db: Database): SessionExitState | undefined {
+  const row = db.get('SELECT value FROM meta WHERE key = ?', SESSION_EXIT_KEY)
+  const value = typeof row?.value === 'string' ? row.value : undefined
+  return value === 'clean' || value === 'crash' ? value : undefined
+}
+
+/**
+ * 写上次退出的方式（启动时写 `crash` 武装，正常退出时写 `clean`）。
+ *
+ * 走 `meta` 表而不是会话载荷：武装发生在启动早期、会话载荷还没准备好；
+ * 而且这条标记的写入频率与内容生命周期都和会话完全不同。
+ */
+export function writeSessionExit(db: Database, state: SessionExitState): void {
+  db.run(
+    'INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    SESSION_EXIT_KEY,
+    state
+  )
+}
+
+/** 读会话载荷。坏 JSON / 坏结构 / 版本不符一律当作「没有会话」，不阻断启动。 */
+export function readSession(db: Database): SessionSnapshot | undefined {
+  const row = db.get('SELECT payload FROM session WHERE id = 0')
+  return sessionFromPayload(typeof row?.payload === 'string' ? row.payload : undefined)
+}
+
+/**
+ * 写会话载荷（覆盖式）。
+ *
+ * 写入前再校验一次：会话是**整体替换**的数据，写进去一份坏载荷等于让下次启动少恢复标签，
+ * 而校验只有一处实现（`shared/session.ts`），这里不重复规则、只兜住调用方的手误。
+ */
+export function writeSession(db: Database, snapshot: SessionSnapshot): SessionSnapshot {
+  const sanitized = sanitizeSession(snapshot)
+  if (!sanitized) throw new DatabaseError('会话载荷未通过校验，拒绝写入', 'INVALID_PARAM')
+  db.run(
+    'INSERT INTO session(id, payload, updated_at) VALUES(0, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at',
+    JSON.stringify(sanitized),
+    Date.now()
+  )
+  return sanitized
 }
