@@ -4,8 +4,7 @@ const { dirname, isAbsolute } = require('node:path')
 /**
  * 签名只在提供证书时才接入（发布门禁）。
  *
- * - `signAndEditExecutable: false` 会**同时**关掉资源编辑与代码签名，所以未签名时保持 false
- *   （避免无证书构建报错），但会在打包结尾明确报告"未签名"。
+ * - 未提供证书时用 `signExecutable: false` 跳过签名，仍将图标写入 Windows EXE。
  * - 提供 `WIN_CSC_LINK`/`CSC_LINK`（electron-builder 的标准证书入口，可以是 pfx 路径或 base64）
  *   时打开签名，并允许资源编辑；`CSC_KEY_PASSWORD` 提供密码。
  */
@@ -17,6 +16,7 @@ module.exports = {
   // `vendor/` 里是版本固定的 Ruffle 运行时（见 vendor/ruffle/PROVENANCE.md），
   // 主进程按 app.getAppPath() 读取，必须打进 asar。
   files: ['out/**/*', 'vendor/**/*'],
+  extraResources: [{ from: 'assets/next-icon.ico', to: 'assets/next-icon.ico' }],
   // PPAPI 插件随**内核 dist 目录**进入 `win-unpacked/`（与 `BaoFlashBrowser Next.exe` 同目录），
   // `plugins.ts` 的候选路径里有 `dirname(process.execPath)`，因此不需要再复制一份到
   // `resources/`——之前用 extraResources 会让包里出现两份相同的 30MB DLL（审计 P2）。
@@ -36,8 +36,7 @@ module.exports = {
     return dirname(executable)
   },
   win: {
-    // 有证书就签名（并按 electron-builder 默认重写资源）；没有证书则保持不签名，
-    // 由 pack-win.cjs 在结尾报告为发布门禁。
-    signAndEditExecutable: canSign
+    icon: 'assets/next-icon.ico',
+    signExecutable: canSign
   }
 }

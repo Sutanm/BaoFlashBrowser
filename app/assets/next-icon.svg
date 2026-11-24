@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">BaoFlashBrowser</title>
+  <defs>
+    <radialGradient id="sea" cx="87" cy="40" r="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#146494"/>
+      <stop offset=".42" stop-color="#0A3766"/>
+      <stop offset="1" stop-color="#06132D"/>
+    </radialGradient>
+    <linearGradient id="surface" x1="89" y1="16" x2="120" y2="126" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#47DBF4" stop-opacity=".26"/>
+      <stop offset="1" stop-color="#47DBF4" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="55" y1="36" x2="198" y2="218" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#56BEDA"/>
+      <stop offset="1" stop-color="#296BA9"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="128" y1="51" x2="128" y2="205" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7CCAE4"/>
+      <stop offset=".5" stop-color="#549FCA"/>
+      <stop offset="1" stop-color="#387EB6"/>
+    </linearGradient>
+    <polygon id="bolt" points="146,72 132,112 154,112 100,184 111,140 89,140"/>
+    <clipPath id="bolt-edge"><use href="#bolt"/></clipPath>
+  </defs>
+  <circle cx="128" cy="128" r="117" fill="url(#sea)" stroke="#316184" stroke-width="2"/>
+  <path fill="url(#surface)" d="M18 113a111 111 0 0 1 215-22c-41-25-70-11-109 5-35 14-66 31-106 17Z"/>
+  <circle cx="128" cy="128" r="97" fill="none" stroke="url(#ring)" stroke-width="8"
+          pathLength="100" stroke-dasharray="19 6" stroke-linecap="round" transform="rotate(11 128 128)"/>
+  <g fill="none" stroke="#8DEBFA" stroke-width="1.65">
+    <circle cx="53" cy="159" r="3.6" opacity=".77"/>
+    <ellipse cx="48" cy="114" rx="4.35" ry="5.2" opacity=".88"/>
+    <circle cx="57" cy="91" r="2.7" opacity=".74"/>
+    <circle cx="196" cy="174" r="3.1" opacity=".72"/>
+    <ellipse cx="210" cy="134" rx="4.7" ry="5.5" opacity=".89"/>
+    <circle cx="199" cy="89" r="3.7" opacity=".8"/>
+  </g>
+  <g fill="#AEEFFB">
+    <circle cx="60" cy="178" r="1.55" opacity=".63"/>
+    <circle cx="60" cy="138" r="1.7" opacity=".72"/>
+    <circle cx="46.6" cy="112.3" r="1.15" opacity=".88"/>
+    <circle cx="206" cy="156" r="1.6" opacity=".66"/>
+    <circle cx="208.5" cy="132.2" r="1.2" opacity=".89"/>
+    <circle cx="201" cy="111" r="1.8" opacity=".72"/>
+  </g>
+  <path fill="none" stroke="url(#letter)" stroke-width="14" stroke-linejoin="round"
+        d="M84 58h47c32 0 50 12 50 35 0 17-10 29-25 35 15 6 25 18 25 35 0 23-18 35-50 35H84q-7 0-7-7V65q0-7 7-7Z"/>
+  <use href="#bolt" fill="#E60012" stroke="#92171C" stroke-width="4.5" clip-path="url(#bolt-edge)"/>
+</svg>

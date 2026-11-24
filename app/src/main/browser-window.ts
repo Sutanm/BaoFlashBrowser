@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, WebContentsView } from 'electron'
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
@@ -23,6 +23,10 @@ import type { ShellTheme } from '../shared/shell-theme'
 import { overlayChannels } from '../shared/overlay'
 import { createShellOverlays } from './shell-overlays'
 import { attachPopupChrome } from './popup-chrome'
+
+const windowIcon = process.platform === 'win32'
+  ? join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'assets', 'next-icon.ico')
+  : undefined
 
 /**
  * 标签（架构 §3 主进程与窗口、页面）。
@@ -222,6 +226,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     minHeight: 360,
     show: false,
     title: 'BaoFlashBrowser Next',
+    icon: windowIcon,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       ...windowPalette[currentTheme()],
@@ -451,6 +456,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           height: size.height,
           x: size.x,
           y: size.y,
+          icon: windowIcon,
           // 自动化模式：弹窗从一开始就不显示（否则 Chromium 会在 did-create-window 之后
           // 再 show 一次，屏幕上闪一个窗口）。
           ...(hidden || background ? { show: false, skipTaskbar: true, focusable: false } : {}),
