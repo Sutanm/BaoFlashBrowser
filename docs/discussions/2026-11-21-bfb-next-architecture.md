@@ -1,8 +1,8 @@
 # BaoFlashBrowser Next 架构设计（讨论稿·大纲）
 
-> **2026-11-23 标注——本文是「过程存档 + Agent 区现行记录」的混合体：**
-> · **§F0′–§F9（Agent 区）只存在于本文**，属现行记录；其中 F7【待审计】、F8【待审计】、F9【冻结至 M3】。
-> · 产品边界、外壳、数据、交付顺序**以 [11-22 提案](2026-11-22-bfb-next-architecture.md) 为准**；本文 A–E 区相关段落视为决策过程。
+> **2026-11-24 归档标记——本文全部作为过程存档保留。**
+> · 原 §F0′–§F10 Agent 区已经由 [Agent 与自动化架构](../agent-automation-architecture.md) 取代，不再是现行记录。
+> · 产品定位以新专项权威文档为准；未被替代的浏览器工程合同仍见 [11-22 提案](2026-11-22-bfb-next-architecture.md)。
 > · 文档地图与冲突登记见 [docs/README](../README.md)。
 
 - 状态：**B1 已结案（WebContentsView，2026-11-21）；下一议题 = A 区外壳技术栈**
@@ -2195,12 +2195,16 @@ E_DOMAIN_NOT_GRANTED / target-destroyed）。五条探针挂账 E39。
 
 ## F. Agent 架构【已收官 2026-11-22：F0/F0′/F1/F2（含 F2′）/F3/F4/F5/F6 全定】
 
+> **2026-11-24 归档标记：本区已被 [`docs/agent-automation-architecture.md`](../agent-automation-architecture.md) 全面取代。**
+> F0–F10 只保留为历史决策过程，不再是 Agent、自动化、CDP、感知、权限或交付顺序的实现合同。
+> 特别是“CDP Hub/自动化 v3 已存在”“执行面 90% 就绪”“`targetId = webContents.id`”等旧前提不得用于新实现。
+
 > 用户引入新模块：Next 原生支持 Agent 作为独立操作者。骨架采纳外部 AI 设想
 > （五层分层 + Agent Host + 六项基础能力），经市面调研校准后开题。
 > **核心定位：Next 不是「浏览器 + Agent 插件」，而是「从底层支持 Agent 作为
 > 独立操作者的浏览器」。Agent 是架构核心参与者，但不是产品唯一卖点。**
 
-**2026-11-23 分层标注**：本区（§F0′–§F9）是 Agent 的**实现合同**，对外承诺以 [11-22 提案 §5](2026-11-22-bfb-next-architecture.md) 为准；两者口径不一致时，提案约束承诺、本区约束实现。本区中 F7【待审计】、F8【待审计】、F9【冻结至 M3】以及 F3 内标注待审计的条款，不得作为对外表述。
+**历史标注（已失效）**：2026-11-23 曾把本区视为 Agent 实现合同；2026-11-24 起，本区整体归档，现行合同改见 [Agent 与自动化架构](../agent-automation-architecture.md)。
 
 ### F0 市面调研摘要（2026-11-22，作为设计素材与必避清单）
 
@@ -2225,7 +2229,7 @@ E_DOMAIN_NOT_GRANTED / target-destroyed）。五条探针挂账 E39。
 
 **必避清单**：Trusted Origin 特权桥（我们结构性不存在，保持没有）；Agent 带全量 cookie/权限静默运行（会话隔离进 F3）；prompt injection 无防线（工具最小特权 + 敏感操作强制审批）；每步必 LLM（确定性路径优先）。
 
-**定位结论（2026-11-22 盘点）**：执行面已 90% 就绪（Hub 观察域/截图/输入/命令面/自动化 v3 全部现成，Agent 只是新调用者）；BFB 独有牌面 = Flash/挂机/视觉平台（一般 agent 浏览器做不到）；**第一个真实 agent 形态 = 挂机监督者 + 工作流编译器**（非通用网页助手——那个 Atlas/Comet 已做好且我们无优势）。边界：无 LLM adapter 无决策层（F5）；敏感操作只读+申请（F3）；prompt injection 防线未落定前不上。
+**历史定位（已失效）**：2026-11-22 曾判断执行面已 90% 就绪；当前源码核验表明 Hub、自动化运行时和 Agent Host 尚未实现。现状及新交付顺序以 [Agent 与自动化架构 §1、§18](../agent-automation-architecture.md) 为准。
 
 ### F0′ 工具面定位（用户核心输入，2026-11-22）
 

@@ -2,12 +2,16 @@
 
 BaoFlashBrowser Next 从独立的 `next` 分支开始。当前提交收录产品架构、内核移植记录与相关验证资料。
 
+**当前阶段：M1 已验收；M2 正在实施，尚未整体验收；M3 尚未立项。**
+
 ## 从这里开始
 
 - [文档地图与单一事实源](docs/README.md) · **建议先读**：哪份文档算数、冲突登记在哪、新文档怎么加。
+- [Agent 与自动化架构](docs/agent-automation-architecture.md) · **现行权威**：产品定位、能力分层、CDP、Page Map、自动化、Agent 与交付顺序。
+- [M2 实施与验收记录](docs/kickoff/m2-beta.md) · 当前已交付增量、剩余范围、A1 浏览器能力底座和阶段退出条件。
 - [应用初始化与本地启动](app/README.md) · 安装、运行和验证 Win x64 外壳。
 
-- [新版架构设计](docs/discussions/2026-11-22-bfb-next-architecture.md) · 审计后提案，包含产品边界、模块合同和验收顺序。
+- [浏览器工程架构](docs/discussions/2026-11-22-bfb-next-architecture.md) · 内核、发布、外壳、标签、隔离和数据合同；产品定位与 Agent/自动化章节已归档。
 - [架构审计](docs/discussions/2026-11-22-bfb-next-architecture-audit.md) · 原稿逐项评估和上游依据。
 - [M1 增量记录：外壳、双标签与本地 PPAPI 样本](docs/reports/2026-11-22-m1-shell-increment.md) · 首个实现增量的条款对应、构建标识与实测输出。
 - [内核补丁记录](docs/kernel/README.md) · 自编译内核的补丁序列、构建标识与复现步骤。
