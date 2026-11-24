@@ -98,6 +98,22 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     }, QUICK_URL)
     assert.match(afterTab, /theme-stop/, '按 Tab 应落到主题开关的选中档')
 
+    // 菜单式键盘焦点：行用整行高亮，不画环（与 Chrome 菜单一致）。
+    const rowFocus = await app.evaluate(async ({ webContents }, marker) => {
+      const quick = webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').includes(marker))
+      quick.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+      quick.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+      await new Promise((done) => setTimeout(done, 150))
+      return quick.executeJavaScript(`(() => {
+        const el = document.activeElement
+        const style = getComputedStyle(el)
+        return { cls: String(el.className), outline: style.outlineStyle, background: style.backgroundColor }
+      })()`)
+    }, QUICK_URL)
+    assert.match(rowFocus.cls, /\brow\b/, `第二次 Tab 应落到引擎行：${JSON.stringify(rowFocus)}`)
+    assert.equal(rowFocus.outline, 'none', `行不该画焦点环：${JSON.stringify(rowFocus)}`)
+    assert.notEqual(rowFocus.background, 'rgba(0, 0, 0, 0)', `行应该整行高亮：${JSON.stringify(rowFocus)}`)
+
     // ② 面板里改主题：外壳与系统按钮一起变。
     const stops = await inQuick(app, `Array.from(document.querySelectorAll('.theme-stop'), (stop) => [
       stop.getAttribute('aria-label'), stop.getAttribute('aria-checked')
@@ -168,13 +184,19 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     await gear.click()
     await waitFor(async () => (await quickView(app))?.attached ? true : null, { message: '飞窗没有再次打开' })
     const quickId = await quickContentsId(app)
-    await app.evaluate(({ webContents }, id) => {
-      const target = webContents.fromId(id)
-      target.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
-      target.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
-    }, quickId)
-    await waitFor(async () => (await quickView(app))?.attached !== true ? true : null,
-      { message: 'Esc 没有关闭飞窗' })
+    // 重试：整套用例连续跑时机器忙，按键偶发落在视图完成布局之前。
+    let escaped = false
+    for (let attempt = 0; attempt < 3 && !escaped; attempt += 1) {
+      await app.evaluate(({ webContents }, id) => {
+        const target = webContents.fromId(id)
+        target.focus()
+        target.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+        target.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      }, quickId)
+      await new Promise((done) => setTimeout(done, 250))
+      escaped = (await quickView(app))?.attached !== true
+    }
+    assert.equal(escaped, true, 'Esc 没有关闭飞窗')
 
     // ⑥ 点外壳其它地方关闭。
     await gear.click()

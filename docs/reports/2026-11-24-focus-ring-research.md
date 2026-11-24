@@ -104,7 +104,20 @@ Chromium 早期实现（[commit 54193de](https://chromium.googlesource.com/chrom
 | 覆盖范围 | 设置页（全局）、飞窗（`.row`）、引擎面板（`.overlay-frame button`）、主题开关（三档胶囊） |
 | 回归用例 | `internal-page.test.cjs` 新增「焦点环只在键盘操作时出现」：Tab 到引擎选项断言 `outline 2px solid`；鼠标点另一选项断言获得焦点但 `:focus-visible === false` 且 `outline-style: none` |
 
-未做的事：飞窗/面板内的「整行高亮代替环」（方案 C）仍待排期；`forced-colors` 下的环未实机验证。
+未做的事：`forced-colors` 下的环未实机验证。
+
+## 7.2 已实施：方案 C（飞窗/面板内的行改整行高亮）
+
+| 位置 | 做法 |
+| --- | --- |
+| 齿轮飞窗的行（`.row`：引擎选项、全部设置） | `:focus-visible` 不画环，改为整行 `--surface-hover`；**选中行**聚焦时用 `color-mix(accent 20%, surface)`，保证「已选中 + 聚焦」两态可区分 |
+| 引擎面板的行（`.engine-choice`、`.compact-action`） | 同上；`aria-pressed='true'` 的行聚焦时用同一混合色 |
+| 主题开关的档位（`.theme-stop`） | **保留 2px 环**：它是三段式控件，不是列表行，环（胶囊段）是 Chrome 对这类控件的表达 |
+| 设置页（整页） | 保留 2px 环：Chrome 设置页也是行内环，不是菜单高亮 |
+
+回归用例（`quick-settings.test.cjs`）：飞窗里连按两次 Tab（第一次落到主题档位、第二次落到引擎行），断言行的 `outline-style === 'none'` 且 `background-color` 不是透明 —— 即「有高亮、无环」。
+
+依据：Chrome 的下拉菜单是独立 `Widget`，键盘焦点用**整行高亮**（hover/focus 同色）表示，不画环（见 §4）。
 
 ## 8. 未验证
 

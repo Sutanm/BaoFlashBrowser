@@ -148,7 +148,12 @@ onBeforeUnmount(() => {
 .overlay-frame *, .overlay-frame *::before, .overlay-frame *::after { box-sizing: border-box; }
 :where(.overlay-frame button) { font: inherit; color: inherit; border: 0; background: transparent; }
 .overlay-frame button:not(:disabled) { cursor: pointer; }
-.overlay-frame button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
+/* 面板里的行同飞窗：键盘焦点用整行高亮表示（Chrome 菜单的做法），不画环。
+   只有真正的表单控件（主题开关的档位）才保留 2px 环。 */
+.overlay-frame button:focus-visible { outline: none; background: var(--surface-hover); }
+.overlay-frame .engine-choice[aria-pressed='true']:focus-visible {
+  background: color-mix(in srgb, var(--engine-accent) 20%, var(--surface-toolbar));
+}
 .overlay-frame button:focus:not(:focus-visible) { outline: none; }
 /* 与齿轮飞窗（quick）统一：同一个面、同样的 12px 圆角与 elevation 12 投影。 */
 .engine-panel, .toast {

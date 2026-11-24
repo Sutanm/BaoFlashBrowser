@@ -203,7 +203,12 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .row:hover:not([aria-disabled='true']) { background: var(--surface-hover); }
 .row[aria-disabled='true'] { opacity: .45; cursor: default; }
 .row[aria-checked='true'] { background: var(--engine-selection); }
-.row:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
+/* 菜单式的键盘焦点：整行高亮，不画环（Chrome 的菜单项就是这么做的）。
+   选中行本来就有底色，聚焦时换成更饱和的 accent 混合色，保证「聚焦」看得出来。 */
+.row:focus-visible { outline: none; background: var(--surface-hover); }
+.row[aria-checked='true']:focus-visible {
+  background: color-mix(in srgb, var(--engine-accent) 20%, var(--surface-toolbar));
+}
 .row:focus:not(:focus-visible) { outline: none; }
 
 .radio { width: 13px; height: 13px; border: 1.5px solid var(--text-secondary); border-radius: 50%; display: grid; place-items: center; }
