@@ -90,24 +90,35 @@
   box-shadow: inset .085em .085em .22em #050916ad, inset -.045em -.06em .18em #070d2659;
 }
 
-.bao-theme-switch .theme-cloud {
+/* 漂移动画必须放在**HTML 图层**上，不能放在 <svg> 上：
+   Chromium 不会把 SVG 元素上的 CSS transform 动画交给合成器，每帧都会重新光栅化，
+   位图缓存只增不减（实测 20 秒 +134 MB；同样的透明度动画是 +0 MB）。
+   所以这里用一个 span 包住 svg，只让 span 位移。 */
+.bao-theme-switch .theme-cloud-layer {
   position: absolute;
   width: calc((var(--ratio) - .08) * 1em);
   left: .17em;
   top: -.22em;
+  will-change: transform;
+  animation: bao-cloud-drift 9s ease-in-out infinite;
+}
+.bao-theme-switch .theme-cloud-layer--front {
+  left: .25em;
+  top: .22em;
+  animation-duration: 11.5s;
+  animation-delay: -2.8s;
+}
+.bao-theme-switch .theme-cloud {
+  display: block;
+  width: 100%;
   color: #e7f3ff;
   fill: currentColor;
   opacity: calc(.49 * (1 - var(--night)));
   transition: opacity .48s ease, color .48s ease;
-  animation: bao-cloud-drift 9s ease-in-out infinite;
 }
 .bao-theme-switch .theme-cloud--front {
-  left: .25em;
-  top: .22em;
   color: color-mix(in srgb, #fff, #ffd8af calc(var(--twilight) * 75%));
   opacity: calc(1 - var(--night));
-  animation-duration: 11.5s;
-  animation-delay: -2.8s;
 }
 .bao-theme-switch .theme-stars {
   position: absolute;
