@@ -1,7 +1,7 @@
 const { spawnSync, spawn } = require('node:child_process')
 const { createHash } = require('node:crypto')
 const { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, writeFileSync } = require('node:fs')
-const { dirname, join, resolve } = require('node:path')
+const { basename, dirname, join, resolve } = require('node:path')
 const { tmpdir } = require('node:os')
 
 const ROOT = resolve(__dirname, '..')
@@ -49,7 +49,8 @@ function fingerprint() {
   for (const dir of ['src', 'scripts', 'tests']) {
     if (existsSync(join(ROOT, dir))) walk(join(ROOT, dir))
   }
-  for (const file of ['package.json', 'electron.vite.config.ts', 'tsconfig.json']) {
+  // 锁文件与配置也必须进指纹：依赖版本变了却复用旧产物，会出现「类型能过、运行时缺 API」的假象。
+  for (const file of ['package.json', 'package-lock.json', 'electron.vite.config.ts', 'tsconfig.json']) {
     if (existsSync(join(ROOT, file))) hash.update(readFileSync(join(ROOT, file)))
   }
   return hash.digest('hex')
@@ -66,7 +67,9 @@ function buildIfChanged() {
   const [stampHash, stampTypecheck] = stampText.split(':')
   const hash = fingerprint()
   const typecheck = process.env.BAO_SKIP_TYPECHECK !== '1'
-  const outExists = existsSync(join(ROOT, 'out', 'main', 'index.js')) && existsSync(join(ROOT, 'out', 'renderer', 'index.html'))
+  // 四个产物文件都要在：只查两个可能漏掉 preload 或设置页（dev 已改走 Vite，但生产仍需要它）。
+  const outExists = [['out', 'main', 'index.js'], ['out', 'preload', 'index.js'], ['out', 'renderer', 'index.html'], ['out', 'renderer', 'settings.html']]
+    .every((parts) => existsSync(join(ROOT, ...parts)))
   const fresh = process.env.BAO_FORCE_BUILD !== '1' && outExists && stampHash === hash && stampTypecheck === String(typecheck)
   if (fresh) {
     console.log('构建产物是最新的，跳过 typecheck + build（BAO_FORCE_BUILD=1 可强制重建）')
@@ -106,8 +109,12 @@ function runPool(files, args, env, jobs) {
   const startedAt = Date.now()
   let active = 0
 
-  const spawnOne = (file, index) => new Promise((resolveFile) => {
-    const logFile = join(tmpdir(), `bao-test-${process.pid}-${index}.log`)
+  // 序号必须在**派发时**自增：之前用 `results.length + 1`（已完成数），首批 worker 同时启动时
+  // 全部拿到 1，四个子进程往同一个日志文件里写，TAP 摘要和失败输出会互相覆盖（审计 P2）。
+  let nextLogId = 0
+  const spawnOne = (file) => new Promise((resolveFile) => {
+    nextLogId += 1
+    const logFile = join(tmpdir(), `bao-test-${process.pid}-${nextLogId}-${basename(file, '.cjs')}.log`)
     const fd = openSync(logFile, 'w')
     const child = spawn(process.execPath, [...args, file], {
       cwd: ROOT,
@@ -137,7 +144,7 @@ function runPool(files, args, env, jobs) {
     while (pending.length > 0 && active < jobs) {
       active += 1
       const file = pending.shift()
-      await spawnOne(file, results.length + 1)
+      await spawnOne(file)
       active -= 1
     }
   }
