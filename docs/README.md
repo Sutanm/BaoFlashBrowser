@@ -85,6 +85,7 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 | [`discussions/2026-11-21-bfb-next-architecture.md`](discussions/2026-11-21-bfb-next-architecture.md) | 议题讨论与裁决存档；§F0–§F10 已归档 |
 | [`discussions/2026-11-24-agent-automation-design-clarification.md`](discussions/2026-11-24-agent-automation-design-clarification.md) | 新 Agent/自动化架构的讨论与设计依据 |
 | [`discussions/2026-11-24-agent-browser-community-research.md`](discussions/2026-11-24-agent-browser-community-research.md) | 社区项目与 CDP/Page Map 参考调研 |
+| [`discussions/2026-11-24-new-tab-page-alignment.md`](discussions/2026-11-24-new-tab-page-alignment.md) | 新标签页对齐 Chromium：142 源码依据、差距清单、行为合同与 P0/P1 方案（**已交付**，见[报告](reports/2026-11-24-newtab-alignment.md)） |
 | [`discussions/2026-11-21-bfb-next-tech-stack.md`](discussions/2026-11-21-bfb-next-tech-stack.md) | 第一轮技术栈选型讨论（§7.5/§7.6 已定） |
 | [`discussions/2026-11-23-bfb-next-agent-boundary.md`](discussions/2026-11-23-bfb-next-agent-boundary.md) | 已吸收的反需求与放权边界历史记录；现行结论见新 SSOT §15/§20 |
 | [`adr/0001-next-branch-strategy.md`](adr/0001-next-branch-strategy.md) | 独立分支策略（已接受） |
@@ -93,7 +94,7 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 | [`kernel/README.md`](kernel/README.md) | 已验证内核补丁登记（含构建标识与 SHA-256） |
 | [`kickoff/README.md`](kickoff/README.md) · [`m2-beta.md`](kickoff/m2-beta.md) | 阶段索引与当前 M2 实施/验收记录 |
 | [`specs/`](specs)（5 篇） | Flash 移植、AI 复现手册、版本可行性、模块影响评估 |
-| [`reports/`](reports)（12 篇） | 140 实验、142 构建与运行、M1 增量、M2 设置/叠加层/插件发现/标签休眠等交付证据 |
+| [`reports/`](reports)（13 篇） | 140 实验、142 构建与运行、M1 增量、M2 设置/叠加层/插件发现/标签休眠/新标签页等交付证据 |
 | [`evidence/`](evidence)（9 件） | 4399/摩尔庄园 双引擎对照图、crossdomain 调查、帧自检结果 |
 | [`design/`](design)（HTML + renders） | 设置页与引擎面板设计稿 |
 | [`blog/assets/`](blog/assets) | 对外文章配图 |
