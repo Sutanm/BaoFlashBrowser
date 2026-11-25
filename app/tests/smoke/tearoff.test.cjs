@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { isShellPage, launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { isShellPage, launchApp, page, startFixtureServer, waitFor, waitForTabLabel } = require('./helpers.cjs')
 
 function activeViewId(windowHandle) {
   return windowHandle.evaluate((window) => {
@@ -33,15 +33,15 @@ test('拖出标签在新窗口保留业务 ID、页面运行时状态与历史',
     const address = shell.getByRole('textbox', { name: '地址栏' })
     await address.fill(`${server.baseUrl}/one`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '第一个页面', exact: true }).waitFor()
+    await waitForTabLabel(shell, '第一个页面')
     await addTab(shell)
     await address.fill(`${server.baseUrl}/two`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '第二个页面', exact: true }).waitFor()
+    await waitForTabLabel(shell, '第二个页面')
     // 从新标签页导航到网页时是「换视图」，NTP 不进历史；再走一步才有可回退项。
     await address.fill(`${server.baseUrl}/three`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '第三个页面', exact: true }).waitFor()
+    await waitForTabLabel(shell, '第三个页面')
 
     const windowHandle = await app.browserWindow(shell)
     const before = {
@@ -134,14 +134,14 @@ test('指针拖出标签触发跨窗口移交', { timeout: 180_000 }, async () =
     const address = shell.getByRole('textbox', { name: '地址栏' })
     await address.fill(`${server.baseUrl}/one`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '第一个页面', exact: true }).waitFor()
+    await waitForTabLabel(shell, '第一个页面')
 
     // 先建第二个标签：源窗口移交后仍有标签，不会因「标签数为 0」关闭。
     // 只留一个标签时源窗口会被关掉，两窗口状态是瞬时的，断言会变成赌时序。
     await shell.getByRole('button', { name: '新建标签页', exact: true }).click()
     await address.fill(`${server.baseUrl}/two`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '第二个页面', exact: true }).waitFor({ timeout: 30_000 })
+    await waitForTabLabel(shell, '第二个页面')
 
     const windowHandle = await app.browserWindow(shell)
     const bounds = await windowHandle.evaluate((window) => window.getBounds())

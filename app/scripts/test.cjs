@@ -5,7 +5,7 @@ const [suite, ...flags] = process.argv.slice(2)
 const suites = {
   smoke: ['startup', 'tabs', 'tab-ops', 'engine', 'input', 'plugin-input', 'ruffle-input',
     'ruffle-cors', 'engine-broker', 'popup', 'permissions', 'theme', 'titlebar',
-    'internal-page', 'newtab', 'quick-settings', 'tab-discard', 'session-restore', 'data-cleanup',
+    'internal-page', 'newtab', 'quick-settings', 'overlay-prewarm-hidden', 'tab-discard', 'tab-duplicate-ruffle', 'session-restore', 'data-cleanup',
     'link-target', 'flash', 'isolation', 'engine-rules', 'tearoff'].map((name) => `tests/smoke/${name}.test.cjs`),
   data: ['tests/data/settings-store.test.cjs', 'tests/data/session-store.test.cjs'],
   packaged: ['tests/smoke/packaged.test.cjs']
@@ -25,12 +25,16 @@ if (isUnit) {
 }
 
 const env = { ...process.env }
+const foreground = flags.includes('--foreground')
 delete env.BAO_SMOKE_BACKGROUND
-if (flags.includes('--foreground')) delete env.BAO_SMOKE_HIDDEN
+if (foreground) delete env.BAO_SMOKE_HIDDEN
 // 成品门禁：显式声明应为哪种 profile；产物与声明不符时必须失败（审计 P1）。
 if (flags.includes('--public')) env.BAO_EXPECT_PROFILE = 'public'
 else if (suite === 'packaged') env.BAO_EXPECT_PROFILE = 'internal'
-else env.BAO_SMOKE_HIDDEN = '1'
+// 注意：默认隐藏只对"非前台"生效。之前这里写成上面 if/else 链的 else，
+// 会把 --foreground 删掉的 BAO_SMOKE_HIDDEN 又设回来，导致前台用例永远被跳过
+// （2026-11-25 修复；见 docs/reports/2026-11-25-foreground-smoke.md）。
+if (!foreground) env.BAO_SMOKE_HIDDEN = '1'
 
 if (suite !== 'packaged') buildIfChanged()
 
@@ -55,3 +59,5 @@ if (jobs === 1) {
 runPool(files, args, env, jobs).then((failed) => {
   process.exit(failed === 0 ? 0 : 1)
 })
+
+

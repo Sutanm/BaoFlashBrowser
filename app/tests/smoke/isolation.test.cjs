@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { isShellPage, launchApp, page, pageViewIds, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { isShellPage, launchApp, page, pageViewIds, startFixtureServer, waitFor, waitForTabLabel } = require('./helpers.cjs')
 
 async function snapshot(shell) {
   const result = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
@@ -13,7 +13,7 @@ async function navigate(shell, url, title) {
   await address.waitFor()
   await address.fill(url)
   await address.press('Enter')
-  await shell.getByRole('button', { name: title, exact: true }).waitFor({ timeout: 30_000 })
+  await waitForTabLabel(shell, title)
 }
 
 test('窗口销毁与重建后旧事件和旧标签身份保持隔离', { timeout: 240_000 }, async () => {
@@ -105,7 +105,7 @@ test('窗口销毁与重建后旧事件和旧标签身份保持隔离', { timeou
     assert.equal(crashedState.tabs.find((tab) => tab.id === crashedState.activeId)?.crashed, true)
 
     await second.getByRole('button', { name: '重新加载', exact: true }).click()
-    await second.getByRole('button', { name: lastPage.title, exact: true }).waitFor({ timeout: 30_000 })
+    await waitForTabLabel(second, lastPage.title)
     const rebuiltViewId = (await pageViewIds(secondWindow))[0]
     assert.notEqual(rebuiltViewId, crashedViewId, '未重建 WebContents。')
     assert.equal(await app.evaluate(({ webContents }, id) => {

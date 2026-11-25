@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, page, startFixtureServer, waitFor, waitForTabLabel } = require('./helpers.cjs')
 
 async function viewHandle(app, shell) {
   return app.browserWindow(shell)
@@ -43,7 +43,7 @@ test('输入回环：页面键盘、IME 组合、焦点交接与 F11 全屏', { 
     const address = shell.getByRole('textbox', { name: '地址栏' })
     await address.fill(`${server.baseUrl}/input`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '输入页面', exact: true }).waitFor({ timeout: 30_000 })
+    await waitForTabLabel(shell, '输入页面')
     const id = await viewId(app, shell)
 
     await viewEval(app, shell, `(() => {

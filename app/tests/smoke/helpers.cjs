@@ -84,6 +84,54 @@ function page(title, body = '<input aria-label="输入测试">') {
   return `<!doctype html><meta charset="utf-8"><title>${title}</title><h1>${title}</h1>${body}`
 }
 
+/** 活动实例登记表：只用于超时时 dump 现场（失败诊断，不参与断言）。 */
+const liveApps = new Set()
+
+/** 超时时收集现场：进程分布、外壳页状态、标签快照。任何一步失败都只记录不抛出。 */
+async function collectDiagnostics() {
+  if (liveApps.size === 0) return "  (no live app)"
+  const one = async (entry) => {
+    const parts = []
+    try {
+      const metrics = await entry.app.evaluate(({ app }) => {
+        const rows = app.getAppMetrics()
+        const byType = {}
+        let total = 0
+        for (const row of rows) {
+          byType[row.type] = (byType[row.type] ?? 0) + 1
+          total += row.memory ? row.memory.workingSetSize : 0
+        }
+        return { byType, totalMB: Math.round(total / 1024) }
+      })
+      parts.push(`metrics=${JSON.stringify(metrics)}`)
+    } catch (error) { parts.push(`metrics=<${error.message}>`) }
+    try {
+      if (entry.shell.isClosed()) {
+        parts.push("shell=<closed>")
+      } else {
+        const snap = await entry.shell.evaluate(async () => {
+          const r = await window.baoBrowser.run({ type: "snapshot" })
+          const state = r ? r.state : null
+          const active = state ? state.tabs.find((tab) => tab.id === state.activeId) : null
+          return {
+            ok: r ? r.ok : null,
+            tabs: state ? state.tabs.length : -1,
+            active: active ? active.address : null,
+            loading: active ? active.loading : null,
+            labels: Array.from(document.querySelectorAll(".tab"), (el) => el.textContent.trim()).slice(0, 6)
+          }
+        }).catch((error) => ({ error: String(error.message) }))
+        parts.push(`shell=${JSON.stringify(snap)}`)
+      }
+    } catch (error) { parts.push(`shell=<${error.message}>`) }
+    return `${entry.profilePath}: ${parts.join(" ")}`
+  }
+  const all = await Promise.race([
+    Promise.all([...liveApps].map((entry) => Promise.race([one(entry), new Promise((done) => setTimeout(() => done("[diag timeout]"), 4_000))]))),
+    new Promise((done) => setTimeout(() => done(["[diag timeout]"]), 5_000))
+  ])
+  return all.map((line) => `  ${line}`).join("\n")
+}
 /**
  * 轮询直到 predicate 返回真值。
  *
@@ -103,7 +151,15 @@ async function waitFor(predicate, { timeout = 30_000, interval = 100, message = 
     } catch (error) {
       lastError = error
     }
-    if (Date.now() >= deadline) throw lastError ?? new Error(message)
+    if (Date.now() >= deadline) {
+      const base = lastError ?? new Error(message)
+      // 超时最有价值的是现场：把进程分布、外壳页状态和标签快照一起抛出来，
+      // 避免「偶发超时」变成无法复现的空白记录。
+      const diagnostics = await collectDiagnostics().catch(() => "  (diagnostics failed)")
+      const error = new Error(`${base.message}\n[超时现场]\n${diagnostics}`)
+      error.stack = `${base.stack ?? base.message}\n[超时现场]\n${diagnostics}`
+      throw error
+    }
     await new Promise((resolveWait) => setTimeout(resolveWait, interval))
   }
 }
@@ -119,11 +175,15 @@ async function launchApp() {
   const shell = app.windows().find(isShellPage) ??
     await app.waitForEvent('window', { predicate: isShellPage, timeout: 10_000 })
   shell.setDefaultTimeout(10_000)
+  const entry = { app, shell, profilePath }
+  liveApps.add(entry)
   return {
     app,
     shell,
     profilePath,
+    entry,
     async close() {
+      liveApps.delete(entry)
       await app.close().catch(() => {})
       await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
     }
@@ -197,8 +257,25 @@ async function pressShortcut(app, keyCode, modifiers = []) {
   }, { keyCode, modifiers })
 }
 
+/**
+ * 等标签栏出现指定标题。
+ *
+ * 为什么不用 Playwright 的 locator.waitFor：那是一条 30s 的黑盒超时，超时后只剩
+ * "waiting for ... to be visible"，没有进程分布与标签快照。走 waitFor() 才能把现场带出来。
+ */
+async function waitForTabLabel(shell, title, { timeout = 30_000 } = {}) {
+  return waitFor(async () => {
+    if (shell.isClosed()) return null
+    const labels = await shell.evaluate(() =>
+      Array.from(document.querySelectorAll('.tab'), (el) => el.textContent.trim())
+    )
+    return labels.includes(title) ? labels : null
+  }, { timeout, message: `标签栏未出现「${title}」` })
+}
+
 module.exports = {
   audioStateOf,
+  waitForTabLabel,
   appNativeFlashSkip,
   flashPluginPath,
   hasFlashPlugin,

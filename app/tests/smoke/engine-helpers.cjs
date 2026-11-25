@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { createServer } = require('node:http')
-const { launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, page, startFixtureServer, waitFor, waitForTabLabel } = require('./helpers.cjs')
 
 async function snapshot(shell) {
   const result = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
@@ -13,7 +13,7 @@ async function navigate(shell, url, title) {
   await address.waitFor()
   await address.fill(url)
   await address.press('Enter')
-  if (title) await shell.getByRole('button', { name: title, exact: true }).waitFor({ timeout: 30_000 })
+  if (title) await waitForTabLabel(shell, title)
 }
 
 function activeTabOf(state) {

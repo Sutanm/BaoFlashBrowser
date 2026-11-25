@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, page, startFixtureServer, waitFor, waitForTabLabel } = require('./helpers.cjs')
 
 /**
  * 自动化模式：`npm run smoke` 默认隐藏窗口。直接运行此文件仍支持两种模式：
@@ -33,19 +33,19 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
     assert.equal(runtime.buttonRegion, 'no-drag')
 
     // 启动只开一个标签页。
-    await shell.getByRole('button', { name: '新标签页', exact: true }).waitFor()
+    await waitForTabLabel(shell, '新标签页')
     assert.equal(await shell.locator('.tab').count(), 1)
 
     await address.fill(`${server.baseUrl}/one`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '第一个页面', exact: true }).waitFor()
+    await waitForTabLabel(shell, '第一个页面')
     await address.fill(`${server.baseUrl}/two`)
     await address.press('Enter')
-    await shell.getByRole('button', { name: '第二个页面', exact: true }).waitFor()
+    await waitForTabLabel(shell, '第二个页面')
     await shell.getByRole('button', { name: '后退', exact: true }).click()
-    await shell.getByRole('button', { name: '第一个页面', exact: true }).waitFor()
+    await waitForTabLabel(shell, '第一个页面')
     await shell.getByRole('button', { name: '前进', exact: true }).click()
-    await shell.getByRole('button', { name: '第二个页面', exact: true }).waitFor()
+    await waitForTabLabel(shell, '第二个页面')
     await shell.getByRole('button', { name: '后退', exact: true }).click()
     const firstTab = shell.getByRole('button', { name: '第一个页面', exact: true })
     await firstTab.waitFor()
