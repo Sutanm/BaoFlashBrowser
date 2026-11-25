@@ -57,6 +57,7 @@ export type BrowserFailureCode =
   | 'tearoff-page-lost'
   | 'nothing-to-undo'
   | 'engine-switch-failed'
+  | 'engine-switch-cancelled'
   | 'engine-unavailable'
   | 'site-rule-save-failed'
   | 'no-site'
@@ -75,7 +76,8 @@ export const browserFailureText: Record<BrowserFailureCode, string> = {
   'tearoff-source-closed': '新窗口未能创建，原窗口已关闭，标签已关闭',
   'tearoff-page-lost': '新窗口未能创建，标签页面已失效，标签已关闭',
   'nothing-to-undo': '没有可恢复的标签页',
-  'engine-switch-failed': '引擎切换失败，已保留原引擎与页面',
+  'engine-switch-failed': '引擎切换失败，已保留原引擎与原视图',
+  'engine-switch-cancelled': '引擎切换已取消，未提交任何变更',
   'engine-unavailable': '原生 Flash 不可用，仍使用当前引擎',
   'site-rule-save-failed': '无法保存站点规则，原有设置未更改',
   'no-site': '当前页面没有可记忆的站点',

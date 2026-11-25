@@ -40,6 +40,25 @@ const windowIcon = process.platform === 'win32'
  * `host` 指向当前拥有该标签的窗口；事件回调只读取 `host`，跨窗口移动时无需重挂监听。
  * `binding` 是 WebContents 绑定代际，替换或销毁时递增，旧代际的迟到事件据此作废。
  */
+/**
+ * 一次两阶段引擎切换的候选状态。
+ *
+ * 准备期间 `tab.view` / `tab.engine` / `tab.binding` 全部保持旧值；候选视图先按
+ * `binding`（旧代际 + 1）绑定，事件在提交前因 `tab.binding` 未变而全部作废。
+ * 只有 `prepare` 成功且 token 仍是当前尝试时才允许提交；其余情况一律只清理候选。
+ */
+interface EngineAttempt {
+  token: number
+  engine: BrowserEngine
+  source: EngineSource
+  view: WebContentsView
+  /** 候选视图将要使用的绑定代际（提交时写回 `tab.binding`）。 */
+  binding: number
+  cancelled: boolean
+  cancelSignal: Promise<'cancelled'>
+  cancel: () => void
+}
+
 interface Tab {
   id: number
   /** 休眠（丢弃）时为空：省掉一整个渲染进程，切回时按 lastUrl 重建。 */
@@ -56,6 +75,8 @@ interface Tab {
   pinned: boolean
   /** 音频静音状态：存在标签上，引擎切换与崩溃重建后要迁移到新 WebContents。 */
   muted: boolean
+  /** 两阶段引擎切换：正在准备的候选视图（提交前 `view`/`engine`/`binding` 仍是旧值）。 */
+  engineSwitch?: EngineAttempt
   /**
    * 内部页标记（架构 §3 外壳）：`newtab`（`bao://newtab`）或 `settings`（`bao://settings`）。
    * 两种内部页同会话、不同 origin，因此「设置覆盖新标签页」可以就地导航。
@@ -133,6 +154,19 @@ interface WindowController extends TabHost {
   forgetSessionPrompt(): void
   /** 规则/设置变化后重新投影（引擎来源胶囊要立刻按新规则重算）。 */
   refreshProjection(): void
+  /**
+   * 冒烟诊断：每个标签的**实际**视图、绑定代际与未提交候选。
+   *
+   * 只用于验证「提交/回退/清理」的真实现场；不进入 `BrowserState` 投影，也不经过 IPC。
+   */
+  debugState(): Array<{
+    id: number
+    engine: BrowserEngine
+    binding: number
+    viewId?: number
+    viewAlive: boolean
+    pendingEngine?: BrowserEngine
+  }>
 }
 
 /**
@@ -199,6 +233,18 @@ const TAB_LOAD_FAILED = '页面加载失败'
 const TAB_CRASHED = '页面已停止响应，点击重新加载恢复'
 /** 撤销关闭的保留条目数（架构 §3「撤销关闭」；只留导航栈，不留进程）。 */
 const CLOSED_TAB_LIMIT = 10
+/**
+ * 两阶段引擎切换：候选视图等待「加载完成」的上限。
+ *
+ * 这不是成功判据（成功只认 did-finish-load），只是防止页面永远不触发加载事件时
+ * 把标签卡在准备态；超时按准备失败处理，旧视图继续可用。
+ */
+const ENGINE_PREPARE_TIMEOUT_MS = 15_000
+
+type EnginePrepareOutcome =
+  | { status: 'prepared' }
+  | { status: 'degraded'; url: string }
+  | { status: 'failed'; reason: string }
 
 /** 关闭标签时保留的恢复数据：E39 的 `getAllEntries()/restore()` 导航栈，以及引擎。 */
 interface ClosedTab {
@@ -455,6 +501,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined
   let revision = 0
+  /** 两阶段引擎切换的尝试序号：只有当前尝试允许提交。 */
+  let engineSequence = 0
   let closing = false
   /** 已经收到 `close`（窗口正在关闭）：此时不能再把标签回挂进来。 */
   let closeRequested = false
@@ -730,6 +778,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       engine: () => BrowserEngine
       openerUrl: () => string | undefined
       live: () => boolean
+      /**
+       * 导航策略是否生效。默认等于 `live`；两阶段引擎切换的候选视图在提交前也要遵守
+       * 同一套主帧导航/重定向白名单（否则准备期是一段没有策略的窗口）。
+       */
+      guarded?: () => boolean
       /** 该标签允许的文档地址（页面 http(s) / 内部页仅 bao://settings/*）。 */
       allow: (url: string) => boolean
       /** 在所属窗口开新标签（无 features 的新窗口请求走这条路）。 */
@@ -815,15 +868,16 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     })
 
     contents.on('will-frame-navigate', (event) => {
-      if (context.live() && event.isMainFrame && !context.allow(event.url)) event.preventDefault()
+      const guarded = (context.guarded ?? context.live)()
+      if (guarded && event.isMainFrame && !context.allow(event.url)) event.preventDefault()
     })
     contents.on('will-redirect', (event) => {
-      if (context.live() && event.isMainFrame && !context.allow(event.url)) event.preventDefault()
+      const guarded = (context.guarded ?? context.live)()
+      if (guarded && event.isMainFrame && !context.allow(event.url)) event.preventDefault()
     })
   }
 
-  function bind(tab: Tab, view: WebContentsView): void {
-    const binding = tab.binding
+  function bind(tab: Tab, view: WebContentsView, binding = tab.binding): void {
     const contents = view.webContents
     const live = () => tab.view === view && tab.binding === binding && !contents.isDestroyed()
 
@@ -835,6 +889,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       engine: () => tab.engine,
       openerUrl: () => safe(() => contents.getURL(), ''),
       live,
+      // 候选视图（尚未提交）也执行同一套主帧导航/重定向白名单。
+      guarded: () => live() || tab.engineSwitch?.view === view,
       // 内部页在同一会话里可以在 `bao://newtab` 与 `bao://settings` 之间就地导航。
       allow: tab.internal ? isInternalUrl : isWebAddress,
       // 跨窗口移交后 `tab.host` 已经指向新窗口：这里必须**现解析**，不能用本闭包捕获的窗口。
@@ -1117,6 +1173,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    */
   function navigateTab(tab: Tab | undefined, raw: unknown): BrowserResult {
     if (!tab) return fail('unknown-tab')
+    // 用户在准备期间输入新地址：导航优先，取消未提交的引擎切换（不覆盖这次导航）。
+    cancelEngineSwitch(tab)
     const address = typeof raw === 'string' ? raw : ''
     if (tab.internal) {
       const internal = parseInternalAddress(address)
@@ -1280,6 +1338,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 让标签进入休眠：销毁它的视图（省掉一整个渲染进程），只保留元数据。 */
   function discardTab(tab: Tab): void {
+    cancelEngineSwitch(tab)
     const view = tab.view
     if (!view) return
     tab.lastUrl = safe(() => view.webContents.getURL(), tab.lastUrl ?? '')
@@ -1421,6 +1480,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 用于渲染进程崩溃恢复与引擎切换（架构 §3 页面、§3 引擎、§6 M1）。
    */
   function swapView(tab: Tab, engine: BrowserEngine, source: EngineSource): WebContentsView {
+    // 其它换视图路径（崩溃重建、跨引擎导航）优先于未提交的引擎切换：先取消候选。
+    cancelEngineSwitch(tab)
     const previous = tab.view
     // 内部页重建仍是内部页：不能因为崩溃/快捷键把它换成页面视图。
     const view = tab.internal ? createInternalView() : createPageView(engine)
@@ -1451,20 +1512,253 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     load(tab, url)
   }
 
-  /** 引擎切换：新 WebContents 换引擎，再恢复导航栈（架构 §3 引擎）。 */
-  function switchEngine(tab: Tab, engine: BrowserEngine): void {
-    if (tab.engine === engine) return
+  /**
+   * 引擎切换（两阶段）：先准备候选视图并等它**真的加载完成**，成功后才提交；
+   * 开始新的切换、崩溃重建、休眠、关闭或跨窗口移交都会取消未提交的候选。
+   *
+   * 结果语义（与文案一一对应）：
+   * - `ok`：已提交。若导航栈恢复不了但已用当前地址重开，会带一条 notice（“已切换但降级”），
+   *   不会声称回退；
+   * - `engine-switch-failed`：**未提交**，旧视图/引擎/代际全部保持不变；
+   * - `engine-switch-cancelled`：被新请求/关闭/移交取代，只清理候选。
+   *
+   * 不承诺恢复 POST 体、Flash 运行时内存态：这些当前接口没有可靠恢复手段。
+   */
+  async function switchEngine(tab: Tab, engine: BrowserEngine): Promise<BrowserResult> {
+    if (tab.engine === engine) {
+      // 切回当前引擎 = 取消在途候选；当前页面从未被替换。
+      cancelEngineSwitch(tab)
+      return { ok: true, state: state() }
+    }
+    // 新的切换请求取代旧准备：旧候选只清理，不提交。
+    cancelEngineSwitch(tab)
+    if (!tabs.includes(tab)) return fail('unknown-tab')
     if (!tab.view) revive(tab)
-    const contents = tab.view?.webContents
-    if (!contents) return
-    const entries = contents.isDestroyed() ? [] : safe(() => contents.navigationHistory.getAllEntries(), [])
-    const index = contents.isDestroyed()
+    const oldView = tab.view
+    if (!oldView) return fail('engine-switch-failed')
+
+    const oldContents = oldView.webContents
+    const destroyed = oldContents.isDestroyed()
+    const entries = destroyed ? [] : safe(() => oldContents.navigationHistory.getAllEntries(), [])
+    const index = destroyed
       ? 0
-      : safe(() => contents.navigationHistory.getActiveIndex(), Math.max(entries.length - 1, 0))
-    const failedUrl = tab.failedUrl
-    swapView(tab, engine, 'manual')
-    if (failedUrl && entries.length === 0) load(tab, failedUrl)
-    else void restoreHistory(tab, entries, index, '无法恢复完整历史，已尝试重新打开页面')
+      : safe(() => oldContents.navigationHistory.getActiveIndex(), Math.max(entries.length - 1, 0))
+    const currentUrl = destroyed ? '' : safe(() => oldContents.getURL(), '')
+    const fallbackUrl = tab.failedUrl ?? (isWebAddress(currentUrl) ? currentUrl : '')
+
+    const attempt = createEngineAttempt(tab, engine, 'manual')
+    const outcome = await Promise.race([
+      prepareEngineCandidate(attempt, entries, index, fallbackUrl),
+      attempt.cancelSignal
+    ])
+
+    if (outcome === 'cancelled') {
+      if (tab.engineSwitch === attempt) cancelEngineSwitch(tab)
+      return fail('engine-switch-cancelled')
+    }
+    // 准备期间可能已被新请求取代、标签被关闭/移交，或旧视图被重建。
+    const stillCurrent = tab.engineSwitch === attempt && !attempt.cancelled &&
+      tabs.includes(tab) && tab.view === oldView
+    if (!stillCurrent) {
+      if (tab.engineSwitch === attempt) cancelEngineSwitch(tab)
+      return fail('engine-switch-cancelled')
+    }
+    if (outcome.status === 'failed') {
+      cancelEngineSwitch(tab)
+      console.error(`引擎切换未提交（${outcome.reason}），保留原引擎与页面。`)
+      return fail('engine-switch-failed')
+    }
+
+    commitEngineAttempt(tab, attempt, outcome.status === 'degraded' ? outcome.url : undefined)
+    return { ok: true, state: state() }
+  }
+
+  /** 取消未提交的引擎切换：只关闭候选，已提交状态不动。 */
+  function cancelEngineSwitch(tab: Tab): boolean {
+    const attempt = tab.engineSwitch
+    if (!attempt) return false
+    tab.engineSwitch = undefined
+    attempt.cancelled = true
+    attempt.cancel()
+    closeView(attempt.view)
+    return true
+  }
+
+  function closeView(view: WebContentsView | undefined): void {
+    const contents = view?.webContents
+    if (contents && !contents.isDestroyed()) contents.close()
+  }
+
+  /** 建候选视图：按「旧代际 + 1」绑定，事件在提交前全部作废（`tab.binding` 尚未推进）。 */
+  function createEngineAttempt(tab: Tab, engine: BrowserEngine, source: EngineSource): EngineAttempt {
+    const view = createPageView(engine)
+    const binding = tab.binding + 1
+    bind(tab, view, binding)
+    applyMuted(tab, view)
+    let cancel = () => {}
+    const cancelSignal = new Promise<'cancelled'>((resolve) => {
+      cancel = () => resolve('cancelled')
+    })
+    const attempt: EngineAttempt = {
+      token: ++engineSequence,
+      engine,
+      source,
+      view,
+      binding,
+      cancelled: false,
+      cancelSignal,
+      cancel
+    }
+    tab.engineSwitch = attempt
+    return attempt
+  }
+
+  /**
+   * 等候选视图**真实的加载结果**：`did-finish-load` 才算成功。
+   * `did-fail-load`（非 -3）、渲染进程崩溃、销毁或超时都按失败返回。
+   */
+  function createLoadWaiter(contents: WebContents): {
+    promise: Promise<'loaded' | 'failed'>
+    cancel: () => void
+  } {
+    let done = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let settle: (outcome: 'loaded' | 'failed') => void = () => {}
+    const cleanup = () => {
+      if (timer) clearTimeout(timer)
+      try {
+        contents.removeListener('did-finish-load', onFinish)
+        contents.removeListener('did-fail-load', onFail)
+        contents.removeListener('render-process-gone', onGone)
+        contents.removeListener('destroyed', onDestroyed)
+      } catch {
+        // 已销毁的 emitter 不再接受监听器操作。
+      }
+    }
+    const finish = (outcome: 'loaded' | 'failed') => {
+      if (done) return
+      done = true
+      cleanup()
+      settle(outcome)
+    }
+    const onFinish = () => finish('loaded')
+    // -3 = ERR_ABORTED：被后续导航取代，交给后续事件判断。
+    const onFail = (_event: Electron.Event, code: number, _description: string, _url: string, isMainFrame: boolean) => {
+      if (isMainFrame && code !== -3) finish('failed')
+    }
+    const onGone = () => finish('failed')
+    const onDestroyed = () => finish('failed')
+    const promise = new Promise<'loaded' | 'failed'>((resolve) => {
+      settle = resolve
+    })
+    contents.on('did-finish-load', onFinish)
+    contents.on('did-fail-load', onFail)
+    contents.on('render-process-gone', onGone)
+    contents.once('destroyed', onDestroyed)
+    timer = setTimeout(() => finish('failed'), ENGINE_PREPARE_TIMEOUT_MS)
+    timer.unref?.()
+    return { promise, cancel: () => finish('failed') }
+  }
+
+  /** 候选“加载完成”之外再确认确实落在可承载的页面地址上（避免把空白/错误页当成功）。 */
+  function candidateAddressReady(contents: WebContents): boolean {
+    return isWebAddress(safe(() => contents.getURL(), ''))
+  }
+
+  /** 冒烟一次性开关：读走即删除，避免影响后续切换。 */
+  function takeEngineFault(name: string): boolean {
+    if (process.env[name] !== '1') return false
+    delete process.env[name]
+    return true
+  }
+
+  /**
+   * 准备候选视图。成功只认“导航真实完成”（did-finish-load）：
+   * - 有导航栈 → `restore()` 后等加载完成；
+   * - `restore()` 失败 → 用当前地址重开，成功则返回 `degraded`（已提交但历史降级）；
+   * - 没有可恢复地址的空白页 → 视图本身即准备完成。
+   */
+  async function prepareEngineCandidate(
+    attempt: EngineAttempt,
+    entries: NavigationEntry[],
+    index: number,
+    fallbackUrl: string
+  ): Promise<EnginePrepareOutcome> {
+    const contents = attempt.view.webContents
+    const delay = Number(process.env.BAO_ENGINE_SWITCH_PREPARE_DELAY_MS ?? 0)
+    if (Number.isFinite(delay) && delay > 0) await new Promise((done) => setTimeout(done, delay))
+    if (attempt.cancelled) return { status: 'failed', reason: 'cancelled' }
+
+    // 注入：让候选真实加载一个不可达地址，验证失败分支只清理候选、旧视图保持可用。
+    if (takeEngineFault('BAO_ENGINE_SWITCH_FAIL')) {
+      const waiter = createLoadWaiter(contents)
+      void contents.loadURL('http://127.0.0.1:1/').catch(() => {})
+      const outcome = await Promise.race([waiter.promise, attempt.cancelSignal])
+      waiter.cancel()
+      return outcome === 'loaded' ? { status: 'prepared' } : { status: 'failed', reason: 'load' }
+    }
+
+    let restoreFailed = takeEngineFault('BAO_ENGINE_SWITCH_RESTORE_FAIL')
+    if (!restoreFailed && entries.length > 0) {
+      const waiter = createLoadWaiter(contents)
+      try {
+        await contents.navigationHistory.restore({ entries, index })
+      } catch (error) {
+        // restore() 会异步拉起导航；失败时旧页面仍在，改用当前地址重开。
+        console.error('引擎切换：导航栈恢复调用失败，尝试按当前地址重新打开。', error)
+        restoreFailed = true
+      }
+      if (!restoreFailed) {
+        const outcome = await Promise.race([waiter.promise, attempt.cancelSignal])
+        waiter.cancel()
+        if (outcome === 'loaded') {
+          return candidateAddressReady(contents) ? { status: 'prepared' } : { status: 'failed', reason: 'restore-load' }
+        }
+        if (outcome === 'cancelled') return { status: 'failed', reason: 'cancelled' }
+        return { status: 'failed', reason: 'restore-load' }
+      }
+      waiter.cancel()
+    }
+
+    if (attempt.cancelled) return { status: 'failed', reason: 'cancelled' }
+    if (!fallbackUrl) {
+      return restoreFailed ? { status: 'failed', reason: 'no-fallback' } : { status: 'prepared' }
+    }
+    const waiter = createLoadWaiter(contents)
+    void contents.loadURL(fallbackUrl).catch(() => {})
+    const outcome = await Promise.race([waiter.promise, attempt.cancelSignal])
+    waiter.cancel()
+    if (outcome === 'loaded' && candidateAddressReady(contents)) {
+      return restoreFailed ? { status: 'degraded', url: fallbackUrl } : { status: 'prepared' }
+    }
+    return { status: 'failed', reason: restoreFailed ? 'fallback-load' : 'load' }
+  }
+
+  /** 提交候选：此刻才切视图、推进绑定代际、更新引擎并关闭旧视图。 */
+  function commitEngineAttempt(tab: Tab, attempt: EngineAttempt, degradedUrl?: string): void {
+    const previous = tab.view
+    const view = attempt.view
+    tab.engineSwitch = undefined
+    tab.binding = attempt.binding
+    tab.view = view
+    tab.engine = attempt.engine
+    tab.manualOverride = attempt.source === 'manual'
+    tab.error = ''
+    tab.failedUrl = undefined
+    tab.notice = degradedUrl
+      ? { id: nextNoticeId++, message: `已切换引擎，但导航历史未能恢复，已重新打开 ${degradedUrl}` }
+      : undefined
+    // 准备期间用户可能改过静音：提交时再对齐一次。
+    applyMuted(tab, view)
+    if (active === tab) {
+      window.contentView.addChildView(view)
+      overlays.setActivePage(view.webContents)
+      layout()
+    }
+    if (previous && window.contentView.children.includes(previous)) window.contentView.removeChildView(previous)
+    closeView(previous)
+    if (active === tab && !overlays.panelVisible()) focusContents(view.webContents)
+    publish()
   }
 
   /**
@@ -1635,6 +1929,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   function reloadTab(tab: Tab): void {
+    // 重新加载优先于未提交的引擎切换：避免提交时用旧导航栈覆盖这次加载。
+    cancelEngineSwitch(tab)
     if (!tab.view) {
       // 休眠标签：重新加载等价于唤醒。
       revive(tab)
@@ -1693,6 +1989,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function closeTab(tab: Tab): void {
     const index = tabs.indexOf(tab)
     if (index < 0) return
+    // 关闭优先于未提交的引擎切换：先取消候选，避免它变成孤儿。
+    cancelEngineSwitch(tab)
     const wasActive = active === tab
     rememberClosed(tab)
     tabs.splice(index, 1)
@@ -1815,6 +2113,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const index = tabs.findIndex((tab) => tab.id === id)
     if (index < 0) return undefined
     const [tab] = tabs.splice(index, 1)
+    // 移交时取消未提交的引擎切换：候选视图不跟着标签走，直接清理。
+    cancelEngineSwitch(tab)
     const wasActive = active === tab
     tab.host = undefined
     if (tab.view && window.contentView.children.includes(tab.view)) window.contentView.removeChildView(tab.view)
@@ -1846,6 +2146,21 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       : Math.min(Math.max(requested, pinnedCount), tabs.length)
     tabs.splice(at, 0, tab)
     select(tab, true)
+  }
+
+  /** 冒烟诊断：真实视图 id、绑定代际与未提交候选（不进入 UI 投影）。 */
+  function debugState(): ReturnType<WindowController['debugState']> {
+    return tabs.map((tab) => {
+      const contents = tab.view?.webContents
+      return {
+        id: tab.id,
+        engine: tab.engine,
+        binding: tab.binding,
+        viewId: contents?.id,
+        viewAlive: Boolean(contents && !contents.isDestroyed()),
+        pendingEngine: tab.engineSwitch?.engine
+      }
+    })
   }
 
   const controller: WindowController = {
@@ -1884,6 +2199,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     refreshProjection: () => {
       if (active) publish()
     },
+    debugState,
     run
   }
 
@@ -1964,13 +2280,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         if (tab.internal) return fail('invalid-command')
         if (command.engine !== 'ppapi' && command.engine !== 'ruffle') return fail('invalid-command')
         if (command.engine === 'ppapi' && !plugins) return fail('engine-unavailable')
-        try {
-          switchEngine(tab, command.engine)
-        } catch (error) {
-          console.error('无法切换渲染引擎。', error)
-          return fail('engine-switch-failed')
-        }
-        break
+        return switchEngine(tab, command.engine)
       }
       case 'remember-engine':
       case 'forget-engine': {
@@ -2004,6 +2314,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'back': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
+        cancelEngineSwitch(tab)
         if (tab.internal) {
           if (!tab.view) return fail('unknown-tab')
           tab.view.webContents.navigationHistory.goBack()
@@ -2024,6 +2335,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'forward': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
+        cancelEngineSwitch(tab)
         if (tab.internal === 'newtab' && tab.newTabForwardUrl) {
           const view = tab.view
           const canForward = !!view && safe(() => view.webContents.navigationHistory.canGoForward(), false)
@@ -2260,6 +2572,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     overlays.dispose()
     nativeTheme.off('updated', onNativeThemeUpdated)
     for (const tab of tabs) {
+      cancelEngineSwitch(tab)
       tab.binding += 1
       tab.host = undefined
       // 窗口关闭只清理**仍属于本窗口**的标签租约：拖出中的标签已从 `tabs` 摘除，
@@ -2632,9 +2945,18 @@ export function registerBrowserIpc(): void {
 }
 
 /**
- * 冒烟诊断钩子（仅未打包）：把租约表挂到主进程 global，用来验证「跨窗口移交失败清理后
- * 不留下租约」。不经过 IPC、不进入成品构建，也不改变任何产品行为。
+ * 冒烟诊断钩子（仅未打包）：
+ * - `__baoActivityLeases`：租约表，验证跨窗口移交/引擎切换清理后不留下租约；
+ * - `__baoEngineDiagnostics()`：每个窗口每个标签的真实视图 id、绑定代际和未提交候选，
+ *   用来断言两阶段引擎切换的提交/回退/清理，而不是只看 UI 提示。
+ *
+ * 不经过 IPC、不进入成品构建，也不改变任何产品行为。
  */
 if (!app.isPackaged) {
-  ;(globalThis as unknown as Record<string, unknown>).__baoActivityLeases = activityLeases
+  const globals = globalThis as unknown as Record<string, unknown>
+  globals.__baoActivityLeases = activityLeases
+  globals.__baoEngineDiagnostics = () => [...controllers.entries()].map(([shellContentsId, controller]) => ({
+    shellContentsId,
+    tabs: controller.debugState()
+  }))
 }

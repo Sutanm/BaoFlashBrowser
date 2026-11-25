@@ -7,7 +7,7 @@ const { selectTests } = require('./test-map.cjs')
 const ROOT = resolve(__dirname, '..')
 const [suite, ...flags] = process.argv.slice(2)
 const suites = {
-  smoke: ['startup', 'tabs', 'tab-ops', 'engine', 'input', 'plugin-input', 'ruffle-input',
+  smoke: ['startup', 'tabs', 'tab-ops', 'engine', 'engine-switch', 'input', 'plugin-input', 'ruffle-input',
     'ruffle-cors', 'engine-broker', 'popup', 'permissions', 'theme', 'titlebar',
     'internal-page', 'newtab', 'quick-settings', 'overlay-prewarm-hidden', 'overlay-prewarm-policy',
     'tab-discard', 'tab-duplicate-ruffle', 'session-restore', 'data-cleanup',

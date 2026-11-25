@@ -88,7 +88,7 @@ const RULES = [
   {
     // 引擎选择与站点规则。
     match: [/^src\/main\/engine-rules\.ts$/, /^src\/shared\/engine\.ts$/, /^src\/shared\/site\.ts$/],
-    tests: ['engine', 'engine-rules', 'tab-ops', 'link-target', 'tabs']
+    tests: ['engine', 'engine-switch', 'engine-rules', 'tab-ops', 'link-target', 'tabs']
   },
   {
     // 引擎网络 broker（跨域读）。
