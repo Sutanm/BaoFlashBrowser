@@ -20,14 +20,15 @@
 /**
  * 租约持有者（架构 §7 的 owner 集合按 M2 收窄）。
  *
- * M3 的 `agent` / `workflow` / `capture` 不在本表：它们还没有真实生产者，
- * 提前放进类型只会让「支持」变成一句空话。接入时新增枚举值 + 生产者 + 用例。
+ * `agent` / `workflow` / `capture` / `audio` 不在本表：它们还没有真实生产者，
+ * 提前放进类型只会让「支持」变成一句空话。接入时须同时新增枚举值、生产者、
+ * holder 身份/定向清理及用例。
  */
 export const ACTIVITY_LEASE_OWNERS = ['user', 'session-restore', 'download', 'devtools', 'system'] as const
 
 export type ActivityLeaseOwner = (typeof ACTIVITY_LEASE_OWNERS)[number]
 
-/** 一条已登记的活动租约。字段名沿用架构 §7 的合同：`id` / `owner` / `tabId` / `preventsDiscard` / `expiresAt` / `reason`。 */
+/** 一条已登记的活动租约。字段名沿用架构 §7 的 M2 子集合同。 */
 export interface ActivityLease {
   /** 租约 ID。自动生成时形如 `lease-1`（确定性，便于测试与日志对照）。 */
   leaseId: string
@@ -38,7 +39,7 @@ export interface ActivityLease {
   preventsDiscard: boolean
   /** 人类可读的原因，会出现在日志与后续诊断里。 */
   reason: string
-  /** 到期时刻（毫秒时间戳）。不传表示无期限：一直有效到 owner 显式释放。 */
+  /** 到期时刻（毫秒时间戳）。不传表示无期限：一直有效到调用方或明确策略释放。 */
   expiresAt?: number
 }
 
@@ -130,7 +131,7 @@ export class ActivityLeaseManager {
     return this.leases.delete(leaseId)
   }
 
-  /** 释放某个标签上某 owner 的全部租约（owner 结束时的批量清理），返回释放条数。 */
+  /** 明确策略操作：释放某个标签上某 owner 类别的全部租约，返回释放条数；不得用于单 holder 结束。 */
   releaseOwner(tabId: number, owner: ActivityLeaseOwner): number {
     let released = 0
     for (const [leaseId, lease] of this.leases) {

@@ -1,7 +1,7 @@
 # BaoFlashBrowser Next：Agent 与自动化架构
 
 > **状态：现行权威文档（SSOT）**
-> 生效日期：2026-11-24
+> 生效日期：2026-11-24；最近裁决回填：2026-11-25
 > 适用范围：产品定位、浏览器能力接口、Agent、自动化、工作流、CDP、页面感知、坐标系统、任务权限与相关交付顺序。
 
 本文覆盖并取代以下旧结论：
@@ -250,21 +250,42 @@ interface BrowserCapabilityService {
 维护逻辑标签与物理 CDP target、frame、文档代际之间的映射。
 
 ```ts
-interface TargetRef {
+interface TargetRefBase {
   tabId: number
   bindingId: number
   navigationId: number
   frameId?: string
   observationId: string
   targetId: string
-  kind: 'dom' | 'ax' | 'surface' | 'visual' | 'shell'
-  captureId?: string
-  transformVersion?: number
 }
+
+type TargetRef =
+  | (TargetRefBase & { kind: 'dom' | 'ax' })
+  | (TargetRefBase & { kind: 'surface'; surfaceId: string })
+  | (TargetRefBase & {
+      kind: 'visual'
+      surfaceId: string
+      captureId: string
+      transformVersion: number
+    })
+
+interface DurableTargetSpec {
+  kind: 'dom' | 'ax' | 'surface' | 'visual'
+  locator: LocatorSpec
+  frameHops?: FrameLocatorRecipe[]
+  anchor?: Anchor
+  selection?: SelectionPolicy
+}
+
+// LocatorSpec、FrameLocatorRecipe、Anchor、SelectionPolicy
+// 是 A3 需要冻结的可序列化联合类型；不得包含运行时 DOM/CDP 对象。
 ```
 
 身份语义：
 
+- `TargetRef` 是观察快照内的**短期解析句柄**，不得作为跨导航或跨重启的持久化配方；
+- `DurableTargetSpec` 是可序列化的语义定位配方，每次执行时必须重新解析，成功与否取决于当时页面；
+- Page Map 临时目标不要求一定能反推出 `DurableTargetSpec`；
 - `tabId`：稳定业务身份，跨窗口移动不变；
 - `bindingId`：WebContents 绑定代际，休眠、崩溃恢复、引擎切换后变化；
 - `navigationId`：同一绑定内主文档导航代际；
@@ -272,7 +293,7 @@ interface TargetRef {
 - `observationId`：产生短引用的观察快照；
 - `targetId`：只在对应观察上下文内有效的短目标 ID。
 
-不得把 `webContents.id` 当作长期稳定的 Agent target。写操作至少校验 binding 和 navigation；视觉坐标还必须校验 capture 和 transform。
+Shell 命令使用独立的 Browser/Shell target，不得伪装成页面 `TargetRef`。不得把 `webContents.id` 当作长期稳定的 Agent target。所有消费短引用的能力必须经过统一的 `validateTargetRef(action, target)`；校验规则至少覆盖 binding、navigation、observation 和 frame/surface 有效性，视觉坐标还必须校验 capture 和 transform。
 
 ## 7. 标签生命周期与活动租约
 
@@ -281,31 +302,45 @@ interface TargetRef {
 引入统一活动租约：
 
 ```ts
-interface ActivityLease {
-  id: string
-  owner: 'user' | 'agent' | 'workflow' | 'capture' | 'audio' | 'devtools' | 'system'
+interface ActivityLeaseBase {
+  leaseId: string
   tabId: number
   preventsDiscard: boolean
   expiresAt?: number
   reason: string
 }
+
+type ActivityLease = ActivityLeaseBase & (
+  | {
+      owner: 'user' | 'session-restore' | 'download' | 'devtools' | 'system'
+      holderId?: string
+    }
+  | {
+      owner: 'agent' | 'workflow' | 'capture' | 'audio'
+      holderId: string
+    }
+)
 ```
 
 规则：
 
-1. AgentSession、Workflow、录制、视觉监控和 DevTools 在需要时申请租约；
-2. 租约结束、超时、任务取消或 owner 崩溃时必须释放；
-3. 用户“保持活跃”映射为无期限用户租约；
-4. 存在 `preventsDiscard` 租约时不得销毁 WebContents；
-5. discard、revive、engine switch 和 crash rebuild 都产生生命周期事件；
-6. 生命周期事件必须先通知消费者，再使旧 binding 失效；
-7. Agent 不得通过持有活动标签来隐式阻止休眠。
+1. `leaseId` 是租约唯一身份；调用方做幂等续租时复用原 `leaseId`，且不得把同一 ID 重新绑定到不同 tab、owner 或 holder；
+2. 正常生命周期结束和任务取消必须按 `leaseId` 释放，单个 Session/Workflow 不得按 owner 类别批量释放；
+3. `releaseOwner(tabId, owner)` 只用于有明确产品语义的策略型批量操作，例如用户关闭该标签的“保持活跃”；
+4. 多实例 owner（至少 `agent`、`workflow`、`capture`、`audio`）接入时必须提供实例级 `holderId` 或等价的 holder→lease 索引；holder 崩溃时只清理该 holder 的租约，不能按 owner 类别清理；当前可选 `holderId` 的 owner 若出现多实例或需要实例级崩溃清理，必须先升级为同样的 required-holder 合同；
+5. 超时租约由统一 sweep 清理；崩溃清理无法确定完成时，租约必须有 TTL 兜底；
+6. AgentSession、Workflow、录制、视觉监控、音频活动和 DevTools 在需要时申请租约；
+7. 用户“保持活跃”映射为无期限用户租约；
+8. 存在 `preventsDiscard` 租约时不得销毁 WebContents；
+9. discard、revive、engine switch 和 crash rebuild 都产生生命周期事件；
+10. 生命周期事件必须先通知消费者，再使旧 binding 失效；
+11. Agent 不得通过持有活动标签来隐式阻止休眠。
 
 休眠判定至少包含：用户设置、活动标签、租约、音频、页面类型、可恢复性和 TTL。不得用“看起来像挂机”替代明确租约。
 
 ## 8. CDP Hub
 
-CDP Hub 是 Page、Perception、Automation 和 Agent 的共同底座，必须早于这些模块的正式实现。
+Core registries 与 CDP Hub 是并列基础设施，不是所有 Browser/Shell 能力都依赖 CDP。任何需要 `webContents.debugger` attachment 或 CDP domain 的正式能力都必须经 Hub；不需要 debugger 的 `webContents` 原生能力不得仅为形式统一而绕行 Hub。Hub 必须早于依赖 DOMSnapshot、Accessibility CDP、OOPIF 或其他 CDP domain 的 Page、Perception、Automation 和 Agent 能力。
 
 职责：
 
@@ -505,7 +540,21 @@ Agent Host 在上述底座完成后实现。
 - capability manifest；
 - task/session 事件；
 - `executeCapability()`；
-- 受来源标记保护的观察结果。
+- 带来源分类的能力结果。
+
+```ts
+type CapabilityResult<T> =
+  | { source: 'host'; body: T }
+  | {
+      source: 'untrusted-page'
+      tabId: number
+      bindingId: number
+      navigationId: number
+      body: T
+    }
+```
+
+observe、extract、vision、Page Map 以及其他含页面派生内容的结果，必须在 Host 出口包装成 `source: 'untrusted-page'`；未经来源分类的页面 payload 在类型上不得进入 Adapter。Shell 状态、租约状态、action receipt 和审计结果等 Host 自有事实使用 `source: 'host'`，不得错误标成页面内容。来源标记只降低 prompt injection 风险，不能替代权限、审批、参数边界、停止和审计。
 
 更换 Adapter 不得修改 Browser Capability、Automation Runtime 或 Workflow IR。
 
@@ -529,6 +578,7 @@ schema
 -> permission level
 -> approval when required
 -> execute
+-> classify/wrap result provenance
 -> audit summary
 ```
 
@@ -551,7 +601,7 @@ Workflow IR 至少包含：
 
 - 输入参数和变量；
 - capability action；
-- TargetRef 或可重新解析的语义目标；
+- 当前运行内的短期 `TargetRef`，或可持久化并在执行时重新解析的 `DurableTargetSpec`；
 - wait/assert/branch/loop；
 - timeout/retry/backoff；
 - profile 和权限要求；
@@ -596,7 +646,7 @@ M0–M3 是项目对外和验收使用的唯一里程碑；A0–A6 只表达 Age
 
 | 架构工作流 | 当前状态 | 所属项目阶段 | 进入条件 |
 | --- | --- | --- | --- |
-| A0 · 文档与合同收敛 | **已完成（2026-11-24）** | M2 | 本文成为 SSOT，旧 F 区归档 |
+| A0 · 文档与合同收敛 | **初次完成（2026-11-24）；最近裁决回填（2026-11-25）** | M2 | 本文成为 SSOT，旧 F 区归档 |
 | A1 · 浏览器能力底座 | **M2 当前工作** | M2 | 不阻断已在开发的普通 M2 功能，但相关模块落地前必须接入新底座 |
 | A2 · CDP Hub | 未开始 | M3 首个基础闸门 | M2 验收完成，A1 达到退出条件 |
 | A3 · Page Map 与坐标 | 未开始 | M3 | A2 通过 OOPIF/生命周期探针 |
@@ -606,7 +656,7 @@ M0–M3 是项目对外和验收使用的唯一里程碑；A0–A6 只表达 Age
 
 M3 不要求一次性交付 A2–A6。每个工作流都要有独立立项、退出证据和失败回退；M3 的整体验收口径在立项时按已纳入的工作流确定。
 
-### A0：文档与合同收敛【已完成】
+### A0：文档与合同收敛【2026-11-24 初次完成；2026-11-25 裁决回填】
 
 - 本文成为 SSOT；
 - 旧 Agent F 区归档；
@@ -628,9 +678,10 @@ A1 在 M2 中增量实施，不进行一次性重写：
 - 会话恢复和标签休眠共用 binding/navigation 生命周期；
 - 现有 `keepAwake` 映射成用户长期租约；
 - M2 首版 Activity Lease 至少支持 `user`、`session-restore`、`download`、`devtools`、`system`；
-- `agent`、`workflow`、`capture` owner 在 M3 接入，不为它们提前实现空壳业务。
+- `audio` 在首个音频活动租约生产者落地时接入；`agent`、`workflow`、`capture` 在对应 M3 工作流接入，不为它们提前实现空壳业务；
+- 每个多实例 owner 接入时必须同时交付 holder 身份、定向崩溃清理和 TTL 兜底。
 
-A1 退出条件：UI 已通过统一 Capability API 调用关键标签动作；休眠不会销毁持有阻止休眠租约的标签；WebContents 重建和导航代际可被测试观察；现有 smoke 全绿。
+A1 退出条件：UI 已通过统一 Capability API 调用关键标签动作；休眠不会销毁持有阻止休眠租约的标签；WebContents 重建和导航代际可被测试观察；现有 smoke 全绿。另提供一个不依赖 UI、Workflow Runtime、CDP Hub 或 Page Map 的 Capability contract/integration harness，直接覆盖 actor、显式 target、binding/navigation 拒绝、租约和稳定错误码；若完整审计模块尚未进入 A1，至少固化可供后续审计消费的结构化调用记录合同。
 
 ### A2：CDP Hub
 
@@ -638,13 +689,14 @@ A1 退出条件：UI 已通过统一 Capability API 调用关键标签动作；�
 - 多逻辑消费者；
 - domain 生命周期；
 - OOPIF auto-attach；
-- detach、崩溃、引擎切换和休眠探针。
+- detach、崩溃、引擎切换和休眠探针；
+- 在 Electron 39 / Chromium 142 实测 debugger、DevTools 与其他客户端的共存/失效行为，并分别记录 DOM 操作、截图、输入的 CDP/native 选路依据。
 
 ### A3：Page Map 与坐标
 
 - DOMSnapshot + Accessibility；
 - frame/OOPIF/Shadow DOM；
-- TargetRef；
+- 短期 `TargetRef`、持久化 `DurableTargetSpec` 与统一校验入口；
 - Coordinate Plane；
 - 普通表单、复杂 iframe、Canvas/Flash 三类 fixture。
 
@@ -688,7 +740,7 @@ Agent 新建测试用例，填写步骤和预期结果，保存后验证结果�
 
 Host 先定位游戏 iframe 和 surface，进入 surface 局部坐标；视觉检测器发现事件，Workflow 执行动作，异常时唤醒 Agent。
 
-三类任务必须共用 TabRegistry、Capability API、CDP Hub、TargetRef、租约和审计，不允许各自建立专用旁路。
+三类任务必须共用 TabRegistry、Capability API、租约和审计，并在需要 CDP 或页面短引用时共用 CDP Hub、`TargetRef` / `DurableTargetSpec`，不允许各自建立专用旁路。
 
 ## 20. 非目标
 
@@ -720,3 +772,4 @@ Host 先定位游戏 iframe 和 surface，进入 surface 局部坐标；视觉�
 - [旧 Agent 架构记录](discussions/2026-11-21-bfb-next-architecture.md#f-agent-架构已收官-2026-11-22f0f0f1f2含-f2f3f4f5f6-全定)
 - [原产品与工程合同](discussions/2026-11-22-bfb-next-architecture.md)
 - [反需求与放权边界](discussions/2026-11-23-bfb-next-agent-boundary.md)
+- [2026-11-25 架构审计与裁决](discussions/2026-11-25-agent-architecture-audit.md)

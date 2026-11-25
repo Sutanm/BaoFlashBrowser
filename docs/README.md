@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | **现行合同** | [`agent-automation-architecture.md`](agent-automation-architecture.md)、[`2026-11-22-bfb-next-architecture.md`](discussions/2026-11-22-bfb-next-architecture.md) 未被替代部分 | Agent/自动化专项 SSOT + 浏览器工程合同 | 专项文档优先；改动须同步本页 |
 | **现行记录** | [`kernel/`](kernel/README.md)、[`kickoff/`](kickoff/README.md) | 已裁决的详细条款与验收记录 | 追加式；结论回填 |
-| **过程存档** | 同一份 11-21 讨论稿的其余部分、[技术栈讨论](discussions/2026-11-21-bfb-next-tech-stack.md)、[架构审计](discussions/2026-11-22-bfb-next-architecture-audit.md) | 决策过程与依据 | 只读；以标注的权威文档为准 |
+| **过程存档** | 同一份 11-21 讨论稿的其余部分、[技术栈讨论](discussions/2026-11-21-bfb-next-tech-stack.md)、[架构审计](discussions/2026-11-22-bfb-next-architecture-audit.md)、[Agent 架构审计与裁决](discussions/2026-11-25-agent-architecture-audit.md) | 决策过程与依据；审计记录可标注「已裁决并回填」 | 只读；以标注的权威文档为准 |
 | **依据 / 证据** | [`specs/`](specs)、[`reports/`](reports)、[`evidence/`](evidence)、[`design/`](design)、[`blog/`](blog) | 技术评估与实测输出 | 只增不改；修正写新报告或追加修正节 |
 
 ## 2. 单一事实源（SSOT）
@@ -85,6 +85,7 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 | [`discussions/2026-11-21-bfb-next-architecture.md`](discussions/2026-11-21-bfb-next-architecture.md) | 议题讨论与裁决存档；§F0–§F10 已归档 |
 | [`discussions/2026-11-24-agent-automation-design-clarification.md`](discussions/2026-11-24-agent-automation-design-clarification.md) | 新 Agent/自动化架构的讨论与设计依据 |
 | [`discussions/2026-11-24-agent-browser-community-research.md`](discussions/2026-11-24-agent-browser-community-research.md) | 社区项目与 CDP/Page Map 参考调研 |
+| [`discussions/2026-11-25-agent-architecture-audit.md`](discussions/2026-11-25-agent-architecture-audit.md) | 对 Agent/自动化 SSOT 的审计（**已裁决并回填**）：结果来源封装、短期/持久化目标、租约 holder、CDP 路由边界与 A1 合同测试；「Agent 不立项」分支关闭 |
 | [`discussions/2026-11-24-new-tab-page-alignment.md`](discussions/2026-11-24-new-tab-page-alignment.md) | 新标签页对齐 Chromium：142 源码依据、差距清单、行为合同与 P0/P1 方案（**已交付**，见[报告](reports/2026-11-24-newtab-alignment.md)） |
 | [`discussions/2026-11-21-bfb-next-tech-stack.md`](discussions/2026-11-21-bfb-next-tech-stack.md) | 第一轮技术栈选型讨论（§7.5/§7.6 已定） |
 | [`discussions/2026-11-23-bfb-next-agent-boundary.md`](discussions/2026-11-23-bfb-next-agent-boundary.md) | 已吸收的反需求与放权边界历史记录；现行结论见新 SSOT §15/§20 |
