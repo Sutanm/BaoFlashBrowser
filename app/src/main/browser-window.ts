@@ -1224,6 +1224,60 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /** 扫描周期：30 秒。 */
   const DISCARD_SWEEP_MS = Number(process.env.BAO_DISCARD_SWEEP_MS ?? 30_000)
 
+  /**
+   * 休眠判定的诊断钩子（ADR-0004 §5）：`BAO_DISCARD_TRACE` 指定文件，未设置时是空操作。
+   *
+   * 误杀时的第一个问题永远是「它为什么觉得可以睡」，所以理由必须落在**具体命中项**上。
+   */
+  function traceDiscard(line: string): void {
+    const file = process.env.BAO_DISCARD_TRACE
+    if (!file) return
+    const { appendFileSync } = require('node:fs') as typeof import('node:fs')
+    try { appendFileSync(file, `${Date.now()} ${line}\n`) } catch { /* ignore */ }
+  }
+
+  /** 每个标签上一次被拒绝的原因：同一原因只记一次，避免 30 秒一轮刷屏。 */
+  const discardBlocked = new Map<number, string>()
+
+  function noteDiscardBlocked(tab: Tab, reason: string, detail = ''): void {
+    if (discardBlocked.get(tab.id) === reason) return
+    discardBlocked.set(tab.id, reason)
+    traceDiscard(`tab=${tab.id} 拒绝休眠：${reason} engine=${tab.engine}${detail}`)
+  }
+
+  /**
+   * 这个标签的**页面上**有没有 Flash 内容（ADR-0004 §2 硬门禁）。
+   *
+   * 为什么不用引擎判定：本产品的默认引擎就是 `ppapi`（插件可用时每个标签都是它），
+   * 所以"引擎是 ppapi"≠"装着 Flash"。实测拿它当判据会把**所有**标签都保护起来，
+   * 休眠直接失效（用例里 trace 全是 `flash-content`，普通页也不睡）。
+   * 只能问页面：`ppapi` 页留着 `<embed>` / `<object>`，Ruffle 会把它们换成 `<ruffle-player>`。
+   *
+   * 结果按「标签 + 当前 URL」缓存，URL 一变就重探；探测中或探测失败返回 undefined，
+   * 调用方按"有"处理（fail-closed）——宁可多保护一个标签，也不能把正在跑的游戏睡掉。
+   */
+  const flashProbe = new Map<number, { url: string; has: boolean }>()
+  const flashProbePending = new Set<number>()
+
+  function flashContentOf(tab: Tab, contents: WebContents): boolean | undefined {
+    const url = safe(() => contents.getURL(), '')
+    const cached = flashProbe.get(tab.id)
+    if (cached && cached.url === url) return cached.has
+    if (flashProbePending.has(tab.id)) return undefined
+    flashProbePending.add(tab.id)
+    void contents.executeJavaScript(
+      'Boolean(document.querySelector("embed,object,ruffle-player,ruffle-embed,[type*=shockwave],[type*=flash]"))',
+      true
+    ).then((has) => {
+      flashProbe.set(tab.id, { url, has: has === true })
+    }).catch(() => {
+      // 页面正在销毁/导航：判不出就当"有"，且**不缓存**，下一轮用新 URL 重探。
+    }).finally(() => {
+      flashProbePending.delete(tab.id)
+    })
+    return undefined
+  }
+
   /** 让标签进入休眠：销毁它的视图（省掉一整个渲染进程），只保留元数据。 */
   function discardTab(tab: Tab): void {
     const view = tab.view
@@ -1237,6 +1291,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.backgroundSince = undefined
     tab.error = ''
     tab.notice = undefined
+    discardBlocked.delete(tab.id)
+    flashProbe.delete(tab.id)
+    traceDiscard(`tab=${tab.id} 休眠 engine=${tab.engine} url=${tab.lastUrl}`)
     if (!view.webContents.isDestroyed()) view.webContents.close()
     publish()
   }
@@ -1273,9 +1330,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /**
    * 定时扫描：把「后台超过 TTL」的标签置为休眠。
    *
-   * 守卫（任何一条命中都不休眠）：当前标签、内部页、置顶标签、有效活动租约、正在出声、非 http(s)。
-   * 出声这一条是硬要求：挂机型页面（游戏/自动化）几乎都有声音或需要持续运行，
-   * 用户也可以在设置里把整个机制关掉（`tab.discard = never`）。
+   * 守卫（任何一条命中都不休眠）：当前标签、内部页、置顶标签、有效活动租约、正在加载、
+   * 含 Flash 内容、正在出声、非 http(s)。
+   *
+   * 中间两条是 [ADR-0004](../../../docs/adr/0004-liveness-over-memory-reclaim.md) 的硬门禁：
+   * **游戏连续性 > 自动化可重复性 > 内存回收**。含 Flash 内容的标签永不自动休眠（游戏状态只在
+   * 内存里，销毁视图就丢存档）；加载中被睡会连首屏都拿不回来。"不出声"对游戏是噪声而不是信号
+   * ——菜单/读条/回合制等待都可以长时间没音频，所以它只对普通网页有意义。
    *
    * 「用户保持活跃」不再单独判断：它是 `user` owner 的租约，和下载 / 会话恢复 / DevTools
    * 走同一条 `blocksDiscard()` 判定（架构 §7 规则 4）。谁在租约表里，就谁说了算。
@@ -1297,6 +1358,18 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       }
       const contents = tab.view.webContents
       if (contents.isDestroyed() || contents.isCrashed()) continue
+      // ADR-0004 硬门禁①：加载中的标签不睡（否则连首屏都回不来，更别说页面里的游戏）。
+      if (contents.isLoading()) {
+        noteDiscardBlocked(tab, 'loading')
+        continue
+      }
+      // ADR-0004 硬门禁②：含 Flash 内容的标签永不自动休眠。探测中（undefined）也按"有"处理。
+      const flash = flashContentOf(tab, contents)
+      if (flash !== false) {
+        noteDiscardBlocked(tab, flash === true ? 'flash-content' : 'flash-probe-pending',
+          ` url=${safe(() => contents.getURL(), '')}`)
+        continue
+      }
       if (safe(() => contents.isCurrentlyAudible(), false)) continue
       if (!isWebAddress(safe(() => contents.getURL(), ''))) continue
       if (tab.backgroundSince === undefined) {

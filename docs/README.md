@@ -23,6 +23,7 @@
 | 旧 Agent 架构 F0–F10 | [11-21 讨论稿 §F](discussions/2026-11-21-bfb-next-architecture.md) | **已归档** | 仅作历史依据，不再实施 |
 | 反需求与放权边界 | [11-23 边界文档](discussions/2026-11-23-bfb-next-agent-boundary.md) | **已吸收的讨论记录** | 有效原则已并入新 SSOT §15/§20 |
 | 飞窗（叠加层）渲染进程与预热策略 | [overlay demo](discussions/2026-11-25-overlay-shared-process-demo.md) §5–§7 | **现行** | 共享外壳渲染进程（默认）+ `overlay.prewarm` 三档；同主题的 review/question 两篇是过程稿 |
+| 标签休眠/回收的触发条件与优先级 | [ADR-0004](adr/0004-liveness-over-memory-reclaim.md) | **现行** | 游戏连续性 > 自动化可重复性 > 内存回收；**约束** [tab-discard 报告](reports/2026-11-24-tab-discard.md) 的守卫链（该报告的回收手段与实测数字仍然有效） |
 | 内核版本与补丁 | [`kernel/README.md`](kernel/README.md) + §F7 | **现行** | 只登记已验证补丁 |
 | 版本可行性 138 → 150 | [`specs/2026-11-15-forward-version-feasibility.md`](specs/2026-11-15-forward-version-feasibility.md) §1.7 | 依据 | 结论未变（144+ 阻断） |
 | 技术栈 | [ADR-0002](adr/0002-next-stack-baseline.md) + [ADR-0003](adr/0003-kernel-baseline-e39-142.md) + 技术栈讨论稿 | **现行** | ADR-0002 §2 已由 ADR-0003 推翻 |
@@ -93,6 +94,7 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 | [`adr/0001-next-branch-strategy.md`](adr/0001-next-branch-strategy.md) | 独立分支策略（已接受） |
 | [`adr/0002-next-stack-baseline.md`](adr/0002-next-stack-baseline.md) | 技术栈基线（部分收口，§2 已被推翻） |
 | [`adr/0003-kernel-baseline-e39-142.md`](adr/0003-kernel-baseline-e39-142.md) | 内核基线更正为 E39 / Chromium 142（推翻 ADR-0002 §2） |
+| [`adr/0004-liveness-over-memory-reclaim.md`](adr/0004-liveness-over-memory-reclaim.md) | 休眠/回收优先级：游戏连续性 > 自动化可重复性 > 内存回收（约束标签休眠的触发条件） |
 | [`kernel/README.md`](kernel/README.md) | 已验证内核补丁登记（含构建标识与 SHA-256） |
 | [`kickoff/README.md`](kickoff/README.md) · [`m2-beta.md`](kickoff/m2-beta.md) | 阶段索引与当前 M2 实施/验收记录 |
 | [`specs/`](specs)（5 篇） | Flash 移植、AI 复现手册、版本可行性、模块影响评估 |

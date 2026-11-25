@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict')
+const { createServer } = require('node:net')
 const { test } = require('node:test')
 const { audioStateOf, isShellPage, launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
@@ -356,6 +357,96 @@ test('关闭持有租约的标签后，其余标签的休眠判定不受影响',
   } finally {
     await close()
     await server.close()
+    clearDiscardEnv()
+  }
+})
+
+/**
+ * ADR-0004 硬门禁①：页面上有 Flash 内容的标签永不自动休眠。
+ *
+ * 判据必须是**页面 DOM**（`<embed>` / `<object>` / Ruffle 的 `<ruffle-player>`），不是引擎：
+ * 本产品的默认引擎就是 `ppapi`（插件可用时每个标签都是它），拿引擎当判据会把所有标签都
+ * 保护起来、休眠直接失效（实测：trace 全是 `flash-content`，普通页也不睡）。
+ *
+ * 页面里同时放一个惰性命中项，是为了不依赖"当前引擎会不会保留 `<embed>`"：
+ * `ppapi` 会留着 embed，Ruffle 会把它换成 ruffle-player，两者都在选择器里。
+ */
+test('含 Flash 内容的标签后台超时也不休眠（含普通页对照）', { timeout: 150_000 }, async () => {
+  withDiscardEnv()
+  const flashHtml = [
+    '<!doctype html><meta charset="utf-8"><title>GAME</title><body>',
+    '<embed type="application/x-shockwave-flash" src="/missing.swf" width="320" height="240">',
+    '<div type="application/x-shockwave-flash">惰性命中项：任何引擎都不会改写它</div>',
+    '</body>'
+  ].join('')
+  const server = await startFixtureServer({ '/game': flashHtml, '/plain': page('PLAIN') })
+  const { app, shell, close } = await launchApp()
+  try {
+    const game = await openPage(shell, server.baseUrl, '/game', 'GAME')
+    const plain = await openPage(shell, server.baseUrl, '/plain', 'PLAIN')
+    // 把两个网页标签都放到后台：选中起始页（内部页，永远不休眠）。
+    const first = (await state(shell)).tabs.find((item) => item.id !== game.id && item.id !== plain.id)
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), first.id)
+
+    // 对照先成立：普通页必须被休眠，否则这条用例在"扫描器整体停摆"时也会假通过。
+    const discardedPlain = await waitFor(async () => {
+      const found = (await state(shell)).tabs.find((item) => item.id === plain.id)
+      return found?.discarded ? found : null
+    }, { timeout: 30_000, message: '普通页在后台超时后没有被休眠（扫描器整体停摆？）' })
+    assert.equal(discardedPlain.title, 'PLAIN')
+
+    const stillGame = (await state(shell)).tabs.find((item) => item.id === game.id)
+    // 快照只在睡眠态才带 `discarded: true`，活着时该字段缺省。
+    assert.ok(!stillGame.discarded, '含 Flash 内容的标签被休眠了（ADR-0004 硬门禁失效）')
+  } finally {
+    await close()
+    await server.close()
+    clearDiscardEnv()
+  }
+})
+
+/**
+ * ADR-0004 硬门禁②：加载中的标签不休眠。
+ *
+ * 用"接受连接但永不响应"的 TCP 服务让页面长期停在加载态；这比慢响应更可控，
+ * 也不受 fixture 服务器实现影响。收尾必须先 destroy 连接，否则 `server.close()`
+ * 会一直等这个连接、把整条用例挂到超时。
+ */
+test('加载中的普通页不休眠', { timeout: 120_000 }, async () => {
+  withDiscardEnv()
+  const sockets = new Set()
+  const hanging = createServer((socket) => {
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+  })
+  await new Promise((resolve) => hanging.listen(0, '127.0.0.1', resolve))
+  const port = hanging.address().port
+  const server = await startFixtureServer({ '/a': page('A') })
+  const { app, shell, close } = await launchApp()
+  try {
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+    const hangingUrl = `http://127.0.0.1:${port}/hang`
+    await shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), hangingUrl)
+    // 悬挂导航不会 commit，所以不能按 address 找，只能按「谁在 loading」。
+    const loading = await waitFor(async () => {
+      const found = (await state(shell)).tabs.find((item) => item.loading)
+      return found ?? null
+    }, { timeout: 15_000, message: '悬挂页没有进入加载中' })
+
+    const first = (await state(shell)).tabs.find((item) => item.id !== loading.id)
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), first.id)
+
+    // 超过 TTL 数倍后仍然必须是"加载中且未休眠"。
+    await new Promise((resolve) => setTimeout(resolve, 7_000))
+    const still = (await state(shell)).tabs.find((item) => item.id === loading.id)
+    assert.equal(still.loading, true, '悬挂页应当仍在加载中')
+    // 快照只在睡眠态才带 `discarded: true`，活着时该字段缺省。
+    assert.ok(!still.discarded, '加载中的标签被休眠了（ADR-0004 硬门禁失效）')
+  } finally {
+    await close()
+    await server.close()
+    for (const socket of sockets) socket.destroy()
+    await new Promise((resolve) => hanging.close(resolve))
     clearDiscardEnv()
   }
 })
