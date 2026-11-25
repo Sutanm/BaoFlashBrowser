@@ -164,12 +164,19 @@ async function waitFor(predicate, { timeout = 30_000, interval = 100, message = 
   }
 }
 
-/** 使用独立测试 profile 启动真实自编译运行时。 */
-async function launchApp() {
+/**
+ * 使用独立测试 profile 启动真实自编译运行时。
+ *
+ * `options.env` 只叠加到子进程环境（例如 `BAO_OVERLAY_PREWARM=never` 这类策略覆盖）：
+ * 用例之间共用同一个 Node 进程（`--experimental-test-isolation=none`），改 `process.env`
+ * 会漏给后面的文件，所以必须走这里而不是在用例里 set。
+ */
+async function launchApp({ env: extraEnv } = {}) {
   const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-smoke-'))
   const app = await electron.launch({
     executablePath: resolveExecutable(),
     args: [resolve(__dirname, '../..'), `--user-data-dir=${profilePath}`],
+    env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     timeout: 20_000
   })
   const shell = app.windows().find(isShellPage) ??

@@ -75,8 +75,11 @@ describe('settingsFromRows', () => {
       { key: 'locale', value: 'zh-CN' },
       { key: 'unknown.key', value: 'x' }
     ])
+    // 默认值从 DEFAULT_SETTINGS 取，别在这里硬编码档位：`overlay.prewarm` 的默认值会随产品决策变
+    // （2026-11-25 从 auto 改成 always：共享进程下常驻只值 +5–6 MB），这条用例要断言的是
+    // "坏值回落到默认"，不是"默认是哪一档"。
     expect(settings).toEqual({
-      overlayPrewarm: 'auto', tabDiscard: 'auto', sessionStartup: 'newtab',
+      overlayPrewarm: DEFAULT_SETTINGS.overlayPrewarm, tabDiscard: 'auto', sessionStartup: 'newtab',
       themeMode: 'light', defaultEngine: 'ppapi', locale: 'zh-CN'
     })
   })

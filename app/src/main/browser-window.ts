@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView, webContents } from 'electron'
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
@@ -15,7 +15,7 @@ import { clearEngineRulesData, clearSessionData, setSetting, settings as current
 import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
 import { settingsChannels } from '../shared/settings'
-import type { SettingsSnapshot } from '../shared/settings'
+import type { PrewarmMode, SettingsSnapshot } from '../shared/settings'
 import { ntpChannels } from '../shared/ntp'
 import type { NtpCommand, NtpCommandResult, NtpSnapshot } from '../shared/ntp'
 import { importFlashPlugin } from './flash-plugin'
@@ -89,6 +89,13 @@ interface TabHost {
   notify(tab: Tab): void
   /** 按事件所属标签处理快捷键：跨窗移交后由新宿主处理（2026-11-23 审计 P1-4）。 */
   shortcut(tab: Tab, input: Input): boolean
+  /**
+   * 在**当前宿主窗口**开一个新标签（无 features 的 `window.open` / `target=_blank`）。
+   *
+   * 必须由事件发生时的 `tab.host` 解析，而不是创建视图时捕获的窗口：标签可以跨窗口
+   * 移交，旧窗口也可能已经关闭。
+   */
+  openTab(url: string): void
 }
 
 interface WindowController extends TabHost {
@@ -100,6 +107,8 @@ interface WindowController extends TabHost {
   detachTab(id: number): { tab: Tab; index: number } | undefined
   adoptTab(tab: Tab, index?: number): void
   isEmpty(): boolean
+  /** 窗口仍可接收标签：未请求关闭、未进入关闭流程、未销毁。 */
+  isAlive(): boolean
   /** 按事件所属标签处理快捷键：跨窗移交后由新宿主处理（2026-11-23 审计 P1-4）。 */
   shortcut(tab: Tab, input: Input): boolean
   bounds(): Rectangle
@@ -124,6 +133,35 @@ interface WindowController extends TabHost {
   forgetSessionPrompt(): void
   /** 规则/设置变化后重新投影（引擎来源胶囊要立刻按新规则重算）。 */
   refreshProjection(): void
+}
+
+/**
+ * 共享进程模式：浮层由外壳 `window.open` 产生并复用外壳的渲染进程。
+ *
+ * **默认开启**（实测常驻 +114 MB → +6 MB，冷路径端到端 218 ms → 144 ms）；`BAO_OVERLAY_SHARED=0`
+ * 可以退回"每个浮层一个渲染进程"的老路径（故障域隔离，用于对照或排查）。
+ *
+ * 代价与兜底：故障域与事件循环都合并了（崩浮层 = 崩外壳，浮层长任务会卡住工具栏）。
+ * 外壳 `render-process-gone` 会重载外壳文档自愈，标签由主进程状态重建。
+ * 准入规则：浮层只能是外壳自己的同源文档，导航一律钉死。
+ * 见 docs/discussions/2026-11-25-overlay-shared-process-demo.md
+ */
+const sharedOverlayMode = (): boolean => process.env.BAO_OVERLAY_SHARED !== '0'
+
+/**
+ * 预热策略（设置项 `overlay.prewarm`）的**唯一入口**。
+ *
+ * 为什么不让调用点各自读 `currentSettings().overlayPrewarm`：共享进程模式下
+ * "预热"要由外壳文档执行（它才是 `window.open` 的发起者），主进程只回答"准不准"。
+ * 策略一旦两处各读一次，就会出现"主进程以为预热了、渲染层却照旧冷开"这种对不上的状态
+ * ——`overlay.prewarm=never` 在共享模式下长期被忽略，正是这么来的。
+ *
+ * `BAO_OVERLAY_PREWARM` 仅供测试/度量强制某一档（与 `BAO_OVERLAY_SHARED`、`BAO_RETIRE_MS` 同类）。
+ */
+function overlayPrewarmPolicy(): PrewarmMode {
+  const forced = process.env.BAO_OVERLAY_PREWARM
+  if (forced === 'auto' || forced === 'always' || forced === 'never') return forced
+  return currentSettings().overlayPrewarm
 }
 
 export interface BrowserWindowOptions {
@@ -364,6 +402,8 @@ function safe<T>(read: () => T, fallback: T): T {
  * 关闭窗口时只释放该窗口拥有的资源，不触碰其它窗口（架构 §3 主进程与窗口）。
  */
 export async function createBrowserWindow(options: BrowserWindowOptions): Promise<void> {
+  // 冒烟故障注入点：只在跨窗口接管路径生效（不影响普通启动/弹窗）。
+  await injectAdoptFault(options)
   const pageSession = getPageSession()
   // Ruffle 资源协议按页面会话绑定（每个会话一次）。
   bindRuffleProtocol(pageSession)
@@ -410,12 +450,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   })
 
   const shellContentsId = window.webContents.id
-  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background, () => currentSettings().overlayPrewarm)
+  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background, overlayPrewarmPolicy, sharedOverlayMode)
   const tabs: Tab[] = []
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined
   let revision = 0
   let closing = false
+  /** 已经收到 `close`（窗口正在关闭）：此时不能再把标签回挂进来。 */
+  let closeRequested = false
   /** 崩溃会话：用户点「恢复」之前一直挂着，不自动建标签。 */
   let crashSession = options.crashSession
 
@@ -763,8 +805,12 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         live: () => !childContents.isDestroyed(),
         // 子窗口是页面弹窗，只可能是 http(s)。
         allow: isWebAddress,
-        // 子窗口里点 target=_blank 链接同样并入所属窗口的标签栏。
-        openTab: (url) => openUrlInNewTab(url)
+        /**
+         * 子弹窗不是标签，没有自己的宿主：它里面点 `target=_blank` 时**继承 opener 的
+         * 当前宿主**（opener 标签可能已经被拖到另一个窗口，旧窗口甚至已关闭）。
+         * 弹窗本身的允许/拒绝策略（同站、features 形态）完全不变。
+         */
+        openTab: (url) => context.openTab(url)
       })
     })
 
@@ -791,7 +837,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       live,
       // 内部页在同一会话里可以在 `bao://newtab` 与 `bao://settings` 之间就地导航。
       allow: tab.internal ? isInternalUrl : isWebAddress,
-      openTab: (url) => openUrlInNewTab(url)
+      // 跨窗口移交后 `tab.host` 已经指向新窗口：这里必须**现解析**，不能用本闭包捕获的窗口。
+      openTab: (url) => tab.host?.openTab(url)
     })
     contents.on('did-start-loading', () => {
       if (!live()) return
@@ -1708,11 +1755,23 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return { tab, index }
   }
 
+  /**
+   * 接管一个标签（跨窗口移交成功、或目标窗初始化失败后的回挂）。
+   *
+   * `index` 只是调用方在**另一个窗口**里看到的旧位置，不能盲信：等待期间源窗口可能
+   * 排序、固定或关闭过。真正落位按本窗口**当前**的固定分组夹取——固定标签只进最左
+   * 前缀，未固定标签不能插到固定前缀之前。
+   */
   function adoptTab(tab: Tab, index = 0): void {
     // 不递增 binding：现有监听器仍然有效，只是改按新宿主分发。
     tab.host = controller
     tab.error = ''
-    tabs.splice(Math.min(index, tabs.length), 0, tab)
+    const requested = Number.isFinite(index) ? Math.trunc(index) : 0
+    const pinnedCount = tabs.filter((item) => item.pinned).length
+    const at = tab.pinned
+      ? Math.min(Math.max(requested, 0), pinnedCount)
+      : Math.min(Math.max(requested, pinnedCount), tabs.length)
+    tabs.splice(at, 0, tab)
     select(tab, true)
   }
 
@@ -1723,19 +1782,23 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     snapshot: state,
     notify,
     isEmpty: () => tabs.length === 0,
+    isAlive: () => !closing && !closeRequested && !window.isDestroyed(),
     bounds: () => window.getBounds(),
     closeWindow: () => {
       if (!window.isDestroyed()) window.destroy()
     },
     detachTab,
     adoptTab,
+    openTab: (url) => openUrlInNewTab(url),
     shortcut: handleShortcut,
     refreshSettings: () => {
       updateWindowControls()
-      // 预热策略切换要立刻生效：改成「常驻」马上升温，改成「不预热」立刻释放（auto 交给 TTL）。
-      const policy = currentSettings().overlayPrewarm
+      // 预热策略切换要立刻生效：改成「常驻」马上升温，改成「不预热」立刻释放。
+      // 「自动」档切回来时补一次空闲回收，否则之前常驻下来的文档会一直留着。
+      const policy = overlayPrewarmPolicy()
       if (policy === 'always') overlays.prewarm()
       else if (policy === 'never') overlays.retire()
+      else overlays.armRetire()
     },
     broadcastSettings,
     ownsContents,
@@ -1912,12 +1975,81 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return { ok: true, state: state() }
   }
 
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // 共享进程模式（proto）：放行外壳自己发起的叠加层 window.open，其余一律拒绝。
+  window.webContents.setWindowOpenHandler((details) => {
+    if (!overlays.isOverlayUrl(details.url)) return { action: 'deny' }
+    return {
+      action: 'allow',
+      createWindow: (options) => {
+        // Electron 在运行时把 guest 放进 options.webContents，但类型定义里没有这个字段。
+        const guest = (options as unknown as { webContents: Electron.WebContents }).webContents
+        // 静默创建（2026-11-25）：浮层文档是"后台预热"建出来的，用户此刻可能在别的应用里打字。
+        // 记录这一瞬间的焦点，adopt 之后如果被 guest 抢走就还回去。
+        const seed = { window: BrowserWindow.getFocusedWindow(), contents: webContents.getFocusedWebContents() }
+        if (!overlays.adoptShared(guest)) {
+          guest.close()
+          return guest
+        }
+        restoreSeedFocus(seed, guest)
+        return guest
+      }
+    }
+  })
   window.webContents.on('before-input-event', (event, input) => {
     if (overlays.escape(input) || (active && handleShortcut(active, input))) event.preventDefault()
   })
   window.webContents.on('will-frame-navigate', (event) => event.preventDefault())
   window.webContents.on('will-redirect', (event) => event.preventDefault())
+
+  /**
+   * 外壳渲染进程自愈。
+   *
+   * 共享飞窗把工具栏和浮层放进了同一个渲染进程（常驻 +114 MB → +6 MB），代价是故障域合并：
+   * 浮层里一次崩溃/OOM 会连工具栏一起带走（实测：崩浮层 → 外壳 `isCrashed: true`，
+   * 只剩一个窗口壳）。标签页面是各自独立的 WebContents，不受牵连；所以恢复只需要重载外壳
+   * 文档，标签、引擎、租约这些状态都在主进程里，重载后由 `snapshot` 重建。
+   *
+   * 限流：60 秒内最多重载 3 次——崩溃循环时反复闪屏比停住更糟。
+   */
+  const shellCrashes: number[] = []
+  window.webContents.on('render-process-gone', (_event, details) => {
+    if (closing || closeRequested || window.isDestroyed()) return
+    if (details.reason === 'clean-exit') return
+    const now = Date.now()
+    shellCrashes.push(now)
+    while (shellCrashes.length > 0 && now - shellCrashes[0] > 60_000) shellCrashes.shift()
+    // 外壳没了，浮层视图的「打开」状态对不上（共享模式下它已随进程一起死），先按关闭处理。
+    overlays.retire()
+    if (shellCrashes.length > 3) return
+    traceSelfHeal(details.reason)
+    window.webContents.reload()
+    // 常驻档在自愈重载后要自己回来：重载前浮层已按关闭处理，新文档不会替用户悬停。
+    window.webContents.once('did-finish-load', () => {
+      if (!window.isDestroyed() && overlayPrewarmPolicy() === 'always') overlays.prewarm()
+    })
+  })
+
+  /**
+   * 自愈的诊断钩子（仅测试用）：把「崩溃 → 重载 → 工具栏回来没有」写进文件。
+   *
+   * 为什么用文件而不是断言：渲染进程崩溃后，Playwright 的 Page 句柄永久失效
+   * （`Target crashed`，也不会再发 `window` 事件），测试驱动没法从页面侧确认恢复。
+   * 所以由主进程自己写证据，测试只读文件。环境变量 `BAO_SELFHEAL_TRACE` 未设置时是空操作。
+   */
+  function traceSelfHeal(reason: string): void {
+    const file = process.env.BAO_SELFHEAL_TRACE
+    if (!file) return
+    const { appendFileSync } = require('node:fs') as typeof import('node:fs')
+    const write = (line: string): void => {
+      try { appendFileSync(file, `${Date.now()} ${line}\n`) } catch { /* ignore */ }
+    }
+    write(`gone reason=${reason}`)
+    window.webContents.once('did-finish-load', () => {
+      void window.webContents.executeJavaScript('({ gear: Boolean(document.querySelector(".gear-button")), tabs: document.querySelectorAll(".tab").length })')
+        .then((value) => write(`recovered ${JSON.stringify(value)}`))
+        .catch((error) => write(`recover-failed ${String((error as Error).message)}`))
+    })
+  }
 
   function updateWindowControls(): void {
     if (closing || window.isDestroyed()) return
@@ -2039,6 +2171,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   nativeTheme.on('updated', onNativeThemeUpdated)
   window.on('resize', layout)
+  // 关闭一旦开始就标记出来：跨窗口移交的回挂路径据此拒绝把标签塞进正在关闭的窗口。
+  window.on('close', () => {
+    closeRequested = true
+  })
   // 后台标签休眠扫描：每 30 秒一次；开关在设置里（`tab.discard = never` 时整个机制停用，
   // 挂机/自动化场景需要后台标签一直运行）。
   const discardTimer = setInterval(sweepDiscard, DISCARD_SWEEP_MS)
@@ -2090,22 +2226,26 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   try {
     await window.loadURL(shellUrl)
     if (options.adopt) adoptTab(options.adopt, options.adoptIndex ?? 0)
+    // 预热飞窗（**在 show 之前**）：外壳文档已经加载完（上面的 await loadURL），此时窗口还不可见，
+    // 用户不可能正在输入，所以"建浮层文档"与"用户打字"这两件事不可能重叠。
+    // 这条顺序是被实测逼出来的：放到 show 之后、空闲时刻建时，开窗恰好落进"用户填好地址、
+    // 还没敲回车"的窗口，回车会被吞掉（见 docs/discussions/2026-11-25-overlay-shared-process-demo.md §7.4）。
+    // 自动化模式不预热——那会给「页面视图计数」类断言多一个 webContents。
+    // 预热策略（设置项 overlay.prewarm，见 overlayPrewarmPolicy）：
+    // - always：文档启动后常驻（共享模式 +6 MB；第一次点开就是热的）；
+    // - auto（默认）：入口悬停时预热，空闲 5 分钟回收；
+    // - never：完全不预热，用到才建。
+    // 共享模式下 `prewarm()` 只是把"现在就建"推给外壳文档（`overlay-prewarm` 事件），
+    // 主进程不自己建——但闸门（canPrewarm / 策略）仍在这里，所以必须调。
+    // BAO_NO_PREWARM=1 只用于度量。
+    if (!hidden && !background && !closing && !window.isDestroyed() &&
+        process.env.BAO_NO_PREWARM !== '1' && overlayPrewarmPolicy() === 'always') overlays.prewarm()
     if (hidden) {
       // 保持 show:false：屏幕与任务栏都不出现（代价：Ruffle 出帧会被节流）。
     } else if (background) {
       applyAutomationWindowMode(window)
     } else {
       window.show()
-      // 预热飞窗：这里外壳文档已经加载完（上面的 await loadURL），立刻建隐藏的叠加层视图，
-      // 用户看到窗口、把鼠标移过去时它通常已经热了。自动化模式不预热——那会给
-      // 「页面视图计数」类断言多一个子视图。飞窗只有一个视图（panel/quick 共用），预热一次就够。
-      // 预热策略（设置项 overlay.prewarm）：
-      // - always：窗口创建即常驻（最快，占 ~100 MB）；
-      // - auto（默认）：入口悬停时预热，空闲 5 分钟回收；
-      // - never：完全不预热，用到才建。
-      // BAO_NO_PREWARM=1 只用于度量。
-      if (!closing && !window.isDestroyed() && process.env.BAO_NO_PREWARM !== '1' &&
-          currentSettings().overlayPrewarm === 'always') overlays.prewarm()
     }
   } catch (error) {
     closing = true
@@ -2133,6 +2273,33 @@ function applyAutomationWindowMode(window: BrowserWindow): void {
   window.showInactive()
 }
 
+/**
+ * 静默创建浮层文档之后把焦点还回去。
+ *
+ * 实测（2026-11-25，`app/scripts/probe-overlay-focus*.cjs`）：`window.open` + `createWindow`
+ * 把 guest 接成 WebContentsView 的做法**不会**改变 OS 激活，也不会移动 WebContents 焦点——
+ * 前台悬停预热、后台空闲、以及"用户正在记事本里打字"三种场景下，
+ * `BrowserWindow.getFocusedWindow()` / `win.isFocused()` / `webContents.getFocusedWebContents()`
+ * 全程不变，按键照常落进原来的输入框。
+ *
+ * 那为什么还要这一手：这条链路上游**具备**抢焦点的能力（Chromium
+ * `WebContentsImpl::CreateNewWindow` 在 `!renderer_started_hidden` 时会先 `widget_view->Show()`
+ * 再 `contents_to_load->Focus()`，见 web_contents_impl.cc:5408/5529），当前只是被 Electron 的
+ * WCV 宿主形态挡掉了。常驻预热把这个动作挪到了"用户没在操作本窗口"的时刻，一旦上游形态变化
+ * （例如 guest 退回真窗口），代价就是随机吞键这种最难复现的故障。所以这里加一道确定性还原：
+ * 只在外壳窗口仍 active、且焦点确实被 guest 拿走时才动手，绝不把后台窗口拉到前台。
+ */
+function restoreSeedFocus(
+  seed: { window: BrowserWindow | null; contents: WebContents | null },
+  guest: WebContents
+): void {
+  const owner = seed.window
+  if (!owner || owner.isDestroyed() || !owner.isFocused()) return
+  if (webContents.getFocusedWebContents() !== guest) return
+  const target = seed.contents && !seed.contents.isDestroyed() ? seed.contents : owner.webContents
+  if (!target.isDestroyed()) target.focus()
+}
+
 /** 新窗口落在拖放点附近，并夹到最近的显示器工作区内。 */
 function placeWindow(options: BrowserWindowOptions): { x?: number; y?: number; width: number; height: number } {
   const width = options.width ?? 1100
@@ -2148,13 +2315,36 @@ function placeWindow(options: BrowserWindowOptions): { x?: number; y?: number; w
 }
 
 /**
+ * 目标窗没建成、且无处可回挂时的确定性清理。
+ *
+ * 只关 WebContents、释放租约并断开宿主，不写撤销栈：标签的页面已经不可用/没有窗口
+ * 可承载，留一条「撤销关闭」只会恢复出空白。任何一步都不依赖源窗口仍然存在。
+ */
+function discardDetachedTab(tab: Tab): void {
+  tab.binding += 1
+  tab.host = undefined
+  activityLeases.releaseTab(tab.id)
+  const view = tab.view
+  tab.view = undefined
+  tab.discarded = true
+  // 页面可能已经被外部销毁（此时 `view.webContents` 取不到）：只关还活着的那一个。
+  const contents = view?.webContents
+  if (contents && !contents.isDestroyed()) contents.close()
+}
+
+/**
  * 把标签拖出窗口（架构 §3「拖出窗口」、审计 §3 跨窗口移交）。
- * 同一 WebContents 换宿主，页面状态与插件内存态保留；新建窗口失败时退回原窗口。
+ *
+ * 同一 WebContents 换宿主，页面状态与插件内存态保留。目标窗口初始化是异步的，等待期间
+ * 源窗口可能被排序、改固定甚至关闭，所以失败分支必须显式区分：
+ * - 源窗口还能接收标签 → 按**当前**固定分组回挂；
+ * - 源窗口已关闭 / 页面已失效 → 清理 WebContents 与租约，绝不回挂到已销毁窗口。
  */
 async function tearOffTab(
   source: WindowController,
   command: Extract<BrowserCommand, { type: 'tearoff' }>
 ): Promise<BrowserResult> {
+  if (!source.isAlive()) return fail('window-closed')
   const bounds = source.bounds()
   const inside = command.screenX >= bounds.x && command.screenX < bounds.x + bounds.width &&
     command.screenY >= bounds.y && command.screenY < bounds.y + bounds.height
@@ -2162,12 +2352,13 @@ async function tearOffTab(
 
   const detached = source.detachTab(command.id)
   if (!detached) return fail('unknown-tab')
+  const tab = detached.tab
 
   try {
     await createBrowserWindow({
       shellUrl: source.shellUrl,
       flash: source.flash,
-      adopt: detached.tab,
+      adopt: tab,
       adoptIndex: detached.index,
       x: command.screenX,
       y: command.screenY,
@@ -2175,18 +2366,47 @@ async function tearOffTab(
       height: bounds.height
     })
   } catch (error) {
-    // 两阶段接管后正常路径下视图仍然存活；仍加一道守卫，避免把已销毁的页面挂回去。
-    if (detached.tab.view?.webContents.isDestroyed()) {
-      console.error('跨窗口移动失败，且被移交页面已销毁。', error)
-      return fail('tearoff-failed')
+    // 显式失败分支：先判断源窗口此刻还能不能接回这个标签。
+    if (!source.isAlive()) {
+      discardDetachedTab(tab)
+      console.error('跨窗口移动失败，原窗口已关闭，标签已清理。', error)
+      return fail('tearoff-source-closed')
     }
-    source.adoptTab(detached.tab, detached.index)
+    // `view.webContents` 在页面被外部销毁后可能已经取不到：一律按「页面已失效」处理。
+    const contents = tab.view?.webContents
+    if (!contents || contents.isDestroyed()) {
+      discardDetachedTab(tab)
+      console.error('跨窗口移动失败，被移交页面已失效，标签已清理。', error)
+      return fail('tearoff-page-lost')
+    }
+    // 回挂按源窗口**当前**的分组落位（adoptTab 内部夹取），不使用旧索引硬插。
+    source.adoptTab(tab, detached.index)
     console.error('跨窗口移动失败，标签已退回原窗口。', error)
     return fail('tearoff-failed')
   }
 
-  if (source.isEmpty()) source.closeWindow()
+  // 成功路径同样要防「源窗口在等待期间已经关闭」：`closeWindow()` 对已销毁窗口是空操作。
+  if (source.isAlive() && source.isEmpty()) source.closeWindow()
   return { ok: true, state: source.snapshot() }
+}
+
+/**
+ * 冒烟专用故障注入，只作用于**跨窗口接管**（`options.adopt`）：
+ *
+ * - `BAO_TEAROFF_INIT_DELAY_MS`：把目标窗口初始化拖长，给「等待期间源窗口排序 / 改固定 /
+ *   关闭」留出确定的时间窗，避免测试靠猜时序；
+ * - `BAO_TEAROFF_INIT_FAIL=1`：初始化直接失败（一次性消费，避免影响后续窗口）。
+ *
+ * 不用真实故障或超时来碰运气；生产环境不设置这两个变量时行为完全不变。
+ */
+async function injectAdoptFault(options: BrowserWindowOptions): Promise<void> {
+  if (!options.adopt) return
+  const delay = Number(process.env.BAO_TEAROFF_INIT_DELAY_MS ?? 0)
+  if (Number.isFinite(delay) && delay > 0) await new Promise((done) => setTimeout(done, delay))
+  if (process.env.BAO_TEAROFF_INIT_FAIL === '1') {
+    delete process.env.BAO_TEAROFF_INIT_FAIL
+    throw new Error('注入：目标窗口初始化失败')
+  }
 }
 
 let registered = false
@@ -2336,4 +2556,12 @@ export function registerBrowserIpc(): void {
     if (picked.canceled || !picked.filePaths[0]) return { ok: false, code: 'cancelled' }
     return importFlashPlugin(picked.filePaths[0], flashLoadedPath())
   })
+}
+
+/**
+ * 冒烟诊断钩子（仅未打包）：把租约表挂到主进程 global，用来验证「跨窗口移交失败清理后
+ * 不留下租约」。不经过 IPC、不进入成品构建，也不改变任何产品行为。
+ */
+if (!app.isPackaged) {
+  ;(globalThis as unknown as Record<string, unknown>).__baoActivityLeases = activityLeases
 }

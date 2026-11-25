@@ -2,8 +2,7 @@ import { shellThemes, windowPalette } from '../shared/shell-theme'
 
 import type { ShellTheme } from '../shared/shell-theme'
 
-export function applyShellTheme(mode: ShellTheme): void {
-  const theme = shellThemes[mode]
+export function applyShellTheme(mode: ShellTheme): void {  const theme = shellThemes[mode]
   const root = document.documentElement
   // 用独立标记判断「这份文档是否已经应用过」：`data-theme` 由 HTML/CSS 预置（例如设置页
   // 的 `<html data-theme="light">`），拿它当幂等键会让我们跳过首次的颜色变量写入。
@@ -37,4 +36,15 @@ export function applyShellTheme(mode: ShellTheme): void {
   root.dataset.theme = mode
   root.dataset.shellTheme = mode
   for (const [name, value] of Object.entries(aliases)) root.style.setProperty(name, value)
+}
+
+/**
+ * 叠加层文档的初始主题：宿主（OverlayHost）可能已经先一步应用过——共享模式下浮层文档是
+ * 点击那一刻才建出来的，`panel-opened` 事件比异步组件挂载更早到。此时如果组件再用
+ * `prefers-color-scheme` 猜一次，会把已经设好的暗色覆盖回浅色（实测暗色模式用例就是这么挂的）。
+ */
+export function initialShellTheme(): ShellTheme {
+  const applied = document.documentElement.dataset.shellTheme
+  if (applied === 'dark' || applied === 'light') return applied
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }

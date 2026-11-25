@@ -33,7 +33,8 @@ function runOverlay(command: OverlayCommand): Promise<boolean> {
 const overlayListeners = new Set<(event: OverlayEvent) => void>()
 let pendingOverlayEvent: OverlayEvent | undefined
 ipcRenderer.on(overlayChannels.event, (_event: IpcRendererEvent, message: OverlayEvent) => {
-  if (overlayListeners.size === 0 && (message.type === 'toast' || message.type === 'panel-opened')) {
+  if (overlayListeners.size === 0 &&
+      (message.type === 'toast' || message.type === 'panel-opened' || message.type === 'overlay-prewarm')) {
     pendingOverlayEvent = message
   }
   for (const listener of overlayListeners) listener(message)
@@ -50,7 +51,10 @@ const overlay: OverlayBridge = {
   dismissToast: () => runOverlay({ type: 'dismiss-toast' }),
   reportFailure: (text) => runOverlay({ type: 'report-failure', text }),
   reportReady: () => runOverlay({ type: 'report-ready' }),
+  canPrewarm: () => runOverlay({ type: 'can-prewarm' }),
   prewarm: () => runOverlay({ type: 'prewarm' }),
+  sharedMode: () => runOverlay({ type: 'shared-mode' }),
+  pullOverlay: () => runOverlay({ type: 'pull-overlay' }),
   readMetrics: () => ipcRenderer.invoke(overlayChannels.metrics),
   resetMetrics: () => ipcRenderer.invoke(overlayChannels.metricsReset),
   subscribe(listener) {

@@ -6,7 +6,7 @@ import type { BrowserEngine } from '../shared/engine'
 import { THEME_MODES, themeModeLabels } from '../shared/settings'
 import type { ThemeMode } from '../shared/settings'
 import ShellIcon from './ShellIcon.vue'
-import { applyShellTheme } from './theme'
+import { applyShellTheme, initialShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
 
 /**
@@ -141,7 +141,7 @@ onBeforeUnmount(() => {
 
 watch(() => snapshot.value?.settings, () => { void nextTick(measure) })
 // 飞窗是独立文档：必须自己应用一次 token（否则外壳变量不在这里，面板会掉回浏览器默认色）。
-applyShellTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+applyShellTheme(initialShellTheme())
 watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme) })
 </script>
 

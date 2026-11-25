@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useBrowserStore } from './stores/browser'
+import { applyShellTheme } from './theme'
 
 /**
  * 叠加层宿主：panel / quick / toast **共用同一个文档与渲染进程**，靠事件切换显示哪个组件。
@@ -49,6 +50,9 @@ onMounted(() => {
   store.connect()
   detach = window.baoOverlay.subscribe((event) => {
     if (event.type === 'panel-opened' || event.type === 'quick-opened') void store.run({ type: 'snapshot' })
+    // 主题在宿主这一层就落地：内容是异步组件，首次打开时它可能比事件晚挂载，
+    // 之后自己也收不到那条 `*-opened`（共享模式下浮层文档是点击那一刻才建出来的）。
+    if (event.type === 'panel-opened' || event.type === 'quick-opened') applyShellTheme(event.theme)
     if (event.type === 'panel-opened') {
       kind.value = 'panel'
       active.value = true
@@ -69,6 +73,8 @@ onMounted(() => {
     setIdle(!active.value)
     if (active.value) reportReadyAfterPaint()
   })
+  // 拉一次当前内容：共享模式下文档可能在「点击那一刻」才被开出来，`*-opened` 早于订阅就丢了。
+  void window.baoOverlay.pullOverlay()
 })
 
 onBeforeUnmount(() => {

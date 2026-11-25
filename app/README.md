@@ -42,9 +42,11 @@ npm run dev
 | `npm run build` | 检查类型并编译主进程、预加载和渲染层。 |
 | `npm start` | 使用自编译 Electron 启动已编译的应用（`electron.vite.config.ts` 会把 `ELECTRON_EXEC_PATH` 指到 `.runtime/win-x64`；没有运行时才回落到官方 `node_modules/electron`，此时 Flash 不可用）。 |
 | `node scripts/test.cjs smoke`（推荐） | 不经过 npm 的命令壳；主窗口、拖出窗口和网页弹窗从创建起就不显示、不获取原生焦点。`npm run smoke` / `npm run smoke:bg` 保留为终端里的便捷入口。 |
-| `node scripts/test.cjs smoke --jobs=N` / `--serial` | 按文件并行（默认 4 个并发，`--serial` 回到单进程串行）。每个文件一个 node 进程、动态领队，输出只在失败时整段打印；`.cache/test-durations.json` 记录各文件耗时用于「长文件优先」调度。 |
+| `node scripts/test.cjs smoke --jobs=N` / `--serial` | 按文件并行（默认 4 个并发，`--serial` 回到单进程串行）。每个文件一个 node 进程、动态领队，输出只在失败时整段打印；`.cache/test-durations.json` 记录各文件耗时用于「长文件优先」调度。**加并发不会更快**：实测 4 并发 79–88 s、8 并发 84 s——瓶颈是每个用例都要冷启动一个 Electron 应用，不是 CPU。 |
+| `npm run smoke:file -- --only=a,b` | **只跑指定用例**（改完一个模块的日常验证，通常 8–25 s）。名字可写 `quick-settings`、`tests/smoke/quick-settings.test.cjs` 任一种；前台专用用例要加 `--foreground`（否则会按隐藏模式跳过）。 |
+| `npm run smoke:changed` | **按 `git diff` 自动选用例**。映射表在 `scripts/test-map.cjs`（手写的近似依赖：改 `shell-overlays.ts` → 叠加层与快捷设置；改 `activity-lease.ts` → 休眠与拖出）。碰到 `browser-window.ts`、`package.json`、`preload/index.ts` 这类全局文件、或 `src/` 里没有规则的新模块，会自动退回全量。改动只在文档/记忆时不跑用例。 |
 | 构建缓存 | `test.cjs` 会先算 `src/scripts/tests/package.json/配置文件` 的指纹，没变就跳过 typecheck + build（约省 6–7 s）；`BAO_FORCE_BUILD=1` 强制重建，`BAO_SKIP_TYPECHECK=1` 只构建不检查类型。 |
-| `npm run smoke:foreground` | 显式前台验收：**会弹出真实窗口并抢焦点**，覆盖最大化/全屏、指针锁、DevTools、Ruffle 画布焦点、叠加层预热与原生 Flash。期望 **58 用例全过、0 跳过**；期间不要切走焦点。 |
+| `npm run smoke:foreground` | 显式前台验收：**会弹出真实窗口并抢焦点**，覆盖最大化/全屏、指针锁、DevTools、Ruffle 画布焦点、叠加层预热（`overlay.prewarm` 三档）与原生 Flash。期望 **70 用例全过、0 跳过**；期间不要切走焦点。 |
 | `node scripts/test.cjs unit` | 单元层（vitest，纯 Node，不启动 Electron）：设置校验与回落、引擎与站点规则、站点边界（公共后缀）、日晷日夜换算、`bao://` 地址解析。45 个用例约 1 s；`npm run test:unit`。 |
 | `node scripts/test.cjs data` | 无窗口跑存储合同用例：设置落库与跨重启、非法值拒绝、`engine-rules.json` 一次性迁移与幂等、坏值回落、硬杀后数据完整、写失败不应用。终端可用 `npm run test:data`。 |
 | `npm run runtime:check` | 校验 `.runtime/win-x64` 的内核与插件 SHA-256（按 `scripts/runtime-manifest.json`），失败时给出拷贝/重建两条恢复路径。 |
@@ -62,7 +64,7 @@ npm run dev
 - **主题**：设置项 `theme.mode`（跟随系统 / 浅色 / 深色）1:1 映射 `nativeTheme.themeSource`；外壳 token、叠加层、系统窗口按钮配色、起始页与站点看到的 `prefers-color-scheme` 由同一个解析值派生。
 - **设置页**：`bao://settings` 作为内部页在标签里打开（`Ctrl+,` 或地址栏输入），已存在则复用；**当前标签是新标签页时就地覆盖它**（标签 id/位置不变，后退可回新标签页）。内部页跑在 `persist:bao-next-internal`、与页面同一套沙箱，只拿到 `baoSettings`（read/write/subscribe），拿不到外壳桥。在设置页里输入 http(s) 会新开普通标签，设置页原地不动。
 - **新标签页**：`bao://newtab` 是真实内部页（与设置页同会话、不同 origin），`Ctrl+T` / 「+」/ 双击标签栏 / 关闭最后一个标签都新建一个 NTP（不复用）；打开时焦点在地址栏。页面本体是 realbox（回车在本标签导航）+ 设置入口 + 原生 Flash 状态，快捷方式/最近访问等依赖历史与书签的板块尚未接入。NTP → 网页是同一个标签换视图（内部会话永不承载 http(s)）；网页的**最早一条历史后退会回到 NTP**（重建 NTP 视图，页面状态不保留），再前进会重新加载该网页。
-- **飞窗预热**：设置 → 性能 → 飞窗预热，三档：`自动`（默认，鼠标移到入口才预热，空闲 5 分钟自动释放）、`常驻`（窗口创建即预热，最快但常驻约 90–110 MB）、`不预热`（用到才建）。实测：不悬停 464 MB / 悬停后 578 MB、首开 3 ms；不预热时首开 97 ms。
+- **飞窗预热**：设置 → 性能 → 飞窗预热，三档：`常驻`（**默认**；窗口创建即预热，第一次点开就是热的，共享进程下**每窗口约 +5–6 MB、不多一个渲染进程**）、`自动`（鼠标移到入口才预热，空闲 5 分钟释放）、`不预热`（用到才建，最省内存）。预热后打开 3 / 9 ms；完全不预热的键盘冷开 3 / 27 ms（端到端 144 ms）。实测见 `docs/discussions/2026-11-25-overlay-shared-process-demo.md` §5.1 与 §7.5。
 - **齿轮快捷设置**：工具栏齿轮打开飞窗（主题 / 默认引擎 / 全部设置），与设置页共用同一份 store，任一侧修改两边立刻同步。视觉取 Chromium 数值（圆角 12、`elevation 12` 投影、`kColorMenuBorder` 边框），无关闭按钮（点外部 / Esc 关闭）。飞窗**永远在窗口内**：贴着齿轮按钮下沿、右边缘对齐，超出内容区时面板内部滚动。
 - **启动只有一个标签页**；多标签由「新建标签页」按钮、双击标签栏或 `Ctrl+T` 创建。
 - 标签栏交互：点击/键盘切换、中键关闭、关闭按钮按需显示、拖动排序、拖出窗口（tearoff）、右键菜单（重新加载/复制/固定/静音/关闭/撤销关闭）、`Ctrl+W` 关闭、`Ctrl+Shift+T` 撤销关闭。
@@ -89,11 +91,11 @@ npm run dev
 - **引擎相关未验证**：引擎切换失败回退（`restore()` 抛错）没有构造用例；真实站点（4399 等）在两种引擎下的对照未复测；UA、插件版本通告、`mms.cfg`、SWFObject 等站点兼容项按审计 §C7 另行验证。
 - **输入相关未验证**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖，样本见 `tests/smoke/fixtures/README.md`）。
 - **自动化窗口模式**：测试入口默认使用 `BAO_SMOKE_HIDDEN=1`（不调用 `show()`）。成品冒烟还会传入自动化命令行开关；普通启动成品不受测试环境变量影响。需要真实窗口或焦点的用例会明确标记跳过，可用 `npm run smoke:foreground` 验收。
-- **两套跑法（2026-11-25 定）**：日常用隐藏并行（快、不抢焦点、覆盖后台路径）；**每次换内核后必须跑一次前台** `npm run smoke:foreground --serial`（58 通过 / 0 跳过）作为闸门。不把用例整体改成前台——那会丢掉后台状态覆盖并只能串行。
+- **两套跑法（2026-11-25 定）**：日常用隐藏并行（快、不抢焦点、覆盖后台路径）；**每次换内核后必须跑一次前台** `npm run smoke:foreground --serial`（70 通过 / 0 跳过）作为闸门。不把用例整体改成前台——那会丢掉后台状态覆盖并只能串行。
 - **flaky 排查**：`waitFor()` 超时会自动 dump 现场（进程分布、外壳页状态、标签栏文案），失败的报错里带 `[超时现场]`；
   「等标签出现」一律用 `waitForTabLabel()`（DOM 轮询）而不是 Playwright 的可见性等待。
   第一轮治理记录见 [`docs/reports/2026-11-25-smoke-flake.md`](../docs/reports/2026-11-25-smoke-flake.md)。
-- **前台模式此前从未真正生效（2026-11-25 修复）**：`scripts/test.cjs` 里 `--foreground` 删掉的 `BAO_SMOKE_HIDDEN` 会被后面的 `else` 重新设回，导致 7 条前台用例长期被跳过。修复后实跑 **58/58 通过**，记录见 [`docs/reports/2026-11-25-foreground-smoke.md`](../docs/reports/2026-11-25-foreground-smoke.md)。
+- **前台模式此前从未真正生效（2026-11-25 修复）**：`scripts/test.cjs` 里 `--foreground` 删掉的 `BAO_SMOKE_HIDDEN` 会被后面的 `else` 重新设回，导致 7 条前台用例长期被跳过。修复后实跑 **58/58 通过**（后续新增用例，现为 70/70），记录见 [`docs/reports/2026-11-25-foreground-smoke.md`](../docs/reports/2026-11-25-foreground-smoke.md)。
 - **原生 Flash 验收**：匹配运行时清单中已验证沙箱的内核时，应用后台冒烟会验证 PPAPI 装载、JS 桥和插件输入。自定义或旧内核以及成品的原生 Flash 验收可用显式前台模式。
 - **自动化宿主**：如果编辑器或自动化工具启动 `npm` 本身就会弹出终端，可从该工具直接启动 `node scripts/test.cjs smoke`，工作目录设为 `app`，并由该工具把入口进程设为不显示控制台。入口脚本只控制它启动的子进程。
 - **下载默认拒绝**：页面与外壳会话的 `will-download` 一律 `preventDefault()`。M1 没有下载能力与落盘策略，没有明确策略前不静默写文件；下载的身份、分区、暂停/恢复按 §4 在 M2 立项。

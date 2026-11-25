@@ -8,7 +8,7 @@ import type { OverlayKind } from '../shared/overlay'
 import { OVERLAY_INSET, OVERLAY_TOP_INSET } from './overlay-layout'
 import ShellIcon from './ShellIcon.vue'
 import { useBrowserStore } from './stores/browser'
-import { applyShellTheme } from './theme'
+import { applyShellTheme, initialShellTheme } from './theme'
 
 const props = defineProps<{ kind: OverlayKind; text?: string }>()
 const store = useBrowserStore()
@@ -27,7 +27,7 @@ let detach: (() => void) | undefined
 let observer: ResizeObserver | undefined
 let restoreSelection = false
 
-applyShellTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+applyShellTheme(initialShellTheme())
 watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme) })
 
 async function focusSelected(): Promise<void> {

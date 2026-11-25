@@ -31,7 +31,7 @@ const failureText: Record<string, string> = {
 const current = computed(() => snapshot.value?.settings)
 const theme = computed(() => current.value?.themeMode ?? 'system')
 const engine = computed(() => current.value?.defaultEngine ?? 'ppapi')
-const prewarm = computed(() => current.value?.overlayPrewarm ?? 'auto')
+const prewarm = computed(() => current.value?.overlayPrewarm ?? 'always')
 const tabDiscard = computed(() => current.value?.tabDiscard ?? 'auto')
 const sessionStartup = computed(() => current.value?.sessionStartup ?? 'newtab')
 const prewarmModes = PREWARM_MODES

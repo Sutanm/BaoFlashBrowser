@@ -53,6 +53,8 @@ export type BrowserFailureCode =
   | 'invalid-address'
   | 'window-closed'
   | 'tearoff-failed'
+  | 'tearoff-source-closed'
+  | 'tearoff-page-lost'
   | 'nothing-to-undo'
   | 'engine-switch-failed'
   | 'engine-unavailable'
@@ -70,6 +72,8 @@ export const browserFailureText: Record<BrowserFailureCode, string> = {
   'invalid-address': '请输入有效的 HTTP 或 HTTPS 网址',
   'window-closed': '窗口已关闭',
   'tearoff-failed': '无法在新窗口打开此标签页，已退回原窗口',
+  'tearoff-source-closed': '新窗口未能创建，原窗口已关闭，标签已关闭',
+  'tearoff-page-lost': '新窗口未能创建，标签页面已失效，标签已关闭',
   'nothing-to-undo': '没有可恢复的标签页',
   'engine-switch-failed': '引擎切换失败，已保留原引擎与页面',
   'engine-unavailable': '原生 Flash 不可用，仍使用当前引擎',

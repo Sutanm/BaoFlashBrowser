@@ -20,7 +20,11 @@ export type DiscardMode = (typeof DISCARD_MODES)[number]
 export const SESSION_STARTUP_MODES = ['newtab', 'continue'] as const
 export type SessionStartupMode = (typeof SESSION_STARTUP_MODES)[number]
 
-export const PREWARM_MODES = ['auto', 'always', 'never'] as const
+/**
+ * 预热档位的取值域。顺序即设置页分段控件的顺序：默认档（常驻）放最前。
+ * 注意顺序不参与校验，老库里存的 `auto`/`never` 照样合法。
+ */
+export const PREWARM_MODES = ['always', 'auto', 'never'] as const
 export type PrewarmMode = (typeof PREWARM_MODES)[number]
 
 export const THEME_MODES = ['system', 'light', 'dark'] as const
@@ -30,7 +34,14 @@ export type Locale = 'zh-CN'
 
 /** 用户可见设置的形状（键值平铺，便于投影与持久化对齐）。 */
 export interface Settings {
-  /** 叠加层预热策略：auto=悬停预热 + 5 分钟回收；always=窗口创建即常驻；never=用到才建。 */
+  /**
+   * 叠加层预热策略：always=窗口创建即常驻（默认；共享进程下每窗口约 +5–6 MB，第一次点开就是热的）；
+   * auto=悬停预热 + 空闲 5 分钟回收；never=用到才建。
+   *
+   * 默认曾是 `auto`（悬停预热）：那时"常驻"要独占一个渲染进程（+90–110 MB），很贵。
+   * 浮层寄居外壳渲染进程之后常驻只值 +5–6 MB、不多一个进程，于是 2026-11-25 反转默认
+   * （实测：docs/discussions/2026-11-25-overlay-shared-process-demo.md §7.5）。
+   */
   overlayPrewarm: PrewarmMode
   /** 后台标签休眠：auto=后台超过 TTL 丢弃视图（切回重新加载）；never=从不丢弃（挂机场景）。 */
   tabDiscard: DiscardMode
@@ -43,7 +54,9 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  overlayPrewarm: 'auto',
+  // 常驻预热：共享进程下每窗口只值 +5–6 MB（且不多一个渲染进程），换来"第一次点开就是热的"。
+  // 需要省内存的用户仍可在设置里选「自动（悬停预热）」或「不预热」。
+  overlayPrewarm: 'always',
   tabDiscard: 'auto',
   // 默认对齐 Chrome：正常退出后重启是新标签页，只有崩溃才提示恢复。
   sessionStartup: 'newtab',
@@ -154,9 +167,11 @@ export const sessionStartupLabels: Record<SessionStartupMode, string> = {
 }
 
 export const prewarmModeLabels: Record<PrewarmMode, string> = {
-  auto: '自动（悬停预热）',
-  always: '常驻（更快，占内存）',
-  never: '不预热'
+  // 默认档放最前，且文案说明它换来了什么/付出了什么：共享进程下常驻只值 +5–6 MB，
+  // 但"更快"和"省内存"的取舍仍应由用户看得见地做（见 §7.5 的实测表）。
+  always: '常驻（默认，更快）',
+  auto: '自动（悬停预热，省内存）',
+  never: '不预热（最省内存）'
 }
 
 export const themeModeLabels: Record<ThemeMode, string> = {

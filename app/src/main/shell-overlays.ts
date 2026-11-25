@@ -59,7 +59,9 @@ export function createShellOverlays(
   /** 自动化模式下不预热：多出来的视图会干扰「页面视图计数」类断言。 */
   canPrewarm: () => boolean,
   /** 预热策略：never 不预热；always 不回收；auto 悬停预热 + 空闲回收。 */
-  prewarmPolicy: () => 'auto' | 'always' | 'never'
+  prewarmPolicy: () => 'auto' | 'always' | 'never',
+  /** 共享进程模式（proto）：视图由外壳 window.open 产生，主进程只接管，不自己建。 */
+  shared: () => boolean
 ) {
   const shell = window.webContents
   let flyout: HostedView | undefined
@@ -85,8 +87,22 @@ export function createShellOverlays(
   }
 
   function send(contents: WebContents, message: OverlayEvent): void {
-    if (!contents.isDestroyed()) contents.send(overlayChannels.event, message)
+    // 共享进程模式下浮层文档没有 preload：它通过 opener 订阅的是**外壳**的通道，
+    // 所以事件发给外壳（外壳 preload 会转发给包括浮层在内的所有订阅者）。
+    const target = shared() ? shell : contents
+    if (!target.isDestroyed()) target.send(overlayChannels.event, message)
   }
+
+  /** 只发给外壳（共享模式的"指挥"事件：预热、内容补发）。 */
+  function sendToShell(message: OverlayEvent): void {
+    if (!shell.isDestroyed()) shell.send(overlayChannels.event, message)
+  }
+
+  /** 只有叠加层自己会发的命令：共享模式下它们经外壳的桥发言，需要按当前内容种类认角色。 */
+  const OVERLAY_ONLY_COMMANDS = new Set<string>([
+    'report-ready', 'report-failure', 'resize-panel', 'resize-quick',
+    'close-panel', 'close-quick', 'dismiss-toast', 'pull-overlay'
+  ])
 
   function hide(item: HostedView): void {
     // 先告诉文档「我要隐藏了」：视图 detach 后页面仍报告 visible，不主动通知的话
@@ -230,9 +246,78 @@ export function createShellOverlays(
   }
 
   /** 只有一个叠加层视图：panel / quick / toast 共用（见文件头说明）。 */
-  function host(): HostedView {
+  function host(): HostedView | undefined {
     if (flyout) return flyout
-    return createView()
+    // 共享模式：视图只由 adoptShared() 接管产生，绝不自己建（否则会退回独立进程）。
+    return shared() ? undefined : createView()
+  }
+
+  /**
+   * 共享进程模式：接管外壳 `window.open` 出来的 guest，作为唯一的叠加层视图。
+   * 它已经有自己的文档/进程，这里不 loadURL、不设 preload。
+   */
+  function adoptShared(contents: WebContents): boolean {
+    if (!shared() || disposed) return false
+    const previous = flyout
+    flyout = undefined
+    if (previous && previous.view.webContents !== contents && !previous.view.webContents.isDestroyed()) {
+      previous.view.webContents.close()
+    }
+    const view = new WebContentsView({ webContents: contents })
+    view.setVisible(false)
+    view.setBackgroundColor('#00000000')
+    const item: HostedView = { view, ready: false }
+    flyout = item
+    const isCurrent = () => flyout === item && !disposed
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // 准入规则：共享浮层只能是「外壳自己的同源文档」，导航也钉死——否则浮层里一个指向外站的
+    // 链接就能把这个文档带到别的源（既是安全面，也会让借来的桥失效）。
+    // 注意**不能无条件 preventDefault**：guest 的首次加载本身就是渲染进程发起的导航，
+    // 一律拦掉会得到一个永远空白的飞窗（实测 5 个叠加层用例全挂在 30 s 超时）。
+    contents.on('will-frame-navigate', (event) => {
+      if (event.isSameDocument || isOverlayUrl(event.url)) return
+      event.preventDefault()
+    })
+    contents.on('will-redirect', (event) => {
+      if (isOverlayUrl(event.url)) return
+      event.preventDefault()
+    })
+    contents.on('before-input-event', (event, input) => {
+      if (escape(input) || handleShortcut(input)) event.preventDefault()
+    })
+    contents.on('destroyed', () => {
+      if (!isCurrent()) return
+      flyout = undefined
+      item.ready = false
+      item.kind = undefined
+      item.bounds = undefined
+      shownKind = undefined
+    })
+    contents.on('render-process-gone', () => {
+      if (!isCurrent() || contents.isDestroyed()) return
+      flyout = undefined
+    })
+    const onLoaded = (): void => {
+      if (!isCurrent()) return
+      item.ready = true
+      if (item.kind) sync(item.kind)
+    }
+    if (contents.isLoading()) contents.once('did-finish-load', onLoaded)
+    else onLoaded()
+    return true
+  }
+
+  /** 这个 URL 是不是我们放行的叠加层文档（共享模式下由外壳 window.open 产生）。 */
+  function isOverlayUrl(url: string): boolean {
+    if (!shared()) return false
+    try {
+      if (!sameDocument(url, shellUrl)) return false
+      const parsed = new URL(url)
+      return parsed.searchParams.getAll(OVERLAY_QUERY).length === 1 &&
+        parsed.searchParams.get(OVERLAY_QUERY) === OVERLAY_MODE
+    } catch {
+      return false
+    }
   }
 
   function createView(): HostedView {
@@ -285,7 +370,7 @@ export function createShellOverlays(
   }
 
   /** 打开（或换内容并重新定位）叠加层。panel / quick / toast 用同一个视图。 */
-  function showOverlay(kind: OverlayKind, bounds: OverlayBounds): void {
+  function showOverlay(kind: OverlayKind, bounds: OverlayBounds): boolean {
     // 度量：记录点击那一刻视图处于哪种状态（cold / warming / warm）。
     const state = flyout ? (flyout.ready ? 'warm' : 'warming') : 'cold'
     pendingOpen = beginOpen(kind, state)
@@ -293,15 +378,72 @@ export function createShellOverlays(
     cancelRetire()
     if (flyout?.kind && flyout.kind !== kind && flyout.kind !== 'toast') close(flyout.kind, false)
     const item = host()
+    if (!item) return false
     item.kind = kind
     item.bounds = bounds
     sync(kind)
+    return true
+  }
+
+  /**
+   * 预热闸门：`never` 档、自动化/后台窗口一律不预热。
+   *
+   * 这是"该不该预热"的**唯一判定**（设置项由主进程读，别让渲染层猜——两边各读一次
+   * 就会对不上，`overlay.prewarm=never` 在共享模式下被忽略正是这么来的）。
+   */
+  function canPrewarmNow(): boolean {
+    return canPrewarm() && prewarmPolicy() !== 'never'
+  }
+
+  /** 预热：独立进程路径自己建隐藏视图；共享模式让外壳 `window.open` 出文档（主进程不建）。 */
+  function startPrewarm(): boolean {
+    if (!canPrewarmNow()) return false
+    if (shared()) {
+      sendToShell({ type: 'overlay-prewarm' })
+      return true
+    }
+    host()
+    armRetire()
+    return true
+  }
+
+  /**
+   * 外壳请求预热（悬停路径）。
+   *
+   * 与 `startPrewarm()` 只差共享模式那一支：这里**不**推 `overlay-prewarm`，
+   * 因为外壳还要等 180 ms「悬停意图」再开窗（同步开窗会吞掉紧随的 click）。
+   * 独立进程模式没这个约束，直接建视图。
+   */
+  function prewarmForShell(): boolean {
+    if (!canPrewarmNow()) return false
+    if (shared()) return true
+    host()
+    armRetire()
+    return true
   }
 
   function command(event: IpcMainInvokeEvent, value: unknown): boolean {
-    const role = sender(event)
+    let role = sender(event)
     if (!role || !isRecord(value)) return false
+    // 共享模式：浮层文档经外壳的桥发言，IPC 的 sender 是外壳；
+    // 只有"叠加层专属命令"才按当前内容种类认角色，其余仍按外壳处理。
+    if (shared() && role === 'shell' && OVERLAY_ONLY_COMMANDS.has(String(value.type))) {
+      role = flyout?.kind ?? 'quick'
+    }
     switch (value.type) {
+      case 'shared-mode':
+        return role === 'shell' && shared()
+      case 'pull-overlay': {
+        // 浮层文档刚挂载、订阅才注册好：把「现在该显示什么」补发一次。
+        if (role === 'shell') return false
+        if (!flyout?.kind || !flyout.view.getVisible()) return true
+        const live = flyout
+        if (live.kind === 'toast') send(live.view.webContents, { type: 'toast', text: live.text ?? '' })
+        else send(live.view.webContents, live.kind === 'panel'
+          ? { type: 'panel-opened', theme: currentTheme() }
+          : { type: 'quick-opened', theme: currentTheme() })
+        return true
+      }
       case 'set-panel': {
         if (role !== 'shell') return false
         if (value.bounds === null) {
@@ -310,8 +452,7 @@ export function createShellOverlays(
         }
         const bounds = readBounds(value.bounds)
         if (!bounds) return false
-        showOverlay('panel', bounds)
-        return true
+        return showOverlay('panel', bounds)
       }
       case 'set-quick': {
         if (role !== 'shell') return false
@@ -321,8 +462,7 @@ export function createShellOverlays(
         }
         const bounds = readBounds(value.bounds)
         if (!bounds) return false
-        showOverlay('quick', bounds)
-        return true
+        return showOverlay('quick', bounds)
       }
       case 'set-toast': {
         if (role !== 'shell') return false
@@ -334,10 +474,12 @@ export function createShellOverlays(
         const bounds = readBounds(value.toast.bounds)
         if (!bounds) return false
         const text = value.toast.text
+        // 共享模式下视图要等外壳 window.open 之后才被接管：还没有就按失败返回。
         const item = host()
+        if (!item) return false
         const updated = item.text !== text
         item.text = text
-        showOverlay('toast', bounds)
+        if (!showOverlay('toast', bounds)) return false
         if (item.ready && updated) send(item.view.webContents, { type: 'toast', text })
         return true
       }
@@ -362,13 +504,10 @@ export function createShellOverlays(
         return role === 'quick' && typeof value.restoreFocus === 'boolean' && closeQuick(value.restoreFocus)
       case 'dismiss-toast':
         return role === 'toast' && dismissToast()
-      case 'prewarm': {
-        // 「不预热」档必须真的不预热：悬停事件也不能把视图建起来。
-        if (role !== 'shell' || !canPrewarm() || prewarmPolicy() === 'never') return false
-        host()
-        armRetire()
-        return true
-      }
+      case 'can-prewarm':
+        return role === 'shell' && canPrewarmNow()
+      case 'prewarm':
+        return role === 'shell' && prewarmForShell()
       case 'report-ready': {
         if (role !== 'panel' && role !== 'quick' && role !== 'toast') return false
         if (pendingOpen) markContent(pendingOpen)
@@ -404,11 +543,12 @@ export function createShellOverlays(
       resetSamples()
       return true
     },
-    /** 预热：提前建好隐藏的叠加层视图（首次打开只差一次 setBounds），不改变可见性。 */
+    /** 预热：提前建好叠加层（首次打开只差一次 setBounds/一次显示），不改变可见性。 */
     prewarm() {
-      host()
-      armRetire()
+      startPrewarm()
     },
+    /** 重新起算空闲回收（策略从常驻切回自动时用）。 */
+    armRetire,
     /** 立即释放叠加层视图（设置切到「不预热」时用）。 */
     retire() {
       retireNow()
@@ -418,8 +558,14 @@ export function createShellOverlays(
     },
     publish(state: BrowserState) {
       const contents = flyout?.view.webContents
-      if (contents && !contents.isDestroyed()) contents.send(browserChannels.changed, state)
+      // 共享模式：浮层经外壳的桥订阅，改发给外壳。
+      const target = shared() ? shell : contents
+      if (target && !target.isDestroyed()) target.send(browserChannels.changed, state)
     },
+    /** 共享进程模式：接管外壳 window.open 出来的 guest（proto）。 */
+    adoptShared,
+    /** 判断某个 URL 是否是放行的叠加层文档（共享模式）。 */
+    isOverlayUrl,
     dispose() {
       disposed = true
       activePage?.off('before-input-event', onPageInput)
@@ -431,3 +577,4 @@ export function createShellOverlays(
     }
   }
 }
+
