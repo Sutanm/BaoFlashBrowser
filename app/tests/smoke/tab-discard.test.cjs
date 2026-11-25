@@ -1,5 +1,8 @@
 const assert = require('node:assert/strict')
-const { createServer } = require('node:net')
+const { createServer } = require('node:http')
+const { mkdtemp, readFile, rm } = require('node:fs/promises')
+const { tmpdir } = require('node:os')
+const { join } = require('node:path')
 const { test } = require('node:test')
 const { audioStateOf, isShellPage, launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
@@ -415,38 +418,68 @@ test('含 Flash 内容的标签后台超时也不休眠（含普通页对照）'
 test('加载中的普通页不休眠', { timeout: 120_000 }, async () => {
   withDiscardEnv()
   const sockets = new Set()
-  const hanging = createServer((socket) => {
+  const hanging = createServer((_request, response) => {
+    /**
+     * 关键：先回响应头和一段正文，但**不 end**——页面会稳定停在「加载中」。
+     *
+     * 旧夹具只 accept 不响应，Chromium 若干秒后会把挂起请求判成失败，`loading` 自然变
+     * false，用例偶发失败（不是休眠误杀）。这里让主文档真的开始、但永远不结束。
+     */
+    response.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Transfer-Encoding': 'chunked'
+    })
+    response.write('<!doctype html><meta charset="utf-8"><title>悬挂页</title><h1>hanging')
+  })
+  hanging.on('connection', (socket) => {
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
   })
   await new Promise((resolve) => hanging.listen(0, '127.0.0.1', resolve))
   const port = hanging.address().port
   const server = await startFixtureServer({ '/a': page('A') })
+  // 期望：扫描器确实跑过、且按「loading」门禁拒绝休眠——避免用「没被休眠」掩盖扫器停摆。
+  const traceDir = await mkdtemp(join(tmpdir(), 'bao-discard-loading-'))
+  const traceFile = join(traceDir, 'trace.log')
+  process.env.BAO_DISCARD_TRACE = traceFile
   const { app, shell, close } = await launchApp()
   try {
     await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
     const hangingUrl = `http://127.0.0.1:${port}/hang`
-    await shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), hangingUrl)
-    // 悬挂导航不会 commit，所以不能按 address 找，只能按「谁在 loading」。
+    const navigated = await shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), hangingUrl)
+    assert.equal(navigated.ok, true, `导航没有发起：${navigated.code ?? ''}`)
+    // 悬挂导航不会 commit（地址仍为空），只能按**命令作用于哪个标签**来锁定它；
+    // 不能在全量快照里找「谁在 loading」——起始 NTP 可能还没加载完，会认错标签。
+    const hangingId = navigated.state.activeId
     const loading = await waitFor(async () => {
-      const found = (await state(shell)).tabs.find((item) => item.loading)
+      const found = (await state(shell)).tabs.find((item) => item.id === hangingId && item.loading)
       return found ?? null
     }, { timeout: 15_000, message: '悬挂页没有进入加载中' })
 
     const first = (await state(shell)).tabs.find((item) => item.id !== loading.id)
+    assert.ok(first, '应存在另一个标签用于把悬挂页切到后台')
     await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), first.id)
 
     // 超过 TTL 数倍后仍然必须是"加载中且未休眠"。
     await new Promise((resolve) => setTimeout(resolve, 7_000))
     const still = (await state(shell)).tabs.find((item) => item.id === loading.id)
-    assert.equal(still.loading, true, '悬挂页应当仍在加载中')
-    // 快照只在睡眠态才带 `discarded: true`，活着时该字段缺省。
-    assert.ok(!still.discarded, '加载中的标签被休眠了（ADR-0004 硬门禁失效）')
+    const trace = await readFile(traceFile, 'utf8').catch(() => '')
+    // 先看是否被休眠：被睡时 `loading` 在投影里必然是 false，先报真实原因。
+    assert.ok(!still.discarded,
+      `加载中的标签被休眠了（ADR-0004 硬门禁失效）：${JSON.stringify(still)}\n[trace]\n${trace.slice(-1200)}`)
+    assert.equal(still.loading, true,
+      `悬挂页应当仍在加载中：${JSON.stringify(still)}\n[trace]\n${trace.slice(-1200)}`)
+
+    // 硬门禁的证据：同一标签出现「拒绝休眠：loading」，说明扫描器在跑而不是整体停摆。
+    assert.match(trace, new RegExp(`tab=${loading.id} 拒绝休眠：loading`),
+      `没有观察到 loading 门禁的拒绝记录：${trace.slice(-800)}`)
   } finally {
+    delete process.env.BAO_DISCARD_TRACE
     await close()
     await server.close()
     for (const socket of sockets) socket.destroy()
     await new Promise((resolve) => hanging.close(resolve))
+    await rm(traceDir, { recursive: true, force: true })
     clearDiscardEnv()
   }
 })
