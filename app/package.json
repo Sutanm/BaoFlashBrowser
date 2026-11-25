@@ -14,6 +14,8 @@
     "build": "node scripts/build.cjs",
     "smoke": "node scripts/test.cjs smoke",
     "smoke:bg": "node scripts/test.cjs smoke",
+    "smoke:file": "node scripts/test.cjs smoke",
+    "smoke:changed": "node scripts/test.cjs smoke --changed",
     "smoke:foreground": "node scripts/test.cjs smoke --foreground",
     "test:unit": "node scripts/test.cjs unit",
     "test:data": "node scripts/test.cjs data",
