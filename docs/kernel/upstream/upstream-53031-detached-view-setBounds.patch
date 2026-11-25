@@ -1,0 +1,146 @@
+From 96f3996d8d3ce6e2fcfb86326fc4b953b53936fb Mon Sep 17 00:00:00 2001
+From: Ryan Fitzgerald <114442851+rf-figma@users.noreply.github.com>
+Date: Sat, 22 Aug 2026 01:50:11 -0700
+Subject: [PATCH] fix: set bounds on detached `WebContentsView` (#53031)
+
+fix: set bounds on detached WebContentsView
+
+This fixes a bug where a page loaded in a `WebContentsView` that wasn't
+attached to a window yet would see its width and height as zero even if
+the user had already called `setBounds()` on the view. This could cause
+significant problems for pages that use the window dimensions to do
+layout work at load time.
+
+It turns out that calling `View::SetBoundsRect()` doesn't propagate the
+new bounds to the relevant `WebContents` if the view isn't visible. To
+initialize the page with the correct bounds, we need to call
+`WebContents::Resize()` explicitly in the case where the view doesn't
+belong to a widget.
+
+Note that there are a bunch of call sites in Chromium that run into this
+same issue when creating background tabs and take the same approach to
+fix it (e.g., [1], [2]).
+
+Fixes #43257.
+
+[if the view isn't visible]: https://github.com/chromium/chromium/blob/main/ui/views/controls/native/native_view_host.cc#L156-L157
+[1]: https://github.com/chromium/chromium/blob/main/chrome/browser/ui/tabs/tab_strip_model.cc#L1907-L1920
+[2]: https://github.com/chromium/chromium/blob/main/chrome/browser/ui/browser_tabrestore.cc#L206-L221
+---
+ .../ui/inspectable_web_contents_view.cc       | 18 ++++++++-
+ .../ui/inspectable_web_contents_view.h        |  3 ++
+ spec/api-web-contents-view-spec.ts            | 39 +++++++++++++++++++
+ 3 files changed, 58 insertions(+), 2 deletions(-)
+
+diff --git a/shell/browser/ui/inspectable_web_contents_view.cc b/shell/browser/ui/inspectable_web_contents_view.cc
+index 312704c..9a2c23f 100644
+--- a/shell/browser/ui/inspectable_web_contents_view.cc
++++ b/shell/browser/ui/inspectable_web_contents_view.cc
+@@ -285,9 +285,23 @@ void InspectableWebContentsView::ShowDevToolsContextMenu(
+   context_menu_->RunMenuAt(widget);
+ }
+ 
++void InspectableWebContentsView::SetContentsViewBounds(
++    const gfx::Rect& bounds) {
++  GetContentsView()->SetBoundsRect(bounds);
++
++  // If the view isn't currently in a Widget, we need to propagate the new
++  // bounds to the WebContents manually or the page won't see the correct
++  // dimensions.
++  if (!GetWidget() && contents_web_view_) {
++    if (auto* web_contents = inspectable_web_contents_->GetWebContents()) {
++      web_contents->Resize(gfx::Rect(bounds.size()));
++    }
++  }
++}
++
+ void InspectableWebContentsView::Layout(PassKey) {
+   if (!devtools_web_view_->GetVisible()) {
+-    GetContentsView()->SetBoundsRect(GetContentsBounds());
++    SetContentsViewBounds(GetContentsBounds());
+     // Propagate layout call to all children, for example browser views.
+     LayoutSuperclass<View>(this);
+     return;
+@@ -305,7 +319,7 @@ void InspectableWebContentsView::Layout(PassKey) {
+   new_contents_bounds.set_x(GetMirroredXForRect(new_contents_bounds));
+ 
+   devtools_web_view_->SetBoundsRect(new_devtools_bounds);
+-  GetContentsView()->SetBoundsRect(new_contents_bounds);
++  SetContentsViewBounds(new_contents_bounds);
+ 
+   // Propagate layout call to all children, for example browser views.
+   LayoutSuperclass<View>(this);
+diff --git a/shell/browser/ui/inspectable_web_contents_view.h b/shell/browser/ui/inspectable_web_contents_view.h
+index 2a99e73..eaba18c 100644
+--- a/shell/browser/ui/inspectable_web_contents_view.h
++++ b/shell/browser/ui/inspectable_web_contents_view.h
+@@ -11,6 +11,7 @@
+ 
+ #include "base/memory/raw_ptr.h"
+ #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
++#include "ui/gfx/geometry/rect.h"
+ #include "ui/views/view.h"
+ 
+ class DevToolsContentsResizingStrategy;
+@@ -75,6 +76,8 @@ class InspectableWebContentsView : public views::View {
+   views::View* GetContentsView() const;
+ 
+  private:
++  void SetContentsViewBounds(const gfx::Rect& bounds);
++
+   // Owns us.
+   raw_ptr<InspectableWebContents> inspectable_web_contents_;
+ 
+diff --git a/spec/api-web-contents-view-spec.ts b/spec/api-web-contents-view-spec.ts
+index db93355..372edab 100644
+--- a/spec/api-web-contents-view-spec.ts
++++ b/spec/api-web-contents-view-spec.ts
+@@ -430,6 +430,45 @@ describe('WebContentsView', () => {
+     });
+   });
+ 
++  describe('setBounds', () => {
++    it('sizes the page when the view is not attached to a window', async () => {
++      const v = new WebContentsView();
++      v.setBounds({ x: 0, y: 0, width: 400, height: 300 });
++      await v.webContents.loadURL('data:text/html,<script>initialSize = [innerWidth, innerHeight]</script>');
++      expect(await v.webContents.executeJavaScript('initialSize')).to.deep.equal([400, 300]);
++      expect(await v.webContents.executeJavaScript('[innerWidth, innerHeight]')).to.deep.equal([400, 300]);
++    });
++
++    it('resizes the page when bounds are set after loading', async () => {
++      const v = new WebContentsView();
++      v.setBounds({ x: 0, y: 0, width: 400, height: 300 });
++      await v.webContents.loadURL('about:blank');
++      v.setBounds({ x: 0, y: 0, width: 500, height: 400 });
++      await expect(
++        waitUntil(async () => {
++          const size = await v.webContents.executeJavaScript('[innerWidth, innerHeight]');
++          return size[0] === 500 && size[1] === 400;
++        })
++      ).to.eventually.be.fulfilled();
++    });
++
++    it('resizes the page after the view is removed from a window', async () => {
++      const w = new BaseWindow({ width: 400, height: 300 });
++      const v = new WebContentsView();
++      w.contentView.addChildView(v);
++      v.setBounds({ x: 0, y: 0, width: 400, height: 300 });
++      await v.webContents.loadURL('about:blank');
++      w.contentView.removeChildView(v);
++      v.setBounds({ x: 0, y: 0, width: 500, height: 400 });
++      await expect(
++        waitUntil(async () => {
++          const size = await v.webContents.executeJavaScript('[innerWidth, innerHeight]');
++          return size[0] === 500 && size[1] === 400;
++        })
++      ).to.eventually.be.fulfilled();
++    });
++  });
++
+   describe('setBorderRadius', () => {
+     ifdescribe(hasCapturableScreen())('capture', () => {
+       let w: Electron.BaseWindow;
+-- 
+2.55.0.windows.2
+

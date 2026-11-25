@@ -1,0 +1,95 @@
+From 08dac9259ec4ba8cf7e3f5c2129d109a8961e3d6 Mon Sep 17 00:00:00 2001
+From: BaoFlash <dev@baoflash.local>
+Date: Wed, 25 Nov 2026 09:57:21 +0800
+Subject: [PATCH] fix: defer Wrappable destruction in SecondWeakCallback (port
+ of electron#50688)
+
+---
+ shell/common/gin_helper/wrappable.cc     | 30 ++++++++++++++++++++++--
+ shell/common/gin_helper/wrappable_base.h |  6 +++++
+ 2 files changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/shell/common/gin_helper/wrappable.cc b/shell/common/gin_helper/wrappable.cc
+index 7f1a9f5a1a..24423069c1 100644
+--- a/shell/common/gin_helper/wrappable.cc
++++ b/shell/common/gin_helper/wrappable.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "shell/common/gin_helper/wrappable.h"
+ 
++#include "base/task/sequenced_task_runner.h"
+ #include "gin/object_template_builder.h"
+ #include "gin/public/isolate_holder.h"
+ #include "shell/common/gin_helper/dictionary.h"
+@@ -103,7 +104,22 @@ void WrappableBase::SecondWeakCallback(
+   if (gin::IsolateHolder::DestroyedMicrotasksRunner()) {
+     return;
+   }
+-  delete static_cast<WrappableBase*>(data.GetInternalField(0));
++  // Defer destruction to a posted task. V8's second-pass weak callbacks run
++  // inside a DisallowJavascriptExecutionScope (they may touch the V8 API but
++  // must not invoke JS). Several Electron Wrappables (e.g. WebContents) emit
++  // JS events from their destructors, so deleting synchronously here can
++  // crash with "Invoke in DisallowJavascriptExecutionScope" — see
++  // https://github.com/electron/electron/issues/47420. Posting via the
++  // current sequence's task runner ensures the destructor runs once V8 has
++  // left the GC scope. If no task runner is available (e.g. early/late in
++  // process lifetime), fall back to synchronous deletion.
++  auto* wrappable = static_cast<WrappableBase*>(data.GetInternalField(0));
++  if (base::SequencedTaskRunner::HasCurrentDefault()) {
++    base::SequencedTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
++                                                               wrappable);
++  } else {
++    delete wrappable;
++  }
+ }
+ 
+ DeprecatedWrappableBase::DeprecatedWrappableBase() = default;
+@@ -139,9 +155,19 @@ void DeprecatedWrappableBase::SecondWeakCallback(
+     const v8::WeakCallbackInfo<DeprecatedWrappableBase>& data) {
+   if (gin::IsolateHolder::DestroyedMicrotasksRunner())
+     return;
++  // See WrappableBase::SecondWeakCallback for why deletion is posted: V8's
++  // second-pass weak callbacks run inside a DisallowJavascriptExecutionScope,
++  // and several Wrappables emit JS events from their destructors.
++  // https://github.com/electron/electron/issues/47420
+   DeprecatedWrappableBase* wrappable = data.GetParameter();
+-  if (wrappable)
++  if (!wrappable)
++    return;
++  if (base::SequencedTaskRunner::HasCurrentDefault()) {
++    base::SequencedTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
++                                                               wrappable);
++  } else {
+     delete wrappable;
++  }
+ }
+ 
+ v8::MaybeLocal<v8::Object> DeprecatedWrappableBase::GetWrapperImpl(
+diff --git a/shell/common/gin_helper/wrappable_base.h b/shell/common/gin_helper/wrappable_base.h
+index 35a9de3f21..9f33bd202c 100644
+--- a/shell/common/gin_helper/wrappable_base.h
++++ b/shell/common/gin_helper/wrappable_base.h
+@@ -6,6 +6,7 @@
+ #define ELECTRON_SHELL_COMMON_GIN_HELPER_WRAPPABLE_BASE_H_
+ 
+ #include "base/memory/raw_ptr.h"
++#include "base/task/sequenced_task_runner_helpers.h"
+ #include "v8/include/v8-forward.h"
+ 
+ namespace gin {
+@@ -75,6 +76,11 @@ class DeprecatedWrappableBase {
+   DeprecatedWrappableBase();
+   virtual ~DeprecatedWrappableBase();
+ 
++  // SecondWeakCallback posts destruction via DeleteSoon so that destructors
++  // (which may emit JS events) run outside V8's GC scope. DeleteSoon needs
++  // access to the protected destructor.
++  friend class base::DeleteHelper<DeprecatedWrappableBase>;
++
+   // Overrides of this method should be declared final and not overridden again.
+   virtual gin::ObjectTemplateBuilder GetObjectTemplateBuilder(
+       v8::Isolate* isolate);
+-- 
+2.55.0.windows.2
+

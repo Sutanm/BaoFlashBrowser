@@ -1,0 +1,274 @@
+From 46980d7cb59add473650deabf13e0326ee2d2070 Mon Sep 17 00:00:00 2001
+From: "claude[bot]" <209825114+claude[bot]@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 16:13:52 +0900
+Subject: [PATCH] fix: retarget NativeWindowRelay when a WebContents changes
+ owner window (#55955)
+
+* fix: retarget NativeWindowRelay when a WebContents changes owner window
+
+NativeWindowRelay::CreateForWebContents() kept the first window it was
+given, so after a WebContentsView moved from one window to another its
+relay still pointed at the old window. Readers of the relay then used the
+wrong window: a <webview> guest attached afterwards took the old window
+as its owner (or none once that window was closed), and the download save
+dialog and macOS passkey sheet parented to it. Point an existing relay at
+the new window instead, so it follows SetOwnerWindow().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NayLZmD3uy6pz3eYZRPE4t
+
+* fix: propagate owner window changes to attached webviews and DevTools
+
+A <webview> guest and the built-in DevTools frontend take their owner
+window from their embedder or inspected WebContents only once, when the
+guest attaches or DevTools open. After a WebContentsView moved to another
+window, guests already attached in it and DevTools already open on it kept
+the old window (or none once it was closed), so
+BrowserWindow.fromWebContents() and the relay's readers used the wrong
+window. Have SetOwnerWindow() pass the new owner on to attached guests and
+to the built-in DevTools frontend. A custom frontend set with
+setDevToolsWebContents() is app-owned and may live in its own window, so
+it keeps its owner.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NayLZmD3uy6pz3eYZRPE4t
+
+* refactor: retarget the relay from SetOwnerWindow
+
+NativeWindowRelay::CreateForWebContents goes back to creating the relay
+only when there is none. SetOwnerWindow, its only caller, now points an
+existing relay at the new window through a new SetNativeWindow setter.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NayLZmD3uy6pz3eYZRPE4t
+
+* chore: mark managed_devtools_web_contents() [[nodiscard]]
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NayLZmD3uy6pz3eYZRPE4t
+
+* chore: clarify why guests are collected before retargeting
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NayLZmD3uy6pz3eYZRPE4t
+
+* fix: keep an undocked DevTools frontend's owner when its view is detached
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NayLZmD3uy6pz3eYZRPE4t
+
+---------
+
+Co-authored-by: Claude <noreply@anthropic.com>
+---
+ .../browser/api/electron_api_web_contents.cc  | 35 ++++++++-
+ shell/browser/native_window.h                 |  4 +
+ shell/browser/ui/inspectable_web_contents.h   |  5 ++
+ spec/api-browser-view.spec.ts                 | 13 ++++
+ spec/api-web-contents-view.spec.ts            | 75 +++++++++++++++++++
+ 5 files changed, 130 insertions(+), 2 deletions(-)
+
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index 695c5e5..d585eda 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -3807,8 +3807,14 @@ void WebContents::SetOwnerWindow(content::WebContents* web_contents,
+ 
+   if (owner_window) {
+     native_lifecycle_->owner_window_ = owner_window->GetWeakPtr();
+-    NativeWindowRelay::CreateForWebContents(web_contents,
+-                                            owner_window->GetWeakPtr());
++    // A WebContentsView can move to another window, so point an existing relay
++    // at the new window rather than keeping the first one.
++    if (auto* relay = NativeWindowRelay::FromWebContents(web_contents)) {
++      relay->SetNativeWindow(owner_window->GetWeakPtr());
++    } else {
++      NativeWindowRelay::CreateForWebContents(web_contents,
++                                              owner_window->GetWeakPtr());
++    }
+     native_lifecycle_->background_throttling_registration_ =
+         owner_window->RegisterBackgroundThrottlingSource(
+             native_lifecycle_.get());
+@@ -3820,6 +3826,31 @@ void WebContents::SetOwnerWindow(content::WebContents* web_contents,
+   if (osr_wcv)
+     osr_wcv->SetNativeWindow(owner_window);
+ 
++  // Attached <webview> guests and the built-in DevTools frontend took their
++  // window from this WebContents, so they follow it to its new one. An
++  // undocked frontend stays open after this view is detached, so it keeps its
++  // owner when there is no new window. An app frontend from
++  // setDevToolsWebContents() may live in its own window, so it is left alone.
++  // Collect the guests first so a re-entrant attach or detach can't
++  // invalidate the WebViewManager iteration.
++  std::vector<base::WeakPtr<content::WebContents>> guests;
++  if (auto* manager = WebViewManager::GetWebViewManager(web_contents)) {
++    manager->ForEachGuest(web_contents, [&](content::WebContents* guest) {
++      guests.push_back(guest->GetWeakPtr());
++      return false;
++    });
++  }
++  for (const auto& guest : guests) {
++    if (auto* api_guest = WebContents::From(guest.get()))
++      api_guest->SetOwnerWindow(owner_window);
++  }
++  if (auto* iwc = inspectable_web_contents(); iwc && owner_window) {
++    if (auto* devtools = iwc->managed_devtools_web_contents()) {
++      if (auto* api_devtools = WebContents::From(devtools))
++        api_devtools->SetOwnerWindow(devtools, owner_window);
++    }
++  }
++
+   // Replay an openDevTools() that was waiting for this owner.
+   if (owner_window)
+     FlushPendingDevToolsOpen();
+diff --git a/shell/browser/native_window.h b/shell/browser/native_window.h
+index b63e9c0..dfe8d97 100644
+--- a/shell/browser/native_window.h
++++ b/shell/browser/native_window.h
+@@ -10,6 +10,7 @@
+ #include <optional>
+ #include <string>
+ #include <string_view>
++#include <utility>
+ #include <vector>
+ 
+ #include "base/containers/queue.h"
+@@ -643,6 +644,9 @@ class NativeWindowRelay
+   ~NativeWindowRelay() override;
+ 
+   NativeWindow* GetNativeWindow() const { return native_window_.get(); }
++  void SetNativeWindow(base::WeakPtr<NativeWindow> window) {
++    native_window_ = std::move(window);
++  }
+ 
+   WEB_CONTENTS_USER_DATA_KEY_DECL();
+ 
+diff --git a/shell/browser/ui/inspectable_web_contents.h b/shell/browser/ui/inspectable_web_contents.h
+index a559579..d18c9ad 100644
+--- a/shell/browser/ui/inspectable_web_contents.h
++++ b/shell/browser/ui/inspectable_web_contents.h
+@@ -56,6 +56,11 @@ class InspectableWebContents
+   InspectableWebContentsView* GetView() const;
+   content::WebContents* GetWebContents() const;
+   content::WebContents* GetDevToolsWebContents() const;
++  // The built-in DevTools frontend, or null when none is open or an app
++  // frontend was assigned by SetDevToolsWebContents().
++  [[nodiscard]] content::WebContents* managed_devtools_web_contents() const {
++    return managed_devtools_web_contents_.get();
++  }
+ 
+   void SetDelegate(InspectableWebContentsDelegate* delegate);
+   [[nodiscard]] bool is_guest() const { return is_guest_; }
+diff --git a/spec/api-browser-view.spec.ts b/spec/api-browser-view.spec.ts
+index aa8664a..6953abf 100644
+--- a/spec/api-browser-view.spec.ts
++++ b/spec/api-browser-view.spec.ts
+@@ -537,6 +537,19 @@ describe('BrowserView module', () => {
+       await destroyed;
+       w.removeBrowserView(view);
+     });
++
++    it('leaves undocked DevTools owned by the window', async () => {
++      view = new BrowserView();
++      w.addBrowserView(view);
++      await view.webContents.loadURL('about:blank');
++      const opened = once(view.webContents, 'devtools-opened');
++      view.webContents.openDevTools({ mode: 'detach', activate: false });
++      await opened;
++      const devtools = view.webContents.devToolsWebContents!;
++      expect(BrowserWindow.fromWebContents(devtools)).toBe(w);
++      w.removeBrowserView(view);
++      expect(BrowserWindow.fromWebContents(devtools)).toBe(w);
++    });
+   });
+ 
+   describe('BrowserWindow.getBrowserViews()', () => {
+diff --git a/spec/api-web-contents-view.spec.ts b/spec/api-web-contents-view.spec.ts
+index 700f905..4176a05 100644
+--- a/spec/api-web-contents-view.spec.ts
++++ b/spec/api-web-contents-view.spec.ts
+@@ -280,6 +280,81 @@ describe('WebContentsView', () => {
+     expect(v.children).toEqual([wcv]);
+   });
+ 
++  describe('when moved to another window', () => {
++    const moveAndAttachWebview = async (destroyFirstWindow: boolean) => {
++      const wA = new BrowserWindow({ show: false });
++      const wB = new BrowserWindow({ show: false });
++      const view = new WebContentsView({ webPreferences: { webviewTag: true } });
++      wA.contentView.addChildView(view);
++      wB.contentView.addChildView(view);
++      if (destroyFirstWindow) {
++        const closed = once(wA, 'closed');
++        wA.destroy();
++        await closed;
++      }
++      const attached = once(view.webContents, 'did-attach-webview') as Promise<[any, Electron.WebContents]>;
++      await view.webContents.loadURL('data:text/html,<webview src="about:blank"></webview>');
++      const [, guest] = await attached;
++      return { wB, guest };
++    };
++
++    it('gives a <webview> guest the new window as its owner', async () => {
++      const { wB, guest } = await moveAndAttachWebview(false);
++      expect(BrowserWindow.fromWebContents(guest)).toBe(wB);
++    });
++
++    it('gives a <webview> guest the new window as its owner after the old one is destroyed', async () => {
++      const { wB, guest } = await moveAndAttachWebview(true);
++      expect(BrowserWindow.fromWebContents(guest)).toBe(wB);
++    });
++
++    const attachWebviewAndMove = async (destroyFirstWindow: boolean) => {
++      const wA = new BrowserWindow({ show: false });
++      const wB = new BrowserWindow({ show: false });
++      const view = new WebContentsView({ webPreferences: { webviewTag: true } });
++      wA.contentView.addChildView(view);
++      const attached = once(view.webContents, 'did-attach-webview') as Promise<[any, Electron.WebContents]>;
++      await view.webContents.loadURL('data:text/html,<webview src="about:blank"></webview>');
++      const [, guest] = await attached;
++      expect(BrowserWindow.fromWebContents(guest)).toBe(wA);
++      wB.contentView.addChildView(view);
++      if (destroyFirstWindow) {
++        const closed = once(wA, 'closed');
++        wA.destroy();
++        await closed;
++      }
++      return { wB, guest };
++    };
++
++    it('moves an attached <webview> guest to the new window', async () => {
++      const { wB, guest } = await attachWebviewAndMove(false);
++      expect(BrowserWindow.fromWebContents(guest)).toBe(wB);
++    });
++
++    it('moves an attached <webview> guest to the new window after the old one is destroyed', async () => {
++      const { wB, guest } = await attachWebviewAndMove(true);
++      expect(guest.isDestroyed()).toBe(false);
++      expect(BrowserWindow.fromWebContents(guest)).toBe(wB);
++    });
++
++    for (const mode of ['bottom', 'detach'] as const) {
++      it(`moves open DevTools (mode: ${mode}) to the new window`, async () => {
++        const wA = new BrowserWindow({ show: false });
++        const wB = new BrowserWindow({ show: false });
++        const view = new WebContentsView();
++        wA.contentView.addChildView(view);
++        await view.webContents.loadURL('about:blank');
++        const opened = once(view.webContents, 'devtools-opened');
++        view.webContents.openDevTools({ mode, activate: false });
++        await opened;
++        const devtools = view.webContents.devToolsWebContents!;
++        expect(BrowserWindow.fromWebContents(devtools)).toBe(wA);
++        wB.contentView.addChildView(view);
++        expect(BrowserWindow.fromWebContents(devtools)).toBe(wB);
++      });
++    }
++  });
++
+   describe('visibilityState', { tags: ['serial'] }, () => {
+     // These pages are only 'visible' while nothing covers their window. On the
+     // Windows CI hosts another process's console window can sit above a newly
+-- 
+2.55.0.windows.2
+

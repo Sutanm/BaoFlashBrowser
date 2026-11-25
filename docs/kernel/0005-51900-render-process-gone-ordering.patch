@@ -1,0 +1,86 @@
+From 6be576032a8811d8e40baba294b0d732f20919aa Mon Sep 17 00:00:00 2001
+From: BaoFlash <dev@baoflash.local>
+Date: Wed, 25 Nov 2026 09:57:22 +0800
+Subject: [PATCH] fix: emit render-process-gone outside process-death
+ notification (port of electron#51900)
+
+---
+ shell/browser/api/electron_api_web_contents.cc | 15 ++++++++++++++-
+ shell/browser/api/electron_api_web_contents.h  |  3 +++
+ spec/api-web-contents-spec.ts                  | 16 ++++++++++++++++
+ 3 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index b1c668a622..429d72c063 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -1898,11 +1898,24 @@ void WebContents::RenderViewDeleted(content::RenderViewHost* render_view_host) {
+ 
+ void WebContents::PrimaryMainFrameRenderProcessGone(
+     base::TerminationStatus status) {
++  // This fires while RenderProcessHostImpl is still notifying observers of
++  // the process death. Emit asynchronously so app code (e.g. a synchronous
++  // reload() in the handler) can't re-launch the renderer from inside that
++  // loop, which trips a CHECK in extensions::RendererStartupHelper. The exit
++  // code is captured now because a navigation in the interim could reset it.
++  content::GetUIThreadTaskRunner({})->PostTask(
++      FROM_HERE, base::BindOnce(&WebContents::EmitRenderProcessGone,
++                                weak_factory_.GetWeakPtr(), status,
++                                web_contents()->GetCrashedErrorCode()));
++}
++
++void WebContents::EmitRenderProcessGone(base::TerminationStatus status,
++                                        int exit_code) {
+   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
+   v8::HandleScope handle_scope(isolate);
+   auto details = gin_helper::Dictionary::CreateEmpty(isolate);
+   details.Set("reason", status);
+-  details.Set("exitCode", web_contents()->GetCrashedErrorCode());
++  details.Set("exitCode", exit_code);
+   Emit("render-process-gone", details);
+ }
+ 
+diff --git a/shell/browser/api/electron_api_web_contents.h b/shell/browser/api/electron_api_web_contents.h
+index c963eab28b..2b37cd4cfb 100644
+--- a/shell/browser/api/electron_api_web_contents.h
++++ b/shell/browser/api/electron_api_web_contents.h
+@@ -674,6 +674,9 @@ class WebContents final : public ExclusiveAccessContext,
+ 
+   void OnElectronBrowserConnectionError();
+ 
++  // Posted from PrimaryMainFrameRenderProcessGone(); see the comment there.
++  void EmitRenderProcessGone(base::TerminationStatus status, int exit_code);
++
+   OffScreenWebContentsView* GetOffScreenWebContentsView() const;
+   OffScreenRenderWidgetHostView* GetOffScreenRenderWidgetHostView() const;
+ 
+diff --git a/spec/api-web-contents-spec.ts b/spec/api-web-contents-spec.ts
+index 30ca1cd51b..d9110add01 100644
+--- a/spec/api-web-contents-spec.ts
++++ b/spec/api-web-contents-spec.ts
+@@ -2325,6 +2325,22 @@ describe('webContents module', () => {
+         w.webContents.reload();
+         expect(w.webContents.isCrashed()).to.equal(false);
+       });
++
++      it('survives a synchronous reload() from the render-process-gone handler', async () => {
++        // Regression test: a synchronous reload() from 'render-process-gone'
++        // used to re-enter renderer process launch mid-teardown and
++        // CHECK-crash the browser process. See
++        // WebContents::PrimaryMainFrameRenderProcessGone.
++        const crashEvent = once(w.webContents, 'render-process-gone');
++        w.webContents.once('render-process-gone', () => {
++          // Deliberately synchronous.
++          w.webContents.reload();
++        });
++        w.webContents.forcefullyCrashRenderer();
++        await crashEvent;
++        await once(w.webContents, 'did-finish-load');
++        expect(w.webContents.isCrashed()).to.equal(false);
++      });
+     });
+   }
+ 
+-- 
+2.55.0.windows.2
+

@@ -1,0 +1,148 @@
+From d4d8a180fa066f2d7fd1d9ec72dc95398e91624f Mon Sep 17 00:00:00 2001
+From: Mitchell Cohen <mitch.cohen@me.com>
+Date: Mon, 8 Jun 2026 13:38:55 -0400
+Subject: [PATCH] fix: win.center() sets the correct size and position on
+ frameless windows (#51732)
+
+fix: win.center() sets the correct size and position on frameless windows on Linux and Windows
+---
+ shell/browser/native_window_views.cc | 40 +++++++++++-----------------
+ spec/api-browser-window-spec.ts      | 33 +++++++++++++++++++++++
+ 2 files changed, 49 insertions(+), 24 deletions(-)
+
+diff --git a/shell/browser/native_window_views.cc b/shell/browser/native_window_views.cc
+index 818315d..dd0124c 100644
+--- a/shell/browser/native_window_views.cc
++++ b/shell/browser/native_window_views.cc
+@@ -93,7 +93,6 @@
+ #include "shell/common/color_util.h"
+ #include "skia/ext/skia_utils_win.h"
+ #include "ui/display/win/screen_win.h"
+-#include "ui/gfx/win/hwnd_util.h"
+ #include "ui/gfx/win/msg_util.h"
+ #endif
+ 
+@@ -435,7 +434,10 @@ NativeWindowViews::NativeWindowViews(const int32_t base_window_id,
+   if ((has_frame() || has_client_frame()) && use_content_size_)
+     size = ContentBoundsToWindowBounds(gfx::Rect(size)).size();
+ 
+-  widget()->CenterWindow(size);
++  // Bounds need to be re-applied before centering to account for frame
++  // insets, which weren't available on init.
++  SetSize(size);
++  Center();
+ 
+ #if BUILDFLAG(IS_WIN)
+   // Save initial window state.
+@@ -449,13 +451,6 @@ NativeWindowViews::NativeWindowViews(const int32_t base_window_id,
+   aura::Window* window = GetNativeWindow();
+   if (window)
+     window->AddPreTargetHandler(this);
+-
+-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+-  // The initial params.bounds was applied before the frame view existed, so
+-  // non-client insets weren't accounted for and bounds need to be set again.
+-  if (!GetRestoredFrameBorderInsets().IsEmpty())
+-    SetBounds(gfx::Rect(GetPosition(), size), false);
+-#endif
+ }
+ 
+ NativeWindowViews::~NativeWindowViews() {
+@@ -1192,24 +1187,21 @@ ui::ZOrderLevel NativeWindowViews::GetZOrderLevel() const {
+   return widget()->GetZOrderLevel();
+ }
+ 
+-// We previous called widget()->CenterWindow() here, but in
+-// Chromium CL 4916277 behavior was changed to center relative to the
+-// parent window if there is one. We want to keep the old behavior
+-// for now to avoid breaking API contract, but should consider the long
+-// term plan for this aligning with upstream.
+ void NativeWindowViews::Center() {
+-#if BUILDFLAG(IS_LINUX)
++  // On Windows we previously called gfx::CenterAndSizeWindow on the HWND.
++  // That had the problem of placing windows slightly too high if they have
++  // insets, since top/bottom insets are asymmetric. It also introduces
++  // DIP/pixel conversion errors at fractional scales. We also avoid
++  // widget()->CenterWindow(), since in addition to those issues it centers
++  // relative to the parent window when one exists as of Chromium CL 4916277.
++  //
++  // Centering the logical rect (size without insets) avoids all of the above
++  // and works on Windows and Linux.
+   auto display =
+       display::Screen::Get()->GetDisplayNearestWindow(GetNativeWindow());
+-  gfx::Rect window_bounds_in_screen = display.work_area();
+-  window_bounds_in_screen.ClampToCenteredSize(GetSize());
+-  widget()->SetBounds(window_bounds_in_screen);
+-#else
+-  HWND hwnd = GetAcceleratedWidget();
+-  gfx::Size size =
+-      display::win::GetScreenWin()->DIPToScreenSize(hwnd, GetSize());
+-  gfx::CenterAndSizeWindow(nullptr, hwnd, size);
+-#endif
++  gfx::Rect bounds = display.work_area();
++  bounds.ClampToCenteredSize(GetSize());
++  SetBounds(bounds, false);
+ }
+ 
+ void NativeWindowViews::Invalidate() {
+diff --git a/spec/api-browser-window-spec.ts b/spec/api-browser-window-spec.ts
+index 20d4e1e..9bebad4 100755
+--- a/spec/api-browser-window-spec.ts
++++ b/spec/api-browser-window-spec.ts
+@@ -64,6 +64,17 @@ const expectBoundsEqual = (actual: any, expected: any) => {
+   }
+ };
+ 
++// Is the window centered at the given size?
++const expectCenteredBounds = (win: BrowserWindow, width: number, height: number) => {
++  const { workArea } = screen.getDisplayMatching(win.getBounds());
++  expectBoundsEqual(win.getBounds(), {
++    x: workArea.x + Math.floor((workArea.width - width) / 2),
++    y: workArea.y + Math.floor((workArea.height - height) / 2),
++    width,
++    height
++  });
++};
++
+ const isBeforeUnload = (event: Event, level: number, message: string) => {
+   return message === 'beforeunload';
+ };
+@@ -103,6 +114,14 @@ describe('BrowserWindow module', () => {
+         w.destroy();
+       }).not.to.throw();
+     });
++
++    for (const frame of [true, false]) {
++      ifit(process.platform !== 'darwin')(`creates a window centered at the requested size (frame: ${frame})`, () => {
++        const w = new BrowserWindow({ show: false, frame, width: 600, height: 400 });
++        expectCenteredBounds(w, 600, 400);
++        w.destroy();
++      });
++    }
+   });
+ 
+   describe('garbage collection', () => {
+@@ -1903,6 +1922,20 @@ describe('BrowserWindow module', () => {
+       });
+     });
+ 
++    ifdescribe(process.platform !== 'darwin')('BrowserWindow.center()', () => {
++      for (const frame of [true, false]) {
++        it(`moves a window to the center and preserves its size (frame: ${frame})`, () => {
++          const w = new BrowserWindow({ show: false, frame, width: 600, height: 400 });
++
++          const { workArea } = screen.getDisplayMatching(w.getBounds());
++          w.setPosition(workArea.x, workArea.y);
++          w.center();
++          expectCenteredBounds(w, 600, 400);
++          w.destroy();
++        });
++      }
++    });
++
+     describe('BrowserWindow.setContentSize(width, height)', () => {
+       it('sets the content size', async () => {
+         // NB. The CI server has a very small screen. Attempting to size the window
+-- 
+2.55.0.windows.2
+

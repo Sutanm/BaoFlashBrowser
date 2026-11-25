@@ -1,0 +1,41 @@
+From a5693f61ab09fa7cefc10862913be67128bd0eb0 Mon Sep 17 00:00:00 2001
+From: BaoFlash <dev@baoflash.local>
+Date: Wed, 25 Nov 2026 09:51:45 +0800
+Subject: [PATCH] fix: ignore draggable regions in hidden WebContentsView
+
+Port of upstream electron#51200 (c74de25) to the E39 tree: return HTNOWHERE
+from NonClientHitTest() when the view is not visible, so a hidden
+WebContentsView no longer contributes -webkit-app-region: drag areas to the
+parent window's non-client hit test.
+
+E39 adaptation: WebContentsView is itself a views::View here, so the guard is
+GetVisible() instead of upstream's view()->GetVisible().
+
+Verified on bao-v142-265-ppapi-sandbox+win-ppapi-process-sandbox with
+WM_NCHITTEST over a hidden view that owns the only draggable region:
+before HTCAPTION(2), after HTCLIENT(1); visible view still HTCAPTION(2).
+---
+ shell/browser/api/electron_api_web_contents_view.cc | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/shell/browser/api/electron_api_web_contents_view.cc b/shell/browser/api/electron_api_web_contents_view.cc
+index 64ae71a4de..e86940e858 100644
+--- a/shell/browser/api/electron_api_web_contents_view.cc
++++ b/shell/browser/api/electron_api_web_contents_view.cc
+@@ -82,6 +82,13 @@ void WebContentsView::ApplyBorderRadius() {
+ }
+ 
+ int WebContentsView::NonClientHitTest(const gfx::Point& point) {
++  // A hidden view must not contribute draggable regions to the parent window's
++  // non-client hit test, otherwise clicks over the area where a hidden view's
++  // `-webkit-app-region: drag` element would render still drag the window.
++  // Port of upstream electron#51200 (c74de25) adapted to the E39 class layout,
++  // where WebContentsView is itself the views::View (no view() accessor).
++  if (!GetVisible())
++    return HTNOWHERE;
+   if (api_web_contents_) {
+     auto* iwc = api_web_contents_->inspectable_web_contents();
+     if (!iwc)
+-- 
+2.55.0.windows.2
+

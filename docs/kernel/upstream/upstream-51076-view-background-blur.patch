@@ -1,0 +1,150 @@
+From a1d6918b59dc13c1e5d7d1c2849b8b67f46fab2c Mon Sep 17 00:00:00 2001
+From: Dylan Hubbard <87679354+TheCommieAxolotl@users.noreply.github.com>
+Date: Fri, 1 May 2026 02:52:11 +1000
+Subject: [PATCH] feat: Add `view.setBackgroundBlur` (#51076)
+
+* feat: blur views
+
+* spec: add tests, limit values to positive
+
+* docs: be explicit in units for blurRadius
+
+Co-authored-by: Erick Zhao <erick@hotmail.ca>
+
+* lint: trailing space
+
+---------
+
+Co-authored-by: Erick Zhao <erick@hotmail.ca>
+---
+ docs/api/view.md                       |  7 +++++++
+ filenames.auto.gni                     |  3 ---
+ shell/browser/api/electron_api_view.cc | 16 ++++++++++++++++
+ shell/browser/api/electron_api_view.h  |  1 +
+ spec/api-view-spec.ts                  | 20 ++++++++++++++++++++
+ 5 files changed, 44 insertions(+), 3 deletions(-)
+
+diff --git a/docs/api/view.md b/docs/api/view.md
+index 6dddd43..c5367cd 100644
+--- a/docs/api/view.md
++++ b/docs/api/view.md
+@@ -117,6 +117,13 @@ Examples of valid `color` values:
+ > [!NOTE]
+ > The area cutout of the view's border still captures clicks.
+ 
++#### `view.setBackgroundBlur(blurRadius)`
++
++* `blurRadius` Integer - The radius of the background blur effect (in pixels).
++
++> [!NOTE]
++> You must set a background color with an alpha channel (e.g. `#80ffffff`) in order for the blur effect to be visible.
++
+ #### `view.setVisible(visible)`
+ 
+ * `visible` boolean - If false, the view will be hidden from display.
+diff --git a/filenames.auto.gni b/filenames.auto.gni
+index dc702bd..b9a4592 100644
+--- a/filenames.auto.gni
++++ b/filenames.auto.gni
+@@ -191,7 +191,6 @@ auto_filenames = {
+     "../third_party/electron_node/src/base_object_types.h",
+     "../third_party/electron_node/src/blob_serializer_deserializer-inl.h",
+     "../third_party/electron_node/src/blob_serializer_deserializer.h",
+-    "../third_party/electron_node/src/builtin_info.h",
+     "../third_party/electron_node/src/callback_queue-inl.h",
+     "../third_party/electron_node/src/callback_queue.h",
+     "../third_party/electron_node/src/cares_wrap.h",
+@@ -255,7 +254,6 @@ auto_filenames = {
+     "../third_party/electron_node/src/inspector/protocol_helper.h",
+     "../third_party/electron_node/src/inspector/runtime_agent.h",
+     "../third_party/electron_node/src/inspector/target_agent.h",
+-    "../third_party/electron_node/src/inspector/target_manager.h",
+     "../third_party/electron_node/src/inspector/tracing_agent.h",
+     "../third_party/electron_node/src/inspector/worker_agent.h",
+     "../third_party/electron_node/src/inspector/worker_inspector.h",
+@@ -291,7 +289,6 @@ auto_filenames = {
+     "../third_party/electron_node/src/node_contextify.h",
+     "../third_party/electron_node/src/node_crypto.h",
+     "../third_party/electron_node/src/node_debug.h",
+-    "../third_party/electron_node/src/node_diagnostics_channel.h",
+     "../third_party/electron_node/src/node_dir.h",
+     "../third_party/electron_node/src/node_dotenv.h",
+     "../third_party/electron_node/src/node_errors.h",
+diff --git a/shell/browser/api/electron_api_view.cc b/shell/browser/api/electron_api_view.cc
+index 37a0c54..86d8018 100644
+--- a/shell/browser/api/electron_api_view.cc
++++ b/shell/browser/api/electron_api_view.cc
+@@ -517,6 +517,21 @@ void View::ApplyBorderRadius() {
+   }
+ }
+ 
++void View::SetBackgroundBlur(int blur_radius) {
++  if (!view_)
++    return;
++
++  if (blur_radius < 0)
++    blur_radius = 0;
++
++  ui::Layer* layer = GetLayer();
++
++  if (!layer)
++    return;
++
++  layer->SetBackgroundBlur(blur_radius);
++}
++
+ void View::SetVisible(bool visible) {
+   if (!view_)
+     return;
+@@ -584,6 +599,7 @@ void View::BuildPrototype(v8::Isolate* isolate,
+       .SetMethod("getBounds", &View::GetBounds)
+       .SetMethod("setBackgroundColor", &View::SetBackgroundColor)
+       .SetMethod("setBorderRadius", &View::SetBorderRadius)
++      .SetMethod("setBackgroundBlur", &View::SetBackgroundBlur)
+       .SetMethod("setLayout", &View::SetLayout)
+       .SetMethod("setVisible", &View::SetVisible)
+       .SetMethod("getVisible", &View::GetVisible);
+diff --git a/shell/browser/api/electron_api_view.h b/shell/browser/api/electron_api_view.h
+index c05cbe3..10c1b97 100644
+--- a/shell/browser/api/electron_api_view.h
++++ b/shell/browser/api/electron_api_view.h
+@@ -43,6 +43,7 @@ class View : public gin_helper::EventEmitter<View>,
+   std::vector<v8::Local<v8::Value>> GetChildren();
+   void SetBackgroundColor(std::optional<WrappedSkColor> color);
+   void SetBorderRadius(int radius);
++  void SetBackgroundBlur(int blur_radius);
+   void SetVisible(bool visible);
+   bool GetVisible() const;
+ 
+diff --git a/spec/api-view-spec.ts b/spec/api-view-spec.ts
+index 20f5ae7..3db3d1c 100644
+--- a/spec/api-view-spec.ts
++++ b/spec/api-view-spec.ts
+@@ -152,4 +152,24 @@ describe('View', () => {
+       }, 350);
+     });
+   });
++
++  describe('view.setBackgroundBlur', () => {
++    it('can be set to various values', () => {
++      w = new BaseWindow({ show: false });
++      const v = new View();
++      w.setContentView(v);
++      v.setBackgroundBlur(0);
++      v.setBackgroundBlur(10);
++      v.setBackgroundBlur(-10);
++      v.setBackgroundBlur(100);
++      v.setBackgroundBlur(-100);
++    });
++
++    it('does not throw when set before being added to a window', () => {
++      const v = new View();
++      expect(() => {
++        v.setBackgroundBlur(10);
++      }).to.not.throw();
++    });
++  });
+ });
+-- 
+2.55.0.windows.2
+

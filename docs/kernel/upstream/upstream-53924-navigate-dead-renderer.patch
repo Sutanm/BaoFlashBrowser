@@ -1,0 +1,292 @@
+From 57578d521a9ab4bc7df81ffd2114e92094477bd5 Mon Sep 17 00:00:00 2001
+From: Shelley Vohr <shelley.vohr@gmail.com>
+Date: Tue, 15 Sep 2026 12:16:49 +0200
+Subject: [PATCH] fix: post navigations started while a dead renderer is torn
+ down (#53924)
+
+* fix: emit did-stop-loading outside renderer teardown
+
+When a renderer dies while its navigation is waiting to commit, content
+discards the navigation and resets the frame's loading state from inside
+RenderFrameHostImpl::RenderProcessGone, so did-stop-loading (and with it the
+loadURL() rejection) reached app code while the frame host was still being
+torn down. An app that navigates again from that listener or from the
+rejected promise replaced the frame host under content and the browser
+process crashed: a CHECK in ~RenderFrameHostImpl for the current frame, or a
+use-after-free when the dying frame host was a speculative one.
+
+Post did-stop-loading in that case, the same way render-process-gone has
+been posted since #51900. The case is recognized either by the primary main
+frame's process already being marked dead, or by DidFinishNavigation having
+just seen a navigation discarded with kRenderProcessGone (which also covers a
+speculative frame host in another process).
+
+* chore: oxfmt
+
+* fix: post navigations started while a dead renderer is torn down
+
+Keep did-stop-loading synchronous. Instead, while DidStopLoading emits for a
+load that ended because its renderer died, loadURL(), reload(),
+reloadIgnoringCache(), goBack(), goForward(), goToOffset() and goToIndex()
+post themselves to the next task, so the navigation happens after
+RenderFrameHostImpl::RenderProcessGone has unwound rather than replacing the
+frame host from inside it.
+
+* chore: clang-format
+---
+ .../browser/api/electron_api_web_contents.cc  | 64 +++++++++++++++++--
+ shell/browser/api/electron_api_web_contents.h | 12 ++++
+ spec/api-web-contents-spec.ts                 | 46 +++++++++++++
+ 3 files changed, 118 insertions(+), 4 deletions(-)
+
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index fdbd9b7..6d912f6 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -67,6 +67,7 @@
+ #include "content/public/browser/keyboard_event_processing_result.h"
+ #include "content/public/browser/navigation_controller.h"
+ #include "content/public/browser/navigation_details.h"
++#include "content/public/browser/navigation_discard_reason.h"
+ #include "content/public/browser/navigation_entry.h"
+ #include "content/public/browser/navigation_entry_restore_context.h"
+ #include "content/public/browser/navigation_handle.h"
+@@ -2400,9 +2401,28 @@ void WebContents::DidStopLoading() {
+   if (web_preferences && web_preferences->ShouldUsePreferredSizeMode())
+     web_contents()->GetRenderViewHost()->EnablePreferredSizeMode();
+ 
++  // Loading also stops when a renderer dies mid-load, reported from inside
++  // RenderFrameHostImpl::RenderProcessGone. A navigation started by the app
++  // while handling this event (or the loadURL() rejection it causes) would
++  // replace the frame host content is still tearing down, so navigations are
++  // posted until the emit returns; see PostNavigationInRendererTeardown().
++  const bool in_renderer_teardown =
++      std::exchange(navigation_discarded_by_process_gone_, false) ||
++      !web_contents()
++           ->GetPrimaryMainFrame()
++           ->GetProcess()
++           ->IsInitializedAndNotDead();
++  base::AutoReset<bool> defer(&in_renderer_teardown_, in_renderer_teardown);
+   Emit("did-stop-loading");
+ }
+ 
++bool WebContents::PostNavigationInRendererTeardown(base::OnceClosure navigate) {
++  if (!in_renderer_teardown_)
++    return false;
++  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(navigate));
++  return true;
++}
++
+ bool WebContents::EmitNavigationEvent(
+     const std::string& event_name,
+     content::NavigationHandle* navigation_handle) {
+@@ -2602,6 +2622,13 @@ void WebContents::DidFinishNavigation(
+     owner_window_->NotifyLayoutWindowControlsOverlay();
+   }
+ 
++  if (navigation_handle->GetNavigationDiscardReason() ==
++      content::NavigationDiscardReason::kRenderProcessGone) {
++    // The frame whose process died may not be the primary main frame (a
++    // speculative frame host, for one), so tell DidStopLoading explicitly.
++    navigation_discarded_by_process_gone_ = true;
++  }
++
+   if (!navigation_handle->HasCommitted())
+     return;
+ 
+@@ -2994,9 +3021,6 @@ void WebContents::LoadURL(const GURL& url,
+     params.reload_type = content::ReloadType::BYPASSING_CACHE;
+   }
+ 
+-  // Calling LoadURLWithParams() can trigger JS which destroys |this|.
+-  auto weak_this = GetWeakPtr();
+-
+   params.transition_type = ui::PageTransitionFromInt(
+       ui::PAGE_TRANSITION_TYPED | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
+   params.override_user_agent = content::NavigationController::UA_OVERRIDE_TRUE;
+@@ -3013,8 +3037,22 @@ void WebContents::LoadURL(const GURL& url,
+     return;
+   }
+ 
++  if (in_renderer_teardown_) {
++    content::GetUIThreadTaskRunner({})->PostTask(
++        FROM_HERE, base::BindOnce(&WebContents::LoadURLWithParams, GetWeakPtr(),
++                                  std::move(params)));
++    return;
++  }
++  LoadURLWithParams(std::move(params));
++}
++
++void WebContents::LoadURLWithParams(
++    content::NavigationController::LoadURLParams params) {
+   if (web_contents()->NeedToFireBeforeUnloadOrUnloadEvents())
+-    pending_unload_url_ = url;
++    pending_unload_url_ = params.url;
++
++  // Calling LoadURLWithParams() can trigger JS which destroys |this|.
++  auto weak_this = GetWeakPtr();
+ 
+   // Discard non-committed entries to ensure we don't re-use a pending entry.
+   web_contents()->GetController().DiscardNonCommittedEntries();
+@@ -3038,11 +3076,17 @@ void WebContents::LoadURL(const GURL& url,
+ // result in them succeeding, but reposting which although more correct could be
+ // considering a breaking change.
+ void WebContents::Reload() {
++  if (PostNavigationInRendererTeardown(
++          base::BindOnce(&WebContents::Reload, GetWeakPtr())))
++    return;
+   web_contents()->GetController().Reload(content::ReloadType::NORMAL,
+                                          /* check_for_repost */ true);
+ }
+ 
+ void WebContents::ReloadIgnoringCache() {
++  if (PostNavigationInRendererTeardown(
++          base::BindOnce(&WebContents::ReloadIgnoringCache, GetWeakPtr())))
++    return;
+   web_contents()->GetController().Reload(content::ReloadType::BYPASSING_CACHE,
+                                          /* check_for_repost */ true);
+ }
+@@ -3110,6 +3154,9 @@ bool WebContents::CanGoBack() const {
+ }
+ 
+ void WebContents::GoBack() {
++  if (PostNavigationInRendererTeardown(
++          base::BindOnce(&WebContents::GoBack, GetWeakPtr())))
++    return;
+   if (CanGoBack())
+     web_contents()->GetController().GoBack();
+ }
+@@ -3119,6 +3166,9 @@ bool WebContents::CanGoForward() const {
+ }
+ 
+ void WebContents::GoForward() {
++  if (PostNavigationInRendererTeardown(
++          base::BindOnce(&WebContents::GoForward, GetWeakPtr())))
++    return;
+   if (CanGoForward())
+     web_contents()->GetController().GoForward();
+ }
+@@ -3128,6 +3178,9 @@ bool WebContents::CanGoToOffset(int offset) const {
+ }
+ 
+ void WebContents::GoToOffset(int offset) {
++  if (PostNavigationInRendererTeardown(
++          base::BindOnce(&WebContents::GoToOffset, GetWeakPtr(), offset)))
++    return;
+   if (CanGoToOffset(offset))
+     web_contents()->GetController().GoToOffset(offset);
+ }
+@@ -3137,6 +3190,9 @@ bool WebContents::CanGoToIndex(int index) const {
+ }
+ 
+ void WebContents::GoToIndex(int index) {
++  if (PostNavigationInRendererTeardown(
++          base::BindOnce(&WebContents::GoToIndex, GetWeakPtr(), index)))
++    return;
+   if (CanGoToIndex(index))
+     web_contents()->GetController().GoToIndex(index);
+ }
+diff --git a/shell/browser/api/electron_api_web_contents.h b/shell/browser/api/electron_api_web_contents.h
+index 192dc3b..f5f51dc 100644
+--- a/shell/browser/api/electron_api_web_contents.h
++++ b/shell/browser/api/electron_api_web_contents.h
+@@ -25,6 +25,7 @@
+ #include "content/public/browser/frame_tree_node_id.h"
+ #include "content/public/browser/global_routing_id.h"
+ #include "content/public/browser/javascript_dialog_manager.h"
++#include "content/public/browser/navigation_controller.h"
+ #include "content/public/browser/navigation_entry.h"
+ #include "content/public/browser/render_widget_host.h"
+ #include "content/public/browser/web_contents_delegate.h"
+@@ -207,6 +208,7 @@ class WebContents final : public ExclusiveAccessContext,
+   [[nodiscard]] Type type() const { return type_; }
+   v8::Local<v8::Value> Clone(v8::Isolate* isolate);
+   void LoadURL(const GURL& url, const gin_helper::Dictionary& options);
++  void LoadURLWithParams(content::NavigationController::LoadURLParams params);
+   void Reload();
+   void ReloadIgnoringCache();
+   void DownloadURL(const GURL& url, gin::Arguments* args);
+@@ -714,6 +716,10 @@ class WebContents final : public ExclusiveAccessContext,
+   // Posted from PrimaryMainFrameRenderProcessGone(); see the comment there.
+   void EmitRenderProcessGone(base::TerminationStatus status, int exit_code);
+ 
++  // Posts |navigate| and returns true while DidStopLoading is emitting for a
++  // load that ended because its renderer died; otherwise returns false.
++  bool PostNavigationInRendererTeardown(base::OnceClosure navigate);
++
+   OffScreenWebContentsView* GetOffScreenWebContentsView() const;
+   OffScreenRenderWidgetHostView* GetOffScreenRenderWidgetHostView() const;
+ 
+@@ -936,6 +942,12 @@ class WebContents final : public ExclusiveAccessContext,
+   // handler calls webContents.destroy() mid-emission.
+   bool is_emitting_event_ = false;
+ 
++  // Set by DidFinishNavigation when content discards a navigation because
++  // its renderer died; consumed by the DidStopLoading that follows, which
++  // holds in_renderer_teardown_ for the duration of its emit.
++  bool navigation_discarded_by_process_gone_ = false;
++  bool in_renderer_teardown_ = false;
++
+   // Stores the frame that's currently in fullscreen, nullptr if there is none.
+   raw_ptr<content::RenderFrameHost> fullscreen_frame_ = nullptr;
+ 
+diff --git a/spec/api-web-contents-spec.ts b/spec/api-web-contents-spec.ts
+index dc0d7ae..eb2367a 100644
+--- a/spec/api-web-contents-spec.ts
++++ b/spec/api-web-contents-spec.ts
+@@ -4028,6 +4028,52 @@ describe('webContents module', () => {
+         await once(w.webContents, 'did-finish-load');
+         expect(w.webContents.isCrashed()).to.equal(false);
+       });
++
++      // The response is held until a renderer has been frozen, so the
++      // navigation is waiting to commit when that renderer is killed; loadURL()
++      // then rejects from inside content's teardown and the handler navigates
++      // again straight away. With COOP the response starts a second renderer
++      // for a speculative frame host and that is the one killed.
++      for (const coop of [false, true]) {
++        ifit(process.platform !== 'win32')(
++          `survives a loadURL() from the rejection of a load whose ${coop ? 'speculative ' : ''}renderer died before commit`,
++          async () => {
++            let release: (() => void) | null = null;
++            const server = http.createServer((req, res) => {
++              release = () => {
++                res.setHeader('content-type', 'text/html');
++                if (coop) res.setHeader('cross-origin-opener-policy', 'same-origin-allow-popups');
++                res.end('<h1>hi</h1>');
++              };
++            });
++            defer(() => server.close());
++            const { url } = await listen(server);
++            const rendererPids = () =>
++              app
++                .getAppMetrics()
++                .filter((m) => m.type === 'Tab')
++                .map((m) => m.pid);
++
++            const load = w.webContents.loadURL(url);
++            await waitUntil(() => w.webContents.getOSProcessId() !== 0 && release !== null);
++            const before = new Set(rendererPids());
++            let victim = w.webContents.getOSProcessId();
++            if (!coop) process.kill(victim, 'SIGSTOP');
++            release!();
++            if (coop) {
++              await waitUntil(() => rendererPids().some((pid) => !before.has(pid)));
++              victim = rendererPids().find((pid) => !before.has(pid))!;
++              process.kill(victim, 'SIGSTOP');
++            }
++            await setTimeout(1000);
++            process.kill(victim, 'SIGKILL');
++
++            await expect(load).to.eventually.be.rejected();
++            await w.webContents.loadURL('about:blank');
++            expect(w.webContents.isCrashed()).to.equal(false);
++          }
++        );
++      }
+     });
+   }
+ 
+-- 
+2.55.0.windows.2
+

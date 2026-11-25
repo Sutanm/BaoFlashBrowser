@@ -1,0 +1,67 @@
+From 5faf91f967a2341cf6210f5c68c11ad61de61997 Mon Sep 17 00:00:00 2001
+From: BaoFlash <dev@baoflash.local>
+Date: Wed, 25 Nov 2026 10:56:46 +0800
+Subject: [PATCH] fix: propagate bounds to WebContents when the view is not in
+ a widget (port of electron#53031)
+
+---
+ .../browser/ui/inspectable_web_contents_view.cc | 17 +++++++++++++++--
+ .../browser/ui/inspectable_web_contents_view.h  |  5 +++++
+ 2 files changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/shell/browser/ui/inspectable_web_contents_view.cc b/shell/browser/ui/inspectable_web_contents_view.cc
+index 00fff4a082..4308e53aea 100644
+--- a/shell/browser/ui/inspectable_web_contents_view.cc
++++ b/shell/browser/ui/inspectable_web_contents_view.cc
+@@ -230,9 +230,22 @@ const std::u16string InspectableWebContentsView::GetTitle() {
+   return title_;
+ }
+ 
++void InspectableWebContentsView::SetContentsViewBounds(
++    const gfx::Rect& bounds) {
++  GetContentsView()->SetBoundsRect(bounds);
++
++  // If the view isn't currently in a Widget, we need to propagate the new
++  // bounds to the WebContents manually or the page won't see the correct
++  // dimensions (port of electron#53031).
++  if (!GetWidget() && contents_web_view_) {
++    if (auto* web_contents = inspectable_web_contents_->GetWebContents())
++      web_contents->Resize(gfx::Rect(bounds.size()));
++  }
++}
++
+ void InspectableWebContentsView::Layout(PassKey) {
+   if (!devtools_web_view_->GetVisible()) {
+-    GetContentsView()->SetBoundsRect(GetContentsBounds());
++    SetContentsViewBounds(GetContentsBounds());
+     // Propagate layout call to all children, for example browser views.
+     LayoutSuperclass<View>(this);
+     return;
+@@ -250,7 +263,7 @@ void InspectableWebContentsView::Layout(PassKey) {
+   new_contents_bounds.set_x(GetMirroredXForRect(new_contents_bounds));
+ 
+   devtools_web_view_->SetBoundsRect(new_devtools_bounds);
+-  GetContentsView()->SetBoundsRect(new_contents_bounds);
++  SetContentsViewBounds(new_contents_bounds);
+ 
+   // Propagate layout call to all children, for example browser views.
+   LayoutSuperclass<View>(this);
+diff --git a/shell/browser/ui/inspectable_web_contents_view.h b/shell/browser/ui/inspectable_web_contents_view.h
+index 56760bebcb..44fc9f2b0d 100644
+--- a/shell/browser/ui/inspectable_web_contents_view.h
++++ b/shell/browser/ui/inspectable_web_contents_view.h
+@@ -65,6 +65,11 @@ class InspectableWebContentsView : public views::View {
+   views::View* GetContentsView() const;
+ 
+  private:
++  // Sets the contents view bounds and, when this view is not in a Widget,
++  // propagates the size to the WebContents so a detached page still sees the
++  // right viewport (port of electron#53031).
++  void SetContentsViewBounds(const gfx::Rect& bounds);
++
+   // Owns us.
+   raw_ptr<InspectableWebContents> inspectable_web_contents_;
+ 
+-- 
+2.55.0.windows.2
+

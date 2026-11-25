@@ -1,0 +1,245 @@
+From 4203d7688f604ad7bb86d0d1fdb9f35329ca7947 Mon Sep 17 00:00:00 2001
+From: Mitchell Cohen <mitch.cohen@me.com>
+Date: Thu, 9 Apr 2026 19:13:13 -0400
+Subject: [PATCH] fix: external resize hit targets for frameless windows on
+ Windows (#50706)
+
+---
+ shell/browser/native_window_views.cc          | 25 ++++++----
+ shell/browser/native_window_views.h           |  1 +
+ shell/browser/ui/views/win_frame_view.cc      | 36 +++++++++-----
+ shell/browser/ui/views/win_frame_view.h       |  3 ++
+ .../electron_desktop_window_tree_host_win.cc  | 47 ++++++++++++++-----
+ .../electron_desktop_window_tree_host_win.h   |  1 +
+ 6 files changed, 79 insertions(+), 34 deletions(-)
+
+diff --git a/shell/browser/native_window_views.cc b/shell/browser/native_window_views.cc
+index e281e7b..390d5e4 100644
+--- a/shell/browser/native_window_views.cc
++++ b/shell/browser/native_window_views.cc
+@@ -440,13 +440,11 @@ NativeWindowViews::NativeWindowViews(const int32_t base_window_id,
+   if (window)
+     window->AddPreTargetHandler(this);
+ 
+-#if BUILDFLAG(IS_LINUX)
+-  // We need to set bounds again after widget init for two reasons:
+-  // 1. For CSD windows, user-specified bounds need  to be inflated by frame
+-  //    insets, but the frame view isn't available at first.
+-  // 2. The widget clamps bounds to fit the screen, but we want to allow
+-  //    windows larger than the display.
+-  SetBounds(gfx::Rect(GetPosition(), size), false);
++#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
++  // The initial params.bounds was applied before the frame view existed, so
++  // non-client insets weren't accounted for and bounds need to be set again.
++  if (!GetRestoredFrameBorderInsets().IsEmpty())
++    SetBounds(gfx::Rect(GetPosition(), size), false);
+ #endif
+ }
+ 
+@@ -906,7 +904,9 @@ gfx::Rect NativeWindowViews::GetNormalBounds() const {
+   if (IsMaximized() && transparent())
+     return restore_bounds_;
+ #endif
+-  return WidgetToLogicalBounds(widget()->GetRestoredBounds());
++  gfx::Rect bounds = widget()->GetRestoredBounds();
++  bounds.Inset(GetRestoredFrameBorderInsets());
++  return bounds;
+ }
+ 
+ void NativeWindowViews::SetContentSizeConstraints(
+@@ -1676,17 +1676,24 @@ NativeWindowHandle NativeWindowViews::GetNativeWindowHandle() const {
+ 
+ gfx::Rect NativeWindowViews::LogicalToWidgetBounds(
+     const gfx::Rect& bounds) const {
++  // Use widget() directly since NativeWindowViews::IsMaximized() can
++  // call GetBounds and end up in a loop.
++  if (widget()->IsMaximized() || widget()->IsFullscreen())
++    return bounds;
++
+   gfx::Rect widget_bounds(bounds);
+   const gfx::Insets frame_insets = GetRestoredFrameBorderInsets();
+   widget_bounds.Outset(
+       gfx::Outsets::TLBR(frame_insets.top(), frame_insets.left(),
+                          frame_insets.bottom(), frame_insets.right()));
+-
+   return widget_bounds;
+ }
+ 
+ gfx::Rect NativeWindowViews::WidgetToLogicalBounds(
+     const gfx::Rect& bounds) const {
++  if (widget()->IsMaximized() || widget()->IsFullscreen())
++    return bounds;
++
+   gfx::Rect logical_bounds(bounds);
+   logical_bounds.Inset(GetRestoredFrameBorderInsets());
+   return logical_bounds;
+diff --git a/shell/browser/native_window_views.h b/shell/browser/native_window_views.h
+index 77dd9a2..eaeefd9 100644
+--- a/shell/browser/native_window_views.h
++++ b/shell/browser/native_window_views.h
+@@ -194,6 +194,7 @@ class NativeWindowViews : public NativeWindow,
+   TaskbarHost& taskbar_host() { return taskbar_host_; }
+   void UpdateThickFrame();
+   void SetLayered();
++  bool has_thick_frame() const { return thick_frame_; }
+ #endif
+ 
+   SkColor overlay_button_color() const { return overlay_button_color_; }
+diff --git a/shell/browser/ui/views/win_frame_view.cc b/shell/browser/ui/views/win_frame_view.cc
+index cd443a7..c76a07a 100644
+--- a/shell/browser/ui/views/win_frame_view.cc
++++ b/shell/browser/ui/views/win_frame_view.cc
+@@ -228,14 +228,15 @@ void WinFrameView::LayoutCaptionButtons() {
+   int custom_height = window()->titlebar_overlay_height();
+   int height = TitlebarHeight(custom_height);
+ 
+-  // TODO(mlaurencin): This -1 creates a 1 pixel margin between the right
+-  // edge of the button container and the edge of the window, allowing for this
+-  // edge portion to return the correct hit test and be manually resized
+-  // properly. Alternatives can be explored, but the differences in view
+-  // structures between Electron and Chromium may result in this as the best
+-  // option.
+-  int variable_width =
+-      IsMaximized() ? preferred_size.width() : preferred_size.width() - 1;
++  // Insets place the resize hit targets outside of the frame, so the caption
++  // buttons can go right at the edge. Without insets, the resize hit
++  // targets are inside the frame, and a 1px margin is needed to click and drag
++  // next to the button container. The margin can be removed if support is added
++  // for insets on non-thick frames.
++  int variable_width = !RestoredFrameBorderInsets().IsEmpty()
++                           ? preferred_size.width()
++                           : (IsMaximized() ? preferred_size.width()
++                                            : preferred_size.width() - 1);
+   caption_button_container_->SetBounds(width() - preferred_size.width(),
+                                        WindowTopY(), variable_width, height);
+ 
+@@ -267,22 +268,33 @@ bool WinFrameView::GetShouldPaintAsActive() {
+ gfx::Size WinFrameView::GetMinimumSize() const {
+   if (!window_)
+     return gfx::Size();
+-  // Chromium expects minimum size to be in content dimensions on Windows
+-  // because it adds the frame border automatically in OnGetMinMaxInfo.
++  // Chromium expects minimum size to be in content dimensions on Windows.
++  // If WidgetSizeIsClientSize() is true, it will account for frame borders and
++  // insets automatically.
+   return window_->GetContentMinimumSize();
+ }
+ 
+ gfx::Size WinFrameView::GetMaximumSize() const {
+   if (!window_)
+     return gfx::Size();
+-  // Chromium expects minimum size to be in content dimensions on Windows
+-  // because it adds the frame border automatically in OnGetMinMaxInfo.
++  // See comment in GetMinimumSize().
+   gfx::Size size = window_->GetContentMaximumSize();
+   // Electron public APIs returns (0, 0) when maximum size is not set, but it
+   // would break internal window APIs like HWNDMessageHandler::SetAspectRatio.
+   return size.IsEmpty() ? gfx::Size(INT_MAX, INT_MAX) : size;
+ }
+ 
++gfx::Insets WinFrameView::RestoredFrameBorderInsets() const {
++  if (window_->has_frame() || !window_->has_thick_frame() ||
++      !window_->IsResizable())
++    return {};
++
++  const int thickness =
++      display::win::GetScreenWin()->GetSystemMetricsInDIP(SM_CXSIZEFRAME) +
++      display::win::GetScreenWin()->GetSystemMetricsInDIP(SM_CXPADDEDBORDER);
++  return gfx::Insets::TLBR(0, thickness, thickness, thickness);
++}
++
+ BEGIN_METADATA(WinFrameView)
+ END_METADATA
+ 
+diff --git a/shell/browser/ui/views/win_frame_view.h b/shell/browser/ui/views/win_frame_view.h
+index aff3e4f..b0dc844 100644
+--- a/shell/browser/ui/views/win_frame_view.h
++++ b/shell/browser/ui/views/win_frame_view.h
+@@ -36,6 +36,9 @@ class WinFrameView : public FramelessView {
+   gfx::Size GetMinimumSize() const override;
+   gfx::Size GetMaximumSize() const override;
+ 
++  // views::FramelessView:
++  gfx::Insets RestoredFrameBorderInsets() const override;
++
+   WinCaptionButtonContainer* caption_button_container() {
+     return caption_button_container_;
+   }
+diff --git a/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc b/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
+index 4b27ea4..9d5c8bc 100644
+--- a/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
++++ b/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
+@@ -89,24 +89,45 @@ bool ElectronDesktopWindowTreeHostWin::GetDwmFrameInsetsInPixels(
+   return false;
+ }
+ 
++bool ElectronDesktopWindowTreeHostWin::WidgetSizeIsClientSize() const {
++  // For both framed and frameless windows with resize insets (thick frames),
++  // this should return true so that the aura layer is sized to the client area
++  // rather than the full HWND, and so insets are accounted for when handling
++  // size/aspect ratio constraints.
++  if (native_window_view_->has_thick_frame())
++    return true;
++  return views::DesktopWindowTreeHostWin::WidgetSizeIsClientSize();
++}
++
+ bool ElectronDesktopWindowTreeHostWin::GetClientAreaInsets(
+     gfx::Insets* insets,
+     int frame_thickness) const {
+-  // Windows by default extends the maximized window slightly larger than
+-  // current workspace, for frameless window since the standard frame has been
+-  // removed, the client area would then be drew outside current workspace.
+-  //
+-  // Indenting the client area can fix this behavior.
+-  if (IsMaximized() && !native_window_view_->has_frame()) {
+-    // The insets would be eventually passed to WM_NCCALCSIZE, which takes
+-    // the metrics under the DPI of _main_ monitor instead of current monitor.
+-    //
+-    // Please make sure you tested maximized frameless window under multiple
+-    // monitors with different DPIs before changing this code.
++  if (!native_window_view_->has_frame()) {
+     const int thickness = ::GetSystemMetrics(SM_CXSIZEFRAME) +
+                           ::GetSystemMetrics(SM_CXPADDEDBORDER);
+-    *insets = gfx::Insets::TLBR(thickness, thickness, thickness, thickness);
+-    return true;
++
++    if (IsMaximized()) {
++      // Windows by default extends the maximized window slightly larger than
++      // current workspace, for frameless window since the standard frame has
++      // been removed, the client area would then be drew outside current
++      // workspace.
++      //
++      // Indenting the client area can fix this behavior.
++      //
++      // The insets would be eventually passed to WM_NCCALCSIZE, which takes
++      // the metrics under the DPI of _main_ monitor instead of current monitor.
++      //
++      // Please make sure you tested maximized frameless window under multiple
++      // monitors with different DPIs before changing this code.
++      *insets = gfx::Insets::TLBR(thickness, thickness, thickness, thickness);
++      return true;
++    } else if (native_window_view_->has_thick_frame() &&
++               native_window_view_->IsResizable()) {
++      // Grow the insets to support resize targets past the frame edge like in
++      // windows with standard frames.
++      *insets = gfx::Insets::TLBR(0, thickness, thickness, thickness);
++      return true;
++    }
+   }
+   return false;
+ }
+diff --git a/shell/browser/ui/win/electron_desktop_window_tree_host_win.h b/shell/browser/ui/win/electron_desktop_window_tree_host_win.h
+index 7c72b2b..d2170b5 100644
+--- a/shell/browser/ui/win/electron_desktop_window_tree_host_win.h
++++ b/shell/browser/ui/win/electron_desktop_window_tree_host_win.h
+@@ -40,6 +40,7 @@ class ElectronDesktopWindowTreeHostWin : public views::DesktopWindowTreeHostWin,
+                     LRESULT* result) override;
+   bool ShouldPaintAsActive() const override;
+   bool GetDwmFrameInsetsInPixels(gfx::Insets* insets) const override;
++  bool WidgetSizeIsClientSize() const override;
+   bool GetClientAreaInsets(gfx::Insets* insets,
+                            int frame_thickness) const override;
+   bool HandleMouseEventForCaption(UINT message) const override;
+-- 
+2.55.0.windows.2
+

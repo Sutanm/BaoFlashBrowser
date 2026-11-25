@@ -1,0 +1,73 @@
+From 38cfc66c6f6c28a78dc1ccf47b4750ae5ac87bc2 Mon Sep 17 00:00:00 2001
+From: Mitchell Cohen <mitch.cohen@me.com>
+Date: Thu, 23 Apr 2026 15:47:00 -0400
+Subject: [PATCH] fix: ensure stable bounds on Windows when toggling
+ setResizable for frameless windows (#51252)
+
+---
+ shell/browser/ui/views/win_frame_view.cc           |  3 +--
+ .../win/electron_desktop_window_tree_host_win.cc   |  7 ++++---
+ spec/api-browser-window-spec.ts                    | 14 ++++++++++++++
+ 3 files changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/shell/browser/ui/views/win_frame_view.cc b/shell/browser/ui/views/win_frame_view.cc
+index aad1ca1..3b5df61 100644
+--- a/shell/browser/ui/views/win_frame_view.cc
++++ b/shell/browser/ui/views/win_frame_view.cc
+@@ -281,8 +281,7 @@ gfx::Size WinFrameView::GetMaximumSize() const {
+ }
+ 
+ gfx::Insets WinFrameView::RestoredFrameBorderInsets() const {
+-  if (window_->has_frame() || !window_->has_thick_frame() ||
+-      !window_->IsResizable())
++  if (window_->has_frame() || !window_->has_thick_frame())
+     return {};
+ 
+   const int thickness =
+diff --git a/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc b/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
+index 9d5c8bc..4f7a017 100644
+--- a/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
++++ b/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
+@@ -121,10 +121,11 @@ bool ElectronDesktopWindowTreeHostWin::GetClientAreaInsets(
+       // monitors with different DPIs before changing this code.
+       *insets = gfx::Insets::TLBR(thickness, thickness, thickness, thickness);
+       return true;
+-    } else if (native_window_view_->has_thick_frame() &&
+-               native_window_view_->IsResizable()) {
++    } else if (native_window_view_->has_thick_frame()) {
+       // Grow the insets to support resize targets past the frame edge like in
+-      // windows with standard frames.
++      // windows with standard frames. Non-resizable windows still get input
++      // insets for stable bounds and so they can be dragged from outer edges,
++      // also like in windows with standard frames.
+       *insets = gfx::Insets::TLBR(0, thickness, thickness, thickness);
+       return true;
+     }
+diff --git a/spec/api-browser-window-spec.ts b/spec/api-browser-window-spec.ts
+index 5b08907..28c741f 100755
+--- a/spec/api-browser-window-spec.ts
++++ b/spec/api-browser-window-spec.ts
+@@ -5790,6 +5790,20 @@ describe('BrowserWindow module', () => {
+         expectBoundsEqual(w.getSize(), [400, 300]);
+       });
+ 
++      it('does not change window size when disabled and enabled for frameless window', () => {
++        const w = new BrowserWindow({
++          show: false,
++          width: 400,
++          height: 300,
++          frame: false
++        });
++
++        w.setResizable(false);
++        expectBoundsEqual(w.getSize(), [400, 300]);
++        w.setResizable(true);
++        expectBoundsEqual(w.getSize(), [400, 300]);
++      });
++
+       ifit(process.platform === 'win32')('do not change window with frame bounds when maximized', () => {
+         const w = new BrowserWindow({
+           show: true,
+-- 
+2.55.0.windows.2
+

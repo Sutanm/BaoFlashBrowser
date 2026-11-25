@@ -1,0 +1,32 @@
+From c74de25b0170f67c772bbd845a7e8088edc203ab Mon Sep 17 00:00:00 2001
+From: Shelley Vohr <shelley.vohr@gmail.com>
+Date: Wed, 22 Apr 2026 12:33:41 +0200
+Subject: [PATCH] fix: ignore draggable regions in hidden `WebContentsView`
+ (#51200)
+
+fix: ignore draggable regions in hidden WebContentsView
+
+Hidden child WebContentsViews were still contributing their draggable
+regions to the parent window's non-client hit test, so clicks in the
+area where a hidden view's draggable element would render still dragged
+the window. Early-return HTNOWHERE when the view is not visible.
+---
+ shell/browser/api/electron_api_web_contents_view.cc | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/shell/browser/api/electron_api_web_contents_view.cc b/shell/browser/api/electron_api_web_contents_view.cc
+index 8077049..77670cb 100644
+--- a/shell/browser/api/electron_api_web_contents_view.cc
++++ b/shell/browser/api/electron_api_web_contents_view.cc
+@@ -82,6 +82,8 @@ void WebContentsView::ApplyBorderRadius() {
+ }
+ 
+ int WebContentsView::NonClientHitTest(const gfx::Point& point) {
++  if (!view() || !view()->GetVisible())
++    return HTNOWHERE;
+   if (api_web_contents_) {
+     auto* iwc = api_web_contents_->inspectable_web_contents();
+     if (!iwc)
+-- 
+2.55.0.windows.2
+

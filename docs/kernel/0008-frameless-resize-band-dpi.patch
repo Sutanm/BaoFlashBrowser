@@ -1,0 +1,49 @@
+From 353fb66eb00cffcf19b64d456811baa06e4dd319 Mon Sep 17 00:00:00 2001
+From: BaoFlash <dev@baoflash.local>
+Date: Wed, 25 Nov 2026 12:36:40 +0800
+Subject: [PATCH] fix: scale the frameless resize band by the device scale
+ factor
+
+---
+ shell/browser/ui/views/frameless_view.cc | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/shell/browser/ui/views/frameless_view.cc b/shell/browser/ui/views/frameless_view.cc
+index 420a825f27..ad07c26fb5 100644
+--- a/shell/browser/ui/views/frameless_view.cc
++++ b/shell/browser/ui/views/frameless_view.cc
+@@ -6,7 +6,11 @@
+ 
+ #include "shell/browser/native_window_views.h"
+ #include "shell/browser/ui/inspectable_web_contents_view.h"
++#include <algorithm>
++#include <cmath>
++
+ #include "ui/aura/window.h"
++#include "ui/display/screen.h"
+ #include "ui/base/hit_test.h"
+ #include "ui/base/metadata/metadata_impl_macros.h"
+ #include "ui/views/widget/widget.h"
+@@ -31,7 +35,18 @@ void FramelessView::Init(NativeWindowViews* window, views::Widget* frame) {
+ }
+ 
+ int FramelessView::ResizingBorderHitTest(const gfx::Point& point) {
+-  return ResizingBorderHitTestImpl(point, gfx::Insets(kResizeInsideBoundsSize));
++  // `kResizeInsideBoundsSize` 以 DIP 定义，但高 DPI 下命中测试的点按设备像素到达：
++  // 不换算的话，150% 屏幕上 5 DIP 只剩下约 3 物理像素，鼠标几乎抓不住窗口边缘。
++  // 见 docs/kernel/2026-11-25-e39-backport-plan.md（几何组 inset 调查）。
++  float scale = 1.0f;
++  if (auto* window = frame_->GetNativeWindow()) {
++    scale = display::Screen::Get()
++                ->GetDisplayNearestWindow(window)
++                .device_scale_factor();
++  }
++  const int inside_bounds =
++      std::max(1, static_cast<int>(std::lround(kResizeInsideBoundsSize * scale)));
++  return ResizingBorderHitTestImpl(point, gfx::Insets(inside_bounds));
+ }
+ 
+ int FramelessView::ResizingBorderHitTestImpl(const gfx::Point& point,
+-- 
+2.55.0.windows.2
+

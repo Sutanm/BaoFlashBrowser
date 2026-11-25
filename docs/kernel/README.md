@@ -105,3 +105,39 @@ Chromium 在 `28df8180bb721` 移除了专用的 Windows PPAPI 沙箱类型。移
 Windows 实测中，`app.getAppMetrics()` 报告 Pepper Plugin 的 `integrityLevel: "untrusted"` 和 `sandboxed: true`。Flash 加载、JS 桥、键盘输入和 Stage3D AUTO / SOFTWARE 均通过。进程及焦点监测未发现测试启动 CMD 或抢占前台。
 
 从基线重建时，在内核树执行 `git apply D:\java_workspace\BaoFlashBrowserNext\docs\kernel\0002-win-ppapi-process-sandbox.patch`，再按上述方法构建 `out/Rel`。
+
+## 候选登记册（未采用的补丁）
+
+看过但因故没落的补丁统一登记在 [`patch-candidates.md`](patch-candidates.md)：每条都写清"改什么 / 为什么没落 / 依据哪份实测 / 什么条件下再看"。
+遇到窗口、视图、生命周期类问题先去那里查，不要重新调研。
+
+## 上游回拣候选（未应用）
+
+E39（`v39.8.10`）已结束支持，官方修复想用只能单条回拣。候选的**上游原文**归档在 [`upstream/`](upstream/README.md)（18 条，2026-11-25 取自主线），移植排期、批次划分与构建/账目步骤见 [E39 回拣实施计划](2026-11-25-e39-backport-plan.md)。
+
+动手前先看两条硬事实：
+
+1. 18 条里 **3 条可直接 `git apply`**（#50688、#51900 整条；#51562 只有 spec 冲突），其余需手工移植；单条只有 2–130 行。
+2. `#54311` / `#54090` 要改 `patches/chromium/*`，**必须重打 Chromium 补丁集**；其余只动 `shell/`，增量编译即可。
+
+### 已移植并进入运行时（内核 tag `…+e39-batch1`）
+
+| 补丁 | 上游 | 内容 | 验证 |
+| --- | --- | --- | --- |
+| [`0003-51200-hidden-view-drag-regions.patch`](0003-51200-hidden-view-drag-regions.patch) | #51200 `c74de25` | 隐藏的 `WebContentsView` 不再把 `-webkit-app-region: drag` 区域贡献给父窗口的命中测试（+7 行；E39 用 `GetVisible()`，上游用 `view()->GetVisible()`） | `WM_NCHITTEST`：改前隐藏视图返回 `HTCAPTION(2)`，改后 `HTCLIENT(1)`，可见时仍 `HTCAPTION(2)` |
+| [`0004-50688-wrappable-deferred-destruction.patch`](0004-50688-wrappable-deferred-destruction.patch) | #50688 `3f8238b` | `Wrappable` 的 `SecondWeakCallback` 改为 posted task 延迟析构（整条 apply） | 改前泄漏 20 个 `WebContentsView` 后退出报 `Invoke in DisallowJavascriptExecutionScope`（退出码 `-2147483645`），改后干净退出 `0` |
+| [`0005-51900-render-process-gone-ordering.patch`](0005-51900-render-process-gone-ordering.patch) | #51900 `571d6e9` | `render-process-gone` 改在进程死亡通知之后发出（整条 apply） | **未采用**：E39 上 5 种触发均不崩，E39 缺上游所说的 CHECK 路径（v42/43 启动数据重构引入的回归）。原文保留作参考 |
+| [`0006-53031-detached-view-bounds.patch`](0006-53031-detached-view-bounds.patch) | #53031 `96f3996` | 视图不在 `Widget` 里时把尺寸直接 `Resize` 给 WebContents（+20 行） | `innerWidth×innerHeight`：从未 attach 时 `[0,0]` → `[400,300]`；叠加层"先 setBounds 后 addChildView"顺序下附着前也正确。缺口：`removeChildView` 后再 setBounds 仍 stale（E39 上不再触发 Layout，产品不依赖） |
+| [`0007-49959-webcontents-clone.patch`](0007-49959-webcontents-clone.patch) | #49959 `76a03e1` | 新增 `webContents.clone()`（44 行；E39 用 `Handle::ToV8()`） | **已装配但当前无消费者**：克隆体**拿不到页面 preload**（官方 E44 同样如此）→ Ruffle 不可用；PPAPI 同进程第二个实例无法实例化 → 本品页面标签无适用场景。应用侧接入已撤销，补丁保留待上游支持或 Ruffle 改为免 preload 注入 |
+| [`0008-frameless-resize-band-dpi.patch`](0008-frameless-resize-band-dpi.patch) | 自研（非上游） | 无边框窗口的缩放带按设备缩放比换算：`kResizeInsideBoundsSize`（DIP）→ 物理像素 | 真实缩放三档实测：**旧内核恒 4 px**（不随 DPI 变）、**新内核 100% 4 / 150% 7 / 200% 9 px**；100% 下新旧一致（改动是恒等）；冒烟 58 用例 / 0 失败 |
+
+另：`#51562`（约束后缩水）**不采用**——真实症状只在 `frame:true + setMaximumSize` 组合，产品路径不触发，
+且补丁依赖 E39 不存在的 `GetRestoredFrameBorderInsets()`。两条判定过程见
+[batch1-recheck.md](../evidence/probes/2026-11-25-upstream-electron-probe/batch1-recheck.md)。
+
+当前分支 `bao/e39-batch4`（`a5693f61ab` → `08dac9259e` → `5faf91f967` → `c244a99d9c` → `353fb66eb0`），构建产物 SHA-256 `0A7C92A9…0D7B1DE3F`，
+已装配进 `app/.runtime/win-x64`（tag `bao-v142-265-ppapi-sandbox+win-ppapi-process-sandbox+e39-batch1`），
+`runtime:check` 通过、冒烟 50 通过 / 0 失败。增量记录见 [2026-11-25-e39-backport-batch1](../reports/2026-11-25-e39-backport-batch1.md)。
+
+旧内核整体备份在 `app/.runtime/win-x64-before-e39-batch1`（`5BB2274F…`），`runtime-manifest.json` 的 `fallbackTag` 亦指向它。回退只需换回目录并把 manifest 的 exe 哈希改回去。
+`assemble-dist` → `runtime:prepare` → 更新清单。

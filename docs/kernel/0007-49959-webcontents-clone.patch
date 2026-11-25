@@ -1,0 +1,98 @@
+From c244a99d9c9a14dc00b84b101a0715a221e87fb6 Mon Sep 17 00:00:00 2001
+From: BaoFlash <dev@baoflash.local>
+Date: Wed, 25 Nov 2026 11:47:39 +0800
+Subject: [PATCH] feat: add webContents.clone() (port of electron#49959)
+
+---
+ docs/api/web-contents.md                      | 14 ++++++++++
+ .../browser/api/electron_api_web_contents.cc  | 26 +++++++++++++++++++
+ shell/browser/api/electron_api_web_contents.h |  4 +++
+ 3 files changed, 44 insertions(+)
+
+diff --git a/docs/api/web-contents.md b/docs/api/web-contents.md
+index 71d1c2a632..d706c1f7e7 100644
+--- a/docs/api/web-contents.md
++++ b/docs/api/web-contents.md
+@@ -2291,6 +2291,20 @@ Returns `Integer` - The Chromium internal `pid` of the associated renderer. Can
+ be compared to the `frameProcessId` passed by frame specific navigation events
+ (e.g. `did-frame-navigate`)
+ 
++#### `contents.clone()`
++
++Returns `WebContents` - A cloned WebContents instance. This method creates a copy
++of the WebContents with the following attributes:
++
++* **WebPreferences** - All preferences from the original WebContents are copied
++* **SiteInstance** - Uses the same SiteInstance as the original. This means the cloned WebContents will reuse the same render process as the original when loading same-origin pages, and only spawn a new render process for cross-origin navigations. This process allocation behavior is consistent with window.open and tab duplication in Chromium. For more details, see [Chromium's Site Isolation](https://www.chromium.org/developers/design-documents/site-isolation/) design document.
++* **Opener relationship** - Inherits the opener (window.opener) relationship
++* **Navigation state** - Copies the navigation history and controller state
++
++The cloned WebContents is an independent instance with its own lifecycle that can be destroyed separately and will not contain any open web pages.
++
++This API is useful for use cases where you want to create a new WebContents that shares the same render process with the original for same-origin content, while maintaining full lifecycle independence. Additionally, reusing the existing render process can help optimize memory usage and page load speed to a certain extent, as it eliminates the overhead of spawning and initializing a new render process from scratch.
++
+ #### `contents.takeHeapSnapshot(filePath)`
+ 
+ * `filePath` string - Path to the output file.
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index b1c668a622..1ff7c9ec59 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -2378,6 +2378,31 @@ base::ProcessId WebContents::GetOSProcessID() const {
+   return base::GetProcId(process_handle);
+ }
+ 
++v8::Local<v8::Value> WebContents::Clone(v8::Isolate* isolate) {
++  auto new_contents = web_contents()->Clone();
++  DCHECK(new_contents);
++
++  // Copy WebContentsPreferences from the original WebContents to the clone.
++  v8::Local<v8::Value> current_prefs = GetLastWebPreferences(isolate);
++  gin_helper::Dictionary pref_dict;
++  gin::ConvertFromV8(isolate, gin::ConvertToV8(isolate, current_prefs),
++                     &pref_dict);
++  new WebContentsPreferences(new_contents.get(), pref_dict);
++
++  // Take ownership of the cloned WebContents with the same wrapper type.
++  auto wrapper = CreateAndTake(isolate, std::move(new_contents), type_);
++
++  // The empty about:blank render frame already exists at this point; run the
++  // same setup as a freshly created WebContents so preferences such as
++  // background colour, scheduler throttling and the Mojo connection apply.
++  auto* frame = wrapper->MainFrame();
++  if (frame) {
++    wrapper->HandleNewRenderFrame(frame);
++  }
++
++  return wrapper.ToV8();
++}
++
+ bool WebContents::Equal(const WebContents* web_contents) const {
+   return ID() == web_contents->ID();
+ }
+@@ -4479,6 +4504,7 @@ void WebContents::FillObjectTemplate(v8::Isolate* isolate,
+                  &WebContents::SetBackgroundThrottling)
+       .SetMethod("getProcessId", &WebContents::GetProcessID)
+       .SetMethod("getOSProcessId", &WebContents::GetOSProcessID)
++      .SetMethod("clone", &WebContents::Clone)
+       .SetMethod("equal", &WebContents::Equal)
+       .SetMethod("_loadURL", &WebContents::LoadURL)
+       .SetMethod("reload", &WebContents::Reload)
+diff --git a/shell/browser/api/electron_api_web_contents.h b/shell/browser/api/electron_api_web_contents.h
+index c963eab28b..496a411a2a 100644
+--- a/shell/browser/api/electron_api_web_contents.h
++++ b/shell/browser/api/electron_api_web_contents.h
+@@ -194,6 +194,10 @@ class WebContents final : public ExclusiveAccessContext,
+   void SetBackgroundThrottling(bool allowed);
+   int32_t GetProcessID() const;
+   base::ProcessId GetOSProcessID() const;
++  // Creates an independent WebContents that shares the original's SiteInstance
++  // (same renderer process for same-origin pages), opener and navigation state.
++  // Port of electron#49959.
++  v8::Local<v8::Value> Clone(v8::Isolate* isolate);
+   [[nodiscard]] Type type() const { return type_; }
+   bool Equal(const WebContents* web_contents) const;
+   void LoadURL(const GURL& url, const gin_helper::Dictionary& options);
+-- 
+2.55.0.windows.2
+

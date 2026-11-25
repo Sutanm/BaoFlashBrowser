@@ -1,0 +1,131 @@
+From 50dd9631fa983333772dc89538460f4012f30095 Mon Sep 17 00:00:00 2001
+From: Samuel Attard <sam@electronjs.org>
+Date: Sun, 16 Aug 2026 08:41:59 -0700
+Subject: [PATCH] fix: blank WebContentsView after
+ setBackgroundThrottling(false) while hidden (#52844)
+
+* fix: blank WebContentsView after setBackgroundThrottling(false) while hidden
+
+WebContents::SetBackgroundThrottling un-hid a hidden RenderWidgetHost by
+calling RenderWidgetHostImpl::WasShown() directly, bypassing the
+RenderWidgetHostView. On macOS the view (BrowserCompositorMac /
+DelegatedFrameHost) therefore never learned the widget was rendering: the
+DelegatedFrameHost kept embedding the LocalSurfaceId it had before the
+navigation invalidated it, while the host's SynchronizeVisualProperties
+handed the renderer a fresh id. The renderer produced frames nobody
+displayed, and when the window was later shown the "already shown" host
+made RenderWidgetHostViewBase::OnShowWithPageVisibility skip
+NotifyHostAndDelegateOnWasShown, so the surface was never embedded and the
+window stayed blank until a resize allocated a new id.
+
+Un-hide through RenderWidgetHostViewBase::ShowWithVisibility(
+kHiddenButPainting) instead - the same state content uses for a hidden but
+captured WebContents - so the view, compositor and host stay in sync.
+
+Affects WebContentsView (created initially hidden); BrowserWindow was
+immune because it shows the widget through the view at creation.
+
+* chore: format spec
+
+No-Verification-Needed: formatting-only change
+---
+ .../browser/api/electron_api_web_contents.cc  | 25 +++++++++++-
+ spec/api-web-contents-spec.ts                 | 39 +++++++++++++++++++
+ 2 files changed, 63 insertions(+), 1 deletion(-)
+
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index c698de0..80e3620 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -73,6 +73,7 @@
+ #include "content/public/browser/visibility.h"
+ #include "content/public/browser/web_contents.h"
+ #include "content/public/common/child_process_id.h"
++#include "content/public/common/page_visibility_state.h"
+ #include "content/public/common/referrer_type_converters.h"
+ #include "content/public/common/result_codes.h"
+ #include "content/public/common/url_constants.h"
+@@ -2675,7 +2676,29 @@ void WebContents::SetBackgroundThrottling(bool allowed) {
+   web_contents()->GetRenderViewHost()->SetSchedulerThrottling(allowed);
+ 
+   if (rwh_impl->IsHidden()) {
+-    rwh_impl->WasShown({});
++    // Un-hide through the view rather than calling
++    // RenderWidgetHostImpl::WasShown() directly, so that the platform view
++    // (and on macOS the BrowserCompositorMac / DelegatedFrameHost) also
++    // learns the widget is now producing frames. Bypassing the view leaves the
++    // DelegatedFrameHost embedding a stale LocalSurfaceId that the renderer no
++    // longer submits to; when the window is later shown, the "already shown"
++    // host makes the view skip its show handling and the surface is never
++    // embedded, so the window stays blank until a resize allocates a new id.
++    // kHiddenButPainting is the same state content uses for a hidden but
++    // captured WebContents: the widget renders, the page stays hidden.
++    //
++    // Guest (<webview>) main frames are child-frame views: their surface is
++    // embedded by the embedder's renderer, so there is no browser-side
++    // compositor state to keep in sync, and their ShowWithVisibility()
++    // refuses to show a frame the embedder has hidden (display: none). Keep
++    // the direct WasShown() for them so behavior there is unchanged.
++    auto* rwhv_base = static_cast<content::RenderWidgetHostViewBase*>(rwhv);
++    if (rwhv_base->IsRenderWidgetHostViewChildFrame()) {
++      rwh_impl->WasShown({});
++    } else {
++      rwhv_base->ShowWithVisibility(
++          content::PageVisibilityState::kHiddenButPainting);
++    }
+   }
+ }
+ 
+diff --git a/spec/api-web-contents-spec.ts b/spec/api-web-contents-spec.ts
+index fa3090e..e40489d 100644
+--- a/spec/api-web-contents-spec.ts
++++ b/spec/api-web-contents-spec.ts
+@@ -3786,6 +3786,45 @@ describe('webContents module', () => {
+ 
+       w.webContents.setBackgroundThrottling(false);
+     });
++
++    // Regression test: disabling throttling on a WebContentsView while its
++    // window is hidden used to un-hide the RenderWidgetHost without telling the
++    // view, so the surface the renderer produced was never embedded and the
++    // window stayed blank (and un-capturable) once shown, until a resize.
++    it('leaves a hidden WebContentsView paintable once its window is shown', async () => {
++      const w = new BaseWindow({ show: false, width: 300, height: 200 });
++      const view = new WebContentsView();
++      w.contentView.addChildView(view);
++      view.setBounds({ x: 0, y: 0, width: 300, height: 200 });
++      await view.webContents.loadURL('data:text/html,<body style="background:%23ff0000">');
++      view.webContents.setBackgroundThrottling(false);
++      // Give the renderer time to submit frames while still hidden.
++      await setTimeout(500);
++      w.show();
++      // In the broken state capturePage rejects forever ("Current display
++      // surface not available for capture"); in the fixed state the surface is
++      // available immediately or after a frame or two.
++      let image: Electron.NativeImage | undefined;
++      await waitUntil(
++        async () => {
++          try {
++            image = await view.webContents.capturePage();
++            return true;
++          } catch {
++            return false;
++          }
++        },
++        { rate: 100, timeout: 5000 }
++      );
++      const size = image!.getSize();
++      expect(size.width).to.be.greaterThan(0);
++      expect(size.height).to.be.greaterThan(0);
++      const px = image!.toBitmap();
++      // BGRA; expect the red background, not the blank white surface.
++      expect(px[2]).to.equal(255);
++      expect(px[1]).to.equal(0);
++      expect(px[0]).to.equal(0);
++    });
+   });
+ 
+   describe('getBackgroundThrottling()', () => {
+-- 
+2.55.0.windows.2
+

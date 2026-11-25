@@ -1,0 +1,223 @@
+From 02b018c7661930d07e0f97ad29adceddc26af693 Mon Sep 17 00:00:00 2001
+From: Shelley Vohr <shelley.vohr@gmail.com>
+Date: Thu, 15 Oct 2026 10:19:36 +0200
+Subject: [PATCH] fix: don't apply a window's draggable regions under a child
+ WebContentsView (#54936)
+
+* fix: don't apply a window's draggable regions under a child WebContentsView
+
+Every WebContentsView in a window was asked whether a point is in one of its
+draggable regions, and any yes made the point part of the title bar. A view
+stacked above another one's `app-region: drag` area therefore could not be
+clicked there. Only the frontmost WebContentsView at the point is asked now.
+
+* fix: skip subtrees that take no events and cover more stacking cases in specs
+
+The walk now skips a child that cannot process events, like the views event
+targeter does. New specs: a view that covers part of the window, a hidden
+view, and a plain View over a draggable region.
+---
+ .../api/electron_api_web_contents_view.cc     |  1 +
+ shell/browser/draggable_region_provider.h     | 10 +++
+ shell/browser/native_window.cc                | 43 ++++++++++--
+ spec/drag-region.spec.ts                      | 67 ++++++++++++++++++-
+ 4 files changed, 114 insertions(+), 7 deletions(-)
+
+diff --git a/shell/browser/api/electron_api_web_contents_view.cc b/shell/browser/api/electron_api_web_contents_view.cc
+index 17bdbfb..9e167d2 100644
+--- a/shell/browser/api/electron_api_web_contents_view.cc
++++ b/shell/browser/api/electron_api_web_contents_view.cc
+@@ -153,6 +153,7 @@ class WebContentsViewHost final : public View::Host,
+   void ApplyBorderRadius(std::optional<int> radius);
+ 
+   // DraggableRegionProvider:
++  views::View* GetDraggableRegionView() override { return view(); }
+   int NonClientHitTest(const gfx::Point& point) override;
+ 
+  private:
+diff --git a/shell/browser/draggable_region_provider.h b/shell/browser/draggable_region_provider.h
+index 69f9e8c..31eda62 100644
+--- a/shell/browser/draggable_region_provider.h
++++ b/shell/browser/draggable_region_provider.h
+@@ -5,8 +5,18 @@
+ #ifndef ELECTRON_SHELL_BROWSER_DRAGGABLE_REGION_PROVIDER_H_
+ #define ELECTRON_SHELL_BROWSER_DRAGGABLE_REGION_PROVIDER_H_
+ 
++namespace gfx {
++class Point;
++}
++
++namespace views {
++class View;
++}
++
+ class DraggableRegionProvider {
+  public:
++  // The view that the provider's draggable regions lie in, if it has one.
++  virtual views::View* GetDraggableRegionView() = 0;
+   virtual int NonClientHitTest(const gfx::Point& point) = 0;
+ };
+ 
+diff --git a/shell/browser/native_window.cc b/shell/browser/native_window.cc
+index 983360b..8d89816 100644
+--- a/shell/browser/native_window.cc
++++ b/shell/browser/native_window.cc
+@@ -6,9 +6,11 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <list>
+ #include <string>
+ #include <vector>
+ 
++#include "base/containers/adapters.h"
+ #include "base/memory/ptr_util.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/values.h"
+@@ -33,6 +35,7 @@
+ #include "ui/display/display.h"
+ #include "ui/display/screen.h"
+ #include "ui/display/types/display_constants.h"
++#include "ui/views/widget/root_view.h"
+ #include "ui/views/widget/widget.h"
+ 
+ #if !BUILDFLAG(IS_MAC)
+@@ -747,6 +750,37 @@ void NativeWindow::NotifyWindowMessage(UINT message,
+ }
+ #endif
+ 
++namespace {
++
++// The provider whose view is frontmost at |point|, which is in |view|'s
++// coordinates. That view gets the mouse events there, so only its draggable
++// regions apply: a WebContentsView stacked above another one hides the regions
++// under it. Views that are no provider's, which have no draggable regions,
++// leave the ones under them in effect.
++DraggableRegionProvider* FrontmostDraggableRegionProviderAt(
++    views::View* view,
++    const gfx::Point& point,
++    const std::list<raw_ptr<DraggableRegionProvider>>& providers) {
++  const views::View::Views children = view->GetChildrenInZOrder();
++  for (views::View* child : base::Reversed(children)) {
++    if (!child->GetVisible() || !child->GetCanProcessEventsWithinSubtree())
++      continue;
++    gfx::Point child_point = point;
++    views::View::ConvertPointToTarget(view, child, &child_point);
++    if (!child->HitTestPoint(child_point))
++      continue;
++    if (DraggableRegionProvider* provider =
++            FrontmostDraggableRegionProviderAt(child, child_point, providers)) {
++      return provider;
++    }
++  }
++  auto it = std::ranges::find(providers, view,
++                              &DraggableRegionProvider::GetDraggableRegionView);
++  return it == providers.end() ? nullptr : it->get();
++}
++
++}  // namespace
++
+ int NativeWindow::NonClientHitTest(const gfx::Point& point) {
+ #if !BUILDFLAG(IS_MAC)
+   // We need to ensure we account for resizing borders on Windows and Linux.
+@@ -773,12 +807,9 @@ int NativeWindow::NonClientHitTest(const gfx::Point& point) {
+   if (widget()->IsFullscreen())
+     return HTNOWHERE;
+ 
+-  for (DraggableRegionProvider* provider : draggable_region_providers_) {
+-    int hit = provider->NonClientHitTest(point);
+-    if (hit != HTNOWHERE)
+-      return hit;
+-  }
+-  return HTNOWHERE;
++  DraggableRegionProvider* provider = FrontmostDraggableRegionProviderAt(
++      widget()->GetRootView(), point, draggable_region_providers_);
++  return provider ? provider->NonClientHitTest(point) : HTNOWHERE;
+ }
+ 
+ void NativeWindow::AddDraggableRegionProvider(
+diff --git a/spec/drag-region.spec.ts b/spec/drag-region.spec.ts
+index 23399ca..4c2c822 100644
+--- a/spec/drag-region.spec.ts
++++ b/spec/drag-region.spec.ts
+@@ -1,4 +1,4 @@
+-import { BrowserWindow, screen } from 'electron/main';
++import { BrowserWindow, screen, View, WebContentsView } from 'electron/main';
+ 
+ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+ 
+@@ -194,6 +194,71 @@ describe.runIf(canDrag)('draggable regions', { tags: ['serial'] }, () => {
+     });
+   });
+ 
++  describe('child WebContentsView', () => {
++    let w: BrowserWindow;
++    let child: WebContentsView;
++
++    beforeEach(async () => {
++      w = new BrowserWindow(testWindowOpts);
++      await w.loadURL(draggablePageURL.href);
++      child = new WebContentsView();
++      w.contentView.addChildView(child);
++      const { width, height } = w.getContentBounds();
++      child.setBounds({ x: 0, y: 0, width, height });
++    });
++
++    afterEach(() => {
++      child.webContents.close();
++    });
++
++    it('does not drag where the view covers a draggable region of the window', async () => {
++      await child.webContents.loadFile(path.join(fixtures, 'pages', 'base-page.html'));
++
++      const { start, end } = await performDrag(w);
++
++      expect(start).toEqual(end);
++    });
++
++    it('drags with app-region: drag in the view', async () => {
++      await child.webContents.loadURL(draggablePageURL.href);
++
++      const { start, end } = await performDrag(w);
++
++      expect(start).not.toEqual(end);
++    });
++
++    it('drags where the view does not cover the window', async () => {
++      await child.webContents.loadFile(path.join(fixtures, 'pages', 'base-page.html'));
++      const { width, height } = w.getContentBounds();
++      child.setBounds({ x: 0, y: 0, width: Math.round(width / 4), height: Math.round(height / 4) });
++
++      const { start, end } = await performDrag(w);
++
++      expect(start).not.toEqual(end);
++    });
++
++    it('drags where a hidden view covers a draggable region of the window', async () => {
++      await child.webContents.loadFile(path.join(fixtures, 'pages', 'base-page.html'));
++      child.setVisible(false);
++
++      const { start, end } = await performDrag(w);
++
++      expect(start).not.toEqual(end);
++    });
++
++    it('drags where a View covers a draggable region of the window', async () => {
++      child.setVisible(false);
++      const view = new View();
++      w.contentView.addChildView(view);
++      const { width, height } = w.getContentBounds();
++      view.setBounds({ x: 0, y: 0, width, height });
++
++      const { start, end } = await performDrag(w);
++
++      expect(start).not.toEqual(end);
++    });
++  });
++
+   for (const frameType of ['webview', 'iframe'] as const) {
+     // FIXME: this behavior is broken before the tests were added
+     // See: https://github.com/electron/electron/issues/49256
+-- 
+2.55.0.windows.2
+

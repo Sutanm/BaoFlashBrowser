@@ -1,0 +1,333 @@
+From c3485835c263e32a108dbd84164d4eaef7c65266 Mon Sep 17 00:00:00 2001
+From: Samuel Attard <sam@electronjs.org>
+Date: Fri, 18 Sep 2026 20:58:22 -0700
+Subject: [PATCH] fix: keep hidden windows rendering when they navigate
+ (#54090)
+
+* fix: keep hidden windows rendering when they navigate
+
+A window created with `show: false` could stop producing frames as a
+page committed, so `ready-to-show` never fired and the app stayed
+invisible until something else showed the window. With a
+`titleBarOverlay` this regressed in 44.4.0 (#54025); calling
+`setZoomFactor()` on a hidden window before its first paint hit the same
+thing since 40 (#51972).
+
+Electron keeps such a window's widget visible so it can paint while the
+native view is hidden. RenderWidgetHostViewAura::DidNavigate only looked
+at the view, decided the widget was dormant and invalidated its
+LocalSurfaceId, so any VisualProperties update sent before the first
+frame was acked (the overlay rect posted from DidFinishNavigation since
+#53639, or a zoom change) reached the renderer without a surface id and
+it deferred all main frames until the window was shown.
+
+Key the DidNavigate decision off the host's visibility as well, which is
+what RenderWidgetHostViewMac already does, so a widget that is still
+painting keeps a valid surface id across navigations.
+
+* test: don't wait for an initial geometrychange in the overlay specs
+
+With the surface id kept across the navigation, a hidden window's page
+now receives the overlay geometry with its first visual properties, so
+the rect is already in place when overlay.html's script runs and no
+initial geometrychange event is dispatched (a shown window could already
+behave this way). Poll navigator.windowControlsOverlay.visible instead,
+as the WebContentsView test does; the setBounds() assertion still covers
+geometrychange firing on a real change.
+---
+ ..._scheduler_throttling_per_renderview.patch |   2 +-
+ patches/chromium/disable_hidden.patch         |  25 +++-
+ ...board_hides_on_input_blur_in_webview.patch |   2 +-
+ spec/api-browser-window-spec.ts               | 117 +++++++++++++-----
+ .../apps/hidden-window-overlay/main.js        |  23 ++++
+ .../apps/hidden-window-overlay/package.json   |   4 +
+ 6 files changed, 138 insertions(+), 35 deletions(-)
+ create mode 100644 spec/fixtures/apps/hidden-window-overlay/main.js
+ create mode 100644 spec/fixtures/apps/hidden-window-overlay/package.json
+
+diff --git a/patches/chromium/allow_disabling_blink_scheduler_throttling_per_renderview.patch b/patches/chromium/allow_disabling_blink_scheduler_throttling_per_renderview.patch
+index e678985..febec42 100644
+--- a/patches/chromium/allow_disabling_blink_scheduler_throttling_per_renderview.patch
++++ b/patches/chromium/allow_disabling_blink_scheduler_throttling_per_renderview.patch
+@@ -51,7 +51,7 @@ index d98b5dda96208e3f923aa8a9c6e6eb988004904b..7c91ed2d7a397ad9e36cbecfc13de7bd
+    void SendRendererPreferencesToRenderer(
+        const blink::RendererPreferences& preferences);
+ diff --git a/content/browser/renderer_host/render_widget_host_view_aura.cc b/content/browser/renderer_host/render_widget_host_view_aura.cc
+-index e88749a8d5d8431e0cf67b5e6337b0f51a9ec69f..d2517076f0ab5e86c4e770269d1eb5697e1c0884 100644
++index 32ff9ab3b9066f601b9e84984240398dd07505a4..1f35ed7cf09d770dce652ed13e1453133834379d 100644
+ --- a/content/browser/renderer_host/render_widget_host_view_aura.cc
+ +++ b/content/browser/renderer_host/render_widget_host_view_aura.cc
+ @@ -692,8 +692,8 @@ void RenderWidgetHostViewAura::ShowImpl(PageVisibilityState page_visibility) {
+diff --git a/patches/chromium/disable_hidden.patch b/patches/chromium/disable_hidden.patch
+index 1381547..ffab01b 100644
+--- a/patches/chromium/disable_hidden.patch
++++ b/patches/chromium/disable_hidden.patch
+@@ -5,6 +5,15 @@ Subject: disable_hidden.patch
+ 
+ Electron uses this to disable background throttling for hidden windows.
+ 
++Electron also keeps the widget visible while its native view is hidden
++(paintWhenInitiallyHidden, backgroundThrottling: false), so
++RenderWidgetHostViewAura::DidNavigate must not treat such a widget as
++dormant: invalidating the LocalSurfaceId there means the next
++VisualProperties update (e.g. a Window Controls Overlay rect pushed from
++DidFinishNavigation) reaches the renderer without a surface id, which
++makes it defer main frames until the view is eventually shown. Key the
++decision off the host's visibility, as RenderWidgetHostViewMac does.
++
+ diff --git a/content/browser/renderer_host/render_widget_host_impl.cc b/content/browser/renderer_host/render_widget_host_impl.cc
+ index ee16374591d6e40165d909c61b7db7e586b159e0..e0307e278c7ca4314ebb87b0fbdeb110a3457ca3 100644
+ --- a/content/browser/renderer_host/render_widget_host_impl.cc
+@@ -34,7 +43,7 @@ index 368e761bb19770f20dc46dae14c68054072e768e..baa4893b429efe3ab7515059d022aa6e
+    // |routing_id| must not be IPC::mojom::kRoutingIdNone.
+    // If this object outlives |delegate|, DetachDelegate() must be called when
+ diff --git a/content/browser/renderer_host/render_widget_host_view_aura.cc b/content/browser/renderer_host/render_widget_host_view_aura.cc
+-index 277febb199dac5fdb40b3f1fada416694808b137..e88749a8d5d8431e0cf67b5e6337b0f51a9ec69f 100644
++index 277febb199dac5fdb40b3f1fada416694808b137..32ff9ab3b9066f601b9e84984240398dd07505a4 100644
+ --- a/content/browser/renderer_host/render_widget_host_view_aura.cc
+ +++ b/content/browser/renderer_host/render_widget_host_view_aura.cc
+ @@ -751,7 +751,7 @@ void RenderWidgetHostViewAura::HideImpl() {
+@@ -46,3 +55,17 @@ index 277febb199dac5fdb40b3f1fada416694808b137..e88749a8d5d8431e0cf67b5e6337b0f5
+      host()->WasHidden();
+      aura::WindowTreeHost* host = window_->GetHost();
+        aura::Window* parent = window_->parent();
++@@ -3674,7 +3674,12 @@ RenderWidgetHostViewAura::DidUpdateVisualProperties(
++ void RenderWidgetHostViewAura::DidNavigate() {
++   CHECK(delegated_frame_host_) << "Cannot be invoked during destruction.";
++ 
++-  if (!IsShowing()) {
+++  // Electron: a widget that Electron keeps visible while its native view is
+++  // hidden is still producing frames, so treat it as showing here. Otherwise
+++  // the next VisualProperties update is sent without a LocalSurfaceId and the
+++  // renderer stops producing frames until the view is shown. This matches
+++  // RenderWidgetHostViewMac, which keys this off the host's visibility.
+++  if (!IsShowing() && host()->IsHidden()) {
++     // Navigating while hidden should not allocate a new LocalSurfaceID. Once
++     // sizes are ready, or we begin to Show, we can then allocate the new
++     // LocalSurfaceId.
+diff --git a/patches/chromium/fix_on-screen-keyboard_hides_on_input_blur_in_webview.patch b/patches/chromium/fix_on-screen-keyboard_hides_on_input_blur_in_webview.patch
+index a43806d..4237470 100644
+--- a/patches/chromium/fix_on-screen-keyboard_hides_on_input_blur_in_webview.patch
++++ b/patches/chromium/fix_on-screen-keyboard_hides_on_input_blur_in_webview.patch
+@@ -9,7 +9,7 @@ focus node change via TextInputManager.
+ chromium-bug: https://crbug.com/1369605
+ 
+ diff --git a/content/browser/renderer_host/render_widget_host_view_aura.cc b/content/browser/renderer_host/render_widget_host_view_aura.cc
+-index d2517076f0ab5e86c4e770269d1eb5697e1c0884..e253fbcb8d5fa74298831136e80f2f41fca67a3a 100644
++index 1f35ed7cf09d770dce652ed13e1453133834379d..97836d8bb87407c7d6223aff4ad90e630344c0e4 100644
+ --- a/content/browser/renderer_host/render_widget_host_view_aura.cc
+ +++ b/content/browser/renderer_host/render_widget_host_view_aura.cc
+ @@ -3641,6 +3641,12 @@ void RenderWidgetHostViewAura::OnTextSelectionChanged(
+diff --git a/spec/api-browser-window-spec.ts b/spec/api-browser-window-spec.ts
+index f38964e..55881c4 100755
+--- a/spec/api-browser-window-spec.ts
++++ b/spec/api-browser-window-spec.ts
+@@ -3688,6 +3688,12 @@ describe('BrowserWindow module', () => {
+     await shown;
+   };
+ 
++  // The overlay geometry may already be in place when the page's scripts run,
++  // in which case no initial geometrychange event is dispatched, so poll for
++  // it rather than waiting for that event.
++  const waitForOverlay = (w: BrowserWindow) =>
++    waitUntil(() => w.webContents.executeJavaScript('navigator.windowControlsOverlay.visible'));
++
+   describe('"titleBarStyle" option', () => {
+     const testWindowsOverlay = async (style: any) => {
+       const w = new BrowserWindow({
+@@ -3702,17 +3708,9 @@ describe('BrowserWindow module', () => {
+         titleBarOverlay: true
+       });
+       const overlayHTML = path.join(__dirname, 'fixtures', 'pages', 'overlay.html');
+-      if (process.platform === 'darwin') {
+-        await w.loadFile(overlayHTML);
+-      } else {
+-        const overlayReady = once(ipcMain, 'geometrychange');
+-        await w.loadFile(overlayHTML);
+-        await showWindowForWayland(w);
+-        await overlayReady;
+-      }
+-
+-      const overlayEnabled = await w.webContents.executeJavaScript('navigator.windowControlsOverlay.visible');
+-      expect(overlayEnabled).to.be.true('overlayEnabled');
++      await w.loadFile(overlayHTML);
++      await showWindowForWayland(w);
++      await waitForOverlay(w);
+       const overlayRect = await w.webContents.executeJavaScript('getJSOverlayProperties()');
+       expect(overlayRect.y).to.equal(0);
+       if (process.platform === 'darwin') {
+@@ -3818,17 +3816,9 @@ describe('BrowserWindow module', () => {
+       });
+ 
+       const overlayHTML = path.join(__dirname, 'fixtures', 'pages', 'overlay.html');
+-      if (process.platform === 'darwin') {
+-        await w.loadFile(overlayHTML);
+-      } else {
+-        const overlayReady = once(ipcMain, 'geometrychange');
+-        await w.loadFile(overlayHTML);
+-        await showWindowForWayland(w);
+-        await overlayReady;
+-      }
+-
+-      const overlayEnabled = await w.webContents.executeJavaScript('navigator.windowControlsOverlay.visible');
+-      expect(overlayEnabled).to.be.true('overlayEnabled');
++      await w.loadFile(overlayHTML);
++      await showWindowForWayland(w);
++      await waitForOverlay(w);
+       const overlayRectPreMax = await w.webContents.executeJavaScript('getJSOverlayProperties()');
+ 
+       expect(overlayRectPreMax.y).to.equal(0);
+@@ -3864,6 +3854,75 @@ describe('BrowserWindow module', () => {
+       await testWindowsOverlayHeight(40);
+     });
+ 
++    // https://github.com/electron/electron/issues/54025: pushing the overlay
++    // rect to a hidden (but painting) window after a navigation sent the
++    // renderer visual properties without a surface id, which stopped it from
++    // producing frames until the window was shown. On Wayland hidden windows
++    // aren't laid out at all, so there's nothing to test there.
++    ifdescribe(!isWayland)('on a window that is never shown', () => {
++      const rendersFrames = (w: BrowserWindow) =>
++        w.webContents.executeJavaScript(
++          'new Promise(r => { const t = setTimeout(() => r(false), 2000); requestAnimationFrame(() => { clearTimeout(t); r(true); }); })'
++        );
++      const createWindow = () =>
++        new BrowserWindow({
++          show: false,
++          width: 400,
++          height: 400,
++          titleBarStyle: 'hidden',
++          titleBarOverlay: { height: 40 }
++        });
++
++      const runFixtureApp = async (appPath: string) => {
++        const appProcess = childProcess.spawn(process.execPath, [appPath]);
++        let out = '';
++        appProcess.stdout.on('data', (data) => {
++          out += data;
++        });
++        appProcess.stderr.on('data', (data) => {
++          out += data;
++        });
++        const [code] = await once(appProcess, 'exit');
++        return { code, out };
++      };
++
++      it('emits ready-to-show', async () => {
++        // The first window of a cold process is where the renderer used to
++        // commit its navigation before the frame was laid out, so run a small
++        // app a few times rather than opening windows in this (warm) process.
++        const appPath = path.join(fixtures, 'apps', 'hidden-window-overlay');
++        for (let i = 0; i < 6; i++) {
++          const { code, out } = await runFixtureApp(appPath);
++          expect(code).to.equal(0, `run ${i + 1}: ${out}`);
++        }
++      });
++
++      ifit(process.platform !== 'darwin')('keeps rendering when the overlay changes as it navigates', async () => {
++        const w = createWindow();
++        const readyToShow = once(w, 'ready-to-show', { signal: AbortSignal.timeout(10000) });
++        await w.loadFile(path.join(fixtures, 'pages', 'a.html'));
++        await readyToShow;
++        expect(await rendersFrames(w)).to.equal(true, 'not rendering before navigating');
++        // Push new overlay geometry from each navigation; this used to reach
++        // the renderer without a surface id and stall it until show().
++        for (const [page, height] of [
++          ['b.html', 60],
++          ['a.html', 30],
++          ['b.html', 50]
++        ] as const) {
++          w.webContents.once('did-navigate', () => w.setTitleBarOverlay({ height }));
++          await w.loadFile(path.join(fixtures, 'pages', page));
++          await waitUntil(async () => {
++            const current = await w.webContents.executeJavaScript(
++              'navigator.windowControlsOverlay.getTitlebarAreaRect().height'
++            );
++            return current === height;
++          });
++          expect(await rendersFrames(w)).to.equal(true, `renderer stopped producing frames after ${page} @ ${height}`);
++        }
++      });
++    });
++
+     it('propagates the overlay to WebContentsViews in a BaseWindow', async () => {
+       const w = new BaseWindow({
+         show: false,
+@@ -3945,17 +4004,11 @@ describe('BrowserWindow module', () => {
+     });
+ 
+     it('correctly updates the height of the overlay', async () => {
+-      const testOverlay = async (w: BrowserWindow, size: Number, firstRun: boolean) => {
++      const testOverlay = async (w: BrowserWindow, size: Number) => {
+         const overlayHTML = path.join(__dirname, 'fixtures', 'pages', 'overlay.html');
+-        const overlayReady = once(ipcMain, 'geometrychange');
+         await w.loadFile(overlayHTML);
+         await showWindowForWayland(w);
+-        if (firstRun) {
+-          await overlayReady;
+-        }
+-
+-        const overlayEnabled = await w.webContents.executeJavaScript('navigator.windowControlsOverlay.visible');
+-        expect(overlayEnabled).to.be.true('overlayEnabled');
++        await waitForOverlay(w);
+ 
+         const { height: preMaxHeight } = await w.webContents.executeJavaScript('getJSOverlayProperties()');
+         expect(preMaxHeight).to.equal(size);
+@@ -3992,13 +4045,13 @@ describe('BrowserWindow module', () => {
+         }
+       });
+ 
+-      await testOverlay(w, INITIAL_SIZE, true);
++      await testOverlay(w, INITIAL_SIZE);
+ 
+       w.setTitleBarOverlay({
+         height: INITIAL_SIZE + 10
+       });
+ 
+-      await testOverlay(w, INITIAL_SIZE + 10, false);
++      await testOverlay(w, INITIAL_SIZE + 10);
+     });
+   });
+ 
+diff --git a/spec/fixtures/apps/hidden-window-overlay/main.js b/spec/fixtures/apps/hidden-window-overlay/main.js
+new file mode 100644
+index 0000000..0c89b2e
+--- /dev/null
++++ b/spec/fixtures/apps/hidden-window-overlay/main.js
+@@ -0,0 +1,23 @@
++// Creates a hidden window with a titleBarOverlay and reports whether
++// `ready-to-show` fires. See https://github.com/electron/electron/issues/54025.
++const { app, BrowserWindow } = require('electron');
++
++app.whenReady().then(() => {
++  const w = new BrowserWindow({
++    show: false,
++    width: 400,
++    height: 400,
++    titleBarStyle: 'hidden',
++    titleBarOverlay: { height: 40 }
++  });
++  const timeout = setTimeout(() => {
++    console.log('no ready-to-show after 10s');
++    app.exit(1);
++  }, 10000);
++  w.once('ready-to-show', () => {
++    clearTimeout(timeout);
++    console.log('ready-to-show');
++    app.exit(0);
++  });
++  w.loadURL('data:text/html,<h1>hello</h1>');
++});
+diff --git a/spec/fixtures/apps/hidden-window-overlay/package.json b/spec/fixtures/apps/hidden-window-overlay/package.json
+new file mode 100644
+index 0000000..a613d63
+--- /dev/null
++++ b/spec/fixtures/apps/hidden-window-overlay/package.json
+@@ -0,0 +1,4 @@
++{
++  "name": "electron-test-hidden-window-overlay",
++  "main": "main.js"
++}
+-- 
+2.55.0.windows.2
+

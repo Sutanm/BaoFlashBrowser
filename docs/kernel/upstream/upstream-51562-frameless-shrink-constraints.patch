@@ -1,0 +1,153 @@
+From dea88371a82dda73207f1e22c05eb9f7f23265c9 Mon Sep 17 00:00:00 2001
+From: Mitchell Cohen <mitch.cohen@me.com>
+Date: Fri, 5 Jun 2026 14:50:47 -0400
+Subject: [PATCH] fix: frameless windows do not shrink after constraints are
+ applied on Windows (#51562)
+
+added inset correction and resizability bounds tests
+---
+ shell/browser/native_window_views.cc |  9 ++-
+ spec/api-browser-window-spec.ts      | 96 ++++++++++++----------------
+ 2 files changed, 49 insertions(+), 56 deletions(-)
+
+diff --git a/shell/browser/native_window_views.cc b/shell/browser/native_window_views.cc
+index 831fe4c..818315d 100644
+--- a/shell/browser/native_window_views.cc
++++ b/shell/browser/native_window_views.cc
+@@ -954,14 +954,19 @@ extensions::SizeConstraints NativeWindowViews::GetContentSizeConstraints()
+     return *content_size_constraints_;
+   if (!size_constraints_)
+     return extensions::SizeConstraints();
++  // Inflate Electron's logical window size constraints by frame insets to get
++  // the full HWND size for WindowSizeToContentSizeBuggy.
++  const gfx::Size inset_size = GetRestoredFrameBorderInsets().size();
+   extensions::SizeConstraints constraints;
+   if (size_constraints_->HasMaximumSize()) {
+     constraints.set_maximum_size(WindowSizeToContentSizeBuggy(
+-        GetAcceleratedWidget(), size_constraints_->GetMaximumSize()));
++        GetAcceleratedWidget(),
++        size_constraints_->GetMaximumSize() + inset_size));
+   }
+   if (size_constraints_->HasMinimumSize()) {
+     constraints.set_minimum_size(WindowSizeToContentSizeBuggy(
+-        GetAcceleratedWidget(), size_constraints_->GetMinimumSize()));
++        GetAcceleratedWidget(),
++        size_constraints_->GetMinimumSize() + inset_size));
+   }
+   return constraints;
+ }
+diff --git a/spec/api-browser-window-spec.ts b/spec/api-browser-window-spec.ts
+index 44baa06..20d4e1e 100755
+--- a/spec/api-browser-window-spec.ts
++++ b/spec/api-browser-window-spec.ts
+@@ -5972,65 +5972,53 @@ describe('BrowserWindow module', () => {
+         expect(w.maximizable).to.be.true('maximizable');
+       });
+ 
+-      it('does not change window size when disabled and enabled', () => {
+-        const w = new BrowserWindow({
+-          show: false,
+-          width: 400,
+-          height: 300,
+-          frame: true
+-        });
+-
+-        w.setResizable(false);
+-        expectBoundsEqual(w.getSize(), [400, 300]);
+-        w.setResizable(true);
+-        expectBoundsEqual(w.getSize(), [400, 300]);
+-      });
++      for (const frame of [true, false]) {
++        describe(`bounds stability for resizable state changes (frame: ${frame})`, () => {
++          it('does not change window size when disabled and enabled', () => {
++            const w = new BrowserWindow({
++              show: false,
++              width: 400,
++              height: 300,
++              frame
++            });
+ 
+-      it('does not change window size when disabled and enabled for frameless window', () => {
+-        const w = new BrowserWindow({
+-          show: false,
+-          width: 400,
+-          height: 300,
+-          frame: false
+-        });
++            w.setResizable(false);
++            expectBoundsEqual(w.getSize(), [400, 300]);
++            w.setResizable(true);
++            expectBoundsEqual(w.getSize(), [400, 300]);
++          });
+ 
+-        w.setResizable(false);
+-        expectBoundsEqual(w.getSize(), [400, 300]);
+-        w.setResizable(true);
+-        expectBoundsEqual(w.getSize(), [400, 300]);
+-      });
++          it('does not shrink window after setResizable(false) when bounds are reapplied', () => {
++            const w = new BrowserWindow({
++              show: false,
++              frame,
++              width: 400,
++              height: 300
++            });
+ 
+-      ifit(process.platform === 'win32')('do not change window with frame bounds when maximized', () => {
+-        const w = new BrowserWindow({
+-          show: true,
+-          frame: true,
+-          thickFrame: true
+-        });
+-        expect(w.isResizable()).to.be.true('resizable');
+-        w.maximize();
+-        expect(w.isMaximized()).to.be.true('maximized');
+-        const bounds = w.getBounds();
+-        w.setResizable(false);
+-        expectBoundsEqual(w.getBounds(), bounds);
+-        w.setResizable(true);
+-        expectBoundsEqual(w.getBounds(), bounds);
+-      });
++            w.setResizable(false);
++            const bounds = w.getBounds();
++            w.setBounds(bounds);
++            expectBoundsEqual(w.getSize(), [400, 300]);
++          });
+ 
+-      ifit(process.platform === 'win32')('do not change window without frame bounds when maximized', () => {
+-        const w = new BrowserWindow({
+-          show: true,
+-          frame: false,
+-          thickFrame: true
++          ifit(process.platform === 'win32')('does not change window bounds when maximized', () => {
++            const w = new BrowserWindow({
++              show: true,
++              frame,
++              thickFrame: true
++            });
++            expect(w.isResizable()).to.be.true('resizable');
++            w.maximize();
++            expect(w.isMaximized()).to.be.true('maximized');
++            const bounds = w.getBounds();
++            w.setResizable(false);
++            expectBoundsEqual(w.getBounds(), bounds);
++            w.setResizable(true);
++            expectBoundsEqual(w.getBounds(), bounds);
++          });
+         });
+-        expect(w.isResizable()).to.be.true('resizable');
+-        w.maximize();
+-        expect(w.isMaximized()).to.be.true('maximized');
+-        const bounds = w.getBounds();
+-        w.setResizable(false);
+-        expectBoundsEqual(w.getBounds(), bounds);
+-        w.setResizable(true);
+-        expectBoundsEqual(w.getBounds(), bounds);
+-      });
++      }
+ 
+       ifit(process.platform === 'win32')('do not change window transparent without frame bounds when maximized', () => {
+         const w = new BrowserWindow({
+-- 
+2.55.0.windows.2
+

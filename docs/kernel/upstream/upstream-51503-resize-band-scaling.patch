@@ -1,0 +1,126 @@
+From efe652c7d9c06bc9d24a04298cc68a29f1fc0d0f Mon Sep 17 00:00:00 2001
+From: Mitchell Cohen <mitch.cohen@me.com>
+Date: Thu, 7 May 2026 15:39:33 -0400
+Subject: [PATCH] fix: improve resize band positioning and scaling for
+ frameless windows on Windows (#51503)
+
+fix internal resize and scaling for frameless windows
+---
+ shell/browser/ui/views/frameless_view.cc      |  1 -
+ shell/browser/ui/views/frameless_view.h       |  3 +++
+ shell/browser/ui/views/win_frame_view.cc      | 22 ++++++++++++++++---
+ shell/browser/ui/views/win_frame_view.h       |  1 +
+ .../electron_desktop_window_tree_host_win.cc  |  8 +++----
+ 5 files changed, 27 insertions(+), 8 deletions(-)
+
+diff --git a/shell/browser/ui/views/frameless_view.cc b/shell/browser/ui/views/frameless_view.cc
+index 8111aaa..8ca2f31 100644
+--- a/shell/browser/ui/views/frameless_view.cc
++++ b/shell/browser/ui/views/frameless_view.cc
+@@ -16,7 +16,6 @@ namespace electron {
+ 
+ namespace {
+ 
+-const int kResizeInsideBoundsSize = 5;
+ const int kResizeAreaCornerSize = 16;
+ 
+ }  // namespace
+diff --git a/shell/browser/ui/views/frameless_view.h b/shell/browser/ui/views/frameless_view.h
+index c7dae12..438743f 100644
+--- a/shell/browser/ui/views/frameless_view.h
++++ b/shell/browser/ui/views/frameless_view.h
+@@ -33,6 +33,9 @@ class FramelessView : public views::FrameView {
+   FramelessView(const FramelessView&) = delete;
+   FramelessView& operator=(const FramelessView&) = delete;
+ 
++  // Width in DIPs of the inside resize border for frameless windows.
++  static constexpr int kResizeInsideBoundsSize = 5;
++
+   // Returns whether the |point| is on frameless window's resizing border.
+   virtual int ResizingBorderHitTest(const gfx::Point& point);
+ 
+diff --git a/shell/browser/ui/views/win_frame_view.cc b/shell/browser/ui/views/win_frame_view.cc
+index 3b5df61..187d643 100644
+--- a/shell/browser/ui/views/win_frame_view.cc
++++ b/shell/browser/ui/views/win_frame_view.cc
+@@ -280,13 +280,29 @@ gfx::Size WinFrameView::GetMaximumSize() const {
+   return size.IsEmpty() ? gfx::Size(INT_MAX, INT_MAX) : size;
+ }
+ 
++int WinFrameView::ResizingBorderHitTest(const gfx::Point& point) {
++  if (RestoredFrameBorderInsets().IsEmpty())
++    return FramelessView::ResizingBorderHitTest(point);
++
++  // With insets, side/bottom resize targets sit outside the frame and are
++  // handled by WM_NCHITTEST, so the internal hit test can be zero-ed out.
++  // The exception is the top edge for frameless windows, which still need
++  // an inner resize band since there is no non-client titlebar to provide one.
++  const gfx::Insets inside =
++      window_->has_frame()
++          ? gfx::Insets()
++          : gfx::Insets::TLBR(kResizeInsideBoundsSize, 0, 0, 0);
++  return ResizingBorderHitTestImpl(point, inside);
++}
++
+ gfx::Insets WinFrameView::RestoredFrameBorderInsets() const {
+   if (window_->has_frame() || !window_->has_thick_frame())
+     return {};
+ 
+-  const int thickness =
+-      display::win::GetScreenWin()->GetSystemMetricsInDIP(SM_CXSIZEFRAME) +
+-      display::win::GetScreenWin()->GetSystemMetricsInDIP(SM_CXPADDEDBORDER);
++  // TODO(mitchchn): despite the name, this method gives the correct
++  // DPI-adjusted insets for the sides, not the top, when restored.
++  const int thickness = FrameTopBorderThickness(/*restored=*/true);
++  // Inverse of ResizingBorderHitTest: resize insets go on sides but not top.
+   return gfx::Insets::TLBR(0, thickness, thickness, thickness);
+ }
+ 
+diff --git a/shell/browser/ui/views/win_frame_view.h b/shell/browser/ui/views/win_frame_view.h
+index 423a1ab..4b4c49b 100644
+--- a/shell/browser/ui/views/win_frame_view.h
++++ b/shell/browser/ui/views/win_frame_view.h
+@@ -36,6 +36,7 @@ class WinFrameView : public FramelessView {
+   gfx::Size GetMaximumSize() const override;
+ 
+   // views::FramelessView:
++  int ResizingBorderHitTest(const gfx::Point& point) override;
+   gfx::Insets RestoredFrameBorderInsets() const override;
+ 
+   WinCaptionButtonContainer* caption_button_container() {
+diff --git a/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc b/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
+index ba68f7c..985b977 100644
+--- a/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
++++ b/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
+@@ -106,9 +106,6 @@ bool ElectronDesktopWindowTreeHostWin::GetClientAreaInsets(
+     return false;
+ 
+   if (!native_window_view_->has_frame()) {
+-    const int thickness = ::GetSystemMetrics(SM_CXSIZEFRAME) +
+-                          ::GetSystemMetrics(SM_CXPADDEDBORDER);
+-
+     if (IsMaximized()) {
+       // Windows by default extends the maximized window slightly larger than
+       // current workspace, for frameless window since the standard frame has
+@@ -122,6 +119,8 @@ bool ElectronDesktopWindowTreeHostWin::GetClientAreaInsets(
+       //
+       // Please make sure you tested maximized frameless window under multiple
+       // monitors with different DPIs before changing this code.
++      const int thickness = ::GetSystemMetrics(SM_CXSIZEFRAME) +
++                            ::GetSystemMetrics(SM_CXPADDEDBORDER);
+       *insets = gfx::Insets::TLBR(thickness, thickness, thickness, thickness);
+       return true;
+     } else if (native_window_view_->has_thick_frame()) {
+@@ -129,7 +128,8 @@ bool ElectronDesktopWindowTreeHostWin::GetClientAreaInsets(
+       // windows with standard frames. Non-resizable windows still get input
+       // insets for stable bounds and so they can be dragged from outer edges,
+       // also like in windows with standard frames.
+-      *insets = gfx::Insets::TLBR(0, thickness, thickness, thickness);
++      *insets = gfx::Insets::TLBR(0, frame_thickness, frame_thickness,
++                                  frame_thickness);
+       return true;
+     }
+   }
+-- 
+2.55.0.windows.2
+

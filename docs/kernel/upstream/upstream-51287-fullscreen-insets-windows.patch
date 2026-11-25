@@ -1,0 +1,54 @@
+From ccaab437cc56866ba6a60b5b1e1139b800dbccc9 Mon Sep 17 00:00:00 2001
+From: Mitchell Cohen <mitch.cohen@me.com>
+Date: Sun, 26 Apr 2026 17:32:37 -0400
+Subject: [PATCH] fix: remove insets on fullscreen windows on Windows (#51287)
+
+---
+ .../win/electron_desktop_window_tree_host_win.cc |  3 +++
+ spec/api-browser-window-spec.ts                  | 16 ++++++++++++++++
+ 2 files changed, 19 insertions(+)
+
+diff --git a/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc b/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
+index 4f7a017..ba68f7c 100644
+--- a/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
++++ b/shell/browser/ui/win/electron_desktop_window_tree_host_win.cc
+@@ -102,6 +102,9 @@ bool ElectronDesktopWindowTreeHostWin::WidgetSizeIsClientSize() const {
+ bool ElectronDesktopWindowTreeHostWin::GetClientAreaInsets(
+     gfx::Insets* insets,
+     int frame_thickness) const {
++  if (native_window_view_->IsFullscreen())
++    return false;
++
+   if (!native_window_view_->has_frame()) {
+     const int thickness = ::GetSystemMetrics(SM_CXSIZEFRAME) +
+                           ::GetSystemMetrics(SM_CXPADDEDBORDER);
+diff --git a/spec/api-browser-window-spec.ts b/spec/api-browser-window-spec.ts
+index 28c741f..a9a7c4e 100755
+--- a/spec/api-browser-window-spec.ts
++++ b/spec/api-browser-window-spec.ts
+@@ -6334,6 +6334,22 @@ describe('BrowserWindow module', () => {
+ 
+         expect(w.isMenuBarVisible()).to.be.false('isMenuBarVisible');
+       });
++
++      for (const frame of [true, false]) {
++        it(`fills the display completely with content (frame: ${frame})`, () => {
++          const display = screen.getPrimaryDisplay();
++          const w = new BrowserWindow({
++            show: true,
++            frame,
++            // TODO(mitchchn): The menubar does not go away immediately
++            // on enter-full-screen/show so hide to avoid arbitary timeout.
++            autoHideMenuBar: true,
++            fullscreen: true
++          });
++          expectBoundsEqual(w.getBounds(), display.bounds);
++          expectBoundsEqual(w.getContentBounds(), display.bounds);
++        });
++      }
+     });
+ 
+     ifdescribe(process.platform === 'darwin')('fullscreenable state', () => {
+-- 
+2.55.0.windows.2
+

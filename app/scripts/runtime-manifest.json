@@ -1,15 +1,31 @@
 {
   "说明": "打包门禁：编译/准备阶段产物的期望 SHA-256。pack-win.cjs 在打包前逐项校验，不匹配即失败。更新内核或插件后必须同步更新本文件并在提交信息里写明来源。",
   "kernel": {
-    "tag": "bao-v142-265-ppapi-sandbox+win-ppapi-process-sandbox",
+    "tag": "bao-v142-265-ppapi-sandbox+win-ppapi-process-sandbox+e39-batch4",
     "commit": "9de35f61aea60",
-    "patch": "docs/kernel/0002-win-ppapi-process-sandbox.patch",
+    "patch": "docs/kernel/0008-frameless-resize-band-dpi.patch",
+    "patches": [
+      "docs/kernel/0001-ppapi-renderer-plugin-path-check.patch",
+      "docs/kernel/0002-win-ppapi-process-sandbox.patch",
+      "docs/kernel/0003-51200-hidden-view-drag-regions.patch",
+      "docs/kernel/0004-50688-wrappable-deferred-destruction.patch",
+      "docs/kernel/0006-53031-detached-view-bounds.patch",
+      "docs/kernel/0007-49959-webcontents-clone.patch",
+      "docs/kernel/0008-frameless-resize-band-dpi.patch"
+    ],
+    "electronCommits": [
+      "a5693f61ab",
+      "08dac9259e",
+      "5faf91f967",
+      "c244a99d9c",
+      "353fb66eb0"
+    ],
     "windowsPpapiProcessSandbox": true,
-    "fallbackTag": "bao-v142-265-ppapi-sandbox",
+    "fallbackTag": "bao-v142-265-ppapi-sandbox+win-ppapi-process-sandbox+e39-batch3",
     "记录": "docs/kernel/README.md"
   },
   "files": {
-    ".runtime/win-x64/electron.exe": "5BB2274FA9F4FEC51DBCE4CDBCB20076B9E47B888761FEC0D6F6B74612667366",
+    ".runtime/win-x64/electron.exe": "0A7C92A9388D3A4F61E54FDBE273868BB5C66BFE4CBEE14CBADF1950D7B1DE3F",
     ".runtime/win-x64/pepflashplayer64.dll": "85A836F347D7B3EB06DDDA6573A70C2BC46D03F4B52FDEB4D884E2D71A20B51F",
     "vendor/ruffle/ruffle.js": "3ABFDEEE9373E3AD654973D31CBB255D75DFDCBF44124D5D9882F026D99BC8B7",
     "vendor/ruffle/ruffle_web_bg.QDRSAAAZ.wasm": "AB23C8D226603425F4F4B620AA035C64DF46DBA9E8149E7E33EF54E0A25547CB",
