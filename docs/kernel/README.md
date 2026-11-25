@@ -129,7 +129,7 @@ E39（`v39.8.10`）已结束支持，官方修复想用只能单条回拣。候�
 | [`0005-51900-render-process-gone-ordering.patch`](0005-51900-render-process-gone-ordering.patch) | #51900 `571d6e9` | `render-process-gone` 改在进程死亡通知之后发出（整条 apply） | **未采用**：E39 上 5 种触发均不崩，E39 缺上游所说的 CHECK 路径（v42/43 启动数据重构引入的回归）。原文保留作参考 |
 | [`0006-53031-detached-view-bounds.patch`](0006-53031-detached-view-bounds.patch) | #53031 `96f3996` | 视图不在 `Widget` 里时把尺寸直接 `Resize` 给 WebContents（+20 行） | `innerWidth×innerHeight`：从未 attach 时 `[0,0]` → `[400,300]`；叠加层"先 setBounds 后 addChildView"顺序下附着前也正确。缺口：`removeChildView` 后再 setBounds 仍 stale（E39 上不再触发 Layout，产品不依赖） |
 | [`0007-49959-webcontents-clone.patch`](0007-49959-webcontents-clone.patch) | #49959 `76a03e1` | 新增 `webContents.clone()`（44 行；E39 用 `Handle::ToV8()`） | **已装配但当前无消费者**：克隆体**拿不到页面 preload**（官方 E44 同样如此）→ Ruffle 不可用；PPAPI 同进程第二个实例无法实例化 → 本品页面标签无适用场景。应用侧接入已撤销，补丁保留待上游支持或 Ruffle 改为免 preload 注入 |
-| [`0008-frameless-resize-band-dpi.patch`](0008-frameless-resize-band-dpi.patch) | 自研（非上游） | 无边框窗口的缩放带按设备缩放比换算：`kResizeInsideBoundsSize`（DIP）→ 物理像素 | 真实缩放三档实测：**旧内核恒 4 px**（不随 DPI 变）、**新内核 100% 4 / 150% 7 / 200% 9 px**；100% 下新旧一致（改动是恒等）；冒烟 58 用例 / 0 失败 |
+| [`0008-frameless-resize-band-dpi.patch`](0008-frameless-resize-band-dpi.patch) | 自研（非上游） | 无边框窗口的缩放带按设备缩放比换算：`kResizeInsideBoundsSize`（DIP）→ 物理像素 | 真实缩放三档实测：**旧内核恒 4 px**（不随 DPI 变）、**新内核 100% 4 / 150% 7 / 200% 9 px**；100% 下新旧一致（改动是恒等）；装配时冒烟 0 失败（当时 58 用例，现 70） |
 
 另：`#51562`（约束后缩水）**不采用**——真实症状只在 `frame:true + setMaximumSize` 组合，产品路径不触发，
 且补丁依赖 E39 不存在的 `GetRestoredFrameBorderInsets()`。两条判定过程见
@@ -137,7 +137,7 @@ E39（`v39.8.10`）已结束支持，官方修复想用只能单条回拣。候�
 
 当前分支 `bao/e39-batch4`（`a5693f61ab` → `08dac9259e` → `5faf91f967` → `c244a99d9c` → `353fb66eb0`），构建产物 SHA-256 `0A7C92A9…0D7B1DE3F`，
 已装配进 `app/.runtime/win-x64`（tag `bao-v142-265-ppapi-sandbox+win-ppapi-process-sandbox+e39-batch1`），
-`runtime:check` 通过、冒烟 50 通过 / 0 失败。增量记录见 [2026-11-25-e39-backport-batch1](../reports/2026-11-25-e39-backport-batch1.md)。
+`runtime:check` 通过、冒烟 0 失败（当时 50 通过；用例数随后续迭代增长，现行期望见 [app/README.md](../../app/README.md)）。增量记录见 [2026-11-25-e39-backport-batch1](../reports/2026-11-25-e39-backport-batch1.md)。
 
 旧内核整体备份在 `app/.runtime/win-x64-before-e39-batch1`（`5BB2274F…`），`runtime-manifest.json` 的 `fallbackTag` 亦指向它。回退只需换回目录并把 manifest 的 exe 哈希改回去。
 `assemble-dist` → `runtime:prepare` → 更新清单。

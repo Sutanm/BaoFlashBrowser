@@ -235,14 +235,15 @@ E39 里同名函数在 `shell/browser/api/electron_api_web_contents_view.cc` L84
 - E39 与 E44 的 shell 代码漂移会让个别补丁"看起来能抄但抄不动"（例如 `view()` 访问器、`FrameView` 基类差异）。遇到这种情况按"收益不抵"放弃该条，不要为一个 20 行的修复重写结构。
 
 
-## 10. 当前内核树与产物状态（2026-11-25 12:45）
+## 10. 当前内核树与产物状态（2026-11-25 22:40 更新）
 
 | 对象 | 状态 |
 | --- | --- |
 | 内核树分支 | `bao/e39-batch4`：`a5693f61ab` #51200 → `08dac9259e` #50688 → `5faf91f967` #53031 → `c244a99d9c` #49959（无消费者）→ `353fb66eb0` 0008 缩放带 |
 | `out\Rel\electron.exe` / `app\.runtime\win-x64` | `0A7C92A9…0D7B1DE3F`，tag `…+e39-batch4` |
 | 备份 | `win-x64-before-e39-batch4`（batch3 exe）、`…batch3`（batch2 exe）、`…batch2`（batch1 全量）、`…batch1`（5BB2274F 全量） |
-| 冒烟 | **57 用例 / 51 通过 / 0 失败 / 6 跳过**，173.6 s |
+| 冒烟（隐藏并行） | **28 个文件 / 0 失败**，84.6 s（2026-11-25 22:25 实跑） |
+| 冒烟（前台闸门） | **70 用例 / 70 通过 / 0 跳过**，162 s（期望值见 [app/README.md](../../app/README.md)） |
 | 记录 | [batch1](../reports/2026-11-25-e39-backport-batch1.md) · [batch2](../reports/2026-11-25-e39-backport-batch2.md) · [batch3](../reports/2026-11-25-e39-backport-batch3.md) · [batch4](../reports/2026-11-25-e39-backport-batch4.md) |
 
 **验证覆盖（2026-11-25 新增）**：
@@ -251,11 +252,24 @@ E39 里同名函数在 `shell/browser/api/electron_api_web_contents_view.cc` L84
 | --- | --- | --- |
 | `tab-duplicate-ruffle.test.cjs` | 复制 Ruffle 标签走回退路径的合同：独立进程 + 两个实例都出画布 | 常规冒烟 |
 | `overlay-prewarm-hidden.test.cjs` | 预热叠加层 → 显示 → 不是空白（#52844 的闸门） | **仅前台**：`npm run smoke:foreground`（隐藏模式下预热被禁用，自动跳过） |
+| `overlay-prewarm-policy.test.cjs` | `overlay.prewarm` 三档（always/auto/never）的建与回收语义 | **仅前台** |
+| `shell-crash-heal.test.cjs` | 外壳渲染进程崩溃 → 自愈重载 → 工具栏与标签回来 | 常规冒烟（断言走主进程诊断文件，见下） |
 
-当前全量冒烟（隐藏模式）：**58 用例 / 51 通过 / 0 失败 / 7 跳过**。
+前台闸门的用例数：**58 → 70**（2026-11-25 晚新增叠加层共享进程落地后的 policy/crash-heal 用例）。
+旧报告里的 "58/58" 是当时的数字，现行期望以 `app/README.md` 为准。
 
-前台验收（`npm run smoke:foreground --serial`）：**58 用例 / 58 通过 / 0 跳过**。
-注意：该开关此前是坏的（`--foreground` 被脚本自己撤销），2026-11-25 才第一次真正跑起来，
-记录见 [2026-11-25-foreground-smoke.md](../reports/2026-11-25-foreground-smoke.md)。
+**非补丁方向（已落地并切默认，2026-11-25 晚）**：浮层改走 `window.open` + `createWindow`，与外壳共用渲染进程。
 
-**剩余候选**：见 [patch-candidates.md](patch-candidates.md)（未采用补丁登记册，含"何时再看"的触发条件）。当前没有"值得做"的内核补丁；高优先项转为**验证覆盖**（叠加层空白用例、前台 Flash 验收、flake 治理）。
+- 默认开启：`sharedOverlayMode = () => process.env.BAO_OVERLAY_SHARED !== '0'`；`=0` 回退到"每浮层一个渲染进程"。
+- 实测：预热后常驻 **+114 MB → +6 MB**、渲染进程数 3 → 2、预热后打开 3 ms（与基线相同）、无预热冷开端到端 218 → 144 ms。
+- 代价：故障域与事件循环合并（浮层崩/长任务 = 外壳崩/卡）；已补 `render-process-gone` → 重载外壳文档的自愈（实测 109 ms 恢复）。
+- 准入规则：共享浮层只能是外壳同源文档，导航钉死（无条件 `preventDefault` 会拦掉 guest 首次加载 → 白屏，已避坑）。
+- 常驻预热（`overlay.prewarm=always`）已实现并成为默认档：在 `window.show()` 之前建好文档，首次点开即为热路径。
+- 完整记录：[2026-11-25-overlay-shared-process-demo.md](../discussions/2026-11-25-overlay-shared-process-demo.md)（§5 原型、§6 切默认与自愈、§7 常驻预热与三档语义）。
+- 注意：早期评审稿 [overlay-shared-process-review.md](../discussions/2026-11-25-overlay-shared-process-review.md) 与提问稿
+  [overlay-experience-question.md](../discussions/2026-11-25-overlay-experience-question.md) 里的「preload 不继承、角色判定要重写、
+  预热不划算」等前提，已在落地过程中被逐条解决或推翻；读那两篇时以本节的落地结论为准。
+
+**剩余候选**：见 [patch-candidates.md](patch-candidates.md)（未采用补丁登记册，含"何时再看"的触发条件）。当前没有"值得做"的内核补丁；
+剩下的两条硬骨头是外部/系统侧 resize hit band（#50706/#51503，需 bounds refactor）与 background-render 三件套（需整组 Chromium patch）。
+高优先项已从"补补丁"转为**观测与治理**：飞窗长任务告警、GC/帧预算、多窗口内存总量。

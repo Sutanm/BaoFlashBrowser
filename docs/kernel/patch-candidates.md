@@ -105,7 +105,14 @@
   2. 克隆体与源**共享渲染进程** → 同进程第二个 PPAPI 实例无法实例化（`<embed>` 退化成普通元素）。
 - 本产品每个页面标签必属其一，故 clone **没有适用场景**；应用侧接入已撤销。
 - 证据：[batch3-clone.md](../evidence/probes/2026-11-25-upstream-electron-probe/batch3-clone.md)。
-- 何时再看：上游让 preload 跟随 clone；或我们把 Ruffle 注入改成不依赖 preload（例如主进程 `executeJavaScript` 注入主世界）。
+- **但「拿不到 preload」不等于这条路不可行**（2026-11-25 晚补记）：共享飞窗改借 opener 的 `contextBridge`，
+  已落地并成为默认档；clone 依然没有消费者，只因它既没有 opener 关系、也没有别的桥可借。
+  见 [demo §5](../discussions/2026-11-25-overlay-shared-process-demo.md)。
+- **理由升级（2026-11-25）**：`window.open` 子窗口（同样复用 opener 渲染进程）实测也拿不到 preload
+  （`preload: undefined`），所以「进程共享不携带 preload」是 Electron 的普适行为，不是 clone 的移植缺陷。
+  见 [浮层共用进程评审](../discussions/2026-11-25-overlay-shared-process-review.md)。
+- 何时再看：上游让"同进程的 frame 也能拿到 startup data/preload"；或我们把 Ruffle 注入改成不依赖 preload
+  （例如主进程 `executeJavaScript` 注入主世界）。
 
 ### #55955 换宿主时 relay 重定向 —— ⛔ 已否决
 

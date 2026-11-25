@@ -22,6 +22,7 @@
 | 交付顺序与阶段验收 | [Agent/自动化架构 §18](agent-automation-architecture.md#18-交付顺序) + [`kickoff/`](kickoff/README.md) | **现行** | M0 已通过、M1 已验收、M2 实施中未验收、M3 未立项 |
 | 旧 Agent 架构 F0–F10 | [11-21 讨论稿 §F](discussions/2026-11-21-bfb-next-architecture.md) | **已归档** | 仅作历史依据，不再实施 |
 | 反需求与放权边界 | [11-23 边界文档](discussions/2026-11-23-bfb-next-agent-boundary.md) | **已吸收的讨论记录** | 有效原则已并入新 SSOT §15/§20 |
+| 飞窗（叠加层）渲染进程与预热策略 | [overlay demo](discussions/2026-11-25-overlay-shared-process-demo.md) §5–§7 | **现行** | 共享外壳渲染进程（默认）+ `overlay.prewarm` 三档；同主题的 review/question 两篇是过程稿 |
 | 内核版本与补丁 | [`kernel/README.md`](kernel/README.md) + §F7 | **现行** | 只登记已验证补丁 |
 | 版本可行性 138 → 150 | [`specs/2026-11-15-forward-version-feasibility.md`](specs/2026-11-15-forward-version-feasibility.md) §1.7 | 依据 | 结论未变（144+ 阻断） |
 | 技术栈 | [ADR-0002](adr/0002-next-stack-baseline.md) + [ADR-0003](adr/0003-kernel-baseline-e39-142.md) + 技术栈讨论稿 | **现行** | ADR-0002 §2 已由 ADR-0003 推翻 |

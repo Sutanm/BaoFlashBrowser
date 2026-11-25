@@ -82,3 +82,16 @@
 - **单条补丁**：内核树 `git revert <sha>` → `ninja -C out\Rel electron` → 重新装配。
 - **整体**：把 `.runtime/win-x64/electron.exe` 换回 `win-x64-before-e39-batch4\electron.exe`（batch3 内核）并同步 manifest 的哈希与 tag，一步回到上一批。
 - **完全回到 M1 状态**：`win-x64-before-e39-batch1`（`5BB2274F…`，未含任何本轮回拣）。
+
+## 7. 修正节（2026-11-25 22:40 追加）
+
+本文记录的测试基建事实不变；受影响的只是"用例数"这类会随迭代变化的数字：
+
+| 项 | 当时 | 现在 |
+| --- | --- | --- |
+| 前台验收 | 58/58 通过 | **70/70 通过，0 跳过** |
+| 隐藏并行 | 27 文件 / ≈60 s | **28 文件 / 84.6 s / 0 失败** |
+
+另有一条与本轮无关、但值得知道的观测约束：**渲染进程崩溃后 Playwright 的 Page 句柄永久失效**
+（`Target crashed`、不再发 `window` 事件、`app.close()` 会挂住）。崩溃类用例的断言改由主进程写诊断文件，
+测试只读文件并在 `finally` 里限时关闭 + `taskkill` 兜底，见 `app/tests/smoke/shell-crash-heal.test.cjs`。
