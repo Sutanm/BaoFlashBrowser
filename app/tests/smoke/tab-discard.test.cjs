@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { isShellPage, launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { audioStateOf, isShellPage, launchApp, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
  * 后台标签休眠（丢弃）：后台超过 TTL 的标签销毁视图省内存，切回时按原地址重建。
@@ -69,24 +69,137 @@ test('后台标签超时休眠，切回时按原地址重建', { timeout: 120_00
   }
 })
 
-test('设置 tab.discard=never 时后台标签不被休眠（挂机场景）', { timeout: 120_000 }, async () => {
+/**
+ * 截获一次标签右键菜单的模板。
+ *
+ * 右键菜单是原生 `Menu`，冒烟里点不到；这里只把「构建 + 弹出」换成记录模板，
+ * 命令仍然走真实的 `browser:command` IPC 与 `showTabMenu()`。传入 `clickLabel` 时
+ * 会执行该菜单项的 click 回调（与用户点它等价）。
+ */
+async function withTabMenu(app, shell, tabId, clickLabel) {
+  await app.evaluate(({ Menu }) => {
+    const original = Menu.buildFromTemplate
+    globalThis.__baoTabMenu = undefined
+    Menu.buildFromTemplate = (template) => {
+      globalThis.__baoTabMenu = template
+      return { popup() {} }
+    }
+    globalThis.__baoRestoreTabMenu = () => {
+      Menu.buildFromTemplate = original
+      delete globalThis.__baoRestoreTabMenu
+    }
+  })
+  try {
+    const opened = await shell.evaluate((id) => window.baoBrowser.run({ type: 'tab-menu', id }), tabId)
+    assert.equal(opened.ok, true, `打开右键菜单失败：${opened.code ?? ''}`)
+    return app.evaluate((_electron, label) => {
+      const template = globalThis.__baoTabMenu ?? []
+      const items = template.map((item) => ({ label: item.label, type: item.type, checked: item.checked }))
+      if (!label) return { items, clicked: null }
+      const item = template.find((entry) => entry.label === label)
+      if (!item) return { items, clicked: false }
+      item.click()
+      return { items, clicked: true }
+    }, clickLabel ?? null)
+  } finally {
+    await app.evaluate(() => {
+      globalThis.__baoRestoreTabMenu?.()
+      delete globalThis.__baoTabMenu
+    })
+  }
+}
+
+test('静音标签休眠唤醒后仍静音；休眠标签的菜单读逻辑状态', { timeout: 150_000 }, async () => {
   withDiscardEnv()
-  const server = await startFixtureServer({ '/c': page('C') })
+  const server = await startFixtureServer({ '/j': page('J') })
+  const { app, shell, close } = await launchApp()
+  const url = `${server.baseUrl}/j`
+  try {
+    const tab = await openPage(shell, server.baseUrl, '/j', 'J')
+    assert.equal((await shell.evaluate((id) => window.baoBrowser.run({ type: 'mute', id }), tab.id)).ok, true)
+    await waitFor(async () => ((await audioStateOf(app, url))?.muted ? true : null),
+      { message: '静音没有作用到实际的 WebContents' })
+
+    // 让 J 真正进入后台并等 TTL：视图连同 WebContents 一起被销毁。
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+    const discarded = await waitFor(async () => {
+      const item = (await state(shell)).tabs.find((entry) => entry.id === tab.id)
+      return item?.discarded ? item : null
+    }, { timeout: 20_000, message: '静音标签没有被休眠' })
+    assert.equal(discarded.muted, true, '休眠标签应保留逻辑静音状态')
+    assert.equal(await audioStateOf(app, url), undefined, '休眠后不应还有该地址的 WebContents')
+
+    // 休眠标签没有 WebContents：菜单必须读逻辑状态，显示「取消静音」。
+    const menu = await withTabMenu(app, shell, tab.id)
+    const labels = menu.items.map((item) => item.label).filter(Boolean)
+    assert.ok(labels.includes('取消静音'),
+      `休眠静音标签的菜单应显示「取消静音」，实际：${labels.join(' / ')}`)
+
+    // 点菜单项只改逻辑状态（此时没有 WebContents 可设）；再静音回去，验证唤醒迁移。
+    const clicked = await withTabMenu(app, shell, tab.id, '取消静音')
+    assert.equal(clicked.clicked, true,
+      `休眠标签的菜单项应可执行，实际：${clicked.items.map((item) => item.label ?? item.type).join(' / ')}`)
+    await waitFor(async () => {
+      const item = (await state(shell)).tabs.find((entry) => entry.id === tab.id)
+      return item && item.muted === false ? item : null
+    }, { message: '菜单「取消静音」没有更新逻辑静音状态' })
+    assert.equal((await shell.evaluate((id) => window.baoBrowser.run({ type: 'mute', id }), tab.id)).ok, true)
+
+    // 唤醒：重建出的 WebContents 必须实际静音（回归：旧实现只恢复了快照）。
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), tab.id)
+    await waitFor(async () => {
+      const item = (await state(shell)).tabs.find((entry) => entry.id === tab.id)
+      return item && !item.discarded && !item.loading && item.address === url ? item : null
+    }, { timeout: 15_000, message: '休眠标签没有被唤醒' })
+    const actual = await waitFor(async () => {
+      const entry = await audioStateOf(app, url)
+      return entry && !entry.destroyed ? entry : null
+    }, { message: '唤醒后找不到该地址的 WebContents' })
+    assert.equal(actual.muted, true, '唤醒后的 WebContents 必须实际静音')
+  } finally {
+    await close()
+    await server.close()
+    clearDiscardEnv()
+  }
+})
+
+/**
+ * `tab.discard = never` 必须真的关掉休眠机制。
+ *
+ * 旧用例的待测网页一直是**当前标签**，而扫描器本来就不休眠当前标签——把 never 设置
+ * 忽略掉用例照样通过（伪阳性）。这里先用同一条件跑 `auto` 正向对照：后台标签必须被
+ * 休眠，证明 TTL 与扫描都真的跑过；再切到 `never`，同样后台、同样等两倍 TTL。
+ */
+test('tab.discard=never：同条件的 auto 对照会休眠，never 下不被休眠', { timeout: 150_000 }, async () => {
+  withDiscardEnv()
+  const server = await startFixtureServer({ '/c': page('C'), '/d': page('D') })
   const { app, shell, close } = await launchApp()
   try {
-    const written = await shell.evaluate(() => window.baoBrowser.run({ type: 'set-setting', key: 'tab.discard', value: 'never' }))
-    assert.equal(written.ok, true, '设置 tab.discard 应写入成功')
-
+    // 正向对照：默认 auto，后台标签 C 必须被休眠。
+    const auto = await openPage(shell, server.baseUrl, '/c', 'C')
     await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
-    await shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), `${server.baseUrl}/c`)
-    await waitFor(async () => (await state(shell)).tabs.some((tab) => tab.title === 'C' && !tab.loading),
-      { message: '标签 C 没有加载完' })
+    assert.notEqual((await state(shell)).activeId, auto.id, '新标签应接管活动状态，让 C 进入后台')
+    await waitFor(async () => {
+      const item = (await state(shell)).tabs.find((entry) => entry.id === auto.id)
+      return item?.discarded ? item : null
+    }, { timeout: 20_000, message: 'auto 对照失败：后台标签没有被休眠（TTL 或扫描器没跑）' })
 
-    // 等两倍 TTL，确认没有任何标签被休眠
-    await new Promise((done) => setTimeout(done, 2500))
-    const list = (await state(shell)).tabs
-    assert.equal(list.filter((tab) => tab.discarded).length, 0, '关闭休眠后不应丢弃任何标签')
-    assert.ok(list.some((tab) => tab.title === 'C'))
+    // 同条件的 never 场景：只改这一个变量。
+    const written = await shell.evaluate(() =>
+      window.baoBrowser.run({ type: 'set-setting', key: 'tab.discard', value: 'never' }))
+    assert.equal(written.ok, true, `设置 tab.discard 应写入成功：${written.code ?? ''}`)
+
+    const never = await openPage(shell, server.baseUrl, '/d', 'D')
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
+    assert.notEqual((await state(shell)).activeId, never.id, '标签 D 必须真的在后台')
+
+    // 两倍 TTL + 期间约 20 次扫描：auto 对照已经证明足够丢弃一个后台标签。
+    await new Promise((done) => setTimeout(done, 2 * Number(process.env.BAO_DISCARD_TTL_MS)))
+    const item = (await state(shell)).tabs.find((entry) => entry.id === never.id)
+    assert.ok(item, '标签 D 不应消失')
+    assert.equal(item.discarded, undefined, 'tab.discard=never 时后台标签不应被休眠')
+    assert.equal((await state(shell)).tabs.filter((tab) => tab.discarded).length, 1,
+      '只有 auto 对照的那个标签应处于休眠状态')
   } finally {
     await close()
     await server.close()

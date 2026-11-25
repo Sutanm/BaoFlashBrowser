@@ -4,7 +4,7 @@ const { mkdtemp, rm } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const { DatabaseSync } = require('node:sqlite')
-const { launchAppAt, page, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { audioStateOf, launchAppAt, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
  * 崩溃恢复（Chrome 的「恢复页面」语义，M2）：
@@ -211,6 +211,56 @@ test('异常退出后重启：只提示不恢复，点「恢复标签页」才�
         assert.equal(state.tabs.length, 1)
       } finally {
         await third.close()
+      }
+    })
+  } finally {
+    await server.close()
+  }
+})
+
+/**
+ * 静音标签的会话恢复：
+ *
+ * `createRestoredTab()` 只恢复元数据、不建视图，活动标签随后由 `select()` → `revive()`
+ * 重建。回归点是「休眠/恢复会换一个新的 WebContents」，所以静音必须在重建时重新应用；
+ * 这里直接读实际 WebContents 的 `isAudioMuted()`，不只看外壳快照里的 `muted`。
+ */
+test('静音标签保存后重启恢复：恢复出的 WebContents 实际静音', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/m': page('M') })
+  try {
+    await withProfile(async (profilePath) => {
+      const url = `${server.baseUrl}/m`
+      const first = await launchAppAt(profilePath)
+      try {
+        const tab = await openPage(first.shell, url, 'M')
+        assert.equal((await first.shell.evaluate((id) => window.baoBrowser.run({ type: 'mute', id }), tab.id)).ok, true)
+        await waitFor(async () => ((await audioStateOf(first.app, url))?.muted ? true : null),
+          { message: '静音没有作用到实际的 WebContents' })
+        // 会话里必须已经记下 muted=true，否则重启后测的是别的路径。
+        await waitForSession(profilePath, (entry) => entry.url === url && entry.muted === true)
+        first.app.process().kill('SIGKILL')
+        await new Promise((done) => setTimeout(done, 800))
+      } finally {
+        await first.close()
+      }
+
+      const second = await launchAppAt(profilePath)
+      try {
+        await second.shell.locator('.session-infobar').waitFor({ timeout: 10_000 })
+        await second.shell.getByRole('button', { name: '恢复标签页' }).click()
+        const restored = await waitFor(async () => {
+          const tab = tabByTitle(await snapshot(second.shell), 'M')
+          return tab && !tab.loading && !tab.discarded ? tab : null
+        }, { message: '点「恢复标签页」后没有重建标签 M' })
+        assert.equal(restored.muted, true, '会话里的静音状态应恢复')
+
+        const actual = await waitFor(async () => {
+          const entry = await audioStateOf(second.app, url)
+          return entry && !entry.destroyed ? entry : null
+        }, { message: '恢复后找不到该地址的 WebContents' })
+        assert.equal(actual.muted, true, '恢复后的 WebContents 必须实际静音')
+      } finally {
+        await second.close()
       }
     })
   } finally {

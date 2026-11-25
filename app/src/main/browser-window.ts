@@ -1194,6 +1194,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     publish()
   }
 
+  /**
+   * 把标签的**逻辑**静音状态应用到视图的 WebContents。
+   *
+   * 静音状态存在标签上（`Tab.muted`），不是 WebContents 上：休眠会销毁 WebContents，
+   * 会话恢复/引擎切换/崩溃重建会换一个新的，所以每个新建或重建视图的入口都必须
+   * 调一次，否则会出现「界面显示静音、实际没静音」。
+   */
+  function applyMuted(tab: Tab, view: WebContentsView): void {
+    const contents = view.webContents
+    if (contents.isDestroyed()) return
+    contents.setAudioMuted(tab.muted)
+  }
+
   /** 唤醒休眠标签：重建视图并按休眠前的地址重新加载（引擎沿用当前值）。
    *  TODO(M3)：可选恢复导航栈与滚动位置，见 docs/reports/2026-11-24-tab-discard.md §4。 */
   function revive(tab: Tab): void {
@@ -1203,6 +1216,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.binding += 1
     tab.discarded = false
     bind(tab, view)
+    // 静音跟着标签走：休眠丢掉了 WebContents，醒来必须重新应用（与 swapView 同一条规则）。
+    applyMuted(tab, view)
     const url = tab.lastUrl || (tab.internal ? internalUrls[tab.internal] : '')
     if (url) load(tab, url)
     publish()
@@ -1298,7 +1313,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.notice = undefined
     bind(tab, view)
     // 静音状态跟着标签走：切引擎重建 WebContents 后必须重新应用（审计 P2）。
-    if (tab.muted && !view.webContents.isDestroyed()) view.webContents.setAudioMuted(true)
+    applyMuted(tab, view)
     const measured = active === tab
     if (measured) {
       window.contentView.addChildView(view)
@@ -1434,8 +1449,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   /** 标签右键菜单：原生菜单，光标位置弹出（比自绘菜单更贴合系统习惯）。 */
   function showTabMenu(tab: Tab): void {
-    const contents = tab.view?.webContents
-    const muted = !!contents && !contents.isDestroyed() && safe(() => contents.isAudioMuted(), false)
+    // 读标签的**逻辑**静音状态而不是当前 WebContents：休眠标签根本没有 WebContents，
+    // 按实际值取会把「已静音」显示成「静音标签页」，点下去反而取消静音。
+    const muted = tab.muted
     // 内部页没有引擎/静音/复制语义：只留重载、关闭与撤销。
     const template: MenuItemConstructorOptions[] = tab.internal
       ? [

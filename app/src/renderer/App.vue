@@ -12,6 +12,7 @@ import type { FlyoutAnchor } from '../shared/overlay-geometry'
 import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
+import { dropSlotIndex, finalDropIndex } from './tab-drag'
 
 const DRAG_THRESHOLD = 6
 
@@ -283,7 +284,7 @@ async function endTabDrag(event: PointerEvent): Promise<void> {
   suppressSelect = true
   const screenX = event.screenX || drag.screenX
   const screenY = event.screenY || drag.screenY
-  const index = dropIndex(screenX, screenY)
+  const index = dropIndex(screenX, screenY, drag.id)
   if (index !== undefined) {
     await run({ type: 'move', id: drag.id, index })
     return
@@ -358,8 +359,14 @@ function cancelTabDrag(event: PointerEvent): void {
   }
 }
 
-/** 释放点在标签栏内时给出目标序号；栏外（横或纵）返回 undefined，交给 tearoff 判定。 */
-function dropIndex(screenX: number, screenY: number): number | undefined {
+/**
+ * 释放点在标签栏内时给出目标序号；栏外（横或纵）返回 undefined，交给 tearoff 判定。
+ *
+ * 返回值符合 `move` IPC 的语义：**移除被拖项之后的最终索引**。指针落点本身数的是
+ * 「含被拖项」的插槽，向右拖时会多算被拖项自己那一格，所以必须用 `finalDropIndex`
+ * 换算一次（否则横向拖拽会偏一位）。
+ */
+function dropIndex(screenX: number, screenY: number, id: number): number | undefined {
   const strip = tabStrip.value
   if (!strip) return undefined
   const rect = strip.getBoundingClientRect()
@@ -369,12 +376,15 @@ function dropIndex(screenX: number, screenY: number): number | undefined {
   if (clientY < rect.top - 4 || clientY > rect.bottom + 4) return undefined
   if (clientX < rect.left - 4 || clientX > rect.right + 4) return undefined
   const items = [...strip.querySelectorAll<HTMLElement>('.tab')]
-  let index = 0
-  for (const [position, item] of items.entries()) {
+  const boxes = items.map((item) => {
     const box = item.getBoundingClientRect()
-    if (clientX >= box.left + box.width / 2) index = position + 1
-  }
-  return index
+    return { left: box.left, width: box.width }
+  })
+  const slot = dropSlotIndex(boxes, clientX)
+  // 渲染顺序与主进程 `tabs` 一致：用快照里的位置把插槽换算成移除后的最终索引。
+  // 取不到（拖动途中标签被关掉）时按列表首位处理，越界由主进程的 `unknown-tab` 兜底。
+  const from = state.value?.tabs.findIndex((tab) => tab.id === id) ?? -1
+  return finalDropIndex(slot, from)
 }
 
 async function addTab(): Promise<void> {

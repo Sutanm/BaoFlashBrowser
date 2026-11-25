@@ -26,7 +26,12 @@ export type BrowserCommand =
   | { type: 'duplicate' | 'pin' | 'mute' | 'tab-menu'; id: number }
   | { type: 'keep-awake'; id: number; value: boolean }
   | { type: 'navigate'; address: string }
-  /** 标签排序（架构 §3「排序」）：把 `id` 移到 `index`。 */
+  /**
+   * 标签排序（架构 §3「排序」）：把 `id` 移到 `index`。
+   *
+   * `index` 是**移除被拖项之后**的最终索引（`0..tabs.length-1`）。渲染层按"含被拖项"的
+   * 插槽算落点，发 IPC 前必须先换算，否则向右拖会偏一位。
+   */
   | { type: 'move'; id: number; index: number }
   /** 把标签拖出窗口：`screenX/screenY` 是释放点的屏幕坐标（架构 §3「拖出窗口」）。 */
   | { type: 'tearoff'; id: number; screenX: number; screenY: number }

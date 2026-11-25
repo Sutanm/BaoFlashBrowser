@@ -159,6 +159,29 @@ function pageViewIds(windowHandle) {
 }
 
 /**
+ * 主进程里按 URL 找页面 WebContents 的**实际**音频状态。
+ *
+ * 静音 / 休眠 / 会话恢复的回归必须检查真实 WebContents 的 `isAudioMuted()`：
+ * 外壳快照里的 `muted` 是逻辑状态，单独断言它无法证明「真的静音了」。
+ */
+async function audioStateOf(app, url) {
+  const entries = await app.evaluate(({ webContents }) =>
+    webContents.getAllWebContents().map((contents) => {
+      try {
+        return {
+          id: contents.id,
+          url: contents.getURL(),
+          muted: contents.isAudioMuted(),
+          destroyed: contents.isDestroyed()
+        }
+      } catch {
+        return undefined
+      }
+    }).filter(Boolean))
+  return entries.find((entry) => entry.url === url)
+}
+
+/**
  * 走真实的主进程键盘路径。
  * Playwright 的 `page.keyboard` 是 CDP 注入，不会触发 Electron 的 `before-input-event`；
  * `webContents.sendInputEvent` 才会，因此标签级快捷键必须这样测。
@@ -175,6 +198,7 @@ async function pressShortcut(app, keyCode, modifiers = []) {
 }
 
 module.exports = {
+  audioStateOf,
   appNativeFlashSkip,
   flashPluginPath,
   hasFlashPlugin,
