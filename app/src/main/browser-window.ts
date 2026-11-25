@@ -1311,25 +1311,28 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 休眠直接失效（用例里 trace 全是 `flash-content`，普通页也不睡）。
    * 只能问页面：`ppapi` 页留着 `<embed>` / `<object>`，Ruffle 会把它们换成 `<ruffle-player>`。
    *
-   * 结果按「标签 + 当前 URL」缓存，URL 一变就重探；探测中或探测失败返回 undefined，
-   * 调用方按"有"处理（fail-closed）——宁可多保护一个标签，也不能把正在跑的游戏睡掉。
+   * 缓存键是「绑定代际 + 当前 URL」：代际一变（引擎切换提交、崩溃重建、唤醒）就重探——
+   * 同一个 URL 换了引擎，DOM 形态也会变，只按 URL 缓存会把结论用错。
+   * 探测中或探测失败返回 undefined，调用方按"有"处理（fail-closed）——宁可多保护一个标签，
+   * 也不能把正在跑的游戏睡掉。
    */
-  const flashProbe = new Map<number, { url: string; has: boolean }>()
+  const flashProbe = new Map<number, { key: string; has: boolean }>()
   const flashProbePending = new Set<number>()
 
   function flashContentOf(tab: Tab, contents: WebContents): boolean | undefined {
     const url = safe(() => contents.getURL(), '')
+    const key = `${tab.binding}|${url}`
     const cached = flashProbe.get(tab.id)
-    if (cached && cached.url === url) return cached.has
+    if (cached && cached.key === key) return cached.has
     if (flashProbePending.has(tab.id)) return undefined
     flashProbePending.add(tab.id)
     void contents.executeJavaScript(
       'Boolean(document.querySelector("embed,object,ruffle-player,ruffle-embed,[type*=shockwave],[type*=flash]"))',
       true
     ).then((has) => {
-      flashProbe.set(tab.id, { url, has: has === true })
+      flashProbe.set(tab.id, { key, has: has === true })
     }).catch(() => {
-      // 页面正在销毁/导航：判不出就当"有"，且**不缓存**，下一轮用新 URL 重探。
+      // 页面正在销毁/导航：判不出就当"有"，且**不缓存**，下一轮用新代际/新 URL 重探。
     }).finally(() => {
       flashProbePending.delete(tab.id)
     })
@@ -1417,6 +1420,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       }
       const contents = tab.view.webContents
       if (contents.isDestroyed() || contents.isCrashed()) continue
+      // 正在做两阶段引擎切换的标签先不睡：切换是用户/自动化**刚发起**的动作，而
+      // `discardTab()` 第一件事就是 `cancelEngineSwitch()`——睡掉它等于把用户的操作取消掉。
+      // 候选准备最长 15 s，睡晚一轮没有代价。
+      if (tab.engineSwitch) {
+        noteDiscardBlocked(tab, 'engine-switch-pending')
+        continue
+      }
       // ADR-0004 硬门禁①：加载中的标签不睡（否则连首屏都回不来，更别说页面里的游戏）。
       if (contents.isLoading()) {
         noteDiscardBlocked(tab, 'loading')
