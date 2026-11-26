@@ -10,6 +10,8 @@
  * 它们要么只有 2–11 行、要么被上百处调用（`safe`），搬出去只会制造 import 噪音，
  * 不产生任何可测性收益。拆分的判据是「能不能被独立验证」，不是行数。
  */
+import { DEFAULT_SEARCH_ENGINE, looksLikeAddress, searchUrlFor } from '../shared/search'
+import type { SearchEngine } from '../shared/search'
 
 /** 可被当作网页地址（http/https，且不带内联凭据）。 */
 export function isWebAddress(value: string): boolean {
@@ -44,6 +46,40 @@ export function parseAddress(input: string): string | undefined {
   const hasPort = /^[^/:]+:\d+(?:[/?#]|$)/.test(address)
   const value = hasScheme && !hasPort ? address : `https://${address}`
   if (isWebAddress(value)) return new URL(value).href
+}
+
+/**
+ * 输入里是否**明确写了** scheme（`javascript:` / `file:` / `bao:` …）。
+ *
+ * `host:port` 不算：`127.0.0.1:8080` 形如 scheme，但它就是要当地址用的特例——与
+ * `parseAddress` 里那条 `host:port` 特判必须是同一个判据，否则两处会给出不同结论。
+ */
+function explicitScheme(text: string): boolean {
+  return /^[a-z][a-z\d+.-]*:/i.test(text) && !/^[^/:]+:\d+(?:[/?#]|$)/.test(text)
+}
+
+/**
+ * 地址栏 / 新标签页 realbox / 自动化 `tab.navigate` 的**唯一**输入解析点：
+ * 像地址就导航，其余按默认搜索引擎搜索。
+ *
+ * 为什么搜索回退放在主进程：外壳工具栏、`bao://newtab` 的 realbox、自动化命令是三条
+ * 入口，规则只能有一份。历史上渲染层各自解释输入的直接后果就是「新标签页的框写着
+ * 『搜索或输入网址』，主进程却只会导航」——中文被 IDN 成 `xn--wxtr44c` 并真的去解析，
+ * 得到 ERR_NAME_NOT_RESOLVED，用户看到的却是地址栏"用不了"。
+ *
+ * 返回 `undefined` 表示**既不是地址、也不该搜索**：目前只有 `javascript:` / `file:` /
+ * `bao:` 这类非 http(s) scheme，以及带内联凭据的地址（`parseAddress` 拒绝它们）。
+ * 把它们当关键词搜出去只会得到垃圾结果，保持原来的 `invalid-address` 提示更诚实。
+ */
+export function resolveNavigation(input: string, engine: SearchEngine = DEFAULT_SEARCH_ENGINE): string | undefined {
+  const text = input.trim()
+  if (!text) return
+  // 明确写了 scheme：是地址就地址，不是就拒绝（不搜索）。
+  if (explicitScheme(text)) return parseAddress(text)
+  // 主机名形状：交给 parseAddress 做最后一道合法性判定（凭据、端口、IDN 归一）。
+  if (looksLikeAddress(text)) return parseAddress(text)
+  const searched = searchUrlFor(engine, text)
+  return searched || undefined
 }
 
 /**

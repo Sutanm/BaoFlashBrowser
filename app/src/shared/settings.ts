@@ -1,5 +1,7 @@
 import { isBrowserEngine } from './engine'
 import type { BrowserEngine } from './engine'
+import { DEFAULT_SEARCH_ENGINE, isSearchEngine } from './search'
+import type { SearchEngine } from './search'
 
 /**
  * 设置模型（架构 §4 数据：主进程持业务权威，渲染层只拿投影）。
@@ -60,6 +62,13 @@ export interface Settings {
   themeMode: ThemeMode
   /** 新标签/新站点的默认引擎；站点规则与手动切换优先于它。 */
   defaultEngine: BrowserEngine
+  /**
+   * 默认搜索引擎：地址栏与新标签页 realbox 里**不像地址**的输入按它搜索。
+   *
+   * 「像地址」的判据只在 `shared/search.ts` 的 `looksLikeAddress()` 一处，设置项只决定
+   * 用哪家引擎把关键词拼成 URL（见 `shared/search.ts` 的 `searchUrlFor()`）。
+   */
+  searchEngine: SearchEngine
   locale: Locale
 }
 
@@ -73,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   themeMode: 'system',
   // 原生优先：M1 的默认值，改成设置项后保持同样的行为。
   defaultEngine: 'ppapi',
+  searchEngine: DEFAULT_SEARCH_ENGINE,
   locale: 'zh-CN'
 }
 
@@ -83,6 +93,7 @@ export const SETTING_COLUMNS = {
   'session.startup': 'sessionStartup',
   'theme.mode': 'themeMode',
   'engine.default': 'defaultEngine',
+  'search.engine': 'searchEngine',
   locale: 'locale'
 } as const
 
@@ -96,6 +107,7 @@ export type SettingValue = {
   'session.startup': SessionStartupMode
   'theme.mode': ThemeMode
   'engine.default': BrowserEngine
+  'search.engine': SearchEngine
   locale: Locale
 }
 
@@ -111,7 +123,7 @@ export function isLocale(value: unknown): value is Locale {
 
 export interface SanitizedSetting {
   key: SettingKey
-  value: ThemeMode | BrowserEngine | Locale | PrewarmMode | DiscardMode | SessionStartupMode
+  value: ThemeMode | BrowserEngine | Locale | PrewarmMode | DiscardMode | SessionStartupMode | SearchEngine
 }
 /**
  * 校验并归一一条设置写入。返回 `undefined` 表示拒绝（未知键或非法值）。
@@ -137,6 +149,7 @@ export function sanitizeSetting(key: unknown, value: unknown): SanitizedSetting 
   if (key === 'overlay.prewarm') return isPrewarmMode(value) ? { key, value } : undefined
   if (key === 'theme.mode') return isThemeMode(value) ? { key, value } : undefined
   if (key === 'engine.default') return isBrowserEngine(value) ? { key, value } : undefined
+  if (key === 'search.engine') return isSearchEngine(value) ? { key, value } : undefined
   if (key === 'locale') return isLocale(value) ? { key, value } : undefined
   return undefined
 }

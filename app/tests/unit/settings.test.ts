@@ -21,6 +21,7 @@ describe('sanitizeSetting', () => {
   it('接受已知键的合法取值', () => {
     expect(sanitizeSetting('theme.mode', 'dark')).toEqual({ key: 'theme.mode', value: 'dark' })
     expect(sanitizeSetting('engine.default', 'ruffle')).toEqual({ key: 'engine.default', value: 'ruffle' })
+    expect(sanitizeSetting('search.engine', 'bing')).toEqual({ key: 'search.engine', value: 'bing' })
     expect(sanitizeSetting('locale', 'zh-CN')).toEqual({ key: 'locale', value: 'zh-CN' })
     expect(sanitizeSetting('overlay.prewarm', 'always')).toEqual({ key: 'overlay.prewarm', value: 'always' })
     expect(sanitizeSetting('tab.discard', 'never')).toEqual({ key: 'tab.discard', value: 'never' })
@@ -31,6 +32,9 @@ describe('sanitizeSetting', () => {
     expect(sanitizeSetting('theme.mode', 'blue')).toBeUndefined()
     expect(sanitizeSetting('theme.mode', '')).toBeUndefined()
     expect(sanitizeSetting('engine.default', 'flash')).toBeUndefined()
+    // 搜索引擎只有内置目录：别把用户自造的 id 静默接受（设置页会显示成空白）。
+    expect(sanitizeSetting('search.engine', 'sogou')).toBeUndefined()
+    expect(sanitizeSetting('search.engine', '')).toBeUndefined()
     expect(sanitizeSetting('locale', 'en-US')).toBeUndefined()
     expect(sanitizeSetting('tab.discard', 'aggressive')).toBeUndefined()
     // 启动行为只有两档：别把 Chrome 的 "restore" 之类写法当成合法值静默接受。
@@ -80,7 +84,7 @@ describe('settingsFromRows', () => {
     // "坏值回落到默认"，不是"默认是哪一档"。
     expect(settings).toEqual({
       overlayPrewarm: DEFAULT_SETTINGS.overlayPrewarm, tabDiscard: 'auto', sessionStartup: 'newtab',
-      themeMode: 'light', defaultEngine: 'ppapi', locale: 'zh-CN'
+      themeMode: 'light', defaultEngine: 'ppapi', searchEngine: DEFAULT_SETTINGS.searchEngine, locale: 'zh-CN'
     })
   })
 
@@ -107,8 +111,8 @@ describe('settingsFromRows', () => {
 describe('settingsToRows', () => {
   it('摊成固定的行，键名与表一致', () => {
     const rows = settingsToRows({
-      themeMode: 'dark', defaultEngine: 'ruffle', locale: 'zh-CN', overlayPrewarm: 'never',
-      tabDiscard: 'auto', sessionStartup: 'newtab'
+      themeMode: 'dark', defaultEngine: 'ruffle', searchEngine: 'bing', locale: 'zh-CN',
+      overlayPrewarm: 'never', tabDiscard: 'auto', sessionStartup: 'newtab'
     })
     expect(rows).toEqual([
       { key: 'overlay.prewarm', value: 'never' },
@@ -116,6 +120,7 @@ describe('settingsToRows', () => {
       { key: 'session.startup', value: 'newtab' },
       { key: 'theme.mode', value: 'dark' },
       { key: 'engine.default', value: 'ruffle' },
+      { key: 'search.engine', value: 'bing' },
       { key: 'locale', value: 'zh-CN' }
     ])
     expect(rows.map((row) => row.key).sort()).toEqual([...SETTING_KEYS].sort())
@@ -124,7 +129,8 @@ describe('settingsToRows', () => {
   it('与 settingsFromRows 互逆', () => {
     const original = {
       themeMode: 'light' as const, defaultEngine: 'ruffle' as const, locale: 'zh-CN' as const,
-      overlayPrewarm: 'always' as const, tabDiscard: 'auto' as const, sessionStartup: 'continue' as const
+      searchEngine: 'google' as const, overlayPrewarm: 'always' as const, tabDiscard: 'auto' as const,
+      sessionStartup: 'continue' as const
     }
     expect(settingsFromRows(settingsToRows(original))).toEqual(original)
   })

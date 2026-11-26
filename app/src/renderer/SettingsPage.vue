@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   SESSION_STARTUP_MODES, THEME_MODES, discardModeLabels, prewarmModeSummaries, prewarmToggleHint,
   sessionStartupLabels, themeModeLabels
 } from '../shared/settings'
-import type { SessionStartupMode, SettingsSnapshot, ThemeMode } from '../shared/settings'
+import type { SessionStartupMode, SettingKey, SettingsSnapshot, ThemeMode } from '../shared/settings'
 import type { FlashPluginState } from '../shared/settings'
+import { DEFAULT_SEARCH_ENGINE, SEARCH_ENGINES, searchEngineLabels } from '../shared/search'
+import type { SearchEngine } from '../shared/search'
 import type { BrowserEngine } from '../shared/engine'
 import { applyShellTheme } from './theme'
 
@@ -30,6 +32,7 @@ const failureText: Record<string, string> = {
 const current = computed(() => snapshot.value?.settings)
 const theme = computed(() => current.value?.themeMode ?? 'system')
 const engine = computed(() => current.value?.defaultEngine ?? 'ppapi')
+const searchEngine = computed(() => current.value?.searchEngine ?? DEFAULT_SEARCH_ENGINE)
 const prewarm = computed(() => current.value?.overlayPrewarm ?? 'always')
 const tabDiscard = computed(() => current.value?.tabDiscard ?? 'auto')
 const sessionStartup = computed(() => current.value?.sessionStartup ?? 'newtab')
@@ -114,7 +117,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => detach?.())
 
-async function write(patch: { key: 'theme.mode' | 'engine.default' | 'locale' | 'overlay.prewarm' | 'tab.discard' | 'session.startup'; value: string }): Promise<void> {
+async function write(patch: { key: SettingKey; value: string }): Promise<void> {
   if (busy.value) return
   busy.value = true
   error.value = ''
@@ -155,6 +158,11 @@ function chooseEngine(next: BrowserEngine): void {
     return
   }
   void write({ key: 'engine.default', value: next })
+}
+
+/** 默认搜索引擎：与非 URL 输入的搜索回退是同一份目录（`shared/search.ts`）。 */
+function chooseSearchEngine(next: SearchEngine): void {
+  void write({ key: 'search.engine', value: next })
 }
 
 const flashReady = computed(() => snapshot.value?.flash !== false)
@@ -208,6 +216,15 @@ async function importFlash(): Promise<void> {
 /** 插件缺失时点「原生 Flash」直接跳到这一节，而不是弹一句失败提示。 */
 function focusFlashSection(): void {
   document.getElementById('flash-section')?.scrollIntoView({ block: 'nearest' })
+}
+
+/**
+ * 「关于」里的 Flash 只是摘要：把用户送到真正那张卡（导入 / 定位 / 自动发现说明都在那里）。
+ * 切分区之后要等一帧——`:hidden` 的元素刚变为可见时还没有布局，`scrollIntoView` 会无效。
+ */
+function goFlashSection(): void {
+  section.value = 'appearance'
+  void nextTick(() => document.getElementById('flash-section')?.scrollIntoView({ block: 'center' }))
 }
 
 </script>
@@ -289,6 +306,30 @@ function focusFlashSection(): void {
               <span class="label">Ruffle</span>
             </button>
           </div>
+        </div>
+      </section>
+
+      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="search-title">
+        <header class="section-heading">
+          <h2 id="search-title">搜索引擎</h2>
+          <p class="section-caption">地址栏和新标签页里不像是网址的输入，用它来搜索</p>
+        </header>
+        <div class="setting-card">
+          <div role="radiogroup" aria-label="搜索引擎" class="choices">
+            <button
+              v-for="item in SEARCH_ENGINES"
+              :key="item"
+              type="button"
+              class="choice"
+              role="radio"
+              :aria-checked="searchEngine === item"
+              @click="chooseSearchEngine(item)"
+            >
+              <span class="radio" aria-hidden="true"></span>
+              <span class="label">{{ searchEngineLabels[item] }}</span>
+            </button>
+          </div>
+          <p class="lead">输入带点号的网址（如 4399.com）仍然直接打开；其余文字按这里的选择搜索。</p>
         </div>
       </section>
 
@@ -430,7 +471,9 @@ function focusFlashSection(): void {
               <h3>Flash 插件</h3>
               <p :title="flash?.path">{{ flashStatusText }}</p>
             </div>
-            <button v-if="flash?.found" type="button" class="action" aria-label="打开 Flash 插件所在文件夹" @click="revealFlash">打开所在文件夹</button>
+            <!-- 关于里只放状态摘要：导入/定位这些动作都在「外观与偏好 → Flash 插件」那张卡里，
+                 两处各放一套按钮会让人以为功能分叉了（2026-11-26 反馈）。 -->
+            <button type="button" class="action" aria-label="去 Flash 插件设置" @click="goFlashSection">Flash 插件设置</button>
           </div>
         </div>
       </section>

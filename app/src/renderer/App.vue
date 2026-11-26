@@ -569,7 +569,7 @@ onBeforeUnmount(() => store.disconnect())
           ref="addressField"
           v-model="address"
           aria-label="地址栏"
-          placeholder="输入网址"
+          placeholder="输入网址或搜索"
           autocomplete="off"
           spellcheck="false"
           @input="addressDirty = true"

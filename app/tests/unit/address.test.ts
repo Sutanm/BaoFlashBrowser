@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isWebAddress, parseAddress, placeholderTitle, sameDocument } from '../../src/main/address'
+import { isWebAddress, parseAddress, placeholderTitle, resolveNavigation, sameDocument } from '../../src/main/address'
 
 /**
  * 地址与文档身份判断（`browser-window.ts` 的纯层，2026-11-26 抽出）。
@@ -37,6 +37,37 @@ describe('parseAddress：地址栏输入 → 可加载 URL', () => {
 
   it('带内联凭据的地址拒绝（凭据会进历史与规则键）', () => {
     expect(parseAddress('https://user:pass@example.com/')).toBeUndefined()
+  })
+})
+
+describe('resolveNavigation：地址栏输入 → 地址或搜索', () => {
+  it('像地址就原样导航（中文域名也算地址）', () => {
+    expect(resolveNavigation('example.com/a', 'baidu')).toBe('https://example.com/a')
+    expect(resolveNavigation('http://example.com', 'baidu')).toBe('http://example.com/')
+    expect(resolveNavigation('127.0.0.1:8080/x', 'bing')).toBe('https://127.0.0.1:8080/x')
+    expect(resolveNavigation('百度.com', 'baidu')).toBe('https://xn--wxtr44c.com/')
+  })
+
+  it('不像是地址的输入走默认搜索引擎（2026-11-26 的核心修复）', () => {
+    // 曾把「百度」IDN 成 xn--wxtr44c 真的去解析 → ERR_NAME_NOT_RESOLVED。
+    expect(resolveNavigation('百度', 'baidu')).toBe('https://www.baidu.com/s?wd=%E7%99%BE%E5%BA%A6')
+    expect(resolveNavigation('百度', 'bing')).toBe('https://www.bing.com/search?q=%E7%99%BE%E5%BA%A6')
+    expect(resolveNavigation('hello world', 'google')).toBe('https://www.google.com/search?q=hello%20world')
+    expect(resolveNavigation('4399', 'baidu')).toBe('https://www.baidu.com/s?wd=4399')
+  })
+
+  it('非 http(s) scheme 保持非法，不拿去搜索', () => {
+    expect(resolveNavigation('javascript:alert(1)', 'baidu')).toBeUndefined()
+    expect(resolveNavigation('file:///C:/Windows', 'baidu')).toBeUndefined()
+    expect(resolveNavigation('bao://settings', 'baidu')).toBeUndefined()
+  })
+
+  it('带内联凭据的地址仍然拒绝（不当关键词、也不导航）', () => {
+    expect(resolveNavigation('https://user:pass@example.com/', 'baidu')).toBeUndefined()
+  })
+
+  it('空输入返回 undefined', () => {
+    expect(resolveNavigation('   ', 'baidu')).toBeUndefined()
   })
 })
 

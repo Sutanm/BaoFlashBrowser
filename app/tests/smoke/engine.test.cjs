@@ -105,7 +105,9 @@ test('地址错误提示不挤动工具栏或页面，加载失败后可以重�
 
       await navigate(shell, `${baseUrl}/stable`, '布局测试页')
       const before = await geometry()
-      await navigate(shell, 'not a url')
+      // 非法输入（非 http(s) scheme 不会被当成搜索词）：外壳显示错误 toast，
+      // 几何尺寸不能被它挤动。普通文字现在会走搜索，所以这里用 `file:` 表达非法。
+      await navigate(shell, 'file:///C:/Windows')
       const toastName = '关闭提示'
       const message = '请输入有效的 HTTP 或 HTTPS 网址'
       await overlayControl(windowHandle, 'toast', toastName, { text: message })

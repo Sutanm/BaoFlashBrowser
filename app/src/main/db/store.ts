@@ -370,6 +370,7 @@ export function settingValue(settings: Settings, key: SettingKey): SettingValue[
     case 'session.startup': return settings.sessionStartup
     case 'theme.mode': return settings.themeMode
     case 'engine.default': return settings.defaultEngine
+    case 'search.engine': return settings.searchEngine
     case 'locale': return settings.locale
   }
 }

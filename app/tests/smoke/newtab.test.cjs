@@ -69,8 +69,10 @@ test('新标签页：启动即是真实内部页，地址栏为空、无引擎�
     const visual = await inContents(app, id, `({
       root: getComputedStyle(document.documentElement).backgroundColor,
       body: getComputedStyle(document.body).backgroundColor,
-      criticalFirstPaint: document.querySelector('#ntp-first-paint') !== null,
-      ready: document.documentElement.dataset.ntpReady,
+      surfacePage: getComputedStyle(document.documentElement).getPropertyValue('--surface-page').trim(),
+      bootstrap: document.querySelector('meta[name="bao-bootstrap"]')?.content ?? '',
+      skeleton: document.querySelector('#ntp-first-paint') !== null,
+      themeDataset: document.documentElement.dataset.theme,
       realboxWidth: document.querySelector('.realbox').getBoundingClientRect().width,
       realboxHeight: document.querySelector('.realbox').getBoundingClientRect().height,
       utilities: document.querySelectorAll('.utility-card').length,
@@ -82,8 +84,12 @@ test('新标签页：启动即是真实内部页，地址栏为空、无引擎�
     const pageColor = state.theme === 'dark' ? 'rgb(31, 31, 31)' : 'rgb(250, 250, 250)'
     assert.equal(visual.root, pageColor, 'NTP 首帧与 Fluent 页面色必须一致')
     assert.equal(visual.body, pageColor, '页面主体不应在挂载后切换底色')
-    assert.equal(visual.criticalFirstPaint, false, 'Vue 接管后应移除关键首帧占位')
-    assert.equal(visual.ready, 'true', '关键首帧应完成无空白接管')
+    // 首帧主题变量由主进程注入（不再有 HTML 里的颜色副本）：
+    assert.equal(visual.surfacePage.toLowerCase(), state.theme === 'dark' ? '#1f1f1f' : '#fafafa',
+      '首帧的 --surface-page 必须由注入提供，且与主进程解析的主题一致')
+    assert.ok(visual.bootstrap.length > 0, '首屏快照（bao-bootstrap）必须随 HTML 注入')
+    assert.equal(visual.skeleton, false, '首帧不该再有骨架（单一 DOM）')
+    assert.equal(visual.themeDataset, state.theme, '<html data-theme> 必须是主进程解析的主题')
     assert.ok(visual.realboxWidth >= 760, `最大化布局的 realbox 过窄：${visual.realboxWidth}`)
     assert.equal(visual.realboxHeight, 58, 'realbox 应使用更舒展的 58px 高度')
     assert.equal(visual.utilities, 3, '新标签页应展示三个真实状态/操作入口')
@@ -96,16 +102,32 @@ test('新标签页：启动即是真实内部页，地址栏为空、无引擎�
       assert.equal(surface[key], 'undefined', `新标签页不该拿到 ${key}`)
     }
 
+    // 注入内容的直接证据：`bao://newtab/` 返回的 HTML 本身就带主题与快照，且不含骨架。
+    const served = await inContents(app, id, `fetch('bao://newtab/').then((response) => response.text())`)
+    assert.match(served, /<html[^>]*data-theme="(light|dark)"/, '返回的 HTML 必须已带 data-theme')
+    assert.match(served, /<meta name="bao-bootstrap"/, '返回的 HTML 必须带首屏快照')
+    assert.match(served, /id="bao-first-paint"/, '返回的 HTML 必须内联主题变量')
+    assert.ok(!served.includes('id="ntp-first-paint"'), '骨架元素已经从文档里删掉了（只剩下解释性注释里的名字）')
+
+    // 主题跟着设置走（不靠系统 pref）：换深色后重新取文档，注入的必须是深色。
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'set-setting', key: 'theme.mode', value: 'dark' }))
+    const darkServed = await inContents(app, id, `fetch('bao://newtab/').then((response) => response.text())`)
+    assert.match(darkServed, /<html[^>]*data-theme="dark"/, '设置成深色后，注入的主题没有跟着变')
+    assert.ok(darkServed.includes('color-scheme: dark'), '注入的 color-scheme 没有跟着变')
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'set-setting', key: 'theme.mode', value: 'system' }))
+
     const read = await inContents(app, id, 'window.baoSettings.read()')
     assert.equal(read, undefined, '新标签页不该读到设置快照')
     const write = await inContents(app, id, `window.baoSettings.write('theme.mode', 'dark')`)
     assert.equal(write.ok, false, '新标签页不该写设置')
     assert.equal(write.code, 'forbidden-sender')
 
-    // 新标签页自己的窄桥：只开放页面动作与主题切换，非法地址在进导航前就被拒。
+    // 新标签页自己的窄桥：只开放页面动作与主题切换，非法输入在进导航前就被拒。
+    // 注意判据（2026-11-26 起）：**像地址**才导航，其余一律按默认搜索引擎搜索；
+    // 所以这里用非 http(s) scheme 表达"非法"，普通文字（如 "not a url"）现在会去搜索。
     const ntpFacts = await inContents(app, id, `(async () => {
       const state = await window.baoNtp.read()
-      const bad = await window.baoNtp.run({ type: 'navigate', address: 'not a url' })
+      const bad = await window.baoNtp.run({ type: 'navigate', address: 'javascript:alert(1)' })
       return {
         type: typeof window.baoNtp,
         theme: state?.theme,
@@ -272,7 +294,7 @@ test('新标签页：页面里的设置入口与 realbox 都作用在本标签',
   }
 })
 
-test('新标签页：realbox 非 URL 输入给出稳定提示，页面不跳转', { timeout: 120_000 }, async () => {
+test('新标签页：realbox 的非 URL 输入按默认搜索引擎搜索（不再是错误提示）', { timeout: 120_000 }, async () => {
   const { app, shell, close } = await launchApp()
   try {
     const id = await waitFor(() => internalContentsId(app, 'bao://newtab'), { message: '新标签页没有加载' })
@@ -284,14 +306,17 @@ test('新标签页：realbox 非 URL 输入给出稳定提示，页面不跳转'
       input.dispatchEvent(new Event('input', { bubbles: true }))
       document.querySelector('.realbox').requestSubmit()
     })()`)
-    const text = await waitFor(async () => {
-      const value = await inContents(app, id, `document.querySelector('.message.visible')?.textContent ?? ''`)
-      return value ? value : null
-    }, { message: '非法地址没有给出提示' })
-    assert.match(text, /HTTP/)
-    const state = await snapshot(shell)
-    assert.equal(state.tabs.length, 1)
-    assert.equal(state.tabs[0].internal, 'newtab', '非法输入不应离开新标签页')
+    // 地址在**导航提交前**就该是搜索地址（投影用 requestedUrl，不等文档落地），
+    // 所以这里不需要网络：只断言"去了搜索引擎"，不断言结果页加载成功。
+    const state = await waitFor(async () => {
+      const current = await snapshot(shell)
+      return current.tabs[0].internal === undefined ? current : null
+    }, { message: 'realbox 的搜索没有离开新标签页' })
+    assert.equal(state.tabs.length, 1, 'realbox 搜索不应新开标签')
+    assert.match(state.tabs[0].address, /^https:\/\/www\.baidu\.com\/s\?wd=/, `没走到搜索：${state.tabs[0].address}`)
+    // NTP 的 WebContents 已在导航时被换掉（内部会话永不承载网页），所以不再去原文档里读提示；
+    // "没有行内错误"由投影的 error 字段表达。
+    assert.equal(state.tabs[0].error, '', `搜索不该报页面错误：${state.tabs[0].error}`)
   } finally {
     await close()
   }

@@ -1,6 +1,6 @@
 import type { ShellTheme } from './shell-theme'
 import type { BrowserEngine, EngineSource } from './engine'
-import type { Locale, SettingKey, Settings, ThemeMode } from './settings'
+import type { Locale, SettingKey, SettingValue, Settings, ThemeMode } from './settings'
 
 export const TAB_BAR_HEIGHT = 40
 export const TOOLBAR_HEIGHT = 44
@@ -43,7 +43,7 @@ export type BrowserCommand =
    * 只有外壳（以及后续的设置页）能发；页面永远拿不到这个命令。值由主进程按
    * `shared/settings.ts` 的键白名单再校验一次，非法值返回 `invalid-setting`。
    */
-  | { type: 'set-setting'; key: SettingKey; value: ThemeMode | BrowserEngine | Locale }
+  | { type: 'set-setting'; key: SettingKey; value: SettingValue[SettingKey] }
 
 /** 稳定错误代码。渲染层按代码取文案，主进程只附加允许公开的详情。 */
 export type BrowserFailureCode =

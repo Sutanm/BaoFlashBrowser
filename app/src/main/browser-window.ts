@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell, 
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
-import { isWebAddress, parseAddress, placeholderTitle, sameDocument } from './address'
+import { isWebAddress, placeholderTitle, resolveNavigation, sameDocument } from './address'
 import { FlashPresenceCache, detectFlashContent } from './flash-probe'
 import { browserChannels, browserFailureText, INFOBAR_HEIGHT, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserSessionPrompt, BrowserState, BrowserTab } from '../shared/browser'
@@ -108,6 +108,17 @@ interface Tab {
   /** 休眠时展示用的缓存（视图没了就读不到）。 */
   lastUrl?: string
   lastTitle?: string
+  /**
+   * 最近一次**请求加载**的地址（`load()` 写入）。
+   *
+   * 与 `lastUrl`（休眠缓存）分开：文档还没提交时 `getURL()` 是空串，而库里/地址栏需要的
+   * 是"用户要去的那个地址"。没有它会出现两个真实故障（2026-11-26）：
+   * ① 地址栏回车后立刻被清空（投影 address 为空）→ 看起来"地址栏没反应"；
+   * ② 会话投影里出现 `url: ''` 的标签 → `sanitizeSession` 整条丢弃 → 整份载荷被拒
+   *   （`INVALID_PARAM`）。它只用于展示与恢复，**不参与加载决策**：`revive()` 仍走
+   *   `lastUrl`，导航永远以 `getURL()` 为准。
+   */
+  requestedUrl?: string
   /**
    * 该标签的第一个文档是网页，但它是从新标签页进来的：在最早一条历史按 Back 时回到
    * `bao://newtab`（Chrome 里 NTP 就是历史第 0 项）。
@@ -344,10 +355,13 @@ function writeSessionNow(): void {
   }
   // 没有窗口（例如刚启动就被关闭的自动化窗口）时不写：写入空会话等于把上次的会话清掉。
   if (snapshot.windows.length === 0) return
+  // 投影侧已经把「不可恢复的标签」滤掉了（见 `sessionWindowSnapshot()`），所以这里数的
+  // 就是**校验后的**数量：与 `writeSession()` 的判据同源，不会出现"有标签但全被拒"。
   const tabCount = snapshot.windows.reduce((total, window) => total + window.tabs.length, 0)
   if (tabCount === 0) {
     /**
-     * 本次**没有任何可恢复的标签**（典型：只开着设置页，它不落盘）。
+     * 本次**没有任何可恢复的标签**（典型：只开着设置页，它不落盘；或唯一那个标签还停在
+     * 首帧前的空地址上）。
      *
      * 这里不能"什么都不做"：`writeSession()` 会以「载荷未通过校验」拒绝空投影，磁盘上那份
      * 旧会话原样留下，下次启动就会提示恢复用户早就关掉的标签（2026-11-26 审计）。
@@ -579,6 +593,26 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return activityLeases.hasOwner(tab.id, 'user')
   }
 
+  /**
+   * 地址栏与会话投影要显示的地址（单一实现，两处共用）。
+   *
+   * 三个真实约束叠在这里：
+   * 1. 文档还没提交（首帧前、DNS 未返回）时 `getURL()` 是**空串** → 用 `requestedUrl`；
+   * 2. 已经在一个页面上、又发起了新导航且尚未提交时，`getURL()` 是**旧文档**的地址 →
+   *    仍要显示 `requestedUrl`，否则地址栏停在旧地址，看起来"回车没反应"（2026-11-26 实测）；
+   * 3. 历史前进/后退不经过 `load()`，所以 `requestedUrl` 会在**提交时**清掉
+   *    （见 `did-navigate`）——否则 Back 之后地址栏会一直显示上一次输入的地址。
+   *
+   * 内部页按 Chrome 的语义：设置页立刻显示 `bao://settings/`，新标签页不显示地址。
+   */
+  function displayAddress(tab: Tab, liveUrl: string): string {
+    if (tab.failedUrl) return tab.failedUrl
+    if (tab.internal === 'settings') return liveUrl || SETTINGS_URL
+    if (tab.internal === 'newtab') return ''
+    const requested = tab.requestedUrl && tab.requestedUrl !== liveUrl ? tab.requestedUrl : ''
+    return requested || liveUrl || tab.lastUrl || ''
+  }
+
   function describe(tab: Tab): BrowserTab {
     // 休眠标签没有视图：用缓存字段展示（标题/地址），其它能力一律为假。
     if (!tab.view) {
@@ -627,11 +661,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
     // 内部页在首帧加载完成前也要显示自己的地址（Chrome 同样立刻显示 chrome://settings）；
     // 新标签页与 Chrome 一致：地址栏不显示 URL（空串 + 占位文案）。
-    // 刚从休眠/崩溃恢复唤醒的标签在导航提交前 `getURL()` 是空串：回落到休眠前的地址，
-    // 免得地址栏闪一下空白（此时 `lastUrl` 正是它要加载的那个地址）。
-    const address = tab.failedUrl ?? (tab.internal === 'settings'
-      ? (url || SETTINGS_URL)
-      : tab.internal === 'newtab' ? '' : (url || tab.lastUrl || ''))
+    const address = displayAddress(tab, url)
     const pin = engineRules.resolve(hostOf(address))
     return {
       id: tab.id,
@@ -1008,6 +1038,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         }
       }
       tab.failedUrl = undefined
+      // 提交之后 `getURL()` 就是权威：清掉"正在请求的地址"，否则历史前进/后退会让地址栏
+      // 一直停在上一次输入的地址上（`displayAddress()` 只在两者不同时才用它）。
+      tab.requestedUrl = undefined
       tab.host?.notify(tab)
     })
     contents.on('did-navigate-in-page', () => {
@@ -1021,6 +1054,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   function load(tab: Tab, url: string): void {
+    // 先把"要去的地址"记下来：文档提交前 `getURL()` 是空串，地址栏与会话投影都要用它顶替。
+    tab.requestedUrl = url
     if (!tab.view) return
     void tab.view.webContents.loadURL(url).catch(() => {})
   }
@@ -1193,7 +1228,20 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       if (tab.internal === 'settings') continue
       const liveUrl = safe(() => tab.view?.webContents.getURL() ?? '', '')
       const liveTitle = safe(() => tab.view?.webContents.getTitle() ?? '', '')
-      const url = tab.internal === 'newtab' ? '' : (tab.failedUrl ?? (liveUrl || tab.lastUrl || ''))
+      // 文档还没提交（首帧前 / DNS 未返回 / 已提交旧文档但新导航在途）时以 requestedUrl 为准，
+      // 否则投影里会出现 `url: ''` 的标签（被校验器整条丢弃）。
+      const url = tab.internal === 'newtab' ? '' : displayAddress(tab, liveUrl)
+      /**
+       * 不可恢复的标签**不进投影**。
+       *
+       * 判据必须与 `shared/session.ts` 的 `sanitizeSessionTab()` 一致（`isWebAddress` 就是
+       * 那条规则的实现）：校验器会整条丢弃非 http(s) 的标签，而 `writeSessionNow()` 判断
+       * "空投影→清库"时数的是**这里的**标签数。两边不一致时，一个"普通但地址还不合法"的
+       * 标签会让整份载荷被拒（`INVALID_PARAM`），本次运行从此不再写会话。2026-11-26 实测：
+       * 从新标签页输入中文 → 导航长时间不提交文档 → 每次写盘都失败。宁可少一条投影，
+       * 也不要让写盘抛异常。
+       */
+      if (tab.internal !== 'newtab' && !isWebAddress(url)) continue
       projected.push({
         url,
         title: liveTitle || tab.lastTitle || tab.initialTitle,
@@ -1263,6 +1311,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     // 用户在准备期间输入新地址：导航优先，取消未提交的引擎切换（不覆盖这次导航）。
     cancelEngineSwitch(tab)
     const address = typeof raw === 'string' ? raw : ''
+    // 输入解析只有一处（`resolveNavigation`）：像地址就导航，其余按默认搜索引擎搜索。
+    // 内部地址（`bao://settings` 等）必须**先**判，否则会被当成关键词搜出去。
+    const engine = currentSettings().searchEngine
     if (tab.internal) {
       const internal = parseInternalAddress(address)
       if (internal) {
@@ -1270,7 +1321,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         if (internal.kind !== tab.internal || internal.url !== current) controlInternal(tab, internal)
         return { ok: true, state: state() }
       }
-      const opened = parseAddress(address)
+      const opened = resolveNavigation(address, engine)
       if (!opened) return fail('invalid-address')
       if (tab.internal === 'settings') {
         const resolved = engineFor(opened)
@@ -1280,7 +1331,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       }
       return { ok: true, state: state() }
     }
-    const url = parseAddress(address)
+    const url = resolveNavigation(address, engine)
     if (!url) return fail('invalid-address')
     // 站点规则只决定「初始」引擎：用户在这个标签上手动切换过，就沿用他的选择。
     const resolved = tab.manualOverride
@@ -1302,7 +1353,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       rebuild(tab, url)
       return { ok: true, state: state() }
     }
-    void contents.loadURL(url).catch(() => {})
+    load(tab, url)
     focusContents(contents)
     return { ok: true, state: state() }
   }
@@ -2857,7 +2908,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       return { ok: true }
     }
     if (command.type === 'navigate') {
-      const url = parseAddress(typeof command.address === 'string' ? command.address : '')
+      const url = resolveNavigation(
+        typeof command.address === 'string' ? command.address : '',
+        currentSettings().searchEngine
+      )
       if (!url) return { ok: false, code: 'invalid-address' }
       setImmediate(() => { if (!closing && tabs.includes(tab)) navigateTab(tab, url) })
       return { ok: true }
