@@ -296,7 +296,7 @@ A/B 口径：同一段脚本负载，分别 `BAO_OVERLAY_SHARED=1`（浮层文�
 | **0（现在）** | **按 [ADR-0004](../adr/0004-liveness-over-memory-reclaim.md) 收紧休眠守卫链**（批次 1 已落地：`isLoading` + 页面 DOM 的 Flash 判据 + `BAO_DISCARD_TRACE`；批次 2 待做：自动化全局闸 / `save → ack`） | **不是优化，是当前就在生效的丢存档缺陷**：`tab.discard` 默认 `auto` + TTL 10 分钟，而守卫链不认识 Flash。硬截止：M3 接自动化之前 | ADR-0004 §后果 的用例全过；游戏标签误杀为 0 |
 | 1 | 心跳 RTT（主进程 ↔ 外壳 ↔ 浮层两路）+ 浮层 realm 里的 `longtask`/LoAF 上报 | A1/A2 的一切判断都依赖它；半天 | 任意一次 >200 ms 能落到具体 `sourceURL` |
 | 2 | CDP 三件套（堆趋势 / scavenge / 帧间隔）跑一次 A/B | A2 现在是"零数据"，这是唯一缺口 | 拿到合并/不合并的 p50/p99 对照 |
-| 3 | `--renderer-process-limit=2` + 同页双 `<embed>` 两个零代码实验 | 决定 B6 有没有第二条路线；顺带验证 Flash 单实例的成因 | 双实例是否都实例化；合并后 Flash/Ruffle 是否仍工作 |
+| 3 | `--renderer-process-limit=2` + 同页双 `<embed>` 两个零代码实验 | 决定 B6 有没有第二条路线；顺带验证 Flash 单实例的成因 | **已完成（2026-11-26）**：双实例通过（约束否证，见 §4.2）；`--renderer-process-limit` **不合并进程**（探针见 [`evidence/probes/2026-11-26-renderer-limit`](../evidence/probes/2026-11-26-renderer-limit/RESULT.md)）→ 零代码路径是死路，合并只能写内核补丁 |
 | 4 | 用 `privateBytes` 重算 69–72 MB，出一次 `memory-infra` 分解 | B6/B7 的所有收益估算都建立在这个口径上 | 得到"每标签私有 ≈X MB、共享 ≈Y MB" |
 | 5 | A4 原型（多窗口共用一个外壳进程）；`outlivesOpener: true` **只给外壳文档的 guest**，不给浮层 | 省的是每窗口 ~70 MB，是七条里单笔收益最大的一条 | 5 窗口 private 之和斜率 <15 MB/窗口 |
 | 6 | A1 的 ②兜底（心跳超时 → 杀进程 → 自愈） | 自愈已经在，包一层判定即可；这是唯一能抢占的方案 | 注入 3 s 死循环后 UI 在 5 s 内回来 |
