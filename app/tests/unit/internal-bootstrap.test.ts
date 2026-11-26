@@ -35,13 +35,22 @@ describe('injectInternalBootstrap', () => {
     expect(html.match(/data-theme="dark"/g)).toHaveLength(1)
   })
 
-  it('内联样式放在 <head> 的最前面（早于 tokens.css 的 link，避免第一帧按缺省值算）', () => {
+  it('内联样式放在 <head> 的最前面（早于组件 CSS，避免第一帧按缺省值算）', () => {
     const html = injectInternalBootstrap(HTML, { theme: 'light', snapshot: null })
     const headEnd = html.indexOf('<meta charset="utf-8">')
     expect(html.indexOf(`<style id="${BOOTSTRAP_STYLE_ID}">`)).toBeGreaterThan(html.indexOf('<head>'))
     expect(html.indexOf(`<style id="${BOOTSTRAP_STYLE_ID}">`)).toBeLessThan(headEnd)
     expect(html).toContain('--surface-page')
     expect(html).toContain('color-scheme: light')
+  })
+
+  it('带上 html/body 首帧规则（dev 的 CSS 由 JS 注入，靠这两条才不会白一帧）', () => {
+    const html = injectInternalBootstrap(HTML, { theme: 'dark', snapshot: null })
+    expect(html).toContain('html, body {')
+    expect(html).toContain('background: var(--surface-page);')
+    expect(html).toContain('color: var(--text-primary);')
+    // 规则里的颜色必须来自变量，而不是又抄一份色值。
+    expect(/html, body \{[^}]*#[0-9a-fA-F]{3,8}/.test(html)).toBe(false)
   })
 
   it('快照里的引号/尖括号/& 转义后仍能原样解析回来', () => {
