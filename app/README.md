@@ -16,6 +16,83 @@ M1 在此目录下使用单应用包。开工范围和验收要求见[新版架�
 
 阶段验收记录归档到 [docs/kickoff](../docs/kickoff/README.md)。
 
+## 跑测试（先设环境变量，再选范围）
+
+**每个新会话 / 新 PowerShell 窗口第一件事**：
+
+```powershell
+cd app
+$env:ELECTRON_EXEC_PATH = "$PWD\.runtime\win-x64\electron.exe"
+```
+
+不设就必红，而且冒烟里是「**每个用例文件**都失败」：
+
+```
+AssertionError: 请设置 ELECTRON_EXEC_PATH 为自编译 Electron 的绝对路径。
+```
+
+来源是 `tests/smoke/helpers.cjs` 的 `resolveExecutable()` 硬校验——我们不跑官方 Electron
+（没有 PPAPI 补丁）。**`data` 也要它**（`tests/data/*.test.cjs` 里有同样的 `assert`，它们会真的
+起一次内核验证"硬杀后数据完整"）；只有 `typecheck` 与 `unit`（纯 Node、不启动 Electron）不需要。
+
+> 命令一律在 `app/` 下执行：`node scripts/test.cjs …` 的相对路径以 `app/` 为基准。
+> 在仓库根跑会报找不到 `scripts/test.cjs`。
+
+### 按改动大小选范围
+
+| 你要验证什么 | 命令 | 用时（实测） |
+| --- | --- | --- |
+| 类型 | `npm run typecheck` | 3–5 s |
+| 纯逻辑 | `npx vitest run --reporter=dot`（或 `node scripts/test.cjs unit`） | ~1.2 s，380+ 条 |
+| 存储合同（真 SQLite、不启动窗口） | `node scripts/test.cjs data` | 几秒 |
+| **改了一个模块的日常验证** | `node scripts/test.cjs smoke --only=bookmarks,bookmark-bar` | 8–30 s |
+| 拿不准改了哪些用例 | `node scripts/test.cjs smoke --changed` | 按 `scripts/test-map.cjs` 选，命中全局文件自动全量 |
+| 提交前/大改动 | `node scripts/test.cjs smoke` | 35 个文件 ~120 s（4 并发） |
+| 原生 Flash / 最大化 / 指针锁 / DevTools / 预热档 | `node scripts/test.cjs smoke --foreground [--only=…]` | 会**弹窗并抢焦点** |
+
+几条硬规则：
+
+- `--only=` 与 `--changed` **只能给一个**；`--only` 名字写 `quick-settings` 或
+  `tests/smoke/quick-settings.test.cjs` 都行，写错当场报「未知用例」。
+- 默认（不带 `--foreground`）窗口从创建起就**不可见、不进任务栏、不抢焦点**；原生 Flash 类用例
+  在这种模式会被**跳过**（不是失败）——所以别用「后台全绿」证明 Flash 没问题。
+- 加并发不会更快：`--jobs=N` 实测 4 并发与 8 并发一个量级（瓶颈是每个文件冷启动一个应用）。
+  别在跑全量时同一台机器上做交互验收。
+- `smoke`/`data` 会先跑 `buildIfChanged()`（指纹没变就跳过 typecheck + build），所以**不用**先手动
+  `npm run build`；`BAO_FORCE_BUILD=1` 强制重建，`BAO_SKIP_TYPECHECK=1` 只构建不查类型。
+- `BAO_*` 那些策略开关（`BAO_SMOKE_HIDDEN` / `BAO_OVERLAY_SHARED` / `BAO_OVERLAY_PREWARM` …）由
+  `test.cjs` 与 `helpers.launchApp({ env })` 自己设，**不要手工往环境里塞**：设错会让用例静默走
+  另一条路径，比红更难查。
+
+### 新增冒烟用例：三处都要动（文件 + 两个清单）
+
+1. `tests/smoke/<name>.test.cjs` —— 文件名就是用例名；
+2. `scripts/test.cjs` 的 `suites.smoke` 数组 —— 不加进去，**全量永远不会跑它**；
+3. `scripts/test-map.cjs` —— 不加映射，改相关源码时 `--changed` 不会选中它（若新文件在 `src/`
+   下且没有任何规则命中，`--changed` 会退回全量，代价更大）。
+
+改动只落在 `docs/`、`*.md`、测试自身或 `scripts/` 基础设施时，`--changed` 会直接说「不需要跑冒烟」。
+
+### 失败时先看什么
+
+- `[exit code: 1]` + 超时现场：`waitFor()` 超时会打印进程分布、外壳页状态与标签快照，
+  比「waiting for selector」有用得多；
+- 并行跑时偶发的 `Resulting promise was garbage collected` / `Script failed to execute` 是
+  「这一刻还没准备好」，`waitFor` 会重试；**不要**因此放宽断言（见
+  [冒烟抖动报告](../docs/reports/2026-11-25-smoke-flake.md)）；
+- 断言里写「两次 IPC 采样」的地方（例如视图 bounds 与页面可见性）会差一帧，正确做法是
+  **等两者一致**，不是改阈值。
+
+### 本机探针 / 截图约定（可选）
+
+临时探针与截图脚本放在 `C:\Users\95470\AppData\Local\Temp\bao-shot`，PIL 用
+`C:\Users\95470\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe`。
+抓内部页 / 叠加层用 `webContents.capturePage()`（不弹窗、不抢焦点）；要看窗口整体才用整屏截图，
+并在用完立刻关掉——原生菜单/对话框会挂在桌面上。
+
+> 更细的脚本行为（打包、运行时导出/导入、前台门禁的期望条数等）见下文「本地启动」里的命令表；
+> 这一节只回答"每天怎么跑、跑哪些、为什么又红了"。
+
 ## 本地启动
 
 使用 Node.js 22.12+ 或 24.x。在本目录执行以下 PowerShell 命令，按本机路径调整自编译产物目录。
