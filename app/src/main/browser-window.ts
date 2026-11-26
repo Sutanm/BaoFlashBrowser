@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView, webContents } from 'electron'
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
 import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isWebAddress, placeholderTitle, resolveNavigation, sameDocument } from './address'
 import { FlashPresenceCache, detectFlashContent } from './flash-probe'
@@ -16,9 +17,10 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { addBookmarkData, bookmarkNodes, clearBookmarksData, clearEngineRulesData, clearSessionData, createBookmarkFolderData, importBookmarksData, moveBookmarkData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
-import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
-import type { BookmarkBarMode } from '../shared/bookmarks'
+import { addBookmarkData, bookmarkNodes, bookmarksExpanded, clearBookmarksData, clearEngineRulesData, clearSessionData, createBookmarkFolderData, importBookmarksData, moveBookmarkData, removeBookmarkData, setBookmarksExpanded, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
+import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, childrenOf, expandedIds, folderMenuOf, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
+import type { BookmarkBarMode, FolderMenuItem } from '../shared/bookmarks'
+import { decodeBookmarkFile } from '../shared/bookmark-import'
 import { bindInternalProtocol, FAVORITES_URL, internalKindOf, internalTitles, internalUrls, isFavoritesUrl, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
 import { bookmarkBarModeLabels, settingsChannels } from '../shared/settings'
@@ -201,6 +203,8 @@ interface WindowController extends TabHost {
   ownsContents(contentsId: number): boolean
   /** 内部设置页的可信判定：本窗口标签 ∧ 主帧 ∧ 文档 URL ∈ bao://settings/*。 */
   internalSender(event: IpcMainInvokeEvent): boolean
+  /** 设置页里的「管理收藏夹」入口：打开/切到 `bao://favorites` 单例页。 */
+  openFavoritesPage(): void
   /** 内部页读到的设置快照（含解析后的亮/暗）。 */
   internalSnapshot(): SettingsSnapshot
   /** 新标签页的可信判定：本窗口标签 ∧ 主帧 ∧ 文档 URL ∈ bao://newtab/*。 */
@@ -213,8 +217,8 @@ interface WindowController extends TabHost {
   favoritesSender(event: IpcMainInvokeEvent): boolean
   /** 管理页读到的状态（全量收藏树 + 站点图标 + 主题 + 存储状态）。 */
   favoritesSnapshot(): FavoritesSnapshot
-  /** 管理页的窄命令：打开、新建文件夹、改名、删除。 */
-  runFavorites(command: FavoritesCommand): FavoritesCommandResult
+  /** 管理页的窄命令：打开、新建文件夹、改名、删除、移动、导入、展开状态。 */
+  runFavorites(command: FavoritesCommand): FavoritesCommandResult | Promise<FavoritesCommandResult>
   /** 会话数据被用户清除：丢掉仍挂着的崩溃恢复提示（库里已经没有了）。 */
   forgetSessionPrompt(): void
   /** 规则/设置变化后重新投影（引擎来源胶囊要立刻按新规则重算）。 */
@@ -823,6 +827,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       sessionPrompt: sessionPromptOf(),
       bookmarks: bookmarkNodes(),
       bookmarkBarShown: bookmarkBarShown(active),
+      bookmarksExpanded: expandedProjection(),
       favicons: faviconProjection(),
       tabs: tabs.map(describe)
     }
@@ -867,8 +872,22 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       bookmarks: bookmarkNodes(),
       favicons: faviconProjection(),
       theme: currentTheme(),
-      storage: storageStatus()
+      storage: storageStatus(),
+      expanded: expandedProjection()
     }
+  }
+
+  /**
+   * 展开状态的投影：只留库里真实存在的**文件夹** id。
+   *
+   * 过滤放在投影这一层（而不是每次写入时清理）：文件夹被删掉以后残留的 id 不会再被任何界面
+   * 用到，读到的人也不会因为它去展开一个不存在的节点。
+   */
+  function expandedProjection(): string[] | undefined {
+    const stored = bookmarksExpanded()
+    if (!stored) return undefined
+    const folders = bookmarkNodes().filter((node) => node.kind === 'folder')
+    return expandedIds(new Set(stored), folders)
   }
 
   function notify(tab: Tab): void {
@@ -2530,6 +2549,44 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
+   * 横条上某个文件夹的下拉菜单。
+   *
+   * `x/y` 来自外壳的内容区坐标（按钮右下角）；Electron 的 `Menu.popup({window, x, y})`
+   * 用的就是窗口坐标，所以这里只做取整——界面不碰屏幕坐标，多屏与缩放下不会错位。
+   */
+  function showBookmarkFolderMenu(command: { id: string; x: number; y: number }): void {
+    const nodes = bookmarkNodes()
+    if (!nodes.some((node) => node.id === command.id && node.kind === 'folder')) return
+    const template = bookmarkMenuTemplate(folderMenuOf(nodes, command.id))
+    Menu.buildFromTemplate(template).popup({
+      window,
+      x: Math.max(0, Math.round(command.x)),
+      y: Math.max(0, Math.round(command.y))
+    })
+  }
+
+  /**
+   * 收藏夹树 → 原生菜单项。
+   *
+   * 空文件夹给一条**禁用项**而不是空菜单：菜单弹出来什么都没有，用户会以为点了没反应
+   * （与"禁用优于隐藏"同一条约定）。
+   */
+  function bookmarkMenuTemplate(items: readonly FolderMenuItem[]): MenuItemConstructorOptions[] {
+    if (items.length === 0) return [{ label: '（空文件夹）', enabled: false }]
+    return items.map((item) => item.children
+      ? { label: item.title, submenu: bookmarkMenuTemplate(item.children) }
+      : { label: item.title, click: () => openBookmarkInCurrentTab(item.id) })
+  }
+
+  /** 菜单里点一条收藏：地址取自库里，在当前标签导航（横条上的网址项也是这个行为）。 */
+  function openBookmarkInCurrentTab(id: string): void {
+    const node = bookmarkNodes().find((entry) => entry.id === id && entry.kind === 'url')
+    if (!node?.url) return
+    const tab = activeTab()
+    if (tab) navigateTab(tab, node.url)
+  }
+
+  /**
    * 给标签挂上用户「保持活跃」租约（幂等：显式 leaseId 让重复标记变成续租）。
    *
    * 单独拆出来是因为有两个生产者：右键菜单（`setKeepAwake`）和会话恢复
@@ -2939,6 +2996,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     ownsContents,
     internalSender,
     internalSnapshot,
+    openFavoritesPage: () => { openFavoritesTab() },
     ntpSender,
     ntpSnapshot: ntpState,
     runNtp,
@@ -3096,7 +3154,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       // 收藏夹/编辑气泡与快捷设置共用同一个飞窗文档（同一个 `quick` 角色）：
       // 它们额外能改写、新建文件夹、删除、打开收藏（**收藏当前页**是外壳的事，不在这一档里）。
       const bookmarkAction = command.type === 'update-bookmark' || command.type === 'remove-bookmark' ||
-        command.type === 'open-bookmark' || command.type === 'create-bookmark-folder'
+        command.type === 'open-bookmark' || command.type === 'create-bookmark-folder' ||
+        command.type === 'set-bookmarks-expanded'
       const fromPanel = sender === 'panel' && overlays.panelVisible() &&
         (engineAction || command.type === 'open-settings')
       const fromQuick = sender === 'quick' && overlays.quickVisible() && (settingsAction || bookmarkAction)
@@ -3301,6 +3360,22 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'bookmark-bar-menu':
         showBookmarkBarMenu()
         break
+      /**
+       * 横条上文件夹的下拉（原生菜单）。
+       *
+       * 与 Chromium 一致：点文件夹弹出它的直接子项，子文件夹再套子菜单
+       * （`bookmark_bar_view.cc` 的 `ShowFolderMenu` → `BookmarkMenuDelegate`）。
+       * 菜单项里的**打开**沿用 `open-bookmark` 的语义：在当前标签导航。
+       */
+      case 'bookmark-folder-menu':
+        showBookmarkFolderMenu(command)
+        break
+      /** 展开状态（飞窗/管理页点箭头）：与内存快照一起广播，别的窗口的树也跟着变。 */
+      case 'set-bookmarks-expanded': {
+        setBookmarksExpanded(Array.isArray(command.ids) ? command.ids : [])
+        publishBookmarks()
+        break
+      }
       case 'navigate': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
@@ -3520,7 +3595,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 2. **内容**：id 必须在库里、父节点必须是文件夹——后者由存储层判（`addBookmark` /
    *    `moveBookmark` 的规则一处实现），这里不重写一遍。
    */
-  function runFavorites(command: FavoritesCommand): FavoritesCommandResult {
+  function runFavorites(command: FavoritesCommand): FavoritesCommandResult | Promise<FavoritesCommandResult> {
     if (!command || typeof command !== 'object' || typeof command.type !== 'string') {
       return { ok: false, code: 'invalid-command' }
     }
@@ -3584,37 +3659,77 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         return { ok: true, snapshot: favoritesSnapshot() }
       }
       /**
-       * 导入导出文件（`import-html`）。
+       * 导入：**主进程开选择框**（`import-file`）或页面拖放交上文本（`import-html`）。
        *
-       * 页面读文件、命令只收文本（见 `shared/favorites.ts` 的说明）；上限 8 MB 是防御：
-       * 一份几万条的书签导出也就几百 KB，超过这个量级的"书签文件"不会是用户想导入的东西，
-       * 而 IPC 载荷不该无界。
+       * 为什么主进程开框：`<input type=file>` 的"文件类型"标签由系统按 HTML 友好名拼出来，
+       * 而这台机器的 `HKCR\htmlfile\FriendlyTypeName` 是条被顶替的 IE 资源串，对话框里会显示成
+       * 「此网站已被禁止使用动态传感器和光传感器。(*.shtml;*.html;…)」（2026-11-27 实测截图）。
+       * 自己给过滤器名（"书签文件"）就绕开了系统那条名字。
+       *
+       * 上限 8 MB 是防御：一份几万条的书签导出也就几百 KB，超过这个量级的"书签文件"
+       * 不会是用户想导入的东西，而 IPC 载荷不该无界。
        */
+      case 'import-file': {
+        return dialog.showOpenDialog(window, {
+          title: '导入收藏夹',
+          buttonLabel: '导入',
+          properties: ['openFile'],
+          filters: [
+            { name: '书签文件（HTML）', extensions: ['html', 'htm'] },
+            { name: '所有文件', extensions: ['*'] }
+          ]
+        }).then((choice) => {
+          if (choice.canceled || choice.filePaths.length === 0) {
+            return { ok: true, snapshot: favoritesSnapshot(), cancelled: true }
+          }
+          let html: string
+          try {
+            // 按字节读再解码：Windows 上的导出偶尔是带 BOM 的 UTF-16，直接 `utf8` 会读到乱码。
+            html = decodeBookmarkFile(readFileSync(choice.filePaths[0]))
+          } catch (error) {
+            console.error('[favorites] 读取书签文件失败。', error)
+            return { ok: false, code: 'invalid-command', reason: 'unreadable' }
+          }
+          return applyImportedHtml(html)
+        }, () => ({ ok: false, code: 'invalid-command', reason: 'unreadable' }))
+      }
       case 'import-html': {
         const html = typeof (command as { html?: unknown }).html === 'string'
           ? (command as { html: string }).html
           : ''
-        if (!html) return { ok: false, code: 'invalid-command' }
-        if (html.length > 8 * 1024 * 1024) return { ok: false, code: 'invalid-command' }
-        const outcome = importBookmarksData(html)
-        if (!outcome.ok) {
-          if (outcome.reason === 'unavailable') return { ok: false, code: 'storage-unavailable' }
-          return { ok: false, code: 'invalid-command', reason: outcome.reason }
-        }
+        return applyImportedHtml(html)
+      }
+      /** 展开状态：与外壳那条命令写的是同一份数据（`meta` 表）。 */
+      case 'set-expanded': {
+        const ids = (command as { ids?: unknown }).ids
+        setBookmarksExpanded(Array.isArray(ids) ? ids : [])
         publishBookmarks()
-        return {
-          ok: true,
-          snapshot: favoritesSnapshot(),
-          imported: {
-            folders: outcome.folders,
-            urls: outcome.urls,
-            skipped: outcome.skipped,
-            toolbarFolder: outcome.toolbarFolder
-          }
-        }
+        return { ok: true, snapshot: favoritesSnapshot() }
       }
       default:
         return { ok: false, code: 'invalid-command' }
+    }
+  }
+
+  /** 导入的共同尾巴：校验 → 解析合并 → 广播 → 报数（两条命令共用）。 */
+  function applyImportedHtml(html: string): FavoritesCommandResult {
+    if (!html.trim()) return { ok: false, code: 'invalid-command', reason: 'empty' }
+    if (html.length > 8 * 1024 * 1024) return { ok: false, code: 'invalid-command' }
+    const outcome = importBookmarksData(html)
+    if (!outcome.ok) {
+      if (outcome.reason === 'unavailable') return { ok: false, code: 'storage-unavailable' }
+      return { ok: false, code: 'invalid-command', reason: outcome.reason }
+    }
+    publishBookmarks()
+    return {
+      ok: true,
+      snapshot: favoritesSnapshot(),
+      imported: {
+        folders: outcome.folders,
+        urls: outcome.urls,
+        skipped: outcome.skipped,
+        toolbarFolder: outcome.toolbarFolder
+      }
     }
   }
 
@@ -4099,6 +4214,19 @@ export function registerBrowserIpc(): void {
     if (!controller || !controller.internalSender(event)) return false
     if (!clearBookmarksData()) return false
     for (const item of controllers.values()) item.refreshBookmarks()
+    return true
+  })
+
+  /**
+   * 设置页里的「管理收藏夹」入口（外观 → 收藏夹栏那张卡）。
+   *
+   * `setImmediate`：动作会让**发送方文档**所在的标签被顶掉（单例页切走），
+   * 先回 IPC 结果再切，否则回复会打在已经不在前台的帧上（与 NTP 的 `open-settings` 同一手法）。
+   */
+  ipcMain.handle(settingsChannels.openFavorites, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return false
+    setImmediate(() => { if (controller.isAlive()) controller.openFavoritesPage() })
     return true
   })
 

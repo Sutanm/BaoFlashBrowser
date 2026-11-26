@@ -266,6 +266,13 @@ export const settingsChannels = {
    * 连根一起删掉的话界面会变成"收藏夹栏不见了"，而不是"清空了"。
    */
   bookmarksClear: 'settings:bookmarks-clear',
+  /**
+   * 打开收藏夹管理页（`bao://favorites`）。
+   *
+   * 设置页里「外观 → 收藏夹栏」那张卡需要一个"去整理"的入口：三档只决定**显示不显示**，
+   * 真正的整理在管理页（2026-11-27 反馈：设置面板里没有进收藏页的入口）。
+   */
+  openFavorites: 'settings:open-favorites',
   /** 忘记**某个站点**的引擎规则（设置页列表里的单行删除）。 */
   engineRuleForget: 'settings:engine-rule-forget',
   /** 读 Flash 插件状态（是否就绪 / 版本 / 是否需要重启）。 */
@@ -364,6 +371,12 @@ export interface SettingsBridge {
    * 不需要页面自己重建。
    */
   clearBookmarks(): Promise<boolean>
+  /**
+   * 打开收藏夹管理页（`bao://favorites`），返回是否成功。
+   *
+   * 只做"打开"：页面里不导航、不拿任意地址能力，目标由主进程写死。
+   */
+  openFavorites(): Promise<boolean>
   /**
    * 忘记某个站点的引擎规则（设置页列表里的单行删除）。
    *

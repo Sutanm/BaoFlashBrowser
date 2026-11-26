@@ -34,6 +34,13 @@ export interface FavoritesSnapshot {
   theme: 'light' | 'dark'
   /** 业务库是否可用；不可用时页面只读并给出说明，而不是让按钮看起来能点。 */
   storage: 'ready' | 'unavailable'
+  /**
+   * 树里展开着的文件夹 id。
+   *
+   * 与收藏夹飞窗**共用一份**（存在库里）：用户在一个界面展开的文件夹，另一个界面也是展开的。
+   * `undefined` = 从来没记录过（各界面用自己的默认：飞窗全收起、管理页展开两个根）。
+   */
+  expanded?: string[]
 }
 
 /**
@@ -68,14 +75,33 @@ export type FavoritesCommand =
    */
   | { type: 'move'; id: string; parentId: string; index: number }
   /**
-   * 导入一份浏览器导出的书签 HTML（Chrome / Edge / Firefox 的「导出书签」都是同一格式）。
+   * 导入：**主进程开文件选择框**、自己读、自己解析。
    *
-   * **内容由页面读、命令只收文本**：页面用 `<input type="file">` 拿到 `File` 再 `text()`，
-   * 主进程完全不碰文件路径——这比让主进程开 `dialog.showOpenDialog` 少一条"页面能诱导
-   * 主进程读任意文件"的路径，也让冒烟可以在不弹原生对话框的情况下走完整条链路。
-   * 大小上限由主进程判（IPC 载荷不该无界）。
+   * 为什么不让页面用 `<input type="file">`（第一版就是那样）：那个选择框的"文件类型"标签
+   * 由系统按 HTML 类型的**友好名称**拼出来，而这台机器上 `HKCR\htmlfile` 的 FriendlyTypeName
+   * 被某个 IE 资源串顶替了，于是对话框里显示成「此网站已被禁止使用动态传感器和光传感器。
+   * (*.shtml;*.html;…)」——一个纯粹的系统关联问题，但用户看到的就是一句安全警告（2026-11-27
+   * 实测截图）。改用 `dialog.showOpenDialog()` 并把过滤器名**由我们自己给**（"书签文件"），
+   * 就完全绕开系统那条被污染的名字。
+   *
+   * 代价：原生对话框在自动化里点不了。所以拖放那条路（`import-html`）保留——
+   * 它既是真人更顺手的入口，也是冒烟能跑完整条链路的入口。
+   */
+  | { type: 'import-file' }
+  /**
+   * 导入：内容由页面读好交上来（拖放文件时走这条）。
+   *
+   * 页面用 `File.arrayBuffer()` + `decodeBookmarkFile()` 解码（认 BOM，UTF-16 也能进），
+   * 主进程不碰文件路径。大小上限由主进程判（IPC 载荷不该无界）。
    */
   | { type: 'import-html'; html: string }
+  /**
+   * 记录树的展开状态（用户点箭头）。
+   *
+   * 与外壳那条 `set-bookmarks-expanded` 写的是同一份数据（`meta` 表），所以两个界面
+   * 看到的一定是同一套展开状态。
+   */
+  | { type: 'set-expanded'; ids: string[] }
 
 export type FavoritesCommandResult =
   | {
@@ -84,8 +110,10 @@ export type FavoritesCommandResult =
     snapshot: FavoritesSnapshot
     /** 新建文件夹返回新节点 id（页面据此进入改名态）。 */
     createdId?: string
-    /** 导入的统计（只有 `import-html` 有）：页面据此报告"导入了多少"。 */
+    /** 导入的统计（只有导入命令有）：页面据此报告"导入了多少"。 */
     imported?: { folders: number; urls: number; skipped: number; toolbarFolder: boolean }
+    /** 用户在选择框里点了取消：不是失败，页面不该报错。 */
+    cancelled?: boolean
   }
   /** `import-html` 失败时的原因：读不懂文件 / 文件里没有收藏 / 存储不可用。 */
   | { ok: false; code: BrowserFailureCode; reason?: 'unreadable' | 'empty' }

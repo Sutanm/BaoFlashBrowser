@@ -7,7 +7,9 @@ import {
   childrenOf,
   compactPositions,
   descendantIds,
+  expandedIds,
   flattenTree,
+  folderMenuOf,
   insertionIndex,
   isBookmarkBarMode,
   isBookmarkableAddress,
@@ -285,5 +287,55 @@ describe('insertionIndex：拖拽落点 → moveBookmark 的 index', () => {
 
   it('拖到自己身上是非法落点：checkPlacement 拒', () => {
     expect(checkPlacement(tree, 'a', 'a')).toEqual({ ok: false, reason: 'into-itself' })
+  })
+})
+
+describe('folderMenuOf：横条文件夹下拉的内容', () => {
+  /**
+   * 横条上的文件夹现在弹**原生菜单**（`Menu.popup`），自动化里点不到，
+   * 所以"菜单里有什么"只能在纯函数这一层钉住：直接子项、子文件夹套子菜单、空文件夹给占位、
+   * 深度有上限。原生菜单那几十行只是把这个结构翻译成 `MenuItem`。
+   */
+  const tree = [
+    ...roots,
+    node({ id: 'f', kind: 'folder', title: '常用', position: 0, url: undefined }),
+    node({ id: 'u1', parentId: 'f', title: '文档', url: 'https://doc.example/', position: 0 }),
+    node({ id: 'sub', parentId: 'f', kind: 'folder', title: '子', position: 1, url: undefined }),
+    node({ id: 'u2', parentId: 'sub', title: '更深', url: 'https://deep.example/', position: 0 }),
+    node({ id: 'empty', parentId: 'f', kind: 'folder', title: '空的', position: 2, url: undefined })
+  ]
+
+  it('直接子项按 position 排，子文件夹带 children，网址带 url', () => {
+    const menu = folderMenuOf(tree, 'f')
+    expect(menu.map((item) => item.title)).toEqual(['文档', '子', '空的'])
+    expect(menu[0].url).toBe('https://doc.example/')
+    expect(menu[0].children).toBeUndefined()
+    expect(menu[1].children?.map((item) => item.title)).toEqual(['更深'])
+    expect(menu[2].children).toEqual([])
+  })
+
+  it('空文件夹返回空数组（调用方翻译成"（空文件夹）"禁用项）', () => {
+    expect(folderMenuOf(tree, 'empty')).toEqual([])
+    expect(folderMenuOf(tree, 'ghost')).toEqual([])
+  })
+
+  it('菜单嵌套有上限：真出现环时不会递归到栈溢出', () => {
+    const loop = [
+      node({ id: 'x', kind: 'folder', title: 'x', parentId: 'y', url: undefined }),
+      node({ id: 'y', kind: 'folder', title: 'y', parentId: 'x', url: undefined })
+    ]
+    expect(() => folderMenuOf(loop, 'x')).not.toThrow()
+  })
+})
+
+describe('expandedIds：展开状态的落库形态', () => {
+  it('只保留真实存在的 id，并排好序（存库结果稳定，不会每次写都换顺序）', () => {
+    const nodes = [...roots, node({ id: 'keep', kind: 'folder', title: 'k', url: undefined })]
+    expect(expandedIds(new Set(['keep', 'gone', BOOKMARK_BAR_ROOT]), nodes))
+      .toEqual([BOOKMARK_BAR_ROOT, 'keep'].sort())
+  })
+
+  it('全空就是空数组（不是 undefined：那是"从来没记录过"）', () => {
+    expect(expandedIds(new Set(), roots)).toEqual([])
   })
 })

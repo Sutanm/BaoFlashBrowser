@@ -1,9 +1,11 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { readFileSync } = require('node:fs')
+const { mkdtemp, rm } = require('node:fs/promises')
+const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const {
-  internalEval, internalUrlOf, launchApp, overlayEval, page, pageViewBounds, startFixtureServer, waitFor
+  internalEval, internalUrlOf, launchApp, launchAppAt, overlayEval, page, pageViewBounds, startFixtureServer, waitFor
 } = require('./helpers.cjs')
 
 /**
@@ -474,29 +476,34 @@ test('收藏夹管理页：导入导出的书签 HTML（书签栏结构保住、
     await waitForFavorites(app)
 
     /**
-     * 走**真实的文件选择链路**：构造 `File` → 塞进 `input.files` → 触发 change。
-     * 这样覆盖的是页面 `onFilePicked`（读文件 → 发命令 → 报数），而不是绕过 UI 直接发命令。
+     * 走**真实的拖放链路**：把文件从"外面"拖进页面（`DataTransfer` 里放一个 `File`）→
+     * dragover 时页面给出「松开以导入」的提示 → drop 后页面读字节、发命令、报数。
+     *
+     * 为什么不是点「导入…」：那条走的是主进程的原生选择框，自动化里点不了；
+     * 两条入口共用同一个解析/合并函数，拖放这条能把整条链路跑穿。
      */
-    const pick = (html, name) => internalEval(app, FAV, `(async () => {
-      const input = document.querySelector('.fav-file')
-      if (!input) throw new Error('管理页里没有文件选择框')
+    const dropFile = (html, name) => internalEval(app, FAV, `(async () => {
+      const root = document.querySelector('.fav-page')
+      if (!root) throw new Error('管理页没有根元素')
       const transfer = new DataTransfer()
       transfer.items.add(new File([${JSON.stringify(html)}], ${JSON.stringify(name)}, { type: 'text/html' }))
-      input.files = transfer.files
-      input.dispatchEvent(new Event('change', { bubbles: true }))
-      return { accept: input.accept }
+      root.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+      await new Promise((done) => requestAnimationFrame(() => done(null)))
+      const hint = Boolean(document.querySelector('.fav-drop-hint'))
+      root.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+      return { hint, types: Array.from(transfer.types) }
     })()`)
 
     const chromeHtml = readFileSync(join(__dirname, 'fixtures', 'bookmarks-chrome.html'), 'utf8')
-    const picked = await pick(chromeHtml, 'bookmarks-chrome.html')
-    assert.match(picked.accept, /html/, '文件框要限定书签 HTML，别让人选到别的东西')
+    const dropped = await dropFile(chromeHtml, 'bookmarks-chrome.html')
+    assert.equal(dropped.hint, true, '拖文件进页面时要提示「松开以导入」（否则用户不知道松手会发生什么）')
 
     const done = await waitFor(async () => {
       const facts = await favFacts(app)
       return /已导入/.test(facts.status ?? '') ? facts : null
     }, { message: '导入完了但界面没有报数（用户不知道发生了什么）' })
     assert.match(done.status, /5 条收藏/)
-    assert.match(done.status, /4 个文件夹/)
+    assert.match(done.status, /3 个文件夹/)
     assert.match(done.status, /跳过 3 条/)
 
     // 库里的形状：栏 = 前端 + GitHub + 已导入；「书签栏」那一层没有变成套娃。
@@ -516,13 +523,16 @@ test('收藏夹管理页：导入导出的书签 HTML（书签栏结构保住、
     )
     const container = bar[2]
     const nested = state.bookmarks.filter((node) => node.parentId === container.id).map((node) => node.title)
-    assert.deepEqual(nested, ['Other bookmarks'], '其余内容进「已导入」，不是铺进栏里')
+    // 「Other bookmarks」这层包装已被拆掉（2026-11-27 反馈）：它的子项直接进「已导入」。
+    assert.deepEqual(nested, ['稍后读', '示例 B'], '其余内容进「已导入」，且不再套一层 Other bookmarks')
+    assert.equal(state.bookmarks.some((node) => node.title === 'Other bookmarks'), false,
+      '顶层「Other bookmarks」应映射到 other 根，不该变成一个文件夹')
     // javascript:/place:/feed: 三条都不许进库。
     assert.equal(state.bookmarks.some((node) => /^(javascript|place|feed):/.test(node.url ?? '')), false)
 
     // 第二次导入（栏此刻已有内容）：整份进「已导入 (1)」，两份不混。
     const edgeHtml = readFileSync(join(__dirname, 'fixtures', 'bookmarks-edge.html'), 'utf8')
-    await pick(edgeHtml, 'bookmarks-edge.html')
+    await dropFile(edgeHtml, 'bookmarks-edge.html')
     await waitFor(async () => {
       const facts = await favFacts(app)
       return /已导入/.test(facts.status ?? '') ? facts : null
@@ -548,8 +558,102 @@ test('收藏夹管理页：导入导出的书签 HTML（书签栏结构保住、
       const next = await favFacts(app)
       return next.treeLabels.includes('日常') ? next : null
     }, { message: '展开「已导入 (1)」后没有看到导入进来的文件夹' })
-    assert.ok(expandedTree.treeLabels.includes('其他收藏夹'))
+    // Edge 导出里的「其他收藏夹」包装同样被拆掉：树里只有一个「其他收藏夹」（永久根）。
+    assert.equal(expandedTree.treeLabels.filter((label) => label === '其他收藏夹').length, 1,
+      '导入的「其他收藏夹」包装应映射到 other 根，不该在树里多出一个同名文件夹')
   } finally {
     await close()
+  }
+})
+
+/** 在设置页（`bao://settings`）里执行脚本：与 `internalEval` 同一套做法。 */
+async function inSettings(app, code) {
+  return internalEval(app, 'bao://settings', code)
+}
+
+test('收藏夹：展开状态持久化（重启还在）＋ 设置页里的管理入口', { timeout: 240_000 }, async () => {
+  const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-fav-expand-'))
+  try {
+    const first = await launchAppAt(profilePath)
+    try {
+      assert.equal((await first.shell.evaluate(() =>
+        window.baoBrowser.run({ type: 'create-bookmark-folder', title: '展开测试', parentId: 'bar' }))).ok, true)
+      await first.shell.evaluate(() => window.baoBrowser.run({ type: 'open-favorites' }))
+      await waitForFavorites(first.app)
+
+      // 默认：两个根都展开（管理页自己的默认），所以能看到栏里的文件夹。
+      const initial = await waitFor(async () => {
+        const facts = await favFacts(first.app)
+        return facts.treeLabels.includes('展开测试') ? facts : null
+      }, { message: '管理页默认应展开两个根' })
+      assert.deepEqual(initial.treeLabels, ['收藏夹栏', '展开测试', '其他收藏夹'])
+
+      // 收起「收藏夹栏」：树里立刻少一行，并且状态要落库（投影里能看到）。
+      await clickFav(first.app, `${treeSel('bar')} .tree-chevron`)
+      await waitFor(async () => {
+        const facts = await favFacts(first.app)
+        return facts.treeLabels.includes('展开测试') ? null : true
+      }, { message: '点箭头没有收起「收藏夹栏」' })
+      const stored = await waitFor(async () => {
+        const state = await snapshot(first.shell)
+        return state.bookmarksExpanded ? state : null
+      }, { message: '展开状态没有进投影（也就没落库）' })
+      assert.deepEqual(stored.bookmarksExpanded, ['other'], '只应记住「其他收藏夹」是展开的')
+
+      // 收藏夹飞窗读的是**同一份**状态：栏收起时它只有两个根行。
+      await first.shell.locator('.bookmarks-button').click()
+      const hub = await waitFor(async () => {
+        const rows = await overlayEval(first.app, `[...document.querySelectorAll('#bookmarks-panel .hub-row .row-title')].map((el) => el.textContent.trim())`)
+        return rows.length ? rows : null
+      }, { message: '收藏夹飞窗没有打开' })
+      assert.deepEqual(hub, ['收藏夹栏', '其他收藏夹'], '飞窗应沿用库里记下的展开状态')
+    } finally {
+      await first.close()
+    }
+
+    // 重启：管理页里「收藏夹栏」仍是收起的（只剩两个根）。
+    const second = await launchAppAt(profilePath)
+    try {
+      await second.shell.evaluate(() => window.baoBrowser.run({ type: 'open-favorites' }))
+      await waitForFavorites(second.app)
+      const restored = await waitFor(async () => {
+        const facts = await favFacts(second.app)
+        return facts.treeLabels.length === 2 ? facts : null
+      }, { message: '重启后展开状态没有恢复（还是默认展开）' })
+      assert.deepEqual(restored.treeLabels, ['收藏夹栏', '其他收藏夹'])
+
+      // 设置页的入口：外观 → 收藏夹栏 → 「管理收藏夹」。点了要真的到管理页（不是死按钮）。
+      await second.shell.evaluate(() => window.baoBrowser.run({ type: 'open-settings' }))
+      await waitFor(async () => inSettings(second.app, `(() => {
+        const nav = [...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '外观')
+        if (!nav) return false
+        nav.click()
+        return true
+      })()`), { message: '设置页没有「外观」分区入口' })
+      const entry = await inSettings(second.app, `(() => {
+        const button = document.querySelector('button[aria-label="管理收藏夹"]')
+        return button ? { text: button.textContent.trim(), disabled: button.disabled } : null
+      })()`)
+      assert.ok(entry, '「外观 → 收藏夹栏」里没有进入收藏夹管理页的入口')
+      assert.equal(entry.text, '管理收藏夹')
+      assert.equal(entry.disabled, false)
+
+      const clicked = await inSettings(second.app, `(() => {
+        const button = document.querySelector('button[aria-label="管理收藏夹"]')
+        if (!button) return false
+        button.click()
+        return true
+      })()`)
+      assert.equal(clicked, true)
+      await waitFor(async () => {
+        const state = await snapshot(second.shell)
+        const active = state.tabs.find((tab) => tab.id === state.activeId)
+        return active?.internal === 'favorites' ? active : null
+      }, { message: '设置页里点「管理收藏夹」没有把管理页带到前台' })
+    } finally {
+      await second.close()
+    }
+  } finally {
+    await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
   }
 })

@@ -22,7 +22,6 @@ const { launchApp, launchAppAt, page, startFixtureServer, waitFor } = require('.
 const TAB = 41
 const TOOLBAR = 46
 const BAR = 34
-const GUTTER = 6
 
 const snapshot = (shell) => shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }).then((result) => result.state))
 
@@ -161,7 +160,11 @@ test('收藏夹横条：显示规则、页面让位、点击导航', { timeout: 
       return active?.address === `${server.baseUrl}/first` ? active : null
     }, { message: '点横条上的网址项没有导航' })
 
-    // ⑥ 文件夹项：点开的是收藏夹面板，锚在那颗按钮下沿、右缘对齐（不是工具栏的收藏夹按钮）。
+    // ⑥ 文件夹项：点开的是**原生菜单**（Chromium 的 `ShowFolderMenu`），不再打开收藏夹飞窗。
+    //
+    // 原生菜单在自动化里点不到，所以这里只钉住两件能验的事：
+    // (a) 点它之后**不再**弹出收藏夹飞窗（2026-11-27 推翻的旧行为）；(b) 菜单命令被接受、
+    // 且不会把 app 卡住。菜单的**内容**（嵌套/空文件夹/深度上限）由 `folderMenuOf()` 的单测钉住。
     await run(shell, { type: 'create-bookmark-folder', title: '常用站点', parentId: 'bar' })
     const withFolder = await waitFor(async () => {
       const facts = await barFacts(shell)
@@ -169,31 +172,26 @@ test('收藏夹横条：显示规则、页面让位、点击导航', { timeout: 
     }, { message: '新建的文件夹没有出现在横条上' })
     assert.equal(withFolder.items.at(-1).folder, true, '文件夹排在根层末尾')
 
-    const anchor = await shell.evaluate(() => {
-      const button = [...document.querySelectorAll('.bookmark-bar .bar-item')]
-        .find((el) => el.querySelector('.bar-label').textContent.trim() === '常用站点')
-      const rect = button.getBoundingClientRect()
-      return { right: Math.round(rect.right), left: Math.round(rect.left), bottom: Math.round(rect.bottom) }
-    })
     await shell.evaluate(() => {
       const button = [...document.querySelectorAll('.bookmark-bar .bar-item')]
         .find((el) => el.querySelector('.bar-label').textContent.trim() === '常用站点')
       button.click()
     })
-    const panel = await waitFor(async () => {
-      const view = await app.evaluate(({ BrowserWindow }) => {
-        const win = BrowserWindow.getAllWindows()
-          .find((item) => (item.webContents.getURL() ?? '').endsWith('index.html'))
-        const guest = win?.contentView.children
-          .find((child) => (child.webContents?.getURL?.() ?? '').includes('baoOverlay=overlay'))
-        return guest ? guest.getBounds() : null
-      })
-      return view ?? null
-    }, { message: '点文件夹后收藏夹面板没有打开' })
-    assert.equal(panel.y, anchor.bottom, '面板卡片顶边应贴着横条上那颗文件夹按钮的下沿')
-    // 横条上的按钮靠左（右缘 291 < 卡片 320 + 边距），右对齐会被夹到窗口最左边：
-    // 这时飞窗改成**左对齐**，卡片左缘贴住按钮左缘（见 `flyoutBounds`）。
-    assert.equal(panel.x + GUTTER, anchor.left, '右边放不下时面板应改成左对齐到该按钮')
+    await new Promise((done) => setTimeout(done, 400))
+    const flyoutAfterFolderClick = await app.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()
+        .find((item) => (item.webContents.getURL() ?? '').endsWith('index.html'))
+      return win?.contentView.children
+        .some((child) => (child.webContents?.getURL?.() ?? '').includes('baoOverlay=overlay')) ?? false
+    })
+    assert.equal(flyoutAfterFolderClick, false, '横条文件夹现在弹原生菜单，不该再打开收藏夹飞窗')
+
+    const folderNode = (await snapshot(shell)).bookmarks.find((node) => node.title === '常用站点')
+    assert.ok(folderNode)
+    const menuResult = await run(shell, {
+      type: 'bookmark-folder-menu', id: folderNode.id, x: 12, y: 130
+    })
+    assert.equal(menuResult.ok, true, '文件夹菜单命令被拒（点了就是没反应）')
 
     // ⑦ 「从不显示」：连新标签页也没有横条，页面视图回到 40 + 44。
     await shell.evaluate(() => {

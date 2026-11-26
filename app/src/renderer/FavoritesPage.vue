@@ -5,6 +5,7 @@ import {
   insertionIndex, isPermanentRoot, matchesQuery
 } from '../shared/bookmarks'
 import type { BookmarkNode } from '../shared/bookmarks'
+import { decodeBookmarkFile } from '../shared/bookmark-import'
 import type { FavoritesCommand, FavoritesCommandResult, FavoritesSnapshot } from '../shared/favorites'
 import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme } from './theme'
@@ -36,7 +37,9 @@ const storageReady = computed(() => snapshot.value?.storage === 'ready')
 const currentFolderId = ref<string>(BOOKMARK_BAR_ROOT)
 /** 当前选中项：要么是树里的文件夹，要么是列表里的一行。 */
 const selectedId = ref<string>(BOOKMARK_BAR_ROOT)
-const expanded = ref(new Set<string>([BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT]))
+const expanded = ref(new Set<string>(
+  snapshot.value?.expanded ?? [BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT]
+))
 const query = ref('')
 /** 正在改名的节点（行内输入框）。 */
 const editingId = ref<string>()
@@ -48,7 +51,6 @@ const status = ref('')
 const statusKind = ref<'ok' | 'error'>('error')
 const busy = ref(false)
 const importing = ref(false)
-const fileField = ref<HTMLInputElement>()
 
 const failureText: Record<string, string> = {
   'forbidden-sender': '当前页面无权修改收藏夹',
@@ -117,6 +119,11 @@ function toggleFolder(id: string): void {
   if (next.has(id)) next.delete(id)
   else next.add(id)
   expanded.value = next
+  // 展开状态**持久化**（库里的 `meta` 表）：与收藏夹飞窗共用一份，重启后还在。
+  // 写失败不弹错：这是"记忆"，不该因为它写不进去就让这次点击看起来没生效。
+  void window.baoFavorites.run({ type: 'set-expanded', ids: [...next] }).then((result) => {
+    if (result.ok) snapshot.value = result.snapshot
+  }).catch(() => {})
 }
 
 /** 选中某个文件夹：展开它的祖先链（否则选中的行藏在折叠的父节点里，页面上看不到）。 */
@@ -310,49 +317,94 @@ function selectRow(node: BookmarkNode): void {
 /* ---------------------------------------------------------------- *
  * 导入（浏览器的「导出书签」HTML）
  *
- * 为什么是页面读文件：命令只收文本，主进程不碰文件路径（少一条"页面诱导主进程读任意文件"
- * 的通路）；`<input type="file">` 的对话框是系统的，选中的 `File` 由本页 `text()` 读出来。
+ * 两条入口，都是真的：
+ * 1. 「导入…」→ **主进程**开选择框（`import-file`）。不用 `<input type="file">` 是因为那个框的
+ *    "文件类型"标签由系统按 HTML 友好名拼出来，这台机器上会显示成一句 IE 的安全警告
+ *    （见 `shared/favorites.ts` 的说明）；自己给过滤器名就绕开了它。
+ * 2. 把文件**拖到页面上** → 页面读好文本交给主进程（`import-html`）。这条也是冒烟能跑通的
+ *    那条（原生对话框在自动化里点不了）。
  * ---------------------------------------------------------------- */
 
 function chooseFile(): void {
   if (!canModify.value || importing.value) return
-  fileField.value?.click()
+  void runImportFile()
 }
 
-async function onFilePicked(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  // 选完就清空：不清的话，同一个文件第二次选不会触发 change（"再导一次没反应"）。
-  input.value = ''
-  if (!file) return
+async function runImportFile(): Promise<void> {
   importing.value = true
   status.value = ''
   try {
-    const html = await file.text()
-    const result = await window.baoFavorites.run({ type: 'import-html', html })
-    if (!result.ok) {
-      statusKind.value = 'error'
-      status.value = result.reason === 'empty'
-        ? '这个文件里没有可导入的收藏（导出 HTML 里一条都没解析出来）'
-        : result.reason === 'unreadable'
-          ? '读不懂这个文件，请确认它是浏览器「导出书签」得到的 HTML'
-          : failureText[result.code] ?? '导入没有完成'
-      return
-    }
-    snapshot.value = result.snapshot
-    const counts = result.imported
-    statusKind.value = 'ok'
-    status.value = counts
-      ? `已导入 ${counts.urls} 条收藏、${counts.folders} 个文件夹` +
-        (counts.skipped > 0 ? `（跳过 ${counts.skipped} 条非网页地址）` : '') +
-        (counts.toolbarFolder ? '' : '（文件里没有标出书签栏，全部放进了「已导入」）')
-      : '导入完成'
+    applyImportResult(await window.baoFavorites.run({ type: 'import-file' }))
+  } catch {
+    statusKind.value = 'error'
+    status.value = '导入没有完成'
+  } finally {
+    importing.value = false
+  }
+}
+
+/** 拖进来的文件：页面读字节（认 BOM）→ 交给主进程解析合并。 */
+async function importFile(file: File): Promise<void> {
+  importing.value = true
+  status.value = ''
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    applyImportResult(await window.baoFavorites.run({ type: 'import-html', html: decodeBookmarkFile(bytes) }))
   } catch {
     statusKind.value = 'error'
     status.value = '读取文件失败，请换一个文件再试'
   } finally {
     importing.value = false
   }
+}
+
+function applyImportResult(result: FavoritesCommandResult): void {
+  if (!result.ok) {
+    statusKind.value = 'error'
+    status.value = result.reason === 'empty'
+      ? '这个文件里没有可导入的收藏（导出 HTML 里一条都没解析出来）'
+      : result.reason === 'unreadable'
+        ? '读不懂这个文件，请确认它是浏览器「导出书签」得到的 HTML'
+        : failureText[result.code] ?? '导入没有完成'
+    return
+  }
+  // 在选择框里点了取消：不是失败，什么都不说（报"导入失败"会让人以为文件有问题）。
+  if (result.cancelled) return
+  snapshot.value = result.snapshot
+  const counts = result.imported
+  statusKind.value = 'ok'
+  status.value = counts
+    ? `已导入 ${counts.urls} 条收藏、${counts.folders} 个文件夹` +
+      (counts.skipped > 0 ? `（跳过 ${counts.skipped} 条非网页地址）` : '') +
+      (counts.toolbarFolder ? '' : '（文件里没有标出书签栏，全部放进了「已导入」）')
+    : '导入完成'
+}
+
+/* 拖放：只有**文件**拖进来才算导入，内部的条目拖拽不受影响。 */
+const draggingFiles = ref(false)
+
+function isFileDrag(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
+}
+
+function onFileDragOver(event: DragEvent): void {
+  if (!isFileDrag(event) || importing.value) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  draggingFiles.value = true
+}
+
+function onFileDragLeave(event: DragEvent): void {
+  // 子元素之间移动也会触发 dragleave：只在离开整个页面时收起提示。
+  if (event.target === event.currentTarget) draggingFiles.value = false
+}
+
+async function onFileDrop(event: DragEvent): Promise<void> {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  draggingFiles.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) await importFile(file)
 }
 
 /* ---------------------------------------------------------------- *
@@ -455,6 +507,9 @@ function dragLeave(node: BookmarkNode): void {
 }
 
 async function dropOnRow(node: BookmarkNode, event: DragEvent): Promise<void> {
+  // 不是内部条目拖拽（例如把书签文件从资源管理器拖进来）：直接放行给页面层的文件处理，
+  // 不能在这里 preventDefault/stopPropagation，否则整页的"松开以导入"永远收不到 drop。
+  if (!dragging.value) return
   event.preventDefault()
   // 行上的 drop 不能冒泡到列表容器：那会把「插到这一行」又执行一次「追加到本文件夹末尾」，
   // 于是同一次拖拽发两条 move 命令（第二次覆盖第一次）。
@@ -535,6 +590,8 @@ function onKeydown(event: KeyboardEvent): void {
 
 function apply(next: FavoritesSnapshot): void {
   snapshot.value = next
+  // 展开状态是共享的（收藏夹飞窗里展开的文件夹，这里也该是展开的）。
+  if (next.expanded) expanded.value = new Set(next.expanded)
   applyShellTheme(next.theme)
 }
 
@@ -559,7 +616,17 @@ watch(nodes, syncSelection)
 </script>
 
 <template>
-  <div ref="page" class="fav-page">
+  <div
+    ref="page"
+    class="fav-page"
+    @dragover="onFileDragOver"
+    @dragleave="onFileDragLeave"
+    @drop="onFileDrop"
+  >
+    <!-- 拖文件进页面：整页给一层"松开就导入"的提示，松手前用户知道会发生什么。 -->
+    <div v-if="draggingFiles" class="fav-drop-hint" aria-hidden="true">
+      <span>松开以导入这份书签文件</span>
+    </div>
     <header class="fav-toolbar">
       <button
         type="button"
@@ -585,16 +652,6 @@ watch(nodes, syncSelection)
         :disabled="!canModify || importing"
         @click="chooseFile"
       >{{ importing ? '正在导入…' : '导入…' }}</button>
-      <!-- 真正的文件选择器：系统对话框，页面只拿到 File（见 onFilePicked）。 -->
-      <input
-        ref="fileField"
-        type="file"
-        class="fav-file"
-        accept=".html,.htm,text/html"
-        aria-hidden="true"
-        tabindex="-1"
-        @change="onFilePicked"
-      >
       <div class="fav-search">
         <ShellIcon name="search" />
         <input
@@ -955,6 +1012,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 .fav-status { flex: none; min-height: 20px; margin: 0; padding: 0 12px 4px; font-size: var(--size-caption, 12px); color: var(--text-error); }
 /* 成功的提示用正文字色，不染红也不染绿：这一行只是"说发生了什么"。 */
 .fav-status.ok { color: var(--text-secondary); }
-/* 文件选择框是触发器，不参与布局（用按钮代理点击）。 */
-.fav-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+/* 拖文件进来时的整页提示：盖住内容区，强调色虚线框，松手即导入。 */
+.fav-drop-hint {
+  position: absolute;
+  inset: 8px;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-surface, 8px);
+  background: color-mix(in srgb, var(--surface-toolbar) 88%, transparent);
+  color: var(--text-primary);
+  font-size: 14px;
+  pointer-events: none;
+}
 </style>

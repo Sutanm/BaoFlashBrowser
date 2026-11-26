@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { BOOKMARK_BAR_ROOT } from '../../src/shared/bookmarks'
 import {
   IMPORTED_FOLDER_TITLE,
+  decodeBookmarkFile,
   decodeEntities,
   isImportableUrl,
   parseBookmarksHtml,
@@ -66,8 +67,8 @@ describe('parseBookmarksHtml：树形与书签栏', () => {
     expect(titles(parsed.bar)).toEqual(['前端', 'GitHub'])
     expect(parsed.bar[0].children?.map((child) => child.title)).toEqual(['MDN & 文档', 'Vue'])
     // 其余顶层文件夹进 other（导入时会被装进「已导入」容器）。
-    expect(titles(parsed.other)).toEqual(['Other bookmarks'])
-    expect(parsed.other[0].children?.map((child) => child.title)).toEqual(['示例 A'])
+    // 「Other bookmarks」这层包装按 2026-11-27 的反馈被拆掉，子项直接成为 other 的顶层项。
+    expect(titles(parsed.other)).toEqual(['示例 A'])
   })
 
   it('标题里的 HTML 实体要反转义，否则导出再导入名字就花了', () => {
@@ -180,5 +181,84 @@ describe('导入的边角规则', () => {
     ]
     expect(uniqueFolderTitle(nodes, 'bar', IMPORTED_FOLDER_TITLE)).toBe(`${IMPORTED_FOLDER_TITLE} (2)`)
     expect(uniqueFolderTitle(nodes, 'bar', '别的名字')).toBe('别的名字')
+  })
+})
+
+describe('导入：其余根包装层的映射（2026-11-27 反馈）', () => {
+  /**
+   * Chrome / Edge 的导出把「其他收藏夹」也写成一个顶层文件夹。照 Chromium 逐字实现会得到
+   * `已导入 / Other bookmarks / …` 这层噪音；这里直接把它铺到 `other`，并要求
+   * **只认顶层**——深层的同名文件夹是用户自己建的，不能吞掉。
+   */
+  it('顶层「Other bookmarks」的子项就地铺到 other，包装层不进树', () => {
+    const html = [
+      '<DL><p>',
+      '<DT><H3 PERSONAL_TOOLBAR_FOLDER="true">Bookmarks bar</H3>',
+      '<DL><p>',
+      '<DT><A HREF="https://bar.example/">栏内</A>',
+      '</DL><p>',
+      '<DT><H3>Other bookmarks</H3>',
+      '<DL><p>',
+      '<DT><A HREF="https://other.example/">别的 1</A>',
+      '<DT><H3>子夹</H3>',
+      '<DL><p>',
+      '<DT><A HREF="https://other.example/2">别的 2</A>',
+      '</DL><p>',
+      '</DL><p>',
+      '</DL><p>'
+    ].join('\n')
+    const parsed = parseBookmarksHtml(html)
+    expect(parsed.other.map((node) => node.title)).toEqual(['别的 1', '子夹'])
+    expect(parsed.other[1].children?.map((node) => node.title)).toEqual(['别的 2'])
+    // 包装层不算进统计。
+    expect(parsed.counts.folders).toBe(1)
+    expect(parsed.counts.urls).toBe(3)
+  })
+
+  it('中文「其他收藏夹」同样映射；深层同名的保留', () => {
+    const html = [
+      '<DL><p>',
+      '<DT><H3 PERSONAL_TOOLBAR_FOLDER="true">收藏夹栏</H3>',
+      '<DL><p>',
+      '<DT><H3>我自己建的其他收藏夹</H3>',
+      '<DL><p>',
+      '<DT><A HREF="https://x.example/">X</A>',
+      '</DL><p>',
+      '</DL><p>',
+      '<DT><H3>其他收藏夹</H3>',
+      '<DL><p>',
+      '<DT><A HREF="https://y.example/">Y</A>',
+      '</DL><p>',
+      '</DL><p>'
+    ].join('\n')
+    const parsed = parseBookmarksHtml(html)
+    // 顶层那个被拆掉，深层那个（名字不同）留在书签栏里。
+    expect(parsed.other.map((node) => node.title)).toEqual(['Y'])
+    expect(parsed.bar.map((node) => node.title)).toEqual(['我自己建的其他收藏夹'])
+  })
+})
+
+describe('decodeBookmarkFile：文件字节 → 文本', () => {
+  const utf8 = new TextEncoder().encode('<DL><p>')
+
+  it('普通 UTF-8 原样解出', () => {
+    expect(decodeBookmarkFile(utf8)).toBe('<DL><p>')
+  })
+
+  it('带 BOM 的 UTF-8 去掉 BOM（否则首行会多个不可见字符，第一行就解析不出来）', () => {
+    const withBom = new Uint8Array([0xef, 0xbb, 0xbf, ...utf8])
+    expect(decodeBookmarkFile(withBom)).toBe('<DL><p>')
+  })
+
+  it('UTF-16LE / UTF-16BE（Windows 上真的有这种导出）', () => {
+    const text = '收藏夹'
+    const le = new Uint8Array(2 + text.length * 2)
+    le[0] = 0xff; le[1] = 0xfe
+    for (let i = 0; i < text.length; i += 1) {
+      const code = text.charCodeAt(i)
+      le[2 + i * 2] = code & 0xff
+      le[3 + i * 2] = code >> 8
+    }
+    expect(decodeBookmarkFile(le)).toBe(text)
   })
 })

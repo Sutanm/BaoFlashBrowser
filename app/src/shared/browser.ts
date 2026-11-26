@@ -99,6 +99,24 @@ export type BrowserCommand =
    */
   | { type: 'open-favorites' }
   /**
+   * 记录收藏夹树的展开状态（用户点了某个箭头）。
+   *
+   * 为什么由外壳/管理页分别发、存在库里而不是各存各的：收藏夹是进程级数据，"上次展开了
+   * 哪几个文件夹"是用户对收藏夹的心智模型，不该按界面各存一份（2026-11-27 反馈）。
+   */
+  | { type: 'set-bookmarks-expanded'; ids: string[] }
+  /**
+   * 横条上**文件夹**的下拉菜单（Chromium 的 `ShowFolderMenu`）。
+   *
+   * 菜单是原生 `Menu.popup`：横条在外壳文档里，而页面视图盖在内容区上方，HTML 下拉伸进
+   * 页面区就会被压住看不见（飞窗就是为了绕开这一点才单独开视图）。原生菜单永远在最上层，
+   * 也是 Chromium 的做法（`bookmark_bar_view.cc` 的 `ShowFolderMenu` → `BookmarkMenuDelegate`）。
+   *
+   * `x/y` 是**内容区坐标**（按钮的右下角），主进程换算成屏幕坐标弹菜单：界面不碰屏幕坐标，
+   * 多屏/缩放时才不会错位。
+   */
+  | { type: 'bookmark-folder-menu'; id: string; x: number; y: number }
+  /**
    * 收藏夹横条的右键菜单（Chromium 的 `BookmarkBarView::ShowContextMenu`）。
    *
    * 菜单是**原生**的（`Menu.popup`）：它是系统控件，不是我们要重画的一套 UI；而且
@@ -243,6 +261,14 @@ export interface BrowserState {
    * `shared/bookmarks.ts` 的 `showsBookmarkBar()`。
    */
   bookmarkBarShown: boolean
+  /**
+   * 收藏夹树的展开状态（用户点箭头的文件夹 id，已按现有节点过滤）。
+   *
+   * 收藏夹是进程级数据，这条同样是"所有窗口一份"：飞窗与 `bao://favorites` 管理页共用，
+   * 存在库的 `meta` 表里。`undefined` = 从来没记录过，界面用自己的默认展开集
+   * （飞窗默认全收起、管理页默认展开两个根）。
+   */
+  bookmarksExpanded?: string[]
   /**
    * 有图标的站点：`origin → data URL`（收藏夹横条/面板按书签地址查这张表）。
    *

@@ -7,7 +7,7 @@ import type { BookmarkNode } from '../shared/bookmarks'
 import type { SessionSnapshot } from '../shared/session'
 import {
   addBookmark, clearBookmarks, clearEngineRules, clearSession, deleteBookmark, deleteRule, importBookmarks, moveBookmark, openStore,
-  readBookmarks, renameBookmark, updateBookmarkUrl, writeRule, writeSession, writeSessionExit, writeSetting
+  readBookmarks, renameBookmark, updateBookmarkUrl, writeBookmarksExpanded, writeRule, writeSession, writeSessionExit, writeSetting
 } from './db/store'
 import type { AddBookmarkInput, OpenedStore, SessionExitState } from './db/store'
 import { parseBookmarksHtml } from '../shared/bookmark-import'
@@ -232,6 +232,26 @@ export function clearBookmarksData(): boolean {
     return true
   } catch (error) {
     console.error('[storage] 收藏夹清除失败。', error)
+    return false
+  }
+}
+
+/** 收藏夹树的展开状态（`undefined` = 从来没记录过，界面用自己的默认）。 */
+export function bookmarksExpanded(): string[] | undefined {
+  return store?.bookmarksExpanded
+}
+
+/**
+ * 写收藏夹树的展开状态。失败只记日志、返回 `undefined`——
+ * 这是"上次点开了哪个文件夹"的舒适度数据，写不进去不该让点击本身失败。
+ */
+export function setBookmarksExpanded(ids: unknown): boolean {
+  if (!store) return false
+  try {
+    store.bookmarksExpanded = writeBookmarksExpanded(store.db, Array.isArray(ids) ? ids : [])
+    return true
+  } catch (error) {
+    console.error('[storage] 收藏夹展开状态写入失败。', error)
     return false
   }
 }

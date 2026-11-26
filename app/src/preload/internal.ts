@@ -24,6 +24,7 @@ const settings: SettingsBridge = {
   clearSession: () => ipcRenderer.invoke(settingsChannels.sessionClear),
   clearEngineRules: () => ipcRenderer.invoke(settingsChannels.engineRulesClear),
   clearBookmarks: () => ipcRenderer.invoke(settingsChannels.bookmarksClear),
+  openFavorites: () => ipcRenderer.invoke(settingsChannels.openFavorites),
   forgetEngineRule: (host) => ipcRenderer.invoke(settingsChannels.engineRuleForget, host),
   flashStatus: () => ipcRenderer.invoke(settingsChannels.flashStatus),
   flashImport: () => ipcRenderer.invoke(settingsChannels.flashImport),

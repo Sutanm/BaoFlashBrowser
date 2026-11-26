@@ -48,6 +48,17 @@ const LEGACY_IMPORT_VERSION = 1
  */
 const SESSION_EXIT_KEY = 'session.last-exit'
 
+/**
+ * 收藏夹树展开状态的键（`meta` 表）。
+ *
+ * 为什么放 `meta` 而不是 `settings`：它不是"用户偏好设置"，而是界面的**上次状态**——
+ * 设置页里没有它的位置，也不该出现在设置项的枚举里；`settings` 表的每个键都要在
+ * `sanitizeSetting()` 里有一个受控取值域，塞一个 JSON 数组进去会把那张表变成杂物间。
+ */
+const BOOKMARKS_EXPANDED_KEY = 'bookmarks.expanded'
+/** 展开状态的条目上限：几百个收藏夹也用不到这么多，超过就是脏数据。 */
+const MAX_EXPANDED_IDS = 512
+
 export type SessionExitState = 'clean' | 'crash' | 'pending'
 
 export interface StorePaths {
@@ -69,6 +80,12 @@ export interface OpenedStore {
    * 写入成功后由 `main/storage.ts` 用返回值覆盖这份缓存，库里与内存里永远是同一代数据。
    */
   bookmarks: BookmarkNode[]
+  /**
+   * 收藏夹树的展开状态；`undefined` = 从来没记录过（界面用自己的默认展开集）。
+   *
+   * 进内存快照的理由与 `bookmarks` 相同：每次状态广播都要带它，而它只在用户点箭头时变。
+   */
+  bookmarksExpanded?: string[]
   /** 上次退出时的会话快照（没有、损坏或版本不符时为 `undefined`）。 */
   session?: SessionSnapshot
   /** 上次退出的方式；`undefined` 表示没有记录（首次运行或旧库）。 */
@@ -304,6 +321,7 @@ export async function openStore(options: OpenStoreOptions): Promise<OpenedStore>
       settings: readSettings(db),
       rules: readRules(db),
       bookmarks: readBookmarks(db),
+      bookmarksExpanded: readBookmarksExpanded(db),
       session: readSession(db),
       sessionExit: readSessionExit(db),
       previousVersion,
@@ -387,9 +405,50 @@ export function settingValue(settings: Settings, key: SettingKey): SettingValue[
   }
 }
 
+/**
+ * 读收藏夹树的展开状态。
+ *
+ * **坏数据当"没记录"**（返回 `undefined`）而不是空数组：空数组意味着"用户把所有文件夹都
+ * 收起了"，界面会照做；而读取失败时让界面用默认展开集更接近用户的预期。
+ */
+export function readBookmarksExpanded(db: Database): string[] | undefined {
+  const row = db.get('SELECT value FROM meta WHERE key = ?', BOOKMARKS_EXPANDED_KEY)
+  if (typeof row?.value !== 'string') return undefined
+  try {
+    const parsed: unknown = JSON.parse(row.value)
+    if (!Array.isArray(parsed)) return undefined
+    return sanitizeExpandedIds(parsed)
+  } catch {
+    return undefined
+  }
+}
+
+/** 展开状态的归一：只保留非空字符串、去重、封顶。写入与读取共用同一条规则。 */
+function sanitizeExpandedIds(ids: readonly unknown[]): string[] {
+  const seen = new Set<string>()
+  for (const id of ids) {
+    if (typeof id !== 'string') continue
+    const trimmed = id.trim()
+    if (!trimmed || trimmed.length > 128) continue
+    seen.add(trimmed)
+    if (seen.size >= MAX_EXPANDED_IDS) break
+  }
+  return [...seen]
+}
+
+/** 写展开状态并返回落盘后的那份（页面/外壳据此更新，不自己猜）。 */
+export function writeBookmarksExpanded(db: Database, ids: readonly unknown[]): string[] {
+  const sanitized = sanitizeExpandedIds(ids)
+  db.run(
+    'INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    BOOKMARKS_EXPANDED_KEY,
+    JSON.stringify(sanitized)
+  )
+  return sanitized
+}
+
 /** 读上次退出的方式。没有记录（首次运行/旧库）返回 `undefined`。 */
-export function readSessionExit(db: Database): SessionExitState | undefined {
-  const row = db.get('SELECT value FROM meta WHERE key = ?', SESSION_EXIT_KEY)
+export function readSessionExit(db: Database): SessionExitState | undefined {  const row = db.get('SELECT value FROM meta WHERE key = ?', SESSION_EXIT_KEY)
   const value = typeof row?.value === 'string' ? row.value : undefined
   return value === 'clean' || value === 'crash' || value === 'pending' ? value : undefined
 }

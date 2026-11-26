@@ -51,11 +51,18 @@ function labelOf(id: string): string {
 /**
  * 展开状态（2026-11-26 反馈：收藏夹是**可展开可关闭**的，不是"分组标题 + 分隔线"）。
  *
- * 默认全收起——和 Edge 打开收藏夹时一样，先看到两个文件夹，点开才铺内容。
- * 状态只在本组件里（飞窗关掉再打开就复位），不做持久化：收藏夹的形状是库里的事，
- * "上次点开了哪个文件夹"不是需要记住的偏好。
+ * 2026-11-27 起**持久化**（原先只在本组件里，关掉飞窗就复位）：用户明确要求"上次展开的，
+ * 下次还是展开的"。存在库的 `meta` 表、由主进程投影成 `state.bookmarksExpanded`，
+ * 与 `bao://favorites` 管理页共用同一份——"上次点开了哪个文件夹"不该按界面各记一套。
+ *
+ * `undefined` = 从来没记录过：这时保持原来的默认（全收起）。
  */
-const expanded = ref(new Set<string>())
+const expanded = ref(new Set<string>(snapshot.value?.bookmarksExpanded ?? []))
+
+watch(() => snapshot.value?.bookmarksExpanded, (ids) => {
+  if (!ids) return
+  expanded.value = new Set(ids)
+})
 
 function toggleFolder(id: string): void {
   const next = new Set(expanded.value)
@@ -64,6 +71,9 @@ function toggleFolder(id: string): void {
   expanded.value = next
   // 高度会变：折叠/展开后立刻重量一次（否则视图留一截空白）。
   void nextTick(measure)
+  // 落库 + 广播（其它窗口的树也跟着变）。写失败不影响这次点击：展开状态只是记忆，
+  // 不该因为它写不进去就让用户觉得"点了没反应"。
+  void store.run({ type: 'set-bookmarks-expanded', ids: [...next] })
 }
 
 interface PanelRow {

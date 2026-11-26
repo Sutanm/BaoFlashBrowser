@@ -195,9 +195,6 @@ const quickView = ref<QuickView>('settings')
 
 /** 每个内容页的锚点按钮（星标在地址栏里，另外两个是工具栏按钮）。 */
 function quickAnchorFor(view: QuickView): HTMLButtonElement | undefined {
-  // 横条上的文件夹按钮：面板从**那颗**按钮下面展开（不是工具栏的收藏夹按钮）。
-  // 没有覆盖时才落回默认锚点。
-  if (view === 'bookmarks' && barFolderAnchor.value) return barFolderAnchor.value
   if (view === 'bookmarks') return bookmarksRoot.value
   if (view === 'bookmark-edit' || view === 'bookmark-editor') return bookmarkRoot.value
   return gearRoot.value
@@ -250,8 +247,6 @@ async function toggleQuick(view: QuickView): Promise<void> {
     closeQuick(true)
     return
   }
-  // 工具栏按钮打开的收藏夹面板必须锚回工具栏；横条文件夹的锚点只对那一次点击有效。
-  if (view === 'bookmarks') barFolderAnchor.value = undefined
   await openQuick(view)
 }
 
@@ -260,15 +255,14 @@ async function toggleQuick(view: QuickView): Promise<void> {
  *
  * 内容只平铺「收藏夹栏」根下的**一层**（Chromium 的横条也是这一层）：
  * - 网址项：点一下就在当前标签打开（`open-bookmark` 按 id 取地址，界面拿不到任意导航）；
- * - 文件夹：点开的是**收藏夹面板**（锚在那颗按钮下），里层在面板里展开——横条下方
- *   弹出的文件夹菜单需要一只独立的弹出层，见 `docs/reports/2026-11-26-bookmarks-store.md` §6。
+ * - 文件夹：弹出它的内容菜单（**原生菜单**，见 `openBarFolderMenu()`）——HTML 下拉伸进
+ *   页面区会被页面视图压住，所以这里交给系统菜单；Chromium 也是原生菜单
+ *   （`bookmark_bar_view.cc` 的 `ShowFolderMenu`）。整理仍然在 `bao://favorites` 里做。
  *
  * **显示与否由主进程给**（`state.bookmarkBarShown`）：规则本体是 `showsBookmarkBar()`，
  * 但还带时序（导航途中按住，见 `Tab.barHold`）——外壳自己拿 `settings` 算会把横条画早收早。
  */
 const barEl = ref<HTMLElement>()
-/** 横条上的文件夹按钮：面板的临时锚点（关闭后清掉）。 */
-const barFolderAnchor = ref<HTMLButtonElement>()
 
 const barVisible = computed(() => state.value?.bookmarkBarShown === true)
 const barItems = computed<BookmarkNode[]>(() => childrenOf(state.value?.bookmarks ?? [], BOOKMARK_BAR_ROOT))
@@ -331,15 +325,25 @@ async function openBarItem(node: BookmarkNode): Promise<void> {
   await run({ type: 'open-bookmark', id: node.id })
 }
 
-/** 文件夹项：面板从那颗按钮下面展开（再点一次收起）。 */
-async function toggleBarFolder(node: BookmarkNode, event: MouseEvent): Promise<void> {
-  const button = event.currentTarget as HTMLButtonElement
-  if (quickOpen.value && quickView.value === 'bookmarks' && barFolderAnchor.value === button) {
-    closeQuick(true)
-    return
-  }
-  barFolderAnchor.value = button
-  await openQuick('bookmarks')
+/**
+ * 文件夹项：弹出它的内容菜单（原生菜单，锚在这颗按钮的右下角）。
+ *
+ * 为什么是原生菜单而不是 HTML 下拉：横条属于外壳文档，页面视图盖在内容区**上方**，
+ * 下拉一旦伸进页面区就会被压住（飞窗整套视图就是为绕开这一点而存在的）。Chromium 的横条
+ * 文件夹菜单也是原生视图（`bookmark_bar_view.cc` 的 `ShowFolderMenu`）。
+ *
+ * 坐标只传**内容区**里按钮的位置，屏幕坐标由主进程换算——界面不碰屏幕坐标，
+ * 多屏/缩放下才不会错位。
+ */
+async function openBarFolderMenu(node: BookmarkNode, event: MouseEvent): Promise<void> {
+  const button = event.currentTarget as HTMLElement
+  const rect = button.getBoundingClientRect()
+  await run({
+    type: 'bookmark-folder-menu',
+    id: node.id,
+    x: Math.round(rect.left),
+    y: Math.round(rect.bottom)
+  })
 }
 
 /**
@@ -419,9 +423,8 @@ function closeQuick(restoreFocus = false): void {
   // 外壳侧关闭走 `set-quick(null)`：`close-quick` 是飞窗自己（quick 角色）用来关闭并
   // 请求焦点归还的命令，外壳调用会被发送者校验拒绝。
   void window.baoOverlay.setQuick(null)
-  // 焦点要先还给**打开它的那颗**按钮，再清掉横条文件夹的临时锚点。
+  // 焦点要先还给**打开它的那颗**按钮。
   if (restoreFocus) quickAnchor()?.focus()
-  barFolderAnchor.value = undefined
 }
 
 /** 焦点归还目标：飞窗挂在哪颗按钮下就还给谁（星标 ↔ 收藏夹 ↔ 齿轮）。 */
@@ -537,8 +540,7 @@ function onShellPointerDown(event: PointerEvent): void {
   if (!(event.target instanceof Node)) return
   // 四颗入口（星标/收藏夹/引擎/齿轮）自己的点击由它们的 handler 负责开关：
   // 在这里先关一次会让「点星标」变成"先关再开"，多一次往返还会闪一下。
-  // 横条上的文件夹按钮同理——它是**当时**那条飞窗的锚点。
-  const anchor = [bookmarkRoot.value, bookmarksRoot.value, engineRoot.value, gearRoot.value, barFolderAnchor.value]
+  const anchor = [bookmarkRoot.value, bookmarksRoot.value, engineRoot.value, gearRoot.value]
     .some((element) => element?.contains(event.target as Node))
   if (anchor) return
   closeEnginePanel()
@@ -993,7 +995,7 @@ onBeforeUnmount(() => store.disconnect())
           :title="item.kind === 'folder' ? `打开文件夹：${item.title}` : (item.url ?? item.title)"
           :aria-hidden="index >= barClippedFrom"
           :tabindex="index >= barClippedFrom ? -1 : 0"
-          @click="item.kind === 'folder' ? toggleBarFolder(item, $event) : openBarItem(item)"
+          @click="item.kind === 'folder' ? openBarFolderMenu(item, $event) : openBarItem(item)"
         >
           <span class="bar-icon" aria-hidden="true">
             <img v-if="faviconOf(item.url)" class="favicon" :src="faviconOf(item.url)" alt="">

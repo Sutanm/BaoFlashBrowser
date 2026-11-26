@@ -181,6 +181,26 @@ async function clearSession(): Promise<void> {
 }
 
 /**
+ * 「外观 → 收藏夹栏」卡里的「管理收藏夹」：打开 `bao://favorites`。
+ *
+ * 三档只决定**显示不显示**，整理（拖动排序、改名、导入）都在管理页——设置里没有入口
+ * 时用户会以为"收藏夹只能看"（2026-11-27 反馈）。
+ */
+const favoritesOpening = ref(false)
+
+async function openFavorites(): Promise<void> {
+  if (favoritesOpening.value) return
+  favoritesOpening.value = true
+  try {
+    await window.baoSettings.openFavorites()
+  } catch {
+    // 失败时主进程那边也没别的可说：按钮保持可用，用户再点一次即可。
+  } finally {
+    favoritesOpening.value = false
+  }
+}
+
+/**
  * 清除收藏夹内容（保留两个永久根）。
  *
  * 清完主进程会把新快照推回本页（`refreshAllWindows` → `broadcastSettings`）与每个窗口的
@@ -565,6 +585,18 @@ function goFlashSection(): void {
               <span class="label">{{ bookmarkBarModeLabels[mode] }}</span>
             </button>
           </div>
+          <div class="preference-divider" aria-hidden="true"></div>
+          <div class="select-row">
+            <span>整理收藏</span>
+            <button
+              type="button"
+              class="action"
+              aria-label="管理收藏夹"
+              :disabled="favoritesOpening"
+              @click="openFavorites"
+            >管理收藏夹</button>
+          </div>
+          <p class="lead">在管理页里拖动排序、重命名或删除文件夹，也能导入 Chrome/Edge 导出的书签。</p>
         </div>
       </section>
 

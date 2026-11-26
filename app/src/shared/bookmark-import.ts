@@ -53,6 +53,34 @@ const FALLBACK_TOOLBAR_TITLES = [
   'bookmarks bar', 'bookmarks toolbar', 'favorites bar', 'favourites bar', 'favorites toolbar'
 ]
 
+/**
+ * 顶层文件夹里**代表"其他收藏夹"根**的那几个名字。
+ *
+ * 这是**我们自己的**补充（Chromium 没有）：Chrome / Edge 的导出让两个根各是一个顶层文件夹，
+ * 照 `ProfileWriter::AddBookmarks()` 逐字实现的话，导入后会多出一层
+ * `已导入 / Other bookmarks / …`。用户实测反馈这一层是噪音（2026-11-27），
+ * 而目标根就在库里，直接把它的子项铺到 `other` 更符合"导入的是我的收藏，不是我的目录结构"。
+ * 只认**顶层**：深层的同名文件夹是用户自己建的，不能吞掉。
+ */
+const FALLBACK_OTHER_TITLES = [
+  '其他收藏夹', '其他书签', '其他书签夹', '书签工具栏',
+  'other bookmarks', 'other favorites', 'other favourites', 'bookmarks toolbar'
+]
+
+/** 文件字节 → 文本：认 BOM（UTF-16 的导出在 Windows 上真的存在），否则按 UTF-8。 */
+export function decodeBookmarkFile(bytes: Uint8Array): string {
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder('utf-8').decode(bytes.subarray(3))
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(bytes.subarray(2))
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(bytes.subarray(2))
+  }
+  return new TextDecoder('utf-8').decode(bytes)
+}
+
 /** HTML 实体反转义：书签标题里 `&amp;` / `&#39;` / `&#x2F;` 都真实出现过。 */
 export function decodeEntities(text: string): string {
   return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (whole, entity: string) => {
@@ -227,6 +255,17 @@ export function parseBookmarksHtml(html: string): ParsedBookmarks {
       bar = roots[index].children ?? []
       roots.splice(index, 1)
     }
+  }
+
+  /**
+   * 「其他收藏夹」的包装层同样拆掉（见 `FALLBACK_OTHER_TITLES`）：它的子项就地铺到 `other`
+   * 的同一位置上，顺序不变。包装层自己不算进统计。
+   */
+  const otherIndex = roots.findIndex((node) =>
+    node.kind === 'folder' && FALLBACK_OTHER_TITLES.includes(node.title.trim().toLowerCase()))
+  if (otherIndex >= 0) {
+    const wrapper = roots[otherIndex]
+    roots.splice(otherIndex, 1, ...(wrapper.children ?? []))
   }
 
   const counts = { folders: 0, urls: 0, skipped }
