@@ -225,6 +225,16 @@ test('标记「保持活跃」的标签不被休眠，取消标记后恢复休�
 
     const marked = await shell.evaluate((id) => window.baoBrowser.run({ type: 'keep-awake', id, value: true }), tab.id)
     assert.equal(marked.ok, true)
+    // A1-c：外壳这条路必须经过统一能力入口（校验 + 记录 + 分发），而不是直接改租约表。
+    const capability = await app.evaluate(async () => {
+      const read = globalThis.__baoCapabilityCalls
+      return typeof read === 'function' ? read() : null
+    })
+    assert.ok(Array.isArray(capability), '主进程能力调用记录钩子不可用')
+    assert.ok(
+      capability.some((entry) => entry.action === 'tab.keepAwake' && entry.outcome === 'ok' && entry.actor === 'human-ui'),
+      '外壳的「保持活跃」没有经过统一能力入口'
+    )
     // 让 D 退到后台：扫描器不会休眠当前标签，所以必须先把别的标签切成活动。
     await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
     await new Promise((done) => setTimeout(done, 400))

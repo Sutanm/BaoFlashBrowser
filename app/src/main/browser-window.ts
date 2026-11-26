@@ -33,6 +33,10 @@ import { attachPopupChrome } from './popup-chrome'
 import { activityLeases } from './activity-lease'
 import { tabRegistry } from './tab-registry'
 import type { TabLifecycleKind } from './tab-registry'
+import { CapabilityCallLog, validateCapabilityCall } from './capability-contract'
+import type { CapabilityTabSnapshot, CapabilityWorld } from './capability-contract'
+import { DEFAULT_PROFILE_ID, capabilityFailureText, isShellRef } from '../shared/capability'
+import type { CapabilityInvocation } from '../shared/capability'
 import { SESSION_VERSION, sessionTabCount } from '../shared/session'
 import type { SessionSnapshot, SessionTab, SessionWindow } from '../shared/session'
 
@@ -280,6 +284,12 @@ interface ClosedTab {
 }
 
 const controllers = new Map<number, WindowController>()
+
+/**
+ * 统一能力层的调用记录（A1-c）。进程级单例：审计要看的是"整个浏览器发生过什么"，
+ * 不是"某个窗口发生过什么"。A5 的审计导出会在这里接。
+ */
+const capabilityCalls = new CapabilityCallLog()
 /** 全局标签 ID 序列：跨窗口唯一（架构 §3「每个标签有稳定业务 ID」）。 */
 let nextTabId = 1
 let nextNoticeId = 1
@@ -2385,6 +2395,67 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return active
   }
 
+  /**
+   * 校验器要的「当前事实」：先把目标标签的快照算好，再交给纯校验器。
+   *
+   * 为什么在这里算而不是在校验器里：Flash 判定必须跨帧执行脚本（异步），而校验器是纯同步的。
+   * 快照是**校验那一刻**的真相，包含它才能让「含 Flash 内容的标签不得销毁」这条门禁生效。
+   */
+  async function capabilityWorld(invocation: CapabilityInvocation): Promise<CapabilityWorld> {
+    const target = invocation.target
+    const tabId = target && !isShellRef(target) ? target.tabId : undefined
+    const tab = tabId === undefined ? undefined : tabs.find((entry) => entry.id === tabId)
+    const identity = tab ? tabRegistry.snapshot(tab.id) : undefined
+    let snapshot: CapabilityTabSnapshot | undefined
+    if (tab && identity) {
+      const contents = tab.view?.webContents
+      const alive = Boolean(contents && !contents.isDestroyed())
+      const flashContent = alive && contents ? await flashContentOf(tab, contents) : false
+      snapshot = {
+        tabId: tab.id,
+        bindingId: identity.bindingId,
+        navigationId: identity.navigationId,
+        loading: alive && contents ? safe(() => contents.isLoadingMainFrame(), false) : false,
+        flashContent
+      }
+    }
+    return {
+      tab: (id) => (snapshot && snapshot.tabId === id ? snapshot : undefined),
+      blockedByLease: (id) => activityLeases.blocksDiscard(id),
+      // 外壳元素表随指认 UI 落地；在那之前任何 ShellRef 都会被判为"不存在"，这是对的。
+      shellElement: () => false
+    }
+  }
+
+  /**
+   * 统一能力入口（A1-c 第一片）：**校验 → 记录 → 分发**。
+   *
+   * 执行仍然走本控制器已有的函数（`setKeepAwake` / `closeTab`）：动作实现依赖闭包状态
+   * （标签表、视图、窗口），搬出去等于重写；这一片先把「谁能做什么」的判定与审计接上。
+   * UI 不再直接改租约表，而是走这里——这就是架构 §5 规则 6「人类与自动化共用同一条执行路径」
+   * 的第一个落点。
+   */
+  async function runCapability(invocation: CapabilityInvocation): Promise<BrowserResult> {
+    const world = await capabilityWorld(invocation)
+    const decision = validateCapabilityCall(invocation, world)
+    capabilityCalls.append(invocation, decision)
+    if (!decision.ok) {
+      return { ok: false, code: 'capability-denied', message: `${decision.message}（${decision.code}）` }
+    }
+    const tab = decision.tabId === undefined ? undefined : tabs.find((entry) => entry.id === decision.tabId)
+    if (!tab) return fail('unknown-tab')
+    switch (invocation.action.name) {
+      case 'tab.keepAwake':
+        setKeepAwake(tab, invocation.action.value)
+        return { ok: true, state: state() }
+      case 'tab.close':
+        closeTab(tab)
+        return { ok: true, state: state() }
+      default:
+        return fail('invalid-command')
+    }
+  }
+
   async function run(event: IpcMainInvokeEvent, command: BrowserCommand): Promise<BrowserResult> {
     if (closing) return fail('window-closed')
     const sender = overlays.sender(event)
@@ -2435,8 +2506,12 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'keep-awake': {
         const tab = tabs.find(({ id }) => id === command.id)
         if (!tab) return fail('unknown-tab')
-        setKeepAwake(tab, command.value)
-        break
+        // A1-c：外壳不再直接改租约表，而是走统一能力入口（校验 + 记录 + 分发）。
+        return runCapability({
+          context: { actor: 'human-ui', profileId: DEFAULT_PROFILE_ID },
+          action: { name: 'tab.keepAwake', value: command.value },
+          target: { tabId: tab.id, expectedBindingId: bindingOf(tab), expectedNavigationId: navigationOf(tab) }
+        })
       }
       // 崩溃恢复的两个回答（只有外壳能发，sender 校验在前面已经收窄）。
       case 'restore-session':
@@ -3166,4 +3241,6 @@ if (!app.isPackaged) {
     tabs: controller.debugState(),
     heartbeat: controller.heartbeatStats()
   }))
+  /** 统一能力层的调用记录（A1-c 的诊断面：断言外壳动作真的过了能力入口）。 */
+  globals.__baoCapabilityCalls = () => capabilityCalls.list()
 }
