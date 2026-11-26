@@ -409,6 +409,94 @@ test('含 Flash 内容的标签后台超时也不休眠（含普通页对照）'
 })
 
 /**
+ * 门禁不能缓存的阴性结果（2026-11-26 审计复现的回归）。
+ *
+ * 页面在**首次探测之后**才插入播放器（懒加载 / SPA 换页 / iframe 里的客户端 SWF 都这样），
+ * 如果按 URL 缓存阴性，标签照样会被睡掉。判据：探测必须发生在**决策那一刻**。
+ *
+ * 这里由主进程在 1.2 s 时插入标记，而不是用页面里的 `setTimeout`——隐藏窗口下 Chromium 会
+ * 节流页面定时器（实测 2.6 s 都没触发），那样测的就不是门禁而是节流。主进程注入是确定性的，
+ * 且"标记晚于首次探测、早于 TTL"这个时序关系与真实懒加载一致。
+ */
+test('迟插入的 Flash 内容仍能挡住休眠', { timeout: 150_000 }, async () => {
+  withDiscardEnv()
+  const server = await startFixtureServer({ '/late': page('LATE'), '/plain': page('PLAIN') })
+  const { app, shell, close } = await launchApp()
+  try {
+    const late = await openPage(shell, server.baseUrl, '/late', 'LATE')
+    const plain = await openPage(shell, server.baseUrl, '/plain', 'PLAIN')
+    const first = (await state(shell)).tabs.find((item) => item.id !== late.id && item.id !== plain.id)
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), first.id)
+
+    // 后台计时已经开始、TTL（3 s）还没到：此刻插入播放器，等价于"页面懒加载出 SWF"。
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    const inserted = await app.evaluate(async ({ webContents }, url) => {
+      const target = webContents.getAllWebContents().find((item) => item.getURL() === url)
+      if (!target) return false
+      await target.executeJavaScript(
+        'document.body.insertAdjacentHTML("beforeend", \'<div type="application/x-shockwave-flash">late</div>\')',
+        true
+      )
+      return true
+    }, `${server.baseUrl}/late`)
+    assert.equal(inserted, true, '没有找到迟插入用的页面 WebContents')
+
+    // 对照先成立：普通页必须被休眠，否则这条用例在扫描器停摆时也会假通过。
+    const discardedPlain = await waitFor(async () => {
+      const found = (await state(shell)).tabs.find((item) => item.id === plain.id)
+      return found?.discarded ? found : null
+    }, { timeout: 30_000, message: '普通页在后台超时后没有被休眠（扫描器整体停摆？）' })
+    assert.equal(discardedPlain.title, 'PLAIN')
+
+    const stillLate = (await state(shell)).tabs.find((item) => item.id === late.id)
+    assert.ok(!stillLate.discarded, '迟插入的 Flash 内容没有挡住休眠（阴性结果被缓存了）')
+  } finally {
+    await close()
+    await server.close()
+    clearDiscardEnv()
+  }
+})
+
+/**
+ * 播放器挂在**跨源 iframe** 里时也要能被判到。
+ *
+ * `document.querySelector` 只看得见顶层文档；本产品的站点客户端 SWF 常挂在 iframe 里
+ * （淘米摩尔庄园那类），所以判据必须遍历整棵帧树（`framesInSubtree` + 每帧执行）。
+ * 这里用两个端口制造跨源，确保不是"同源 iframe 恰好能看到"的假通过。
+ */
+test('跨源 iframe 里的 Flash 内容也挡住休眠', { timeout: 180_000 }, async () => {
+  withDiscardEnv()
+  const player = await startFixtureServer({
+    '/player': '<!doctype html><meta charset="utf-8"><title>PLAYER</title><body><div type="application/x-shockwave-flash">player</div></body>'
+  })
+  const host = await startFixtureServer({
+    '/host': `<!doctype html><meta charset="utf-8"><title>HOST</title><body><iframe src="${player.baseUrl}/player" width="320" height="240"></iframe></body>`,
+    '/plain': page('PLAIN')
+  })
+  const { app, shell, close } = await launchApp()
+  try {
+    const framed = await openPage(shell, host.baseUrl, '/host', 'HOST')
+    const plain = await openPage(shell, host.baseUrl, '/plain', 'PLAIN')
+    const first = (await state(shell)).tabs.find((item) => item.id !== framed.id && item.id !== plain.id)
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), first.id)
+
+    const discardedPlain = await waitFor(async () => {
+      const found = (await state(shell)).tabs.find((item) => item.id === plain.id)
+      return found?.discarded ? found : null
+    }, { timeout: 30_000, message: '普通页在后台超时后没有被休眠（扫描器整体停摆？）' })
+    assert.equal(discardedPlain.title, 'PLAIN')
+
+    const stillFramed = (await state(shell)).tabs.find((item) => item.id === framed.id)
+    assert.ok(!stillFramed.discarded, '跨源 iframe 里的 Flash 内容没有挡住休眠（帧树没有遍历）')
+  } finally {
+    await close()
+    await host.close()
+    await player.close()
+    clearDiscardEnv()
+  }
+})
+
+/**
  * ADR-0004 硬门禁②：加载中的标签不休眠。
  *
  * 用"接受连接但永不响应"的 TCP 服务让页面长期停在加载态；这比慢响应更可控，

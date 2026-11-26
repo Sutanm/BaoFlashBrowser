@@ -58,7 +58,7 @@
 | 现状（§1） | 问题 | 补什么 |
 | --- | --- | --- |
 | `isCurrentlyAudible()` 为 false 才丢 | **静默期被当成垃圾**：菜单/读条/回合制等待/纯 canvas 页可以长时间没音频。（注：静音**不会**造成误判——`SetAudioMuted` 只调输出端 `SetMuted`，不动 `is_currently_audible_`，见 `audio_stream_monitor.cc:66-68`） | 含 Flash 内容时这一条不再参与判定 |
-| 无 Flash 内容判定 | 销毁视图 = 丢 AVM 堆、`SharedObject` 待写缓冲、连接与计时器 | 决策时问页面一次 DOM（`embed/object/ruffle-player`），按「标签 + URL」缓存；**不能用引擎判定**——默认引擎就是 ppapi，那样会保护住所有标签（已踩，见 ADR-0004 §后果） |
+| 无 Flash 内容判定 | 销毁视图 = 丢 AVM 堆、`SharedObject` 待写缓冲、连接与计时器 | **决策那一刻**跨帧探一次（`mainFrame.framesInSubtree`，含跨源 iframe；只粘阳性、不缓存阴性）；**不能用引擎判定**——默认引擎就是 ppapi，那样会保护住所有标签（已踩，见 ADR-0004 §后果） |
 | 无 `isLoading()` 判定 | 加载中被睡会连首屏都拿不回 | 加载中一律不睡 |
 | 无自动化全局闸 | M3 的 agent 常在等游戏内回调，"长时间无人操作"是常态；租约是按 tabId 的，表达不了"在等一个还没绑定到标签的事件" | 任何自动化会话存在时**整个扫描器提前返回**，只能由 agent 显式请求丢弃 |
 | 直接 `close()` | `SharedObject` 异步写盘不保证落盘 | 丢弃前 `save → ack`（≤300 ms），**无 ack 不丢** |

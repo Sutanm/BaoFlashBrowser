@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView, webContents } from 'electron'
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
-import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
+import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents, WebFrameMain } from 'electron'
 import { join } from 'node:path'
 import { browserChannels, browserFailureText, INFOBAR_HEIGHT, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserSessionPrompt, BrowserState, BrowserTab } from '../shared/browser'
@@ -1309,34 +1309,45 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 为什么不用引擎判定：本产品的默认引擎就是 `ppapi`（插件可用时每个标签都是它），
    * 所以"引擎是 ppapi"≠"装着 Flash"。实测拿它当判据会把**所有**标签都保护起来，
    * 休眠直接失效（用例里 trace 全是 `flash-content`，普通页也不睡）。
-   * 只能问页面：`ppapi` 页留着 `<embed>` / `<object>`，Ruffle 会把它们换成 `<ruffle-player>`。
    *
-   * 缓存键是「绑定代际 + 当前 URL」：代际一变（引擎切换提交、崩溃重建、唤醒）就重探——
-   * 同一个 URL 换了引擎，DOM 形态也会变，只按 URL 缓存会把结论用错。
-   * 探测中或探测失败返回 undefined，调用方按"有"处理（fail-closed）——宁可多保护一个标签，
-   * 也不能把正在跑的游戏睡掉。
+   * 三个必须记住的坑（2026-11-26 审计复现）：
+   * 1. **不能缓存阴性结果**：页面可以在首次探测之后才插入播放器（懒加载、SPA 换页、
+   *    iframe 里的客户端 SWF），按 URL 缓存阴性会让它照样被睡。所以只在**决策那一刻**探，
+   *    且只有阳性结果被粘住（键是绑定代际，视图一换就自动失效）。
+   * 2. **必须遍历所有帧**：`document.querySelector` 看不到 iframe 里的播放器，而本产品的
+   *    站点客户端 SWF 经常挂在跨源 iframe 里（淘米摩尔庄园那类）。
+   * 3. 判不出（帧已 detach / 执行失败 / 取不到主帧）一律按"有"处理（fail-closed）。
    */
-  const flashProbe = new Map<number, { key: string; has: boolean }>()
-  const flashProbePending = new Set<number>()
+  const flashSeen = new Map<number, string>()
 
-  function flashContentOf(tab: Tab, contents: WebContents): boolean | undefined {
-    const url = safe(() => contents.getURL(), '')
-    const key = `${tab.binding}|${url}`
-    const cached = flashProbe.get(tab.id)
-    if (cached && cached.key === key) return cached.has
-    if (flashProbePending.has(tab.id)) return undefined
-    flashProbePending.add(tab.id)
-    void contents.executeJavaScript(
-      'Boolean(document.querySelector("embed,object,ruffle-player,ruffle-embed,[type*=shockwave],[type*=flash]"))',
-      true
-    ).then((has) => {
-      flashProbe.set(tab.id, { key, has: has === true })
-    }).catch(() => {
-      // 页面正在销毁/导航：判不出就当"有"，且**不缓存**，下一轮用新代际/新 URL 重探。
-    }).finally(() => {
-      flashProbePending.delete(tab.id)
-    })
-    return undefined
+  const FLASH_PROBE =
+    'Boolean(document.querySelector("embed,object,ruffle-player,ruffle-embed,[type*=shockwave],[type*=flash]"))'
+
+  async function flashContentOf(tab: Tab, contents: WebContents): Promise<boolean> {
+    const binding = String(tab.binding)
+    if (flashSeen.get(tab.id) === binding) return true
+    let frame: WebFrameMain
+    try {
+      frame = contents.mainFrame
+    } catch {
+      return true
+    }
+    if (!frame) return true
+    for (const target of frame.framesInSubtree) {
+      if (target.detached) continue
+      let hit: unknown
+      try {
+        hit = await target.executeJavaScript(FLASH_PROBE, true)
+      } catch {
+        // 帧正在销毁/导航：判不出就当"有"（fail-closed），下一轮重探。
+        return true
+      }
+      if (hit === true) {
+        flashSeen.set(tab.id, binding)
+        return true
+      }
+    }
+    return false
   }
 
   /** 让标签进入休眠：销毁它的视图（省掉一整个渲染进程），只保留元数据。 */
@@ -1354,7 +1365,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.error = ''
     tab.notice = undefined
     discardBlocked.delete(tab.id)
-    flashProbe.delete(tab.id)
+    flashSeen.delete(tab.id)
     traceDiscard(`tab=${tab.id} 休眠 engine=${tab.engine} url=${tab.lastUrl}`)
     if (!view.webContents.isDestroyed()) view.webContents.close()
     publish()
@@ -1404,49 +1415,60 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 走同一条 `blocksDiscard()` 判定（架构 §7 规则 4）。谁在租约表里，就谁说了算。
    */
   // TODO(M3)：守卫链预留给「自动判定挂机」（长时间无交互 + 持续音频输出），见同一份报告的 §4。
-  function sweepDiscard(): void {
-    if (closing || window.isDestroyed()) return
-    const now = Date.now()
-    // 先回收过期租约再判定：owner 崩溃或忘记释放时，标签不会被永久锁活。
-    activityLeases.sweepExpired(now)
-    if (currentSettings().tabDiscard === 'never') return
-    for (const tab of tabs) {
-      if (!tab.view || tab === active || tab.internal || tab.pinned) continue
-      if (activityLeases.blocksDiscard(tab.id, now)) {
-        // 租约期间不计入后台时长：休眠资格从租约结束时刻重新计时，
-        // 否则「挂了 1 小时的标签被下载租约保护 2 分钟」会在租约一结束就被立刻丢弃。
-        tab.backgroundSince = now
-        continue
+  /** 扫描不可重入：Flash 判定是异步的，两轮重叠会重复探测、重复决策。 */
+  let sweepInFlight = false
+
+  async function sweepDiscard(): Promise<void> {
+    if (sweepInFlight || closing || window.isDestroyed()) return
+    sweepInFlight = true
+    try {
+      const now = Date.now()
+      // 先回收过期租约再判定：owner 崩溃或忘记释放时，标签不会被永久锁活。
+      activityLeases.sweepExpired(now)
+      if (currentSettings().tabDiscard === 'never') return
+      for (const tab of tabs) {
+        if (!tab.view || tab === active || tab.internal || tab.pinned) continue
+        if (activityLeases.blocksDiscard(tab.id, now)) {
+          // 租约期间不计入后台时长：休眠资格从租约结束时刻重新计时，
+          // 否则「挂了 1 小时的标签被下载租约保护 2 分钟」会在租约一结束就被立刻丢弃。
+          tab.backgroundSince = now
+          continue
+        }
+        const contents = tab.view.webContents
+        if (contents.isDestroyed() || contents.isCrashed()) continue
+        // 正在做两阶段引擎切换的标签先不睡：切换是用户/自动化**刚发起**的动作，而
+        // `discardTab()` 第一件事就是 `cancelEngineSwitch()`——睡掉它等于把用户的操作取消掉。
+        // 候选准备最长 15 s，睡晚一轮没有代价。
+        if (tab.engineSwitch) {
+          noteDiscardBlocked(tab, 'engine-switch-pending')
+          continue
+        }
+        // ADR-0004 硬门禁①：加载中的标签不睡（否则连首屏都回不来，更别说页面里的游戏）。
+        if (contents.isLoading()) {
+          noteDiscardBlocked(tab, 'loading')
+          continue
+        }
+        if (safe(() => contents.isCurrentlyAudible(), false)) continue
+        if (!isWebAddress(safe(() => contents.getURL(), ''))) continue
+        if (tab.backgroundSince === undefined) {
+          tab.backgroundSince = now
+          continue
+        }
+        if (now - tab.backgroundSince < DISCARD_TTL_MS) continue
+        // ADR-0004 硬门禁②：含 Flash 内容的标签永不自动休眠。
+        // 只有**真要睡**的标签才付这次跨帧探测：探测放在 TTL 之后，才不会被"早期阴性"骗过
+        // （页面可以在首次探测之后才插入播放器）。阳性结果由绑定代际粘住。
+        if (await flashContentOf(tab, contents)) {
+          noteDiscardBlocked(tab, 'flash-content', ` url=${safe(() => contents.getURL(), '')}`)
+          continue
+        }
+        // 探测是异步的：期间标签可能被切换、导航、重建或销毁，提交前重新校验。
+        if (closing || tab.view?.webContents !== contents || tab === active) continue
+        if (contents.isDestroyed() || contents.isLoading()) continue
+        discardTab(tab)
       }
-      const contents = tab.view.webContents
-      if (contents.isDestroyed() || contents.isCrashed()) continue
-      // 正在做两阶段引擎切换的标签先不睡：切换是用户/自动化**刚发起**的动作，而
-      // `discardTab()` 第一件事就是 `cancelEngineSwitch()`——睡掉它等于把用户的操作取消掉。
-      // 候选准备最长 15 s，睡晚一轮没有代价。
-      if (tab.engineSwitch) {
-        noteDiscardBlocked(tab, 'engine-switch-pending')
-        continue
-      }
-      // ADR-0004 硬门禁①：加载中的标签不睡（否则连首屏都回不来，更别说页面里的游戏）。
-      if (contents.isLoading()) {
-        noteDiscardBlocked(tab, 'loading')
-        continue
-      }
-      // ADR-0004 硬门禁②：含 Flash 内容的标签永不自动休眠。探测中（undefined）也按"有"处理。
-      const flash = flashContentOf(tab, contents)
-      if (flash !== false) {
-        noteDiscardBlocked(tab, flash === true ? 'flash-content' : 'flash-probe-pending',
-          ` url=${safe(() => contents.getURL(), '')}`)
-        continue
-      }
-      if (safe(() => contents.isCurrentlyAudible(), false)) continue
-      if (!isWebAddress(safe(() => contents.getURL(), ''))) continue
-      if (tab.backgroundSince === undefined) {
-        tab.backgroundSince = now
-        continue
-      }
-      if (now - tab.backgroundSince < DISCARD_TTL_MS) continue
-      discardTab(tab)
+    } finally {
+      sweepInFlight = false
     }
   }
 
@@ -2572,7 +2594,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   })
   // 后台标签休眠扫描：每 30 秒一次；开关在设置里（`tab.discard = never` 时整个机制停用，
   // 挂机/自动化场景需要后台标签一直运行）。
-  const discardTimer = setInterval(sweepDiscard, DISCARD_SWEEP_MS)
+  const discardTimer = setInterval(() => { void sweepDiscard() }, DISCARD_SWEEP_MS)
   window.on('closed', () => {
     // 最早抓一次会话投影：后面会逐个关闭 WebContents，标题/地址会退化成空值。
     const finalSession = sessionWindowSnapshot()

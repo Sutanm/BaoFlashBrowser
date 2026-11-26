@@ -100,17 +100,32 @@ OS 的真实内存压力（`base::MemoryPressureMonitor`）**不改变**第 2/3/
 
 - **收益预期下调，且这是决策的一部分**：一个满屏 Flash 游戏的会话，回收量从"每标签 ≈111 MB"掉到 **0**。省内存退回到"用户主动关标签"，或将来由用户显式打开一个「允许休眠含 Flash 的标签」的开关（**默认关**，且打开后仍受第 3 条 `save → ack` 约束）。
 
-### 批次 1 已落地（2026-11-25）
+### 批次 1 已落地（2026-11-25，2026-11-26 按审计修正）
 
 改了 `app/src/main/browser-window.ts` 的 `sweepDiscard()`：新增 `isLoading()` 门禁、Flash 内容门禁、
-`BAO_DISCARD_TRACE`，并补了 2 条用例（`tab-discard.test.cjs` 现 9/9 通过）。
+`BAO_DISCARD_TRACE`，用例 `tab-discard.test.cjs` 现 **11/11**。
 
-落地时踩到一个必须记下来的坑：**第一版用 `tab.engine === 'ppapi'` 当 Flash 判据，结果全部标签都不休眠了**。
-原因是本产品的默认引擎就是 `ppapi`（插件可用时每个标签都是它），"引擎是 ppapi" ≠ "装着 Flash"；
-trace 里普通页全是 `flash-content`，一眼就看得出来。最终改用**决策时问页面一次 DOM**
-（`embed/object/ruffle-player/ruffle-embed/[type*=flash]`），结果按「标签 + 当前 URL」缓存，
-探测中/失败按"有"处理。代价是每个标签在**第一次**够格被丢弃时多一次 `executeJavaScript`（几毫秒），
-够格被丢的时间点本来就稀少。
+落地时踩到两个必须记下来的坑（都来自 2026-11-26 审计）：
+
+1. **第一版用 `tab.engine === 'ppapi'` 当 Flash 判据**，结果全部标签都不休眠——本产品的默认引擎
+   就是 `ppapi`（插件可用时每个标签都是它），"引擎是 ppapi" ≠ "装着 Flash"。trace 里普通页
+   全是 `flash-content`，一眼就看得出来。
+2. **第二版只探顶层文档、还按 URL 缓存阴性**，被审计复现两处漏判：页面可以**在首次探测之后**
+   才插入播放器（懒加载 / SPA），而 `document.querySelector` 看不到 **iframe** 里的播放器
+   （本产品的站点客户端 SWF 常挂在跨源 iframe 里，见 §6.5 的 surface 讨论）。
+
+现在的实现（`flashContentOf()`）：
+
+- **只在决策那一刻探**（TTL 到期才付这次 `executeJavaScript`）——早期阴性不可能被复用；
+- **遍历整棵帧树**（`mainFrame.framesInSubtree` + 逐帧执行），跨源帧同样能判；
+- **只粘阳性**，键是**绑定代际**（引擎切换提交 / 崩溃重建 / 唤醒后自动重探）；
+- 判不出（帧已 detach / 执行失败 / 取不到主帧）按"有"处理（fail-closed）；
+- 扫描器因此改成**异步且不可重入**（`sweepInFlight`），探测后、提交前重新校验视图身份
+  （探测期间标签可能被切换/导航/重建）。
+
+代价是每个**真要睡**的标签多一次跨帧 `executeJavaScript`（几毫秒）；够格被丢的时间点本来就稀少。
+两条新用例（"迟插入的 Flash 内容"、"跨源 iframe 里的 Flash 内容"）**都在旧实现下实测失败**，
+不是同义反复。
 
 仍缺（批次 2，需另开一轮）：自动化会话级闸门、`save → ack`、`Ruffle` 侧在 preload 里主动上报
 （这样连"决策时问一次"都省掉）。
