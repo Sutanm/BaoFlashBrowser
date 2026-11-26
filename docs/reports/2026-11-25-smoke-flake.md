@@ -111,3 +111,28 @@
 同时新增两条 flake 相关经验：① 前台套件里"地址栏草稿被状态广播清空"曾伪装成随机 30 s 超时（详见
 [overlay demo §7.4](../discussions/2026-11-25-overlay-shared-process-demo.md)）；② 渲染进程崩溃后 Playwright 的 Page 永久失效，
 崩溃类断言必须由主进程写诊断文件（`BAO_SELFHEAL_TRACE`）。
+
+## 9. 修正节（2026-11-26 追加）：`openPage` 的标题等待会吃掉 30 s
+
+一次全量隐藏并行（4 并发）里 `tab-discard` 的「关闭持有租约的标签后……」失败：
+
+```
+Error: 标签 H 没有加载完
+  at waitFor (helpers.cjs:155)  ← tests/smoke/tab-discard.test.cjs:342 openPage
+[超时现场] shell={"tabs":2,...,"loading":false,"labels":["新标签页","127.0.0.1:1719/h"]}
+```
+
+现场的特征是：**地址已提交、`loading` 为 false、标题恰好等于 URL**。
+`describe()` 的标题来自 `contents.getTitle()`，Chromium 只有在文档没有 `<title>` 时才回落到 URL，
+所以这是「文档没落地」而不是「标题事件丢了」——错误页或响应没到达都会长这样。
+
+处置与结论：
+
+| 项 | 结果 |
+| --- | --- |
+| 单独跑 `--only=tab-discard --jobs=1` | **11/11 通过**，该用例 4.5 s |
+| 随后全量并行复跑 | **30 个文件 0 失败**，98.8 s |
+| 判定 | 并发下的资源竞争（4 个 Electron 实例 + 进程内 fixture server），**不是产品回归**——本次改动没有新增任何运行时导入 |
+| 未做 | 没有据此改 `openPage`：把标题等待改成「地址 + loading」会掩盖真正的加载失败，方向是错的 |
+
+以后若再次命中，先看现场里的 `labels` 是否等于 URL：是，则按并发加载失败处理；不是，才是标题逻辑问题。
