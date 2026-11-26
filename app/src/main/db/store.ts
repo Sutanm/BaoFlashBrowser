@@ -380,6 +380,7 @@ export function settingValue(settings: Settings, key: SettingKey): SettingValue[
     case 'theme.mode': return settings.themeMode
     case 'engine.default': return settings.defaultEngine
     case 'search.engine': return settings.searchEngine
+    case 'bookmark.bar': return settings.bookmarkBar
     case 'locale': return settings.locale
   }
 }

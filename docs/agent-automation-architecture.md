@@ -71,6 +71,7 @@ Next 已实现的主要能力是：
 - `navigationId`；
 - Page Map、Target Registry、Surface Registry；
 - TargetRef 和统一坐标平面；
+- 人机共用指代（`TargetRef` 双产出者、`ShellRef`）与交互形态（§6.5、§14.4）；
 - Automation Runtime 和 Workflow Runtime；
 - Agent Host、AgentSession、AgentTask；
 - Agent 权限管线、任务审计与模型 Adapter。
@@ -294,6 +295,40 @@ interface DurableTargetSpec {
 - `targetId`：只在对应观察上下文内有效的短目标 ID。
 
 Shell 命令使用独立的 Browser/Shell target，不得伪装成页面 `TargetRef`。不得把 `webContents.id` 当作长期稳定的 Agent target。所有消费短引用的能力必须经过统一的 `validateTargetRef(action, target)`；校验规则至少覆盖 binding、navigation、observation 和 frame/surface 有效性，视觉坐标还必须校验 capture 和 transform。
+
+### 6.5 指代的产出者（2026-11-26 裁决）
+
+`TargetRef` 不是 Agent 专属类型。人类指代 UI（选中、框选、拖入标签）与 Agent 产出的必须是**同一类型、同一 ID 空间**，可互相传递。
+
+```ts
+type TargetProducer = 'human-ui' | 'agent' | 'workflow' | 'system'
+
+interface TargetRefBase {
+  // ... 原字段
+  producedBy: TargetProducer
+}
+```
+
+规则：
+
+1. 人产出的 `TargetRef` 可直接作为 Agent 的输入，不经语言转述、不重新解析；
+2. 任何指代必须能回答「谁指的」，否则无法比对、无法回放、无法审计；
+3. `producedBy` 与 `ActionContext.actor` 不是同一概念：前者是**地址的产出者**，后者是**动作的执行者**，二者可以不同；
+4. 外壳元素使用独立的 `ShellRef`，不复用页面 `TargetRef`，**不得重新引入 `kind: 'shell'`**（见 [2026-11-25 审计](discussions/2026-11-25-agent-architecture-audit.md) 裁决 #2）：
+
+```ts
+interface ShellRef {
+  surfaceId: 'shell'
+  elementId: string          // 稳定 ID（如 data-bao-id），编译期可枚举
+  route?: string             // 外壳当前路由或面板
+  producedBy: TargetProducer
+  observationId: string
+}
+```
+
+5. 外壳元素树由本项目自有代码定义，因此 `ShellRef` 可以做到「命名即地址」：不依赖 Page Map、CDP 或视觉兜底，也不需要 `DurableTargetSpec`；
+6. `ShellRef` 只能解析为 Browser/Shell 命令，**不得解析为 DOM 点击**（见 §20 非目标）；
+7. `ShellRef` 必须能回答「这个控件代表什么实体」（如地址栏 → 当前站点/URL），否则执行语义会错位成「聚焦输入框」。
 
 ## 7. 标签生命周期与活动租约
 
@@ -560,6 +595,94 @@ observe、extract、vision、Page Map 以及其他含页面派生内容的结果
 
 更换 Adapter 不得修改 Browser Capability、Automation Runtime 或 Workflow IR。
 
+### 14.4 交互形态（2026-11-26 裁决）
+
+§14.2 的 observe / cooperative / exclusive 是**权限模式**，不是界面形态。本节定义形态，以及与「人」的交互合同。
+
+#### 14.4.1 三种形态
+
+浏览器只有一条输入现实（焦点、指针、IME、滚动）。人与 Agent 竞争的是这条通道的**时间片**，不是屏幕位置。
+
+| 形态 | 通道关系 | 适用 | 禁止 |
+| --- | --- | --- | --- |
+| 并行 | 不同标签或窗口，不冲突 | 后台任务、批量、监控 | 不得在非目标标签顺手写 |
+| 协作 | 同页，通道分时 | 表单、调试、测试平台 | 不得静默夺取焦点 |
+| 接管 | 同一 surface，互斥 | Flash、Canvas、远控 | 不得与人同时输入 |
+
+规则：
+
+1. 形态由 Host 按标签 surface 类型与权限模式推导，不由模型自选；
+2. 含 PPAPI / Ruffle / Canvas surface 的标签默认**只能接管**，不得进入协作；
+3. 任何形态切换必须显式进行，并产生一条生命周期事件；
+4. **每次控制权转移都是一个可撤销检查点**；无检查点的转移不得实施。
+
+#### 14.4.2 表达阶梯（指代优先）
+
+| 层 | 手段 | 可用前提 |
+| --- | --- | --- |
+| 指向 | 点击、选中、框选、拖入标签 | 目标当下可见 |
+| 结构化 | DOM/AX、表单、表格、轨迹、时间序列 | 页面有结构 |
+| 视觉 | 截图、模板、OCR、坐标 | 无结构（Flash / Canvas / 图片） |
+| 语言 | 自然语言对话 | 前三层都不成立 |
+
+规则：
+
+5. 下层能解决时不得上跳；语言只用于理解与讨论，不得作为定位的默认路径；
+6. 工具面必须提供「指向」入口；把「用语言描述目标再让模型猜」当作默认交互是不合格的；
+7. Agent 覆盖 Host 推荐的通道时必须给出理由（与 §10.4 一致）。
+
+#### 14.4.3 指认范围与执行范围分离
+
+| 范围 | 覆盖 | 约束 |
+| --- | --- | --- |
+| 截图（page） | 页面 WebContents | 指代标记不得进入 |
+| 截图（window） | 外壳 + 页面 | 截图前必须隐藏标记层 |
+| 指认 | 整个窗口：shell 元素 + page 元素 + surface | 人机共用同一地址空间 |
+| 执行 | page 走页面能力，shell 走 shell 命令 | 不得混用 |
+
+规则：
+
+8. 指认范围是**整个窗口**，不是某个 WebContents；人指的不是进程，是屏幕上这个东西；
+9. 外壳元素可被指认（`ShellRef`，见 §6.5），但**不得被 DOM 点击**；对 shell 目标的执行必须映射为 Browser/Shell 命令；
+10. 指代标记不得进入任何用于识别的截图；window 截图前必须隐藏标记层。外壳可控，因此不得依赖「记得清除」这类纪律（旧实现即因此污染识别帧）。
+
+#### 14.4.4 同构回执
+
+11. Agent 收到指代后，首次动作前必须回指一次；
+12. 回指必须使用与用户相同的工具与视觉语言，**不得用文字描述代替**；
+13. 回指与用户的标记必须可直接比对：同一坐标系、同一 surface、同一代际。
+
+#### 14.4.5 冻结帧指代
+
+14. 视觉 / surface 目标的指代在冻结帧上进行：先取帧，再在帧上标定，最后映射回活页面；
+15. 标记必须携带 `captureId`、`transformVersion`、`bindingId`、`navigationId`；帧过期即失效，不得静默沿用；
+16. 指代是对某一帧的断言，不是目标的永久属性。
+
+#### 14.4.6 打扰预算
+
+| 档 | 通道 | 用途 |
+| --- | --- | --- |
+| 零 | toast | 完成或失败的一句话 |
+| 低 | 快捷面板 | 需要一眼，不抢焦点 |
+| 打断 | 面板 / 模态 | 仅不可逆、高风险、权限 |
+
+17. **审批不是逐步，是不可逆点一次**；常规进度与常规失败不得进入打断档；
+18. 本规则是 §16「确定性步骤不调用模型」在人类注意力侧的对应条款。
+
+#### 14.4.7 锁定框即租约投影
+
+19. 锁定框是活动租约（§7）的可见投影：框在 = 有 holder 正在该区域工作；租约释放或过期，框必须消失；
+20. 锁定框的每次修改（谁、从哪到哪、何时）都是一条轨迹，可进入审计流。
+
+#### 14.4.8 不做
+
+- 侧边栏聊天框作为主交互入口；
+- 把指认工具做成编排器（编排属于 Workflow，不属于指代）；
+- 无回执的静默指代；
+- 用语言描述定位；
+- 有结构时优先视觉；
+- 让人与 Agent 在同一 Flash surface 上共存输入。
+
 ## 15. 权限与安全
 
 四类权限机构保持分离：
@@ -667,7 +790,7 @@ M3 不要求一次性交付 A2–A6。每个工作流都要有独立立项、退
 ### A1：浏览器能力底座【M2 当前工作】
 
 - 提取 Tab/Window/BrowsingContext 注册表；
-- 建立显式 actor/target 的 Browser Capability API；
+- 建立显式 actor/target 的 Browser Capability API，并落地 `TargetRef` 双产出者（§6.5）与 `ShellRef`；
 - UI 适配到新 API；
 - 加入 binding/navigation 代际；
 - 加入 ActivityLeaseManager；

@@ -38,6 +38,41 @@ export interface BookmarkTreeNode extends BookmarkNode {
   children: BookmarkTreeNode[]
 }
 
+/**
+ * 收藏夹横条的显示模式（工具栏下面那第三行）。
+ *
+ * 这是 **Edge「显示收藏夹栏」的三档**，不是 Chromium 那两个布尔：Chromium 用
+ * `kShowBookmarkBar` + `kShowBookmarkBarOnNtp` 两个 pref 拼出同样的三档
+ * （`chrome/browser/ui/bookmarks/bookmark_bar_controller.cc:141` 的
+ * `ShouldShowBookmarkBar()`），拆成两个布尔会让「从不显示」和「仅新标签页」在
+ * 设置页里没有名字。一档一个值，UI 与布局共用同一份取值域。
+ *
+ * 数组顺序 = 界面顺序：**默认档排第一**（「仅在新标签页上显示 / 始终显示 / 从不显示」）。
+ * 默认档放第一位是因为它就是"什么都不用做"的那一档——用户打开设置页第一眼看到的应该是
+ * 自己当前的状态，而不是某个需要理解的选项（2026-11-26 反馈）。
+ */
+export const BOOKMARK_BAR_MODES = ['ntp', 'always', 'never'] as const
+export type BookmarkBarMode = (typeof BOOKMARK_BAR_MODES)[number]
+
+export function isBookmarkBarMode(value: unknown): value is BookmarkBarMode {
+  return typeof value === 'string' && (BOOKMARK_BAR_MODES as readonly string[]).includes(value)
+}
+
+/**
+ * 横条此刻该不该占位置。
+ *
+ * **主进程与外壳共用这一个判定**：主进程按它决定页面视图的 y 坐标，外壳按它决定画不画那一行。
+ * 两处各写一遍是这类「固定高度条」最典型的错位来源——条画出来了、页面却压在下面一截。
+ *
+ * `internal` 只收内部页种类（`'newtab'` / `'settings'` / 普通网页的 `undefined`）：
+ * 用 `string` 是为了不把 `shared/browser.ts` 的类型引进来（那边 import 本文件）。
+ */
+export function showsBookmarkBar(mode: BookmarkBarMode, internal: string | undefined): boolean {
+  if (mode === 'never') return false
+  if (mode === 'always') return true
+  return internal === 'newtab'
+}
+
 export function isPermanentRoot(id: string): id is BookmarkRootId {
   return (BOOKMARK_ROOTS as readonly string[]).includes(id)
 }

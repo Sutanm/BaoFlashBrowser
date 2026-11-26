@@ -13,6 +13,9 @@ const nativeFlashSkip = process.platform === 'win32' &&
   (process.env.BAO_SMOKE_HIDDEN === '1' || process.env.BAO_SMOKE_BACKGROUND === '1') &&
   '未验证此内核的 PPAPI 进程沙箱，请用 --foreground 验收原生 Flash。'
 
+/** 叠加层文档（飞窗 / 引擎面板 / 提示条 / 崩溃恢复气泡共用的那个视图）的 URL 特征。 */
+const OVERLAY_URL_MARKER = 'baoOverlay=overlay'
+
 let verifiedPpapiSandbox
 function appNativeFlashSkip() {
   if (!nativeFlashSkip) return false
@@ -226,6 +229,94 @@ function pageViewIds(windowHandle) {
 }
 
 /**
+ * 在叠加层文档里执行一段脚本（找不到文档时返回 undefined）。
+ *
+ * 崩溃恢复气泡住在叠加层视图里（不是外壳 DOM）：提示条那版可以 `.session-infobar` 定位，
+ * 气泡只能进到那个 WebContents 里看。视图可能正处在「共享模式刚被外壳 window.open 出来」
+ * 的创建窗口期，所以失败重试一次——与 `quick-settings.test.cjs` 的 `inQuick()` 同一套做法。
+ */
+async function overlayEval(app, code) {
+  let lastError
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const id = await app.evaluate(({ webContents }, marker) => {
+      const target = webContents.getAllWebContents().find((contents) =>
+        (contents.getURL() ?? '').includes(marker))
+      return target ? target.id : null
+    }, OVERLAY_URL_MARKER)
+    if (!id) {
+      lastError = new Error('叠加层文档还不存在')
+      await new Promise((done) => setTimeout(done, 250))
+      continue
+    }
+    try {
+      return await app.evaluate(async ({ webContents }, payload) => {
+        const target = webContents.fromId(payload.id)
+        if (!target || target.isDestroyed()) throw new Error('叠加层已销毁')
+        return target.executeJavaScript(payload.code)
+      }, { id, code })
+    } catch (error) {
+      lastError = error
+      await new Promise((done) => setTimeout(done, 250))
+    }
+  }
+  throw lastError ?? new Error('叠加层文档不可用')
+}
+
+/** 崩溃恢复气泡的当前状态；没显示时返回 null。 */
+async function sessionBubbleState(app) {
+  const state = await overlayEval(app, `(() => {
+    const card = document.querySelector('.session-bubble')
+    // 组件常驻挂载（宿主用 v-show 切显示），所以"消失了"= 祖先 display:none 导致没有布局盒。
+    if (!card || card.getClientRects().length === 0) return null
+    return {
+      title: (card.querySelector('.session-bubble-title')?.textContent ?? '').trim(),
+      message: (card.querySelector('.session-bubble-message')?.textContent ?? '').trim(),
+      tabs: Number((card.querySelector('.session-bubble-count')?.textContent ?? '0').trim()),
+      restore: (card.querySelector('.session-bubble-actions button')?.textContent ?? '').trim()
+    }
+  })()`).catch(() => undefined)
+  return state ?? null
+}
+
+/** 等气泡出现（走 waitFor，让超时现场带上进程/标签快照）。 */
+async function waitForSessionBubble(app, { timeout = 30_000 } = {}) {
+  return waitFor(async () => {
+    const state = await sessionBubbleState(app)
+    return state ?? null
+  }, { timeout, message: '崩溃恢复气泡没有出现' })
+}
+
+/** 等气泡消失（用户回答后，或提示被清除）。 */
+async function waitForSessionBubbleGone(app, { timeout = 30_000 } = {}) {
+  return waitFor(async () => ((await sessionBubbleState(app)) === null ? true : null),
+    { timeout, message: '崩溃恢复气泡没有消失' })
+}
+
+/** 点气泡上的「恢复」或右上角「忽略」（×）。 */
+async function clickSessionBubble(app, action) {
+  const selector = action === 'restore' ? '.session-bubble-actions button' : '.session-bubble-close'
+  return overlayEval(app, `(() => {
+    const button = document.querySelector('${selector}')
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+}
+
+/** 主进程里主窗口当前挂载的页面视图 bounds（用来验证气泡不会推页面）。 */
+function pageViewBounds(app) {
+  return app.evaluate(({ BrowserWindow }) => {
+    // 取外壳窗口（多窗口拖出场景下第一扇不一定是外壳）。
+    const win = BrowserWindow.getAllWindows().find((item) =>
+      (item.webContents.getURL() ?? '').endsWith('/out/renderer/index.html'))
+    if (!win) return null
+    const view = win.contentView.children
+      .find((child) => child.webContents && child.webContents !== win.webContents)
+    return view ? view.getBounds() : null
+  })
+}
+
+/**
  * 主进程里按 URL 找页面 WebContents 的**实际**音频状态。
  *
  * 静音 / 休眠 / 会话恢复的回归必须检查真实 WebContents 的 `isAudioMuted()`：
@@ -300,6 +391,7 @@ async function setEngine(shell, engine) {
 
 module.exports = {
   audioStateOf,
+  clickSessionBubble,
   waitForTabLabel,
   appNativeFlashSkip,
   flashPluginPath,
@@ -308,12 +400,17 @@ module.exports = {
   launchApp,
   launchAppAt,
   nativeFlashSkip,
+  overlayEval,
   page,
+  pageViewBounds,
   pageViewIds,
   pressShortcut,
+  sessionBubbleState,
   setEngine,
   startFixtureServer,
-  waitFor
+  waitFor,
+  waitForSessionBubble,
+  waitForSessionBubbleGone
 }
 /**
  * 本地是否有 PPAPI 插件（BYOP：开发环境可能没放）。

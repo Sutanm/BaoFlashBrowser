@@ -73,6 +73,7 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 - [x] **C5 对齐**（2026-11-23）：F9 第七节加与提案 §6 M2 的对齐说明，重叠项归 M2。
 - [x] **C7 收口**（2026-11-23）：新增 [ADR-0003](adr/0003-kernel-baseline-e39-142.md)。
 - [x] **阶段体系同步**（2026-11-24）：M0–M3 保持唯一里程碑；M2 改为实施中，A0–A6 改为跨阶段工作流并映射到 M2/M3。
+- [x] **Agent 交互形态与指代产出者**（2026-11-26）：SSOT 新增 §6.5（`TargetRef` 双产出者 + `ShellRef`）与 §14.4（三种形态、表达阶梯、指认/执行范围分离、同构回执、冻结帧、打扰预算），§18-A1 回填落地条款。依据见 [11-26 讨论稿](discussions/2026-11-26-agent-interaction-deixis.md)。
 - [x] 根 `README.md`「从这里开始」加一行指向本页（2026-11-23）。
 
 **结论类未决项不在本页处理。** 当前只剩 C3 的具体 Adapter 依赖选择，需在实现 A5 前完成依赖与许可审计。
@@ -88,6 +89,8 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 | [`discussions/2026-11-24-agent-automation-design-clarification.md`](discussions/2026-11-24-agent-automation-design-clarification.md) | 新 Agent/自动化架构的讨论与设计依据 |
 | [`discussions/2026-11-24-agent-browser-community-research.md`](discussions/2026-11-24-agent-browser-community-research.md) | 社区项目与 CDP/Page Map 参考调研 |
 | [`discussions/2026-11-25-agent-architecture-audit.md`](discussions/2026-11-25-agent-architecture-audit.md) | 对 Agent/自动化 SSOT 的审计（**已裁决并回填**）：结果来源封装、短期/持久化目标、租约 holder、CDP 路由边界与 A1 合同测试；「Agent 不立项」分支关闭 |
+| [`discussions/2026-11-26-agent-interaction-deixis.md`](discussions/2026-11-26-agent-interaction-deixis.md) | 人机协作的交互合同（**已裁决并回填**）：指代优先、共享指认工具、锁定框三态协议、冻结帧、指认/执行范围分离；含老项目相框助手实证 |
+| [`discussions/2026-11-26-next-to-legacy-design-feedback.md`](discussions/2026-11-26-next-to-legacy-design-feedback.md) | 反向移植清单：14 项可从本项目搬回老项目（Electron 11）的设计 + 7 项不适用项，含 `文件:行号` 依据与批次建议 |
 | [`discussions/2026-11-24-new-tab-page-alignment.md`](discussions/2026-11-24-new-tab-page-alignment.md) | 新标签页对齐 Chromium：142 源码依据、差距清单、行为合同与 P0/P1 方案（**已交付**，见[报告](reports/2026-11-24-newtab-alignment.md)） |
 | [`discussions/2026-11-21-bfb-next-tech-stack.md`](discussions/2026-11-21-bfb-next-tech-stack.md) | 第一轮技术栈选型讨论（§7.5/§7.6 已定） |
 | [`discussions/2026-11-23-bfb-next-agent-boundary.md`](discussions/2026-11-23-bfb-next-agent-boundary.md) | 已吸收的反需求与放权边界历史记录；现行结论见新 SSOT §15/§20 |
@@ -98,7 +101,7 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 | [`kernel/README.md`](kernel/README.md) | 已验证内核补丁登记（含构建标识与 SHA-256） |
 | [`kickoff/README.md`](kickoff/README.md) · [`m2-beta.md`](kickoff/m2-beta.md) | 阶段索引与当前 M2 实施/验收记录 |
 | [`specs/`](specs)（5 篇） | Flash 移植、AI 复现手册、版本可行性、模块影响评估 |
-| [`reports/`](reports)（16 篇） | 140 实验、142 构建与运行、M1 增量、M2 设置/叠加层/插件发现/标签休眠/新标签页/活动租约/会话恢复/新窗口形态等交付证据 |
+| [`reports/`](reports)（17 篇） | 140 实验、142 构建与运行、M1 增量、M2 设置/叠加层/插件发现/标签休眠/新标签页/活动租约/会话恢复/崩溃恢复气泡/新窗口形态等交付证据 |
 | [`evidence/`](evidence)（9 件） | 4399/摩尔庄园 双引擎对照图、crossdomain 调查、帧自检结果 |
 | [`design/`](design)（HTML + renders） | 设置页与引擎面板设计稿 |
 | [`blog/assets/`](blog/assets) | 对外文章配图 |

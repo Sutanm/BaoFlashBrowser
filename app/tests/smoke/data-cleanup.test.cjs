@@ -4,7 +4,7 @@ const { mkdtemp, rm } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const { DatabaseSync } = require('node:sqlite')
-const { launchAppAt, page, pressShortcut, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchAppAt, page, pressShortcut, sessionBubbleState, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
  * 存储清理（M2）：「设置 → 数据 → 已保存的会话 → 清除」。
@@ -113,7 +113,7 @@ test('设置页「隐私、搜索和服务 → 清除会话」：删掉会话与
       assert.equal(state.tabs.length, 1, '重启后只有新标签页')
       assert.equal(state.tabs[0].internal, 'newtab')
       assert.equal(state.sessionPrompt, undefined, '清除过的会话不应再触发恢复提示')
-      assert.equal(await second.shell.locator('.session-infobar').count(), 0)
+      assert.equal(await sessionBubbleState(second.app), null, '清除过的会话不应再出现恢复气泡')
     } finally {
       await second.close()
     }

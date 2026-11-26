@@ -75,8 +75,9 @@ CREATE INDEX bookmarks_parent ON bookmarks(parent_id, position);
 
 ## 6. 未做（后续增量）
 
-1. **UI**：横条（外壳第三行，占高 32 并入视图下移）、飞窗面板、`bao://favorites` 管理页、
-   星标收藏当前页、设置飞窗里的入口；
+1. **UI**：横条（外壳第三行，占高 32 并入视图下移）——**已完成**，见
+   [`2026-11-26-bookmark-bar.md`](./2026-11-26-bookmark-bar.md)；飞窗面板、`bao://favorites`
+   管理页、星标收藏当前页、设置飞窗里的入口均已就位；
 2. **历史**：M2 剩余范围里与书签并列的那一半（`urls` + `visits` 双表，C5-S2 已裁决）；
 3. **导入 Chrome/Edge 书签**（书签栏文件夹结构要保住）；
 4. **分类清理的「收藏」档**：`clearBookmarks` 已就绪，缺设置页入口；

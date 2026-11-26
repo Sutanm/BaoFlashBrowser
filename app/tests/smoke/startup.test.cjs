@@ -64,6 +64,13 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
       const view = window.contentView.children.find((child) => child.webContents && child.webContents !== window.webContents)
       return { size: window.getContentSize(), bounds: view.getBounds() }
     })
+    /**
+     * 外壳高度**按当前标签**算，不能只量一次。
+     *
+     * 收藏夹横条（2026-11-26）在默认档下只在新标签页上占 32px：启动时量到的 116 是 NTP 的，
+     * 导航到网页之后变成 84。拿启动时那个常量去比网页上的视图 y，就是在比较两个不同的页面。
+     */
+    const chromeHeight = () => shell.evaluate(() => document.querySelector('header').getBoundingClientRect().height)
 
     // 前台跑法下窗口是 `show: false` 创建、`loadURL` 完成后再 `show()`；页面在 `show()`
     // 之前就已经可交互，所以这里等一次可见性，避免把「还没 show」误判成回归。
@@ -102,8 +109,9 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
       await resized
     })
     const resized = await geometry()
+    const resizedChrome = await chromeHeight()
     assert.deepEqual(resized.bounds, {
-      x: 0, y: runtime.chromeHeight, width: resized.size[0], height: resized.size[1] - runtime.chromeHeight
+      x: 0, y: resizedChrome, width: resized.size[0], height: resized.size[1] - resizedChrome
     })
 
     await context.test('最大化后视图随内容区调整', { skip: AUTOMATED && '原生最大化留给前台测试' }, async () => {
@@ -113,8 +121,9 @@ test('自编译运行时启动无边框外壳并保持单标签、导航与焦�
         await maximized
       })
       const maximized = await geometry()
+      const maximizedChrome = await chromeHeight()
       assert.deepEqual(maximized.bounds, {
-        x: 0, y: runtime.chromeHeight, width: maximized.size[0], height: maximized.size[1] - runtime.chromeHeight
+        x: 0, y: maximizedChrome, width: maximized.size[0], height: maximized.size[1] - maximizedChrome
       })
     })
 

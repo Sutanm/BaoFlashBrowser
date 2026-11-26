@@ -1,5 +1,10 @@
 # M2 增量：崩溃恢复（用户确认）与 schema v2
 
+> **部分条款已被推翻（2026-11-26）**：§2 里「提示形态 = 外壳顶部 infobar」这条不再有效，
+> 提示已改为**叠加层警示气泡**（与 Chromium `SessionCrashedBubbleView` 对齐），
+> 见 [2026-11-26 崩溃恢复气泡](2026-11-26-session-bubble.md)。本文其余部分（退出标记三态、
+> 载荷校验、写盘挂起、恢复策略）仍然有效。
+
 2026-11-24 · 对应 M2 剩余范围「会话恢复」（[m2-beta §3](../kickoff/m2-beta.md#3-剩余范围)），
 以及[架构 §7 生命周期](../agent-automation-architecture.md#7-标签生命周期与活动租约)。
 代码：`app/src/shared/session.ts`、`app/src/main/db/store.ts`（schema v2）、

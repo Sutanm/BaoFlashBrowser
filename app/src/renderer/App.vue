@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT, INFOBAR_HEIGHT } from '../shared/browser'
+import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT, BOOKMARK_BAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserTab } from '../shared/browser'
-import { bookmarkForAddress, isBookmarkableAddress } from '../shared/bookmarks'
+import {
+  BOOKMARK_BAR_ROOT, bookmarkForAddress, childrenOf, isBookmarkableAddress
+} from '../shared/bookmarks'
+import type { BookmarkNode } from '../shared/bookmarks'
 import { engineLabels, engineSourceLabels } from '../shared/engine'
 import type { OverlayBounds, QuickView } from '../shared/overlay'
 import {
-  ENGINE_PANEL_INITIAL_HEIGHT, TOAST_HEIGHT, TOAST_WIDTH, flyoutBounds, panelBounds as enginePanelBounds
+  ENGINE_PANEL_INITIAL_HEIGHT, OVERLAY_GUTTER_X, TOAST_HEIGHT, TOAST_WIDTH, flyoutBounds,
+  panelBounds as enginePanelBounds
 } from '../shared/overlay-geometry'
 import type { FlyoutAnchor } from '../shared/overlay-geometry'
 import ShellIcon from './ShellIcon.vue'
@@ -20,7 +24,8 @@ const DRAG_THRESHOLD = 6
 const shellStyle = {
   '--tab-bar-height': `${TAB_BAR_HEIGHT}px`,
   '--toolbar-height': `${TOOLBAR_HEIGHT}px`,
-  '--infobar-height': `${INFOBAR_HEIGHT}px`
+  // 横条高度（横条本身用 `v-if` 整行拿掉；变量供错误页的 `min-height` 计算用）。
+  '--bookmark-bar-height': `${BOOKMARK_BAR_HEIGHT}px`
 }
 
 const store = useBrowserStore()
@@ -190,6 +195,9 @@ const quickView = ref<QuickView>('settings')
 
 /** 每个内容页的锚点按钮（星标在地址栏里，另外两个是工具栏按钮）。 */
 function quickAnchorFor(view: QuickView): HTMLButtonElement | undefined {
+  // 横条上的文件夹按钮：面板从**那颗**按钮下面展开（不是工具栏的收藏夹按钮）。
+  // 没有覆盖时才落回默认锚点。
+  if (view === 'bookmarks' && barFolderAnchor.value) return barFolderAnchor.value
   if (view === 'bookmarks') return bookmarksRoot.value
   if (view === 'bookmark-edit' || view === 'bookmark-editor') return bookmarkRoot.value
   return gearRoot.value
@@ -210,8 +218,14 @@ function quickBounds(view: QuickView): OverlayBounds | null {
 }
 
 /** 锚点：按钮右缘 + 按钮下缘——飞窗紧贴按钮展开（顶边不再落到工具栏下沿）。 */
-function anchorOf(rect: { right: number; bottom: number }): FlyoutAnchor {
-  return { anchorRight: rect.right, anchorBottom: rect.bottom, viewportWidth: window.innerWidth }
+function anchorOf(rect: { right: number; bottom: number; left?: number }): FlyoutAnchor {
+  return {
+    anchorRight: rect.right,
+    anchorBottom: rect.bottom,
+    viewportWidth: window.innerWidth,
+    // 右边放不下时飞窗改成左对齐（横条上的文件夹按钮就属于这种位置）。
+    anchorLeft: rect.left
+  }
 }
 
 /**
@@ -236,7 +250,81 @@ async function toggleQuick(view: QuickView): Promise<void> {
     closeQuick(true)
     return
   }
+  // 工具栏按钮打开的收藏夹面板必须锚回工具栏；横条文件夹的锚点只对那一次点击有效。
+  if (view === 'bookmarks') barFolderAnchor.value = undefined
   await openQuick(view)
+}
+
+/**
+ * 收藏夹横条（M2 收藏夹第二轮）：工具栏下面那第三行。
+ *
+ * 内容只平铺「收藏夹栏」根下的**一层**（Chromium 的横条也是这一层）：
+ * - 网址项：点一下就在当前标签打开（`open-bookmark` 按 id 取地址，界面拿不到任意导航）；
+ * - 文件夹：点开的是**收藏夹面板**（锚在那颗按钮下），里层在面板里展开——横条下方
+ *   弹出的文件夹菜单需要一只独立的弹出层，见 `docs/reports/2026-11-26-bookmarks-store.md` §6。
+ *
+ * **显示与否由主进程给**（`state.bookmarkBarShown`）：规则本体是 `showsBookmarkBar()`，
+ * 但还带时序（导航途中按住，见 `Tab.barHold`）——外壳自己拿 `settings` 算会把横条画早收早。
+ */
+const barEl = ref<HTMLElement>()
+/** 横条上的文件夹按钮：面板的临时锚点（关闭后清掉）。 */
+const barFolderAnchor = ref<HTMLButtonElement>()
+
+const barVisible = computed(() => state.value?.bookmarkBarShown === true)
+const barItems = computed<BookmarkNode[]>(() => childrenOf(state.value?.bookmarks ?? [], BOOKMARK_BAR_ROOT))
+
+/**
+ * 放不下的项从第几个开始隐藏（Chromium 的 `first_hidden_node_idx_`）。
+ *
+ * 为什么用 `visibility` 而不是 `v-if`：**隐藏的项必须继续占布局**，否则"先全部排出来量一次、
+ * 再藏掉放不下的"这套测量会在第二次收敛时把已被藏起来的项当成"宽度为 0、能放下"。
+ * 布局稳定 + 一次测量即可收敛，不会有来回抖动的正反馈。
+ */
+const barClippedFrom = ref(Number.POSITIVE_INFINITY)
+/**
+ * 右侧给「更多」预留的宽度：24px 按钮 + 6px 右边距（`inset-inline-end`）+ 2px 与最后一项的间隙。
+ *
+ * 必须**无条件预留**再量：不预留的话，"刚好放满"时会多出一个按钮、把最后一项挤出去，
+ * 而按钮出现与否又会改变量到的宽度 —— 那就是一个来回抖动的正反馈。
+ */
+const BAR_OVERFLOW_RESERVE = 32
+
+function measureBar(): void {
+  const element = barEl.value
+  if (!element || barItems.value.length === 0) {
+    barClippedFrom.value = Number.POSITIVE_INFINITY
+    return
+  }
+  const limit = element.clientWidth - BAR_OVERFLOW_RESERVE
+  let count = 0
+  for (const child of element.querySelectorAll<HTMLElement>('.bar-item:not(.bar-overflow)')) {
+    // `offsetLeft` 相对横条（它是 position: relative 的定位祖先）且含自身左内边距。
+    if (child.offsetLeft + child.offsetWidth > limit) break
+    count += 1
+  }
+  barClippedFrom.value = count
+}
+
+/**
+ * 网址项：在当前标签打开（地址由主进程按 id 从库里取）。
+ *
+ * 失败不用自己提示：`store.run()` 会把稳定错误码的文案写进 `message`，那条 watch 已经
+ * 负责弹提示条——这里再弹一次就是两条。
+ */
+async function openBarItem(node: BookmarkNode): Promise<void> {
+  if (node.kind !== 'url') return
+  await run({ type: 'open-bookmark', id: node.id })
+}
+
+/** 文件夹项：面板从那颗按钮下面展开（再点一次收起）。 */
+async function toggleBarFolder(node: BookmarkNode, event: MouseEvent): Promise<void> {
+  const button = event.currentTarget as HTMLButtonElement
+  if (quickOpen.value && quickView.value === 'bookmarks' && barFolderAnchor.value === button) {
+    closeQuick(true)
+    return
+  }
+  barFolderAnchor.value = button
+  await openQuick('bookmarks')
 }
 
 /**
@@ -316,13 +404,91 @@ function closeQuick(restoreFocus = false): void {
   // 外壳侧关闭走 `set-quick(null)`：`close-quick` 是飞窗自己（quick 角色）用来关闭并
   // 请求焦点归还的命令，外壳调用会被发送者校验拒绝。
   void window.baoOverlay.setQuick(null)
+  // 焦点要先还给**打开它的那颗**按钮，再清掉横条文件夹的临时锚点。
   if (restoreFocus) quickAnchor()?.focus()
+  barFolderAnchor.value = undefined
 }
 
 /** 焦点归还目标：飞窗挂在哪颗按钮下就还给谁（星标 ↔ 收藏夹 ↔ 齿轮）。 */
 function quickAnchor(): HTMLButtonElement | undefined {
   return quickAnchorFor(quickView.value)
 }
+
+/**
+ * 崩溃恢复气泡（M2 会话恢复第二轮，2026-11-26）：Chromium 的 `SessionCrashedBubbleView`。
+ *
+ * 与 11-24 那版的区别只有一个：**载体从外壳 DOM 的提示条换成叠加层气泡**。理由有两条：
+ * - 与 Chrome / Edge 一致（源码 `chrome/browser/ui/views/session_crashed_bubble_view.cc`：
+ *   警示对话框锚在工具栏最右那颗按钮下，失焦不关，一个「恢复」+ 右上角 ×）；
+ * - 提示条要占 36px 布局高度、把页面整体下推，回答完再跳回去；气泡浮在页面上，不动布局。
+ *
+ * 为什么不能画在外壳 DOM 里：页面是独立的 WebContentsView，压在外壳视图之上，
+ * 气泡往页面区一伸就被截掉。所以走飞窗那套叠加层视图（同一个渲染进程，不新增进程）。
+ */
+const SESSION_BUBBLE_WIDTH = 340
+const SESSION_BUBBLE_INITIAL_HEIGHT = 120
+const sessionBubbleOpen = ref(false)
+/** 气泡文案里的标签数：投影里 `sessionPrompt.tabs`，回答后随投影一起消失。 */
+const sessionBubbleTabs = computed(() => state.value?.sessionPrompt?.tabs ?? 0)
+
+/**
+ * 锚点 = 工具栏**最右那颗**按钮（Chromium 用应用菜单 `GetAppMenuButton()`，我们最右是齿轮）。
+ *
+ * 拿不到按钮矩形时（极端窄窗/首帧）退回"窗口右缘、工具栏下沿"，宁可位置略糙也不要不显示：
+ * 这是"上次崩溃了，要不要恢复"的唯一入口。
+ */
+function sessionBubbleBounds(): OverlayBounds {
+  const rect = gearRoot.value?.getBoundingClientRect()
+  if (rect) return flyoutBounds(anchorOf(rect), SESSION_BUBBLE_WIDTH, SESSION_BUBBLE_INITIAL_HEIGHT)
+  return {
+    x: Math.max(0, window.innerWidth - SESSION_BUBBLE_WIDTH - OVERLAY_GUTTER_X),
+    y: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT,
+    width: SESSION_BUBBLE_WIDTH,
+    height: SESSION_BUBBLE_INITIAL_HEIGHT
+  }
+}
+
+async function openSessionBubble(): Promise<void> {
+  await ensureSharedOverlay()
+  sessionBubbleOpen.value = true
+  const bounds = sessionBubbleBounds()
+  if (await window.baoOverlay.setBubble(bounds, sessionBubbleTabs.value)) return
+  /**
+   * 共享进程模式下，叠加层文档是外壳刚 `window.open` 出来的：主进程接管与这条
+   * `set-bubble` 可能撞在同一刻，视图还没就绪就会返回 false。接管是同步完成的，
+   * 让一帧再试一次就够——不留重试的话，气泡要等到下一次投影变化才出现（可能就是永远不出现）。
+   */
+  await new Promise((done) => setTimeout(done, 120))
+  if (!await window.baoOverlay.setBubble(sessionBubbleBounds(), sessionBubbleTabs.value)) {
+    sessionBubbleOpen.value = false
+  }
+}
+
+/** 提示消失了（已回答/被清除）：收起气泡。**收起不等于回答**，回答走 `close-bubble`。 */
+function closeSessionBubble(): void {
+  if (!sessionBubbleOpen.value) return
+  sessionBubbleOpen.value = false
+  void window.baoOverlay.setBubble(null, 0)
+}
+
+/**
+ * 气泡是投影的一部分：`sessionPrompt` 在，气泡就该在（外壳重载后也会自己回来）。
+ *
+ * 盯的是**标签数**而不是整个 `sessionPrompt` 对象：主进程每次广播都会新建投影对象，
+ * 盯对象会让每次状态变化都重发一遍 `set-bubble`。
+ */
+watch(() => state.value?.sessionPrompt?.tabs, (tabs) => {
+  if (tabs === undefined) {
+    closeSessionBubble()
+    return
+  }
+  if (sessionBubbleOpen.value) {
+    // 已经在显示：只把标签数与锚点刷新一遍（窗口缩放、多窗口会话并回后重开提示）。
+    void window.baoOverlay.setBubble(sessionBubbleBounds(), tabs)
+    return
+  }
+  void openSessionBubble()
+}, { immediate: true })
 
 function panelBounds(): OverlayBounds | null {
   const rect = engineRoot.value?.getBoundingClientRect()
@@ -356,7 +522,8 @@ function onShellPointerDown(event: PointerEvent): void {
   if (!(event.target instanceof Node)) return
   // 四颗入口（星标/收藏夹/引擎/齿轮）自己的点击由它们的 handler 负责开关：
   // 在这里先关一次会让「点星标」变成"先关再开"，多一次往返还会闪一下。
-  const anchor = [bookmarkRoot.value, bookmarksRoot.value, engineRoot.value, gearRoot.value]
+  // 横条上的文件夹按钮同理——它是**当时**那条飞窗的锚点。
+  const anchor = [bookmarkRoot.value, bookmarksRoot.value, engineRoot.value, gearRoot.value, barFolderAnchor.value]
     .some((element) => element?.contains(event.target as Node))
   if (anchor) return
   closeEnginePanel()
@@ -373,7 +540,8 @@ function showToast(text: string): void {
   toast.value = text
   const bounds = {
     x: 0,
-    y: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT,
+    // 提示条贴住页面区域上沿：横条显示时它跟着下移，否则会压在横条上。
+    y: TAB_BAR_HEIGHT + TOOLBAR_HEIGHT + (barVisible.value ? BOOKMARK_BAR_HEIGHT : 0),
     width: TOAST_WIDTH,
     height: TOAST_HEIGHT
   }
@@ -400,6 +568,8 @@ function onShellResize(): void {
   // Close anchored settings rather than leave them detached from the trigger.
   closeEnginePanel()
   closeQuick(false)
+  // 气泡跟着锚点按钮走（Chromium 的 bubble 会随窗口重锚），不关——它还在等回答。
+  if (sessionBubbleOpen.value) void openSessionBubble()
 }
 
 onMounted(() => {
@@ -414,6 +584,10 @@ onMounted(() => {
     } else if (event.type === 'quick-closed') {
       quickOpen.value = false
       if (event.restoreFocus) quickAnchor()?.focus()
+    } else if (event.type === 'bubble-closed') {
+      // 气泡已经收起（用户回答、被别的浮层顶掉、或提示被清除）。不还焦点：
+      // 回答完该落到恢复出来的页面/标签上，由主进程的 `select()` 决定焦点。
+      sessionBubbleOpen.value = false
     } else if (event.type === 'bookmarks-requested') {
       // 飞窗里的「收藏夹」入口：锚点与开关都在外壳这边。
       void toggleQuick('bookmarks')
@@ -430,9 +604,24 @@ onMounted(() => {
 onBeforeUnmount(() => {
   detachOverlay?.()
   clearToast()
+  barObserver?.disconnect()
   document.removeEventListener('pointerdown', onShellPointerDown, true)
   window.removeEventListener('resize', onShellResize)
 })
+
+/**
+ * 横条放不下的项由「排一次、藏掉超出的」收口（见 `measureBar`）。
+ *
+ * 三个触发源：横条出现/消失、项数变化、横条宽度变化（窗口缩放）。
+ * `flush: 'post'` 保证测量时 DOM 已经按新的项数排好——不然量到的是上一帧的布局。
+ */
+let barObserver: ResizeObserver | undefined
+watch([barVisible, barItems], () => { void nextTick(measureBar) }, { flush: 'post' })
+watch(barEl, (element) => {
+  barObserver?.disconnect()
+  barObserver ??= new ResizeObserver(() => measureBar())
+  if (element) barObserver.observe(element)
+}, { flush: 'post' })
 
 /** 拖出窗口（架构 §3「拖出窗口」）：指针捕获保证移出窗口后仍能拿到释放点。 */
 function startTabDrag(tab: BrowserTab, event: PointerEvent): void {
@@ -597,7 +786,7 @@ onBeforeUnmount(() => store.disconnect())
 </script>
 
 <template>
-  <header class="shell" :style="shellStyle">
+  <header class="shell" :style="shellStyle" :data-bookmark-bar="String(barVisible)">
     <div class="titlebar" @dblclick="onTitlebarDoubleClick">
 
       <div
@@ -746,24 +935,54 @@ onBeforeUnmount(() => store.disconnect())
       ><ShellIcon name="gear" /></button>
     </form>
     <!--
-      崩溃恢复提示（Chrome 的「恢复页面」气泡）：只有上次异常退出时才出现。
-      正常退出后重启没有这条提示，直接就是新标签页。
+      收藏夹横条（工具栏下面那第三行）：内容 = 「收藏夹栏」根下的一层。
+      右键是原生菜单（`bookmark-bar-menu`）：横条自己的显示开关必须有除了设置页之外的入口。
+      空的时候照 Edge 留一行提示条，而不是像 Chrome 那样整条消失（产品裁决见
+      docs/reports/2026-11-26-bookmarks-store.md §1）。
     -->
-    <div v-if="state?.sessionPrompt" class="session-infobar" role="region" aria-label="恢复上次会话">
-      <span class="session-infobar-text">
-        上次未正常退出，可以恢复 {{ state.sessionPrompt.tabs }} 个标签页
-      </span>
-      <button
-        type="button"
-        class="session-infobar-action primary"
-        @click="run({ type: 'restore-session' })"
-      >恢复标签页</button>
-      <button
-        type="button"
-        class="session-infobar-action"
-        @click="run({ type: 'dismiss-session' })"
-      >忽略</button>
+    <div
+      v-if="barVisible"
+      ref="barEl"
+      class="bookmark-bar"
+      role="toolbar"
+      aria-label="收藏夹栏"
+      @contextmenu.prevent="run({ type: 'bookmark-bar-menu' })"
+    >
+      <template v-if="barItems.length > 0">
+        <button
+          v-for="(item, index) in barItems"
+          :key="item.id"
+          type="button"
+          class="bar-item"
+          :class="{ folder: item.kind === 'folder', clipped: index >= barClippedFrom }"
+          :title="item.kind === 'folder' ? `打开文件夹：${item.title}` : (item.url ?? item.title)"
+          :aria-hidden="index >= barClippedFrom"
+          :tabindex="index >= barClippedFrom ? -1 : 0"
+          @click="item.kind === 'folder' ? toggleBarFolder(item, $event) : openBarItem(item)"
+        >
+          <span class="bar-icon" aria-hidden="true"><ShellIcon :name="item.kind === 'folder' ? 'folder' : 'page'" /></span>
+          <span class="bar-label">{{ item.title }}</span>
+        </button>
+        <!-- 放不下的项：这里不自己画菜单，直接打开收藏夹面板（那里是完整的树）。 -->
+        <button
+          v-if="barClippedFrom < barItems.length"
+          type="button"
+          class="bar-item bar-overflow"
+          title="其余收藏夹"
+          aria-label="其余收藏夹"
+          @click="openQuick('bookmarks')"
+        ><span class="bar-more" aria-hidden="true">»</span></button>
+      </template>
+      <p v-else class="bar-hint">
+        <span>把常用网址收藏到这里，随时一键打开。</span>
+        <button type="button" class="bar-hint-action" @click="openQuick('bookmarks')">立即管理收藏夹</button>
+      </p>
     </div>
+    <!--
+      崩溃恢复气泡（Chrome 的「恢复页面」警示对话框）不在这里画：它由叠加层视图显示，
+      锚在工具栏最右那颗按钮下方——外壳 DOM 会被页面 WebContentsView 压住，气泡伸进页面区
+      就看不见。见 docs/reports/2026-11-26-session-bubble.md。
+    -->
   </header>  <p class="sr-only" role="status">{{ toast }}</p>
   <main v-if="active?.error" class="page-error" aria-labelledby="page-error-title">
     <div>
@@ -829,40 +1048,6 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 
 .tab:hover { background: var(--surface-hover); }
 
-/*
- * 崩溃恢复提示条：固定高度（与主进程 `INFOBAR_HEIGHT` 一致），页面视图会让开这一段。
- * 用 info 语义色而不是警告色——"上次没正常退出"是提示，不是错误。
- */
-.session-infobar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-s);
-  height: var(--infobar-height);
-  padding-inline: var(--space-s) var(--space-m);
-  background: var(--surface-window);
-  border-bottom: var(--shell-stroke) solid var(--stroke-divider);
-  color: var(--text-primary);
-  font-size: var(--size-caption);
-}
-
-.session-infobar-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.session-infobar-action {
-  flex: 0 0 auto;
-  height: 26px;
-  padding-inline: var(--space-s);
-  border-radius: var(--button-radius);
-  color: var(--text-primary);
-}
-
-.session-infobar-action:hover { background: var(--surface-hover); }
-
-.session-infobar-action.primary {
-  background: var(--engine-accent);
-  color: var(--surface-page);
-}
-
-.session-infobar-action.primary:hover { filter: brightness(1.08); }
 /* 标签之间的小竖线：选中/悬停时让位（Edge、Chrome 同款处理） */
 .tab-separator {
   position: absolute;
@@ -1041,6 +1226,72 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
   border-bottom: var(--shell-stroke) solid var(--stroke-divider);
 }
 
+/*
+ * 收藏夹横条（工具栏下面那第三行）。高度由 `--bookmark-bar-height` 统一，
+ * 主进程按同一个常量（`BOOKMARK_BAR_HEIGHT`）让页面视图下移。
+ *
+ * 放不下的项用 `visibility: hidden` 藏：**布局必须保留**，否则"排出来量一次、藏掉超出的"
+ * 那套测量会在第二次收敛时把已藏的项当成宽度 0（见 `measureBar`）。
+ */
+.bookmark-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--bookmark-bar-height);
+  padding: 0 var(--space-s);
+  background: var(--surface-toolbar);
+  border-bottom: var(--shell-stroke) solid var(--stroke-divider);
+  overflow: hidden;
+}
+.bar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: none;
+  max-width: 200px;
+  height: 24px;
+  padding: 0 var(--space-s);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-primary);
+  -webkit-app-region: no-drag;
+}
+.bar-item:hover { background: var(--surface-hover); }
+.bar-item:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: -1px; }
+.bar-item.clipped { visibility: hidden; }
+.bar-icon { display: grid; place-items: center; flex: none; color: var(--text-secondary); }
+.bar-icon .shell-icon { width: 13px; height: 13px; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 「其余收藏」：绝对定位到右端，不参与 flex 排布——它的宽度由测量预留（`BAR_OVERFLOW_RESERVE`）。 */
+.bar-overflow {
+  position: absolute;
+  inset-inline-end: var(--space-xs);
+  top: 4px;
+  justify-content: center;
+  width: 24px;
+  padding: 0;
+  color: var(--text-secondary);
+}
+.bar-more { font-size: 14px; line-height: 1; }
+/* 空态（Edge 的提示条）：一行灰字 + 一个动作，不占额外高度。 */
+.bar-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.bar-hint-action { padding: 0 4px; border-radius: 4px; font-size: 12px; color: var(--accent); }
+.bar-hint-action:hover { text-decoration: underline; }
+/*
+ * 横条出现时工具栏**不再画自己的下边框**：只有整条 chrome 的最下面一道线，否则
+ * 工具栏与横条之间会多出一条分隔线（Edge 实测只有横条底部那条）。宽度保留 1px，
+ * 工具栏高度不受影响。
+ */
+.shell[data-bookmark-bar='true'] .toolbar { border-bottom-color: transparent; }
+
 .address-bar {
   display: flex;
   align-items: center;
@@ -1097,6 +1348,10 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 .engine-button:disabled .engine-mark { color: var(--text-disabled); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); }
 .page-error { min-height: calc(100vh - var(--tab-bar-height) - var(--toolbar-height)); display: grid; place-items: center; text-align: center; padding: 24px; }
+/* 横条也占高度：错误页要让开那一行，否则内容会被顶得偏下（页面视图由主进程同样让位）。 */
+.shell[data-bookmark-bar='true'] ~ .page-error {
+  min-height: calc(100vh - var(--tab-bar-height) - var(--toolbar-height) - var(--bookmark-bar-height));
+}
 .page-error .shell-icon { width: 24px; height: 24px; color: var(--text-error); }
 .page-error h1 { margin: 6px 0 10px; font-size: 16px; }
 .page-retry { padding: 4px 12px; border: 1px solid var(--stroke-control); border-radius: 7px; color: var(--engine-accent); background: var(--engine-selection); }

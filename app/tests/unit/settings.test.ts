@@ -22,6 +22,7 @@ describe('sanitizeSetting', () => {
     expect(sanitizeSetting('theme.mode', 'dark')).toEqual({ key: 'theme.mode', value: 'dark' })
     expect(sanitizeSetting('engine.default', 'ruffle')).toEqual({ key: 'engine.default', value: 'ruffle' })
     expect(sanitizeSetting('search.engine', 'bing')).toEqual({ key: 'search.engine', value: 'bing' })
+    expect(sanitizeSetting('bookmark.bar', 'always')).toEqual({ key: 'bookmark.bar', value: 'always' })
     expect(sanitizeSetting('locale', 'zh-CN')).toEqual({ key: 'locale', value: 'zh-CN' })
     expect(sanitizeSetting('overlay.prewarm', 'always')).toEqual({ key: 'overlay.prewarm', value: 'always' })
     expect(sanitizeSetting('tab.discard', 'never')).toEqual({ key: 'tab.discard', value: 'never' })
@@ -36,6 +37,9 @@ describe('sanitizeSetting', () => {
     expect(sanitizeSetting('search.engine', 'sogou')).toBeUndefined()
     expect(sanitizeSetting('search.engine', '')).toBeUndefined()
     expect(sanitizeSetting('locale', 'en-US')).toBeUndefined()
+    // 收藏夹栏只有三档（Edge 的「显示收藏夹栏」）：别把 Chromium 的两个布尔 pref 名字当值收下。
+    expect(sanitizeSetting('bookmark.bar', 'show_on_all_tabs')).toBeUndefined()
+    expect(sanitizeSetting('bookmark.bar', '')).toBeUndefined()
     expect(sanitizeSetting('tab.discard', 'aggressive')).toBeUndefined()
     // 启动行为只有两档：别把 Chrome 的 "restore" 之类写法当成合法值静默接受。
     expect(sanitizeSetting('session.startup', 'restore')).toBeUndefined()
@@ -58,6 +62,19 @@ describe('sanitizeSetting', () => {
 describe('settingsFromRows', () => {
   it('空表回落到默认值', () => {
     expect(settingsFromRows([])).toEqual(DEFAULT_SETTINGS)
+  })
+
+  /**
+   * 收藏夹横条的默认档必须是「仅在新标签页上显示」。
+   *
+   * 这条单独钉住，因为它是一个**产品裁决**（对齐全家桶）：横条白占 32px，日常浏览时没有
+   * 信息量。改成 `always` 会让每个网页都少一行可视区，改代码时必须有用例挡一下。
+   */
+  it('收藏夹横条默认只在新标签页上显示', () => {
+    expect(DEFAULT_SETTINGS.bookmarkBar).toBe('ntp')
+    expect(settingsFromRows([]).bookmarkBar).toBe('ntp')
+    // 老库里没有这一行（`bookmark.bar` 是 2026-11-26 新增的键）时同样回落到默认档。
+    expect(settingsFromRows([{ key: 'theme.mode', value: 'light' }]).bookmarkBar).toBe('ntp')
   })
 
   it('启动行为默认是 newtab（正常退出后重启不恢复）', () => {
@@ -84,7 +101,8 @@ describe('settingsFromRows', () => {
     // "坏值回落到默认"，不是"默认是哪一档"。
     expect(settings).toEqual({
       overlayPrewarm: DEFAULT_SETTINGS.overlayPrewarm, tabDiscard: 'auto', sessionStartup: 'newtab',
-      themeMode: 'light', defaultEngine: 'ppapi', searchEngine: DEFAULT_SETTINGS.searchEngine, locale: 'zh-CN'
+      themeMode: 'light', defaultEngine: 'ppapi', searchEngine: DEFAULT_SETTINGS.searchEngine,
+      bookmarkBar: DEFAULT_SETTINGS.bookmarkBar, locale: 'zh-CN'
     })
   })
 
@@ -112,7 +130,7 @@ describe('settingsToRows', () => {
   it('摊成固定的行，键名与表一致', () => {
     const rows = settingsToRows({
       themeMode: 'dark', defaultEngine: 'ruffle', searchEngine: 'bing', locale: 'zh-CN',
-      overlayPrewarm: 'never', tabDiscard: 'auto', sessionStartup: 'newtab'
+      overlayPrewarm: 'never', tabDiscard: 'auto', sessionStartup: 'newtab', bookmarkBar: 'always'
     })
     expect(rows).toEqual([
       { key: 'overlay.prewarm', value: 'never' },
@@ -121,6 +139,7 @@ describe('settingsToRows', () => {
       { key: 'theme.mode', value: 'dark' },
       { key: 'engine.default', value: 'ruffle' },
       { key: 'search.engine', value: 'bing' },
+      { key: 'bookmark.bar', value: 'always' },
       { key: 'locale', value: 'zh-CN' }
     ])
     expect(rows.map((row) => row.key).sort()).toEqual([...SETTING_KEYS].sort())
@@ -130,7 +149,7 @@ describe('settingsToRows', () => {
     const original = {
       themeMode: 'light' as const, defaultEngine: 'ruffle' as const, locale: 'zh-CN' as const,
       searchEngine: 'google' as const, overlayPrewarm: 'always' as const, tabDiscard: 'auto' as const,
-      sessionStartup: 'continue' as const
+      sessionStartup: 'continue' as const, bookmarkBar: 'never' as const
     }
     expect(settingsFromRows(settingsToRows(original))).toEqual(original)
   })

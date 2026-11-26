@@ -1,3 +1,5 @@
+import { isBookmarkBarMode } from './bookmarks'
+import type { BookmarkBarMode } from './bookmarks'
 import { isBrowserEngine } from './engine'
 import type { BrowserEngine } from './engine'
 import { DEFAULT_SEARCH_ENGINE, isSearchEngine } from './search'
@@ -69,6 +71,14 @@ export interface Settings {
    * 用哪家引擎把关键词拼成 URL（见 `shared/search.ts` 的 `searchUrlFor()`）。
    */
   searchEngine: SearchEngine
+  /**
+   * 收藏夹横条（工具栏下面那第三行）：always=始终显示、ntp=只在新标签页显示（默认）、
+   * never=不显示。
+   *
+   * 默认对齐全家桶的「只在新标签页显示」：横条白占 32px 高度，日常浏览时没有任何信息量，
+   * 但它又是新标签页上「收藏了哪些常用站」的唯一入口。三档的取值见 `shared/bookmarks.ts`。
+   */
+  bookmarkBar: BookmarkBarMode
   locale: Locale
 }
 
@@ -83,6 +93,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // 原生优先：M1 的默认值，改成设置项后保持同样的行为。
   defaultEngine: 'ppapi',
   searchEngine: DEFAULT_SEARCH_ENGINE,
+  // 对齐全家桶的默认：横条只在新标签页上出现（见 `Settings.bookmarkBar`）。
+  bookmarkBar: 'ntp',
   locale: 'zh-CN'
 }
 
@@ -94,6 +106,7 @@ export const SETTING_COLUMNS = {
   'theme.mode': 'themeMode',
   'engine.default': 'defaultEngine',
   'search.engine': 'searchEngine',
+  'bookmark.bar': 'bookmarkBar',
   locale: 'locale'
 } as const
 
@@ -108,6 +121,7 @@ export type SettingValue = {
   'theme.mode': ThemeMode
   'engine.default': BrowserEngine
   'search.engine': SearchEngine
+  'bookmark.bar': BookmarkBarMode
   locale: Locale
 }
 
@@ -123,7 +137,9 @@ export function isLocale(value: unknown): value is Locale {
 
 export interface SanitizedSetting {
   key: SettingKey
-  value: ThemeMode | BrowserEngine | Locale | PrewarmMode | DiscardMode | SessionStartupMode | SearchEngine
+  value:
+    | ThemeMode | BrowserEngine | Locale | PrewarmMode | DiscardMode | SessionStartupMode | SearchEngine
+    | BookmarkBarMode
 }
 /**
  * 校验并归一一条设置写入。返回 `undefined` 表示拒绝（未知键或非法值）。
@@ -150,6 +166,7 @@ export function sanitizeSetting(key: unknown, value: unknown): SanitizedSetting 
   if (key === 'theme.mode') return isThemeMode(value) ? { key, value } : undefined
   if (key === 'engine.default') return isBrowserEngine(value) ? { key, value } : undefined
   if (key === 'search.engine') return isSearchEngine(value) ? { key, value } : undefined
+  if (key === 'bookmark.bar') return isBookmarkBarMode(value) ? { key, value } : undefined
   if (key === 'locale') return isLocale(value) ? { key, value } : undefined
   return undefined
 }
@@ -210,6 +227,21 @@ export const themeModeLabels: Record<ThemeMode, string> = {
   light: '浅色',
   dark: '深色'
 }
+
+/**
+ * 收藏夹横条的三档文案（Edge 的「显示收藏夹栏」子菜单同款措辞）。
+ *
+ * 用 `Record<BookmarkBarMode, …>` 把取值域钉住：档位改名时类型检查会红，
+ * 不会出现"设置页少了「从不显示」"这种静默缺档。
+ */
+export const bookmarkBarModeLabels: Record<BookmarkBarMode, string> = {
+  always: '始终显示',
+  ntp: '仅在新标签页上显示',
+  never: '从不显示'
+}
+
+/** 设置页那一行的副标题：说清三档各自付什么（为什么默认是"仅新标签页"）。 */
+export const bookmarkBarHint = '横条在工具栏下方占一行，列出「收藏夹栏」文件夹里的网址。'
 
 /* ------------------------------------------------------------------ *
  * 内部设置页（`bao://settings`）与主进程之间的窄合同。

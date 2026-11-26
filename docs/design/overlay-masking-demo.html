@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>飞窗冷启动 · 动画掩盖对比示例</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --chrome-bg: #ffffff;
+    --toolbar-bg: #ffffff;
+    --border: #dadce0;
+    --text: #202124;
+    --text-2: #5f6368;
+    --accent: #1a73e8;
+    --panel-bg: #ffffff;
+    --shadow: 0 12px 48px rgba(0,0,0,.24), 0 0 24px rgba(0,0,0,.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px 24px 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+  h1 { font-size: 18px; font-weight: 500; }
+  .sub { font-size: 13px; color: var(--text-2); }
+
+  /* ── 控制区 ── */
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px;
+  }
+  .mode-btn {
+    border: 1px solid var(--border); background: #fff; color: var(--text-2);
+    border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+    transition: all .15s;
+  }
+  .mode-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .delay-wrap { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+  input[type=range] { accent-color: var(--accent); }
+  .delay-val { font-variant-numeric: tabular-nums; min-width: 46px; }
+
+  /* ── 模拟浏览器 ── */
+  .browser {
+    width: 860px; max-width: 100%;
+    background: var(--chrome-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  .titlebar {
+    height: 36px; background: #dee1e6;
+    display: flex; align-items: flex-end; padding: 0 12px; gap: 8px;
+  }
+  .tab {
+    height: 28px; background: var(--chrome-bg);
+    border-radius: 10px 10px 0 0;
+    padding: 0 14px; font-size: 12px; color: var(--text);
+    display: flex; align-items: center;
+  }
+  .tab.inactive { background: transparent; color: var(--text-2); }
+
+  .toolbar {
+    position: relative;
+    height: 44px; background: var(--toolbar-bg);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px;
+    z-index: 3;
+  }
+  .addr {
+    flex: 1; height: 30px; background: #f1f3f4; border-radius: 15px;
+    font-size: 13px; color: var(--text-2);
+    display: flex; align-items: center; padding: 0 14px;
+  }
+  .gear {
+    width: 34px; height: 34px; border: 0; background: transparent; border-radius: 50%;
+    display: grid; place-items: center; cursor: pointer; color: var(--text-2);
+    transition: background .12s;
+    flex: none;
+  }
+  .gear:hover { background: #f1f3f4; }
+  .gear svg { transition: transform .22s cubic-bezier(.2,.8,.2,1); }
+  .gear.opening { background: #e8f0fe; color: var(--accent); }
+  .gear.opening svg { transform: rotate(90deg) scale(.94); }
+
+  /* 动画掩盖的关键一招：工具栏下缘投影渐入。
+     用 transition 而非 keyframes：随时可被打断、从当前值平滑交接——
+     面板 20ms 到（热开）投影只长出一点就淡出，260ms 到（冷开）投影完整展开后交接。 */
+  .toolbar-shadow {
+    position: absolute; left: 0; right: 0; top: 100%; height: 0;
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(0,0,0,.18), rgba(0,0,0,0));
+    opacity: 0; height: 0;
+    transition: height .28s cubic-bezier(.2,.8,.2,1), opacity .2s ease-out;
+    z-index: 2;
+  }
+  .toolbar-shadow.grow { height: 18px; opacity: 1; }
+  .toolbar-shadow.settle { opacity: 0; transition: opacity .15s ease-out; }
+
+  .page {
+    position: relative;
+    height: 400px;
+    background:
+      linear-gradient(#fff, #fff) padding-box,
+      linear-gradient(90deg, #e8eaed 1px, transparent 1px) 0 0/280px 100%;
+    overflow: hidden;
+    z-index: 1;
+  }
+  .page .fake { padding: 28px 40px; }
+  .fake h2 { font-size: 20px; font-weight: 500; margin-bottom: 14px; }
+  .fake p { font-size: 13px; color: var(--text-2); line-height: 1.7; max-width: 560px; }
+  .fake .bar { height: 10px; border-radius: 5px; background: #e8eaed; margin-top: 12px; }
+  .fake .bar:nth-child(odd) { width: 70%; }
+  .fake .bar:nth-child(even) { width: 50%; }
+
+  /* 面板 */
+  .panel {
+    position: absolute;
+    top: 6px; right: 8px;
+    width: 272px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 8px 0;
+    font-size: 13px;
+    display: none;
+    transform-origin: top right;
+    z-index: 5;
+  }
+  .panel.show { display: block; }
+  .panel.anim { animation: panel-in .14s cubic-bezier(.2,.8,.2,1); }
+  @keyframes panel-in {
+    from { opacity: .55; transform: scale(.985); }
+    to   { opacity: 1; transform: none; }
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 16px;
+  }
+  .row:hover { background: #f8f9fa; }
+  .row .label { color: var(--text); }
+  .pill {
+    border: 1px solid var(--border); border-radius: 12px;
+    font-size: 12px; color: var(--text-2);
+    padding: 3px 10px;
+  }
+  .pill.on { background: #e8f0fe; border-color: #e8f0fe; color: var(--accent); }
+  .switch {
+    width: 34px; height: 18px; border-radius: 9px; background: #dadce0;
+    position: relative;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { left: 18px; }
+
+  /* 时间轴日志 */
+  .log {
+    width: 860px; max-width: 100%;
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px; font-size: 12.5px; color: var(--text-2);
+    line-height: 1.8; min-height: 66px;
+  }
+  .log b { color: var(--text); font-weight: 500; }
+  .t { font-variant-numeric: tabular-nums; color: var(--accent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gear.opening svg, .toolbar-shadow.grow, .panel.anim { animation: none; transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1>飞窗冷启动 · 动画掩盖对比示例</h1>
+<div class="sub">同一个真实延迟，三种打开方式。点齿轮感受差异，点面板外关闭。B 模式建议把滑块从 20ms 拉到 500ms 反复点——观察同一套动作在不同到达速度下的观感。</div>
+
+<div class="controls">
+  <button class="mode-btn on" data-mode="A">A · 冷开，无掩盖</button>
+  <button class="mode-btn" data-mode="B">B · 冷开，动画掩盖</button>
+  <button class="mode-btn" data-mode="C">热开（已预热）</button>
+  <span class="delay-wrap">
+    模拟冷启延迟
+    <input type="range" id="delay" min="20" max="500" step="20" value="260">
+    <span class="delay-val" id="delayVal">260ms</span>
+  </span>
+</div>
+
+<div class="browser">
+  <div class="titlebar">
+    <div class="tab">4399 双人小游戏</div>
+    <div class="tab inactive">新标签页</div>
+  </div>
+  <div class="toolbar" id="toolbar">
+    <div class="addr">https://www.4399.com/flash/</div>
+    <button class="gear" id="gear" title="快捷设置" aria-label="快捷设置">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1"/>
+      </svg>
+    </button>
+    <div class="toolbar-shadow" id="tshadow"></div>
+  </div>
+  <div class="page" id="page">
+    <div class="fake">
+      <h2>黄金矿工 · 经典版</h2>
+      <p>点击「开始游戏」进入挖矿关卡。本页内容模拟网页区域——注意观察点击齿轮后面板出现前，这一片区域的变化。</p>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+    <div class="panel" id="panel">
+      <div class="row"><span class="label">主题</span><span class="pill on">浅色</span></div>
+      <div class="row"><span class="label">默认引擎</span><span class="pill on">原生 Flash</span></div>
+      <div class="row"><span class="label">Flash 插件</span><span class="pill on">已就绪</span></div>
+      <div class="row"><span class="label">硬件加速</span><span class="switch on"></span></div>
+      <div class="row"><span class="label">页面缩放</span><span class="pill">100%</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="log" id="log">选好模式，点击右上角齿轮开始。<br>
+  <b>B 模式的动画链</b>：t=0 齿轮按下+旋转、工具栏下缘投影渐入（外壳 DOM，零成本）→ t=延迟 面板带 140ms 淡入落下，与投影衔接。</div>
+
+<script>
+  const gear = document.getElementById('gear');
+  const tshadow = document.getElementById('tshadow');
+  const panel = document.getElementById('panel');
+  const page = document.getElementById('page');
+  const log = document.log_placeholder || document.getElementById('log');
+  const delayInput = document.getElementById('delay');
+  const delayVal = document.getElementById('delayVal');
+  let mode = 'A';
+  let open = false;
+  let timer = null;
+  let t0 = 0;
+
+  delayInput.addEventListener('input', () => { delayVal.textContent = delayInput.value + 'ms'; });
+
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      mode = btn.dataset.mode;
+      closeAll();
+    });
+  });
+
+  function closeAll() {
+    open = false;
+    clearTimeout(timer);
+    panel.classList.remove('show', 'anim');
+    gear.classList.remove('opening');
+    tshadow.classList.remove('grow', 'settle');
+  }
+
+  function showPanel(anim, actualDelay) {
+    panel.classList.add('show');
+    if (anim) panel.classList.add('anim');
+    if (mode === 'B') {
+      // 自适应交接：面板到达 → 假投影从当前值淡出（真投影由面板自带），
+      // 齿轮移除 opening 后自然回弹。不区分冷开/热开，一套动作语言。
+      tshadow.classList.add('settle');
+      gear.classList.remove('opening');
+    }
+    log.innerHTML = '本次打开：<b class="t">' + actualDelay + 'ms</b> 后面板出现' +
+      (mode === 'B' ? '（同一套动作：投影从当前状态淡出交接，热开几乎无感）' :
+       mode === 'C' ? '（预热命中，几乎即时）' : '（期间无任何反馈，感知为卡顿）');
+  }
+
+  gear.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (open) { closeAll(); return; }
+    open = true;
+    const delay = mode === 'C' ? 20 : Number(delayInput.value);
+    t0 = performance.now();
+
+    if (mode === 'A') {
+      // 冷开无掩盖：等待期内什么都不做
+      timer = setTimeout(() => showPanel(false, delay), delay);
+    } else if (mode === 'B') {
+      // 冷开动画掩盖（自适应）：t=0 起投影展开 + 齿轮按下，到达时间决定展开了多少
+      gear.classList.add('opening');
+      tshadow.classList.add('grow');
+      timer = setTimeout(() => showPanel(true, delay), delay);
+    } else {
+      // 热开
+      timer = setTimeout(() => showPanel(true, delay), delay);
+    }
+  });
+
+  page.addEventListener('click', () => {
+    if (open) closeAll();
+  });
+</script>
+
+</body>
+</html>

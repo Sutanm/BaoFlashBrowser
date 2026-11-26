@@ -12,7 +12,7 @@
  * - `warm`：视图已就绪（只差 setBounds + 显示）。
  */
 export interface OverlayOpenSample {
-  kind: 'panel' | 'quick' | 'toast'
+  kind: 'panel' | 'quick' | 'toast' | 'bubble'
   state: 'cold' | 'warming' | 'warm'
   input: 'pointer' | 'keyboard' | 'unknown'
   ipc: number

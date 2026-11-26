@@ -21,11 +21,14 @@ const QuickSettings = defineAsyncComponent(() => import('./QuickSettings.vue'))
 const BookmarksPanel = defineAsyncComponent(() => import('./BookmarksPanel.vue'))
 const BookmarkEditPanel = defineAsyncComponent(() => import('./BookmarkEditPanel.vue'))
 const BookmarkEditorPanel = defineAsyncComponent(() => import('./BookmarkEditorPanel.vue'))
+const SessionRestoreBubble = defineAsyncComponent(() => import('./SessionRestoreBubble.vue'))
 
 const store = useBrowserStore()
-const kind = ref<'panel' | 'quick' | 'toast'>('panel')
+const kind = ref<'panel' | 'quick' | 'toast' | 'bubble'>('panel')
 /** 飞窗当前画哪一页；由主进程的 `quick-opened` 带过来（它才知道外壳最后一次请求的是哪页）。 */
 const view = ref<QuickView>('settings')
+/** 崩溃恢复气泡的可恢复标签数（`bubble-opened` 带过来）。 */
+const bubbleTabs = ref(0)
 /** toast 文本存在宿主里：toast 组件是异步挂载的，事件可能先于挂载到达。 */
 const toastText = ref('')
 /** 是否正在显示；隐藏时暂停 CSS 动画与日晷的时钟动画（视图 detach 后页面仍是 visible）。 */
@@ -94,7 +97,9 @@ onMounted(() => {
     if (event.type === 'panel-opened' || event.type === 'quick-opened') void store.run({ type: 'snapshot' })
     // 主题在宿主这一层就落地：内容是异步组件，首次打开时它可能比事件晚挂载，
     // 之后自己也收不到那条 `*-opened`（共享模式下浮层文档是点击那一刻才建出来的）。
-    if (event.type === 'panel-opened' || event.type === 'quick-opened') applyShellTheme(event.theme)
+    if (event.type === 'panel-opened' || event.type === 'quick-opened' || event.type === 'bubble-opened') {
+      applyShellTheme(event.theme)
+    }
     if (event.type === 'panel-opened') {
       kind.value = 'panel'
       active.value = true
@@ -104,13 +109,19 @@ onMounted(() => {
       kind.value = 'quick'
       active.value = true
       markOpening()
+    } else if (event.type === 'bubble-opened') {
+      bubbleTabs.value = event.tabs
+      kind.value = 'bubble'
+      active.value = true
+      markOpening()
     } else if (event.type === 'toast') {
       toastText.value = event.text
       kind.value = 'toast'
       active.value = true
       markOpening()
     } else if (event.type === 'panel-closed' || event.type === 'quick-closed' ||
-               event.type === 'toast-closed' || event.type === 'overlay-hidden') {
+               event.type === 'bubble-closed' || event.type === 'toast-closed' ||
+               event.type === 'overlay-hidden') {
       active.value = false
     }
     setIdle(!active.value)
@@ -145,6 +156,14 @@ onBeforeUnmount(() => {
   <div v-show="kind === 'toast'" class="overlay-slot">
     <ShellOverlay kind="toast" :text="toastText" />
   </div>
+  <!--
+    崩溃恢复气泡：与飞窗共用这个文档与渲染进程，但它是警示对话框（点外面不关）。
+    `active` 也参与显隐——收起后 `kind` 会停在 `bubble`（面板/飞窗同理），只按 kind 判断
+    会让"已经关掉的气泡"继续留在 DOM 里，测试和辅助技术都会以为它还在。
+  -->
+  <div v-show="active && kind === 'bubble'" class="overlay-slot">
+    <SessionRestoreBubble :tabs="bubbleTabs" />
+  </div>
 </template>
 
 <style>
@@ -153,6 +172,7 @@ onBeforeUnmount(() => {
 /* 打开时的一点淡入 + 微缩放（Chrome 菜单约 100 ms）；属性由宿主在 180 ms 后清掉。 */
 [data-overlay-open='true'] .quick,
 [data-overlay-open='true'] .engine-panel,
+[data-overlay-open='true'] .session-bubble,
 [data-overlay-open='true'] .toast {
   animation: bao-overlay-in 140ms cubic-bezier(.2, .8, .2, 1);
 }
@@ -163,6 +183,7 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   [data-overlay-open='true'] .quick,
   [data-overlay-open='true'] .engine-panel,
+  [data-overlay-open='true'] .session-bubble,
   [data-overlay-open='true'] .toast { animation: none; }
 }
 </style>

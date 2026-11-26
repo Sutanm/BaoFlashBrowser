@@ -4,7 +4,7 @@ import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationE
 import { join } from 'node:path'
 import { isWebAddress, placeholderTitle, resolveNavigation, sameDocument } from './address'
 import { FlashPresenceCache, detectFlashContent } from './flash-probe'
-import { browserChannels, browserFailureText, INFOBAR_HEIGHT, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
+import { browserChannels, browserFailureText, BOOKMARK_BAR_HEIGHT, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserSessionPrompt, BrowserState, BrowserTab } from '../shared/browser'
 import { hostOf } from '../shared/engine'
 import { isSameSite, siteBoundary } from '../shared/site'
@@ -17,10 +17,11 @@ import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
 import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, createBookmarkFolderData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
-import { BOOKMARK_BAR_ROOT, isBookmarkableAddress } from '../shared/bookmarks'
+import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
+import type { BookmarkBarMode } from '../shared/bookmarks'
 import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
-import { settingsChannels } from '../shared/settings'
+import { bookmarkBarModeLabels, settingsChannels } from '../shared/settings'
 import type { PrewarmMode, SettingsSnapshot } from '../shared/settings'
 import { ntpChannels } from '../shared/ntp'
 import type { NtpCommand, NtpCommandResult, NtpSnapshot } from '../shared/ntp'
@@ -132,6 +133,16 @@ interface Tab {
   fromNewTab?: boolean
   /** 从新标签页 Back 回来后，Forward 要重开的网页地址。 */
   newTabForwardUrl?: string
+  /**
+   * 收藏夹横条暂时**按住不收**：刚从新标签页离开、新页面还没提交。
+   *
+   * 为什么需要它：离开 NTP 要换 WebContents（`leaveNewTab`），而 `internal` 在导航**开始**
+   * 那一刻就清了，于是横条会比页面先消失——页面区域先变白、再出现内容，观感是"点了没反应"。
+   * Chromium 在 `DidFinishNavigation` 才 `UpdateBookmarkBarState(kTabState)`
+   * （`bookmark_bar_controller.cc:218-225`），即**新页面提交时**才收横条；这里用
+   * `did-navigate` / 失败 / 停止加载三个一次性事件还原同一语义。
+   */
+  barHold?: boolean
   /** 进入后台的时刻（毫秒），用于 TTL 判定。 */
   backgroundSince?: number
   host?: TabHost
@@ -550,7 +561,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!view || !contents || contents.isDestroyed() || view.getVisible() === false) return undefined
     return { contents, bounds: view.getBounds() }
   }
-  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background, overlayPrewarmPolicy, sharedOverlayMode, pageFrame)
+  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background, overlayPrewarmPolicy, sharedOverlayMode, pageFrame,
+    // 气泡的回答（恢复 / 忽略）走与命令通道**同一对函数**：两条入口一套语义，不另写一份。
+    (restore) => { if (restore) restoreCrashSession(); else dismissCrashSession() })
   const tabs: Tab[] = []
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined
@@ -565,7 +578,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   // 有待恢复会话 = 提示待回答（跨窗口；见模块级 `restorePromptPending`）。
   if (crashSession) restorePromptPending = true
 
-  /** 崩溃恢复提示条的投影；没有待决会话时为空（提示条随之消失，页面视图上移）。 */
+  /** 崩溃恢复气泡的投影；没有待决会话时为空（气泡随之消失）。 */
   function sessionPromptOf(): BrowserSessionPrompt | undefined {
     if (!crashSession) return undefined
     const count = sessionTabCount(crashSession)
@@ -723,6 +736,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       flashHint: plugins ? undefined : options.flashHint,
       sessionPrompt: sessionPromptOf(),
       bookmarks: bookmarkNodes(),
+      bookmarkBarShown: bookmarkBarShown(active),
       tabs: tabs.map(describe)
     }
   }
@@ -773,14 +787,35 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
   }
 
+  /**
+   * 收藏夹横条此刻该不该占位置（`BrowserState.bookmarkBarShown` 的唯一来源）。
+   *
+   * 规则本体是 `showsBookmarkBar()`；这里只多一件事：**导航途中按住**。从新标签页进网页要
+   * 换视图，`internal` 在导航**开始**就清了，而新页面还是白的——横条若此刻就收，用户看到的
+   * 是"横条先消失、页面后出现"。Chromium 在导航**提交**时才重算横条状态
+   * （`bookmark_bar_controller.cc:218` 的 `DidFinishNavigation` → `UpdateBookmarkBarState`），
+   * 这里用 `tab.barHold` 对齐同一语义。
+   */
+  function bookmarkBarShown(tab: Tab | undefined): boolean {
+    if (!tab) return false
+    const mode = currentSettings().bookmarkBar
+    // 「从不显示」优先：按住也不能把用户明确关掉的东西画出来。
+    if (mode === 'never') return false
+    if (tab.barHold) return true
+    return showsBookmarkBar(mode, tab.internal)
+  }
+
   function layout(): void {
     overlays.layout()
     if (!active) return
     const [width, height] = window.getContentSize()
     if (!active?.view) return
-    // 崩溃恢复提示条占一条固定高度：页面视图必须让开，否则会被它压住一截。
-    const infobar = sessionPromptOf() ? INFOBAR_HEIGHT : 0
-    const y = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT + infobar
+    // 收藏夹横条占一条固定高度，页面视图必须让开（崩溃恢复气泡不再占位：它是浮层，
+    // 见 `docs/reports/2026-11-26-session-bubble.md` §2 对 11-24 那条决策的推翻）。
+    // 判定只有一处（`bookmarkBarShown()`）：条画出来了、页面却压在下面一截，
+    // 是这类固定高度条最典型的错位（2026-11-26 收藏夹横条）。
+    const bar = bookmarkBarShown(active) ? BOOKMARK_BAR_HEIGHT : 0
+    const y = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT + bar
     active.view.setBounds({ x: 0, y, width, height: Math.max(0, height - y) })
     // 失败时让外壳绘制带重试动作的内容页，不在工具栏里塞错误文字。
     active.view.setVisible(!active.error)
@@ -1224,30 +1259,34 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (blank && blank !== chosen) closeTab(blank)
   }
 
-  /** 用户点了「恢复标签页」：建出崩溃会话的标签，并解除写盘挂起。 */
+  /** 用户点了气泡的「恢复」：建出崩溃会话的标签，并解除写盘挂起。 */
   function restoreCrashSession(): void {
     const session = crashSession
     if (!session) return
     crashSession = undefined
     restorePromptPending = false
+    // 气泡视图由叠加层持有：回答路径已经收起过（`shell-overlays` 的 `answerBubble`），
+    // 这里再收一次是为了命令通道（`restore-session`）也走同一套收尾。
+    overlays.hideBubble()
     applySession(session)
     // 用户已经回答，解除写盘挂起：当前状态（恢复后的标签）覆盖磁盘上的崩溃会话。
     releaseSessionHold()
     layout()
   }
 
-  /** 用户点了「忽略」：丢弃崩溃会话，当前窗口保持原样。 */
+  /** 用户点了「忽略」（或按 Esc、点 ×）：丢弃崩溃会话，当前窗口保持原样。 */
   function dismissCrashSession(): void {
     if (!crashSession) return
     crashSession = undefined
     restorePromptPending = false
+    overlays.hideBubble()
     releaseSessionHold()
     publish()
     layout()
   }
 
   /**
-   * 会话数据被清除时调用：丢掉挂起的崩溃会话，提示条随之消失。
+   * 会话数据被清除时调用：丢掉挂起的崩溃会话，气泡随之消失。
    *
    * 这里**不**解除写盘挂起——清除的语义是"本次运行不再记录会话"，
    * 解除挂起会让 800 ms 后的节流写把当前标签又写回去。
@@ -1256,6 +1295,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!crashSession) return
     crashSession = undefined
     restorePromptPending = false
+    overlays.hideBubble()
     publish()
     layout()
   }
@@ -1410,6 +1450,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const resolved = tab.manualOverride
       ? { engine: tab.engine, source: 'manual' as EngineSource }
       : engineFor(url)
+    // 横条按住到新页面提交为止（见 `Tab.barHold`）：要在 `swapView` 之前置位，
+    // 否则第一次投影里横条已经收了。
+    tab.barHold = true
     // 先清内部身份：`swapView` 才会建页面视图并走站点规则。
     tab.internal = undefined
     tab.initialTitle = '新标签页'
@@ -1417,6 +1460,36 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.newTabForwardUrl = undefined
     swapView(tab, resolved.engine, resolved.source)
     load(tab, url)
+    holdBarUntilCommitted(tab)
+  }
+
+  /**
+   * 新页面**提交**（或明确失败/停止加载）后放开横条，并重排一次页面视图。
+   *
+   * 三个一次性事件都必须挂：只挂 `did-navigate` 的话，地址打不开时横条会永远按住；
+   * 只挂 `did-stop-loading` 的话，慢页面会在白屏期间一直不收，看起来像卡住。
+   * 谁先到都行——`release` 是幂等的。
+   */
+  function holdBarUntilCommitted(tab: Tab): void {
+    const contents = tab.view?.webContents
+    if (!contents || contents.isDestroyed()) {
+      tab.barHold = false
+      return
+    }
+    const release = (): void => {
+      contents.removeListener('did-navigate', release)
+      contents.removeListener('did-fail-load', release)
+      contents.removeListener('did-stop-loading', release)
+      contents.removeListener('destroyed', release)
+      if (!tab.barHold) return
+      tab.barHold = false
+      if (active === tab) layout()
+      publish()
+    }
+    contents.once('did-navigate', release)
+    contents.once('did-fail-load', release)
+    contents.once('did-stop-loading', release)
+    contents.once('destroyed', release)
   }
 
   /**
@@ -2110,6 +2183,42 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
+   * 收藏夹横条的右键菜单（Chromium 的 `BookmarkBarView::ShowContextMenu`）。
+   *
+   * 只有两件事：横条自己显示不显示（三档单选），以及打开收藏夹面板。
+   * 刻意**不放**「添加网页」——那是星标的活，混进来会让人以为横条是"新建收藏"的入口。
+   */
+  function showBookmarkBarMenu(): void {
+    const mode = currentSettings().bookmarkBar
+    const choose = (value: BookmarkBarMode): void => {
+      const outcome = setSetting('bookmark.bar', value)
+      if (outcome === 'ok') {
+        refreshAllWindows()
+        return
+      }
+      // 菜单回调跑在主进程里，没有"命令结果"可返回：失败必须自己送回外壳，
+      // 否则用户看到的就是"点了没反应"（与 `set-setting` 命令同一套文案）。
+      overlays.notifyFailure(outcome === 'invalid'
+        ? browserFailureText['invalid-setting']
+        : browserFailureText['settings-save-failed'])
+    }
+    const template: MenuItemConstructorOptions[] = [
+      {
+        label: '显示收藏夹栏',
+        submenu: BOOKMARK_BAR_MODES.map((value) => ({
+          label: bookmarkBarModeLabels[value],
+          type: 'radio' as const,
+          checked: mode === value,
+          click: () => choose(value)
+        }))
+      },
+      { type: 'separator' },
+      { label: '打开收藏夹', click: () => overlays.requestBookmarks() }
+    ]
+    Menu.buildFromTemplate(template).popup({ window })
+  }
+
+  /**
    * 给标签挂上用户「保持活跃」租约（幂等：显式 leaseId 让重复标记变成续租）。
    *
    * 单独拆出来是因为有两个生产者：右键菜单（`setKeepAwake`）和会话恢复
@@ -2475,7 +2584,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     runNtp,
     forgetSessionPrompt,
     refreshProjection: () => {
-      if (active) publish()
+      if (!active) return
+      // 设置可能改变外壳高度（收藏夹横条就是第一例）：先重排页面视图再投影，
+      // 否则横条要等到下一次切标签才把页面让出来。
+      layout()
+      publish()
     },
     debugState,
     run
@@ -2805,6 +2918,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         if (!tab) return fail('unknown-tab')
         return navigateTab(tab, node.url)
       }
+      case 'bookmark-bar-menu':
+        showBookmarkBarMenu()
+        break
       case 'navigate': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
@@ -3324,6 +3440,13 @@ function refreshAllWindows(): void {
   for (const controller of controllers.values()) {
     controller.refreshSettings()
     controller.broadcastSettings()
+    /**
+     * 设置可能改变**外壳高度**（收藏夹横条就是第一例）：每个窗口都要重排页面视图。
+     *
+     * 不能只靠 `refreshSettings()`——那条路径只推内部页；外壳的投影要等下一次
+     * `publish()`，横条就会"画出来了、页面还压在下面"。
+     */
+    controller.refreshProjection()
   }
 }
 

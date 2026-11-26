@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
-  SESSION_STARTUP_MODES, THEME_MODES, discardModeLabels, prewarmModeSummaries, prewarmToggleHint,
-  sessionStartupLabels, themeModeLabels
+  SESSION_STARTUP_MODES, THEME_MODES, bookmarkBarHint, bookmarkBarModeLabels, discardModeLabels,
+  prewarmModeSummaries, prewarmToggleHint, sessionStartupLabels, themeModeLabels
 } from '../shared/settings'
 import type { SessionStartupMode, SettingKey, SettingsSnapshot, ThemeMode } from '../shared/settings'
+import { BOOKMARK_BAR_MODES } from '../shared/bookmarks'
+import type { BookmarkBarMode } from '../shared/bookmarks'
 import type { FlashPluginState } from '../shared/settings'
 import { DEFAULT_SEARCH_ENGINE, SEARCH_ENGINES, searchEngineLabels } from '../shared/search'
 import type { SearchEngine } from '../shared/search'
@@ -44,8 +46,10 @@ const searchEngine = computed(() => current.value?.searchEngine ?? DEFAULT_SEARC
 const prewarm = computed(() => current.value?.overlayPrewarm ?? 'always')
 const tabDiscard = computed(() => current.value?.tabDiscard ?? 'auto')
 const sessionStartup = computed(() => current.value?.sessionStartup ?? 'newtab')
+const bookmarkBar = computed(() => current.value?.bookmarkBar ?? 'ntp')
 const themeModes = THEME_MODES
 const startupModes = SESSION_STARTUP_MODES
+const bookmarkBarModes = BOOKMARK_BAR_MODES
 const storage = computed(() => snapshot.value?.storage ?? 'ready')
 
 /**
@@ -205,6 +209,11 @@ function chooseTheme(mode: ThemeMode): void {
   void write({ key: 'theme.mode', value: mode })
 }
 
+/** 收藏夹横条的三档（Edge 的「显示收藏夹栏」）：直写，写成功才更新本地快照。 */
+function chooseBookmarkBar(mode: BookmarkBarMode): void {
+  void write({ key: 'bookmark.bar', value: mode })
+}
+
 /** 启动行为：单选项直写（与默认引擎一致，写成功才更新本地快照）。 */
 function chooseStartup(mode: SessionStartupMode): void {
   void write({ key: 'session.startup', value: mode })
@@ -349,6 +358,31 @@ function goFlashSection(): void {
             >
               <span class="theme-mode-icon" :data-mode="mode" aria-hidden="true"></span>
               <span class="segmented-option-label">{{ themeModeLabels[mode] }}</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="bookmark-bar-title">
+        <header class="section-heading">
+          <h2 id="bookmark-bar-title">收藏夹栏</h2>
+          <p class="section-caption">{{ bookmarkBarHint }}</p>
+        </header>
+        <!-- 三档用竖排单选（与「默认引擎」同一形态）：标签比主题那三档长得多，
+             横排分段控件会把它压成"仅在新标签页…"。 -->
+        <div class="setting-card">
+          <div role="radiogroup" aria-label="显示收藏夹栏" class="choices">
+            <button
+              v-for="mode in bookmarkBarModes"
+              :key="mode"
+              type="button"
+              class="choice"
+              role="radio"
+              :aria-checked="bookmarkBar === mode"
+              @click="chooseBookmarkBar(mode)"
+            >
+              <span class="radio" aria-hidden="true"></span>
+              <span class="label">{{ bookmarkBarModeLabels[mode] }}</span>
             </button>
           </div>
         </div>

@@ -112,6 +112,21 @@ describe('flyoutBounds（齿轮飞窗初始位置）', () => {
     const bounds = flyoutBounds({ anchorRight: 200, anchorBottom: 78, viewportWidth: 320 }, 320, 320)
     expect(bounds.x).toBe(0)
   })
+
+  /**
+   * 收藏夹横条上的文件夹按钮普遍靠左（右缘 291 < 卡片 320 + 边距）：右对齐会被夹到 0，
+   * 飞窗凭空跑到窗口最左边、看起来跟按钮没关系。有左边缘时改成左对齐。
+   */
+  it('右边放不下时改成左对齐（卡片左缘贴住按钮左缘）', () => {
+    const bounds = flyoutBounds({ anchorRight: 291, anchorLeft: 260, anchorBottom: 116, viewportWidth: 1100 }, 320, 320)
+    expect(bounds.x + OVERLAY_GUTTER_X).toBe(260)
+    expect(bounds.y).toBe(116)
+  })
+
+  it('右边放得下时仍右对齐（左边缘不影响正常情况）', () => {
+    const bounds = flyoutBounds({ anchorRight: 1092, anchorLeft: 1060, anchorBottom: 78, viewportWidth: 1100 }, 320, 320)
+    expect(bounds.x + bounds.width - OVERLAY_GUTTER_X).toBe(1092)
+  })
 })
 
 describe('panelBounds（引擎面板初始位置）', () => {

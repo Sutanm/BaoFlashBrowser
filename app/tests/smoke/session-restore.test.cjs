@@ -4,14 +4,17 @@ const { mkdtemp, rm } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const { DatabaseSync } = require('node:sqlite')
-const { audioStateOf, launchAppAt, page, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { audioStateOf, clickSessionBubble, launchAppAt, page, pageViewBounds, sessionBubbleState, startFixtureServer, waitFor, waitForSessionBubble, waitForSessionBubbleGone } = require('./helpers.cjs')
 
 /**
- * 崩溃恢复（Chrome 的「恢复页面」语义，M2）：
+ * 崩溃恢复（Chrome 的「恢复页面」气泡语义，M2）：
  *
  * - **正常退出后重启不恢复**：一律是新标签页，也没有任何提示；
- * - **异常退出后重启只提示、不恢复**：外壳顶部出现提示条，用户点「恢复标签页」才重建；
+ * - **异常退出后重启只提示、不恢复**：工具栏最右那颗按钮下方出现警示气泡，用户点「恢复」才重建；
  * - 恢复出来的标签保留置顶、引擎、静音与「保持活跃」，后台标签仍是休眠状态。
+ *
+ * 气泡住在**叠加层视图**里（与飞窗同一个文档/渲染进程，见 `docs/reports/2026-11-26-session-bubble.md`），
+ * 所以断言走 `helpers.cjs` 的 `sessionBubbleState` / `clickSessionBubble`，而不是外壳 DOM 定位器。
  *
  * 存储层（schema v2、退出标记、坏载荷容错）在 `tests/data/session-store.test.cjs`，
  * 载荷校验在 `tests/unit/session.test.ts`。
@@ -96,7 +99,7 @@ test('正常退出后重启：不恢复标签，也没有恢复提示', { timeou
         assert.equal(state.sessionPrompt, undefined, '正常退出后重启不应有恢复提示')
         assert.equal(state.tabs.length, 1, '正常退出后重启只有一个新标签页')
         assert.equal(state.tabs[0].internal, 'newtab')
-        assert.equal(await second.shell.locator('.session-infobar').count(), 0, '界面上不应出现提示条')
+        assert.equal(await sessionBubbleState(second.app), null, '界面上不应出现恢复气泡')
       } finally {
         await second.close()
       }
@@ -106,7 +109,7 @@ test('正常退出后重启：不恢复标签，也没有恢复提示', { timeou
   }
 })
 
-test('设置 session.startup=continue 后：正常退出重启直接恢复标签，没有提示条', { timeout: 180_000 }, async () => {
+test('设置 session.startup=continue 后：正常退出重启直接恢复标签，没有恢复气泡', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({ '/a': page('A'), '/b': page('B') })
   try {
     await withProfile(async (profilePath) => {
@@ -130,7 +133,7 @@ test('设置 session.startup=continue 后：正常退出重启直接恢复标签
           return b && !b.loading ? current : null
         }, { message: 'continue 模式下没有恢复上次标签' })
         assert.equal(state.sessionPrompt, undefined, 'continue 模式不应再提示')
-        assert.equal(await second.shell.locator('.session-infobar').count(), 0)
+        assert.equal(await sessionBubbleState(second.app), null)
         assert.equal(state.settings.sessionStartup, 'continue', '重启后设置应保留')
 
         const a = tabByTitle(state, 'A')
@@ -147,7 +150,7 @@ test('设置 session.startup=continue 后：正常退出重启直接恢复标签
   }
 })
 
-test('异常退出后重启：只提示不恢复，点「恢复标签页」才重建并保留置顶/引擎/保持活跃', { timeout: 180_000 }, async () => {
+test('异常退出后重启：只提示不恢复，点「恢复」才重建并保留置顶/引擎/保持活跃', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({ '/a': page('A'), '/b': page('B') })
   try {
     await withProfile(async (profilePath) => {
@@ -174,18 +177,29 @@ test('异常退出后重启：只提示不恢复，点「恢复标签页」才�
         assert.equal(pending.tabs[0].internal, 'newtab')
         assert.ok(pending.sessionPrompt.tabs >= 2, '提示应报出可恢复的标签数')
 
-        const infobar = second.shell.locator('.session-infobar')
-        await infobar.waitFor({ timeout: 10_000 })
-        assert.match(await infobar.innerText(), /上次未正常退出/)
+        // 气泡（Chromium 的「恢复页面」警示对话框）：标题/正文/主按钮文案逐项对齐源码，
+        // 并且**不能推页面**——提示条那版占 36px 布局高度，气泡是浮层。
+        const bubble = await waitForSessionBubble(second.app)
+        assert.equal(bubble.title, '恢复页面?')
+        assert.match(bubble.message, /未正常关闭/)
+        assert.equal(bubble.restore, '恢复')
+        assert.ok(bubble.tabs >= 2, '气泡应报出可恢复的标签数')
+
+        const frame = await pageViewBounds(second.app)
+        assert.ok(frame, '找不到页面视图')
+        // 提示条那版会把页面视图的 y 加上 INFOBAR_HEIGHT(36)；气泡是浮层，页面位置只由
+        // 标签栏(40) + 工具栏(44) [+ 收藏夹横条(32)] 决定。
+        assert.ok(frame.y === 84 || frame.y === 116,
+          `气泡不应把页面往下推（页面视图 y=${frame.y}，带提示条时会 ≥120）`)
 
         // 用户选择恢复。
-        await second.shell.getByRole('button', { name: '恢复标签页' }).click()
+        assert.equal(await clickSessionBubble(second.app, 'restore'), true)
         const restored = await waitFor(async () => {
           const state = await snapshot(second.shell)
           const b = tabByTitle(state, 'B')
           return state.sessionPrompt === undefined && b && !b.loading ? state : null
-        }, { message: '点「恢复标签页」后没有重建标签' })
-        assert.equal(await second.shell.locator('.session-infobar').count(), 0, '回答后提示条应消失')
+        }, { message: '点「恢复」后没有重建标签' })
+        await waitForSessionBubbleGone(second.app)
 
         const a = tabByTitle(restored, 'A')
         assert.ok(a, '应恢复标签 A')
@@ -246,12 +260,12 @@ test('静音标签保存后重启恢复：恢复出的 WebContents 实际静音'
 
       const second = await launchAppAt(profilePath)
       try {
-        await second.shell.locator('.session-infobar').waitFor({ timeout: 10_000 })
-        await second.shell.getByRole('button', { name: '恢复标签页' }).click()
+        await waitForSessionBubble(second.app)
+        assert.equal(await clickSessionBubble(second.app, 'restore'), true)
         const restored = await waitFor(async () => {
           const tab = tabByTitle(await snapshot(second.shell), 'M')
           return tab && !tab.loading && !tab.discarded ? tab : null
-        }, { message: '点「恢复标签页」后没有重建标签 M' })
+        }, { message: '点「恢复」后没有重建标签 M' })
         assert.equal(restored.muted, true, '会话里的静音状态应恢复')
 
         const actual = await waitFor(async () => {
@@ -285,8 +299,9 @@ test('异常退出后点「忽略」：不恢复标签，且下次启动不再�
 
       const second = await launchAppAt(profilePath)
       try {
-        await second.shell.locator('.session-infobar').waitFor({ timeout: 10_000 })
-        await second.shell.getByRole('button', { name: '忽略' }).click()
+        await waitForSessionBubble(second.app)
+        // 右上角 × = 忽略（Chromium 里气泡只有「恢复」一个按钮 + 关闭按钮）。
+        assert.equal(await clickSessionBubble(second.app, 'dismiss'), true)
         const state = await waitFor(async () => {
           const current = await snapshot(second.shell)
           return current.sessionPrompt === undefined ? current : null
@@ -302,6 +317,57 @@ test('异常退出后点「忽略」：不恢复标签，且下次启动不再�
         const state = await snapshot(third.shell)
         assert.equal(state.sessionPrompt, undefined, '忽略过的会话不应再次提示')
         assert.equal(state.tabs.length, 1)
+      } finally {
+        await third.close()
+      }
+    })
+  } finally {
+    await server.close()
+  }
+})
+
+/**
+ * 气泡被别的浮层顶掉 = 用户已经明确去干别的了。
+ *
+ * Chromium 的口径是「关闭气泡即已确认」：`ExitTypeService` 的 `CrashedLock` 随气泡销毁而释放，
+ * 崩溃标记就此落定，下次启动不再问。我们照抄这条——否则用户点开齿轮之后，气泡会以
+ * "没回答"的状态挂在后台，下次启动又冒出来。
+ */
+test('气泡显示时打开齿轮飞窗：气泡让位，会话按「忽略」处理', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/a': page('A'), '/b': page('B') })
+  try {
+    await withProfile(async (profilePath) => {
+      const first = await launchAppAt(profilePath)
+      try {
+        await prepareTabs(first.shell, server.baseUrl)
+        await waitForSession(profilePath, (tab) =>
+          tab.url === `${server.baseUrl}/b` && tab.keepAwake === true && tab.engine === 'ruffle')
+        first.app.process().kill('SIGKILL')
+        await new Promise((done) => setTimeout(done, 800))
+      } finally {
+        await first.close()
+      }
+
+      const second = await launchAppAt(profilePath)
+      try {
+        await waitForSessionBubble(second.app)
+        // 点齿轮（工具栏最右那颗按钮，气泡的锚点）打开飞窗：同一个叠加层视图换内容。
+        await second.shell.locator('.gear-button').click()
+        const state = await waitFor(async () => {
+          const current = await snapshot(second.shell)
+          return current.sessionPrompt === undefined ? current : null
+        }, { message: '气泡被飞窗顶掉后，恢复提示应当视为已回答' })
+        await waitForSessionBubbleGone(second.app)
+        assert.equal(state.tabs.length, 1, '顶掉气泡不应恢复任何标签')
+        assert.equal(state.tabs[0].internal, 'newtab')
+      } finally {
+        await second.close()
+      }
+
+      const third = await launchAppAt(profilePath)
+      try {
+        const state = await snapshot(third.shell)
+        assert.equal(state.sessionPrompt, undefined, '已经顶掉过的会话不应再次提示')
       } finally {
         await third.close()
       }

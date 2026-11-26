@@ -8,10 +8,12 @@ import {
   compactPositions,
   descendantIds,
   flattenTree,
+  isBookmarkBarMode,
   isBookmarkableAddress,
   isPermanentRoot,
   matchesQuery,
   nextPosition,
+  showsBookmarkBar,
   suggestedTitle,
   titleFor,
   treeOf
@@ -185,8 +187,7 @@ describe('当前页与工具栏星标', () => {
   })
 })
 
-describe('flattenTree：面板按树序平铺', () => {
-  it('先序展开，深度用于缩进，子节点排在父节点后面', () => {
+describe('flattenTree：面板按树序平铺', () => {  it('先序展开，深度用于缩进，子节点排在父节点后面', () => {
     const nodes = [
       ...roots,
       node({ id: 'a', position: 0, url: 'https://a.com/' }),
@@ -212,5 +213,37 @@ describe('flattenTree：面板按树序平铺', () => {
       node({ id: 'y', kind: 'folder', parentId: 'x', url: undefined })
     ]
     expect(() => flattenTree(nodes, 'x')).not.toThrow()
+  })
+})
+
+describe('收藏夹横条的显示规则', () => {
+  /**
+   * 这条规则由**主进程**（页面视图的 y 坐标）与**外壳**（画不画那一行）共用：
+   * 两处各写一遍就是"条画出来了、页面却压在下面一截"，所以它必须是纯函数 + 用例。
+   */
+  it('仅新标签页：只有 NTP 显示，设置页与普通网页都不显示', () => {
+    expect(showsBookmarkBar('ntp', 'newtab')).toBe(true)
+    expect(showsBookmarkBar('ntp', 'settings')).toBe(false)
+    expect(showsBookmarkBar('ntp', undefined)).toBe(false)
+  })
+
+  it('始终显示：内部页与网页一律显示', () => {
+    expect(showsBookmarkBar('always', 'newtab')).toBe(true)
+    expect(showsBookmarkBar('always', 'settings')).toBe(true)
+    expect(showsBookmarkBar('always', undefined)).toBe(true)
+  })
+
+  it('从不显示：连新标签页也不显示', () => {
+    expect(showsBookmarkBar('never', 'newtab')).toBe(false)
+    expect(showsBookmarkBar('never', undefined)).toBe(false)
+  })
+
+  it('取值域只有三档（Chromium 的两个布尔 pref 不是合法取值）', () => {
+    expect(isBookmarkBarMode('ntp')).toBe(true)
+    expect(isBookmarkBarMode('always')).toBe(true)
+    expect(isBookmarkBarMode('never')).toBe(true)
+    expect(isBookmarkBarMode('show_on_all_tabs')).toBe(false)
+    expect(isBookmarkBarMode(true)).toBe(false)
+    expect(isBookmarkBarMode(undefined)).toBe(false)
   })
 })

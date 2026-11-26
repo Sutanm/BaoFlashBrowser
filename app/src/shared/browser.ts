@@ -5,8 +5,14 @@ import type { Locale, SettingKey, SettingValue, Settings, ThemeMode } from './se
 
 export const TAB_BAR_HEIGHT = 40
 export const TOOLBAR_HEIGHT = 44
-/** 崩溃恢复提示条的高度（只在外壳顶部显示，页面视图相应下移）。 */
-export const INFOBAR_HEIGHT = 36
+/**
+ * 收藏夹横条的高度（工具栏下面那第三行，显示与否见 `showsBookmarkBar()`）。
+ *
+ * 28 是 Chromium 的 `BOOKMARK_BAR_HEIGHT`（`chrome/browser/ui/layout_constants.cc:29`，
+ * 触摸 UI 是 36）；我们的工具栏按钮比 Chromium 大一号（32 vs 28），横条按钮 24，
+ * 上下各 4px 内边距，于是取 32。这个值同时决定页面视图的 y 偏移，改它要连测试一起改。
+ */
+export const BOOKMARK_BAR_HEIGHT = 32
 
 export const browserChannels = {
   command: 'browser:command',
@@ -19,7 +25,10 @@ export type BrowserCommand =
   | { type: 'open-settings' }
   /**
    * 崩溃恢复提示的两个回答（Chrome 的「恢复页面」气泡语义）：
-   * 上次没有走正常退出路径时，重启只显示提示条，**用户点「恢复」才真的恢复**。
+   * 上次没有走正常退出路径时，重启只显示气泡，**用户点「恢复」才真的恢复**。
+   *
+   * 正常路径由气泡的 `close-bubble`（叠加层通道）回答；这两个命令是同一语义的直接入口
+   * （命令通道，测试/脚本用），两者最终走同一对函数。
    */
   | { type: 'restore-session' | 'dismiss-session' }
   | { type: 'select' | 'close'; id: number }
@@ -72,6 +81,13 @@ export type BrowserCommand =
    * 按 id 取地址时，能被导航的只可能是用户自己收藏过的东西。
    */
   | { type: 'open-bookmark'; id: string }
+  /**
+   * 收藏夹横条的右键菜单（Chromium 的 `BookmarkBarView::ShowContextMenu`）。
+   *
+   * 菜单是**原生**的（`Menu.popup`）：它是系统控件，不是我们要重画的一套 UI；而且
+   * 「显示收藏夹栏」这个三档开关必须有除了设置页之外的第二个入口——横条自己身上。
+   */
+  | { type: 'bookmark-bar-menu' }
 
 /** 稳定错误代码。渲染层按代码取文案，主进程只附加允许公开的详情。 */
 export type BrowserFailureCode =
@@ -158,7 +174,9 @@ export interface BrowserTab {
  * 崩溃恢复提示（Chrome 的「恢复页面」气泡）。
  *
  * 只有**上次没有正常退出**且确实存有会话时才出现；正常退出后重启一律是新标签页，
- * 不打扰用户。出现时也只是一个提示条，恢复动作必须由用户显式点击触发。
+ * 不打扰用户。出现时是工具栏最右那颗按钮下的**警示气泡**（叠加层视图，见
+ * `docs/reports/2026-11-26-session-bubble.md`），不占布局高度、不推页面；
+ * 恢复动作必须由用户显式点击触发。
  */
 export interface BrowserSessionPrompt {
   /** 可恢复的标签数量（跨上次所有窗口）。 */
@@ -189,6 +207,15 @@ export interface BrowserState {
    * 平面对象，跟着广播走的代价远小于再维护一条订阅生命周期（多一条通道就多一处可能不同步）。
    */
   bookmarks: BookmarkNode[]
+  /**
+   * 收藏夹横条此刻该不该占位置。
+   *
+   * 为什么是主进程算好的布尔、而不是让外壳拿 `settings.bookmarkBar` 和 `active.internal`
+   * 自己算：这条判定还带着**时序**（导航途中要按住，见 `Tab.barHold`），而时序只有主进程
+   * 知道。外壳只负责画，判定留在 `main` 的 `bookmarkBarShown()` 一处，规则本体仍是
+   * `shared/bookmarks.ts` 的 `showsBookmarkBar()`。
+   */
+  bookmarkBarShown: boolean
   tabs: BrowserTab[]
 }
 

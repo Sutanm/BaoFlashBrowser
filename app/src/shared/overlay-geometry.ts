@@ -84,16 +84,29 @@ export interface FlyoutAnchor {
   anchorBottom: number
   /** 窗口内容区宽度（用来在窄窗口下把飞窗推回可见区）。 */
   viewportWidth: number
+  /**
+   * 锚点按钮的左边缘：只在**右边放不下**时用到（收藏夹横条上的文件夹按钮普遍靠左，
+   * 右对齐会把 320 宽的飞窗推到窗口左缘，看起来跟按钮没关系）。
+   */
+  anchorLeft?: number
 }
 
 /**
  * 飞窗的初始 bounds（**视图**边界，不是卡片）：
  * 卡片右缘与按钮右缘对齐、卡片顶边贴住按钮下沿；视图在左右各外扩 `OVERLAY_GUTTER_X`、
  * 底部外扩 `OVERLAY_GUTTER_BOTTOM`（投影向下偏移，底部要更多空间）。
+ *
+ * 右边放不下时（`anchorRight - 卡片宽 - 边距 < 0`）改成**左对齐**：卡片左缘贴住按钮左缘。
+ * 否则会被夹到 0，飞窗凭空跑到窗口最左边——横条上的文件夹按钮就是这种位置（Chromium 的
+ * `MenuAnchorPosition` 同样会在右边放不下时换到另一侧）。
  */
 export function flyoutBounds(anchor: FlyoutAnchor, cardWidth: number, cardHeight: number): OverlayBounds {
+  const rightAligned = Math.round(anchor.anchorRight) - cardWidth - OVERLAY_GUTTER_X
+  const x = rightAligned < 0 && anchor.anchorLeft !== undefined
+    ? Math.max(0, Math.round(anchor.anchorLeft) - OVERLAY_GUTTER_X)
+    : Math.max(0, rightAligned)
   return {
-    x: Math.max(0, Math.round(anchor.anchorRight) - cardWidth - OVERLAY_GUTTER_X),
+    x,
     y: Math.round(anchor.anchorBottom),
     width: cardWidth + 2 * OVERLAY_GUTTER_X,
     height: cardHeight + OVERLAY_GUTTER_BOTTOM

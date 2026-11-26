@@ -1,6 +1,18 @@
 /** Names the isolated renderer mode of the shell document. */
 export const OVERLAY_QUERY = 'baoOverlay'
-export type OverlayKind = 'panel' | 'toast' | 'quick'
+/**
+ * 叠加层视图当前画什么（同一个视图、同一个文档，靠事件切换内容）。
+ *
+ * - `panel`：引擎面板（锚在引擎按钮下）；
+ * - `quick`：飞窗（快捷设置 / 收藏夹 / 编辑气泡，锚在触发它的那颗按钮下）；
+ * - `toast`：失败提示条（贴页面区上沿，自由定位）；
+ * - `bubble`：启动时的「恢复页面」警示气泡（Chromium 的 `SessionCrashedBubbleView`）。
+ *
+ * `bubble` 单独成一种而不是塞进 `quick`：它是**警示对话框**（失焦不关、必须回答一个决定），
+ * 飞窗是用户主动打开、点外部就收的面板。两者共用的是载体（一个视图、一个渲染进程），
+ * 不是语义——详情见 `docs/reports/2026-11-26-session-bubble.md`。
+ */
+export type OverlayKind = 'panel' | 'toast' | 'quick' | 'bubble'
 
 /**
  * 飞窗（`quick`）里的内容页。
@@ -44,6 +56,10 @@ export type OverlayEvent =
   | { type: 'panel-closed'; restoreFocus: boolean }
   /** `view` 决定飞窗画哪一页（快捷设置 / 收藏夹）；宿主要靠它切换，不能自己猜。 */
   | { type: 'quick-opened'; theme: 'light' | 'dark'; view: QuickView }
+  /** 崩溃恢复气泡：`tabs` 是可恢复的标签数（跨上次所有窗口）。 */
+  | { type: 'bubble-opened'; theme: 'light' | 'dark'; tabs: number }
+  /** 气泡已收起（不论是用户回答、被别的浮层顶掉，还是提示被清除）。 */
+  | { type: 'bubble-closed' }
   // 飞窗里的「收藏夹」入口：外壳负责算锚点、开飞窗（它才知道星标按钮在哪）。
   | { type: 'bookmarks-requested' }
   // 气泡里的「更多」：外壳把同一只飞窗换到完整编辑器那一页（锚点仍是星标）。
@@ -72,6 +88,21 @@ export type OverlayCommand =
   | { type: 'set-quick'; bounds: OverlayBounds | null; view?: QuickView }
   | { type: 'resize-quick'; height: number }
   | { type: 'close-quick'; restoreFocus: boolean }
+  /**
+   * Shell only. 显示/更新崩溃恢复气泡（`tabs` 是可恢复的标签数）；`bounds` 为 null 时收起。
+   *
+   * 由外壳下发而不是主进程自己算：锚点是工具栏最右那颗按钮，只有外壳知道它的实际矩形。
+   */
+  | { type: 'set-bubble'; bounds: OverlayBounds | null; tabs: number }
+  /** Bubble only. 气泡自己量出内容高度后上报（与 panel/quick 同一套「卡片高度」约定）。 */
+  | { type: 'resize-bubble'; height: number }
+  /**
+   * Bubble only. 用户回答了：`restore=true` 恢复标签，`false` 丢弃这份会话。
+   *
+   * 回答只走这一条命令（Esc 与右上角 ×、主按钮都归到它）：气泡自己不知道会话在不在内存里，
+   * 「建标签 / 清挂起」是主进程的事。
+   */
+  | { type: 'close-bubble'; restore: boolean }
   /** Quick only. 飞窗里的「收藏夹」入口：转给外壳，由它算星标锚点后重新打开。 */
   | { type: 'open-bookmarks' }
   /** Quick only. 气泡里的「更多」：转给外壳，由它把飞窗换到完整编辑器。 */
@@ -117,6 +148,12 @@ export interface OverlayBridge {
   resizeQuick(height: number): Promise<boolean>
   /** Quick only. 关闭并把焦点还给齿轮。 */
   closeQuick(restoreFocus?: boolean): Promise<boolean>
+  /** Shell only. 显示/更新崩溃恢复气泡；null 收起（用户还没回答时不代表回答）。 */
+  setBubble(bounds: OverlayBounds | null, tabs: number): Promise<boolean>
+  /** Bubble only. 上报卡片高度（主进程加投影边距后设视图高度）。 */
+  resizeBubble(height: number): Promise<boolean>
+  /** Bubble only. 用户回答：`restore=true` 恢复标签，`false` 丢弃会话。 */
+  closeBubble(restore: boolean): Promise<boolean>
   /** Toast only. Native notifies shell to clear its message. */
   dismissToast(): Promise<boolean>
   /** Panel only. Relay a command failure to the shell, which owns toast text. */
