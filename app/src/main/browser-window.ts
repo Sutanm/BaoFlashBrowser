@@ -171,7 +171,10 @@ interface WindowController extends TabHost {
   adoptTab(tab: Tab, index?: number, options?: { wake?: boolean }): void
   /** 心跳回执（主进程主动测外壳渲染线程是否还能干活）。 */
   heartbeatPong(seq: number): void
-  heartbeatStats(): HeartbeatStats
+  /** 外壳报来首帧：冷启动结束，之后才按卡顿判据统计。 */
+  heartbeatReady(source?: string): void
+  /** `mainLag`：同一时段主进程自身事件循环最长卡顿（RTT 里也有它的一份）。 */
+  heartbeatStats(): HeartbeatStats & { mainLag: number }
   /** 清空心跳样本（诊断/测试用）。 */
   heartbeatReset(): void
   isEmpty(): boolean
@@ -551,6 +554,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   })
 
   const shellContentsId = window.webContents.id
+  /**
+   * 渲染层是否已经画过第一帧（`ready-to-show`）。
+   *
+   * 从窗口创建起就记下来：这个事件可能早于也可能晚于 `loadURL` 解析，等到 show 的那一刻
+   * 才 `once` 会漏掉"已经画过"的情况，白等 1.5 s 兜底。
+   */
+  let windowPainted = false
+  window.once('ready-to-show', () => { windowPainted = true })
   /**
    * 当前页面视图的位置 + WebContents：飞窗的透明投影边距需要它来做鼠标转发
    * （边距落在视图命中区里，不转发就等于吞掉页面上的点击）。
@@ -2497,9 +2508,27 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    */
   const heartbeatEnabled = !app.isPackaged || process.env.BAO_HEARTBEAT === '1'
   const heartbeatStallMs = Number(process.env.BAO_HEARTBEAT_STALL_MS ?? 200)
-  const heartbeat = new HeartbeatMonitor({ stallMs: heartbeatStallMs })
+  // `warmup: true`：外壳画出第一帧之前不算卡顿（见 `main/heartbeat.ts` 文件头的 2026-11-26 实测）。
+  const heartbeat = new HeartbeatMonitor({ stallMs: heartbeatStallMs, warmup: true })
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined
   let heartbeatWarned = false
+  /**
+   * 主进程**自己**事件循环最长的一次卡顿（毫秒）。
+   *
+   * 为什么主进程也要测：一次往返是「主进程发出 → 渲染线程回执 → 主进程处理回执」，
+   * **任何一侧**卡住都会把 RTT 抬起来。没有这一项时，主进程的启动/GC 会被误报成
+   * 「外壳渲染线程被阻塞」——2026-11-26 的 331 ms 就是照这个错误结论读的。
+   * 50 ms 采样一次，取相邻两次采样之间的超期量。
+   */
+  let mainLagMax = 0
+  let mainLagLast = Date.now()
+  const mainLagTimer = setInterval(() => {
+    const now = Date.now()
+    const late = now - mainLagLast - 50
+    if (late > mainLagMax) mainLagMax = late
+    mainLagLast = now
+  }, 50)
+  mainLagTimer.unref?.()
 
   function traceHeartbeat(line: string): void {
     const file = process.env.BAO_HEARTBEAT_TRACE
@@ -2527,6 +2556,21 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     clearInterval(heartbeatTimer)
     heartbeatTimer = undefined
   }
+
+  /**
+   * 外壳报来首帧：preload 在 `load` 之后用两次 rAF 发的 `heartbeatChannels.ready`。
+   *
+   * 冷启动的那笔账照报不误，但只报一次 info——它不是卡顿，是「新渲染进程 + 首帧」的
+   * 固有代价（本机实测 200–350 ms，其中没有超过 54 ms 的单个任务）。
+   */
+  function heartbeatReady(source = 'first-paint'): void {
+    const boot = heartbeat.markReady()
+    if (boot <= 0) return
+    traceHeartbeat(`boot rtt=${Math.round(boot)}ms source=${source} mainLag=${Math.round(mainLagMax)}ms`)
+    if (boot > heartbeatStallMs) {
+      console.info(`[heartbeat] 外壳冷启动 ${Math.round(boot)} ms（首帧之前：含渲染进程启动、文档解析与首帧，不计入卡顿）`)
+    }
+  }
   function debugState(): ReturnType<WindowController['debugState']> {
     return tabs.map((tab) => {
       const contents = tab.view?.webContents
@@ -2544,16 +2588,32 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   const controller: WindowController = {
     heartbeatPong(seq: number): void {
       const rtt = heartbeat.onPong(seq)
-      if (rtt === undefined || rtt <= heartbeatStallMs) return
-      traceHeartbeat(`stall rtt=${Math.round(rtt)}ms`)
+      if (rtt === undefined) return
+      // 每一跳都落盘（只有显式设了 `BAO_HEARTBEAT_TRACE` 才写）：事后才分得清
+      // 「首帧前的一次性冷启动」和「运行期真的被占住」。
+      traceHeartbeat(
+        `sample rtt=${Math.round(rtt)}ms ready=${heartbeat.isReady ? 1 : 0} mainLag=${Math.round(mainLagMax)}ms`
+      )
+      // 首帧之前的往返是冷启动，交给 `heartbeatReady()` 报告，不进卡顿统计。
+      if (!heartbeat.isReady || rtt <= heartbeatStallMs) return
+      traceHeartbeat(`stall rtt=${Math.round(rtt)}ms mainLag=${Math.round(mainLagMax)}ms`)
       // 长任务期间每 10 次告警一次，避免刷屏。
       if (!heartbeatWarned || heartbeat.stats().stalls % 10 === 0) {
         heartbeatWarned = true
-        console.warn(`[heartbeat] 外壳渲染线程被阻塞约 ${Math.round(rtt)} ms（阈值 ${heartbeatStallMs} ms）`)
+        // 主进程自己卡住时也把 RTT 抬高：写清是哪一侧，别再让人去查错方向。
+        const mainSide = mainLagMax >= heartbeatStallMs / 2
+          ? `；同一时间主进程自身卡了约 ${Math.round(mainLagMax)} ms（RTT 含这一段）`
+          : ''
+        console.warn(`[heartbeat] 外壳渲染线程被阻塞约 ${Math.round(rtt)} ms（阈值 ${heartbeatStallMs} ms${mainSide}）`)
       }
     },
-    heartbeatStats: () => heartbeat.stats(),
-    heartbeatReset: () => heartbeat.reset(),
+    heartbeatReady,
+    heartbeatStats: () => ({ ...heartbeat.stats(), mainLag: Math.round(mainLagMax) }),
+    heartbeatReset: () => {
+      heartbeat.reset()
+      mainLagMax = 0
+      mainLagLast = Date.now()
+    },
     shellUrl,
     flash: plugins,
     overlays,
@@ -3190,10 +3250,20 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   const discardTimer = setInterval(() => { void sweepDiscard() }, DISCARD_SWEEP_MS)
   // 心跳：开发态默认开（前台/隐藏冒烟都用它做长任务门槛），成品只在 `BAO_HEARTBEAT=1` 时开。
   startHeartbeat()
+  /**
+   * 兜底：8 s 还没等到首帧信号就当作已就绪。
+   *
+   * 否则一旦 preload 的首帧信号因任何原因没发出来（脚本报错、文档被换掉），心跳会永远停在
+   * 冷启动期——不再报卡顿，等于观测瞎掉；宁可退化成"把冷启动也算进去"，也不能不测。
+   */
+  const heartbeatReadyFallback = setTimeout(() => heartbeatReady('fallback'), 8_000)
+  heartbeatReadyFallback.unref?.()
   window.on('closed', () => {
     // 最早抓一次会话投影：后面会逐个关闭 WebContents，标题/地址会退化成空值。
     const finalSession = sessionWindowSnapshot()
     clearInterval(discardTimer)
+    clearTimeout(heartbeatReadyFallback)
+    clearInterval(mainLagTimer)
     stopHeartbeat()
     closing = true
     controllers.delete(shellContentsId)
@@ -3257,8 +3327,25 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       // 保持 show:false：屏幕与任务栏都不出现（代价：Ruffle 出帧会被节流）。
     } else if (background) {
       applyAutomationWindowMode(window)
-    } else {
+    } else if (options.adopt) {
+      /**
+       * 接管窗口（拖出标签、跨窗移交通道的落点）**立刻 show**，不等首帧。
+       *
+       * 这条路径的用户动作是"我把标签拖出来了"，窗口必须跟手：这个窗口接管的页面视图是
+       * 现成的 WebContents，晚出现 200–350 ms 反而像拖拽没反应。空半帧的代价可以接受
+       * （Chromium 自己的拖出窗口也一样，先出窗口再让内容跟上）。
+       */
       window.show()
+    } else {
+      /**
+       * 等首帧再 show（2026-11-26 实测）。
+       *
+       * `await loadURL` 解析时渲染层还没画出第一帧：此时 show 会露出 200–300 ms 的空窗口
+       * （本机 FCP 664–780 ms，show 在 430 ms），这段窗口里点齿轮开飞窗也只是排在启动任务
+       * 后面，观感正是「一起动就卡一下」。`ready-to-show` 表示渲染层已经画过第一帧，等到它
+       * 再 show，窗口一出现就是完整的一帧，第一次点击也落在空闲的渲染线程上。
+       */
+      showWhenPainted(window, windowPainted)
     }
   } catch (error) {
     closing = true
@@ -3266,6 +3353,32 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!window.isDestroyed()) window.destroy()
     throw error
   }
+}
+
+/**
+ * 窗口出现时机：等渲染层画出第一帧（理由见调用处）。
+ *
+ * `painted` 由窗口创建时的 `ready-to-show` 监听器维护：已经画过就直接 show，
+ * 不能再 `once` 一次（那一次永远不会再来）。接管窗口不走这条路——它们要立刻出现。
+ * 兜底 1500 ms：隐藏窗口的首帧在个别环境会被节流，绝不能让窗口永远不出现——
+ * 一个"等不到首帧就永远不显示"的浏览器比一次白闪严重得多。
+ */
+function showWhenPainted(target: BrowserWindow, painted: boolean): void {
+  if (target.isDestroyed()) return
+  if (painted) {
+    target.show()
+    return
+  }
+  let shown = false
+  const show = (): void => {
+    if (shown || target.isDestroyed()) return
+    shown = true
+    clearTimeout(fallback)
+    target.show()
+  }
+  const fallback = setTimeout(show, 1_500)
+  fallback.unref?.()
+  target.once('ready-to-show', show)
 }
 
 /**
@@ -3473,6 +3586,15 @@ export function registerBrowserIpc(): void {
   ipcMain.on(heartbeatChannels.pong, (event, seq: unknown) => {
     if (typeof seq !== 'number') return
     controllers.get(event.sender.id)?.heartbeatPong(seq)
+  })
+  /**
+   * 外壳首帧信号（preload 两次 rAF 后发出）。
+   *
+   * 与 pong 同一条来源假设：只有外壳文档带这个 preload。它只让本窗口的心跳结束冷启动期，
+   * 重复到达（崩溃自愈重载）是无害的。
+   */
+  ipcMain.on(heartbeatChannels.ready, (event) => {
+    controllers.get(event.sender.id)?.heartbeatReady()
   })
   ipcMain.handle(browserChannels.command, (event, command: unknown) => {
     const controller = controllerFor(event)

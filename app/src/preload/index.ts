@@ -17,6 +17,29 @@ ipcRenderer.on(heartbeatChannels.ping, (_event: IpcRendererEvent, seq: unknown) 
   if (typeof seq === 'number') ipcRenderer.send(heartbeatChannels.pong, seq)
 })
 
+/**
+ * 首帧信号：告诉主进程「外壳已经画出第一帧了」。
+ *
+ * 为什么必须要它（2026-11-26 实测）：心跳从窗口创建就开始发，而外壳是新渲染进程——
+ * 进程启动 + 文档解析 + 首帧这段时间里 ping 只能排队，第一次往返必然被抬到 200–350 ms。
+ * Chromium 启动 tracing 显示这段时间里**没有**超过 54 ms 的单个任务（解析尾部 54 ms、
+ * 首次 style/layout 34 ms），也就是说它不是"线程被占住"，而是"线程还没起来 + 首帧还没画"。
+ * 主进程拿到这个信号之后才按卡顿判据统计，冷启动单独报一行 info。
+ *
+ * 用两次 rAF 而不是 `load`：`load` 只代表资源加载完，离"真的提交了一帧"还差渲染步骤。
+ */
+let shellReadySent = false
+function reportShellReady(): void {
+  if (shellReadySent) return
+  shellReadySent = true
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => ipcRenderer.send(heartbeatChannels.ready))
+  })
+}
+
+if (document.readyState === 'complete') reportShellReady()
+else window.addEventListener('load', reportShellReady, { once: true })
+
 const versions: RuntimeVersions = {
   electron: process.versions.electron,
   chromium: process.versions.chrome

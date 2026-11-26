@@ -82,4 +82,50 @@ describe('HeartbeatMonitor', () => {
     monitor.reset()
     expect(monitor.stats()).toMatchObject({ count: 0, last: 0, max: 0, stalls: 0, worst: [] })
   })
+
+  /**
+   * 冷启动（2026-11-26）：首帧之前的往返测的是「新渲染进程还在起来 + 文档还在解析」，
+   * 不是线程被占住——真实把启动报成卡顿的那次 331 ms 就属于这一类。
+   */
+  it('冷启动期：往返只记 boot，不进样本、不算卡顿', () => {
+    const clock = { now: 0 }
+    const monitor = new HeartbeatMonitor({ now: () => clock.now, stallMs: 200, warmup: true })
+    expect(monitor.stats()).toMatchObject({ ready: false, boot: 0, count: 0, stalls: 0 })
+
+    const bootSeq = monitor.tick()
+    clock.now += 331
+    expect(monitor.onPong(bootSeq)).toBe(331)
+    expect(monitor.stats()).toMatchObject({ ready: false, boot: 331, count: 0, stalls: 0, worst: [] })
+
+    // 首帧之后：同样的 331 ms 才是真的卡顿。
+    expect(monitor.markReady()).toBe(331)
+    const seq = monitor.tick()
+    clock.now += 331
+    monitor.onPong(seq)
+    expect(monitor.stats()).toMatchObject({ ready: true, boot: 331, count: 1, stalls: 1 })
+    // 重复就绪（外壳崩溃自愈重载后又报一次）无害，也不再把 boot 报一遍。
+    expect(monitor.markReady()).toBe(0)
+  })
+
+  it('不带 warmup 时立刻统计（纯逻辑调用方的默认行为）', () => {
+    const clock = { now: 0 }
+    const monitor = monitorAt(clock)
+    expect(monitor.stats()).toMatchObject({ ready: true, boot: 0 })
+    expect(monitor.markReady()).toBe(0)
+  })
+
+  it('reset 清样本但保留 cold-start 事实（boot / ready）', () => {
+    const clock = { now: 0 }
+    const monitor = new HeartbeatMonitor({ now: () => clock.now, stallMs: 200, warmup: true })
+    const bootSeq = monitor.tick()
+    clock.now += 250
+    monitor.onPong(bootSeq)
+    monitor.markReady()
+    const seq = monitor.tick()
+    clock.now += 250
+    monitor.onPong(seq)
+    expect(monitor.stats()).toMatchObject({ count: 1, stalls: 1, boot: 250, ready: true })
+    monitor.reset()
+    expect(monitor.stats()).toMatchObject({ count: 0, stalls: 0, boot: 250, ready: true })
+  })
 })
