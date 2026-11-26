@@ -167,12 +167,15 @@ let detachOverlay: (() => void) | undefined
  */
 const QUICK_WIDTH = 320
 const QUICK_INITIAL_HEIGHT = 320
-/** 收藏夹（树）比快捷设置宽一点：一行是「图标 + 标题」，太窄会全变成省略号。 */
-const BOOKMARKS_WIDTH = 340
+/** 收藏夹（树）与快捷设置同宽：三只飞窗挂在一起，宽度不同会显得像三套东西。 */
+const BOOKMARKS_WIDTH = 320
 const BOOKMARKS_INITIAL_HEIGHT = 300
-/** 编辑收藏夹气泡：Chromium `BookmarkBubbleView` 的量级（约 380×260）。 */
-const BUBBLE_WIDTH = 380
+/** 编辑收藏夹气泡：与快捷设置同宽（Chromium 的气泡也就 320–380 的量级）。 */
+const BUBBLE_WIDTH = 320
 const BUBBLE_INITIAL_HEIGHT = 260
+/** 完整编辑器（气泡里的「更多」）：更高更宽，但仍然是一只锚在星标下的飞窗。 */
+const EDITOR_WIDTH = 400
+const EDITOR_INITIAL_HEIGHT = 520
 const gearRoot = ref<HTMLButtonElement>()
 /** 工具栏「收藏夹」按钮（Edge 那颗）：打开收藏夹树，与星标不是一回事。 */
 const bookmarksRoot = ref<HTMLButtonElement>()
@@ -188,13 +191,14 @@ const quickView = ref<QuickView>('settings')
 /** 每个内容页的锚点按钮（星标在地址栏里，另外两个是工具栏按钮）。 */
 function quickAnchorFor(view: QuickView): HTMLButtonElement | undefined {
   if (view === 'bookmarks') return bookmarksRoot.value
-  if (view === 'bookmark-edit') return bookmarkRoot.value
+  if (view === 'bookmark-edit' || view === 'bookmark-editor') return bookmarkRoot.value
   return gearRoot.value
 }
 
 function quickGeometry(view: QuickView): { width: number; height: number } {
   if (view === 'bookmarks') return { width: BOOKMARKS_WIDTH, height: BOOKMARKS_INITIAL_HEIGHT }
   if (view === 'bookmark-edit') return { width: BUBBLE_WIDTH, height: BUBBLE_INITIAL_HEIGHT }
+  if (view === 'bookmark-editor') return { width: EDITOR_WIDTH, height: EDITOR_INITIAL_HEIGHT }
   return { width: QUICK_WIDTH, height: QUICK_INITIAL_HEIGHT }
 }
 
@@ -413,6 +417,9 @@ onMounted(() => {
     } else if (event.type === 'bookmarks-requested') {
       // 飞窗里的「收藏夹」入口：锚点与开关都在外壳这边。
       void toggleQuick('bookmarks')
+    } else if (event.type === 'bookmark-editor-requested') {
+      // 气泡里的「更多」：换到完整编辑器（锚点仍是星标）。
+      void openQuick('bookmark-editor')
     } else if (event.type === 'toast-closed') clearToast()
     else if (event.type === 'overlay-prewarm') prewarmSharedOverlay()
     else if (event.type === 'failure') showToast(event.text)

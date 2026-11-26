@@ -14,7 +14,7 @@ export type OverlayKind = 'panel' | 'toast' | 'quick'
  * - `bookmarks`：收藏夹（工具栏那颗按钮 / 齿轮里的入口）；
  * - `bookmark-edit`：地址栏星标下的「编辑收藏夹」气泡（Chromium 的 `BookmarkBubbleView`）。
  */
-export const QUICK_VIEWS = ['settings', 'bookmarks', 'bookmark-edit'] as const
+export const QUICK_VIEWS = ['settings', 'bookmarks', 'bookmark-edit', 'bookmark-editor'] as const
 export type QuickView = (typeof QUICK_VIEWS)[number]
 
 export function isQuickView(value: unknown): value is QuickView {
@@ -46,6 +46,8 @@ export type OverlayEvent =
   | { type: 'quick-opened'; theme: 'light' | 'dark'; view: QuickView }
   // 飞窗里的「收藏夹」入口：外壳负责算锚点、开飞窗（它才知道星标按钮在哪）。
   | { type: 'bookmarks-requested' }
+  // 气泡里的「更多」：外壳把同一只飞窗换到完整编辑器那一页（锚点仍是星标）。
+  | { type: 'bookmark-editor-requested' }
   | { type: 'quick-closed'; restoreFocus: boolean }
   | { type: 'toast-closed' }
   /** 飞窗被隐藏（视图 detach）：让它暂停动画/定时器，等下次打开再恢复。 */
@@ -72,6 +74,8 @@ export type OverlayCommand =
   | { type: 'close-quick'; restoreFocus: boolean }
   /** Quick only. 飞窗里的「收藏夹」入口：转给外壳，由它算星标锚点后重新打开。 */
   | { type: 'open-bookmarks' }
+  /** Quick only. 气泡里的「更多」：转给外壳，由它把飞窗换到完整编辑器。 */
+  | { type: 'open-bookmark-editor' }
   | { type: 'dismiss-toast' }
   | { type: 'report-failure'; text: string }
   /** Shell only. 叠加层文档报告「本次内容已渲染」（度量用，非产品行为）。 */
@@ -107,6 +111,8 @@ export interface OverlayBridge {
   setQuick(bounds: OverlayBounds | null, view?: QuickView): Promise<boolean>
   /** Quick only. 飞窗里点了「收藏夹」：请外壳在星标下重新展开。 */
   openBookmarks(): Promise<boolean>
+  /** Quick only. 气泡里点了「更多」：请外壳换到完整编辑器那一页。 */
+  openBookmarkEditor(): Promise<boolean>
   /** Quick only. 内容变高（例如插件缺失提示行）后更新高度，仍按窗口夹取。 */
   resizeQuick(height: number): Promise<boolean>
   /** Quick only. 关闭并把焦点还给齿轮。 */

@@ -59,6 +59,7 @@ const overlay: OverlayBridge = {
   setQuick: (bounds, view) => runOverlay({ type: 'set-quick', bounds, view }),
   resizeQuick: (height) => runOverlay({ type: 'resize-quick', height }),
   openBookmarks: () => runOverlay({ type: 'open-bookmarks' }),
+  openBookmarkEditor: () => runOverlay({ type: 'open-bookmark-editor' }),
   closeQuick: (restoreFocus = true) => runOverlay({ type: 'close-quick', restoreFocus }),
   dismissToast: () => runOverlay({ type: 'dismiss-toast' }),
   reportFailure: (text) => runOverlay({ type: 'report-failure', text }),

@@ -529,6 +529,22 @@ export function renameBookmark(db: Database, id: string, title: string): Bookmar
 }
 
 /**
+ * 改地址（完整编辑器里的「URL」字段）。
+ *
+ * 只有 `kind === 'url'` 的节点有地址：表上的 CHECK 也这么约束，所以这里先判类型再写，
+ * 免得 `folder` 被写进一个 url 之后在导入/投影阶段炸掉。空地址同样拒绝。
+ */
+export function updateBookmarkUrl(db: Database, id: string, url: string): BookmarkNode[] {
+  const trimmed = url.trim()
+  if (!trimmed) throw new DatabaseError('地址不能为空', 'BOOKMARK_URL')
+  const row = db.get('SELECT kind FROM bookmarks WHERE id = ?', id)
+  if (!row) throw new DatabaseError(`节点不存在：${id}`, 'BOOKMARK_MISSING')
+  if (row.kind !== 'url') throw new DatabaseError('文件夹没有地址', 'BOOKMARK_URL')
+  db.run('UPDATE bookmarks SET url = ? WHERE id = ?', trimmed, id)
+  return readBookmarks(db)
+}
+
+/**
  * 移动节点到 `parentId` 的第 `index` 位。
  *
  * 环检测走 `checkPlacement()`（纯函数、有单测）；这里只负责在事务里重排两组排序位。

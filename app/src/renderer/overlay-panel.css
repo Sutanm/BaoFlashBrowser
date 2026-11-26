@@ -121,5 +121,18 @@
 }
 .overlay-button.primary:hover { background: color-mix(in srgb, var(--accent) 18%, var(--surface-toolbar)); }
 
+/*
+ * 危险动作（删除收藏）：用错误色的**柔和底 + 粗体字**，不引入第二种强调色。
+ * 在编辑气泡里它是主位（点星标即已收藏，最常见的是撤销），所以比次要按钮更醒目；
+ * 但它不该看起来像"确认"——红色语义能把这层区分开。
+ */
+.overlay-button.danger {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 12%, var(--surface-toolbar));
+  border-color: transparent;
+  font-weight: 600;
+}
+.overlay-button.danger:hover { background: color-mix(in srgb, var(--text-error) 20%, var(--surface-toolbar)); }
+
 .overlay-empty { margin: 0; padding: 4px 9px 6px; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
 .overlay-error { margin: 6px 9px 2px; font-size: 11px; color: var(--text-error); }

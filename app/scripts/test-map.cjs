@@ -57,6 +57,7 @@ const RULES = [
       /^src\/renderer\/QuickSettings\.vue$/,
       /^src\/renderer\/BookmarksPanel\.vue$/,
       /^src\/renderer\/BookmarkEditPanel\.vue$/,
+      /^src\/renderer\/BookmarkEditorPanel\.vue$/,
       /^src\/renderer\/ShellOverlay\.vue$/
     ],
     tests: ['overlay-prewarm-hidden', 'overlay-prewarm-policy', 'quick-settings', 'bookmarks', 'theme', 'engine', 'shell-crash-heal']

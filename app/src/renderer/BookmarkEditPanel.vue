@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT, bookmarkForAddress } from '../shared/bookmarks'
-import type { BookmarkRootId } from '../shared/bookmarks'
+import { BOOKMARK_BAR_ROOT, bookmarkForAddress, folderOptions } from '../shared/bookmarks'
 import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme, initialShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
@@ -18,12 +17,14 @@ import './overlay-panel.css'
  * - 初始焦点在名称输入框（`initially_focused_field = kBookmarkNameFieldId`），并全选，
  *   所以打开就能直接改名。
  *
- * 与 Chromium 的一处**刻意的差异**：Chromium 在气泡关闭时统一 `ApplyEdits()`，而我们的气泡是
- * 独立文档，关闭动作由主进程发起（`set-quick(null)`），那一刻 `quick` 角色的命令权限已经失效，
- * 没法再回写。所以改成"停顿 400 ms / 失焦 / 点完成"就保存——比"关闭时保存"更保守：
- * 用户不会因为点了一下页面外面就丢掉刚改的名字。
+ * 与本仓库产品决定的两处差异：
+ * 1. **按钮顺序/主次**：Chromium 把「完成」当主按钮。但在这里点星标就已经收藏了，最常见的
+ *    意图是"点错了，撤销"，所以「删除」放在最右、用危险色，「完成」退成次要按钮（2026-11-26 决定）。
+ * 2. **保存时机**：Chromium 在气泡关闭时统一 `ApplyEdits()`；我们的气泡是独立文档、关闭由主进程
+ *    发起，那一刻 `quick` 角色的命令权限已经失效，没法回写。所以改成"停顿 400 ms / 失焦 /
+ *    点完成"就保存，用户不会因为点了下页面外面就丢掉刚改的名字。
  *
- * 样式全部取 `overlay-panel.css` 的共用类（与快捷设置、引擎面板、收藏夹树同一组数值）。
+ * 文件夹是**下拉**（库里支持任意层文件夹，不只是两个根）；「更多」把同一只飞窗换到完整编辑器。
  */
 const props = defineProps<{ paused?: boolean }>()
 
@@ -35,6 +36,7 @@ const panel = ref<HTMLElement>()
 const titleField = ref<HTMLInputElement>()
 const busy = ref(false)
 const error = ref('')
+const folderOpen = ref(false)
 /**
  * 名称框的草稿只在**用户改过**之后才存在（`dirty`）。
  *
@@ -69,15 +71,13 @@ const host = computed(() => {
     return address
   }
 })
-const folders = computed<Array<{ id: BookmarkRootId; label: string }>>(() => {
-  const nodes = snapshot.value?.bookmarks ?? []
-  const label = (id: BookmarkRootId, fallback: string): string =>
-    nodes.find((entry) => entry.id === id)?.title || fallback
-  return [
-    { id: BOOKMARK_BAR_ROOT, label: label(BOOKMARK_BAR_ROOT, '收藏夹栏') },
-    { id: BOOKMARK_OTHER_ROOT, label: label(BOOKMARK_OTHER_ROOT, '其他收藏夹') }
-  ]
+/** 可选的收藏位置（所有文件夹，两级缩进）；下拉与编辑器共用这一份，规则在 `folderOptions`。 */
+const folders = computed(() => folderOptions(snapshot.value?.bookmarks ?? []))
+const currentFolder = computed(() => {
+  const parent = node.value?.parentId
+  return folders.value.find((folder) => folder.id === parent) ?? folders.value[0]
 })
+const currentFolderLabel = computed(() => currentFolder.value?.title ?? '收藏夹栏')
 
 let detach: (() => void) | undefined
 let observer: ResizeObserver | undefined
@@ -101,6 +101,7 @@ function resetTitle(): void {
   error.value = ''
   dirty.value = false
   draft.value = ''
+  folderOpen.value = false
   void nextTick(() => {
     const field = titleField.value
     if (!field) return
@@ -109,7 +110,7 @@ function resetTitle(): void {
   })
 }
 
-/** 停顿 400 ms 自动保存：见文件头对「关闭时保存」那条差异的说明。 */
+/** 停顿 400 ms 自动保存：见文件头对「保存时机」那条说明。 */
 function scheduleCommit(): void {
   clearTimeout(commitTimer)
   commitTimer = setTimeout(() => { void commitTitle() }, TITLE_COMMIT_DELAY)
@@ -133,8 +134,9 @@ async function commitTitle(): Promise<void> {
   }
 }
 
-async function chooseFolder(parentId: BookmarkRootId): Promise<void> {
+async function chooseFolder(parentId: string): Promise<void> {
   const target = node.value
+  folderOpen.value = false
   if (!target || busy.value || target.parentId === parentId) return
   busy.value = true
   error.value = ''
@@ -145,6 +147,12 @@ async function chooseFolder(parentId: BookmarkRootId): Promise<void> {
   } finally {
     busy.value = false
   }
+}
+
+/** 「更多」：换到同一只飞窗的完整编辑器（名称 / URL / 文件夹树 / 新建文件夹）。 */
+async function openEditor(): Promise<void> {
+  await commitTitle()
+  if (!await window.baoOverlay.openBookmarkEditor()) error.value = '打开编辑器失败'
 }
 
 async function done(): Promise<void> {
@@ -177,6 +185,11 @@ async function remove(): Promise<void> {
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
   event.preventDefault()
+  // 下拉展开时 Esc 先收下拉，再按一次才关气泡。
+  if (folderOpen.value) {
+    folderOpen.value = false
+    return
+  }
   void done()
 }
 
@@ -206,7 +219,7 @@ onBeforeUnmount(() => {
 // 盯的是 **节点 id**：点星标时"收藏"先落库、气泡随后打开，数据可能比气泡晚一步到；
 // 只要目标变了就清掉草稿，显示值由 `titleModel` 从库里的那条现算。
 watch(() => node.value?.id, () => resetTitle())
-watch(() => props.paused, () => { void nextTick(measure) })
+watch([() => props.paused, () => folderOpen.value], () => { void nextTick(measure) })
 watch(() => snapshot.value?.settings, () => { void nextTick(measure) })
 
 applyShellTheme(initialShellTheme())
@@ -245,21 +258,35 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
         </div>
 
         <div class="bubble-field">
-          <p id="bookmark-folder-label" class="overlay-label">文件夹</p>
-          <div role="radiogroup" aria-labelledby="bookmark-folder-label">
+          <span id="bookmark-folder-label" class="overlay-label">文件夹</span>
+          <!-- 下拉：库里可以有任意层文件夹，所以不是"两个根的二选一"。 -->
+          <button
+            type="button"
+            class="overlay-input folder-trigger"
+            role="combobox"
+            aria-labelledby="bookmark-folder-label"
+            aria-haspopup="listbox"
+            :aria-expanded="folderOpen"
+            :disabled="busy"
+            @click="folderOpen = !folderOpen"
+          >
+            <ShellIcon name="folder" class="trigger-icon" />
+            <span class="trigger-label">{{ currentFolderLabel }}</span>
+            <ShellIcon name="chevron" class="trigger-chevron" />
+          </button>
+          <div v-if="folderOpen" class="folder-menu" role="listbox" aria-labelledby="bookmark-folder-label">
             <button
               v-for="folder in folders"
               :key="folder.id"
               type="button"
-              role="radio"
-              class="overlay-row bubble-folder"
-              :aria-checked="node.parentId === folder.id"
-              :title="`保存到${folder.label}`"
-              :disabled="busy"
+              role="option"
+              class="overlay-row folder-option"
+              :aria-selected="node.parentId === folder.id"
+              :style="{ paddingInlineStart: `${9 + folder.depth * 14}px` }"
               @click="chooseFolder(folder.id)"
             >
-              <span class="overlay-radio" aria-hidden="true"></span>
-              <span>{{ folder.label }}</span>
+              <ShellIcon name="folder" class="option-icon" />
+              <span class="option-label">{{ folder.title }}</span>
               <ShellIcon name="check" class="check" />
             </button>
           </div>
@@ -268,8 +295,11 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
         <p v-if="error" class="overlay-error" role="status">{{ error }}</p>
 
         <footer class="bubble-actions">
-          <button type="button" class="overlay-button" :disabled="busy" @click="remove">删除</button>
-          <button type="button" class="overlay-button primary" :disabled="busy" @click="done">完成</button>
+          <!-- 「删除」在最右且用危险色：点星标就已经收藏了，最常见的意图是撤销。 -->
+          <button type="button" class="overlay-button more" :disabled="busy" @click="openEditor">更多</button>
+          <span class="actions-gap"></span>
+          <button type="button" class="overlay-button" :disabled="busy" @click="done">完成</button>
+          <button type="button" class="overlay-button danger" :disabled="busy" @click="remove">删除</button>
         </footer>
       </template>
       <p v-else class="overlay-empty">
@@ -299,20 +329,47 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .site-icon .shell-icon { width: 13px; height: 13px; }
 .site-host { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 字段块：标签与控件同一套 9px 缩进（标签从共用类来）。 */
 .bubble-field { display: grid; gap: 3px; padding: 0 6px 6px; }
 .bubble-field .overlay-label { padding: 2px 3px 0; }
 .bubble-field .overlay-input { width: 100%; }
 
-/* 文件夹档位：一列行 + radio（与引擎面板一致），勾只在选中时出现。 */
-.bubble-folder { grid-template-columns: 13px minmax(0, 1fr) 14px; }
-.bubble-folder .check { width: 14px; height: 14px; color: var(--engine-accent); visibility: hidden; }
-.bubble-folder[aria-checked='true'] .check { visibility: visible; }
+/* 文件夹下拉：触发器长得像输入框（32px），展开后在原地铺一列可滚动的选项。 */
+.folder-trigger {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  text-align: start;
+  font-size: 12px;
+}
+.folder-trigger:hover:not(:disabled) { background: var(--surface-hover); }
+.folder-trigger[aria-expanded='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.folder-trigger .trigger-icon { width: 14px; height: 14px; color: var(--text-secondary); }
+.folder-trigger .trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-trigger .trigger-chevron { width: 14px; height: 14px; color: var(--text-secondary); }
 
-.bubble-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 0 3px 2px; }
+.folder-menu {
+  margin-top: 3px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 2px;
+  border: 1px solid var(--stroke-divider);
+  border-radius: 8px;
+  background: var(--surface-toolbar);
+  scrollbar-gutter: stable;
+}
+.folder-option { grid-template-columns: 14px minmax(0, 1fr) 14px; min-height: 30px; }
+.folder-option .option-icon { width: 13px; height: 13px; color: var(--text-secondary); }
+.folder-option .option-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-option .check { width: 14px; height: 14px; color: var(--engine-accent); visibility: hidden; }
+.folder-option[aria-selected='true'] .check { visibility: visible; }
+
+.bubble-actions { display: flex; align-items: center; gap: 6px; padding: 2px 3px 2px; }
+.bubble-actions .actions-gap { flex: 1; }
 
 @media (forced-colors: active) {
-  .bubble-folder[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
-  .bubble-close { forced-color-adjust: none; }
+  .folder-trigger[aria-expanded='true'] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .folder-option[aria-selected='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
 }
 </style>

@@ -7,7 +7,7 @@ import type { BookmarkNode } from '../shared/bookmarks'
 import type { SessionSnapshot } from '../shared/session'
 import {
   addBookmark, clearEngineRules, clearSession, deleteBookmark, deleteRule, moveBookmark, openStore,
-  readBookmarks, renameBookmark, writeRule, writeSession, writeSessionExit, writeSetting
+  readBookmarks, renameBookmark, updateBookmarkUrl, writeRule, writeSession, writeSessionExit, writeSetting
 } from './db/store'
 import type { AddBookmarkInput, OpenedStore, SessionExitState } from './db/store'
 import { toDatabaseError } from './db/sqlite'
@@ -106,13 +106,16 @@ export function removeBookmarkData(id: string): boolean {
 }
 
 /**
- * 改名 / 移动（编辑气泡的「完成」，以及名称框失焦时的即时保存）。
+ * 改名 / 改地址 / 移动（编辑气泡的「完成」、完整编辑器的「保存」，以及名称框失焦时的即时保存）。
  *
- * 两件事都在存储层做，因为它们改的是同一份数据的两列、而且必须一起进一个结果快照：
- * 只改一半会让界面显示"名字变了但还在原来的文件夹"。与 Chromium 一致：
- * 标题为空串时不写（`renameBookmark` 会拒），移动用 `moveBookmark` 做环检测与重排。
+ * 三件事都在存储层做，因为它们改的是同一份数据、而且必须一起进一个结果快照：只改一半会让
+ * 界面显示"名字变了但还在原来的文件夹"。与 Chromium 一致：标题为空串时不写
+ * （`renameBookmark` 会拒），移动用 `moveBookmark` 做环检测与重排。
  */
-export function updateBookmarkData(id: string, changes: { title?: string; parentId?: string }): boolean {
+export function updateBookmarkData(
+  id: string,
+  changes: { title?: string; url?: string; parentId?: string }
+): boolean {
   if (!store) return false
   try {
     if (changes.parentId !== undefined) {
@@ -123,11 +126,34 @@ export function updateBookmarkData(id: string, changes: { title?: string; parent
     if (changes.title !== undefined) {
       store.bookmarks = renameBookmark(store.db, id, changes.title)
     }
+    if (changes.url !== undefined) {
+      store.bookmarks = updateBookmarkUrl(store.db, id, changes.url)
+    }
     return true
   } catch (error) {
     console.error('[storage] 收藏更新失败。', error)
     store.bookmarks = readBookmarks(store.db)
     return false
+  }
+}
+
+/**
+ * 新建文件夹（完整编辑器里的「新建文件夹」）。
+ *
+ * 父节点合法性由 `addBookmark` 判（必须是文件夹），这里只兜住"名字不能是空白"——
+ * 空名字在界面上就是一条看不见的文件夹，比报错更难查。返回新节点 id（界面据此选中它）。
+ */
+export function createBookmarkFolderData(input: { title: string; parentId: string }): string | undefined {
+  if (!store) return undefined
+  const title = input.title.trim()
+  if (!title) return undefined
+  try {
+    const node = addBookmark(store.db, { parentId: input.parentId, kind: 'folder', title })
+    store.bookmarks = readBookmarks(store.db)
+    return node.id
+  } catch (error) {
+    console.error('[storage] 新建文件夹失败。', error)
+    return undefined
   }
 }
 

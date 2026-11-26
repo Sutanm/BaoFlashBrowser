@@ -1,5 +1,5 @@
 import type { ShellTheme } from './shell-theme'
-import type { BookmarkNode, BookmarkRootId } from './bookmarks'
+import type { BookmarkNode } from './bookmarks'
 import type { BrowserEngine, EngineSource } from './engine'
 import type { Locale, SettingKey, SettingValue, Settings, ThemeMode } from './settings'
 
@@ -54,8 +54,15 @@ export type BrowserCommand =
    * 所以"点星标 → 展开气泡"这条路径重复点也不会攒出重复条目。
    */
   | { type: 'bookmark-page' }
-  /** 改写一条收藏的名称 / 所在文件夹（编辑气泡里的「完成」与失焦保存）。两者都可省略。 */
-  | { type: 'update-bookmark'; id: string; title?: string; parentId?: BookmarkRootId }
+  /** 改写一条收藏的名称 / 地址 / 所在文件夹（编辑气泡与完整编辑器共用）。三者都可省略。 */
+  | { type: 'update-bookmark'; id: string; title?: string; url?: string; parentId?: string }
+  /**
+   * 新建一个文件夹（完整编辑器里的「新建文件夹」）。
+   *
+   * `parentId` 可以是任一文件夹（两个永久根或已有文件夹）；校验与 `addBookmark` 同一处，
+   * 所以"放进网址节点下面"这类非法父节点会返回 `bookmark-save-failed` 而不是写坏数据。
+   */
+  | { type: 'create-bookmark-folder'; title: string; parentId?: string }
   /** 删除一条收藏（编辑气泡的「删除」、收藏夹面板每行的 ×）。删除是幂等的。 */
   | { type: 'remove-bookmark'; id: string }
   /**

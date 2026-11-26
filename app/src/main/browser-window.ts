@@ -16,8 +16,8 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
-import { BOOKMARK_BAR_ROOT, isBookmarkableAddress, isPermanentRoot } from '../shared/bookmarks'
+import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, createBookmarkFolderData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
+import { BOOKMARK_BAR_ROOT, isBookmarkableAddress } from '../shared/bookmarks'
 import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
 import { settingsChannels } from '../shared/settings'
@@ -2594,9 +2594,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       // 收藏夹面板与快捷设置共用同一个飞窗文档（同一个 `quick` 角色）：它额外能收藏/删除/打开收藏。
       const settingsAction = command.type === 'set-setting' || command.type === 'open-settings'
       // 收藏夹/编辑气泡与快捷设置共用同一个飞窗文档（同一个 `quick` 角色）：
-      // 它们额外能改写、删除、打开收藏（**收藏当前页**是外壳的事，不在这一档里）。
+      // 它们额外能改写、新建文件夹、删除、打开收藏（**收藏当前页**是外壳的事，不在这一档里）。
       const bookmarkAction = command.type === 'update-bookmark' || command.type === 'remove-bookmark' ||
-        command.type === 'open-bookmark'
+        command.type === 'open-bookmark' || command.type === 'create-bookmark-folder'
       const fromPanel = sender === 'panel' && overlays.panelVisible() &&
         (engineAction || command.type === 'open-settings')
       const fromQuick = sender === 'quick' && overlays.quickVisible() && (settingsAction || bookmarkAction)
@@ -2739,19 +2739,38 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         break
       }
       /**
-       * 改写一条收藏（编辑气泡）：名称与文件夹可以只给一个。
+       * 改写一条收藏（编辑气泡 / 完整编辑器）：名称、地址、文件夹可以只给一个或几个。
        *
-       * 只认两个永久根做目标文件夹——界面上能选的也只有这两项，任意文件夹要等管理页落地。
+       * 地址必须是 http(s)（与"能不能收藏"同一条规则）；文件夹只要求是库里存在的节点，
+       * 「不是文件夹」由 `checkPlacement`（经 `moveBookmark`）拒——那是存储层的规则，
+       * 这里不重复写一遍。
        */
       case 'update-bookmark': {
         if (typeof command.id !== 'string' || command.id.length === 0) return fail('invalid-command')
         const title = typeof command.title === 'string' ? command.title : undefined
-        const requestedRoot = command.parentId
-        const parentId = requestedRoot !== undefined && isPermanentRoot(requestedRoot) ? requestedRoot : undefined
-        if (title === undefined && parentId === undefined) return fail('invalid-command')
-        if (!updateBookmarkData(command.id, { ...(title === undefined ? {} : { title }), ...(parentId === undefined ? {} : { parentId }) })) {
-          return fail('bookmark-save-failed')
+        const url = typeof command.url === 'string' ? command.url.trim() : undefined
+        if (url !== undefined && !isBookmarkableAddress(url)) return fail('invalid-address')
+        const parentId = typeof command.parentId === 'string' && command.parentId.length > 0
+          ? command.parentId
+          : undefined
+        if (title === undefined && url === undefined && parentId === undefined) return fail('invalid-command')
+        const changes = {
+          ...(title === undefined ? {} : { title }),
+          ...(url === undefined ? {} : { url }),
+          ...(parentId === undefined ? {} : { parentId })
         }
+        if (!updateBookmarkData(command.id, changes)) return fail('bookmark-save-failed')
+        publishBookmarks()
+        break
+      }
+      /** 新建文件夹（完整编辑器的「新建文件夹」）：父节点必须是文件夹，名字不能空白。 */
+      case 'create-bookmark-folder': {
+        const title = typeof command.title === 'string' ? command.title.trim() : ''
+        if (!title) return fail('invalid-command')
+        const parentId = typeof command.parentId === 'string' && command.parentId.length > 0
+          ? command.parentId
+          : BOOKMARK_BAR_ROOT
+        if (!createBookmarkFolderData({ title, parentId })) return fail('bookmark-save-failed')
         publishBookmarks()
         break
       }

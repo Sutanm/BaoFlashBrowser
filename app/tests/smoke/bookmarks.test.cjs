@@ -6,15 +6,19 @@ const { join } = require('node:path')
 const { launchApp, launchAppAt, page, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 /**
- * 收藏夹（M2「书签与历史」第一轮）的合同验证。
+ * 收藏夹（M2「书签与历史」）的合同验证。
  *
  * 交互按 Chromium 142 的源码对齐（`chrome/browser/ui/browser_commands.cc:1634`
  * `BookmarkCurrentTab` → `AddIfNotBookmarked` + `ShowBookmarkBubble`）：
  * - **地址栏里的星标**：点一次就落库（名称=页面标题、位置=收藏夹栏），并弹出「编辑收藏夹」气泡；
- * - 气泡里改名 / 换文件夹 / 删除，关闭后星标跟着变；
+ * - 气泡里改名 / 换文件夹（**下拉**，列出所有文件夹）/ 删除，关闭后星标跟着变；
+ * - 气泡里的「更多」打开完整编辑器（名称 / URL / 文件夹树 / 新建文件夹 / 保存 / 取消）；
  * - **工具栏「收藏夹」按钮**是另一件事：打开收藏夹树（这里的 `#bookmarks-panel`）；
  * - 数据落库：重启后收藏还在、星标认得出来；
  * - 独立进程模式（`BAO_OVERLAY_SHARED=0`）下气泡是 `quick` 角色：改名命令必须被放行。
+ *
+ * 按钮的主次是产品决定（不是 Chromium 的）：点星标即已收藏，所以**删除**在最右且用危险色，
+ * 「完成」退成次要按钮——用例把顺序与颜色一起钉住。
  */
 
 const OVERLAY_URL = 'baoOverlay=overlay'
@@ -49,6 +53,17 @@ async function inOverlay(app, code) {
   throw lastError
 }
 
+/** 按可见文字点面板里的按钮（按钮是 `overlay-button`，文字是唯一稳定标识）。 */
+async function clickButton(app, scope, text) {
+  await inOverlay(app, `(() => {
+    const button = [...document.querySelectorAll(${JSON.stringify(scope)})]
+      .find((el) => el.textContent.trim() === ${JSON.stringify(text)})
+    if (!button) throw new Error('没有找到按钮：${text}')
+    button.click()
+    return true
+  })()`)
+}
+
 /** 叠加层视图：是否挂载（=显示中）以及真实 bounds。 */
 async function overlayView(app) {
   return app.evaluate(({ webContents, BrowserWindow }, marker) => {
@@ -64,7 +79,7 @@ async function overlayView(app) {
 /**
  * 飞窗各页的真实 DOM 事实。
  *
- * 三个页面常驻挂载（`v-show`），所以"显示没显示"看高度：wrapper 被 `display:none` 时是 0。
+ * 四个页面常驻挂载（`v-show`），所以"显示没显示"看高度：wrapper 被 `display:none` 时是 0。
  * 注意：视图本身被 detach 之后 DOM 仍然有布局（文档还活着），要判"飞窗开没开"必须看 `attached`。
  */
 async function panelFacts(app) {
@@ -74,16 +89,25 @@ async function panelFacts(app) {
       return el ? Math.round(el.getBoundingClientRect().height) : 0
     }
     const bubble = document.querySelector('#bookmark-edit-panel')
+    const editor = document.querySelector('#bookmark-editor-panel')
     const hub = document.querySelector('#bookmarks-panel')
     return {
       bubble: heightOf('#bookmark-edit-panel') > 0,
+      editor: heightOf('#bookmark-editor-panel') > 0,
       hub: heightOf('#bookmarks-panel') > 0,
       settings: heightOf('#quick-settings') > 0,
-      title: bubble?.querySelector('h2')?.textContent?.trim() ?? null,
+      bubbleTitle: bubble?.querySelector('h2')?.textContent?.trim() ?? null,
       name: bubble?.querySelector('#bookmark-name')?.value ?? null,
-      folders: [...(bubble?.querySelectorAll('.bubble-folder') ?? [])]
-        .map((el) => [el.textContent.trim(), el.getAttribute('aria-checked')]),
+      folderLabel: bubble?.querySelector('.folder-trigger .trigger-label')?.textContent?.trim() ?? null,
+      folderOpen: Boolean(bubble?.querySelector('.folder-menu')),
+      folderOptions: [...(bubble?.querySelectorAll('.folder-option') ?? [])].map((el) => el.textContent.trim()),
       actions: [...(bubble?.querySelectorAll('.bubble-actions button') ?? [])].map((el) => el.textContent.trim()),
+      danger: bubble?.querySelector('.bubble-actions .danger')?.textContent?.trim() ?? null,
+      editorName: editor?.querySelector('#editor-name')?.value ?? null,
+      editorUrl: editor?.querySelector('#editor-url')?.value ?? null,
+      editorFolders: [...(editor?.querySelectorAll('.folder-row') ?? [])].map((el) => el.textContent.trim()),
+      editorSelected: editor?.querySelector('.folder-row[aria-checked="true"]')?.textContent?.trim() ?? null,
+      editorActions: [...(editor?.querySelectorAll('.editor-actions button') ?? [])].map((el) => el.textContent.trim()),
       hubRows: [...(hub?.querySelectorAll('.hub-row .row-title') ?? [])].map((el) => el.textContent.trim()),
       hubGroups: [...(hub?.querySelectorAll('.hub-lists .overlay-label') ?? [])].map((el) => [
         el.querySelector('span')?.textContent.trim() ?? '',
@@ -114,6 +138,13 @@ const openBubble = (app, message = '编辑收藏夹气泡没有打开') => waitF
   if (!view?.attached) return null
   const facts = await panelFacts(app)
   return facts.bubble ? { ...facts, bounds: view.bounds, contentSize: view.contentSize } : null
+}, { message })
+
+const openEditor = (app, message = '完整编辑器没有打开') => waitFor(async () => {
+  const view = await overlayView(app)
+  if (!view?.attached) return null
+  const facts = await panelFacts(app)
+  return facts.editor ? { ...facts, bounds: view.bounds } : null
 }, { message })
 
 const openHub = (app, message = '收藏夹飞窗没有打开') => waitFor(async () => {
@@ -157,7 +188,23 @@ async function renameInBubble(app, shell, title) {
   }, { message: `改名没有生效：${title}` })
 }
 
-test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { timeout: 180_000 }, async () => {
+/** 展开气泡里的文件夹下拉并选一项。 */
+async function chooseFolder(app, label) {
+  await inOverlay(app, `document.querySelector('.folder-trigger').click()`)
+  await waitFor(async () => {
+    const facts = await panelFacts(app)
+    return facts.folderOpen ? facts : null
+  }, { message: '文件夹下拉没有展开' })
+  await inOverlay(app, `(() => {
+    const option = [...document.querySelectorAll('#bookmark-edit-panel .folder-option')]
+      .find((el) => el.textContent.includes(${JSON.stringify(label)}))
+    if (!option) throw new Error('下拉里没有这个文件夹：${label}')
+    option.click()
+    return true
+  })()`)
+}
+
+test('收藏夹：星标 = 收藏 + 气泡，文件夹是下拉，更多打开编辑器', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({
     '/first': page('第一个收藏页'),
     '/second': page('第二个页面')
@@ -169,7 +216,7 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
     assert.equal(await shell.locator('.address-bar .bookmark-star').count(), 0,
       '新标签页不该出现星标（没有可收藏的地址）')
 
-    // ② 空收藏夹：点工具栏的「收藏夹」→ 树打开、显示空状态。
+    // ② 空收藏夹：点工具栏的「收藏夹」→ 树打开、显示空状态；宽度与快捷设置同为 320。
     await shell.locator('.bookmarks-button').click()
     const empty = await openHub(app)
     assert.equal(empty.hubEmpty, true)
@@ -180,7 +227,7 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
     })
     assert.equal(empty.bounds.y, hubRect.bottom, '收藏夹飞窗顶边应贴着按钮下沿')
     assert.equal(empty.bounds.x + empty.bounds.width, hubRect.right, '收藏夹飞窗右缘应与按钮对齐')
-    assert.equal(empty.bounds.width, 340)
+    assert.equal(empty.bounds.width, 320, '收藏夹飞窗应与快捷设置同宽（三只飞窗挂在一起）')
     await dismissFlyout(app, shell)
 
     // ③ 网页上出现星标（空心）。
@@ -192,19 +239,20 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
     assert.equal(fresh.label, '收藏此页面')
     assert.equal(fresh.filled, false)
 
-    // ④ 点星标：先落库，再弹「编辑收藏夹」气泡；名称就是页面标题，位置=收藏夹栏。
+    // ④ 点星标：先落库，再弹「编辑收藏夹」气泡；按钮是「更多 / 完成 / 删除」，删除在右且是危险色。
     await shell.locator('.address-bar .bookmark-star').click()
     const bubble = await openBubble(app)
     const rect = await starRect(shell)
     assert.equal(bubble.bounds.y, rect.bottom, '气泡顶边应贴着星标下沿')
     assert.equal(bubble.bounds.x + bubble.bounds.width, rect.right, '气泡右缘应与星标对齐')
-    assert.equal(bubble.bounds.width, 380)
-    assert.equal(bubble.title, '编辑收藏夹')
+    assert.equal(bubble.bounds.width, 320, '气泡应与快捷设置同宽（反馈"飞窗宽了"）')
+    assert.equal(bubble.bubbleTitle, '编辑收藏夹')
     assert.equal(bubble.name, '第一个收藏页', '名称默认就是页面标题（Chromium 的 AddIfNotBookmarked）')
-    assert.deepEqual(bubble.folders, [['收藏夹栏', 'true'], ['其他收藏夹', 'false']])
-    assert.deepEqual(bubble.actions, ['删除', '完成'])
+    assert.equal(bubble.folderLabel, '收藏夹栏')
+    assert.equal(bubble.folderOpen, false, '下拉默认收起')
+    assert.deepEqual(bubble.actions, ['更多', '完成', '删除'], '删除在最右，完成退成次要按钮')
+    assert.equal(bubble.danger, '删除', '最右那颗按钮就是"删除"，并且用危险色')
     assert.equal(bubble.settings, false, '打开气泡时不该同时显示快捷设置')
-    assert.ok(bubble.bounds.height < 320, `气泡高度没有按内容收起：${bubble.bounds.height}`)
 
     const saved = (await snapshot(shell)).bookmarks.filter((node) => node.kind === 'url')
     assert.equal(saved.length, 1, `点一次星标就该有一条收藏：${JSON.stringify(saved)}`)
@@ -219,8 +267,14 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
     const renamed = await renameInBubble(app, shell, '我的收藏')
     assert.equal(renamed.title, '我的收藏')
 
-    // ⑥ 换文件夹：立即生效。
-    await inOverlay(app, `[...document.querySelectorAll('#bookmark-edit-panel .bubble-folder')]
+    // ⑥ 文件夹是**下拉**：展开后列出所有文件夹，选一项立即生效。
+    await inOverlay(app, `document.querySelector('.folder-trigger').click()`)
+    const opened = await waitFor(async () => {
+      const facts = await panelFacts(app)
+      return facts.folderOpen ? facts : null
+    }, { message: '文件夹下拉没有展开' })
+    assert.deepEqual(opened.folderOptions, ['收藏夹栏', '其他收藏夹'], '下拉里是文件夹，不是"两个写死的根"')
+    await inOverlay(app, `[...document.querySelectorAll('#bookmark-edit-panel .folder-option')]
       .find((el) => el.textContent.includes('其他收藏夹')).click()`)
     const moved = await waitFor(async () => {
       const state = await snapshot(shell)
@@ -230,40 +284,109 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
     assert.equal(moved.title, '我的收藏', '换文件夹不该丢名字')
 
     // ⑦ 「完成」收起气泡；再点星标是编辑同一条，不会攒出第二条。
-    await inOverlay(app, `document.querySelector('#bookmark-edit-panel .bubble-actions .primary').click()`)
+    await clickButton(app, '#bookmark-edit-panel .bubble-actions button', '完成')
     await flyoutClosed(app)
     await shell.locator('.address-bar .bookmark-star').click()
     const reopened = await openBubble(app)
     assert.equal(reopened.name, '我的收藏')
-    assert.deepEqual(reopened.folders, [['收藏夹栏', 'false'], ['其他收藏夹', 'true']])
+    assert.equal(reopened.folderLabel, '其他收藏夹')
     assert.equal((await snapshot(shell)).bookmarks.filter((node) => node.kind === 'url').length, 1,
       '重复点星标不能新增第二条')
 
-    // ⑧ 「删除」：条目消失、星标回到空心、气泡收起。
-    await inOverlay(app, `document.querySelector('#bookmark-edit-panel .bubble-actions .overlay-button:not(.primary)').click()`)
+    // ⑧ 「更多」→ 完整编辑器：名称 / URL / 文件夹树都对上；新建文件夹后能被选中并保存。
+    await clickButton(app, '#bookmark-edit-panel .bubble-actions button', '更多')
+    const editor = await openEditor(app)
+    assert.equal(editor.actions.length, 3, '气泡的按钮不该和编辑器混在一起')
+    assert.equal(editor.editorName, '我的收藏')
+    assert.equal(editor.editorUrl, `${server.baseUrl}/first`, '编辑器里能改 URL')
+    assert.deepEqual(editor.editorFolders, ['收藏夹栏', '其他收藏夹'])
+    assert.equal(editor.editorSelected, '其他收藏夹')
+    assert.deepEqual(editor.editorActions, ['取消', '保存'])
+
+    await clickButton(app, '#bookmark-editor-panel .overlay-button', '新建文件夹')
+    await inOverlay(app, `(() => {
+      const input = document.querySelector('.create-row .overlay-input')
+      input.focus()
+      input.value = '专题'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      return true
+    })()`)
+    await clickButton(app, '.create-row .overlay-button', '添加')
+    const created = await waitFor(async () => {
+      const state = await snapshot(shell)
+      const folder = state.bookmarks.find((node) => node.kind === 'folder' && node.title === '专题')
+      return folder ? folder : null
+    }, { message: '新建文件夹没有落库' })
+    assert.ok(created.id)
+    const withFolder = await waitFor(async () => {
+      const facts = await panelFacts(app)
+      return facts.editorFolders.includes('专题') ? facts : null
+    }, { message: '新建的文件夹没有出现在编辑器树里（没和收藏夹联动）' })
+    assert.equal(withFolder.editorSelected, '专题', '新建后应当选中它，避免"建了还要再点一次"')
+
+    await clickButton(app, '#bookmark-editor-panel .editor-actions button', '保存')
+    await flyoutClosed(app)
+    const afterSave = await waitFor(async () => {
+      const state = await snapshot(shell)
+      const node = state.bookmarks.find((entry) => entry.kind === 'url')
+      return node?.parentId === created.id ? node : null
+    }, { message: '保存后收藏没有进新建的文件夹' })
+    assert.equal(afterSave.title, '我的收藏', '编辑器保存不该改名字（没改就不写）')
+    assert.equal(afterSave.url, `${server.baseUrl}/first`)
+
+    // ⑨ 「取消」不写：编辑器里改了名字，点取消后库里还是原值。
+    await shell.locator('.address-bar .bookmark-star').click()
+    await openBubble(app)
+    await clickButton(app, '#bookmark-edit-panel .bubble-actions button', '更多')
+    await openEditor(app)
+    await inOverlay(app, `(() => {
+      const input = document.querySelector('#editor-name')
+      input.focus()
+      input.value = '不该保存的名字'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      return true
+    })()`)
+    await clickButton(app, '#bookmark-editor-panel .editor-actions button', '取消')
+    await flyoutClosed(app)
+    const afterCancel = (await snapshot(shell)).bookmarks.find((entry) => entry.kind === 'url')
+    assert.equal(afterCancel.title, '我的收藏', '「取消」不该改库里的名字')
+
+    // ⑩ 「删除」：条目消失、星标回到空心、树回到空状态。
+    await shell.locator('.address-bar .bookmark-star').click()
+    await openBubble(app)
+    await clickButton(app, '#bookmark-edit-panel .bubble-actions button', '删除')
     await flyoutClosed(app)
     const cleared = await waitFor(async () => {
       const state = await snapshot(shell)
-      return state.bookmarks.length === 2 ? state : null
-    }, { message: '删除后收藏夹里仍有条目' })
-    assert.deepEqual(cleared.bookmarks.map((node) => node.id).sort(), ['bar', 'other'])
+      const urls = state.bookmarks.filter((node) => node.kind === 'url')
+      return urls.length === 0 ? state : null
+    }, { message: '删除后收藏里仍有网址条目' })
+    assert.equal(cleared.bookmarks.filter((node) => node.kind === 'folder').length, 3,
+      '文件夹（两个根 + 新建的专题）应当保留')
     const unstarred = await waitFor(async () => {
       const facts = await starFacts(shell)
       return facts?.label === '收藏此页面' ? facts : null
     }, { message: '删除后星标没有回到未收藏态' })
     assert.equal(unstarred.filled, false)
 
-    // ⑨ 再收藏一页 + 从树里打开它（地址取自库里，不取自界面）。
+    // ⑪ 再收藏一页 + 从树里打开它（地址取自库里，不取自界面）。
     await openPage(shell, `${server.baseUrl}/second`, '第二个页面')
     await shell.locator('.address-bar .bookmark-star').click()
     await openBubble(app)
-    await inOverlay(app, `document.querySelector('#bookmark-edit-panel .bubble-actions .primary').click()`)
+    await clickButton(app, '#bookmark-edit-panel .bubble-actions button', '完成')
     await flyoutClosed(app)
     await shell.locator('.bookmarks-button').click()
     const hub = await openHub(app)
-    assert.deepEqual(hub.hubGroups, [['收藏夹栏', '1']])
-    assert.deepEqual(hub.hubRows, ['第二个页面'])
-    await inOverlay(app, `document.querySelector('#bookmarks-panel .hub-row .row-title').click()`)
+    // 树里还有上一步留下的「专题」文件夹（在「其他收藏夹」下），所以两组都各有一条。
+    assert.deepEqual(hub.hubGroups, [['收藏夹栏', '1'], ['其他收藏夹', '1']])
+    assert.deepEqual(hub.hubRows, ['第二个页面', '专题'])
+    await inOverlay(app, `(() => {
+      const row = [...document.querySelectorAll('#bookmarks-panel .hub-row .row-title')]
+        .find((el) => el.textContent.trim() === '第二个页面')
+      if (!row) throw new Error('树里没有第二个页面那一条')
+      row.click()
+      return true
+    })()`)
     await waitFor(async () => {
       const state = await snapshot(shell)
       const active = state.tabs.find((tab) => tab.id === state.activeId)
@@ -271,7 +394,7 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
     }, { message: '点收藏行没有导航' })
     await flyoutClosed(app)
 
-    // ⑩ 齿轮飞窗里的「收藏夹」入口：换到同一只飞窗的收藏夹页（并重新锚定到那颗按钮）。
+    // ⑫ 齿轮飞窗里的「收藏夹」入口：换到同一只飞窗的收藏夹页（并重新锚定到那颗按钮）。
     await shell.locator('.gear-button').click()
     const quick = await waitFor(async () => {
       const facts = await panelFacts(app)
@@ -304,7 +427,7 @@ test('收藏夹：重启后收藏还在，星标认得出来', { timeout: 180_00
       await first.shell.locator('.address-bar .bookmark-star').waitFor()
       await first.shell.locator('.address-bar .bookmark-star').click()
       await openBubble(first.app)
-      await inOverlay(first.app, `document.querySelector('#bookmark-edit-panel .bubble-actions .primary').click()`)
+      await clickButton(first.app, '#bookmark-edit-panel .bubble-actions button', '完成')
       await flyoutClosed(first.app)
       await waitFor(async () => {
         const state = await snapshot(first.shell)
@@ -355,6 +478,22 @@ test('收藏夹：独立进程模式（quick 角色）下气泡也能改名', { 
     assert.equal(bubble.name, '独立进程页')
     const renamed = await renameInBubble(app, shell, '独立进程里的名字')
     assert.equal(renamed.title, '独立进程里的名字')
+    // 新建文件夹同样走 quick 角色：它是编辑器里唯一会"写目录结构"的命令。
+    await clickButton(app, '#bookmark-edit-panel .bubble-actions button', '更多')
+    await openEditor(app)
+    await clickButton(app, '#bookmark-editor-panel .overlay-button', '新建文件夹')
+    await inOverlay(app, `(() => {
+      const input = document.querySelector('.create-row .overlay-input')
+      input.focus()
+      input.value = '独立进程文件夹'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      return true
+    })()`)
+    await clickButton(app, '.create-row .overlay-button', '添加')
+    await waitFor(async () => {
+      const state = await snapshot(shell)
+      return state.bookmarks.some((node) => node.kind === 'folder' && node.title === '独立进程文件夹') ? true : null
+    }, { message: '独立进程模式下新建文件夹没有落库' })
   } finally {
     await close()
     await server.close()

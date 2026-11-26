@@ -126,7 +126,9 @@ export function createShellOverlays(
     'report-ready', 'report-failure', 'resize-panel', 'resize-quick',
     'close-panel', 'close-quick', 'dismiss-toast', 'pull-overlay', 'report-longtask',
     // 飞窗里的「收藏夹」入口同样由浮层文档发起（它不知道该把飞窗挂到哪个按钮下）。
-    'open-bookmarks'
+    'open-bookmarks',
+    // 气泡里的「更多」：同上，锚点与换页都在外壳那边。
+    'open-bookmark-editor'
   ])
 
   function hide(item: HostedView): void {
@@ -475,6 +477,12 @@ export function createShellOverlays(
       case 'open-bookmarks': {
         if (role !== 'quick' || flyout?.kind !== 'quick' || !flyout.bounds) return false
         sendToShell({ type: 'bookmarks-requested' })
+        return true
+      }
+      /** 气泡里的「更多」：换到完整编辑器那一页，锚点仍是星标（由外壳重新下发 bounds）。 */
+      case 'open-bookmark-editor': {
+        if (role !== 'quick' || flyout?.kind !== 'quick' || !flyout.bounds) return false
+        sendToShell({ type: 'bookmark-editor-requested' })
         return true
       }
       case 'set-toast': {

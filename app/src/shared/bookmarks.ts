@@ -194,6 +194,38 @@ export function flattenTree(
   return rows
 }
 
+/** 一个可选的收藏位置（气泡/编辑器的"文件夹"下拉里的一行）。 */
+export interface FolderOption {
+  id: string
+  title: string
+  /** 缩进层级：两个永久根是 0，它们下面的文件夹依次 +1。 */
+  depth: number
+}
+
+/**
+ * 所有**文件夹**的平铺列表（两个永久根在前，其余按树序缩进）。
+ *
+ * 收藏位置只能是文件夹：网址节点是 `parent-not-folder`，存储层会拒。界面拿这份列表做
+ * 下拉/树，和 `checkPlacement` 的规则天然一致（同一张节点表算出来的）。
+ */
+export function folderOptions(nodes: readonly BookmarkNode[]): FolderOption[] {
+  const options: FolderOption[] = []
+  const walk = (parentId: string, depth: number): void => {
+    if (depth > 32) return
+    for (const node of childrenOf(nodes, parentId)) {
+      if (node.kind !== 'folder') continue
+      options.push({ id: node.id, title: node.title || titleFor('', parentId), depth })
+      walk(node.id, depth + 1)
+    }
+  }
+  for (const root of BOOKMARK_ROOTS) {
+    const node = nodes.find((entry) => entry.id === root)
+    options.push({ id: root, title: node?.title || (root === BOOKMARK_BAR_ROOT ? '收藏夹栏' : '其他收藏夹'), depth: 0 })
+    walk(root, 1)
+  }
+  return options
+}
+
 /** 面板搜索：标题、地址、文件夹名都参与，大小写不敏感。 */
 export function matchesQuery(node: BookmarkNode, query: string): boolean {
   const needle = query.trim().toLowerCase()

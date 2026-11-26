@@ -19,6 +19,7 @@ const ShellOverlay = defineAsyncComponent(() => import('./ShellOverlay.vue'))
 const QuickSettings = defineAsyncComponent(() => import('./QuickSettings.vue'))
 const BookmarksPanel = defineAsyncComponent(() => import('./BookmarksPanel.vue'))
 const BookmarkEditPanel = defineAsyncComponent(() => import('./BookmarkEditPanel.vue'))
+const BookmarkEditorPanel = defineAsyncComponent(() => import('./BookmarkEditorPanel.vue'))
 
 const store = useBrowserStore()
 const kind = ref<'panel' | 'quick' | 'toast'>('panel')
@@ -130,6 +131,9 @@ onBeforeUnmount(() => {
   </div>
   <div v-show="quickShown && view === 'bookmark-edit'" class="overlay-slot">
     <BookmarkEditPanel :paused="!active" />
+  </div>
+  <div v-show="quickShown && view === 'bookmark-editor'" class="overlay-slot">
+    <BookmarkEditorPanel :paused="!active" />
   </div>
   <div v-show="kind === 'toast'" class="overlay-slot">
     <ShellOverlay kind="toast" :text="toastText" />
