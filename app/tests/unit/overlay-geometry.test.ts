@@ -155,6 +155,9 @@ describe('cardRect / insideCard（透明投影边距的命中判定）', () => {
 describe('透明投影边距（照抄 Chromium 的不对称）', () => {
   it('底部比左右大：投影向下偏移，底部要 blur/2 + 偏移', () => {
     expect(OVERLAY_GUTTER_BOTTOM).toBeGreaterThan(OVERLAY_GUTTER_X)
+    // 收紧后的投影：左右只需 4、底部 7（见 geometry 文件头的推导），留一点余量。
+    expect(OVERLAY_GUTTER_X).toBe(6)
+    expect(OVERLAY_GUTTER_BOTTOM).toBe(10)
   })
 
   it('视图高度 = 卡片 + 底部边距，宽度 = 卡片 + 两侧边距', () => {

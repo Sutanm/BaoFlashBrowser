@@ -226,8 +226,8 @@ test('收藏夹：星标 = 收藏 + 气泡，文件夹是下拉，更多打开�
       return { right: Math.round(rect.right), bottom: Math.round(rect.bottom) }
     })
     // 视图比卡片大一圈投影边距（左右 12、底部 20——底部更大，因为投影向下偏移），见 overlay-geometry.ts。
-    const GUTTER = 12
-    const GUTTER_BOTTOM = 20
+    const GUTTER = 6
+    const GUTTER_BOTTOM = 10
     assert.equal(empty.bounds.y, hubRect.bottom, '收藏夹卡片顶边应贴着按钮下沿')
     assert.equal(empty.bounds.x + empty.bounds.width - GUTTER, hubRect.right, '收藏夹卡片右缘应与按钮对齐')
     assert.equal(empty.bounds.width, 320 + 2 * GUTTER, '收藏夹卡片应与快捷设置同宽（三只飞窗挂在一起）')
@@ -256,8 +256,8 @@ test('收藏夹：星标 = 收藏 + 气泡，文件夹是下拉，更多打开�
     const bubble = await openBubble(app)
     const rect = await starRect(shell)
     assert.equal(bubble.bounds.y, rect.bottom, '气泡卡片顶边应贴着星标下沿')
-    assert.equal(bubble.bounds.x + bubble.bounds.width - 12, rect.right, '气泡卡片右缘应与星标对齐')
-    assert.equal(bubble.bounds.width, 320 + 24, '气泡卡片应与快捷设置同宽（反馈"飞窗宽了"）')
+    assert.equal(bubble.bounds.x + bubble.bounds.width - GUTTER, rect.right, '气泡卡片右缘应与星标对齐')
+    assert.equal(bubble.bounds.width, 320 + 2 * GUTTER, '气泡卡片应与快捷设置同宽（反馈"飞窗宽了"）')
     assert.equal(bubble.bubbleTitle, '编辑收藏夹')
     assert.equal(bubble.name, '第一个收藏页', '名称默认就是页面标题（Chromium 的 AddIfNotBookmarked）')
     assert.equal(bubble.folderLabel, '收藏夹栏')
@@ -422,7 +422,7 @@ test('收藏夹：星标 = 收藏 + 气泡，文件夹是下拉，更多打开�
       return { right: Math.round(rect.right), bottom: Math.round(rect.bottom) }
     })
     assert.equal(switched.bounds.y, anchor.bottom, '换页后应重新锚定到收藏夹按钮下沿')
-    assert.equal(switched.bounds.x + switched.bounds.width - 12, anchor.right, '换页后应重新对齐收藏夹按钮右缘')
+    assert.equal(switched.bounds.x + switched.bounds.width - GUTTER, anchor.right, '换页后应重新对齐收藏夹按钮右缘')
   } finally {
     await close()
     await server.close()

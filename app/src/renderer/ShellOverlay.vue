@@ -172,7 +172,7 @@ onBeforeUnmount(() => {
   /* 提示条也留了一圈透明边距（`ShellOverlay` 的 inline padding），所以同样用真投影。 */
   border: 0;
   border-radius: 12px;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 10%), 0 8px 20px rgb(0 0 0 / 14%);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 16%), 0 2px 6px rgb(0 0 0 / 10%);
 }
 .engine-choices { display: grid; gap: 2px; }
 .engine-choice {

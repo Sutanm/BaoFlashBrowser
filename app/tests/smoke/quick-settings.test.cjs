@@ -90,8 +90,8 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     // 紧贴按钮：顶边就是按钮下缘、右边缘与按钮右缘对齐；视图不额外留白。
     // 视图 = 卡片 + 透明投影边距（左右 12、底部 20——底部更大，因为投影向下偏移）：卡片右缘/顶边贴着按钮，
     // 多出来的透明区域用来画投影，里面的鼠标由主进程转发给页面。
-    const GUTTER = 12
-    const GUTTER_BOTTOM = 20
+    const GUTTER = 6
+    const GUTTER_BOTTOM = 10
     assert.equal(opened.bounds.y, geometry.bottom, '卡片顶边应贴着按钮下沿（视图顶边=卡片顶边）')
     // 齿轮是工具栏最后一个按钮，右边只剩 8px：视图会被夹取往左推几像素，卡片右缘允许差一个边距以内。
     assert.ok(Math.abs(opened.bounds.x + opened.bounds.width - GUTTER - geometry.right) <= GUTTER,

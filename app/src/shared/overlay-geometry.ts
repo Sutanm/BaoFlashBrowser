@@ -10,22 +10,24 @@
  * 裁掉），所以视图 = 卡片 + 一圈透明边距。透明边距落在视图命中区里会吃掉鼠标，主进程要把边距
  * 里的鼠标**转发给当前页面**（`shell-overlays.ts` 的 `forwardGutterMouse`）。
  *
- * **边距不是四边一样的**——这一点照抄 Chromium：投影向下偏移 `dy`，所以
- *   `左右 = blur/2`、`上 = blur/2 - dy`、`下 = blur/2 + dy`（`ui/gfx/shadow_value.cc` 的
- * `GetInsets()`）；一个 elevation 12 的气泡就是 左/右 24、上 12、**下 36**（`MakeMdShadowValues`）。
- * 我们的卡片投影是 `0 8px 20px`（远）+ `0 2px 6px`（近），按同一公式：
- *   左右需要 blur/2 = 10、底部需要 blur/2 + dy = 18。
- * 所以留 `OVERLAY_GUTTER_X = 12`（左右，留 2px 余量）与 `OVERLAY_GUTTER_BOTTOM = 20`（底部）。
+ * **边距不是四边一样的**，照抄 Chromium（`ui/gfx/shadow_value.cc` 的 `GetInsets()`）：
+ *   `左右 = blur/2`、`上 = blur/2 - offset.y`、`下 = blur/2 + offset.y`
+ * （elevation 12 的气泡是 左/右 24、上 12、下 36；默认那档是 6/4/8）。
+ * 我们的卡片投影是收紧过的两层：`0 1px 3px` 与 `0 3px 8px`，按同一公式
+ *   左右需要 blur/2 = 4、底部需要 blur/2 + 偏移 = 7
+ * 所以留 `OVERLAY_GUTTER_X = 6`（左右）、`OVERLAY_GUTTER_BOTTOM = 10`（底部）。
  * 顶边不留：卡片顶边要贴住锚点按钮，那圈投影落在工具栏上也看不见。
- * 上一版四周都给 12，底部投影需要 18 被裁掉——这就是 2026-11-26「效果不对」的来源。
+ *
+ * 2026-11-26 第二轮（贴 Edge 的克制感）：早前用 `0 8px 20px` + 12/20 边距，边缘摊成一片
+ * 灰雾（"丁达尔效应"）。收紧成 1–3px 偏移、3–8px 模糊后，左右只剩一层柔和边、底部略重。
  */
 
 export const OVERLAY_INSET = 12
 export const OVERLAY_TOP_INSET = 4
-/** 卡片左右两侧的透明留白（画投影用）。 */
-export const OVERLAY_GUTTER_X = 12
+/** 卡片左右两侧的透明留白（画收紧后的投影用）。 */
+export const OVERLAY_GUTTER_X = 6
 /** 卡片底部的透明留白：比左右大，因为投影整体向下偏移。 */
-export const OVERLAY_GUTTER_BOTTOM = 20
+export const OVERLAY_GUTTER_BOTTOM = 10
 /** 引擎面板的**卡片**宽度（视图宽度 = 卡片 + 两侧 gutter）。 */
 export const ENGINE_PANEL_CARD_WIDTH = 264
 export const ENGINE_PANEL_INITIAL_HEIGHT = 208

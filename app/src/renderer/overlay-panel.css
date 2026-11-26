@@ -27,8 +27,13 @@
   padding: 4px;
   border: 0;
   border-radius: 12px;
-  /* 与 Chromium 菜单的 elevation 12 同一量级：两层（近处紧贴 + 远处扩散）。 */
-  box-shadow: 0 2px 6px rgb(0 0 0 / 10%), 0 8px 20px rgb(0 0 0 / 14%);
+  /*
+   * 收紧的两层投影（贴 Edge 的克制感）：1px/3px 偏移、3px/8px 模糊。
+   * 早前用 `0 8px 20px`，边缘摊成一片灰雾（反馈："像光晕、像丁达尔效应"）。
+   * 边距按 Chromium 的 `ShadowValue::GetInsets()` 反推：左右 = blur/2 = 4、
+   * 底部 = blur/2 + 偏移 = 7（见 `shared/overlay-geometry.ts` 的 GUTTER 常量）。
+   */
+  box-shadow: 0 1px 2px rgb(0 0 0 / 16%), 0 2px 6px rgb(0 0 0 / 10%);
   background: var(--surface-toolbar);
   color: var(--text-primary);
   font: var(--size-body)/1.4 var(--shell-font);
