@@ -6,6 +6,7 @@ import type { BookmarkRootId } from '../shared/bookmarks'
 import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme, initialShellTheme } from './theme'
 import { useBrowserStore } from './stores/browser'
+import './overlay-panel.css'
 
 /**
  * 「编辑收藏夹」气泡（地址栏星标下方，Chromium 的 `BookmarkBubbleView`）。
@@ -21,6 +22,8 @@ import { useBrowserStore } from './stores/browser'
  * 独立文档，关闭动作由主进程发起（`set-quick(null)`），那一刻 `quick` 角色的命令权限已经失效，
  * 没法再回写。所以改成"停顿 400 ms / 失焦 / 点完成"就保存——比"关闭时保存"更保守：
  * 用户不会因为点了一下页面外面就丢掉刚改的名字。
+ *
+ * 样式全部取 `overlay-panel.css` 的共用类（与快捷设置、引擎面板、收藏夹树同一组数值）。
  */
 const props = defineProps<{ paused?: boolean }>()
 
@@ -35,10 +38,10 @@ const error = ref('')
 /**
  * 名称框的草稿只在**用户改过**之后才存在（`dirty`）。
  *
- * 为什么不是"打开时把库里的名字拷进 ref"：飞窗文档比投影早一步就绪（点星标时先落库、
+ * 为什么不"打开时把库里的名字拷进 ref"：飞窗文档比投影早一步就绪（点星标时先落库、
  * 再开气泡，而浮层可能这一刻才被 `window.open` 出来），任何"拷贝一次"的写法都会在
- * 数据还没到的时候拷到一个空串，然后靠 watcher 补救——实测补救不上，名称框就一直空着。
- * 直接把显示值算成"库里那条的名字"，数据什么时候到就什么时候显示，没有中间状态。
+ * 数据还没到的时候拷到空串，然后靠 watcher 补救——实测补救不上，名称框会一直空着。
+ * 直接把显示值算成"库里那条的名字"，数据什么时候到就什么时候显示。
  */
 const draft = ref('')
 const dirty = ref(false)
@@ -81,7 +84,7 @@ let observer: ResizeObserver | undefined
 let lastSentHeight = 0
 let commitTimer: ReturnType<typeof setTimeout> | undefined
 
-/** 与快捷设置同一套高度上报（内容高度，去重后才发，避免「测量 ↔ 设 bounds」正反馈）。 */
+/** 与其它飞窗同一套高度上报（内容高度，去重后才发，避免「测量 ↔ 设 bounds」正反馈）。 */
 function measure(): void {
   const element = panel.value
   if (!element) return
@@ -93,7 +96,7 @@ function measure(): void {
   void window.baoOverlay.resizeQuick(next)
 }
 
-/** 打开时把草稿清掉 → 名称框直接显示"库里那条的名字"；并像 Chromium 那样聚焦 + 全选。 */
+/** 打开时清掉草稿 → 名称框显示库里的名字；并像 Chromium 那样聚焦 + 全选。 */
 function resetTitle(): void {
   error.value = ''
   dirty.value = false
@@ -118,11 +121,7 @@ async function commitTitle(): Promise<void> {
   if (!target || !dirty.value) return
   const next = draft.value.trim()
   // 空名称不写：`renameBookmark` 会拒（Chromium 也拒绝把标题清空）。
-  if (!next) {
-    dirty.value = false
-    return
-  }
-  if (next === target.title) {
+  if (!next || next === target.title) {
     dirty.value = false
     return
   }
@@ -216,26 +215,27 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 <template>
   <div class="bubble-frame" @keydown="onKeydown">
-    <section id="bookmark-edit-panel" ref="panel" class="quick bubble" role="dialog" aria-labelledby="bookmark-edit-title">
+    <section id="bookmark-edit-panel" ref="panel" class="quick overlay-card bubble" role="dialog" aria-labelledby="bookmark-edit-title">
       <header class="bubble-head">
-        <h2 id="bookmark-edit-title">编辑收藏夹</h2>
+        <h2 id="bookmark-edit-title" class="overlay-title">编辑收藏夹</h2>
         <button type="button" class="bubble-close" aria-label="关闭" title="关闭" @click="done">
           <ShellIcon name="close" />
         </button>
       </header>
 
       <template v-if="node">
-        <div class="page-line" :title="active?.address">
-          <span class="page-icon" aria-hidden="true"><ShellIcon name="page" /></span>
-          <span class="page-host">{{ host }}</span>
-        </div>
+        <p class="bubble-site" :title="active?.address">
+          <span class="site-icon" aria-hidden="true"><ShellIcon name="page" /></span>
+          <span class="site-host">{{ host }}</span>
+        </p>
 
-        <div class="field">
-          <label for="bookmark-name">名称</label>
+        <div class="bubble-field">
+          <label for="bookmark-name" class="overlay-label">名称</label>
           <input
             id="bookmark-name"
             ref="titleField"
             v-model="titleModel"
+            class="overlay-input"
             type="text"
             autocomplete="off"
             spellcheck="false"
@@ -244,31 +244,35 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
           >
         </div>
 
-        <div class="field">
-          <span id="bookmark-folder-label">文件夹</span>
-          <div class="folders" role="radiogroup" aria-labelledby="bookmark-folder-label">
+        <div class="bubble-field">
+          <p id="bookmark-folder-label" class="overlay-label">文件夹</p>
+          <div role="radiogroup" aria-labelledby="bookmark-folder-label">
             <button
               v-for="folder in folders"
               :key="folder.id"
               type="button"
               role="radio"
-              class="folder-option"
+              class="overlay-row bubble-folder"
               :aria-checked="node.parentId === folder.id"
               :title="`保存到${folder.label}`"
               :disabled="busy"
               @click="chooseFolder(folder.id)"
-            >{{ folder.label }}</button>
+            >
+              <span class="overlay-radio" aria-hidden="true"></span>
+              <span>{{ folder.label }}</span>
+              <ShellIcon name="check" class="check" />
+            </button>
           </div>
         </div>
 
-        <p v-if="error" class="error" role="status">{{ error }}</p>
+        <p v-if="error" class="overlay-error" role="status">{{ error }}</p>
 
         <footer class="bubble-actions">
-          <button type="button" class="secondary" :disabled="busy" @click="remove">删除</button>
-          <button type="button" class="primary" :disabled="busy" @click="done">完成</button>
+          <button type="button" class="overlay-button" :disabled="busy" @click="remove">删除</button>
+          <button type="button" class="overlay-button primary" :disabled="busy" @click="done">完成</button>
         </footer>
       </template>
-      <p v-else class="empty">
+      <p v-else class="overlay-empty">
         这个页面还没有收藏（可能刚在别处删除了）。点地址栏里的星标即可重新收藏。
       </p>
     </section>
@@ -276,97 +280,39 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 </template>
 
 <style>
+/* 只有"这一页独有"的排布留在这里；卡片、标题、行、输入框、按钮全部取共用类。 */
 .bubble-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
 
-/* 与其它飞窗同一套分层：圆角 12 + inset 1px 描边，不投影（视图与面板同尺寸）。 */
-.bubble {
-  box-sizing: border-box;
-  width: 100%;
-  max-height: 100vh;
-  overflow: auto;
-  padding: 8px;
-  border: 0;
-  border-radius: 12px;
-  box-shadow: inset 0 0 0 1px var(--stroke-divider);
-  background: var(--surface-toolbar);
-  font: var(--size-body)/1.4 var(--shell-font);
-  color: var(--text-primary);
-  scrollbar-gutter: stable;
-}
-.bubble *, .bubble *::before, .bubble *::after { box-sizing: border-box; }
-.bubble :where(button) { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
-.bubble button:disabled { cursor: default; opacity: .55; }
-.bubble button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
-
-.bubble-head { display: flex; align-items: center; gap: 8px; padding: 0 2px 2px 4px; }
-.bubble-head h2 { flex: 1; margin: 0; font-size: 12px; font-weight: 600; }
+.bubble-head { display: flex; align-items: center; gap: 6px; }
+.bubble-head .overlay-title { flex: 1; }
 .bubble-close {
   display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
   border-radius: 5px; color: var(--text-secondary); flex: none;
 }
 .bubble-close:hover { color: var(--text-primary); background: var(--surface-hover); }
+.bubble-close:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: -1px; }
 .bubble-close .shell-icon { width: 13px; height: 13px; }
 
-/* 顶部一行只放"这是哪个站点"：名字在下面的输入框里（Chromium 的气泡同样如此）。 */
-.page-line { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px; color: var(--text-secondary); }
-.page-icon { display: grid; place-items: center; }
-.page-icon .shell-icon { width: 13px; height: 13px; }
-.page-host { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 站点一行：只是"这是哪个站点的收藏"，名字在下面的输入框里。 */
+.bubble-site { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0 9px 4px; color: var(--text-secondary); }
+.site-icon { display: grid; place-items: center; }
+.site-icon .shell-icon { width: 13px; height: 13px; }
+.site-host { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.field { display: grid; gap: 3px; padding: 0 4px 8px; }
-.field > label, .field > span { font-size: 11px; color: var(--text-secondary); }
-.field input {
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--stroke-control);
-  border-radius: 7px;
-  background: var(--surface-toolbar);
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-}
-.field input:focus {
-  outline: none;
-  border-color: var(--brand-stroke);
-  box-shadow: inset 0 0 0 1px var(--brand-stroke);
-}
+/* 字段块：标签与控件同一套 9px 缩进（标签从共用类来）。 */
+.bubble-field { display: grid; gap: 3px; padding: 0 6px 6px; }
+.bubble-field .overlay-label { padding: 2px 3px 0; }
+.bubble-field .overlay-input { width: 100%; }
 
-.folders {
-  display: flex; gap: 2px; padding: 2px;
-  border: 1px solid var(--stroke-control); border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-page) 72%, var(--surface-toolbar));
-}
-.folder-option {
-  flex: 1; min-width: 0; min-height: 24px; padding: 2px 6px; border-radius: 6px;
-  font-size: 11px; color: var(--text-secondary);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.folder-option[aria-checked='true'] {
-  color: var(--text-primary); font-weight: 600;
-  background: var(--surface-toolbar);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
-}
-/* 档位是真正的表单控件：键盘焦点用 2px 环（与设置页的档位一致）。 */
-.bubble .folder-option:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: -2px; }
+/* 文件夹档位：一列行 + radio（与引擎面板一致），勾只在选中时出现。 */
+.bubble-folder { grid-template-columns: 13px minmax(0, 1fr) 14px; }
+.bubble-folder .check { width: 14px; height: 14px; color: var(--engine-accent); visibility: hidden; }
+.bubble-folder[aria-checked='true'] .check { visibility: visible; }
 
-.bubble-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 2px 4px 0; }
-.bubble .secondary {
-  min-height: 30px; padding: 2px 14px; border-radius: 7px;
-  border: 1px solid var(--stroke-control); font-size: 12px;
-}
-.bubble .secondary:hover:not(:disabled) { background: var(--surface-hover); }
-.bubble .primary {
-  min-height: 30px; padding: 2px 16px; border-radius: 7px;
-  font-size: 12px; font-weight: 600;
-  color: var(--surface-toolbar);
-  background: var(--accent);
-}
-.bubble .primary:hover:not(:disabled) { background: var(--accent-strong); }
+.bubble-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 0 3px 2px; }
+
 @media (forced-colors: active) {
-  .bubble .primary { background: Highlight; color: HighlightText; }
-  .folder-option[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
+  .bubble-folder[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
+  .bubble-close { forced-color-adjust: none; }
 }
-
-.empty { margin: 4px; font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
-.error { margin: 0 4px 6px; font-size: 11px; color: var(--text-error); }
 </style>

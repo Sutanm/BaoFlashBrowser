@@ -148,7 +148,7 @@ const RULES = [
   {
     // 样式：配色/间距类断言分布在这几个用例里。
     match: [/^src\/renderer\/[^/]*\.css$/],
-    tests: ['theme', 'titlebar', 'newtab', 'internal-page']
+    tests: ['theme', 'titlebar', 'newtab', 'internal-page', 'quick-settings', 'bookmarks']
   },
   {
     // 弹窗与页面 preload。

@@ -174,7 +174,7 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     assert.equal((await shellFacts(app, shell)).theme, 'light')
 
     // ④ 底部「全部设置」：关飞窗、切到设置标签页。
-    await inQuick(app, `document.querySelector('.row.footer').click()`)
+    await inQuick(app, `document.querySelector('.overlay-row.footer').click()`)
     await waitFor(async () => (await quickView(app))?.attached !== true ? true : null,
       { message: '点「全部设置」后飞窗没有关闭' })
     const afterFooter = await snapshot(shell)

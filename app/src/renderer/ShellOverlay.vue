@@ -107,8 +107,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="overlay-frame" :style="kind === 'toast' ? { padding: `${OVERLAY_TOP_INSET}px ${OVERLAY_INSET}px ${OVERLAY_INSET}px` } : undefined">
-    <section v-if="kind === 'panel'" id="engine-panel" ref="panel" class="engine-panel" role="dialog" aria-labelledby="engine-heading">
-      <h2 id="engine-heading">渲染引擎</h2>
+    <section v-if="kind === 'panel'" id="engine-panel" ref="panel" class="engine-panel overlay-card" role="dialog" aria-labelledby="engine-heading">
+      <h2 id="engine-heading" class="overlay-title">渲染引擎</h2>
       <div class="engine-choices" role="group" aria-label="选择当前标签的引擎">
         <button v-for="engine in browserEngines" :key="engine" type="button" class="engine-choice"
           :aria-pressed="active?.engine === engine"
@@ -134,8 +134,8 @@ onBeforeUnmount(() => {
         <template v-else-if="active && pinned">
           <p class="override-text">已记住 {{ names[pinned] }} · 当前使用 {{ names[active.engine] }}</p>
           <div class="site-actions">
-            <button type="button" class="compact-action primary" @click="setRule(true, true)">改为记住 {{ names[active.engine] }}</button>
-            <button type="button" class="compact-action" @click="setRule(false, true)">取消记住</button>
+            <button type="button" class="overlay-button primary" @click="setRule(true, true)">改为记住 {{ names[active.engine] }}</button>
+            <button type="button" class="overlay-button" @click="setRule(false, true)">取消记住</button>
           </div>
         </template>
       </div>
@@ -161,15 +161,8 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--engine-accent) 20%, var(--surface-toolbar));
 }
 .overlay-frame button:focus:not(:focus-visible) { outline: none; }
-/* 与齿轮飞窗一致：四角圆角 12、1px 边框、不投影（视图与面板同尺寸，投影只会变成一层光影）。 */
-.engine-panel {
-  background: var(--surface-toolbar);
-  /* 圆角 + 无外边框（use_outer_border = false），用 Fluent 的 inset 1px 描边分层。 */
-  border: 0;
-  border-radius: 12px;
-  box-shadow: inset 0 0 0 1px var(--stroke-divider);
-}
-/* 提示条仍是浮层（它出现在页面任意位置）。 */
+/* 与齿轮飞窗一致：卡片（圆角 12、inset 1px 描边、不投影）与标题都取
+   `overlay-panel.css` 的共用类；这里只留引擎档位与站点规则的排布。 */
 .toast {
   background: var(--surface-toolbar);
   /* 与飞窗、引擎面板同一套分层：圆角 + inset 1px 描边，不画外投影
@@ -179,14 +172,13 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px var(--stroke-divider);
 }
 .engine-panel { padding: 6px; }
-.engine-panel h2 { margin: 0; padding: 1px 6px 5px; font-size: 11px; color: var(--text-secondary); }
 .engine-choices { display: grid; gap: 2px; }
 .engine-choice {
   display: grid; grid-template-columns: 22px 1fr auto 14px; gap: 7px; align-items: center;
   min-height: 32px; padding: 4px 6px; border-radius: var(--radius-control); border: 1px solid transparent;
   text-align: left; font-size: 12px;
 }
-.engine-choice:not([aria-disabled='true']):hover, .compact-action:hover, .toast-close:hover { background: var(--surface-hover); }
+.engine-choice:not([aria-disabled='true']):hover, .toast-close:hover { background: var(--surface-hover); }
 .engine-choice[aria-pressed='true'] {
   background: var(--surface-selected); border-color: color-mix(in srgb, var(--engine-accent) 20%, transparent);
 }
@@ -220,8 +212,6 @@ onBeforeUnmount(() => {
 .remember:disabled { opacity: .45; }
 .override-text { margin: 4px 0 0; color: var(--engine-override); font-size: 12px; }
 .site-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
-.compact-action { border: 1px solid var(--stroke-divider); border-radius: 7px; font-size: 12px; padding: 3px 8px; }
-.compact-action.primary { color: var(--engine-accent); background: var(--engine-selection); border-color: transparent; font-weight: 600; }
 .toast { display: flex; align-items: flex-start; gap: 8px; padding: 8px; font-size: 12px; }
 .toast p { flex: 1; margin: 2px 0; overflow-wrap: anywhere; }
 .toast-icon { color: var(--text-error); margin-top: 2px; }

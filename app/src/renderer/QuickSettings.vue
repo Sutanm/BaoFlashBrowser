@@ -160,8 +160,8 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 <template>
   <div class="quick-frame" @keydown="onKeydown">
-    <section id="quick-settings" ref="panel" class="quick" :data-kind="props.kind" role="dialog" aria-label="快捷设置">
-      <p class="group-label">主题</p>
+    <section id="quick-settings" ref="panel" class="quick overlay-card" :data-kind="props.kind" role="dialog" aria-label="快捷设置">
+      <p class="overlay-label">主题</p>
       <div class="quick-theme" role="radiogroup" aria-label="主题">
         <button
           v-for="(mode, index) in themeModes"
@@ -181,14 +181,14 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
         </button>
       </div>
 
-      <div class="divider" role="presentation"></div>
-      <p class="group-label">默认引擎</p>
+      <div class="overlay-divider" role="presentation"></div>
+      <p class="overlay-label">默认引擎</p>
       <div role="radiogroup" aria-label="默认引擎">
         <button
           v-for="name in browserEngines"
           :key="name"
           type="button"
-          class="row engine"
+          class="overlay-row engine"
           role="radio"
           :aria-checked="engine === name"
           :aria-disabled="busy || (name === 'ppapi' && !flashReady) ? 'true' : 'false'"
@@ -197,22 +197,22 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
             : undefined"
           @click="chooseEngine(name)"
         >
-          <span class="radio" aria-hidden="true"></span>
+          <span class="overlay-radio" aria-hidden="true"></span>
           <span>{{ engineLabels[name] }}</span>
           <ShellIcon v-if="name === 'ppapi' && !flashReady" name="error" class="warn" />
           <ShellIcon v-else name="check" class="check" />
         </button>
       </div>
 
-      <p v-if="error" class="error" role="status">{{ error }}</p>
+      <p v-if="error" class="overlay-error" role="status">{{ error }}</p>
 
-      <div class="divider" role="presentation"></div>
-      <button type="button" class="row footer" @click="openBookmarks">
+      <div class="overlay-divider" role="presentation"></div>
+      <button type="button" class="overlay-row footer" @click="openBookmarks">
         <span class="lead-icon"><ShellIcon name="star" /></span>
         <span>收藏夹</span>
         <span class="chev"><ShellIcon name="chevron" /></span>
       </button>
-      <button type="button" class="row footer" @click="openSettings">
+      <button type="button" class="overlay-row footer" @click="openSettings">
         <span class="lead-icon"><ShellIcon name="gear" /></span>
         <span>全部设置</span>
         <span class="chev"><ShellIcon name="chevron" /></span>
@@ -222,54 +222,21 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 </template>
 
 <style>
-/* 单文档、无滚动条跳动：外层只负责留出投影空间（与 App.vue 的 QUICK_* 一致）。 */
+/* 单文档、无滚动条跳动：外层只负责铺满视图。
+   卡片、分组标签、分隔线、行、radio 圆点都取 `overlay-panel.css` 的共用类——
+   四个飞窗（快捷设置/引擎/收藏夹/编辑气泡）必须是同一套数值，各写一份就是漂移。 */
 .shell-overlay, .shell-overlay body { margin: 0; overflow: hidden; background: transparent; }
 .quick-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
 
-/* 圆角 12、**无外边框**（Chromium menu_config.cc 的 use_outer_border = false）。
-   浮层本身没有阴影空间（视图 = 面板，投影会被裁成一条「光影」），所以按架构铁律
-   「首帧可见表面一律 stroke 分层」用 Fluent 的 shadow-card-stroke 做法：
-   inset 1px 描边，不占外部空间、不被裁切、也不画成工具栏分隔线。 */
-.quick {
-  box-sizing: border-box;
-  width: 100%;
-  max-height: 100vh;
-  overflow: auto;
-  padding: 6px;
-  border: 0;
-  border-radius: 12px;
-  box-shadow: inset 0 0 0 1px var(--stroke-divider);
-  background: var(--surface-toolbar);
-  font: var(--size-body)/1.4 var(--shell-font);
-  color: var(--text-primary);
-}
-.quick *, .quick *::before, .quick *::after { box-sizing: border-box; }
-.quick :where(button) { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
-.quick button:disabled { cursor: default; }
-
-.group-label { margin: 0; padding: 6px 9px 2px; font-size: 11px; color: var(--text-secondary); }
-.divider { height: 1px; margin: 6px 4px; background: var(--stroke-divider); }
-
-.row {
-  display: grid; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 0 9px;
-  border-radius: 7px; text-align: left; font-size: 12px;
-}
-.row.engine { grid-template-columns: 13px 1fr auto; }
-.row.footer { grid-template-columns: 18px 1fr 14px; min-height: 38px; }
-.row:hover:not([aria-disabled='true']) { background: var(--surface-hover); }
-.row[aria-disabled='true'] { opacity: .45; cursor: default; }
-.row[aria-checked='true'] { background: var(--surface-selected); }
+/* 只有这一页独有的排布留在这里。 */
+.overlay-row.engine { grid-template-columns: 13px 1fr auto; }
+.overlay-row.footer { grid-template-columns: 18px 1fr 14px; min-height: 38px; }
+.overlay-row[aria-disabled='true'] { opacity: .45; cursor: default; }
 /* 菜单式的键盘焦点：整行高亮，不画环（Chrome 的菜单项就是这么做的）。
    选中行本来就有底色，聚焦时换成更饱和的 accent 混合色，保证「聚焦」看得出来。 */
-.row:focus-visible { outline: none; background: var(--surface-hover); }
-.row[aria-checked='true']:focus-visible {
+.overlay-row[aria-checked='true']:focus-visible {
   background: color-mix(in srgb, var(--engine-accent) 20%, var(--surface-toolbar));
 }
-.row:focus:not(:focus-visible) { outline: none; }
-
-.radio { width: 13px; height: 13px; border: 1.5px solid var(--text-secondary); border-radius: 50%; display: grid; place-items: center; }
-.row[aria-checked='true'] .radio { border-color: var(--engine-accent); }
-.row[aria-checked='true'] .radio::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--engine-accent); }
 
 .quick-theme {
   display: grid;
@@ -303,19 +270,19 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
   box-shadow: inset 0 0 0 1px var(--stroke-focus-ring);
 }
 
-.row .check { width: 13px; height: 13px; color: var(--engine-accent); visibility: hidden; }
-.row[aria-checked='true'] .check { visibility: visible; }
-.row .warn { width: 13px; height: 13px; color: var(--engine-override); }
+.overlay-row .check { width: 13px; height: 13px; color: var(--engine-accent); visibility: hidden; }
+.overlay-row[aria-checked='true'] .check { visibility: visible; }
+.overlay-row .warn { width: 13px; height: 13px; color: var(--engine-override); }
 
-.row.footer .lead-icon, .row.footer .chev { display: grid; place-items: center; color: var(--text-secondary); }
-.row.footer .lead-icon .shell-icon { width: 15px; height: 15px; }
-.row.footer .chev .shell-icon { width: 14px; height: 14px; /* chevron 是向下箭头，旋成向右 */ transform: rotate(-90deg); }
-.row.footer:hover .lead-icon, .row.footer:hover .chev { color: var(--text-primary); }
+.overlay-row.footer .lead-icon, .overlay-row.footer .chev { display: grid; place-items: center; color: var(--text-secondary); }
+.overlay-row.footer .lead-icon .shell-icon { width: 15px; height: 15px; }
+.overlay-row.footer .chev .shell-icon { width: 14px; height: 14px; /* chevron 是向下箭头，旋成向右 */ transform: rotate(-90deg); }
+.overlay-row.footer:hover .lead-icon, .overlay-row.footer:hover .chev { color: var(--text-primary); }
 
-.error { margin: 6px 9px 2px; font-size: 11px; color: var(--text-error); }
+
 
 @media (forced-colors: active) {
-  .row[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
+  .overlay-row[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
   .theme-option[aria-checked='true'] { outline: 1px solid Highlight; outline-offset: -1px; }
 }
 </style>

@@ -1,0 +1,125 @@
+/*
+ * 飞窗（叠加层）里所有面板共用的「卡片 + 菜单行」样式。
+ *
+ * 为什么要一个共用文件：快捷设置、引擎面板、收藏夹、编辑气泡是**同一只飞窗的四页**，
+ * 出现在同一颗按钮下方。各写一份 CSS 的结果就是数值漂移——2026-11-26 实测过：
+ * 收藏夹那两页的内距 8px、标题 12px 粗体、输入框 28px、档位 24px，而既有两页是
+ * 6px / 11px 灰 / 32px / 32px，看起来"不是一套东西"。
+ *
+ * 数值来源是既有的两个面板（Chromium 菜单的量级 + Fluent token）：
+ * 圆角 12、inset 1px 描边（视图与面板同尺寸，外投影会被裁成一条光影，所以不投影）、
+ * 行高 36 / 档位 32、字号 12、标签 11 灰、控件圆角 7–8。
+ */
+.overlay-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 100vh;
+  overflow: auto;
+  padding: 6px;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--stroke-divider);
+  background: var(--surface-toolbar);
+  color: var(--text-primary);
+  font: var(--size-body)/1.4 var(--shell-font);
+  scrollbar-gutter: stable;
+}
+.overlay-card *,
+.overlay-card *::before,
+.overlay-card *::after { box-sizing: border-box; }
+.overlay-card :where(button) { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+.overlay-card button:disabled { cursor: default; opacity: .55; }
+/* 菜单式键盘焦点：整行高亮、不画环（Chrome 的菜单项就是这么做的）。 */
+.overlay-card button:focus-visible { outline: none; background: var(--surface-hover); }
+.overlay-card button:focus:not(:focus-visible) { outline: none; }
+
+/* 面板标题：与引擎面板的 `h2` 一致（11px、灰、不加粗）。 */
+.overlay-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 1px 6px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+/* 分组标签（"主题""默认引擎""收藏夹栏"）：同一档字号与内距。 */
+.overlay-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 9px 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.overlay-label .count { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+.overlay-divider { height: 1px; margin: 6px 4px; background: var(--stroke-divider); }
+
+/* 菜单行：36px、圆角 7、整行可点。选中态用 Fluent 的中性选中面（不是品牌色）。 */
+.overlay-row {
+  display: grid;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 9px;
+  border-radius: 7px;
+  text-align: start;
+  font-size: 12px;
+}
+.overlay-row:hover { background: var(--surface-hover); }
+.overlay-row[aria-checked='true'] { background: var(--surface-selected); }
+.overlay-row:focus-visible { outline: none; background: var(--surface-hover); }
+
+/* radio 圆点：13px 环 + 6px 实心（引擎面板的档位就是这个规格）。 */
+.overlay-radio {
+  width: 13px; height: 13px;
+  border: 1.5px solid var(--text-secondary);
+  border-radius: 50%;
+  display: grid; place-items: center;
+}
+.overlay-row[aria-checked='true'] .overlay-radio { border-color: var(--engine-accent); }
+.overlay-row[aria-checked='true'] .overlay-radio::after {
+  content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--engine-accent);
+}
+
+/* 表单控件：32px（与地址栏、引擎档位同高），圆角走 Fluent 的控件圆角。 */
+.overlay-input {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--stroke-control);
+  border-radius: 7px;
+  background: var(--surface-toolbar);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+.overlay-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 紧凑动作按钮：与引擎面板的 `.compact-action` 同一规格（28px、圆角 7、12px）。
+   主按钮用"强调色文字 + 选中面"而不是实心紫块——与 `.compact-action.primary` 一致。 */
+.overlay-button {
+  min-height: 28px;
+  padding: 2px 12px;
+  border: 1px solid var(--stroke-divider);
+  border-radius: 7px;
+  font-size: 12px;
+}
+.overlay-button:hover { background: var(--surface-hover); }
+.overlay-button.primary {
+  color: var(--accent-strong);
+  background: var(--engine-selection);
+  border-color: transparent;
+  font-weight: 600;
+}
+.overlay-button.primary:hover { background: color-mix(in srgb, var(--accent) 18%, var(--surface-toolbar)); }
+
+.overlay-empty { margin: 0; padding: 4px 9px 6px; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
+.overlay-error { margin: 6px 9px 2px; font-size: 11px; color: var(--text-error); }

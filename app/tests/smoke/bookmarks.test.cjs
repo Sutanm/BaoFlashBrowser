@@ -81,15 +81,15 @@ async function panelFacts(app) {
       settings: heightOf('#quick-settings') > 0,
       title: bubble?.querySelector('h2')?.textContent?.trim() ?? null,
       name: bubble?.querySelector('#bookmark-name')?.value ?? null,
-      folders: [...(bubble?.querySelectorAll('.folder-option') ?? [])]
+      folders: [...(bubble?.querySelectorAll('.bubble-folder') ?? [])]
         .map((el) => [el.textContent.trim(), el.getAttribute('aria-checked')]),
       actions: [...(bubble?.querySelectorAll('.bubble-actions button') ?? [])].map((el) => el.textContent.trim()),
-      hubRows: [...(hub?.querySelectorAll('.row-wrap .item') ?? [])].map((el) => el.textContent.trim()),
-      hubGroups: [...(hub?.querySelectorAll('.lists .group-label') ?? [])].map((el) => [
+      hubRows: [...(hub?.querySelectorAll('.hub-row .row-title') ?? [])].map((el) => el.textContent.trim()),
+      hubGroups: [...(hub?.querySelectorAll('.hub-lists .overlay-label') ?? [])].map((el) => [
         el.querySelector('span')?.textContent.trim() ?? '',
         el.querySelector('.count')?.textContent.trim() ?? ''
       ]),
-      hubEmpty: Boolean(hub?.querySelector('.empty'))
+      hubEmpty: Boolean(hub?.querySelector('.overlay-empty'))
     }
   })()`)
 }
@@ -220,7 +220,7 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
     assert.equal(renamed.title, '我的收藏')
 
     // ⑥ 换文件夹：立即生效。
-    await inOverlay(app, `[...document.querySelectorAll('#bookmark-edit-panel .folder-option')]
+    await inOverlay(app, `[...document.querySelectorAll('#bookmark-edit-panel .bubble-folder')]
       .find((el) => el.textContent.includes('其他收藏夹')).click()`)
     const moved = await waitFor(async () => {
       const state = await snapshot(shell)
@@ -240,7 +240,7 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
       '重复点星标不能新增第二条')
 
     // ⑧ 「删除」：条目消失、星标回到空心、气泡收起。
-    await inOverlay(app, `document.querySelector('#bookmark-edit-panel .bubble-actions .secondary').click()`)
+    await inOverlay(app, `document.querySelector('#bookmark-edit-panel .bubble-actions .overlay-button:not(.primary)').click()`)
     await flyoutClosed(app)
     const cleared = await waitFor(async () => {
       const state = await snapshot(shell)
@@ -263,7 +263,7 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
     const hub = await openHub(app)
     assert.deepEqual(hub.hubGroups, [['收藏夹栏', '1']])
     assert.deepEqual(hub.hubRows, ['第二个页面'])
-    await inOverlay(app, `document.querySelector('#bookmarks-panel .row-wrap .item').click()`)
+    await inOverlay(app, `document.querySelector('#bookmarks-panel .hub-row .row-title').click()`)
     await waitFor(async () => {
       const state = await snapshot(shell)
       const active = state.tabs.find((tab) => tab.id === state.activeId)
@@ -278,7 +278,7 @@ test('收藏夹：星标 = 收藏 + 编辑气泡，收藏夹按钮 = 树', { tim
       return facts.settings ? facts : null
     }, { message: '齿轮飞窗没有打开' })
     assert.equal(quick.hub, false)
-    await inOverlay(app, `[...document.querySelectorAll('#quick-settings .row.footer')]
+    await inOverlay(app, `[...document.querySelectorAll('#quick-settings .overlay-row.footer')]
       .find((el) => el.textContent.includes('收藏夹')).click()`)
     const switched = await openHub(app, '齿轮里的「收藏夹」没有切到收藏夹页')
     assert.equal(switched.settings, false, '换页后快捷设置那页必须收起')
