@@ -189,8 +189,96 @@ Chromium 导入自己的导出也是这样；把顶层「其他书签/Other book
 
 ## 10. 已知边界（下一步）
 
-1. **横条上的文件夹下拉**（任务 #2）：现在点文件夹是打开收藏夹面板；要做成条下弹一层可用菜单，
-   需要独立弹出层（飞窗只有 `QuickView` 那四个角色）。
-2. **导出的「Other bookmarks」嵌套**（§6 末尾）：要不要直接映射到 `other` 根，等验收意见。
-3. **多选 / 剪切粘贴 / 撤销**：Chromium 的书签管理器有，本版没有（所以删除才加了确认）。
-4. **历史**（任务 #3）：`urls` + `visits` 双表，C5-S2 已裁决，尚未开工。
+1. **横条上的文件夹下拉**（任务 #2）：已交付，见 §11.5。
+2. **多选 / 剪切粘贴 / 撤销**：Chromium 的书签管理器有，本版没有（所以删除才加了确认）。
+3. **历史**（任务 #3）：`urls` + `visits` 双表，C5-S2 已裁决，尚未开工。
+
+---
+
+# 11. 2026-11-27 验收反馈与修正
+
+一轮验收提了五条，逐条对应：
+
+| 反馈 | 根因 / 裁决 | 修正 |
+| --- | --- | --- |
+| 导入时出现「此网站已被禁止使用动态传感器和光传感器。(*.shtml;*.html;…)」 | **不是我们的文案**：`<input type="file">` 的"文件类型"标签由系统按 HTML 的**友好名称**拼出来，这台机器上 `HKCR\htmlfile\FriendlyTypeName` = `@C:\WINDOWS\system32\ieframe.dll,-912`，而该资源位在中文 Windows 上是那条 IE 传感器通知串 | 见 §11.1 |
+| 设置面板没有进收藏夹管理页的入口 | 确实缺——设置里只有"显示不显示"三档 | 见 §11.2 |
+| 展开状态没持久化 | 原先刻意不做（注释里写着"不是需要记住的偏好"），用户否决 | 见 §11.3 |
+| 导入后的 `已导入 / Other bookmarks / …` 这一层 | Chromium 的行为，但用户判定是噪音 | 见 §11.4 |
+| 横条文件夹下拉（任务 #2） | 原先点文件夹打开的是收藏夹飞窗 | 见 §11.5 |
+
+## 11.1 导入的文件选择框：改用主进程对话框
+
+复现方式（可审计）：用**真实鼠标事件**点「导入…」（`executeJavaScript` 里的 `click()` 没有用户激活，
+文件框会被 Chromium 拦掉），截屏 → 对话框标题「打开」，右下角"文件类型"下拉显示的就是那句警告，
+后面跟着 `(*.shtml;*.html;*.ehtml;*.shtm;*.htm;*.html;*.htm)`——一个**文件过滤器**模式串。
+
+也就是说：系统把 `text/html` 的过滤器描述解析成了那条 IE 资源串。我们无法修注册表，
+能做的是**不依赖系统的类型名**：改成主进程 `dialog.showOpenDialog({ filters: [{ name: '书签文件（HTML）', … }] })`，
+过滤器名由我们自己给。实测截图（`import-dialog.png`）：标题「导入收藏夹」、按钮「导入」、
+类型「书签文件（HTML） (*.html;*.htm)」——警告消失。
+
+两条入口并存，都是真的：
+
+- 「导入…」→ `import-file`：主进程开框、主进程读文件（`decodeBookmarkFile()` 认 BOM，UTF-16 也能进）；
+- **拖放**文件到管理页 → 页面读字节 → `import-html`：dragover 时整页给「松开以导入」的虚线提示。
+  这条也是冒烟能跑通的那条（原生对话框在自动化里点不了）。
+
+## 11.2 设置页的入口
+
+`设置 → 外观 → 收藏夹栏` 那张卡里，三档下面加一行「整理收藏 / 管理收藏夹」。
+走新通道 `settings:open-favorites`：设置页只说"打开"，目标地址由主进程写死；
+`setImmediate` 后再切页（动作会让发送方文档所在的标签被顶掉，先回 IPC 结果再切，与 NTP 的
+`open-settings` 同一手法）。
+
+## 11.3 展开状态持久化
+
+存 `meta` 表（键 `bookmarks.expanded`），不进 `settings`：它不是偏好设置，而 `settings` 表每个键
+都要在 `sanitizeSetting()` 里有一个受控取值域，塞 JSON 数组进去会把那张表变成杂物间。
+
+```
+db(meta) → storage.setBookmarksExpanded() → BrowserState.bookmarksExpanded ─┬─ 收藏夹飞窗（点箭头写回）
+                                          → FavoritesSnapshot.expanded   ──┘─ bao://favorites 管理页
+```
+
+- `undefined` = **从来没记录过**：各界面用自己的默认（飞窗全收起、管理页展开两个根）；
+  空数组 = 用户把所有文件夹都收起了（界面照做）。这两者不能混。
+- 投影时按**现有节点**过滤（`expandedIds()`）：删掉的文件夹残留 id 不会再被任何界面用到。
+- 写入路径两条（外壳的 `set-bookmarks-expanded` 与管理页的 `set-expanded`）落的是同一份数据，
+  用例覆盖：管理页收起「收藏夹栏」→ 飞窗里也只有两个根 → **重启后仍是收起的**。
+
+## 11.4 拆掉「其他收藏夹」包装层
+
+解析完再拆：顶层文件夹名命中 `其他收藏夹 / 其他书签 / Other bookmarks / Other favorites …`
+（`FALLBACK_OTHER_TITLES`）时，它的子项**就地铺到 `other`**、包装层不进树、也不计进统计。
+**只认顶层**——深层的同名文件夹是用户自己建的，不能吞掉（用例覆盖两种）。
+
+这与 Chromium 不同（Chromium 会保留那层），是用户明确要求的偏差，记在这里以免以后又"对齐"回去。
+
+## 11.5 横条文件夹下拉
+
+原生菜单（`Menu.popup`）：横条在外壳文档里，而页面视图盖在内容区**上方**，HTML 下拉一旦伸进
+页面区就会被压住（飞窗整套视图就是为绕开这一点存在的）。Chromium 的横条文件夹菜单同样是原生
+（`bookmark_bar_view.cc` 的 `ShowFolderMenu` → `BookmarkMenuDelegate`）。
+
+- 内容：`shared/bookmarks.ts` 的 `folderMenuOf()`（纯函数）→ 主进程翻译成 `MenuItem`，
+  子文件夹递归成子菜单，深度上限 8；空文件夹给一条**禁用**的「（空文件夹）」（弹个空菜单
+  等于点了没反应）。
+- 位置：界面只传**内容区**坐标（按钮右下角），主进程换算成窗口坐标——界面不碰屏幕坐标，
+  多屏/缩放下不会错位。
+- 打开：菜单项走 `open-bookmark` 的同一个语义（当前标签导航，地址取自库里）。
+- 用例只能钉住"不再打开飞窗 + 命令被接受"，菜单内容由 `folderMenuOf()` 的单测钉住
+  （原生菜单在自动化里点不到）。截图 `bar-folder-menu.png` 是人工证据。
+
+## 11.6 本轮验证
+
+- `npm run typecheck` 通过；
+- `npx vitest run`：**389** 条通过（本轮 +10：`folderMenuOf` 3、`expandedIds` 2、
+  `decodeBookmarkFile` 3、包装层映射 2）；
+- 冒烟：`favorites` 6 条（新增"展开状态持久化 + 设置页入口"）、`bookmark-bar` 4 条
+  （文件夹项改成断言原生菜单）、`bookmarks` 3、`internal-page` 5、`data-cleanup` 4、
+  `quick-settings` 3、`newtab` 7、`isolation` 1——全绿；
+- 截图：`bar-folder-menu.png` / `bar-folder-menu-dark.png`（原生菜单，子菜单箭头；深色主题下
+  菜单**也是深的**——视图菜单跟 `nativeTheme` 走，"深色页面弹出浅色菜单"那个坑不存在）、
+  `import-dialog.png`（「书签文件（HTML） (*.html;*.htm)」）、`settings-appearance.png`
+  （外观 → 收藏夹栏卡里的「整理收藏 / 管理收藏夹」）。
