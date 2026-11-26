@@ -281,24 +281,39 @@ const engineMenu = ref<HTMLElement>()
  */
 const engineMenuStyle = ref<Record<string, string>>({})
 
+/** 触发按钮里「除文字之外」的开销：左右内距(10×2) + 与箭头的间距 8 + 箭头 12 + 边框 2。 */
+const TRIGGER_CHROME = 20 + 8 + 12 + 2
+
 /**
- * 按钮宽度**贴着最宽的引擎名**（2026-11-26 反馈："空白太多太空旷"）。
+ * 菜单选项里「除文字之外」的开销：菜单内距(4×2) + 选项内距(10×2) + 勾选列 14 + 间距 8 + 边框 2。
+ *
+ * 它**比按钮那边多出勾选列**（14 + 8）——正是这个差值让"菜单照抄按钮宽度"必然截字
+ * （2026-11-26 反馈：Google 显示成「Go…」）。
+ */
+const MENU_CHROME = 4 * 2 + 10 * 2 + 14 + 8 + 2
+
+/**
+ * 宽度**贴着最宽的引擎名**（2026-11-26 反馈："空白太多太空旷"）。
  *
  * 为什么用 JS 量：撑宽层若参与布局会顶高按钮，用 `position: absolute` 又不参与宽度计算——
- * 两边都不成立。所以用一个绝对定位的隐形副本量出文字宽度，写到 `min-width` 上，菜单取同一个值。
+ * 两边都不成立。所以用一个绝对定位的隐形副本量出文字宽度，按钮与菜单再各自加上自己的开销。
+ *
+ * 按钮与菜单**不再强制同宽**（2026-11-26 第二轮反馈）：两边能容纳文字的内距不同，硬对齐
+ * 等于牺牲菜单里的最长项。现在各自按「最宽引擎名 + 自己的开销」算，差值只有勾选列那一档。
  *
  * 量不到（分区隐藏时 `getBoundingClientRect()` 全是 0）就**不加下限**：宁可让按钮先按内容
  * 显示，也不留一块空白——切到该分区、字体就绪、点开下拉时都会重量一次。
  */
 const engineTriggerWidth = ref(0)
+const engineMenuWidth = ref(0)
 
 function measureTrigger(): void {
   const spans = engineSelect.value?.querySelectorAll<HTMLElement>('.engine-trigger-sizer > span')
   if (!spans || spans.length === 0) return
   const widest = Math.max(0, ...[...spans].map((el) => el.getBoundingClientRect().width))
   if (widest <= 0) return
-  // 20 = 左右内距(10×2)、8 = 与箭头的间距、12 = 箭头、2 = 边框。
-  engineTriggerWidth.value = Math.ceil(widest + 20 + 8 + 12 + 2)
+  engineTriggerWidth.value = Math.ceil(widest + TRIGGER_CHROME)
+  engineMenuWidth.value = Math.ceil(widest + MENU_CHROME)
 }
 
 function placeEngineMenu(): void {
@@ -306,12 +321,14 @@ function placeEngineMenu(): void {
   if (!rect) return
   // 先重量：分区刚切过来时 `min-width` 还没生效，用按钮的旧矩形算会偏窄（2026-11-26 实测）。
   measureTrigger()
+  const triggerWidth = engineTriggerWidth.value || Math.round(rect.width)
   engineMenuStyle.value = {
     top: `${Math.round(rect.bottom + 4)}px`,
     // 右缘与触发按钮对齐（设置页在窗口右侧，右对齐不会顶出屏幕）。
     right: `${Math.max(8, Math.round(window.innerWidth - rect.right))}px`,
-    // 宽度**与触发按钮一致**（2026-11-26 反馈）：菜单比按钮宽会显得两块东西不是一套。
-    width: `${engineTriggerWidth.value || Math.round(rect.width)}px`
+    // 宽度取"按钮宽度"与"菜单自己装得下最长引擎名"的较大者：窄的引擎名（必应/百度）
+    // 仍与按钮齐平，切到 Google 时菜单只多出勾选列那几像素，绝不截字。
+    width: `${Math.max(triggerWidth, engineMenuWidth.value)}px`
   }
 }
 
@@ -1115,7 +1132,7 @@ button:disabled { cursor: default; opacity: 0.6; }
 }
 .engine-option:hover, .engine-option.active { background: var(--surface-hover); }
 .engine-option[aria-selected='true'] { background: var(--surface-selected); }
-/* 宽度跟触发按钮走，长标签截断而不是把菜单撑宽。 */
+/* 兜底：真出现比"最宽引擎名"还长的标签（将来加自定义引擎）时截断，而不是把菜单撑出屏幕。 */
 .engine-option .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .engine-check { display: grid; place-items: center; width: 14px; height: 14px; flex: none; }
 .engine-check .shell-icon { width: 14px; height: 14px; }

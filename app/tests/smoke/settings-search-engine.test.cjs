@@ -60,30 +60,57 @@ test('设置页：搜索引擎是下拉框，当前项排第一行', { timeout: 
     assert.equal(menu[0].selected, true)
     assert.equal(menu[0].checked, true, '当前项应打勾')
 
-    // 触发按钮的宽度由**最长的引擎名**撑开（Edge 的做法），菜单与它同宽；
-    // 这样切换选项时按钮不会跳，下拉也不会比按钮宽出一截。
+    // 触发按钮的宽度由**最长的引擎名**撑开（Edge 的做法），这样切换选项时按钮不会跳；
+    // 菜单按「最长的引擎名 + 自己那一档内距（勾选列）」算——**绝不截字**
+    // （2026-11-26 第二轮反馈：菜单硬对齐按钮宽度，Google 显示成「Go…」）。
     const widths = await inPage(`(() => {
       const trigger = document.querySelector('.engine-trigger')
       const label = document.querySelector('.engine-trigger-label')
       const menu = document.querySelector('.engine-menu')
+      const options = [...document.querySelectorAll('.engine-menu .engine-option .label')]
       const widest = [...document.querySelectorAll('.engine-trigger-sizer > span')]
         .reduce((max, el) => Math.max(max, Math.ceil(el.getBoundingClientRect().width)), 0)
       return {
         trigger: Math.round(trigger.getBoundingClientRect().width),
         menu: Math.round(menu.getBoundingClientRect().width),
         labelClipped: label.scrollWidth > label.clientWidth + 1,
+        clipped: options
+          .filter((el) => el.scrollWidth > el.clientWidth + 1)
+          .map((el) => el.textContent.trim()),
         widest
       }
     })()`)
-    assert.ok(Math.abs(widths.menu - widths.trigger) <= 1,
-      `下拉宽度应与触发按钮一致（按钮 ${widths.trigger}、菜单 ${widths.menu}）`)
+    assert.deepEqual(widths.clipped, [],
+      `下拉里的引擎名不该被截断（可用宽度不够：${JSON.stringify(widths)}）`)
     assert.equal(widths.labelClipped, false, '按钮里的引擎名不该被截断')
     assert.ok(widths.widest > 20, `量不到最宽引擎名的宽度（${widths.widest}）——分区隐藏时量出来是 0`)
     assert.ok(widths.trigger >= widths.widest,
       `按钮要容得下最长的引擎名（按钮 ${widths.trigger} < 最长 ${widths.widest}）`)
+    assert.ok(widths.menu >= widths.trigger - 1,
+      `菜单不该比触发按钮窄（按钮 ${widths.trigger}、菜单 ${widths.menu}）`)
+    // 只该多出勾选列那一档（14 + 8）：再多就是两块东西不像一套。
+    assert.ok(widths.menu <= widths.trigger + 20,
+      `菜单比按钮宽太多（按钮 ${widths.trigger}、菜单 ${widths.menu}）`)
     // 贴着内容：按钮不该比"最长引擎名 + 内距 + 箭头"宽出一大截（2026-11-26 反馈"太空旷"）。
     assert.ok(widths.trigger <= widths.widest + 60,
       `按钮不该留大片空白（按钮 ${widths.trigger}、最长引擎名 ${widths.widest}）`)
+
+    // 切到最长的「Google」：按钮自己也不能把它截断。
+    await inPage(`[...document.querySelectorAll('.engine-menu .engine-option')]
+      .find((el) => el.querySelector('.label').textContent.trim() === 'Google').click()`)
+    const google = await waitFor(async () => {
+      const value = await inPage(`(() => {
+        const label = document.querySelector('.engine-trigger .engine-trigger-label')
+        if (!label || label.textContent.trim() !== 'Google') return null
+        return {
+          clipped: label.scrollWidth > label.clientWidth + 1,
+          width: Math.round(label.getBoundingClientRect().width)
+        }
+      })()`)
+      return value ?? null
+    }, { message: '触发按钮没有切到 Google' })
+    assert.equal(google.clipped, false, `按钮里的 Google 被截断了（只有 ${google.width}px）`)
+    await inPage(`document.querySelector('.engine-trigger').click()`)
 
     // 选百度：写库、收起、触发按钮跟着变；再打开时百度排第一。
     await inPage(`[...document.querySelectorAll('.engine-menu .engine-option')]
