@@ -6,6 +6,25 @@ const { build } = require('./build.cjs')
 
 build()
 
+/**
+ * 发布门禁（2026-11-26 审计）：**导出物必须能被导入脚本装回来**。
+ *
+ * 两种 profile 各跑一次往返（export → import → 校验关键件 → 清理），只校验「关键件」与
+ * 「包完整性」两份契约，不碰开发者正在用的 `.runtime/win-x64`。慢（约 1–2 分钟），但比发布
+ * 一个装不回来的归档便宜——上一版两种归档都装不回来，而"导出成功"给了相反的暗示。
+ * 没有自编译运行时的机器上，脚本自己会跳过并返回 0。
+ */
+if (process.env.BAO_SKIP_RUNTIME_ROUNDTRIP !== '1') {
+  const roundtrip = spawnSync(process.execPath, [join(__dirname, 'runtime-roundtrip.cjs')], {
+    stdio: 'inherit',
+    windowsHide: true
+  })
+  if (roundtrip.status !== 0) {
+    console.error('运行时归档往返校验失败：导出物装不回来，拒绝打包。')
+    process.exit(roundtrip.status ?? 1)
+  }
+}
+
 const root = resolve(__dirname, '..')
 const dist = join(root, 'dist')
 mkdirSync(dist, { recursive: true })

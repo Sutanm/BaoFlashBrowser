@@ -51,7 +51,8 @@ npm run dev
 | `node scripts/test.cjs data` | 无窗口跑存储合同用例：设置落库与跨重启、非法值拒绝、`engine-rules.json` 一次性迁移与幂等、坏值回落、硬杀后数据完整、写失败不应用。终端可用 `npm run test:data`。 |
 | `npm run runtime:check` | 校验 `.runtime/win-x64` 的内核与插件 SHA-256（按 `scripts/runtime-manifest.json`），失败时给出拷贝/重建两条恢复路径。 |
 | `npm run runtime:export` / `:byop` | 导出运行时 zip（`internal` 含插件、`byop` 不含 Adobe 二进制）+ 包内 `RUNTIME-MANIFEST.json`，供其它机器搭建环境。 |
-| `npm run runtime:import -- <zip>` | 校验逐文件 SHA-256 与内核 tag 后安装运行时；不一致直接拒绝。 |
+| `npm run runtime:import -- <zip>` | 校验**关键件**（内核 exe 与仓库清单里属于运行时的文件）与**包完整性**（包内每个文件都必须被包内清单声明且哈希一致）后安装；`--target=<dir>` 只给往返测试用。 |
+| `npm run runtime:roundtrip` | 双 profile 往返门禁：`internal` / `byop` 各 export → import → 校验关键件 → 清理（装到 `.runtime/roundtrip-*`，不碰正在用的运行时）。`pack:win` 默认会跑它；没有自编译运行时的机器上自动跳过。 |
 | `node scripts/test.cjs packaged` | 无窗口验证最近一次打包的自编译内核与 Ruffle。终端可用 `npm run smoke:packaged`。如果提示旧产物不支持隐藏模式，先重新打包。 |
 | `npm run smoke:packaged -- --foreground` | 前台验证成品的原生 PPAPI。内部包验证插件和 JS 桥，公开包验证 BYOP 投放。 |
 | `npm run pack:win` | 在固定的 `dist/win-preview/win-unpacked` 生成 Win x64 验证包（每次覆盖，并清理历史随机目录），产物自带 PPAPI 插件；结束时校验产物确实来自自编译内核。 |
