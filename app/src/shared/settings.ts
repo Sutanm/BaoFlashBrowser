@@ -227,6 +227,8 @@ export const settingsChannels = {
   sessionClear: 'settings:session-clear',
   /** 清除站点引擎规则（分类清理的「规则」档）。 */
   engineRulesClear: 'settings:engine-rules-clear',
+  /** 忘记**某个站点**的引擎规则（设置页列表里的单行删除）。 */
+  engineRuleForget: 'settings:engine-rule-forget',
   /** 读 Flash 插件状态（是否就绪 / 版本 / 是否需要重启）。 */
   flashStatus: 'settings:flash-status',
   /** 打开文件选择框导入插件（复制到 `<userData>/flash/`）。 */
@@ -274,6 +276,20 @@ export interface SettingsSnapshot {
    * 顺手把应用版本一起带上——`app.getVersion()` 在 main 里是一次调用，页面不必再开通道。
    */
   runtime: { app: string; electron: string; chromium: string }
+  /**
+   * 各站点「记住的引擎」（按 host 排序）。
+   *
+   * 为什么要放进快照：设置页原来只有 `clearEngineRules()` 一个动作，卡片里永远只有一个
+   * 「全部清除」按钮——0 条时看不出是空的，有规则时也看不出是哪几个站点（2026-11-26 反馈）。
+   * 列表 + 单条忘记（`forgetEngineRule`）之后，这张卡才像"能用的东西"。
+   */
+  engineRules: EngineRuleEntry[]
+}
+
+/** 一条站点引擎规则的展示投影。 */
+export interface EngineRuleEntry {
+  host: string
+  engine: BrowserEngine
 }
 
 export type SettingsWriteFailure =
@@ -302,6 +318,13 @@ export interface SettingsBridge {
    * 只删规则表，不动任何标签：已打开的标签保持当前引擎，重新计算来源后会显示为默认值。
    */
   clearEngineRules(): Promise<boolean>
+  /**
+   * 忘记某个站点的引擎规则（设置页列表里的单行删除）。
+   *
+   * `host` 由主进程校验（非空、长度上限），不信任页面传值；只删这一条，
+   * 已打开的标签不重载（与「全部清除」同一语义）。
+   */
+  forgetEngineRule(host: string): Promise<boolean>
   flashStatus(): Promise<FlashPluginState | undefined>
   flashImport(): Promise<FlashImportResult>
   /** 在文件管理器里定位当前插件；没有真实文件时返回 false。 */

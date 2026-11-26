@@ -733,7 +733,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       theme: currentTheme(),
       storage: storageStatus(),
       flash: plugins,
-      runtime: { app: app.getVersion(), electron: process.versions.electron, chromium: process.versions.chrome }
+      runtime: { app: app.getVersion(), electron: process.versions.electron, chromium: process.versions.chrome },
+      // 站点规则按 host 排序后投影：UI 只负责渲染，顺序稳定才不会每次刷新都跳动。
+      engineRules: Object.entries(engineRules.rules())
+        .map(([host, engine]) => ({ host, engine }))
+        .sort((left, right) => left.host.localeCompare(right.host))
     }
   }
 
@@ -3292,6 +3296,23 @@ export function registerBrowserIpc(): void {
     const controller = controllerFor(event)
     if (!controller || !controller.internalSender(event)) return false
     if (!clearEngineRulesData()) return false
+    refreshAllWindows()
+    for (const item of controllers.values()) item.refreshProjection()
+    return true
+  })
+
+  /**
+   * 忘记**一个站点**的引擎规则（设置页列表里的单行删除）。
+   *
+   * 发送者校验与「全部清除」同一条（`internalSender`：本窗口标签表 ∧ 主帧 ∧ `bao://settings`），
+   * 页面只能传 host 字符串，不能指定引擎或任意键——非空、长度上限之外一律拒绝。
+   * 语义与全部清除一致：只删规则表，已打开的标签不重载。
+   */
+  ipcMain.handle(settingsChannels.engineRuleForget, (event, host: unknown) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return false
+    if (typeof host !== 'string' || host.length === 0 || host.length > 253) return false
+    if (!engineRules.forget(host)) return false
     refreshAllWindows()
     for (const item of controllers.values()) item.refreshProjection()
     return true

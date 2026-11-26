@@ -174,6 +174,25 @@ test('设置页「引擎 → 清除站点引擎规则」：规则真的删掉，
         nav.click()
         return true
       })()`), { message: '设置页没有「引擎」分区入口' })
+      // 列表要真的把这一个站点渲染出来（host + 引擎 + 单条忘记），不只是"一个按钮"。
+      const listed = await waitFor(async () => {
+        const value = await inSettings(first.app, `(() => {
+          const row = document.querySelector('.rule-row')
+          if (!row) return null
+          return {
+            host: row.querySelector('.rule-host')?.textContent?.trim() ?? '',
+            engine: row.querySelector('.rule-engine')?.textContent?.trim() ?? '',
+            forget: row.querySelector('button.action')?.getAttribute('aria-label') ?? '',
+            count: document.querySelectorAll('.rule-row').length
+          }
+        })()`)
+        return value && value.host ? value : null
+      }, { message: '设置页没有列出已记住的站点' })
+      assert.equal(listed.count, 1, '应只列出一条规则')
+      assert.equal(listed.host, '127.0.0.1', '规则的 host 不对')
+      assert.equal(listed.engine, 'Ruffle', '规则应显示它记住的引擎')
+      assert.equal(listed.forget, '忘记 127.0.0.1 的引擎规则', '每行都要有单条忘记按钮')
+
       const clicked = await waitFor(async () => {
         const value = await inSettings(first.app, `(() => {
           const button = document.querySelector('button[aria-label="清除站点引擎规则"]')
@@ -222,6 +241,80 @@ test('设置页「引擎 → 清除站点引擎规则」：规则真的删掉，
     } finally {
       await second.close()
     }
+  } finally {
+    await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
+    await server.close()
+  }
+})
+
+test('设置页「引擎 → 单条忘记」：只删这一条，已打开的标签不重载', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/site': page('单条规则站点') })
+  const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-rule-forget-'))
+  try {
+    const first = await launchAppAt(profilePath)
+    try {
+      const address = first.shell.getByRole('textbox', { name: '地址栏' })
+      await address.fill(`${server.baseUrl}/site`)
+      await address.press('Enter')
+      await first.shell.getByRole('button', { name: '单条规则站点', exact: true }).waitFor()
+
+      assert.equal((await first.shell.evaluate(() =>
+        window.baoBrowser.run({ type: 'set-engine', engine: 'ruffle' }))).ok, true)
+      await waitFor(async () => {
+        const state = await snapshot(first.shell)
+        const tab = state.tabs.find((item) => item.address.endsWith('/site'))
+        return tab && tab.engine === 'ruffle' && !tab.loading ? state : null
+      }, { message: '标签没有切到 Ruffle' })
+      assert.equal((await first.shell.evaluate(() =>
+        window.baoBrowser.run({ type: 'remember-engine' }))).ok, true)
+      await waitFor(async () => {
+        const state = await snapshot(first.shell)
+        return state.tabs.some((tab) => tab.engineSource === 'site-rule') ? state : null
+      }, { message: '站点规则没有生效' })
+
+      // 打开设置 → 引擎分区 → 点这一行的「忘记」。
+      await pressShortcut(first.app, ',', ['control'])
+      await waitFor(async () => inSettings(first.app, `(() => {
+        const nav = [...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '引擎')
+        if (!nav) return false
+        nav.click()
+        return true
+      })()`), { message: '设置页没有「引擎」分区入口' })
+      const clicked = await waitFor(async () => {
+        const value = await inSettings(first.app, `(() => {
+          const button = document.querySelector('.rule-row button.action')
+          if (!button) return ''
+          const label = button.getAttribute('aria-label') ?? 'clicked'
+          button.click()
+          return label
+        })()`)
+        return value ? value : null
+      }, { message: '没有找到单条「忘记」按钮' })
+      assert.equal(clicked, '忘记 127.0.0.1 的引擎规则')
+
+      const notice = await waitFor(() => inSettings(first.app, `(() => {
+        const status = [...document.querySelectorAll('[role="status"]')].map((item) => item.textContent).join(' ')
+        return status.includes('已忘记') ? status : ''
+      })()`), { message: '设置页没有显示「已忘记」的结果' })
+      assert.match(notice, /已忘记 127\.0\.0\.1/)
+
+      // 真库为空；列表回到空状态；已打开的标签不重载、来源回到默认。
+      assert.deepEqual(inspect(profilePath, 'SELECT host FROM engine_rules'), [], '规则表应被清空')
+      const empty = await waitFor(async () => {
+        const value = await inSettings(first.app, `(() => ({
+          rows: document.querySelectorAll('.rule-row').length,
+          empty: (document.querySelector('#rules-title')?.closest('.setting-section')?.innerText ?? '').includes('还没有记住的站点')
+        }))()`)
+        return value.rows === 0 && value.empty ? value : null
+      }, { message: '忘掉最后一条后应回到空状态' })
+      assert.equal(empty.rows, 0)
+      const site = (await snapshot(first.shell)).tabs.find((tab) => tab.address.endsWith('/site'))
+      assert.equal(site.engine, 'ruffle', '已打开的标签不应被重载')
+      assert.equal(site.engineSource, 'default', '来源应回到默认')
+    } finally {
+      await first.close()
+    }
+    assert.deepEqual(inspect(profilePath, 'SELECT host FROM engine_rules'), [], '重启后规则仍应为空')
   } finally {
     await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
     await server.close()

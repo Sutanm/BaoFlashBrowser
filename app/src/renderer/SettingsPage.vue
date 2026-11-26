@@ -9,6 +9,7 @@ import type { FlashPluginState } from '../shared/settings'
 import { DEFAULT_SEARCH_ENGINE, SEARCH_ENGINES, searchEngineLabels } from '../shared/search'
 import type { SearchEngine } from '../shared/search'
 import type { BrowserEngine } from '../shared/engine'
+import { engineLabels } from '../shared/engine'
 import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme } from './theme'
 
@@ -101,9 +102,14 @@ const runtime = computed(() => snapshot.value?.runtime ?? { app: '—', electron
 const sessionClearing = ref(false)
 const dataNotice = ref('')
 
-/** 「数据」分区第二档：站点引擎规则（只删规则，不重载已打开的标签）。 */
+/** 「引擎」分区第三档：站点引擎规则（列表 + 单条忘记 + 全部清除，都不重载已打开的标签）。 */
 const rulesClearing = ref(false)
 const rulesNotice = ref('')
+/** 正在删除的站点（逐行显示忙碌态，避免重复点击）。Set 在 Vue 3 里是响应式的。 */
+const forgetting = ref(new Set<string>())
+
+/** 快照里按 host 排好序的规则投影。 */
+const engineRules = computed(() => snapshot.value?.engineRules ?? [])
 
 async function clearEngineRules(): Promise<void> {
   if (rulesClearing.value) return
@@ -116,6 +122,26 @@ async function clearEngineRules(): Promise<void> {
     rulesNotice.value = '清除失败，规则未改动'
   } finally {
     rulesClearing.value = false
+  }
+}
+
+/**
+ * 忘记单个站点：只删这一条，已打开的标签不重载（与「全部清除」同一语义）。
+ *
+ * 成功后不手动改本地快照——主进程会 `refreshAllWindows()` 推一份新快照过来，
+ * 列表跟着那次广播消失（页面不持有权威状态，这是全站一致的写法）。
+ */
+async function forgetRule(host: string): Promise<void> {
+  if (forgetting.value.has(host)) return
+  forgetting.value.add(host)
+  rulesNotice.value = ''
+  try {
+    const forgotten = await window.baoSettings.forgetEngineRule(host)
+    rulesNotice.value = forgotten ? `已忘记 ${host}` : `忘记 ${host} 失败，规则未改动`
+  } catch {
+    rulesNotice.value = `忘记 ${host} 失败，规则未改动`
+  } finally {
+    forgetting.value.delete(host)
   }
 }
 
@@ -398,10 +424,26 @@ function goFlashSection(): void {
         </header>
         <div class="setting-card">
           <div class="select-row">
-            <span>记住的引擎</span>
-            <button type="button" class="action" aria-label="清除站点引擎规则" :disabled="rulesClearing" @click="clearEngineRules">全部清除</button>
+            <span>已记住 {{ engineRules.length }} 个站点</span>
+            <button type="button" class="action" aria-label="清除站点引擎规则" :disabled="rulesClearing || engineRules.length === 0" @click="clearEngineRules">全部清除</button>
           </div>
-          <p class="lead">删除各站点「记住的引擎」规则；已打开的标签不会重新加载，来源回到默认。</p>
+          <p v-if="engineRules.length === 0" class="lead">
+            还没有记住的站点 —— 在引擎飞窗里切到某个站点后打开「记住当前引擎」，这里就会出现它的规则。
+          </p>
+          <ul v-else class="rule-list">
+            <li v-for="rule in engineRules" :key="rule.host" class="select-row rule-row">
+              <span class="rule-host" :title="rule.host">{{ rule.host }}</span>
+              <span class="rule-engine">{{ engineLabels[rule.engine] }}</span>
+              <button
+                type="button"
+                class="action"
+                :aria-label="`忘记 ${rule.host} 的引擎规则`"
+                :disabled="forgetting.has(rule.host)"
+                @click="forgetRule(rule.host)"
+              >忘记</button>
+            </li>
+          </ul>
+          <p class="lead">「记住的引擎」决定该站点下次打开用哪种渲染方式；已打开的标签不会重新加载，来源回到默认。</p>
           <p v-if="rulesNotice" role="status">{{ rulesNotice }}</p>
         </div>
       </section>
@@ -878,6 +920,18 @@ button:disabled { cursor: default; opacity: 0.6; }
   font-size: 13px;
 }
 .select-row:hover { background: var(--surface-hover); }
+
+/* 站点引擎规则列表：host 占满剩余宽度（超长省略），引擎是次要信息，忘记按钮固定右侧。 */
+.rule-list { margin: 0; padding: 0; list-style: none; }
+.rule-row { justify-content: flex-start; }
+.rule-host {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rule-engine { flex: none; font-size: 12px; color: var(--text-secondary); }
 
 .error { margin-top: 14px; font-size: 12px; color: var(--text-error, #a82929); }
 
