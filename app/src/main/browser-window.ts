@@ -16,7 +16,7 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, createBookmarkFolderData, importBookmarksData, moveBookmarkData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
+import { addBookmarkData, bookmarkNodes, clearBookmarksData, clearEngineRulesData, clearSessionData, createBookmarkFolderData, importBookmarksData, moveBookmarkData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
 import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
 import type { BookmarkBarMode } from '../shared/bookmarks'
 import { bindInternalProtocol, FAVORITES_URL, internalKindOf, internalTitles, internalUrls, isFavoritesUrl, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
@@ -219,6 +219,8 @@ interface WindowController extends TabHost {
   forgetSessionPrompt(): void
   /** 规则/设置变化后重新投影（引擎来源胶囊要立刻按新规则重算）。 */
   refreshProjection(): void
+  /** 收藏夹被整体清除后刷新：外壳投影 + 本窗口管理页的新快照。 */
+  refreshBookmarks(): void
   /**
    * 冒烟诊断：每个标签的**实际**视图、绑定代际与未提交候选。
    *
@@ -2951,6 +2953,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       layout()
       publish()
     },
+    /**
+     * 收藏夹被**整体**改动后刷新本窗口（分类清理的「收藏」档）。
+     *
+     * 与 `publishBookmarks()` 的区别：那个还要补图标、并顺带刷新其它窗口，是给"某一条
+     * 收藏变了"用的；这里是进程级的一次性操作，调用方自己遍历所有窗口，所以只做
+     * 「投影 + 管理页广播」两件事。
+     */
+    refreshBookmarks: () => {
+      publish()
+      broadcastFavorites()
+    },
     debugState,
     run
   }
@@ -4073,6 +4086,20 @@ export function registerBrowserIpc(): void {
     const controller = controllerFor(event)
     if (!controller || !controller.internalSender(event)) return false
     return clearStoredSession()
+  })
+
+  /**
+   * 清除全部收藏夹内容（分类清理的「收藏」档）。
+   *
+   * 收藏夹是**进程级**数据：清完要让每个窗口重新投影（星标/横条/面板），
+   * 并让每个窗口里的管理页收到一次新快照——否则界面会停在"还有收藏"的那一代数据上。
+   */
+  ipcMain.handle(settingsChannels.bookmarksClear, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.internalSender(event)) return false
+    if (!clearBookmarksData()) return false
+    for (const item of controllers.values()) item.refreshBookmarks()
+    return true
   })
 
   /**

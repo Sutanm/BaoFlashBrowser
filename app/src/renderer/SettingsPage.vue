@@ -98,12 +98,16 @@ function selectSection(next: SettingsSection): void {
 const runtime = computed(() => snapshot.value?.runtime ?? { app: '—', electron: '—', chromium: '—' })
 
 /**
- * 「隐私与清理 → 浏览数据」：分类清理已保存的会话。
+ * 「隐私与清理 → 浏览数据」：分类清理已保存的会话、收藏夹。
  *
  * 清除后本次运行不再记录会话（主进程挂起写盘），所以提示文案要说清楚"下次启动恢复记录"，
  * 否则用户会以为按钮没生效（`session.startup = continue` 时尤其明显）。
+ *
+ * 收藏夹那一档**保留两个永久根**（收藏夹栏 / 其他收藏夹），只清内容：连根删掉的话，
+ * 横条与面板会变成"收藏夹栏不见了"，而不是"清空了"。
  */
 const sessionClearing = ref(false)
+const bookmarksClearing = ref(false)
 const dataNotice = ref('')
 
 /** 「引擎」分区第三档：站点引擎规则（列表 + 单条忘记 + 全部清除，都不重载已打开的标签）。 */
@@ -173,6 +177,28 @@ async function clearSession(): Promise<void> {
     dataNotice.value = '清除失败，会话数据未改动'
   } finally {
     sessionClearing.value = false
+  }
+}
+
+/**
+ * 清除收藏夹内容（保留两个永久根）。
+ *
+ * 清完主进程会把新快照推回本页（`refreshAllWindows` → `broadcastSettings`）与每个窗口的
+ * 管理页，所以这里不改本地状态，只报结果——与「清除会话」同一套写法。
+ */
+async function clearBookmarks(): Promise<void> {
+  if (bookmarksClearing.value) return
+  bookmarksClearing.value = true
+  dataNotice.value = ''
+  try {
+    const cleared = await window.baoSettings.clearBookmarks()
+    dataNotice.value = cleared
+      ? '已清除全部收藏内容（收藏夹栏与其他收藏夹的文件夹保留）。'
+      : '清除失败，收藏夹未改动'
+  } catch {
+    dataNotice.value = '清除失败，收藏夹未改动'
+  } finally {
+    bookmarksClearing.value = false
   }
 }
 
@@ -786,7 +812,7 @@ function goFlashSection(): void {
       <section class="setting-section" :hidden="section !== 'privacy'" aria-labelledby="privacy-title">
         <header class="section-heading">
           <h2 id="privacy-title">浏览数据</h2>
-          <p class="section-caption">清除保存在本机上的浏览会话</p>
+          <p class="section-caption">清除保存在本机上的浏览会话与收藏</p>
         </header>
         <div class="setting-card">
           <div class="select-row">
@@ -794,6 +820,12 @@ function goFlashSection(): void {
             <button type="button" class="action" aria-label="清除已保存的会话" :disabled="sessionClearing" @click="clearSession">清除</button>
           </div>
           <p class="lead">删除上次退出时保存的标签记录与崩溃恢复提示。清除后本次运行不再记录会话，下次启动恢复记录。</p>
+          <div class="preference-divider" aria-hidden="true"></div>
+          <div class="select-row">
+            <span>收藏夹</span>
+            <button type="button" class="action" aria-label="清除全部收藏" :disabled="bookmarksClearing" @click="clearBookmarks">清除</button>
+          </div>
+          <p class="lead">删除收藏夹里的全部网址与文件夹。「收藏夹栏」与「其他收藏夹」两个根保留，删掉的收藏无法恢复。</p>
           <p v-if="dataNotice" role="status">{{ dataNotice }}</p>
         </div>
       </section>

@@ -336,3 +336,115 @@ test('设置页「引擎 → 单条忘记」：只删这一条，已打开的标
     await server.close()
   }
 })
+
+/**
+ * 收藏夹管理页（`bao://favorites`）里的脚本执行：与 `inSettings` 同一套做法。
+ *
+ * 管理页是后台标签时它仍然活着（内部页用 `v-show`/视图切换，不销毁文档），
+ * 所以主进程广播过来的新快照照常能被它渲染——这正是这条用例要证明的事。
+ */
+async function inFavorites(app, code) {
+  const id = await waitFor(() => app.evaluate(({ webContents }) => {
+    const target = webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').startsWith('bao://favorites'))
+    return target ? target.id : null
+  }), { timeout: 10_000, interval: 30, message: '没有找到收藏夹管理页的 WebContents' })
+  return app.evaluate(async ({ webContents }, payload) => {
+    const target = webContents.fromId(payload.id)
+    if (!target) throw new Error('管理页已销毁')
+    return target.executeJavaScript(payload.code)
+  }, { id, code })
+}
+
+test('设置页「浏览数据 → 清除收藏」：只清内容、保留两个根，管理页与投影跟着刷新', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/fav': page('收藏测试页') })
+  const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-fav-clear-'))
+  try {
+    const first = await launchAppAt(profilePath)
+    try {
+      // 造两条真实数据：一条收藏 + 一个文件夹。
+      const address = first.shell.getByRole('textbox', { name: '地址栏' })
+      await address.fill(`${server.baseUrl}/fav`)
+      await address.press('Enter')
+      await first.shell.getByRole('button', { name: '收藏测试页', exact: true }).waitFor()
+      assert.equal((await first.shell.evaluate(() => window.baoBrowser.run({ type: 'bookmark-page' }))).ok, true)
+      assert.equal((await first.shell.evaluate(() =>
+        window.baoBrowser.run({ type: 'create-bookmark-folder', title: '临时文件夹', parentId: 'bar' }))).ok, true)
+      assert.equal(inspect(profilePath, 'SELECT id FROM bookmarks').length, 4, '两个根 + 一条收藏 + 一个文件夹')
+
+      // 先打开管理页，确认它看到两行——清完之后要用同一个页面验证"界面跟着刷新"。
+      await first.shell.evaluate(() => window.baoBrowser.run({ type: 'open-favorites' }))
+      await waitFor(async () =>
+        (await inFavorites(first.app, 'document.querySelectorAll(".fav-row").length')) === 2,
+      { message: '管理页没有显示两条收藏' })
+
+      // 打开设置页 →「隐私、搜索和服务」→ 点「清除全部收藏」。
+      await first.shell.evaluate(() => window.baoBrowser.run({ type: 'open-settings' }))
+      await waitFor(async () => inSettings(first.app, `(() => {
+        const nav = [...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '隐私、搜索和服务')
+        if (!nav) return false
+        nav.click()
+        return true
+      })()`), { message: '设置页没有「隐私、搜索和服务」分区入口' })
+
+      // 这一档必须在同一个「浏览数据」卡里（与会话清理并列），不是另起的入口。
+      const placed = await inSettings(first.app, `(() => {
+        const button = document.querySelector('button[aria-label="清除全部收藏"]')
+        const section = document.getElementById('privacy-title')?.closest('.setting-section')
+        const rows = [...(section?.querySelectorAll('.select-row span') ?? [])].map((el) => el.textContent.trim())
+        return { found: Boolean(button), hidden: Boolean(section?.hidden), rows }
+      })()`)
+      assert.equal(placed.found, true, '「浏览数据」里没有「清除全部收藏」按钮')
+      assert.equal(placed.hidden, false)
+      assert.deepEqual(placed.rows, ['已保存的会话', '收藏夹'], '收藏档应与会话档并列在同一张卡里')
+
+      const clicked = await waitFor(async () => {
+        const value = await inSettings(first.app, `(() => {
+          const button = document.querySelector('button[aria-label="清除全部收藏"]')
+          if (!button) return ''
+          button.click()
+          return 'clicked'
+        })()`)
+        return value || null
+      }, { message: '没有找到「清除全部收藏」按钮' })
+      assert.equal(clicked, 'clicked')
+
+      const notice = await waitFor(() => inSettings(first.app, `(() => {
+        const status = [...document.querySelectorAll('[role="status"]')].map((item) => item.textContent).join(' ')
+        return status.includes('已清除全部收藏内容') ? status : ''
+      })()`), { message: '设置页没有显示收藏清理结果' })
+      assert.match(notice, /收藏夹栏/, '提示要说清楚两个根保留')
+
+      // 真库：只剩两个永久根。
+      const left = inspect(profilePath, 'SELECT id FROM bookmarks ORDER BY id').map((row) => row.id).sort()
+      assert.deepEqual(left, ['bar', 'other'], '清除后应只剩两个永久根')
+
+      // 外壳投影立刻回到"空收藏夹"（星标/横条都吃这份数据）。
+      const projected = await waitFor(async () => {
+        const state = await snapshot(first.shell)
+        return state.bookmarks.length === 2 ? state : null
+      }, { message: '清除后外壳投影没有更新' })
+      assert.deepEqual(projected.bookmarks.map((node) => node.id).sort(), ['bar', 'other'])
+
+      // 已经打开的管理页也要跟着变空（主进程广播 → 页面替换快照）。
+      const emptied = await waitFor(async () => {
+        const facts = await inFavorites(first.app, `(() => ({
+          rows: document.querySelectorAll('.fav-row').length,
+          empty: Boolean(document.querySelector('.fav-empty')),
+          tree: document.querySelectorAll('.tree-row').length,
+          status: document.querySelector('.fav-status')?.textContent?.trim() ?? ''
+        }))()`)
+        return facts.rows === 0 && facts.empty ? facts : null
+      }, { message: '管理页没有跟着刷新（还显示已经被清掉的收藏）' })
+      assert.equal(emptied.tree, 2, '树里应只剩两个永久根')
+      assert.equal(emptied.status, '', '后台刷新不该在状态区留下错误（不是用户操作失败）')
+    } finally {
+      await first.close()
+    }
+    // 重启后仍是空的（清除真的落盘，不是只改了内存）。
+    assert.deepEqual(inspect(profilePath, 'SELECT id FROM bookmarks ORDER BY id').map((row) => row.id).sort(),
+      ['bar', 'other'])
+  } finally {
+    await rm(profilePath, { recursive: true, force: true, maxRetries: 3 })
+    await server.close()
+  }
+})

@@ -280,8 +280,9 @@ test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后�
       })()`)
       return value && value.length ? value : null
     }, { message: '「隐私、搜索和服务」分区没有清除入口' })
-    // 站点引擎规则搬到「引擎」分区（它清的是引擎记忆，不是隐私），隐私页只剩浏览数据。
-    assert.deepEqual(privacy, ['清除已保存的会话'])
+    // 站点引擎规则搬到「引擎」分区（它清的是引擎记忆，不是隐私），隐私页只剩浏览数据两档：
+    // 已保存的会话 + 收藏（2026-11-27 补上收藏档，`clearBookmarks` 与它同一张卡）。
+    assert.deepEqual(privacy, ['清除已保存的会话', '清除全部收藏'])
 
     // 「引擎」分区必须把三件事收在一起：默认引擎、Flash 插件、站点引擎规则。
     await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '引擎')?.click()`)

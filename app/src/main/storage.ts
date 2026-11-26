@@ -6,7 +6,7 @@ import type { BrowserEngine, EngineRules } from '../shared/engine'
 import type { BookmarkNode } from '../shared/bookmarks'
 import type { SessionSnapshot } from '../shared/session'
 import {
-  addBookmark, clearEngineRules, clearSession, deleteBookmark, deleteRule, importBookmarks, moveBookmark, openStore,
+  addBookmark, clearBookmarks, clearEngineRules, clearSession, deleteBookmark, deleteRule, importBookmarks, moveBookmark, openStore,
   readBookmarks, renameBookmark, updateBookmarkUrl, writeRule, writeSession, writeSessionExit, writeSetting
 } from './db/store'
 import type { AddBookmarkInput, OpenedStore, SessionExitState } from './db/store'
@@ -221,6 +221,18 @@ export function importBookmarksData(html: string): BookmarkImportOutcome {
     console.error('[storage] 书签导入失败（已回滚）。', error)
     store.bookmarks = readBookmarks(store.db)
     return { ok: false, reason: 'unreadable' }
+  }
+}
+
+/** 清除全部收藏夹内容（分类清理的「收藏」档）：保留两个永久根，内容清空。 */
+export function clearBookmarksData(): boolean {
+  if (!store) return false
+  try {
+    store.bookmarks = clearBookmarks(store.db)
+    return true
+  } catch (error) {
+    console.error('[storage] 收藏夹清除失败。', error)
+    return false
   }
 }
 

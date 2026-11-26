@@ -259,6 +259,13 @@ export const settingsChannels = {
   sessionClear: 'settings:session-clear',
   /** 清除站点引擎规则（分类清理的「规则」档）。 */
   engineRulesClear: 'settings:engine-rules-clear',
+  /**
+   * 清除全部收藏夹内容（分类清理的「收藏」档）。
+   *
+   * 保留两个永久根（`bar` / `other`）与它们的位置：横条与面板都按这两个根渲染，
+   * 连根一起删掉的话界面会变成"收藏夹栏不见了"，而不是"清空了"。
+   */
+  bookmarksClear: 'settings:bookmarks-clear',
   /** 忘记**某个站点**的引擎规则（设置页列表里的单行删除）。 */
   engineRuleForget: 'settings:engine-rule-forget',
   /** 读 Flash 插件状态（是否就绪 / 版本 / 是否需要重启）。 */
@@ -350,6 +357,13 @@ export interface SettingsBridge {
    * 只删规则表，不动任何标签：已打开的标签保持当前引擎，重新计算来源后会显示为默认值。
    */
   clearEngineRules(): Promise<boolean>
+  /**
+   * 清除全部收藏夹内容（「数据」分区的第三档）。
+   *
+   * 只清内容、保留两个永久根；已打开的收藏夹管理页会跟着主进程的广播刷新，
+   * 不需要页面自己重建。
+   */
+  clearBookmarks(): Promise<boolean>
   /**
    * 忘记某个站点的引擎规则（设置页列表里的单行删除）。
    *
