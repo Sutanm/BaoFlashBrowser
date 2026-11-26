@@ -193,6 +193,22 @@ test('设置页「引擎 → 清除站点引擎规则」：规则真的删掉，
       assert.equal(listed.engine, 'Ruffle', '规则应显示它记住的引擎')
       assert.equal(listed.forget, '忘记 127.0.0.1 的引擎规则', '每行都要有单条忘记按钮')
 
+      // 规则可能很多（每站点一条）：列表必须自身封顶滚动，不能把整页拉长；
+      // 少量规则时不要多一个过滤框（阈值 8，见 RULE_FILTER_THRESHOLD）。
+      const layout = await inSettings(first.app, `(() => {
+        const list = document.querySelector('.rule-list')
+        if (!list) return null
+        const style = getComputedStyle(list)
+        return {
+          maxHeight: style.maxHeight,
+          overflowY: style.overflowY,
+          filter: Boolean(document.querySelector('.rule-filter'))
+        }
+      })()`)
+      assert.equal(layout.maxHeight, '264px', '规则列表必须封顶，否则几百条会把页面拉到几千像素')
+      assert.equal(layout.overflowY, 'auto', '规则列表应自身滚动')
+      assert.equal(layout.filter, false, '只有一条规则时不该出现过滤框')
+
       const clicked = await waitFor(async () => {
         const value = await inSettings(first.app, `(() => {
           const button = document.querySelector('button[aria-label="清除站点引擎规则"]')

@@ -111,6 +111,17 @@ const forgetting = ref(new Set<string>())
 /** 快照里按 host 排好序的规则投影。 */
 const engineRules = computed(() => snapshot.value?.engineRules ?? [])
 
+/** 超过这个条数才显示过滤框：少量规则时多一个输入框只是噪音。 */
+const RULE_FILTER_THRESHOLD = 8
+const ruleQuery = ref('')
+
+/** 过滤（纯前端）：按 host 子串匹配，大小写不敏感。 */
+const filteredRules = computed(() => {
+  const query = ruleQuery.value.trim().toLowerCase()
+  if (!query) return engineRules.value
+  return engineRules.value.filter((rule) => rule.host.toLowerCase().includes(query))
+})
+
 async function clearEngineRules(): Promise<void> {
   if (rulesClearing.value) return
   rulesClearing.value = true
@@ -430,19 +441,33 @@ function goFlashSection(): void {
           <p v-if="engineRules.length === 0" class="lead">
             还没有记住的站点 —— 在引擎飞窗里切到某个站点后打开「记住当前引擎」，这里就会出现它的规则。
           </p>
-          <ul v-else class="rule-list">
-            <li v-for="rule in engineRules" :key="rule.host" class="select-row rule-row">
-              <span class="rule-host" :title="rule.host">{{ rule.host }}</span>
-              <span class="rule-engine">{{ engineLabels[rule.engine] }}</span>
-              <button
-                type="button"
-                class="action"
-                :aria-label="`忘记 ${rule.host} 的引擎规则`"
-                :disabled="forgetting.has(rule.host)"
-                @click="forgetRule(rule.host)"
-              >忘记</button>
-            </li>
-          </ul>
+          <template v-else>
+            <!-- 规则可能很多（每个站点一条）：超过阈值给过滤框，列表自身封顶滚动，
+                 不把整页拉成几千像素（2026-11-26）。 -->
+            <input
+              v-if="engineRules.length > RULE_FILTER_THRESHOLD"
+              v-model="ruleQuery"
+              type="search"
+              class="rule-filter"
+              aria-label="按站点过滤规则"
+              placeholder="按站点过滤"
+              spellcheck="false"
+            >
+            <ul v-if="filteredRules.length" class="rule-list">
+              <li v-for="rule in filteredRules" :key="rule.host" class="select-row rule-row">
+                <span class="rule-host" :title="rule.host">{{ rule.host }}</span>
+                <span class="rule-engine">{{ engineLabels[rule.engine] }}</span>
+                <button
+                  type="button"
+                  class="action"
+                  :aria-label="`忘记 ${rule.host} 的引擎规则`"
+                  :disabled="forgetting.has(rule.host)"
+                  @click="forgetRule(rule.host)"
+                >忘记</button>
+              </li>
+            </ul>
+            <p v-else class="lead">没有匹配「{{ ruleQuery }}」的站点。</p>
+          </template>
           <p class="lead">「记住的引擎」决定该站点下次打开用哪种渲染方式；已打开的标签不会重新加载，来源回到默认。</p>
           <p v-if="rulesNotice" role="status">{{ rulesNotice }}</p>
         </div>
@@ -921,8 +946,31 @@ button:disabled { cursor: default; opacity: 0.6; }
 }
 .select-row:hover { background: var(--surface-hover); }
 
-/* 站点引擎规则列表：host 占满剩余宽度（超长省略），引擎是次要信息，忘记按钮固定右侧。 */
-.rule-list { margin: 0; padding: 0; list-style: none; }
+/* 站点引擎规则列表：host 占满剩余宽度（超长省略），引擎是次要信息，忘记按钮固定右侧。
+   列表**自身封顶滚动**：规则按站点一条，几百条时不该把整页拉长到几千像素。 */
+.rule-list {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  max-height: 264px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.rule-filter {
+  width: 100%;
+  min-height: 34px;
+  margin: 2px 0 6px;
+  padding: 0 12px;
+  border: 1px solid var(--stroke-control);
+  border-radius: 8px;
+  background: var(--surface-toolbar);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+.rule-filter::placeholder { color: var(--text-secondary); }
+.rule-filter:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
 .rule-row { justify-content: flex-start; }
 .rule-host {
   flex: 1;
