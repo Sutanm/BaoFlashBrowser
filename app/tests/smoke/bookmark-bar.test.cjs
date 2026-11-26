@@ -33,11 +33,20 @@ const barFacts = (shell) => shell.evaluate(() => {
   return {
     present: true,
     height: Math.round(bar.getBoundingClientRect().height),
-    items: [...bar.querySelectorAll('.bar-item:not(.bar-overflow)')].map((el) => ({
-      label: el.querySelector('.bar-label').textContent.trim(),
-      folder: el.classList.contains('folder'),
-      clipped: el.classList.contains('clipped')
-    })),
+    items: [...bar.querySelectorAll('.bar-item:not(.bar-overflow)')].map((el) => {
+      const style = getComputedStyle(el)
+      return {
+        label: el.querySelector('.bar-label').textContent.trim(),
+        folder: el.classList.contains('folder'),
+        clipped: el.classList.contains('clipped'),
+        // 尺寸照抄 Chromium 的 BookmarkButtonBase：高 28、最大宽 150、左右内距 6。
+        height: Math.round(el.getBoundingClientRect().height),
+        maxWidth: style.maxWidth,
+        padding: style.padding,
+        gap: style.gap,
+        cursor: style.cursor
+      }
+    }),
     overflow: Boolean(bar.querySelector('.bar-overflow')),
     hint: bar.querySelector('.bar-hint')?.textContent.trim() ?? null
   }
@@ -123,6 +132,13 @@ test('收藏夹横条：显示规则、页面让位、点击导航', { timeout: 
       return facts.present ? facts : null
     }, { message: '「始终显示」后横条没有出现' })
     assert.deepEqual(always.items.map((item) => [item.label, item.folder]), [['第一个收藏页', false]])
+    // 尺寸对齐 Chromium 的 BookmarkButtonBase（2026-11-26 反馈："高度矮了几px、会不会太宽"）。
+    assert.equal(always.items[0].height, 28, '横条项高 28（BOOKMARK_BAR_BUTTON_HEIGHT）')
+    assert.equal(always.items[0].maxWidth, '150px', '横条项最大宽 150（kMaxButtonWidth）')
+    assert.equal(always.items[0].padding, '0px 6px', '左右内距 6（INSETS_BOOKMARKS_BAR_BUTTON）')
+    assert.equal(always.items[0].gap, '6px', '图标与文字间距 6（BOOKMARK_BAR_BUTTON_IMAGE_LABEL_PADDING）')
+    // 悬停已经有底色变化，不要再出手型（2026-11-26 反馈）。
+    assert.equal(always.items[0].cursor, 'default', '横条项用默认箭头，不用手型')
     assert.equal(always.overflow, false, '放得下就不该出现「其余收藏」')
     assert.equal(await pageTop(app), TAB + TOOLBAR + BAR, '「始终显示」下页面视图同样要让位')
 
@@ -264,6 +280,35 @@ test('收藏夹横条：从新标签页进网页时，横条等新页面提交�
   } finally {
     await close()
     await new Promise((done) => slow.close(done))
+  }
+})
+
+test('外壳 chrome：按钮统一用默认箭头（悬停已有底色变化）', { timeout: 120_000 }, async () => {
+  const { app, shell, close } = await launchApp()
+  try {
+    await shell.waitForSelector('.bookmark-bar')
+    const cursors = await shell.evaluate(() => {
+      const read = (selector) => {
+        const el = document.querySelector(selector)
+        return el ? getComputedStyle(el).cursor : 'missing'
+      }
+      return {
+        tabClose: read('.tab .close-tab'),
+        addTab: read('.add-tab'),
+        back: read('.toolbar .icon-button'),
+        bookmarks: read('.bookmarks-button'),
+        gear: read('.gear-button')
+      }
+    })
+    assert.deepEqual(cursors, {
+      tabClose: 'default',
+      addTab: 'default',
+      back: 'default',
+      bookmarks: 'default',
+      gear: 'default'
+    }, '标签页 × / + 与工具栏按钮都不该出手型')
+  } finally {
+    await close()
   }
 })
 

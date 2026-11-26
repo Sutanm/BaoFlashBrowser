@@ -1041,6 +1041,13 @@ body { margin: 0; }
 button, input { font: inherit; color: inherit; }
 button { border: 0; background: transparent; }
 button:not(:disabled) { cursor: pointer; }
+/*
+ * 外壳 chrome 里的按钮用**默认箭头**，不用手型（2026-11-26 反馈）。
+ *
+ * 理由：这些控件悬停时已经有底色变化，"可点"这件事由样式承担；手型是网页链接的约定，
+ * 出现在标签页的 + / × 和横条项上反而像网页元素。Chromium 的 Views 控件同样不用手型。
+ */
+.shell button { cursor: default; }
 button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
 
 .titlebar {
@@ -1311,14 +1318,23 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
   border-bottom: var(--shell-stroke) solid var(--stroke-divider);
   overflow: hidden;
 }
+/*
+ * 横条上的收藏项：数值照抄 Chromium 142 的 `BookmarkButtonBase`
+ * （`bookmark_button_util.cc` / `chrome_layout_provider.cc`，非触摸档）：
+ * - 高度 **28**（`BOOKMARK_BAR_BUTTON_HEIGHT`；横条 34 = 28 + 上下各 3，正好居中）
+ * - 左右内距 **6**（`INSETS_BOOKMARKS_BAR_BUTTON` = 全 6）
+ * - 图标与文字间距 **6**（`BOOKMARK_BAR_BUTTON_IMAGE_LABEL_PADDING`）
+ * - 最大宽度 **150**（`bookmark_button_util.h` 的 `kMaxButtonWidth`，超了标签省略）
+ * - 宽度是**内容驱动**的（没有固定值），放不下的项由 overflow 收进「»」
+ */
 .bar-item {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: 6px;
   flex: none;
-  max-width: 200px;
-  height: 24px;
-  padding: 0 var(--space-s);
+  max-width: 150px;
+  height: 28px;
+  padding: 0 6px;
   border-radius: 5px;
   font-size: 12px;
   color: var(--text-primary);
@@ -1328,8 +1344,8 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 .bar-item:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: -1px; }
 .bar-item.clipped { visibility: hidden; }
 .bar-icon { display: grid; place-items: center; flex: none; color: var(--text-secondary); }
-.bar-icon .shell-icon { width: 13px; height: 13px; }
-/* 横条上的站点图标：16px（Chromium 的横条图标就是 16）。 */
+/* 横条上的图标 16px（Chromium 的横条图标列就是 16）。 */
+.bar-icon .shell-icon { width: 16px; height: 16px; }
 .bar-icon .favicon { width: 16px; height: 16px; }
 .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 「其余收藏」：绝对定位到右端，不参与 flex 排布——它的宽度由测量预留（`BAR_OVERFLOW_RESERVE`）。 */
