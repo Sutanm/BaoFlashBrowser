@@ -35,6 +35,20 @@ export default defineConfig({
   renderer: {
     plugins: [vue()],
     build: {
+      /**
+       * 渲染层产物压缩（2026-11-26）。
+       *
+       * electron-vite 给 renderer 的 `minify` 默认是 `false`，产物是 `theme-*.js` 266 KB +
+       * `index-*.js` 58 KB 这种带缩进换行的未压缩代码，成品包里也是这副样子。
+       *
+       * **它没有让启动变快**（别拿它当启动优化）：同一探针插进产物、两种构建交替各跑 3 轮，
+       * 「首个脚本执行 → DCL」压缩前 17–19 ms、压缩后 17–18 ms，差在噪声里。保留的理由是
+       * 分发体积：外壳首屏三个文件 341 KB → 145 KB（−58%），行为零变化。
+       *
+       * 只动 renderer：主进程/preload 的体积对启动没有影响，压了反而让主进程的栈与
+       * `BAO_*_TRACE` 诊断更难读。CSS 一并压缩，类名不动（esbuild 只改空白与值）。
+       */
+      minify: 'esbuild',
       rollupOptions: {
         input: {
           // 三个文档：外壳（含叠加层）、内部设置页与新标签页。
@@ -46,3 +60,4 @@ export default defineConfig({
     }
   }
 })
+
