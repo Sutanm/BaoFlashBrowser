@@ -161,6 +161,12 @@ const RULES = [
     tests: ['tab-discard', 'tearoff']
   },
   {
+    // Capability 合同与校验器（A1-a）：运行时还没有导入方，但它将是标签动作的统一入口，
+    // 一旦接线就落在 browser-window（已映射为全量），所以这里只跑受它约束的两条行为用例。
+    match: [/^src\/shared\/capability\.ts$/, /^src\/main\/capability-contract\.ts$/],
+    tests: ['tab-ops', 'tab-discard']
+  },
+  {
     // 引用来源头。
     match: [/^src\/shared\/referer\.ts$/],
     tests: ['link-target']
