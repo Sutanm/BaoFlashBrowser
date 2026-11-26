@@ -179,6 +179,13 @@ export interface BrowserTab {
   notice?: { id: number; message: string }
   /** 当前标签使用的引擎与其来源（默认 / 站点规则 / 手动切换）。 */
   engine: BrowserEngine
+  /**
+   * 正在切向的引擎：两阶段切换的候选**已挂载并在加载**，但尚未提交。
+   *
+   * 只在切换过程中出现；`engine` 仍是被替换的那个（提交成功才更新）。界面用它给出
+   * 「正在切换到 X」的回执，不必知道候选视图、代际与超时这些实现细节。
+   */
+  pendingEngine?: BrowserEngine
   engineSource: EngineSource
   /** 当前站点已记住的引擎（无规则时为空）。用于区分「规则存在但被手动覆盖」。 */
   pinnedEngine?: BrowserEngine

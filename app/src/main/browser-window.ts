@@ -790,6 +790,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
      * 用已提交的地址（或休眠前的 `lastUrl`）比较，行为与本次改动之前一致。
      */
     const committed = tab.failedUrl ?? (url || tab.lastUrl || '')
+    /**
+     * 在途候选（两阶段切换，尚未提交）：界面要看得见「正在切向哪个引擎」——
+     * 这一条投影就是「点了有回执」的全部依据，没有它，4 s 等待里界面无从变化。
+     *
+     * `loading` 在候选存续期间一律为真：`isLoadingMainFrame()` 在主文档提交后就变假，
+     * 而这时切换其实还没结束（还在等子帧），标签转圈停了会显得像卡死。
+     */
+    const pending = tab.engineSwitch
     return {
       id: tab.id,
       // 文档还没给出 <title> 时，Chromium 会把标题当成 URL——直接透出去会让标签栏
@@ -800,11 +808,12 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       address,
       canGoBack,
       canGoForward,
-      loading,
+      loading: pending ? true : loading,
       crashed,
       error: tab.error,
       notice: tab.notice,
       engine: tab.engine,
+      pendingEngine: pending?.engine,
       engineSource: sourceOf(tab),
       pinnedEngine: pin.source === 'site-rule' ? pin.engine : undefined,
       pinned: tab.pinned,
@@ -944,20 +953,35 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return showsBookmarkBar(mode, tab.internal)
   }
 
-  function layout(): void {
-    overlays.layout()
-    if (!active) return
+  /**
+   * 页面视图的矩形：标签栏、工具栏与收藏夹横条的占位只有这一处算。
+   *
+   * 未提交的候选视图也用同一份矩形（它在提交前就已经挂载，见 `syncAttemptMount()`），
+   * 两处各算一次的话，提交瞬间会出现一帧尺寸跳变。
+   */
+  function pageBounds(tab: Tab): Rectangle {
     const [width, height] = window.getContentSize()
-    if (!active?.view) return
     // 收藏夹横条占一条固定高度，页面视图必须让开（崩溃恢复气泡不再占位：它是浮层，
     // 见 `docs/reports/2026-11-26-session-bubble.md` §2 对 11-24 那条决策的推翻）。
     // 判定只有一处（`bookmarkBarShown()`）：条画出来了、页面却压在下面一截，
     // 是这类固定高度条最典型的错位（2026-11-26 收藏夹横条）。
-    const bar = bookmarkBarShown(active) ? BOOKMARK_BAR_HEIGHT : 0
+    const bar = bookmarkBarShown(tab) ? BOOKMARK_BAR_HEIGHT : 0
     const y = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT + bar
-    active.view.setBounds({ x: 0, y, width, height: Math.max(0, height - y) })
+    return { x: 0, y, width, height: Math.max(0, height - y) }
+  }
+
+  function layout(): void {
+    overlays.layout()
+    if (!active) return
+    if (!active.view) return
+    active.view.setBounds(pageBounds(active))
     // 失败时让外壳绘制带重试动作的内容页，不在工具栏里塞错误文字。
     active.view.setVisible(!active.error)
+    // 在途候选已经挂在旧页上面：窗口缩放/横条开关时矩形要跟着走。
+    const candidate = active.engineSwitch
+    if (candidate && window.contentView.children.includes(candidate.view)) {
+      candidate.view.setBounds(pageBounds(active))
+    }
   }
 
   /**
@@ -2048,6 +2072,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       if (previous) previous.backgroundSince = Date.now()
       window.contentView.addChildView(view)
       overlays.setActivePage(view.webContents)
+      // 在途候选跟着活动标签走：离开的标签摘掉候选（否则它留在 children 里挡住新标签），
+      // 进入的标签若有候选则挂上。
+      if (previous) syncAttemptMount(previous)
+      syncAttemptMount(tab)
       layout()
     }
     if (focus) {
@@ -2172,7 +2200,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.engineSwitch = undefined
     attempt.cancelled = true
     attempt.cancel()
+    detachAttemptView(tab, attempt)
     closeView(attempt.view)
+    // 候选可能正挂在窗口里：快照必须跟上去，否则工具栏会一直停在「正在切换」。
+    publish()
     return true
   }
 
@@ -2202,7 +2233,57 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       cancel
     }
     tab.engineSwitch = attempt
+    /**
+     * **候选先挂上去，再开始加载**（2026-11-27）：切换过程必须看得见。
+     *
+     * 旧实现要等 `did-finish-load` 才把候选挂进窗口，于是点击到提交之间（实测 4 s，
+     * 上限 15 s）界面一个字节都不变。挂载与「提交」本来是两件事：提交决定**最终留谁**
+     * （失败仍原样保留旧视图），挂载只决定**用户此刻看见什么**。
+     */
+    syncAttemptMount(tab)
+    publish()
     return attempt
+  }
+
+  /**
+   * 把活动标签上在途的候选挂到窗口里（或从窗口里摘下来）。
+   *
+   * 只挂活动标签：非活动标签的候选看不见，挂上去只会挡住当前标签的页面。
+   * 摘下来之后必须把叠加层的输入目标还给已提交视图——`setActivePage()` 换的是
+   * `before-input-event` / `before-mouse-event` 的落点，不还回去 Esc 会打在一个已经
+   * 不在窗口里的候选上。
+   */
+  function syncAttemptMount(tab: Tab): void {
+    const attempt = tab.engineSwitch
+    if (!attempt || window.isDestroyed()) return
+    const mounted = window.contentView.children.includes(attempt.view)
+    const should = active === tab
+    if (should && !mounted) {
+      attempt.view.setBounds(pageBounds(tab))
+      attempt.view.setVisible(true)
+      window.contentView.addChildView(attempt.view)
+      overlays.setActivePage(attempt.view.webContents)
+      return
+    }
+    if (!should && mounted) {
+      window.contentView.removeChildView(attempt.view)
+      const restore = active?.view
+      if (restore) overlays.setActivePage(restore.webContents)
+    }
+  }
+
+  /**
+   * 卸载未提交的候选（取消/失败/关闭/移交都走这里）：旧视图从来没被销毁，摘掉候选
+   * 就等于「什么都没变」。焦点只在候选自己拿着时才还回去——`navigateTab()` 也会取消
+   * 切换，那时焦点该留在地址栏，不能被这里抢回页面。
+   */
+  function detachAttemptView(tab: Tab, attempt: EngineAttempt): void {
+    const contents = attempt.view.webContents
+    const hadFocus = !contents.isDestroyed() && contents.isFocused()
+    if (window.contentView.children.includes(attempt.view)) window.contentView.removeChildView(attempt.view)
+    if (active !== tab || !tab.view) return
+    overlays.setActivePage(tab.view.webContents)
+    if (hadFocus && !overlays.panelVisible()) focusContents(tab.view.webContents)
   }
 
   /**

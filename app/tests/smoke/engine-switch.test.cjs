@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { isShellPage, launchApp, page, startFixtureServer, waitFor, waitForTabLabel } = require('./helpers.cjs')
-const { activeTabOf, navigate, snapshot } = require('./engine-helpers.cjs')
+const { activeTabOf, engineSettings, navigate, overlay, overlayControl, panelNames, snapshot } = require('./engine-helpers.cjs')
 
 /**
  * 两阶段引擎切换（M2 退出条件）。
@@ -77,6 +77,25 @@ async function activeViewId(app, shell) {
     })
     return view ? view.webContents.id : -1
   })
+}
+
+/**
+ * 窗口里挂着的页面视图（按 children 顺序，先挂的在前面）。
+ *
+ * 候选视图在提交前就已经挂上来（2026-11-27），所以准备期间这里会是两个：
+ * `[旧视图, 候选]`——顺序本身就是要断言的（候选必须盖在旧页上面）。
+ *
+ * 不能按 `http(s)` 过滤：候选是**先挂载再导航**的，此刻地址还是 `about:blank`。
+ * 所以反过来排除外壳侧的视图（叠加层找不到 `bao://` 内部页也一并排除）。
+ */
+async function mountedPageIds(app, shell) {
+  const handle = await app.browserWindow(shell)
+  return handle.evaluate((window) => window.contentView.children
+    .filter((child) => {
+      const url = child.webContents?.getURL() ?? ''
+      return !url.includes('baoOverlay=') && !url.startsWith('bao://')
+    })
+    .map((child) => child.webContents.id))
 }
 
 async function addTab(shell) {
@@ -243,7 +262,7 @@ test('准备期间被新切换取代：第一次取消，只有第二次提交',
 
     const pending = setEngine(shell, 'ruffle')
     await waitPending(app, tabId, 'ruffle')
-    // 准备期间旧视图仍是唯一「已挂载页面」，候选尚未提交。
+    // 准备期间候选已经挂载（盖在旧页上面），但引擎**尚未提交**：快照里仍是旧引擎。
     assert.equal((await snapshot(shell)).tabs.find((tab) => tab.id === tabId)?.engine, 'ppapi')
     const replaced = await setEngine(shell, 'ruffle')
     const superseded = await pending
@@ -418,6 +437,140 @@ test('被取代的候选必须销毁，且不残留挂载', { timeout: 180_000 }
     assert.equal(activeTabOf(after).engine, 'ppapi', '未提交时引擎必须保持原值')
     assert.deepEqual((await allIds()).filter((id) => !beforeIds.has(id)), [], '取消后不应残留候选')
   } finally {
+    await close()
+    await server.close()
+  }
+})
+
+/**
+ * 「切换过程看得见」（2026-11-27）。
+ *
+ * 旧行为是等 `did-finish-load` 才把候选挂进窗口：点击到提交之间（实测 4 s，上限 15 s）
+ * 界面一个字节都不变，第二次点击还会被渲染层的 `busy` 静默吞掉。现在候选先挂上来、
+ * 旧视图留在下面当退路——所以这里断言的是**同时挂两个视图**，以及取消后回到一个。
+ */
+test('准备期间候选已挂载且旧视图仍存活：取消后只剩旧视图并可用', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/one': page('第一页') })
+  const { app, shell, close } = await launchApp()
+  try {
+    await envInjection(app, { BAO_ENGINE_SWITCH_PREPARE_DELAY_MS: 1200 })
+    await navigate(shell, `${server.baseUrl}/one`, '第一页')
+    const tabId = (await snapshot(shell)).activeId
+    const before = await tabDiagnostics(app, tabId)
+    assert.equal(await mountedPageIds(app, shell).then((ids) => ids.length), 1, '准备前只应挂一个页面视图')
+
+    const pending = setEngine(shell, 'ruffle')
+    await waitPending(app, tabId, 'ruffle')
+
+    // 1) 可见性：候选已经盖在旧页上面；旧视图没被销毁（失败/取消的退路就是它）。
+    const mounted = await mountedPageIds(app, shell)
+    assert.equal(mounted.length, 2, `准备期间应同时挂载旧视图与候选：${JSON.stringify(mounted)}`)
+    assert.equal(mounted[0], before.viewId, '旧视图必须留在窗口里')
+    const candidateId = mounted[1]
+    assert.notEqual(candidateId, before.viewId)
+    assert.equal(await contentsAlive(app, before.viewId), true, '准备期间旧视图不得销毁')
+
+    // 2) 回执：快照给出「正在切向谁」，标签在转圈，引擎还没变。
+    const during = activeTabOf(await snapshot(shell))
+    assert.equal(during.engine, 'ppapi', '未提交时 engine 必须保持原值')
+    assert.equal(during.pendingEngine, 'ruffle', '快照必须给出在途引擎')
+    assert.equal(during.loading, true, '准备期间标签必须显示加载中')
+
+    // 3) 取消：候选卸载并销毁，旧视图回到唯一挂载且仍然可用。
+    const cancelled = await setEngine(shell, 'ppapi')
+    assert.equal(cancelled.ok, true, `切回当前引擎应直接成功：${cancelled.code ?? ''}`)
+    const first = await pending
+    assert.equal(first.code, 'engine-switch-cancelled')
+    assert.deepEqual(await mountedPageIds(app, shell), [before.viewId], '取消后必须只剩旧视图')
+    await waitFor(() => contentsAlive(app, candidateId).then((alive) => (alive ? null : true)), {
+      message: `被取消的候选 ${candidateId} 没有被销毁`
+    })
+    const after = await tabDiagnostics(app, tabId)
+    assert.equal(after.pendingEngine, undefined)
+    assert.equal(after.viewId, before.viewId, '取消不得替换已提交视图')
+    assert.equal(await evalInPage(app, before.viewId, 'document.title'), '第一页', '旧页必须还能用')
+  } finally {
+    await envInjection(app, { BAO_ENGINE_SWITCH_PREPARE_DELAY_MS: null }).catch(() => {})
+    await close()
+    await server.close()
+  }
+})
+
+/**
+ * 候选挂载跟着活动标签走（2026-11-27）。
+ *
+ * 挂载是「用户此刻看见什么」，所以只能在活动标签上挂：准备期间用户切走再切回，
+ * 候选必须跟着摘掉、再挂回，绝不能留在窗口里挡住别的标签，也不能因此在后台被取消。
+ */
+test('准备期间切换标签：候选跟着活动标签摘挂，不挡别人也不被取消', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/one': page('第一页'), '/two': page('第二页') })
+  const { app, shell, close } = await launchApp()
+  try {
+    await envInjection(app, { BAO_ENGINE_SWITCH_PREPARE_DELAY_MS: 1800 })
+    await navigate(shell, `${server.baseUrl}/one`, '第一页')
+    const first = (await snapshot(shell)).activeId
+    const firstView = (await tabDiagnostics(app, first)).viewId
+    const second = await addTab(shell)
+    await navigate(shell, `${server.baseUrl}/two`, '第二页')
+    const secondView = (await tabDiagnostics(app, second.id)).viewId
+
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), first)
+    const pending = setEngine(shell, 'ruffle')
+    await waitPending(app, first, 'ruffle')
+    assert.equal((await mountedPageIds(app, shell)).length, 2, '活动标签上应同时挂旧视图与候选')
+
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), second.id)
+    const away = await mountedPageIds(app, shell)
+    assert.deepEqual(away, [secondView], `切走后窗口里只应剩当前标签的视图：${JSON.stringify(away)}`)
+
+    await shell.evaluate((id) => window.baoBrowser.run({ type: 'select', id }), first)
+    const back = await mountedPageIds(app, shell)
+    assert.equal(back.length, 2, `切回后候选应重新挂上：${JSON.stringify(back)}`)
+    assert.equal(back[0], firstView, '旧视图仍在候选下面')
+
+    const result = await pending
+    assert.equal(result.ok, true, `切换应成功：${result.code ?? ''}`)
+    assert.equal((await mountedPageIds(app, shell)).length, 1, '提交后只应剩已提交视图')
+  } finally {
+    await envInjection(app, { BAO_ENGINE_SWITCH_PREPARE_DELAY_MS: null }).catch(() => {})
+    await close()
+    await server.close()
+  }
+})
+
+/**
+ * 「点了就有回执」的失败半边（2026-11-27）：
+ * 面板在点击瞬间就关（不再挂在可能 15 s 的 await 上），失败要说得出话。
+ *
+ * 这里同时守住一个易碎点：面板关掉之后 `report-failure` 的发送者角色校验
+ * （`shell-overlays.ts` 的 `role`）不能再按「面板还开着」来要求，否则失败提示会被静默丢掉。
+ */
+test('点档位即关面板：切换失败时旧引擎保留，失败提示仍然到达', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/one': page('第一页') })
+  const { app, shell, close } = await launchApp()
+  try {
+    await envInjection(app, { BAO_ENGINE_SWITCH_FAIL: '1' })
+    await navigate(shell, `${server.baseUrl}/one`, '第一页')
+    const windowHandle = await app.browserWindow(shell)
+    const tabId = (await snapshot(shell)).activeId
+
+    await engineSettings(shell).click()
+    await overlayControl(windowHandle, 'panel', panelNames.ruffle, {
+      attribute: 'aria-pressed', value: 'false', click: true
+    })
+    // 面板不等结果：点击后立刻消失。
+    await waitFor(async () => !await overlay(windowHandle, 'panel'), {
+      message: '点档位后面板没有立即关闭。'
+    })
+    // 失败提示必须能到（role 校验已经不再依赖面板可见）。
+    await overlayControl(windowHandle, 'toast', '关闭提示', { text: '引擎切换失败，已保留原引擎与原视图' })
+
+    const after = await tabDiagnostics(app, tabId)
+    assert.equal(after.engine, 'ppapi', '失败时引擎必须保持原值')
+    assert.equal(after.pendingEngine, undefined, '候选必须清理')
+    assert.equal((await mountedPageIds(app, shell)).length, 1, '失败后窗口里只应剩旧视图')
+  } finally {
+    await envInjection(app, { BAO_ENGINE_SWITCH_FAIL: null }).catch(() => {})
     await close()
     await server.close()
   }

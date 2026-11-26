@@ -117,6 +117,8 @@ const engineTitle = computed(() => {
   const tab = active.value
   if (!tab) return ''
   if (tab.internal) return '内部页没有可切换的站点引擎'
+  // 候选已在加载（两阶段切换未提交）：这时说「正在切换」比说「当前是 Flash」有用得多。
+  if (tab.pendingEngine) return `正在切换到 ${engineLabels[tab.pendingEngine]}…`
   const current = `渲染引擎：${engineLabels[tab.engine]}`
   return tab.pinnedEngine
     ? `${current} · 站点已记住 ${engineLabels[tab.pinnedEngine]}`
@@ -962,10 +964,11 @@ onBeforeUnmount(() => store.disconnect())
         ref="engineRoot"
         type="button"
         class="icon-button engine-button"
-        :class="active ? `engine-${active.engine}` : ''"
+        :class="[active ? `engine-${active.engine}` : '', { 'engine-switching': Boolean(active?.pendingEngine) }]"
         :disabled="!engineSwitchable"
         :aria-expanded="enginePanelOpen"
         aria-haspopup="dialog"
+        :aria-busy="Boolean(active?.pendingEngine)"
         :aria-label="engineSwitchable ? '引擎设置' : '新标签页没有可切换的站点引擎'"
         :title="engineTitle"
         @click="toggleEnginePanel"
@@ -1210,6 +1213,7 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 /* 减少动态：静止的 3/4 弧（不留一个转个不停的圈）。 */
 @media (prefers-reduced-motion: reduce) {
   .throbber-arc { animation: none; stroke-dasharray: 94 32; }
+  .engine-button.engine-switching .engine-mark { animation: none; opacity: 0.6; }
 }
 .settings-icon { display: inline-flex; align-items: center; }
 .settings-icon .shell-icon { width: 14px; height: 14px; }
@@ -1450,6 +1454,10 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 .engine-mark.overridden { color: var(--engine-override); }
 /* 禁用态整颗变灰：图标颜色必须一起压掉，否则"灰按钮 + 彩色图标"看起来还能点。 */
 .engine-button:disabled .engine-mark { color: var(--text-disabled); }
+/* 切换中：候选页已经在窗口里加载，这颗按钮只负责"我收到了"——呼吸而不是转圈，
+   工具栏里塞 spinner 会和页面自己的加载指示打架。 */
+.engine-button.engine-switching .engine-mark { animation: engine-switching-pulse 1.2s ease-in-out infinite; }
+@keyframes engine-switching-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); }
 .page-error { min-height: calc(100vh - var(--tab-bar-height) - var(--toolbar-height)); display: grid; place-items: center; text-align: center; padding: 24px; }
 /* 横条也占高度：错误页要让开那一行，否则内容会被顶得偏下（页面视图由主进程同样让位）。 */

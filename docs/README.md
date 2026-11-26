@@ -101,7 +101,7 @@ ADR 状态：**已接受** / **部分收口** / **提案**；被推翻时新增 
 | [`kernel/README.md`](kernel/README.md) | 已验证内核补丁登记（含构建标识与 SHA-256） |
 | [`kickoff/README.md`](kickoff/README.md) · [`m2-beta.md`](kickoff/m2-beta.md) | 阶段索引与当前 M2 实施/验收记录 |
 | [`specs/`](specs)（5 篇） | Flash 移植、AI 复现手册、版本可行性、模块影响评估 |
-| [`reports/`](reports)（17 篇） | 140 实验、142 构建与运行、M1 增量、M2 设置/叠加层/插件发现/标签休眠/新标签页/活动租约/会话恢复/崩溃恢复气泡/新窗口形态等交付证据 |
+| [`reports/`](reports)（35 篇） | 140 实验、142 构建与运行、M1 增量、M2 设置/叠加层/插件发现/标签休眠/新标签页/活动租约/会话恢复/崩溃恢复气泡/新窗口形态等交付证据；含 [引擎切换手感诊断](reports/2026-11-27-engine-switch-feedback.md)（**已实施**：候选先挂载 + 点即关面板，见其 §7） |
 | [`evidence/`](evidence)（9 件） | 4399/摩尔庄园 双引擎对照图、crossdomain 调查、帧自检结果 |
 | [`design/`](design)（HTML + renders） | 设置页与引擎面板设计稿 |
 | [`blog/assets/`](blog/assets) | 对外文章配图 |

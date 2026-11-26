@@ -63,9 +63,20 @@ async function choose(engine: BrowserEngine): Promise<void> {
     await window.baoOverlay.closePanel(false)
     return
   }
-  if (engine === active.value?.engine || await submit({ type: 'set-engine', engine })) {
+  // 已经在这个引擎上、或已经在这条切换的路上：只关面板。再发一次会让主进程取消重来。
+  if (engine === active.value?.engine || engine === active.value?.pendingEngine) {
     await window.baoOverlay.closePanel()
+    return
   }
+  if (busy.value) return
+  /**
+   * **点了就关**（2026-11-27）：一次切换的 IPC 要等候选页加载完成才返回（实测 4 s，
+   * 上限 15 s）。把面板挂在这个 await 上，等于让用户在等待期间看不到任何变化，
+   * 期间的第二次点击还会被 `busy` 静默吞掉。回执改由两处承担——候选页已经挂进
+   * 窗口开始加载（看得见的页面），快照里的 `pendingEngine` 让工具栏显示「正在切换」。
+   */
+  await window.baoOverlay.closePanel()
+  void submit({ type: 'set-engine', engine })
 }
 
 async function setRule(remember: boolean, fromOverride = false): Promise<void> {
@@ -112,6 +123,7 @@ onBeforeUnmount(() => {
       <div class="engine-choices" role="group" aria-label="选择当前标签的引擎">
         <button v-for="engine in browserEngines" :key="engine" type="button" class="engine-choice"
           :aria-pressed="active?.engine === engine"
+          :aria-busy="active?.pendingEngine === engine"
           :aria-disabled="!active || (engine === 'ppapi' && snapshot?.flash === false) ? 'true' : 'false'"
           :title="engine === 'ppapi' && snapshot?.flash === false
             ? `未检测到 Flash 插件（已自动查找本机已安装的 Flash）。也可以把 pepflashplayer64.dll 放到：${snapshot?.flashHint ?? ''} ，然后重启。本产品不随包分发 Flash。`
@@ -119,7 +131,7 @@ onBeforeUnmount(() => {
           @click="choose(engine)">
           <span class="engine-symbol" :class="engine"><ShellIcon :name="engine === 'ppapi' ? 'flash' : 'ruffle'" /></span>
           <strong>{{ names[engine] }}</strong>
-          <span class="desc">{{ engine === 'ppapi' ? '原生播放器' : '兼容播放器' }}</span>
+          <span class="desc">{{ active?.pendingEngine === engine ? '正在切换…' : engine === 'ppapi' ? '原生播放器' : '兼容播放器' }}</span>
           <ShellIcon name="check" class="choice-check" />
         </button>
       </div>
