@@ -269,44 +269,6 @@ export function matchesQuery(node: BookmarkNode, query: string): boolean {
 }
 
 /**
- * 收藏夹横条的**文件夹下拉菜单**内容（一个文件夹的子树投影）。
- *
- * 为什么在 shared 里做纯函数：原生菜单（`Menu.popup`）没法在冒烟里点，唯一能被用例钉住的
- * 就是"菜单里该有哪几项、嵌套成什么样"。主进程只负责把这些项翻译成 `MenuItem`。
- *
- * 对齐 Chromium 的横条：点文件夹弹出它的**直接子项**，子文件夹再套子菜单
- * （`chrome/browser/ui/views/bookmarks/bookmark_bar_view.cc` 的 `ShowFolderMenu` →
- * `BookmarkMenuDelegate`）。空文件夹在原生菜单里画成"没有项"，用户会以为点了没反应，
- * 所以这里给一条禁用的占位（空数组则由调用方翻译成"（空文件夹）"）。
- */
-export interface FolderMenuItem {
-  id: string
-  title: string
-  /** 网址项的目标地址；文件夹没有。 */
-  url?: string
-  /** 文件夹的子项；网址项没有。空数组 = 空文件夹。 */
-  children?: FolderMenuItem[]
-}
-
-/** 菜单嵌套上限：菜单不是用来浏览深树的，超过就截断（数据里真出现环时也不会递归到栈溢出）。 */
-const FOLDER_MENU_MAX_DEPTH = 8
-
-export function folderMenuOf(
-  nodes: readonly BookmarkNode[],
-  folderId: string,
-  depth = 0
-): FolderMenuItem[] {
-  if (depth > FOLDER_MENU_MAX_DEPTH) return []
-  return childrenOf(nodes, folderId).map((node) => {
-    const title = node.title.trim() || titleFor('', node.url ?? '')
-    if (node.kind === 'folder') {
-      return { id: node.id, title, children: folderMenuOf(nodes, node.id, depth + 1) }
-    }
-    return { id: node.id, title, url: node.url }
-  })
-}
-
-/**
  * 展开状态（`Set` → 存库用的数组）。
  *
  * 两个消费者（收藏夹飞窗、`bao://favorites` 管理页）共用一套持久化：用户在一处展开的文件夹，

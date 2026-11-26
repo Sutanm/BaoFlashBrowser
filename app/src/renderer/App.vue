@@ -181,6 +181,9 @@ const BUBBLE_INITIAL_HEIGHT = 260
 /** 完整编辑器（气泡里的「更多」）：更高更宽，但仍然是一只锚在星标下的飞窗。 */
 const EDITOR_WIDTH = 400
 const EDITOR_INITIAL_HEIGHT = 520
+/** 横条文件夹菜单：比面板窄（菜单行只有图标 + 标题），高度按内容收敛。 */
+const FOLDER_MENU_WIDTH = 280
+const FOLDER_MENU_INITIAL_HEIGHT = 240
 const gearRoot = ref<HTMLButtonElement>()
 /** 工具栏「收藏夹」按钮（Edge 那颗）：打开收藏夹树，与星标不是一回事。 */
 const bookmarksRoot = ref<HTMLButtonElement>()
@@ -195,12 +198,15 @@ const quickView = ref<QuickView>('settings')
 
 /** 每个内容页的锚点按钮（星标在地址栏里，另外两个是工具栏按钮）。 */
 function quickAnchorFor(view: QuickView): HTMLButtonElement | undefined {
+  // 横条上的文件夹：菜单从**那颗**按钮下面展开（与设置齿轮同一个机制，不是系统菜单）。
+  if (view === 'bookmark-folder') return barFolderAnchor.value ?? bookmarksRoot.value
   if (view === 'bookmarks') return bookmarksRoot.value
   if (view === 'bookmark-edit' || view === 'bookmark-editor') return bookmarkRoot.value
   return gearRoot.value
 }
 
 function quickGeometry(view: QuickView): { width: number; height: number } {
+  if (view === 'bookmark-folder') return { width: FOLDER_MENU_WIDTH, height: FOLDER_MENU_INITIAL_HEIGHT }
   if (view === 'bookmarks') return { width: BOOKMARKS_WIDTH, height: BOOKMARKS_INITIAL_HEIGHT }
   if (view === 'bookmark-edit') return { width: BUBBLE_WIDTH, height: BUBBLE_INITIAL_HEIGHT }
   if (view === 'bookmark-editor') return { width: EDITOR_WIDTH, height: EDITOR_INITIAL_HEIGHT }
@@ -231,14 +237,14 @@ function anchorOf(rect: { right: number; bottom: number; left?: number }): Flyou
  * 换页（齿轮里点「收藏夹」、列表开着时点星标）= **同一个视图换内容并重新锚定**，
  * 不销毁文档、不重新预热——这正是"一个视图多个内容页"换来的收益。
  */
-async function openQuick(view: QuickView): Promise<void> {
+async function openQuick(view: QuickView, target?: string): Promise<void> {
   const bounds = quickBounds(view)
   if (!bounds) return
   if (!quickOpen.value) closeEnginePanel()
   await ensureSharedOverlay()
   quickView.value = view
   quickOpen.value = true
-  if (!await window.baoOverlay.setQuick(bounds, view)) quickOpen.value = false
+  if (!await window.baoOverlay.setQuick(bounds, view, target)) quickOpen.value = false
 }
 
 /** 按钮式开关：同页再点一次 = 关。 */
@@ -263,6 +269,13 @@ async function toggleQuick(view: QuickView): Promise<void> {
  * 但还带时序（导航途中按住，见 `Tab.barHold`）——外壳自己拿 `settings` 算会把横条画早收早。
  */
 const barEl = ref<HTMLElement>()
+/**
+ * 横条上被点开的那颗文件夹按钮：文件夹菜单的**临时**锚点。
+ *
+ * 与星标/齿轮按钮不同，它每次点击都可能不同，所以不能写死成某个 ref；
+ * 关闭时清掉（否则下次开收藏夹面板会锚到一条已经不存在的按钮上）。
+ */
+const barFolderAnchor = ref<HTMLButtonElement>()
 
 const barVisible = computed(() => state.value?.bookmarkBarShown === true)
 const barItems = computed<BookmarkNode[]>(() => childrenOf(state.value?.bookmarks ?? [], BOOKMARK_BAR_ROOT))
@@ -326,24 +339,22 @@ async function openBarItem(node: BookmarkNode): Promise<void> {
 }
 
 /**
- * 文件夹项：弹出它的内容菜单（原生菜单，锚在这颗按钮的右下角）。
+ * 文件夹项：弹出它的内容菜单（**同一只飞窗**，锚在这颗按钮下）。
  *
- * 为什么是原生菜单而不是 HTML 下拉：横条属于外壳文档，页面视图盖在内容区**上方**，
- * 下拉一旦伸进页面区就会被压住（飞窗整套视图就是为绕开这一点而存在的）。Chromium 的横条
- * 文件夹菜单也是原生视图（`bookmark_bar_view.cc` 的 `ShowFolderMenu`）。
+ * 为什么不用系统菜单（`Menu.popup`）：本机实测它会浮在别的应用之上（独立顶层窗口，
+ * 失去激活也不收），而飞窗这套本来就是为"下拉伸进页面区会被页面视图压住"准备的
+ * （2026-11-27 反馈：这里应该和设置齿轮一个实现方式）。
  *
- * 坐标只传**内容区**里按钮的位置，屏幕坐标由主进程换算——界面不碰屏幕坐标，
- * 多屏/缩放下才不会错位。
+ * 同一条横条项再点一次 = 收起。
  */
 async function openBarFolderMenu(node: BookmarkNode, event: MouseEvent): Promise<void> {
-  const button = event.currentTarget as HTMLElement
-  const rect = button.getBoundingClientRect()
-  await run({
-    type: 'bookmark-folder-menu',
-    id: node.id,
-    x: Math.round(rect.left),
-    y: Math.round(rect.bottom)
-  })
+  const button = event.currentTarget as HTMLButtonElement
+  if (quickOpen.value && quickView.value === 'bookmark-folder' && barFolderAnchor.value === button) {
+    closeQuick(true)
+    return
+  }
+  barFolderAnchor.value = button
+  await openQuick('bookmark-folder', node.id)
 }
 
 /**
@@ -423,8 +434,9 @@ function closeQuick(restoreFocus = false): void {
   // 外壳侧关闭走 `set-quick(null)`：`close-quick` 是飞窗自己（quick 角色）用来关闭并
   // 请求焦点归还的命令，外壳调用会被发送者校验拒绝。
   void window.baoOverlay.setQuick(null)
-  // 焦点要先还给**打开它的那颗**按钮。
+  // 焦点要先还给**打开它的那颗**按钮，再清掉横条文件夹的临时锚点。
   if (restoreFocus) quickAnchor()?.focus()
+  barFolderAnchor.value = undefined
 }
 
 /** 焦点归还目标：飞窗挂在哪颗按钮下就还给谁（星标 ↔ 收藏夹 ↔ 齿轮）。 */
@@ -540,7 +552,9 @@ function onShellPointerDown(event: PointerEvent): void {
   if (!(event.target instanceof Node)) return
   // 四颗入口（星标/收藏夹/引擎/齿轮）自己的点击由它们的 handler 负责开关：
   // 在这里先关一次会让「点星标」变成"先关再开"，多一次往返还会闪一下。
-  const anchor = [bookmarkRoot.value, bookmarksRoot.value, engineRoot.value, gearRoot.value]
+  // 横条上的文件夹按钮同理——它是**当时**那条飞窗的锚点。
+  const anchor = [bookmarkRoot.value, bookmarksRoot.value, engineRoot.value, gearRoot.value,
+    barFolderAnchor.value]
     .some((element) => element?.contains(event.target as Node))
   if (anchor) return
   closeEnginePanel()

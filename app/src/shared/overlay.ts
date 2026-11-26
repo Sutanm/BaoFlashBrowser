@@ -24,9 +24,16 @@ export type OverlayKind = 'panel' | 'toast' | 'quick' | 'bubble'
  *
  * - `settings`：齿轮快捷设置；
  * - `bookmarks`：收藏夹（工具栏那颗按钮 / 齿轮里的入口）；
- * - `bookmark-edit`：地址栏星标下的「编辑收藏夹」气泡（Chromium 的 `BookmarkBubbleView`）。
+ * - `bookmark-edit`：地址栏星标下的「编辑收藏夹」气泡（Chromium 的 `BookmarkBubbleView`）；
+ * - `bookmark-editor`：气泡里的「更多」打开的完整编辑器；
+ * - `bookmark-folder`：横条上某个**文件夹**的下拉菜单（Chromium 的 `ShowFolderMenu`）。
+ *
+ * 最后那个为什么不用系统菜单（`Menu.popup`）：本机实测它会**浮在别的应用之上**（系统菜单是
+ * 独立顶层窗口，失去激活也不收），而且主题、动画、点击外部收起都得另说一套。飞窗本来就是
+ * 为解决"下拉伸进页面区会被页面视图压住"而存在的机制，横条下拉用它才是同一套做法
+ * （2026-11-27 反馈）。
  */
-export const QUICK_VIEWS = ['settings', 'bookmarks', 'bookmark-edit', 'bookmark-editor'] as const
+export const QUICK_VIEWS = ['settings', 'bookmarks', 'bookmark-edit', 'bookmark-editor', 'bookmark-folder'] as const
 export type QuickView = (typeof QUICK_VIEWS)[number]
 
 export function isQuickView(value: unknown): value is QuickView {
@@ -54,8 +61,11 @@ export interface OverlayToast {
 export type OverlayEvent =
   | { type: 'panel-opened'; theme: 'light' | 'dark' }
   | { type: 'panel-closed'; restoreFocus: boolean }
-  /** `view` 决定飞窗画哪一页（快捷设置 / 收藏夹）；宿主要靠它切换，不能自己猜。 */
-  | { type: 'quick-opened'; theme: 'light' | 'dark'; view: QuickView }
+  /**
+   * `view` 决定飞窗画哪一页（快捷设置 / 收藏夹 / …）；宿主要靠它切换，不能自己猜。
+   * `target` 是这一页要画**哪一个**（目前只有 `bookmark-folder` 用：横条上被点开的文件夹 id）。
+   */
+  | { type: 'quick-opened'; theme: 'light' | 'dark'; view: QuickView; target?: string }
   /** 崩溃恢复气泡：`tabs` 是可恢复的标签数（跨上次所有窗口）。 */
   | { type: 'bubble-opened'; theme: 'light' | 'dark'; tabs: number }
   /** 气泡已收起（不论是用户回答、被别的浮层顶掉，还是提示被清除）。 */
@@ -85,7 +95,7 @@ export type OverlayCommand =
   | { type: 'resize-panel'; height: number }
   | { type: 'close-panel'; restoreFocus: boolean }
   /** 齿轮快捷设置（M2）：飞窗永远在窗口内，主进程按内容区夹取。 */
-  | { type: 'set-quick'; bounds: OverlayBounds | null; view?: QuickView }
+  | { type: 'set-quick'; bounds: OverlayBounds | null; view?: QuickView; target?: string }
   | { type: 'resize-quick'; height: number }
   | { type: 'close-quick'; restoreFocus: boolean }
   /**
@@ -139,7 +149,7 @@ export interface OverlayBridge {
   /** Panel only. Native notifies shell; optionally focus the shell/trigger. */
   closePanel(restoreFocus?: boolean): Promise<boolean>
   /** Shell only. 齿轮飞窗的开/合与尺寸（复用同一套 WCV 机制）。`view` 换内容页不换视图。 */
-  setQuick(bounds: OverlayBounds | null, view?: QuickView): Promise<boolean>
+  setQuick(bounds: OverlayBounds | null, view?: QuickView, target?: string): Promise<boolean>
   /** Quick only. 飞窗里点了「收藏夹」：请外壳在星标下重新展开。 */
   openBookmarks(): Promise<boolean>
   /** Quick only. 气泡里点了「更多」：请外壳换到完整编辑器那一页。 */

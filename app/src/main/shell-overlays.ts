@@ -17,8 +17,10 @@ interface HostedView {
   text?: string
   /** 共用视图当前在显示哪一种内容（同一个文档按事件切换组件）。 */
   kind?: OverlayKind
-  /** 飞窗当前画哪一页（`kind === 'quick'` 时有效）：快捷设置 / 收藏夹。 */
+  /** 飞窗当前画哪一页（`kind === 'quick'` 时有效）：快捷设置 / 收藏夹 / 横条文件夹菜单。 */
   quick?: QuickView
+  /** 这一页要画哪一个（目前只有 `bookmark-folder` 用：被点开的文件夹 id）。 */
+  target?: string
   /** 崩溃恢复气泡要报出的可恢复标签数（`kind === 'bubble'` 时有效）。 */
   tabs?: number
 }
@@ -112,6 +114,8 @@ export function createShellOverlays(
   let shownKind: OverlayKind | undefined
   /** 上一次通知渲染层的飞窗内容页：换页（快捷设置 ↔ 收藏夹）同样要补发 open 事件。 */
   let shownQuick: QuickView | undefined
+  /** 上一次通知渲染层的 	arget（横条文件夹菜单换文件夹时也要补发 open 事件）。 */
+  let shownTarget: string | undefined
   let disposed = false
 
   function sender(event: IpcMainInvokeEvent): 'shell' | OverlayKind | undefined {
@@ -159,6 +163,7 @@ export function createShellOverlays(
     item.tabs = undefined
     shownKind = undefined
     shownQuick = undefined
+    shownTarget = undefined
     item.view.setVisible(false)
     if (!window.isDestroyed()) window.contentView.removeChildView(item.view)
   }
@@ -307,8 +312,9 @@ export function createShellOverlays(
     // 之前每次 sync() 都重发 `*-opened`（例如每次 resize-quick 之后），渲染层收到就重新挂载/重测，
     // 于是「测量 → resize → sync → 再测量」变成正反馈：实测每 500 ms 约 4100 次 report-ready +
     // 6600 次 resize-quick（≈2.2 万次/秒），主进程被拖到单次定时器延迟上百毫秒甚至数秒。
+    const nextTarget = kind === 'quick' ? item.target : undefined
     const reopened = alreadyVisible && (item.kind !== shownKind ||
-      (kind === 'quick' && nextQuick !== shownQuick))
+      (kind === 'quick' && (nextQuick !== shownQuick || nextTarget !== shownTarget)))
     if (!alreadyVisible) {
       item.view.setVisible(true)
       raise()
@@ -320,6 +326,7 @@ export function createShellOverlays(
     }
     shownKind = kind
     shownQuick = nextQuick
+    shownTarget = nextTarget
     if (kind !== 'toast' && (!alreadyVisible || reopened)) {
       // 后台窗口不抢前台（与 browser-window 的 focusContents 同一合同）：
       // 自动化或窗口被盖住时，打开飞窗不应该把窗口拉到前台。
@@ -327,7 +334,9 @@ export function createShellOverlays(
       // 打开时把当前主题一起带上：叠加层是常驻文档，只靠推送会因为「文档还没订阅」而漏。
       const theme = currentTheme()
       if (kind === 'panel') send(item.view.webContents, { type: 'panel-opened', theme })
-      else if (kind === 'quick') send(item.view.webContents, { type: 'quick-opened', theme, view: nextQuick ?? 'settings' })
+      else if (kind === 'quick') {
+        send(item.view.webContents, { type: 'quick-opened', theme, view: nextQuick ?? 'settings', target: nextTarget })
+      }
       else if (kind === 'bubble') send(item.view.webContents, { type: 'bubble-opened', theme, tabs: item.tabs ?? 0 })
     }
   }
@@ -477,7 +486,7 @@ export function createShellOverlays(
   }
 
   /** 打开（或换内容并重新定位）叠加层。panel / quick / toast / bubble 用同一个视图。 */
-  function showOverlay(kind: OverlayKind, bounds: OverlayBounds, quick?: QuickView): boolean {
+  function showOverlay(kind: OverlayKind, bounds: OverlayBounds, quick?: QuickView, target?: string): boolean {
     // 度量：记录点击那一刻视图处于哪种状态（cold / warming / warm）。
     const state = flyout ? (flyout.ready ? 'warm' : 'warming') : 'cold'
     pendingOpen = beginOpen(kind, state)
@@ -490,6 +499,8 @@ export function createShellOverlays(
     if (!item) return false
     item.kind = kind
     if (quick !== undefined) item.quick = quick
+    // 	arget 跟着内容页走：换页时它必须一起换（否则菜单会画上一个文件夹的内容）。
+    if (quick !== undefined) item.target = target
     item.bounds = bounds
     sync(kind)
     return true
@@ -536,7 +547,11 @@ export function createShellOverlays(
         else if (live.kind === 'panel') send(live.view.webContents, { type: 'panel-opened', theme: currentTheme() })
         else if (live.kind === 'bubble') {
           send(live.view.webContents, { type: 'bubble-opened', theme: currentTheme(), tabs: live.tabs ?? 0 })
-        } else send(live.view.webContents, { type: 'quick-opened', theme: currentTheme(), view: live.quick ?? 'settings' })
+        } else {
+          send(live.view.webContents, {
+            type: 'quick-opened', theme: currentTheme(), view: live.quick ?? 'settings', target: live.target
+          })
+        }
         return true
       }
       case 'set-panel': {
@@ -559,7 +574,10 @@ export function createShellOverlays(
         }
         const bounds = readBounds(value.bounds)
         if (!bounds) return false
-        return showOverlay('quick', bounds, isQuickView(value.view) ? value.view : undefined)
+        const target = typeof value.target === 'string' && value.target.length > 0 && value.target.length <= 128
+          ? value.target
+          : undefined
+        return showOverlay('quick', bounds, isQuickView(value.view) ? value.view : undefined, target)
       }
       /**
        * 飞窗里的「收藏夹」入口：外壳负责锚点（它才知道星标按钮在哪），

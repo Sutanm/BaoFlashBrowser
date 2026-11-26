@@ -18,8 +18,8 @@ import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
 import { addBookmarkData, bookmarkNodes, bookmarksExpanded, clearBookmarksData, clearEngineRulesData, clearSessionData, createBookmarkFolderData, importBookmarksData, moveBookmarkData, removeBookmarkData, setBookmarksExpanded, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
-import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, childrenOf, expandedIds, folderMenuOf, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
-import type { BookmarkBarMode, FolderMenuItem } from '../shared/bookmarks'
+import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, childrenOf, expandedIds, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
+import type { BookmarkBarMode } from '../shared/bookmarks'
 import { decodeBookmarkFile } from '../shared/bookmark-import'
 import { bindInternalProtocol, FAVORITES_URL, internalKindOf, internalTitles, internalUrls, isFavoritesUrl, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
@@ -2549,44 +2549,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
-   * 横条上某个文件夹的下拉菜单。
-   *
-   * `x/y` 来自外壳的内容区坐标（按钮右下角）；Electron 的 `Menu.popup({window, x, y})`
-   * 用的就是窗口坐标，所以这里只做取整——界面不碰屏幕坐标，多屏与缩放下不会错位。
-   */
-  function showBookmarkFolderMenu(command: { id: string; x: number; y: number }): void {
-    const nodes = bookmarkNodes()
-    if (!nodes.some((node) => node.id === command.id && node.kind === 'folder')) return
-    const template = bookmarkMenuTemplate(folderMenuOf(nodes, command.id))
-    Menu.buildFromTemplate(template).popup({
-      window,
-      x: Math.max(0, Math.round(command.x)),
-      y: Math.max(0, Math.round(command.y))
-    })
-  }
-
-  /**
-   * 收藏夹树 → 原生菜单项。
-   *
-   * 空文件夹给一条**禁用项**而不是空菜单：菜单弹出来什么都没有，用户会以为点了没反应
-   * （与"禁用优于隐藏"同一条约定）。
-   */
-  function bookmarkMenuTemplate(items: readonly FolderMenuItem[]): MenuItemConstructorOptions[] {
-    if (items.length === 0) return [{ label: '（空文件夹）', enabled: false }]
-    return items.map((item) => item.children
-      ? { label: item.title, submenu: bookmarkMenuTemplate(item.children) }
-      : { label: item.title, click: () => openBookmarkInCurrentTab(item.id) })
-  }
-
-  /** 菜单里点一条收藏：地址取自库里，在当前标签导航（横条上的网址项也是这个行为）。 */
-  function openBookmarkInCurrentTab(id: string): void {
-    const node = bookmarkNodes().find((entry) => entry.id === id && entry.kind === 'url')
-    if (!node?.url) return
-    const tab = activeTab()
-    if (tab) navigateTab(tab, node.url)
-  }
-
-  /**
    * 给标签挂上用户「保持活跃」租约（幂等：显式 leaseId 让重复标记变成续租）。
    *
    * 单独拆出来是因为有两个生产者：右键菜单（`setKeepAwake`）和会话恢复
@@ -3359,16 +3321,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       }
       case 'bookmark-bar-menu':
         showBookmarkBarMenu()
-        break
-      /**
-       * 横条上文件夹的下拉（原生菜单）。
-       *
-       * 与 Chromium 一致：点文件夹弹出它的直接子项，子文件夹再套子菜单
-       * （`bookmark_bar_view.cc` 的 `ShowFolderMenu` → `BookmarkMenuDelegate`）。
-       * 菜单项里的**打开**沿用 `open-bookmark` 的语义：在当前标签导航。
-       */
-      case 'bookmark-folder-menu':
-        showBookmarkFolderMenu(command)
         break
       /** 展开状态（飞窗/管理页点箭头）：与内存快照一起广播，别的窗口的树也跟着变。 */
       case 'set-bookmarks-expanded': {

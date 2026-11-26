@@ -271,7 +271,6 @@ db(meta) → storage.setBookmarksExpanded() → BrowserState.bookmarksExpanded �
   （原生菜单在自动化里点不到）。截图 `bar-folder-menu.png` 是人工证据。
 
 ## 11.6 本轮验证
-
 - `npm run typecheck` 通过；
 - `npx vitest run`：**389** 条通过（本轮 +10：`folderMenuOf` 3、`expandedIds` 2、
   `decodeBookmarkFile` 3、包装层映射 2）；
@@ -282,3 +281,36 @@ db(meta) → storage.setBookmarksExpanded() → BrowserState.bookmarksExpanded �
   菜单**也是深的**——视图菜单跟 `nativeTheme` 走，"深色页面弹出浅色菜单"那个坑不存在）、
   `import-dialog.png`（「书签文件（HTML） (*.html;*.htm)」）、`settings-appearance.png`
   （外观 → 收藏夹栏卡里的「整理收藏 / 管理收藏夹」）。
+
+## 11.7 横条文件夹下拉：从系统菜单改回飞窗（2026-11-27 第二次修正）
+
+上一版用了原生 `Menu.popup`（§11.5）。验收时用户直接指出来："这个下拉实现方法不是和设置按钮
+展开一个实现方式吗"——对，而且系统菜单还带来两个实测问题：
+
+1. **会浮在别的应用之上**：它是独立顶层窗口，失去激活也不收（Windows 的 `TrackPopupMenu` 语义），
+   于是"切到别的应用它还挂着"；
+2. 主题、打开动画、点外部收起、键盘可达全都得另说一套，而飞窗这套（`QuickView` + `flyoutBounds`
+   + 栅格边距转发 + 主题广播）已经为四页飞窗解决过同样的问题。
+
+改法：加第五个 `QuickView` = `bookmark-folder`。
+
+- `quick-opened` 事件新增 `target`（被点开的文件夹 id）。它**也参与 `sync()` 的"内容变了"判定**，
+  否则"换一个文件夹再点"时视图是亮着的、内容还是上一个（`shownTarget` 与 `shownQuick` 同级）。
+- `BookmarkFolderMenu.vue`：标题（文件夹名 + 项数）+ 分隔线 + 菜单行；子文件夹给右指箭头，
+  点击**进入**（顶部出现返回箭头）而不是悬停展开；空文件夹写"这个文件夹是空的"。
+- 打开一条走 `open-bookmark`（地址取自库里、导航当前标签），随后收起；同一条横条项再点 = 收起；
+  点外部收起（`barFolderAnchor` 那套临时锚点回归）。
+- 尺寸：宽 280（菜单行只有图标 + 标题）、高度按内容收敛（`resizeQuick`）。
+
+**与 Chromium 的差别**：原生菜单用悬停子菜单，这里用「进入 / 返回」——一只飞窗只画一层，
+悬停子菜单要么再叠一层卡片，要么让卡片越拉越长；文件夹通常只有一两层，进入再返回更稳。
+
+一并删掉：`bookmark-folder-menu` 命令、主进程的 `showBookmarkFolderMenu()` / `bookmarkMenuTemplate()`、
+`shared/bookmarks.ts` 的 `folderMenuOf()` 及其单测——它们只为系统菜单存在，留着就是死代码。
+
+验证：typecheck 通过；`vitest run` **386** 条通过（少了 folderMenuOf 的 3 条，它们随实现一起删）；
+冒烟 `bookmark-bar` 4 条（文件夹项现在断言：飞窗打开、顶边锚在按钮下沿、宽 280 + 两侧 6px 边距、
+菜单里是这个文件夹的直接子项、点条目导航并收起、再点同一项收起、空文件夹给空状态、点外部收起）、
+`favorites` 6、`bookmarks` 3、`quick-settings` 3、`overlay-prewarm-hidden/policy` 全绿。
+截图（抓叠加层 WebContents，不涉桌面）：`folder-menu-1.png`（标题 + 行 + 子文件夹箭头）、
+`folder-menu-2.png`（进入子文件夹后的返回箭头 + "这个文件夹是空的"）。

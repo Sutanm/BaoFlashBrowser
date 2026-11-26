@@ -106,17 +106,6 @@ export type BrowserCommand =
    */
   | { type: 'set-bookmarks-expanded'; ids: string[] }
   /**
-   * 横条上**文件夹**的下拉菜单（Chromium 的 `ShowFolderMenu`）。
-   *
-   * 菜单是原生 `Menu.popup`：横条在外壳文档里，而页面视图盖在内容区上方，HTML 下拉伸进
-   * 页面区就会被压住看不见（飞窗就是为了绕开这一点才单独开视图）。原生菜单永远在最上层，
-   * 也是 Chromium 的做法（`bookmark_bar_view.cc` 的 `ShowFolderMenu` → `BookmarkMenuDelegate`）。
-   *
-   * `x/y` 是**内容区坐标**（按钮的右下角），主进程换算成屏幕坐标弹菜单：界面不碰屏幕坐标，
-   * 多屏/缩放时才不会错位。
-   */
-  | { type: 'bookmark-folder-menu'; id: string; x: number; y: number }
-  /**
    * 收藏夹横条的右键菜单（Chromium 的 `BookmarkBarView::ShowContextMenu`）。
    *
    * 菜单是**原生**的（`Menu.popup`）：它是系统控件，不是我们要重画的一套 UI；而且

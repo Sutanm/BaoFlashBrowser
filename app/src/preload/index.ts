@@ -79,7 +79,7 @@ const overlay: OverlayBridge = {
   setToast: (toast) => runOverlay({ type: 'set-toast', toast }),
   resizePanel: (height) => runOverlay({ type: 'resize-panel', height }),
   closePanel: (restoreFocus = true) => runOverlay({ type: 'close-panel', restoreFocus }),
-  setQuick: (bounds, view) => runOverlay({ type: 'set-quick', bounds, view }),
+  setQuick: (bounds, view, target) => runOverlay({ type: 'set-quick', bounds, view, target }),
   resizeQuick: (height) => runOverlay({ type: 'resize-quick', height }),
   openBookmarks: () => runOverlay({ type: 'open-bookmarks' }),
   openBookmarkEditor: () => runOverlay({ type: 'open-bookmark-editor' }),

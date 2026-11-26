@@ -21,6 +21,7 @@ const QuickSettings = defineAsyncComponent(() => import('./QuickSettings.vue'))
 const BookmarksPanel = defineAsyncComponent(() => import('./BookmarksPanel.vue'))
 const BookmarkEditPanel = defineAsyncComponent(() => import('./BookmarkEditPanel.vue'))
 const BookmarkEditorPanel = defineAsyncComponent(() => import('./BookmarkEditorPanel.vue'))
+const BookmarkFolderMenu = defineAsyncComponent(() => import('./BookmarkFolderMenu.vue'))
 const SessionRestoreBubble = defineAsyncComponent(() => import('./SessionRestoreBubble.vue'))
 
 const store = useBrowserStore()
@@ -152,6 +153,9 @@ onBeforeUnmount(() => {
   </div>
   <div v-show="quickShown && view === 'bookmark-editor'" class="overlay-slot">
     <BookmarkEditorPanel :paused="!active" />
+  </div>
+  <div v-show="quickShown && view === 'bookmark-folder'" class="overlay-slot">
+    <BookmarkFolderMenu :paused="!active" />
   </div>
   <div v-show="kind === 'toast'" class="overlay-slot">
     <ShellOverlay kind="toast" :text="toastText" />
