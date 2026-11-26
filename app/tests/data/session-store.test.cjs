@@ -147,7 +147,7 @@ test('v1 库升级到 v2：建立 session 表、保留旧数据、生成迁移�
       await app.close()
     }
 
-    assert.equal(inspect(profilePath, 'PRAGMA user_version')[0].user_version, 2, '库版本应升到 2')
+    assert.equal(inspect(profilePath, 'PRAGMA user_version')[0].user_version, 3, '库版本应升到当前 schema（v3 = 收藏夹树）')
     const tables = inspect(profilePath, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .map((row) => row.name)
     assert.ok(tables.includes('session'), '升级后必须有 session 表')

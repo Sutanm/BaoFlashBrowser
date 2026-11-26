@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { isBrowserEngine } from '../../shared/engine'
@@ -5,6 +6,8 @@ import { sanitizeSetting, settingsFromRows } from '../../shared/settings'
 import type { SettingKey, SettingValue, Settings } from '../../shared/settings'
 import type { BrowserEngine, EngineRules } from '../../shared/engine'
 import { sanitizeSession, sessionFromPayload } from '../../shared/session'
+import { BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT, checkPlacement, childrenOf, descendantIds, isPermanentRoot, nextPosition, titleFor } from '../../shared/bookmarks'
+import type { BookmarkKind, BookmarkNode } from '../../shared/bookmarks'
 import type { SessionSnapshot } from '../../shared/session'
 import { Database, DatabaseError, toDatabaseError } from './sqlite'
 
@@ -23,7 +26,7 @@ import { Database, DatabaseError, toDatabaseError } from './sqlite'
  * ```
  */
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 /** 一次性导入的幂等锚点：以库里的标记为准，而不是 JSON 文件是否还在。 */
 const IMPORT_MARKER = 'migration.engine-rules@1'
 /**
@@ -125,10 +128,50 @@ function migrateToV2(db: Database): void {
   `)
 }
 
+/**
+ * v3：收藏夹树（M2「书签与历史」，形态按 C5-S3 一步到位）。
+ *
+ * 为什么是树而不是扁平列表：用户明确裁决按 Chrome/Edge 的文件夹形态做，扁平升树要数据迁移 + UI 重写。
+ * 两个永久根（bar / other）直接落在表里且 `parent_id IS NULL` 只允许它们——这样"横条渲染谁的子节点"
+ * 不需要额外配置项，也不会出现第三个游离的顶层节点。
+ *
+ * 为什么排序位是整数列：收藏夹规模是几百条量级，移动时整组重排比引入 fractional index 简单得多，
+ * 而且坏数据（1,2,2,5）一眼能看出来。
+ */
+function migrateToV3(db: Database): void {
+  db.exec(`
+    CREATE TABLE bookmarks(
+      id TEXT PRIMARY KEY,
+      parent_id TEXT,
+      position INTEGER NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('folder', 'url')),
+      title TEXT NOT NULL,
+      url TEXT,
+      added_at INTEGER NOT NULL,
+      CHECK ((kind = 'url' AND url IS NOT NULL) OR (kind = 'folder' AND url IS NULL)),
+      CHECK (parent_id IS NOT NULL OR id IN ('bar', 'other'))
+    );
+    CREATE INDEX bookmarks_parent ON bookmarks(parent_id, position);
+  `)
+  const now = Date.now()
+  db.run(
+    "INSERT INTO bookmarks(id, parent_id, position, kind, title, url, added_at) VALUES(?, NULL, 0, 'folder', ?, NULL, ?)",
+    BOOKMARK_BAR_ROOT,
+    '收藏夹栏',
+    now
+  )
+  db.run(
+    "INSERT INTO bookmarks(id, parent_id, position, kind, title, url, added_at) VALUES(?, NULL, 1, 'folder', ?, NULL, ?)",
+    BOOKMARK_OTHER_ROOT,
+    '其他收藏夹',
+    now
+  )
+}
 /** 迁移步骤：按版本号递增执行，只跑比库里 `user_version` 新的那些。 */
 const MIGRATIONS: ReadonlyArray<{ version: number; apply: (db: Database) => void }> = [
   { version: 1, apply: migrateToV1 },
-  { version: 2, apply: migrateToV2 }
+  { version: 2, apply: migrateToV2 },
+  { version: 3, apply: migrateToV3 }
 ]
 
 /**
@@ -387,4 +430,144 @@ export function writeSession(db: Database, snapshot: SessionSnapshot): SessionSn
     Date.now()
   )
   return sanitized
+}
+
+/** 数据库行 → 节点。`url` 只有 `kind === 'url'` 时存在（表上有 CHECK 兜着）。 */
+function bookmarkFromRow(row: Record<string, unknown>): BookmarkNode {
+  const kind: BookmarkKind = row.kind === 'folder' ? 'folder' : 'url'
+  const url = typeof row.url === 'string' ? row.url : undefined
+  return {
+    id: String(row.id),
+    parentId: row.parent_id === null || row.parent_id === undefined ? null : String(row.parent_id),
+    position: Number(row.position) || 0,
+    kind,
+    title: String(row.title ?? ''),
+    ...(url === undefined ? {} : { url }),
+    addedAt: Number(row.added_at) || 0
+  }
+}
+
+/** 全量读（节点数量级很小；顺序由调用方按 `parent_id` + `position` 重新组织）。 */
+export function readBookmarks(db: Database): BookmarkNode[] {
+  return db
+    .all('SELECT id, parent_id, position, kind, title, url, added_at FROM bookmarks ORDER BY parent_id, position')
+    .map(bookmarkFromRow)
+}
+
+/** 把某父节点下的排序位重写成 0..n-1（移动/删除之后必须做，否则会留下空洞）。 */
+function writePositions(db: Database, ids: readonly string[]): void {
+  ids.forEach((id, index) => db.run('UPDATE bookmarks SET position = ? WHERE id = ?', index, id))
+}
+
+export interface AddBookmarkInput {
+  parentId: string
+  kind: BookmarkKind
+  /** 为空时按 `titleFor()` 回落到 host。 */
+  title?: string
+  /** `kind === 'url'` 必填。 */
+  url?: string
+  /** 测试与导入时给固定 id；正常调用不传。 */
+  id?: string
+}
+
+/**
+ * 新增一条书签或文件夹。
+ *
+ * 校验只做存储层该管的：父节点存在且是文件夹、`url`/`kind` 自洽。
+ * **地址是否可访问**不在这里判断（那是 UI 与导入器的事，且 URL 合法性规则会变）。
+ */
+export function addBookmark(db: Database, input: AddBookmarkInput): BookmarkNode {
+  const nodes = readBookmarks(db)
+  const parent = nodes.find((node) => node.id === input.parentId)
+  if (!parent) throw new DatabaseError(`父节点不存在：${input.parentId}`, 'BOOKMARK_PARENT')
+  if (parent.kind !== 'folder') throw new DatabaseError('书签只能放进文件夹', 'BOOKMARK_PARENT')
+  if (input.kind === 'url' && (!input.url || !input.url.trim())) {
+    throw new DatabaseError('网址书签必须带地址', 'BOOKMARK_URL')
+  }
+  if (input.kind === 'folder' && input.url !== undefined) {
+    throw new DatabaseError('文件夹不该带地址', 'BOOKMARK_URL')
+  }
+  const node: BookmarkNode = {
+    id: input.id ?? randomUUID(),
+    parentId: input.parentId,
+    position: nextPosition(nodes, input.parentId),
+    kind: input.kind,
+    title: titleFor(input.title ?? '', input.url ?? input.parentId),
+    ...(input.kind === 'url' ? { url: (input.url ?? '').trim() } : {}),
+    addedAt: Date.now()
+  }
+  db.run(
+    'INSERT INTO bookmarks(id, parent_id, position, kind, title, url, added_at) VALUES(?, ?, ?, ?, ?, ?, ?)',
+    node.id,
+    node.parentId,
+    node.position,
+    node.kind,
+    node.title,
+    node.url ?? null,
+    node.addedAt
+  )
+  return node
+}
+
+/** 改名。永久根也允许改名（用户可以把「收藏夹栏」改成自己认得的名字）。 */
+export function renameBookmark(db: Database, id: string, title: string): BookmarkNode[] {
+  const trimmed = title.trim()
+  if (!trimmed) throw new DatabaseError('标题不能为空', 'BOOKMARK_TITLE')
+  const result = db.run('UPDATE bookmarks SET title = ? WHERE id = ?', trimmed, id)
+  if (Number(result?.changes ?? 0) === 0) throw new DatabaseError(`节点不存在：${id}`, 'BOOKMARK_MISSING')
+  return readBookmarks(db)
+}
+
+/**
+ * 移动节点到 `parentId` 的第 `index` 位。
+ *
+ * 环检测走 `checkPlacement()`（纯函数、有单测）；这里只负责在事务里重排两组排序位。
+ * 同父内移动也允许（拖拽排序就是这么来的）。
+ */
+export function moveBookmark(db: Database, id: string, parentId: string, index: number): BookmarkNode[] {
+  const nodes = readBookmarks(db)
+  const verdict = checkPlacement(nodes, id, parentId)
+  if (!verdict.ok) throw new DatabaseError(`不能移动：${verdict.reason}`, 'BOOKMARK_PLACEMENT')
+  const node = nodes.find((entry) => entry.id === id) as BookmarkNode
+  const oldParentId = node.parentId as string
+  const targetIndex = Number.isFinite(index) ? Math.max(0, Math.trunc(index)) : 0
+  db.transaction(() => {
+    const siblings = (parentId: string): string[] =>
+      childrenOf(nodes, parentId)
+        .filter((entry) => entry.id !== id)
+        .map((entry) => entry.id)
+    const source = siblings(oldParentId)
+    const target = siblings(parentId)
+    const at = Math.min(targetIndex, target.length)
+    target.splice(at, 0, id)
+    db.run('UPDATE bookmarks SET parent_id = ? WHERE id = ?', parentId, id)
+    writePositions(db, source)
+    writePositions(db, target)
+  })
+  return readBookmarks(db)
+}
+
+/** 删除节点及其整棵子树。删除是幂等的：节点不存在时直接返回当前快照。 */
+export function deleteBookmark(db: Database, id: string): BookmarkNode[] {
+  if (isPermanentRoot(id)) throw new DatabaseError('永久根不能删除', 'BOOKMARK_ROOT')
+  const nodes = readBookmarks(db)
+  const node = nodes.find((entry) => entry.id === id)
+  if (!node) return nodes
+  const doomed = [id, ...descendantIds(nodes, id)]
+  const parentId = node.parentId as string
+  db.transaction(() => {
+    const placeholders = doomed.map(() => '?').join(', ')
+    db.run(`DELETE FROM bookmarks WHERE id IN (${placeholders})`, ...doomed)
+    writePositions(db, childrenOf(nodes, parentId).filter((entry) => entry.id !== id).map((entry) => entry.id))
+  })
+  return readBookmarks(db)
+}
+
+/** 清除全部收藏夹内容（分类清理的「收藏」档）：保留两个永久根，内容清空。 */
+export function clearBookmarks(db: Database): BookmarkNode[] {
+  db.transaction(() => {
+    db.run('DELETE FROM bookmarks WHERE id NOT IN (?, ?)', BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT)
+    writePositions(db, [BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT])
+  })
+  return readBookmarks(db)
 }

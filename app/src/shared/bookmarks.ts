@@ -1,0 +1,156 @@
+/**
+ * 收藏夹（书签）的**数据合同**与纯逻辑：树、排序、可放置性判定。
+ *
+ * 术语：UI 上叫「收藏夹」（Edge 习惯），代码与库里叫 `bookmark`（Chromium 习惯）——
+ * 两者是同一个东西，不要在不同层各起一个名字。
+ *
+ * 形态按 [C5-S3 裁决](../../docs/discussions/2026-11-21-bfb-next-architecture.md) 一步到位做
+ * **文件夹树**：两个永久根（收藏夹栏 / 其他收藏夹），其余节点都挂在某个根或文件夹下面。
+ * UI 首版只画根层（横条平铺）+ 面板里展开文件夹，但数据层不返工。
+ *
+ * 为什么这里是一堆纯函数：树操作最容易错的是**环**（把文件夹拖进自己的子孙）和**排序位**，
+ * 这两种错误在界面上表现为"东西不见了"，靠点界面很难查；纯函数 + 用例几百毫秒就能穷举。
+ * 本文件不 import electron 与 sqlite。
+ */
+
+export type BookmarkKind = 'folder' | 'url'
+
+/** 永久根：横条渲染 `bar` 的子节点；面板里两个根都展示。 */
+export const BOOKMARK_BAR_ROOT = 'bar'
+export const BOOKMARK_OTHER_ROOT = 'other'
+export const BOOKMARK_ROOTS = [BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT] as const
+export type BookmarkRootId = (typeof BOOKMARK_ROOTS)[number]
+
+export interface BookmarkNode {
+  id: string
+  /** 永久根为 `null`；其余节点必须指向一个文件夹。 */
+  parentId: string | null
+  /** 同级排序位，从 0 开始连续。 */
+  position: number
+  kind: BookmarkKind
+  title: string
+  /** 只有 `kind === 'url'` 有值。 */
+  url?: string
+  addedAt: number
+}
+
+export interface BookmarkTreeNode extends BookmarkNode {
+  children: BookmarkTreeNode[]
+}
+
+export function isPermanentRoot(id: string): boolean {
+  return (BOOKMARK_ROOTS as readonly string[]).includes(id)
+}
+
+/** 某父节点下的子节点，按 `position` 升序（同位置时按 id 兜底，保证顺序确定）。 */
+export function childrenOf(nodes: readonly BookmarkNode[], parentId: string): BookmarkNode[] {
+  return nodes
+    .filter((node) => node.parentId === parentId)
+    .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))
+}
+
+/** 递归成树；`parentId === null` 时从两个永久根开始。 */
+export function treeOf(
+  nodes: readonly BookmarkNode[],
+  parentId: string | null = null,
+  depth = 0
+): BookmarkTreeNode[] {
+  // 深度上限只是防御：真出现环时宁可少画一层，也不要让 UI 递归到栈溢出。
+  if (depth > 32) return []
+  const level = parentId === null
+    ? nodes
+        .filter((node) => node.parentId === null && isPermanentRoot(node.id))
+        .sort((left, right) => left.position - right.position)
+    : childrenOf(nodes, parentId)
+  return level.map((node) => ({ ...node, children: treeOf(nodes, node.id, depth + 1) }))
+}
+
+/** 子孙 id（不含自身），用于递归删除与环检测。 */
+export function descendantIds(nodes: readonly BookmarkNode[], id: string): string[] {
+  const result: string[] = []
+  const queue = [id]
+  const seen = new Set<string>([id])
+  while (queue.length > 0) {
+    const current = queue.shift() as string
+    for (const node of nodes) {
+      if (node.parentId !== current || seen.has(node.id)) continue
+      seen.add(node.id)
+      result.push(node.id)
+      queue.push(node.id)
+    }
+  }
+  return result
+}
+
+/** 某父节点下一个可用的排序位。 */
+export function nextPosition(nodes: readonly BookmarkNode[], parentId: string): number {
+  const siblings = childrenOf(nodes, parentId)
+  return siblings.length === 0 ? 0 : siblings[siblings.length - 1].position + 1
+}
+
+export type PlacementRefusal =
+  | 'unknown-node'
+  | 'permanent-root'
+  | 'unknown-parent'
+  | 'parent-not-folder'
+  | 'into-itself'
+  | 'into-descendant'
+
+/**
+ * 能不能把 `id` 放到 `parentId` 下面。
+ *
+ * 拒绝的五种情况都在 UI 上真的会发生（拖拽、菜单「移动到」、导入 Chrome 书签），
+ * 而且都必须**在执行前**挡住：拖出环以后再修数据，成本比拒绝高两个数量级。
+ */
+export function checkPlacement(
+  nodes: readonly BookmarkNode[],
+  id: string,
+  parentId: string
+): { ok: true } | { ok: false; reason: PlacementRefusal } {
+  const node = nodes.find((entry) => entry.id === id)
+  if (!node) return { ok: false, reason: 'unknown-node' }
+  if (isPermanentRoot(id)) return { ok: false, reason: 'permanent-root' }
+  if (id === parentId) return { ok: false, reason: 'into-itself' }
+  const parent = nodes.find((entry) => entry.id === parentId)
+  if (!parent) return { ok: false, reason: 'unknown-parent' }
+  if (parent.kind !== 'folder') return { ok: false, reason: 'parent-not-folder' }
+  if (descendantIds(nodes, id).includes(parentId)) return { ok: false, reason: 'into-descendant' }
+  return { ok: true }
+}
+
+/**
+ * 标题回落：Chromium 里书签标题为空时显示地址。
+ *
+ * 我们按 host 显示（`example.com`），因为横条上像素有限、而且用户认的是站点而不是长 URL；
+ * host 取不出来（如 `bao://favorites/`）时退回完整地址。
+ */
+export function titleFor(rawTitle: string, url: string): string {
+  const title = rawTitle.trim()
+  if (title) return title
+  try {
+    const parsed = new URL(url)
+    // 只对 http(s) 取 host：内部页（`bao://favorites/`）的 host 是 `favorites`，
+    // 显示成那样反而认不出来，不如显示完整地址。
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return url
+    return parsed.host || url
+  } catch {
+    return url
+  }
+}
+
+/** 面板搜索：标题、地址、文件夹名都参与，大小写不敏感。 */
+export function matchesQuery(node: BookmarkNode, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return node.title.toLowerCase().includes(needle) || (node.url ?? '').toLowerCase().includes(needle)
+}
+
+/**
+ * 把一串 id 重排成连续的 `position`。
+ *
+ * 返回「id → 新位置」，交给存储层按序写回。单独一个纯函数是因为**排序位不连续**是最常见的
+ * 数据腐坏形态：一次失败的拖拽或删除就能留下空洞，之后所有插入/移动都会算错。
+ */
+export function compactPositions(ids: readonly string[]): Map<string, number> {
+  return new Map(ids.map((id, index) => [id, index]))
+}
