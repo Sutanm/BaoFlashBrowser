@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { launchApp, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, setEngine, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 async function viewEval(app, shell, code) {
   const handle = await app.browserWindow(shell)
@@ -72,8 +72,7 @@ test('Ruffle 跨源加载：SWF、数据请求与跨源 iframe 子帧', { timeou
     assert.ok(pageFetch.startsWith('error:'), `页面 JS 的跨源读未被 CORS 拦住：${pageFetch}`)
 
     // 2) 切到 Ruffle：主帧的 SWF 来自第三个源（A→C）
-    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
-    await shell.getByRole('switch', { name: '切换到原生 Flash 引擎', exact: true }).waitFor()
+    await setEngine(shell, 'ruffle')
     await address.fill(`${pageServer.baseUrl}/cross.html`)
     await address.press('Enter')
     await shell.getByRole('button', { name: '跨源插件页面', exact: true }).waitFor({ timeout: 30_000 })

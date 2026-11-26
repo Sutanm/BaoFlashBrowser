@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { launchApp, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, setEngine, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 const PLAYER_RECT = `(() => {
   const player = document.querySelector('ruffle-embed, ruffle-object, ruffle-player')
@@ -35,7 +35,7 @@ test('Ruffle 画布焦点：点击播放器后键盘事件进入 SWF', {
     await address.fill(`${server.baseUrl}/keyprobe.html`)
     await address.press('Enter')
     await shell.getByRole('button', { name: '插件输入探针', exact: true }).waitFor({ timeout: 30_000 })
-    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click({ timeout: 30_000 })
+    await setEngine(shell, 'ruffle')
 
     const handle = await app.browserWindow(shell)
     const viewEval = (code) => handle.evaluate((window, source) => {

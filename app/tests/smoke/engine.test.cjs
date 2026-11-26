@@ -21,7 +21,12 @@ test('快捷切换保留导航栈，Ruffle 接管 SWF', { timeout: 240_000 }, as
     assert.equal(activeTabOf(state).engineSource, 'default')
 
     // 切到 Ruffle：新 WebContents，地址与导航栈保留。
-    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
+    // 2026-11-26 起没有内联快捷开关了：引擎按钮统一成"点开飞窗"，切换在飞窗里做。
+    const windowHandle = await app.browserWindow(shell)
+    await engineSettings(shell).click()
+    await overlayControl(windowHandle, 'panel', panelNames.ruffle, {
+      attribute: 'aria-pressed', value: 'false', click: true
+    })
     state = await waitFor(async () => {
       const next = await snapshot(shell)
       return activeTabOf(next).engine === 'ruffle' ? next : null
@@ -31,7 +36,6 @@ test('快捷切换保留导航栈，Ruffle 接管 SWF', { timeout: 240_000 }, as
     assert.equal(activeTabOf(state).canGoBack, true, '切换后导航栈未恢复')
 
     // Ruffle 运行时注入页面主世界（版本固定），并 polyfill 页面里的 <embed>。
-    const windowHandle = await app.browserWindow(shell)
     const runtime = await waitFor(async () => {
       const facts = await windowHandle.evaluate(async (window) => {
         const view = window.contentView.children

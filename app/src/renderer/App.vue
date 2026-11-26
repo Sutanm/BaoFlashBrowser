@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT, INFOBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserTab } from '../shared/browser'
-import { engineLabels, engineSourceLabels, engineSwitchLabels, otherEngine } from '../shared/engine'
+import { engineLabels, engineSourceLabels } from '../shared/engine'
 import type { OverlayBounds } from '../shared/overlay'
 import {
   ENGINE_PANEL_INITIAL_HEIGHT, TOAST_HEIGHT, TOAST_WIDTH, flyoutBounds, panelBounds as enginePanelBounds
@@ -96,28 +96,29 @@ function run(command: BrowserCommand): Promise<boolean> {
   return store.run(command)
 }
 
+/**
+ * 引擎按钮（2026-11-26 重做）：**一个按钮**，点开就是引擎飞窗。
+ *
+ * 之前是「胶囊（内联开关 Flash ⇄ Ruffle）+ 下箭头（开飞窗）」两块拼起来，跟工具栏其它
+ * 图标按钮尺寸/形状都不一样。现在照 Edge 的扩展按钮：统一 32×32、图标表示当前引擎、
+ * 点击展开飞窗——切换引擎这件事本来就该在飞窗里做（那里还有「记住当前引擎」和来源说明）。
+ *
+ * 内部页（`bao://newtab`、`bao://settings`）**禁用而不是隐藏**：隐藏会让工具栏宽度随标签
+ * 来回变，视觉上像在跳；置灰 + 点了没反应（也不弹飞窗）语义更清楚。
+ */
+const engineSwitchable = computed(() => Boolean(active.value && !active.value.internal))
 const engineTitle = computed(() => {
   const tab = active.value
   if (!tab) return ''
+  if (tab.internal) return '新标签页没有可切换的站点引擎'
   const current = `渲染引擎：${engineLabels[tab.engine]}`
   return tab.pinnedEngine
     ? `${current} · 站点已记住 ${engineLabels[tab.pinnedEngine]}`
     : `${current}（${engineSourceLabels[tab.engineSource]}）`
 })
-const switchLabel = computed(() => {
-  const tab = active.value
-  return tab ? engineSwitchLabels[otherEngine(tab.engine)] : ''
-})
-
-function switchEngine(): void {
-  const tab = active.value
-  if (!tab) return
-  void run({ type: 'set-engine', engine: otherEngine(tab.engine) })
-}
 
 const enginePanelOpen = ref(false)
-const engineTrigger = ref<HTMLButtonElement>()
-const engineRoot = ref<HTMLElement>()
+const engineRoot = ref<HTMLButtonElement>()
 const toast = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let detachOverlay: (() => void) | undefined
@@ -231,6 +232,8 @@ function panelBounds(): OverlayBounds | null {
 }
 
 async function toggleEnginePanel(): Promise<void> {
+  // 内部页没有站点可切：按钮是禁用态，点了也不该弹飞窗（2026-11-26）。
+  if (!engineSwitchable.value) return
   if (enginePanelOpen.value) {
     closeEnginePanel()
     return
@@ -251,7 +254,7 @@ function closeEnginePanel(): void {
 
 /** 网页与浮层有独立 WebContents；这里只处理外壳范围内的点击。 */
 function onEnginePointerDown(event: PointerEvent): void {
-  if (event.target instanceof Node && !engineTrigger.value?.contains(event.target)) closeEnginePanel()
+  if (event.target instanceof Node && !engineRoot.value?.contains(event.target)) closeEnginePanel()
   if (quickOpen.value && event.target instanceof Node && !gearRoot.value?.contains(event.target)) closeQuick(false)
 }
 
@@ -302,7 +305,7 @@ onMounted(() => {
   detachOverlay = window.baoOverlay.subscribe((event) => {
     if (event.type === 'panel-closed') {
       enginePanelOpen.value = false
-      if (event.restoreFocus) engineTrigger.value?.focus()
+      if (event.restoreFocus) engineRoot.value?.focus()
     } else if (event.type === 'quick-closed') {
       quickOpen.value = false
       if (event.restoreFocus) gearRoot.value?.focus()
@@ -576,21 +579,24 @@ onBeforeUnmount(() => store.disconnect())
           @blur="syncAddressFromActive"
         >
       </div>
-      <div v-if="active && !active.internal" ref="engineRoot" class="engine-pill" role="group" aria-label="渲染引擎">
-        <button type="button" class="engine-switch" role="switch"
-          :aria-checked="active.engine === 'ruffle'" :aria-label="switchLabel" :title="engineTitle" @click="switchEngine">
-          <span class="engine-mark" :class="active.pinnedEngine && active.pinnedEngine !== active.engine ? 'overridden' : active.engine" aria-hidden="true">
-            <ShellIcon v-if="active.pinnedEngine" name="lock" />
-            <span v-else class="engine-dot"></span>
-          </span>
-          {{ active.engine === 'ruffle' ? 'Ruffle' : 'Flash' }}
-        </button>
-        <button ref="engineTrigger" type="button" class="engine-more" :aria-expanded="enginePanelOpen"
-          aria-haspopup="dialog" aria-label="引擎设置" title="引擎设置"
-          @click="toggleEnginePanel">
-          <ShellIcon name="chevron" />
-        </button>
-      </div>
+      <!-- 引擎按钮：与齿轮同一尺寸/同一套 hover，图标表示当前引擎，点击展开飞窗。
+           内部页禁用（灰）而不是隐藏——隐藏会让工具栏宽度随标签来回变。 -->
+      <button
+        ref="engineRoot"
+        type="button"
+        class="icon-button engine-button"
+        :class="active ? `engine-${active.engine}` : ''"
+        :disabled="!engineSwitchable"
+        :aria-expanded="enginePanelOpen"
+        aria-haspopup="dialog"
+        :aria-label="engineSwitchable ? '引擎设置' : '新标签页没有可切换的站点引擎'"
+        :title="engineTitle"
+        @click="toggleEnginePanel"
+      >
+        <span class="engine-mark" :class="active?.pinnedEngine && active.pinnedEngine !== active.engine ? 'overridden' : (active?.engine ?? 'ppapi')" aria-hidden="true">
+          <ShellIcon :name="active?.engine === 'ruffle' ? 'ruffle' : 'flash'" />
+        </span>
+      </button>
       <button
         ref="gearRoot"
         type="button"
@@ -917,40 +923,18 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 }
 .address-bar input { flex: 1; width: 0; padding: 0; border: 0; outline: none; background: transparent; }
 .address-bar input::placeholder { color: var(--text-secondary); opacity: 1; }
-.engine-pill {
-  flex: none;  display: grid;
-  grid-template-columns: 66px 25px;
-  /* 与地址栏、图标按钮同高（32px），工具栏看起来才是一条线 */
-  height: 32px;
-  margin-inline-start: 3px;
-  border: 1px solid var(--stroke-control);
-  border-radius: var(--radius-pill);
-  background: linear-gradient(var(--surface-toolbar), var(--surface-page));
-  -webkit-app-region: no-drag;
-}
-.engine-pill button { display: flex; align-items: center; padding: 0; }
-.engine-pill button:hover, .engine-more[aria-expanded='true'] { background: var(--surface-hover); }
-.engine-switch {
-  gap: 5px;
-  padding-inline-start: 8px !important;
-  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
-  font-size: 12px;
-  font-weight: 650;
-}
-.engine-more {
-  position: relative;
-  justify-content: center;
-  color: var(--text-secondary);
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-}
-.engine-more::before { content: ''; position: absolute; left: 0; height: 12px; border-left: 1px solid var(--stroke-divider); }
-.engine-more .shell-icon, .engine-mark .shell-icon { width: 12px; height: 12px; }
-.engine-more[aria-expanded='true'] .shell-icon { transform: rotate(180deg); }
-.engine-mark { width: 13px; height: 13px; flex: none; display: grid; place-items: center; }
+/* 引擎按钮：与齿轮同一个 `.icon-button` 尺寸（32×32），图标表示当前引擎。
+   之前是"胶囊（内联开关）+ 下箭头"两块拼起来的，跟其它图标按钮不同尺寸/不同形状。 */
+.engine-button { margin-inline-start: 2px; }
+.engine-button[aria-expanded='true'] { color: var(--text-primary); background: var(--surface-pressed); }
+.engine-button:disabled { color: var(--text-disabled); cursor: default; }
+.engine-mark { width: 16px; height: 16px; flex: none; display: grid; place-items: center; }
+.engine-mark .shell-icon { width: 16px; height: 16px; }
 .engine-mark.ppapi { color: var(--engine-flash); }
 .engine-mark.ruffle { color: var(--engine-ruffle); }
 .engine-mark.overridden { color: var(--engine-override); }
-.engine-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+/* 禁用态整颗变灰：图标颜色必须一起压掉，否则"灰按钮 + 彩色图标"看起来还能点。 */
+.engine-button:disabled .engine-mark { color: var(--text-disabled); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); }
 .page-error { min-height: calc(100vh - var(--tab-bar-height) - var(--toolbar-height)); display: grid; place-items: center; text-align: center; padding: 24px; }
 .page-error .shell-icon { width: 24px; height: 24px; color: var(--text-error); }

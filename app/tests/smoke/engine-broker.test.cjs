@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { launchApp, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, setEngine, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 async function viewEval(app, shell, code) {
   const handle = await app.browserWindow(shell)
@@ -54,9 +54,9 @@ test('引擎网络 broker：只有 Ruffle 能跨域读，页面脚本的同源�
     await address.press('Enter')
     await shell.getByRole('button', { name: 'broker 页面', exact: true }).waitFor({ timeout: 30_000 })
 
-    // 引擎胶囊只在网页标签上出现：先离开起始页（内部页），再切到 Ruffle。
-    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click({ timeout: 30_000 })
-    await shell.getByRole('switch', { name: '切换到原生 Flash 引擎', exact: true }).waitFor()
+    // 引擎按钮只对网页标签可用：先离开起始页（内部页），再切到 Ruffle。
+    // （切换 UI 走飞窗，这里只要"处于 Ruffle 下"，所以用命令通道，见 helpers.setEngine。）
+    await setEngine(shell, 'ruffle')
 
     // 1) 根 SWF 跨源加载：Ruffle 自己的 fetch 经策略放行（策略文件 wildcard）。
     const player = await waitFor(async () => {

@@ -280,6 +280,24 @@ async function waitForTabLabel(shell, title, { timeout = 30_000 } = {}) {
   }, { timeout, message: `标签栏未出现「${title}」` })
 }
 
+/**
+ * 用命令通道切换当前标签的引擎，并等投影确认（2026-11-26）。
+ *
+ * 为什么不点界面：工具栏去掉了内联快捷开关（引擎按钮统一成"点开飞窗"），而 broker / CORS /
+ * 输入 / 弹窗这些用例要的是"处于 Ruffle 下"，不验证切换 UI；UI 路径由 `engine.test.cjs`
+ * （点按钮 → 飞窗里选）与 `engine-rules.test.cjs` 覆盖。
+ */
+async function setEngine(shell, engine) {
+  const result = await shell.evaluate((next) => window.baoBrowser.run({ type: 'set-engine', engine: next }), engine)
+  assert.equal(result.ok, true, `切换引擎失败：${result.code ?? String(result)}`)
+  return waitFor(async () => {
+    const state = await shell.evaluate(() =>
+      window.baoBrowser.run({ type: 'snapshot' }).then((snapshot) => snapshot.state))
+    const tab = state.tabs.find((item) => item.id === state.activeId)
+    return tab && tab.engine === engine && !tab.loading ? tab : null
+  }, { message: `切到 ${engine} 后投影没有同步` })
+}
+
 module.exports = {
   audioStateOf,
   waitForTabLabel,
@@ -293,6 +311,7 @@ module.exports = {
   page,
   pageViewIds,
   pressShortcut,
+  setEngine,
   startFixtureServer,
   waitFor
 }

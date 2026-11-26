@@ -5,7 +5,7 @@ const { tmpdir } = require('node:os')
 const { dirname, join, resolve } = require('node:path')
 const { test } = require('node:test')
 const { _electron: electron } = require('playwright')
-const { nativeFlashSkip, startFixtureServer } = require('./helpers.cjs')
+const { nativeFlashSkip, setEngine, startFixtureServer } = require('./helpers.cjs')
 
 async function waitForFacts(read, message) {
   const deadline = Date.now() + 60_000
@@ -140,9 +140,8 @@ test('Win x64 验证包使用自编译运行时并加载 Ruffle', { timeout: 180
         assert.equal(await tab.getAttribute('title'), 'flash:loaded bridge')
         await assertPepperSandboxed(app, '内部验证包')
       })
-      await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
+      await setEngine(shell, 'ruffle')
     }
-    await shell.getByRole('switch', { name: '切换到原生 Flash 引擎', exact: true }).waitFor()
     if (profile === 'public' || nativeFlashSkip) await openSample()
 
     // 验证版本固定的 Ruffle 运行时已打进 asar，并实际接管样本。

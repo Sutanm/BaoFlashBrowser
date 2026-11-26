@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { launchApp, startFixtureServer, waitFor } = require('./helpers.cjs')
+const { launchApp, setEngine, startFixtureServer, waitFor } = require('./helpers.cjs')
 
 async function viewEval(app, shell, code, userGesture = false) {
   const handle = await app.browserWindow(shell)
@@ -107,7 +107,7 @@ test('受控弹窗：同站开真实窗口、策略递归到子窗口、跨站�
     assert.equal(await windowCount(app), baseWindows + 2, 'file: 弹窗被放行（子窗口）')
 
     // 引擎继承：切到 Ruffle 后，弹窗窗口同样注入 Ruffle 引导。
-    await shell.getByRole('switch', { name: '切换到 Ruffle 引擎', exact: true }).click()
+    await setEngine(shell, 'ruffle')
     await waitFor(async () => {
       const state = await snapshot(shell)
       return state.tabs.find((tab) => tab.id === state.activeId)?.engine === 'ruffle' ? state : null

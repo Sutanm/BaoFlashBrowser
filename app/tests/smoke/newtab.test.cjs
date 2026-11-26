@@ -161,17 +161,17 @@ test('新标签页：启动即是真实内部页，地址栏为空、无引擎�
     assert.equal(themed.invalid.ok, false)
     assert.equal(themed.invalid.code, 'invalid-setting')
 
-    // 外壳 UI：地址栏空、没有引擎胶囊。
+    // 外壳 UI：地址栏空、引擎按钮是禁用态（不是隐藏——隐藏会让工具栏宽度来回变）。
     const ui = await waitFor(async () => {
       const value = await shell.evaluate(() => ({
         address: document.querySelector('.address-bar input')?.value,
         placeholder: document.querySelector('.address-bar input')?.placeholder,
-        pill: document.querySelector('.engine-pill') !== null
+        engineDisabled: document.querySelector('.engine-button')?.disabled === true
       }))
       return value.address === undefined ? null : value
     }, { message: '外壳地址栏没有就绪' })
     assert.equal(ui.address, '')
-    assert.equal(ui.pill, false, '新标签页不应显示引擎胶囊')
+    assert.equal(ui.engineDisabled, true, '新标签页的引擎按钮应禁用')
   } finally {
     await close()
   }
@@ -195,7 +195,7 @@ test('新标签页：输入 http(s) 走同一个标签（内部会话永不承�
     assert.equal(state.tabs[0].id, tabId, '标签 id 必须保持不变')
     assert.equal(state.tabs[0].internal, undefined, '标签已变成普通网页')
     assert.equal(state.tabs[0].address, `${server.baseUrl}/`)
-    assert.equal(await shell.locator('.engine-pill').count(), 1, '网页标签应显示引擎胶囊')
+    assert.equal(await shell.locator('.engine-button').isDisabled(), false, '网页标签的引擎按钮应可用')
 
     // 页面会话没有 `bao://newtab` 的协议 handler：读不到内部页资源。
     const pageId = await app.evaluate(({ webContents }) =>
@@ -359,7 +359,7 @@ test('新标签页：网页上 Back 回到 NTP，Forward 重新打开该网页',
     assert.equal(onNewTab.tabs[0].address, '')
     assert.equal(onNewTab.tabs[0].canGoBack, false)
     assert.equal(onNewTab.tabs[0].canGoForward, true, '回到 NTP 后应能前进回网页')
-    assert.equal(await shell.locator('.engine-pill').count(), 0, 'NTP 不应显示引擎胶囊')
+    assert.equal(await shell.locator('.engine-button').isDisabled(), true, 'NTP 的引擎按钮应禁用（不是隐藏）')
     const focused = await shell.evaluate(() =>
       document.activeElement === document.querySelector('.address-bar input'))
     assert.equal(focused, true, 'Back 回到 NTP 后焦点应在地址栏')

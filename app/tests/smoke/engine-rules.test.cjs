@@ -24,7 +24,7 @@ test('引擎面板分别切换引擎与记住站点规则，起始页不可记�
     const newTab = shell.getByRole('button', { name: '新建标签页', exact: true })
 
     // 起始页现在是内部页（`bao://newtab`）：没有引擎胶囊，也不能写入站点规则。
-    assert.equal(await shell.locator('.engine-pill').count(), 0, '起始页不应显示引擎胶囊')
+    assert.equal(await shell.locator('.engine-button').isDisabled(), true, '起始页的引擎按钮应禁用（不是隐藏）')
     const noSite = await shell.evaluate(() => window.baoBrowser.run({ type: 'remember-engine' }))
     assert.equal(noSite.ok, false, '起始页不应能写站点规则')
     assert.equal(noSite.code, 'no-site')

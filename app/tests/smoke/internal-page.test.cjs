@@ -139,13 +139,14 @@ test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后�
     assert.equal(selected.state.tabs.find((tab) => tab.id === settingsId).internal, 'settings',
       '设置标签应能重新选中')
 
-    // 外壳 UI：设置页没有引擎胶囊，标签用齿轮图标（否则用户会以为能给设置页切引擎）。
+    // 外壳 UI：设置页的引擎按钮是**禁用态**（不是隐藏——隐藏会让工具栏宽度来回变），
+    // 标签用齿轮图标（否则用户会以为能给设置页切引擎）。
     const shellUi = await shell.evaluate(() => ({
-      pill: document.querySelector('.engine-pill') !== null,
+      engineDisabled: document.querySelector('.engine-button')?.disabled === true,
       settingsIcon: document.querySelector('.tab.selected .settings-icon') !== null,
       address: document.querySelector('.address-bar input')?.value
     }))
-    assert.equal(shellUi.pill, false, '设置页不应显示引擎胶囊')
+    assert.equal(shellUi.engineDisabled, true, '设置页的引擎按钮应禁用')
     assert.equal(shellUi.settingsIcon, true, '设置标签应显示齿轮图标')
     assert.equal(shellUi.address, 'bao://settings/')
     const beforeCount = selected.state.tabs.length
