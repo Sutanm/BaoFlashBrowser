@@ -92,6 +92,7 @@ npm run dev
 - **引擎相关未验证**：引擎切换失败回退（`restore()` 抛错）没有构造用例；真实站点（4399 等）在两种引擎下的对照未复测；UA、插件版本通告、`mms.cfg`、SWFObject 等站点兼容项按审计 §C7 另行验证。
 - **输入相关未验证**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖，样本见 `tests/smoke/fixtures/README.md`）。
 - **自动化窗口模式**：测试入口默认使用 `BAO_SMOKE_HIDDEN=1`（不调用 `show()`）。成品冒烟还会传入自动化命令行开关；普通启动成品不受测试环境变量影响。需要真实窗口或焦点的用例会明确标记跳过，可用 `npm run smoke:foreground` 验收。
+- **观测量（2026-11-26）**：主进程每 100 ms 向**外壳渲染线程**发一次心跳——回执必须在渲染线程上发出，所以 RTT 直接等于被阻塞的时长（空闲 ~2 ms；浮层里跑 400 ms 忙循环时 ~400 ms）。`BAO_HEARTBEAT_TRACE` / `BAO_OVERLAY_TRACE` 指定文件时，把「外壳卡顿」与「浮层长任务（带 `sourceURL`）」落盘。成品只在 `BAO_HEARTBEAT=1` 时启用，开发态默认开；`heartbeat.test.cjs` 三条用例覆盖空闲、被阻塞、以及浮层长任务的**跨窗口归因**（LoAF 的 `windowAttribution` 按帧树分档，浮层是另一个顶层窗口，外壳侧 observer 拿不到）。
 - **两套跑法（2026-11-25 定）**：日常用隐藏并行（快、不抢焦点、覆盖后台路径）；**每次换内核后必须跑一次前台** `npm run smoke:foreground --serial`（**85 通过 / 0 跳过**）作为闸门。不把用例整体改成前台——那会丢掉后台状态覆盖并只能串行。
 - **flaky 排查**：`waitFor()` 超时会自动 dump 现场（进程分布、外壳页状态、标签栏文案），失败的报错里带 `[超时现场]`；
   「等标签出现」一律用 `waitForTabLabel()`（DOM 轮询）而不是 Playwright 的可见性等待。

@@ -59,6 +59,14 @@ export type OverlayCommand =
   /** Shell only. 是否处于共享进程模式（浮层由外壳 window.open 产生）。 */
   | { type: 'shared-mode' }
   /**
+   * 叠加层专属。浮层文档里出现的长任务（`longtask` / LoAF 上报）。
+   *
+   * 归因只能在这里做：LoAF 的 `windowAttribution` 按**帧树**关系分档（self/descendant/
+   * ancestor/same-page/other），而浮层是另一个顶层窗口，外壳侧 observer 永远拿不到它的脚本。
+   * 观测必须装在浮层自己的 realm 里（2026-11-26 审计）。
+   */
+  | { type: 'report-longtask'; duration: number; source: string }
+  /**
    * 叠加层专属。文档挂载完、订阅已注册后**拉一次**当前该显示的内容。
    *
    * 事件是推送：共享模式下浮层文档可能在「点击那一刻」才被 `window.open` 出来，`*-opened`
@@ -95,6 +103,8 @@ export interface OverlayBridge {
   sharedMode(): Promise<boolean>
   /** 叠加层专用。订阅注册完成后拉取当前内容（补发漏掉的 `*-opened`）。 */
   pullOverlay(): Promise<boolean>
+  /** 叠加层专用。上报一次长任务（开发期门槛 + 诊断落盘）。 */
+  reportLongTask(duration: number, source: string): Promise<boolean>
   /** 读取/清空打开耗时样本（shell 侧度量用）。 */
   readMetrics(): Promise<{ samples: unknown[]; summary: Record<string, { n: number; p50: number; p95: number; p99: number }> }>
   resetMetrics(): Promise<boolean>

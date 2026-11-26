@@ -4,7 +4,18 @@ import { browserChannels } from '../shared/browser'
 import type { BrowserBridge, BrowserState } from '../shared/browser'
 import { overlayChannels } from '../shared/overlay'
 import type { OverlayBridge, OverlayCommand, OverlayEvent } from '../shared/overlay'
+import { heartbeatChannels } from '../shared/heartbeat'
 import type { RuntimeVersions } from '../shared/runtime'
+
+/**
+ * 心跳回执：**必须在渲染线程上同步发回**。
+ *
+ * 这里不 `await`、不做任何计算——回执的延迟就是渲染线程被占住的时间，任何额外工作都会把
+ * 测量结果弄脏。见 `shared/heartbeat.ts` 与 `main/heartbeat.ts`。
+ */
+ipcRenderer.on(heartbeatChannels.ping, (_event: IpcRendererEvent, seq: unknown) => {
+  if (typeof seq === 'number') ipcRenderer.send(heartbeatChannels.pong, seq)
+})
 
 const versions: RuntimeVersions = {
   electron: process.versions.electron,
@@ -55,6 +66,7 @@ const overlay: OverlayBridge = {
   prewarm: () => runOverlay({ type: 'prewarm' }),
   sharedMode: () => runOverlay({ type: 'shared-mode' }),
   pullOverlay: () => runOverlay({ type: 'pull-overlay' }),
+  reportLongTask: (duration, source) => runOverlay({ type: 'report-longtask', duration, source }),
   readMetrics: () => ipcRenderer.invoke(overlayChannels.metrics),
   resetMetrics: () => ipcRenderer.invoke(overlayChannels.metricsReset),
   subscribe(listener) {

@@ -11,7 +11,7 @@ const suites = {
     'ruffle-cors', 'engine-broker', 'popup', 'permissions', 'theme', 'titlebar',
     'internal-page', 'newtab', 'quick-settings', 'overlay-prewarm-hidden', 'overlay-prewarm-policy',
     'tab-discard', 'tab-duplicate-ruffle', 'session-restore', 'data-cleanup',
-    'link-target', 'flash', 'isolation', 'engine-rules', 'tearoff', 'shell-crash-heal'].map((name) => `tests/smoke/${name}.test.cjs`),
+    'link-target', 'flash', 'isolation', 'engine-rules', 'tearoff', 'shell-crash-heal', 'heartbeat'].map((name) => `tests/smoke/${name}.test.cjs`),
   data: ['tests/data/settings-store.test.cjs', 'tests/data/session-store.test.cjs'],
   packaged: ['tests/smoke/packaged.test.cjs']
 }

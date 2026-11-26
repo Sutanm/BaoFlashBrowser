@@ -685,20 +685,25 @@ test('等待期间被移交页面失效：清理并返回 tearoff-page-lost', { 
  * 标签（连同租约与会话）直接丢掉。失败回挂必须只挂元数据，**不唤醒**。
  */
 test('拖出休眠标签失败：按休眠态退回源窗口，不丢标签', { timeout: 180_000 }, async () => {
-  process.env.BAO_DISCARD_TTL_MS = '2000'
+  /**
+   * TTL 取 8 s（而不是 2 s）：并行跑满时页面加载本身就慢，2 s 会让"标签在准备阶段就被休眠"
+   * 与"打开第二个标签"抢时序，表现为 `addTab` 的「未新增标签」超时（实测）。
+   * 8 s 足够两个页面都加载完，再让休眠发生。
+   */
+  process.env.BAO_DISCARD_TTL_MS = '8000'
   process.env.BAO_DISCARD_SWEEP_MS = '200'
   const server = await startFixtureServer({ '/sleep': page('SLEEP'), '/other': page('OTHER') })
   const { app, shell, close } = await launchApp()
   try {
     for (const [path, title] of [['/sleep', 'SLEEP'], ['/other', 'OTHER']]) {
-      await addTab(shell)
+      await shell.evaluate(() => window.baoBrowser.run({ type: 'add' }))
       await shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), `${server.baseUrl}${path}`)
       await waitForTabLabel(shell, title)
     }
     const sleeping = await waitFor(async () => {
       const { state } = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
       return state.tabs.find((tab) => tab.title === 'SLEEP' && tab.discarded) ?? null
-    }, { timeout: 30_000, message: 'SLEEP 标签没有进入休眠' })
+    }, { timeout: 40_000, message: 'SLEEP 标签没有进入休眠' })
 
     await injectTearoffEnv(app, { BAO_TEAROFF_INIT_FAIL: '1' })
     const windowHandle = await app.browserWindow(shell)

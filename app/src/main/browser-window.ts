@@ -7,6 +7,9 @@ import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserSessionP
 import { hostOf } from '../shared/engine'
 import { isSameSite, siteBoundary } from '../shared/site'
 import type { BrowserEngine, EngineSource } from '../shared/engine'
+import { HeartbeatMonitor } from './heartbeat'
+import type { HeartbeatStats } from './heartbeat'
+import { heartbeatChannels } from '../shared/heartbeat'
 import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
@@ -134,6 +137,11 @@ interface WindowController extends TabHost {
   readonly overlays: ReturnType<typeof createShellOverlays>
   detachTab(id: number): { tab: Tab; index: number } | undefined
   adoptTab(tab: Tab, index?: number, options?: { wake?: boolean }): void
+  /** 心跳回执（主进程主动测外壳渲染线程是否还能干活）。 */
+  heartbeatPong(seq: number): void
+  heartbeatStats(): HeartbeatStats
+  /** 清空心跳样本（诊断/测试用）。 */
+  heartbeatReset(): void
   isEmpty(): boolean
   /** 窗口仍可接收标签：未请求关闭、未进入关闭流程、未销毁。 */
   isAlive(): boolean
@@ -2265,6 +2273,47 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /** 冒烟诊断：真实视图 id、绑定代际与未提交候选（不进入 UI 投影）。 */
+  /**
+   * 外壳渲染线程心跳（2026-11-25 演示 §7.7-1）。
+   *
+   * 共享进程把工具栏与浮层放进同一条渲染主线程，长任务会互相排队；而被占住的主线程**无法**
+   * 回答任何 IPC，所以"有没有卡"只能由主进程主动测。回执的往返时间就等于被阻塞的时长。
+   *
+   * 开关：开发态默认开（test 里要用），成品只在 `BAO_HEARTBEAT=1` 时开。
+   * 诊断写入 `BAO_HEARTBEAT_TRACE`（未设置时只 `console.warn` 一次）。
+   */
+  const heartbeatEnabled = !app.isPackaged || process.env.BAO_HEARTBEAT === '1'
+  const heartbeatStallMs = Number(process.env.BAO_HEARTBEAT_STALL_MS ?? 200)
+  const heartbeat = new HeartbeatMonitor({ stallMs: heartbeatStallMs })
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined
+  let heartbeatWarned = false
+
+  function traceHeartbeat(line: string): void {
+    const file = process.env.BAO_HEARTBEAT_TRACE
+    if (!file) return
+    const { appendFileSync } = require('node:fs') as typeof import('node:fs')
+    try {
+      appendFileSync(file, `${Date.now()} ${line}\n`)
+    } catch {
+      // 诊断写盘失败不影响浏览。
+    }
+  }
+
+  function startHeartbeat(): void {
+    if (!heartbeatEnabled || heartbeatTimer) return
+    const interval = Number(process.env.BAO_HEARTBEAT_INTERVAL_MS ?? 100)
+    heartbeatTimer = setInterval(() => {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) return
+      window.webContents.send(heartbeatChannels.ping, heartbeat.tick())
+    }, interval)
+    heartbeatTimer.unref?.()
+  }
+
+  function stopHeartbeat(): void {
+    if (!heartbeatTimer) return
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = undefined
+  }
   function debugState(): ReturnType<WindowController['debugState']> {
     return tabs.map((tab) => {
       const contents = tab.view?.webContents
@@ -2280,6 +2329,18 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   const controller: WindowController = {
+    heartbeatPong(seq: number): void {
+      const rtt = heartbeat.onPong(seq)
+      if (rtt === undefined || rtt <= heartbeatStallMs) return
+      traceHeartbeat(`stall rtt=${Math.round(rtt)}ms`)
+      // 长任务期间每 10 次告警一次，避免刷屏。
+      if (!heartbeatWarned || heartbeat.stats().stalls % 10 === 0) {
+        heartbeatWarned = true
+        console.warn(`[heartbeat] 外壳渲染线程被阻塞约 ${Math.round(rtt)} ms（阈值 ${heartbeatStallMs} ms）`)
+      }
+    },
+    heartbeatStats: () => heartbeat.stats(),
+    heartbeatReset: () => heartbeat.reset(),
     shellUrl,
     flash: plugins,
     overlays,
@@ -2679,10 +2740,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   // 后台标签休眠扫描：每 30 秒一次；开关在设置里（`tab.discard = never` 时整个机制停用，
   // 挂机/自动化场景需要后台标签一直运行）。
   const discardTimer = setInterval(() => { void sweepDiscard() }, DISCARD_SWEEP_MS)
+  // 心跳：开发态默认开（前台/隐藏冒烟都用它做长任务门槛），成品只在 `BAO_HEARTBEAT=1` 时开。
+  startHeartbeat()
   window.on('closed', () => {
     // 最早抓一次会话投影：后面会逐个关闭 WebContents，标题/地址会退化成空值。
     const finalSession = sessionWindowSnapshot()
     clearInterval(discardTimer)
+    stopHeartbeat()
     closing = true
     controllers.delete(shellContentsId)
     overlays.dispose()
@@ -2944,6 +3008,16 @@ function controllerFor(event: IpcMainInvokeEvent): WindowController | undefined 
 export function registerBrowserIpc(): void {
   if (registered) return
   registered = true
+  /**
+   * 心跳回执：按**发送者 WebContents** 路由回它所属的窗口。
+   *
+   * 只有外壳文档带这个 preload（页面视图与共享浮层 guest 都没有），所以不需要额外的来源校验；
+   * 序号配对在 `HeartbeatMonitor` 里做，孤儿回执直接丢弃。
+   */
+  ipcMain.on(heartbeatChannels.pong, (event, seq: unknown) => {
+    if (typeof seq !== 'number') return
+    controllers.get(event.sender.id)?.heartbeatPong(seq)
+  })
   ipcMain.handle(browserChannels.command, (event, command: unknown) => {
     const controller = controllerFor(event)
     if (!controller) return fail('forbidden-sender')
@@ -3080,8 +3154,12 @@ export function registerBrowserIpc(): void {
 if (!app.isPackaged) {
   const globals = globalThis as unknown as Record<string, unknown>
   globals.__baoActivityLeases = activityLeases
+  globals.__baoHeartbeatReset = () => {
+    for (const controller of controllers.values()) controller.heartbeatReset()
+  }
   globals.__baoEngineDiagnostics = () => [...controllers.entries()].map(([shellContentsId, controller]) => ({
     shellContentsId,
-    tabs: controller.debugState()
+    tabs: controller.debugState(),
+    heartbeat: controller.heartbeatStats()
   }))
 }

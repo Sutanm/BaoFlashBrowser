@@ -91,6 +91,16 @@ const RULES = [
     tests: ['engine', 'engine-switch', 'engine-rules', 'tab-ops', 'link-target', 'tabs']
   },
   {
+    // 观测量（心跳 / 浮层长任务）：只在诊断文件里体现，但用例是唯一证据。
+    match: [
+      /^src\/main\/heartbeat\.ts$/,
+      /^src\/shared\/heartbeat\.ts$/,
+      /^src\/main\/shell-overlays\.ts$/,
+      /^src\/renderer\/OverlayHost\.vue$/
+    ],
+    tests: ['heartbeat', 'quick-settings', 'overlay-prewarm-policy']
+  },
+  {
     // 引擎网络 broker（跨域读）。
     match: [/^src\/main\/net-broker\.ts$/, /^src\/main\/broker-token\.ts$/, /^src\/main\/crossdomain\.ts$/],
     tests: ['engine-broker', 'ruffle-cors']

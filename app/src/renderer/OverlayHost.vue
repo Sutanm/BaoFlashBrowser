@@ -48,6 +48,31 @@ function reportReadyAfterPaint(): void {
 onMounted(() => {
   setIdle(true)
   store.connect()
+  /**
+   * 长任务观测（2026-11-25 演示 §7.7-1 / ADR-0004「把纪律变成门槛」）。
+   *
+   * 观察必须装在**浮层自己的 realm** 里：LoAF 的 `windowAttribution` 是按帧树关系分档的
+   * （self/descendant/ancestor/same-page/other），而浮层是另一个顶层窗口——外壳侧 observer
+   * 只能知道"这一帧晚了"，看不到是浮层的哪段脚本。
+   *
+   * `longtask` 给时长和归属，`long-animation-frame` 额外给 `scripts[].sourceURL`——
+   * 后者才是"哪一行"。两者都不支持时静默降级（生产端只有诊断用）。
+   */
+  let observer: PerformanceObserver | undefined
+  try {
+    observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const scripts = (entry as PerformanceEntry & { scripts?: { sourceURL?: string; invoker?: string }[] }).scripts
+        const source = scripts?.find((script) => script.sourceURL)?.sourceURL ?? entry.name
+        void window.baoOverlay.reportLongTask(entry.duration, source)
+      }
+    })
+    observer.observe({ entryTypes: ['longtask', 'long-animation-frame'] })
+  } catch {
+    observer?.disconnect()
+    observer = undefined
+  }
+  onBeforeUnmount(() => observer?.disconnect())
   detach = window.baoOverlay.subscribe((event) => {
     if (event.type === 'panel-opened' || event.type === 'quick-opened') void store.run({ type: 'snapshot' })
     // 主题在宿主这一层就落地：内容是异步组件，首次打开时它可能比事件晚挂载，

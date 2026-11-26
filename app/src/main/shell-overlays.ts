@@ -21,6 +21,28 @@ interface HostedView {
 const FLYOUT_KINDS = ['panel', 'quick'] as const
 type FlyoutKind = (typeof FLYOUT_KINDS)[number]
 
+/** 浮层长任务阈值（毫秒）：超过就当"浮层里放了重活"。 */
+const OVERLAY_LONG_TASK_MS = Number(process.env.BAO_OVERLAY_LONG_TASK_MS ?? 50)
+
+/**
+ * 诊断落盘：`BAO_OVERLAY_TRACE` 未设置时只走 `console.warn`。
+ *
+ * 和 `BAO_DISCARD_TRACE` / `BAO_SELFHEAL_TRACE` 同一套约定——误杀/卡顿时第一个问题永远是
+ * "是哪段脚本干的"，所以 `source` 必须带上（LoAF 的 `sourceURL` 或 `longtask` 的 name）。
+ */
+function traceOverlayLongTask(duration: number, source: string): void {
+  const line = `overlay longtask ${Math.round(duration)}ms source=${source || 'unknown'}`
+  if (duration >= OVERLAY_LONG_TASK_MS) console.warn(`[overlay] ${line}`)
+  const file = process.env.BAO_OVERLAY_TRACE
+  if (!file) return
+  const { appendFileSync } = require('node:fs') as typeof import('node:fs')
+  try {
+    appendFileSync(file, `${Date.now()} ${line}\n`)
+  } catch {
+    // 诊断写盘失败不影响浏览。
+  }
+}
+
 /**
  * 叠加层只保留**两个**视图：一个飞窗视图（panel 与 quick 共用）+ 一个 toast 视图。
  *
@@ -101,7 +123,7 @@ export function createShellOverlays(
   /** 只有叠加层自己会发的命令：共享模式下它们经外壳的桥发言，需要按当前内容种类认角色。 */
   const OVERLAY_ONLY_COMMANDS = new Set<string>([
     'report-ready', 'report-failure', 'resize-panel', 'resize-quick',
-    'close-panel', 'close-quick', 'dismiss-toast', 'pull-overlay'
+    'close-panel', 'close-quick', 'dismiss-toast', 'pull-overlay', 'report-longtask'
   ])
 
   function hide(item: HostedView): void {
@@ -519,6 +541,21 @@ export function createShellOverlays(
       case 'report-ready': {
         if (role !== 'panel' && role !== 'quick' && role !== 'toast') return false
         if (pendingOpen) markContent(pendingOpen)
+        return true
+      }
+      case 'report-longtask': {
+        /**
+         * 浮层主线程长任务（ADR-0004 §「把纪律变成门槛」）。
+         *
+         * 浮层与外壳共享渲染进程主线程：浮层里一次 400 ms 同步任务会让外壳的 IPC 往返从 2 ms
+         * 涨到 402 ms（2026-11-25 演示 §7.7-1）。所以这里既落盘（`BAO_OVERLAY_TRACE`）
+         * 又按阈值告警——开发期 >50 ms 就该当失败处理。
+         */
+        if (role !== 'panel' && role !== 'quick' && role !== 'toast') return false
+        if (!isFiniteNumber(value.duration) || value.duration <= 0) return false
+        const duration = Number(value.duration)
+        const source = typeof value.source === 'string' ? value.source.slice(0, 200) : ''
+        traceOverlayLongTask(duration, source)
         return true
       }
       case 'report-failure':
