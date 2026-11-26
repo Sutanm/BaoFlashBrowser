@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest'
 import {
   BOOKMARK_BAR_ROOT,
   BOOKMARK_OTHER_ROOT,
+  bookmarkForAddress,
   checkPlacement,
   childrenOf,
   compactPositions,
   descendantIds,
+  flattenTree,
+  isBookmarkableAddress,
   isPermanentRoot,
   matchesQuery,
   nextPosition,
+  suggestedTitle,
   titleFor,
   treeOf
 } from '../../src/shared/bookmarks'
@@ -144,5 +148,69 @@ describe('面板搜索', () => {
     expect(matchesQuery(entry, '4399')).toBe(true)
     expect(matchesQuery(entry, 'WWW.4399')).toBe(true)
     expect(matchesQuery(entry, '摩尔')).toBe(false)
+  })
+})
+
+describe('当前页与工具栏星标', () => {
+  /** 星标可不可点 = 主进程愿不愿意接收，两侧共用同一个判定。 */
+  it('只有 http(s) 可收藏，内部页与非法输入一律不行', () => {
+    expect(isBookmarkableAddress('https://www.4399.com/')).toBe(true)
+    expect(isBookmarkableAddress('  http://127.0.0.1:8080/a  ')).toBe(true)
+    expect(isBookmarkableAddress('bao://settings/')).toBe(false)
+    expect(isBookmarkableAddress('javascript:alert(1)')).toBe(false)
+    expect(isBookmarkableAddress('')).toBe(false)
+    expect(isBookmarkableAddress('不是地址')).toBe(false)
+  })
+
+  it('地址完全相等才算已收藏（不做归一化：锚点/尾斜杠不同就是两条）', () => {
+    const nodes = [
+      ...roots,
+      node({ id: 'a', url: 'https://example.com/page' }),
+      node({ id: 'folder', kind: 'folder', url: undefined, title: '文件夹' })
+    ]
+    expect(bookmarkForAddress(nodes, 'https://example.com/page')?.id).toBe('a')
+    expect(bookmarkForAddress(nodes, ' https://example.com/page ')?.id).toBe('a')
+    expect(bookmarkForAddress(nodes, 'https://example.com/page#top')).toBeUndefined()
+    expect(bookmarkForAddress(nodes, 'https://example.com/page/')).toBeUndefined()
+    expect(bookmarkForAddress(nodes, '')).toBeUndefined()
+    // 文件夹没有地址，永远不可能是"当前页"。
+    expect(bookmarkForAddress(nodes, '文件夹')).toBeUndefined()
+  })
+
+  it('默认标题：页面标题优先，占位标题（等于地址）回落到 host', () => {
+    expect(suggestedTitle('4399 小游戏', 'https://www.4399.com/')).toBe('4399 小游戏')
+    expect(suggestedTitle('   ', 'https://www.4399.com/game')).toBe('www.4399.com')
+    // Chromium 在文档还没有 <title> 时把标题当地址：直接拿来当收藏名就是一条长 URL。
+    expect(suggestedTitle('https://www.4399.com/game', 'https://www.4399.com/game')).toBe('www.4399.com')
+  })
+})
+
+describe('flattenTree：面板按树序平铺', () => {
+  it('先序展开，深度用于缩进，子节点排在父节点后面', () => {
+    const nodes = [
+      ...roots,
+      node({ id: 'a', position: 0, url: 'https://a.com/' }),
+      node({ id: 'folder', position: 1, kind: 'folder', title: '常用', url: undefined }),
+      node({ id: 'inside', parentId: 'folder', position: 0, url: 'https://b.com/' }),
+      node({ id: 'deep', parentId: 'folder', position: 1, kind: 'folder', title: '更深', url: undefined }),
+      node({ id: 'leaf', parentId: 'deep', position: 0, url: 'https://c.com/' })
+    ]
+    expect(flattenTree(nodes, BOOKMARK_BAR_ROOT).map((row) => [row.node.id, row.depth])).toEqual([
+      ['a', 0],
+      ['folder', 0],
+      ['inside', 1],
+      ['deep', 1],
+      ['leaf', 2]
+    ])
+    // 另一个根互不串台。
+    expect(flattenTree(nodes, BOOKMARK_OTHER_ROOT)).toEqual([])
+  })
+
+  it('数据里出现环时不会无限递归', () => {
+    const nodes = [
+      node({ id: 'x', kind: 'folder', parentId: 'y', url: undefined }),
+      node({ id: 'y', kind: 'folder', parentId: 'x', url: undefined })
+    ]
+    expect(() => flattenTree(nodes, 'x')).not.toThrow()
   })
 })

@@ -1,4 +1,5 @@
 import type { ShellTheme } from './shell-theme'
+import type { BookmarkNode, BookmarkRootId } from './bookmarks'
 import type { BrowserEngine, EngineSource } from './engine'
 import type { Locale, SettingKey, SettingValue, Settings, ThemeMode } from './settings'
 
@@ -44,6 +45,26 @@ export type BrowserCommand =
    * `shared/settings.ts` 的键白名单再校验一次，非法值返回 `invalid-setting`。
    */
   | { type: 'set-setting'; key: SettingKey; value: SettingValue[SettingKey] }
+  /**
+   * 收藏当前页（地址栏星标）。**主进程自己取当前标签的地址与标题**，界面不传：
+   * 星标是浏览器的动作（Chromium 的 `BookmarkCurrentTab` → `AddIfNotBookmarked`），
+   * 不该变成"界面把一个地址塞进库"。
+   *
+   * 幂等：这个地址已经收藏过就什么都不做（Chromium 的 `IsBookmarkedByUser` 判定），
+   * 所以"点星标 → 展开气泡"这条路径重复点也不会攒出重复条目。
+   */
+  | { type: 'bookmark-page' }
+  /** 改写一条收藏的名称 / 所在文件夹（编辑气泡里的「完成」与失焦保存）。两者都可省略。 */
+  | { type: 'update-bookmark'; id: string; title?: string; parentId?: BookmarkRootId }
+  /** 删除一条收藏（编辑气泡的「删除」、收藏夹面板每行的 ×）。删除是幂等的。 */
+  | { type: 'remove-bookmark'; id: string }
+  /**
+   * 打开一条收藏：主进程按 id 从库里取地址再导航当前标签。
+   *
+   * 为什么不让界面直接把地址交给 `navigate`：那样"收藏夹面板"就等于拿到了任意导航能力；
+   * 按 id 取地址时，能被导航的只可能是用户自己收藏过的东西。
+   */
+  | { type: 'open-bookmark'; id: string }
 
 /** 稳定错误代码。渲染层按代码取文案，主进程只附加允许公开的详情。 */
 export type BrowserFailureCode =
@@ -63,6 +84,8 @@ export type BrowserFailureCode =
   | 'no-site'
   | 'invalid-setting'
   | 'settings-save-failed'
+  | 'bookmark-save-failed'
+  | 'bookmark-missing'
   | 'storage-unavailable'
   | 'no-session'
   /** 统一能力层拒绝（A1-c）：详情看调用记录里的稳定码，界面只显示一句通用文案。 */
@@ -85,6 +108,8 @@ export const browserFailureText: Record<BrowserFailureCode, string> = {
   'no-site': '当前页面没有可记忆的站点',
   'invalid-setting': '无效的设置项',
   'settings-save-failed': '设置未能保存，已保留原值',
+  'bookmark-save-failed': '收藏未能保存，原有收藏未更改',
+  'bookmark-missing': '这条收藏已不存在',
   'storage-unavailable': '设置存储不可用，本次无法保存',
   'no-session': '没有可恢复的上次会话',
   'capability-denied': '该操作被浏览器能力层拒绝'
@@ -149,6 +174,14 @@ export interface BrowserState {
   flashHint?: string
   /** 崩溃恢复提示；用户回答（恢复/忽略）后消失。 */
   sessionPrompt?: BrowserSessionPrompt
+  /**
+   * 收藏夹全量投影（两个永久根 + 全部节点，顺序由 `position` 决定）。
+   *
+   * 为什么跟着每次状态广播走，而不是单开一条通道：外壳星标要**立刻**知道"当前页有没有
+   * 收藏过"，收藏夹面板要立刻看到新增/删除的结果，两处都吃这份数据；节点是几百条量级的
+   * 平面对象，跟着广播走的代价远小于再维护一条订阅生命周期（多一条通道就多一处可能不同步）。
+   */
+  bookmarks: BookmarkNode[]
   tabs: BrowserTab[]
 }
 

@@ -59,6 +59,14 @@ export interface OpenedStore {
   paths: StorePaths
   settings: Settings
   rules: EngineRules
+  /**
+   * 收藏夹全量（含两个永久根）。
+   *
+   * 为什么进内存快照：外壳的每次状态广播都要带它（星标要立刻知道当前页有没有收藏），
+   * 而收藏夹是**进程级**数据——每次广播读一遍库等于把导航路径压在 SQLite 上。
+   * 写入成功后由 `main/storage.ts` 用返回值覆盖这份缓存，库里与内存里永远是同一代数据。
+   */
+  bookmarks: BookmarkNode[]
   /** 上次退出时的会话快照（没有、损坏或版本不符时为 `undefined`）。 */
   session?: SessionSnapshot
   /** 上次退出的方式；`undefined` 表示没有记录（首次运行或旧库）。 */
@@ -293,6 +301,7 @@ export async function openStore(options: OpenStoreOptions): Promise<OpenedStore>
       paths,
       settings: readSettings(db),
       rules: readRules(db),
+      bookmarks: readBookmarks(db),
       session: readSession(db),
       sessionExit: readSessionExit(db),
       previousVersion,

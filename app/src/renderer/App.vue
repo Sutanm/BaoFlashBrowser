@@ -3,8 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { TAB_BAR_HEIGHT, TOOLBAR_HEIGHT, INFOBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserTab } from '../shared/browser'
+import { bookmarkForAddress, isBookmarkableAddress } from '../shared/bookmarks'
 import { engineLabels, engineSourceLabels } from '../shared/engine'
-import type { OverlayBounds } from '../shared/overlay'
+import type { OverlayBounds, QuickView } from '../shared/overlay'
 import {
   ENGINE_PANEL_INITIAL_HEIGHT, TOAST_HEIGHT, TOAST_WIDTH, flyoutBounds, panelBounds as enginePanelBounds
 } from '../shared/overlay-geometry'
@@ -119,6 +120,33 @@ const engineTitle = computed(() => {
 
 const enginePanelOpen = ref(false)
 const engineRoot = ref<HTMLButtonElement>()
+
+/**
+ * 收藏夹星标（M2 收藏夹第一轮）：**页面级**状态——当前页有没有收藏过。
+ *
+ * 内部页（`bao://newtab`、`bao://settings`）不是站点，星标**禁用而不是隐藏**：
+ * 隐藏会让工具栏宽度随标签来回变（与引擎按钮同一条约定），置灰 + 点了没反应语义更清楚。
+ *
+ * "有没有收藏"由主进程的收藏夹投影算（`bookmarkForAddress` 按完整地址比对，与 Chromium 一致）：
+ * 界面不自己缓存一份，也就不会出现"删了收藏星标还亮着"。
+ */
+const bookmarkable = computed(() => {
+  const tab = active.value
+  return Boolean(tab && !tab.internal && isBookmarkableAddress(tab.address))
+})
+const bookmarked = computed(() => {
+  const tab = active.value
+  if (!tab || tab.internal) return undefined
+  return bookmarkForAddress(state.value?.bookmarks ?? [], tab.address)
+})
+const bookmarkTitle = computed(() => {
+  const tab = active.value
+  if (!tab) return ''
+  // 内部页（新标签页/设置页）都没有站点：这里说的是"这个页面"，不假定是哪一个。
+  if (tab.internal) return '这个页面没有可收藏的地址'
+  if (bookmarked.value) return `已收藏：${bookmarked.value.title}`
+  return `收藏此页面：${tab.title}`
+})
 const toast = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let detachOverlay: (() => void) | undefined
@@ -131,18 +159,50 @@ let detachOverlay: (() => void) | undefined
  * 时由面板自己滚动。宽 320 是 Chromium 菜单的常见宽度，外面留 16 px 给投影。
  */
 /**
- * 飞窗挂在齿轮按钮下方：右边缘与按钮右缘对齐、顶边贴住按钮下沿。
+ * 飞窗挂在按钮下方：右边缘与按钮右缘对齐、顶边贴住按钮下沿。
  * 视图尺寸 = 面板尺寸（没有给投影预留的透明留白，否则会看到一条「光影」）。
+ *
+ * 同一只飞窗有三个内容页（快捷设置 / 收藏夹 / 编辑收藏夹，见 `shared/overlay.ts` 的
+ * `QuickView`）：宽度各给一个值，高度只给初始值（打开后第一帧就会被 `resize-quick` 纠正）。
  */
 const QUICK_WIDTH = 320
 const QUICK_INITIAL_HEIGHT = 320
+/** 收藏夹（树）比快捷设置宽一点：一行是「图标 + 标题」，太窄会全变成省略号。 */
+const BOOKMARKS_WIDTH = 340
+const BOOKMARKS_INITIAL_HEIGHT = 300
+/** 编辑收藏夹气泡：Chromium `BookmarkBubbleView` 的量级（约 380×260）。 */
+const BUBBLE_WIDTH = 380
+const BUBBLE_INITIAL_HEIGHT = 260
 const gearRoot = ref<HTMLButtonElement>()
+/** 工具栏「收藏夹」按钮（Edge 那颗）：打开收藏夹树，与星标不是一回事。 */
+const bookmarksRoot = ref<HTMLButtonElement>()
+/** 地址栏里的星标：收藏当前页 + 展开编辑气泡。 */
+const bookmarkRoot = ref<HTMLButtonElement>()
 const quickOpen = ref(false)
+/**
+ * 飞窗当前画哪一页——同时也是「飞窗挂在哪颗按钮下」：
+ * 打开时按它算锚点，关闭后按它把焦点还给那颗按钮。
+ */
+const quickView = ref<QuickView>('settings')
 
-function quickBounds(): OverlayBounds | null {
-  const rect = gearRoot.value?.getBoundingClientRect()
+/** 每个内容页的锚点按钮（星标在地址栏里，另外两个是工具栏按钮）。 */
+function quickAnchorFor(view: QuickView): HTMLButtonElement | undefined {
+  if (view === 'bookmarks') return bookmarksRoot.value
+  if (view === 'bookmark-edit') return bookmarkRoot.value
+  return gearRoot.value
+}
+
+function quickGeometry(view: QuickView): { width: number; height: number } {
+  if (view === 'bookmarks') return { width: BOOKMARKS_WIDTH, height: BOOKMARKS_INITIAL_HEIGHT }
+  if (view === 'bookmark-edit') return { width: BUBBLE_WIDTH, height: BUBBLE_INITIAL_HEIGHT }
+  return { width: QUICK_WIDTH, height: QUICK_INITIAL_HEIGHT }
+}
+
+function quickBounds(view: QuickView): OverlayBounds | null {
+  const rect = quickAnchorFor(view)?.getBoundingClientRect()
   if (!rect) return null
-  return flyoutBounds(anchorOf(rect), QUICK_WIDTH, QUICK_INITIAL_HEIGHT)
+  const { width, height } = quickGeometry(view)
+  return flyoutBounds(anchorOf(rect), width, height)
 }
 
 /** 锚点：按钮右缘 + 按钮下缘——飞窗紧贴按钮展开（顶边不再落到工具栏下沿）。 */
@@ -150,17 +210,47 @@ function anchorOf(rect: { right: number; bottom: number }): FlyoutAnchor {
   return { anchorRight: rect.right, anchorBottom: rect.bottom, viewportWidth: window.innerWidth }
 }
 
-async function toggleQuick(): Promise<void> {
-  if (quickOpen.value) {
+/**
+ * 打开飞窗的指定页（不管当前开没开）。
+ *
+ * 换页（齿轮里点「收藏夹」、列表开着时点星标）= **同一个视图换内容并重新锚定**，
+ * 不销毁文档、不重新预热——这正是"一个视图多个内容页"换来的收益。
+ */
+async function openQuick(view: QuickView): Promise<void> {
+  const bounds = quickBounds(view)
+  if (!bounds) return
+  if (!quickOpen.value) closeEnginePanel()
+  await ensureSharedOverlay()
+  quickView.value = view
+  quickOpen.value = true
+  if (!await window.baoOverlay.setQuick(bounds, view)) quickOpen.value = false
+}
+
+/** 按钮式开关：同页再点一次 = 关。 */
+async function toggleQuick(view: QuickView): Promise<void> {
+  if (quickOpen.value && quickView.value === view) {
     closeQuick(true)
     return
   }
-  closeEnginePanel()
-  const bounds = quickBounds()
-  if (!bounds) return
-  await ensureSharedOverlay()
-  quickOpen.value = true
-  if (!await window.baoOverlay.setQuick(bounds)) quickOpen.value = false
+  await openQuick(view)
+}
+
+/**
+ * 地址栏星标（Chromium 的 `BookmarkCurrentTab`）：**先落库，再弹气泡**。
+ *
+ * 源码依据 `chrome/browser/ui/browser_commands.cc:1634`：命令里先
+ * `AddIfNotBookmarked(model, url, title)`，紧接着 `ShowBookmarkBubble(url, was_bookmarked)`；
+ * 所以**第一次点击也会弹气泡**（标题「已添加收藏夹」），再点才是「编辑收藏夹」。
+ * 气泡只负责改名字/换文件夹/删除，不负责"创建"——创建在点下去那一刻就完成了。
+ */
+async function toggleBookmarkBubble(): Promise<void> {
+  if (!bookmarkable.value) return
+  if (quickOpen.value && quickView.value === 'bookmark-edit') {
+    closeQuick(true)
+    return
+  }
+  if (!bookmarked.value && !await run({ type: 'bookmark-page' })) return
+  await openQuick('bookmark-edit')
 }
 
 /** 共享进程模式探测结果（只问一次）。 */
@@ -222,7 +312,12 @@ function closeQuick(restoreFocus = false): void {
   // 外壳侧关闭走 `set-quick(null)`：`close-quick` 是飞窗自己（quick 角色）用来关闭并
   // 请求焦点归还的命令，外壳调用会被发送者校验拒绝。
   void window.baoOverlay.setQuick(null)
-  if (restoreFocus) gearRoot.value?.focus()
+  if (restoreFocus) quickAnchor()?.focus()
+}
+
+/** 焦点归还目标：飞窗挂在哪颗按钮下就还给谁（星标 ↔ 收藏夹 ↔ 齿轮）。 */
+function quickAnchor(): HTMLButtonElement | undefined {
+  return quickAnchorFor(quickView.value)
 }
 
 function panelBounds(): OverlayBounds | null {
@@ -253,9 +348,15 @@ function closeEnginePanel(): void {
 }
 
 /** 网页与浮层有独立 WebContents；这里只处理外壳范围内的点击。 */
-function onEnginePointerDown(event: PointerEvent): void {
-  if (event.target instanceof Node && !engineRoot.value?.contains(event.target)) closeEnginePanel()
-  if (quickOpen.value && event.target instanceof Node && !gearRoot.value?.contains(event.target)) closeQuick(false)
+function onShellPointerDown(event: PointerEvent): void {
+  if (!(event.target instanceof Node)) return
+  // 四颗入口（星标/收藏夹/引擎/齿轮）自己的点击由它们的 handler 负责开关：
+  // 在这里先关一次会让「点星标」变成"先关再开"，多一次往返还会闪一下。
+  const anchor = [bookmarkRoot.value, bookmarksRoot.value, engineRoot.value, gearRoot.value]
+    .some((element) => element?.contains(event.target as Node))
+  if (anchor) return
+  closeEnginePanel()
+  closeQuick(false)
 }
 
 function clearToast(): void {
@@ -308,18 +409,21 @@ onMounted(() => {
       if (event.restoreFocus) engineRoot.value?.focus()
     } else if (event.type === 'quick-closed') {
       quickOpen.value = false
-      if (event.restoreFocus) gearRoot.value?.focus()
+      if (event.restoreFocus) quickAnchor()?.focus()
+    } else if (event.type === 'bookmarks-requested') {
+      // 飞窗里的「收藏夹」入口：锚点与开关都在外壳这边。
+      void toggleQuick('bookmarks')
     } else if (event.type === 'toast-closed') clearToast()
     else if (event.type === 'overlay-prewarm') prewarmSharedOverlay()
     else if (event.type === 'failure') showToast(event.text)
   })
-  document.addEventListener('pointerdown', onEnginePointerDown, true)
+  document.addEventListener('pointerdown', onShellPointerDown, true)
   window.addEventListener('resize', onShellResize)
 })
 onBeforeUnmount(() => {
   detachOverlay?.()
   clearToast()
-  document.removeEventListener('pointerdown', onEnginePointerDown, true)
+  document.removeEventListener('pointerdown', onShellPointerDown, true)
   window.removeEventListener('resize', onShellResize)
 })
 
@@ -578,7 +682,33 @@ onBeforeUnmount(() => store.disconnect())
           @input="addressDirty = true"
           @blur="syncAddressFromActive"
         >
+        <!-- 星标在**地址栏内部右端**（Chromium 的 StarView 是 location bar 的 page action）：
+             内部页不显示它（Chromium 对 chrome:// 页同样不显示；地址栏是弹性的，隐藏不会改工具栏宽度）。 -->
+        <button
+          v-if="bookmarkable"
+          ref="bookmarkRoot"
+          type="button"
+          class="bookmark-star"
+          :class="{ bookmarked: Boolean(bookmarked) }"
+          :aria-expanded="quickOpen && quickView === 'bookmark-edit'"
+          aria-haspopup="dialog"
+          :aria-label="bookmarked ? '编辑收藏夹' : '收藏此页面'"
+          :title="bookmarkTitle"
+          @click="toggleBookmarkBubble"
+        ><ShellIcon :name="bookmarked ? 'star-filled' : 'star'" /></button>
       </div>
+      <!-- 收藏夹（Edge 那颗独立的按钮）：打开收藏夹树。它和星标是两件事——
+           星标是"这一页收藏了没有"，这颗按钮是"我的收藏都在哪"。 -->
+      <button
+        ref="bookmarksRoot"
+        type="button"
+        class="icon-button bookmarks-button"
+        :aria-expanded="quickOpen && quickView === 'bookmarks'"
+        aria-haspopup="dialog"
+        aria-label="收藏夹"
+        title="收藏夹"
+        @click="toggleQuick('bookmarks')"
+      ><ShellIcon name="bookmarks" /></button>
       <!-- 引擎按钮：与齿轮同一尺寸/同一套 hover，图标表示当前引擎，点击展开飞窗。
            内部页禁用（灰）而不是隐藏——隐藏会让工具栏宽度随标签来回变。 -->
       <button
@@ -601,11 +731,11 @@ onBeforeUnmount(() => store.disconnect())
         ref="gearRoot"
         type="button"
         class="icon-button gear-button"
-        :aria-expanded="quickOpen"
+        :aria-expanded="quickOpen && quickView === 'settings'"
         aria-haspopup="dialog"
         aria-label="快捷设置"
         title="快捷设置"
-        @click="toggleQuick"
+        @click="toggleQuick('settings')"
       ><ShellIcon name="gear" /></button>
     </form>
     <!--
@@ -923,6 +1053,29 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 }
 .address-bar input { flex: 1; width: 0; padding: 0; border: 0; outline: none; background: transparent; }
 .address-bar input::placeholder { color: var(--text-secondary); opacity: 1; }
+/* 收藏夹星标（地址栏内部右端）：24×24，不做成工具栏图标按钮——它在圆角地址栏里面，
+   尺寸与内边距跟着输入框走（Chromium 的 StarView 同样在 location bar 内）。 */
+.bookmark-star {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-inline-end: -6px;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  -webkit-app-region: no-drag;
+}
+.bookmark-star:hover { color: var(--text-primary); background: var(--surface-hover); }
+.bookmark-star[aria-expanded='true'] { color: var(--text-primary); background: var(--surface-pressed); }
+/* 已收藏：实心 + 强调色（Chromium 的 kStarActiveChromeRefreshIcon 同一语义）。 */
+.bookmark-star.bookmarked, .bookmark-star.bookmarked:hover { color: var(--accent); }
+.bookmark-star:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: -1px; }
+.bookmark-star .shell-icon { width: 15px; height: 15px; }
+/* 收藏夹按钮：与引擎/齿轮同一套 32×32 图标按钮，排在地址栏右侧第一个。 */
+.bookmarks-button { margin-inline-start: 2px; }
+.bookmarks-button[aria-expanded='true'] { color: var(--text-primary); background: var(--surface-pressed); }
 /* 引擎按钮：与齿轮同一个 `.icon-button` 尺寸（32×32），图标表示当前引擎。
    之前是"胶囊（内联开关）+ 下箭头"两块拼起来的，跟其它图标按钮不同尺寸/不同形状。 */
 .engine-button { margin-inline-start: 2px; }

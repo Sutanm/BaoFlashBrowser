@@ -38,7 +38,7 @@ export interface BookmarkTreeNode extends BookmarkNode {
   children: BookmarkTreeNode[]
 }
 
-export function isPermanentRoot(id: string): boolean {
+export function isPermanentRoot(id: string): id is BookmarkRootId {
   return (BOOKMARK_ROOTS as readonly string[]).includes(id)
 }
 
@@ -136,6 +136,62 @@ export function titleFor(rawTitle: string, url: string): string {
   } catch {
     return url
   }
+}
+
+/**
+ * 能不能收藏这个地址。
+ *
+ * 只认 http(s)：内部页（`bao://settings`、`bao://newtab`）不进收藏夹——它们不是"站点"，
+ * 收藏下来只有一条永远等于当前页的条目；工具栏星标在内部页也是禁用态，两侧判定必须一致。
+ * 判定放在这里而不是各调用点：主进程要用它拒绝非法地址，界面要用它决定星标可不可点。
+ */
+export function isBookmarkableAddress(address: string): boolean {
+  try {
+    const parsed = new URL(address.trim())
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 当前地址对应的收藏条目（没有就 `undefined`）。
+ *
+ * 按**完整地址**比对，和 Chromium 一致：不做去尾斜杠/去 fragment 之类的归一化——
+ * 归一化会让「同一篇文章的两个锚点」互相顶掉，用户看到的是星标莫名亮起。
+ */
+export function bookmarkForAddress(nodes: readonly BookmarkNode[], address: string): BookmarkNode | undefined {
+  const url = address.trim()
+  if (!url) return undefined
+  return nodes.find((node) => node.kind === 'url' && node.url === url)
+}
+
+/** 收藏时给输入框的默认标题：标题为空、或标题就是地址本身（Chromium 的占位标题）时回落到 host。 */
+export function suggestedTitle(pageTitle: string, url: string): string {
+  const title = pageTitle.trim()
+  if (title && title !== url.trim()) return title
+  return titleFor('', url)
+}
+
+/**
+ * 把某个根（或文件夹）下的子树**平铺**成「行 + 深度」，给面板按树序渲染。
+ *
+ * 为什么不用递归组件：面板里的树最多三层、行样式一致，递归组件换来的只是多一个文件；
+ * 深度交给一个数字，缩进就是一行 CSS。真要做拖拽/折叠再回头拆。
+ */
+export function flattenTree(
+  nodes: readonly BookmarkNode[],
+  parentId: string,
+  depth = 0
+): Array<{ node: BookmarkNode; depth: number }> {
+  const rows: Array<{ node: BookmarkNode; depth: number }> = []
+  // 与 `treeOf` 同一个深度上限：数据里真出现环时宁可少画一层，也不要栈溢出。
+  if (depth > 32) return rows
+  for (const node of childrenOf(nodes, parentId)) {
+    rows.push({ node, depth })
+    if (node.kind === 'folder') rows.push(...flattenTree(nodes, node.id, depth + 1))
+  }
+  return rows
 }
 
 /** 面板搜索：标题、地址、文件夹名都参与，大小写不敏感。 */

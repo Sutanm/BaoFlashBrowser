@@ -55,14 +55,16 @@ const RULES = [
       /^src\/renderer\/overlay-layout\.ts$/,
       /^src\/renderer\/OverlayHost\.vue$/,
       /^src\/renderer\/QuickSettings\.vue$/,
+      /^src\/renderer\/BookmarksPanel\.vue$/,
+      /^src\/renderer\/BookmarkEditPanel\.vue$/,
       /^src\/renderer\/ShellOverlay\.vue$/
     ],
-    tests: ['overlay-prewarm-hidden', 'overlay-prewarm-policy', 'quick-settings', 'theme', 'engine', 'shell-crash-heal']
+    tests: ['overlay-prewarm-hidden', 'overlay-prewarm-policy', 'quick-settings', 'bookmarks', 'theme', 'engine', 'shell-crash-heal']
   },
   {
     // 外壳 UI 主体（标签栏/工具栏/地址栏/飞窗入口）。
-    match: [/^src\/renderer\/App\.vue$/],
-    tests: ['tabs', 'tab-ops', 'tearoff', 'quick-settings', 'engine', 'theme', 'titlebar',
+    match: [/^src\/renderer\/App\.vue$/, /^src\/renderer\/ShellIcon\.vue$/],
+    tests: ['tabs', 'tab-ops', 'tearoff', 'quick-settings', 'bookmarks', 'engine', 'theme', 'titlebar',
       'newtab', 'internal-page', 'input', 'overlay-prewarm-hidden', 'overlay-prewarm-policy']
   },
   {
@@ -72,8 +74,10 @@ const RULES = [
   },
   {
     // 会话 / 存储。
-    match: [/^src\/main\/storage\.ts$/, /^src\/main\/sessions\.ts$/, /^src\/shared\/session\.ts$/],
-    tests: ['session-restore', 'data-cleanup', 'isolation', 'internal-page']
+    match: [/^src\/main\/storage\.ts$/, /^src\/main\/sessions\.ts$/, /^src\/shared\/session\.ts$/,
+      // 业务库（收藏夹表也在这里）与收藏夹的纯逻辑。
+      /^src\/main\/db\/store\.ts$/, /^src\/shared\/bookmarks\.ts$/],
+    tests: ['session-restore', 'data-cleanup', 'isolation', 'internal-page', 'bookmarks']
   },
   {
     // 设置模型与内部设置页。

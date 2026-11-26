@@ -3,9 +3,13 @@ import { join } from 'node:path'
 import { DEFAULT_SETTINGS, sanitizeSetting } from '../shared/settings'
 import type { SettingKey, Settings } from '../shared/settings'
 import type { BrowserEngine, EngineRules } from '../shared/engine'
+import type { BookmarkNode } from '../shared/bookmarks'
 import type { SessionSnapshot } from '../shared/session'
-import { clearEngineRules, clearSession, deleteRule, openStore, writeRule, writeSession, writeSessionExit, writeSetting } from './db/store'
-import type { OpenedStore, SessionExitState } from './db/store'
+import {
+  addBookmark, clearEngineRules, clearSession, deleteBookmark, deleteRule, moveBookmark, openStore,
+  readBookmarks, renameBookmark, writeRule, writeSession, writeSessionExit, writeSetting
+} from './db/store'
+import type { AddBookmarkInput, OpenedStore, SessionExitState } from './db/store'
 import { toDatabaseError } from './db/sqlite'
 
 /**
@@ -58,6 +62,73 @@ export function settings(): Settings {
 
 export function engineRules(): EngineRules {
   return store ? store.rules : {}
+}
+
+/**
+ * 收藏夹全量投影（含两个永久根）。
+ *
+ * 只读内存快照：写入路径已经用同一份 `readBookmarks()` 覆盖过它，所以这里不会比库旧。
+ * 存储不可用时返回空数组——界面显示"还没有收藏"，比抛错让整个状态广播失败要好。
+ */
+export function bookmarkNodes(): BookmarkNode[] {
+  return store ? store.bookmarks : []
+}
+
+/**
+ * 新增一条收藏，成功后刷新内存快照。
+ *
+ * 校验只做存储层该管的（父节点存在且是文件夹、地址非空）；**地址是不是 http(s)** 由调用方
+ * （`browser-window` 的命令入口）用 `isBookmarkableAddress()` 判——那是产品规则，
+ * 存储层不该知道"内部页不算站点"。
+ */
+export function addBookmarkData(input: AddBookmarkInput): boolean {
+  if (!store) return false
+  try {
+    addBookmark(store.db, input)
+    store.bookmarks = readBookmarks(store.db)
+    return true
+  } catch (error) {
+    console.error('[storage] 收藏写入失败。', error)
+    return false
+  }
+}
+
+/** 删除一条收藏（连同子树）。幂等：条目已经不在时也算成功，界面据此收行。 */
+export function removeBookmarkData(id: string): boolean {
+  if (!store) return false
+  try {
+    store.bookmarks = deleteBookmark(store.db, id)
+    return true
+  } catch (error) {
+    console.error('[storage] 收藏删除失败。', error)
+    return false
+  }
+}
+
+/**
+ * 改名 / 移动（编辑气泡的「完成」，以及名称框失焦时的即时保存）。
+ *
+ * 两件事都在存储层做，因为它们改的是同一份数据的两列、而且必须一起进一个结果快照：
+ * 只改一半会让界面显示"名字变了但还在原来的文件夹"。与 Chromium 一致：
+ * 标题为空串时不写（`renameBookmark` 会拒），移动用 `moveBookmark` 做环检测与重排。
+ */
+export function updateBookmarkData(id: string, changes: { title?: string; parentId?: string }): boolean {
+  if (!store) return false
+  try {
+    if (changes.parentId !== undefined) {
+      // 放到目标文件夹末尾：`moveBookmark` 会把 index 夹到同级长度，这里给一个足够大的值。
+      moveBookmark(store.db, id, changes.parentId, Number.MAX_SAFE_INTEGER)
+      store.bookmarks = readBookmarks(store.db)
+    }
+    if (changes.title !== undefined) {
+      store.bookmarks = renameBookmark(store.db, id, changes.title)
+    }
+    return true
+  } catch (error) {
+    console.error('[storage] 收藏更新失败。', error)
+    store.bookmarks = readBookmarks(store.db)
+    return false
+  }
 }
 
 /** 上次退出时的会话快照（没有会话或载荷损坏时为 `undefined`）。 */

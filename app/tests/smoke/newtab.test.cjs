@@ -166,12 +166,16 @@ test('新标签页：启动即是真实内部页，地址栏为空、无引擎�
       const value = await shell.evaluate(() => ({
         address: document.querySelector('.address-bar input')?.value,
         placeholder: document.querySelector('.address-bar input')?.placeholder,
-        engineDisabled: document.querySelector('.engine-button')?.disabled === true
+        engineDisabled: document.querySelector('.engine-button')?.disabled === true,
+        // 星标在地址栏内部：内部页**不显示**它（Chromium 对 chrome:// 页同样不显示；
+        // 地址栏是弹性的，隐藏不会改变工具栏宽度）。
+        starShown: document.querySelector('.address-bar .bookmark-star') !== null
       }))
       return value.address === undefined ? null : value
     }, { message: '外壳地址栏没有就绪' })
     assert.equal(ui.address, '')
     assert.equal(ui.engineDisabled, true, '新标签页的引擎按钮应禁用')
+    assert.equal(ui.starShown, false, '新标签页没有可收藏的地址，星标不该出现')
   } finally {
     await close()
   }
@@ -196,6 +200,7 @@ test('新标签页：输入 http(s) 走同一个标签（内部会话永不承�
     assert.equal(state.tabs[0].internal, undefined, '标签已变成普通网页')
     assert.equal(state.tabs[0].address, `${server.baseUrl}/`)
     assert.equal(await shell.locator('.engine-button').isDisabled(), false, '网页标签的引擎按钮应可用')
+    assert.equal(await shell.locator('.address-bar .bookmark-star').count(), 1, '网页标签的地址栏里应出现星标')
 
     // 页面会话没有 `bao://newtab` 的协议 handler：读不到内部页资源。
     const pageId = await app.evaluate(({ webContents }) =>
@@ -360,6 +365,7 @@ test('新标签页：网页上 Back 回到 NTP，Forward 重新打开该网页',
     assert.equal(onNewTab.tabs[0].canGoBack, false)
     assert.equal(onNewTab.tabs[0].canGoForward, true, '回到 NTP 后应能前进回网页')
     assert.equal(await shell.locator('.engine-button').isDisabled(), true, 'NTP 的引擎按钮应禁用（不是隐藏）')
+    assert.equal(await shell.locator('.address-bar .bookmark-star').count(), 0, 'NTP 的地址栏里不该有星标')
     const focused = await shell.evaluate(() =>
       document.activeElement === document.querySelector('.address-bar input'))
     assert.equal(focused, true, 'Back 回到 NTP 后焦点应在地址栏')

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { QuickView } from '../shared/overlay'
 import { useBrowserStore } from './stores/browser'
 import { applyShellTheme } from './theme'
 
@@ -9,17 +10,25 @@ import { applyShellTheme } from './theme'
  * 为什么不按 kind 分别加载一个文档：那是「一种内容一个渲染进程」，每个都要预热、
  * 还要错开预热时间。这里三个组件都常驻挂载（`v-show`），切换只是 CSS 显隐。
  *
+ * `quick` 里还有两页（快捷设置 / 收藏夹）：同样靠 `v-show` 切换，**不重新挂载**——
+ * 换页时两边的高度/滚动位置都还在，飞窗只需要一次 resize。
+ *
  * 组件用异步导入：首帧只含宿主本身（很轻），大块插画在后台并行加载，不拖第一次打开。
  */
 const ShellOverlay = defineAsyncComponent(() => import('./ShellOverlay.vue'))
 const QuickSettings = defineAsyncComponent(() => import('./QuickSettings.vue'))
+const BookmarksPanel = defineAsyncComponent(() => import('./BookmarksPanel.vue'))
+const BookmarkEditPanel = defineAsyncComponent(() => import('./BookmarkEditPanel.vue'))
 
 const store = useBrowserStore()
 const kind = ref<'panel' | 'quick' | 'toast'>('panel')
+/** 飞窗当前画哪一页；由主进程的 `quick-opened` 带过来（它才知道外壳最后一次请求的是哪页）。 */
+const view = ref<QuickView>('settings')
 /** toast 文本存在宿主里：toast 组件是异步挂载的，事件可能先于挂载到达。 */
 const toastText = ref('')
 /** 是否正在显示；隐藏时暂停 CSS 动画与日晷的时钟动画（视图 detach 后页面仍是 visible）。 */
 const active = ref(false)
+const quickShown = computed(() => kind.value === 'quick')
 let detach: (() => void) | undefined
 let openTimer = 0
 
@@ -83,6 +92,7 @@ onMounted(() => {
       active.value = true
       markOpening()
     } else if (event.type === 'quick-opened') {
+      view.value = event.view
       kind.value = 'quick'
       active.value = true
       markOpening()
@@ -112,8 +122,14 @@ onBeforeUnmount(() => {
   <div v-show="kind === 'panel'" class="overlay-slot">
     <ShellOverlay kind="panel" />
   </div>
-  <div v-show="kind === 'quick'" class="overlay-slot">
+  <div v-show="quickShown && view === 'settings'" class="overlay-slot">
     <QuickSettings kind="quick" :paused="!active" />
+  </div>
+  <div v-show="quickShown && view === 'bookmarks'" class="overlay-slot">
+    <BookmarksPanel :paused="!active" />
+  </div>
+  <div v-show="quickShown && view === 'bookmark-edit'" class="overlay-slot">
+    <BookmarkEditPanel :paused="!active" />
   </div>
   <div v-show="kind === 'toast'" class="overlay-slot">
     <ShellOverlay kind="toast" :text="toastText" />

@@ -2,6 +2,25 @@
 export const OVERLAY_QUERY = 'baoOverlay'
 export type OverlayKind = 'panel' | 'toast' | 'quick'
 
+/**
+ * 飞窗（`quick`）里的内容页。
+ *
+ * 为什么不把收藏夹做成第三种 `OverlayKind`：飞窗的全部价值就是「一个视图、一个渲染进程、
+ * 一份常驻文档」（见 `main/shell-overlays.ts` 文件头）。再加一种 kind 就要重复一整套
+ * 打开/关闭/resize/角色判定，而这几页在尺寸、锚定、关闭语义上完全一致，
+ * 差别只是**画哪一页**。所以它们共用 quick，用一个 `view` 区分。
+ *
+ * - `settings`：齿轮快捷设置；
+ * - `bookmarks`：收藏夹（工具栏那颗按钮 / 齿轮里的入口）；
+ * - `bookmark-edit`：地址栏星标下的「编辑收藏夹」气泡（Chromium 的 `BookmarkBubbleView`）。
+ */
+export const QUICK_VIEWS = ['settings', 'bookmarks', 'bookmark-edit'] as const
+export type QuickView = (typeof QUICK_VIEWS)[number]
+
+export function isQuickView(value: unknown): value is QuickView {
+  return typeof value === 'string' && (QUICK_VIEWS as readonly string[]).includes(value)
+}
+
 export const overlayChannels = {
   command: 'overlay:command',
   event: 'overlay:event',
@@ -23,7 +42,10 @@ export interface OverlayToast {
 export type OverlayEvent =
   | { type: 'panel-opened'; theme: 'light' | 'dark' }
   | { type: 'panel-closed'; restoreFocus: boolean }
-  | { type: 'quick-opened'; theme: 'light' | 'dark' }
+  /** `view` 决定飞窗画哪一页（快捷设置 / 收藏夹）；宿主要靠它切换，不能自己猜。 */
+  | { type: 'quick-opened'; theme: 'light' | 'dark'; view: QuickView }
+  // 飞窗里的「收藏夹」入口：外壳负责算锚点、开飞窗（它才知道星标按钮在哪）。
+  | { type: 'bookmarks-requested' }
   | { type: 'quick-closed'; restoreFocus: boolean }
   | { type: 'toast-closed' }
   /** 飞窗被隐藏（视图 detach）：让它暂停动画/定时器，等下次打开再恢复。 */
@@ -45,9 +67,11 @@ export type OverlayCommand =
   | { type: 'resize-panel'; height: number }
   | { type: 'close-panel'; restoreFocus: boolean }
   /** 齿轮快捷设置（M2）：飞窗永远在窗口内，主进程按内容区夹取。 */
-  | { type: 'set-quick'; bounds: OverlayBounds | null }
+  | { type: 'set-quick'; bounds: OverlayBounds | null; view?: QuickView }
   | { type: 'resize-quick'; height: number }
   | { type: 'close-quick'; restoreFocus: boolean }
+  /** Quick only. 飞窗里的「收藏夹」入口：转给外壳，由它算星标锚点后重新打开。 */
+  | { type: 'open-bookmarks' }
   | { type: 'dismiss-toast' }
   | { type: 'report-failure'; text: string }
   /** Shell only. 叠加层文档报告「本次内容已渲染」（度量用，非产品行为）。 */
@@ -79,8 +103,10 @@ export interface OverlayBridge {
   resizePanel(height: number): Promise<boolean>
   /** Panel only. Native notifies shell; optionally focus the shell/trigger. */
   closePanel(restoreFocus?: boolean): Promise<boolean>
-  /** Shell only. 齿轮飞窗的开/合与尺寸（复用同一套 WCV 机制）。 */
-  setQuick(bounds: OverlayBounds | null): Promise<boolean>
+  /** Shell only. 齿轮飞窗的开/合与尺寸（复用同一套 WCV 机制）。`view` 换内容页不换视图。 */
+  setQuick(bounds: OverlayBounds | null, view?: QuickView): Promise<boolean>
+  /** Quick only. 飞窗里点了「收藏夹」：请外壳在星标下重新展开。 */
+  openBookmarks(): Promise<boolean>
   /** Quick only. 内容变高（例如插件缺失提示行）后更新高度，仍按窗口夹取。 */
   resizeQuick(height: number): Promise<boolean>
   /** Quick only. 关闭并把焦点还给齿轮。 */

@@ -16,7 +16,8 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { clearEngineRulesData, clearSessionData, setSetting, settings as currentSettings, saveSession, storageStatus } from './storage'
+import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
+import { BOOKMARK_BAR_ROOT, isBookmarkableAddress, isPermanentRoot } from '../shared/bookmarks'
 import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
 import { settingsChannels } from '../shared/settings'
@@ -710,6 +711,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       flash: plugins,
       flashHint: plugins ? undefined : options.flashHint,
       sessionPrompt: sessionPromptOf(),
+      bookmarks: bookmarkNodes(),
       tabs: tabs.map(describe)
     }
   }
@@ -745,6 +747,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!tabs.includes(tab)) return
     if (active === tab) layout()
     publish()
+  }
+
+  /**
+   * 收藏夹变了：本窗口投影 + 其它窗口一起重算。
+   *
+   * 收藏夹是进程级数据（一份库、所有窗口共用）。只 `publish()` 本窗口的话，另一个窗口的
+   * 星标会一直停在旧状态，直到它自己碰巧广播一次——那正是"数据明明在库里、界面却不认"的观感。
+   */
+  function publishBookmarks(): void {
+    publish()
+    for (const other of controllers.values()) {
+      if (other !== controller) other.refreshProjection()
+    }
   }
 
   function layout(): void {
@@ -2576,10 +2591,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       const engineAction = command.type === 'set-engine' || command.type === 'remember-engine' || command.type === 'forget-engine'
       // 齿轮飞窗（quick）只允许「写设置」和「打开设置页」；引擎面板只允许引擎操作，
       // 外加「打开设置页」（插件缺失时点 Flash 档要跳到设置页的导入入口）。
+      // 收藏夹面板与快捷设置共用同一个飞窗文档（同一个 `quick` 角色）：它额外能收藏/删除/打开收藏。
       const settingsAction = command.type === 'set-setting' || command.type === 'open-settings'
+      // 收藏夹/编辑气泡与快捷设置共用同一个飞窗文档（同一个 `quick` 角色）：
+      // 它们额外能改写、删除、打开收藏（**收藏当前页**是外壳的事，不在这一档里）。
+      const bookmarkAction = command.type === 'update-bookmark' || command.type === 'remove-bookmark' ||
+        command.type === 'open-bookmark'
       const fromPanel = sender === 'panel' && overlays.panelVisible() &&
         (engineAction || command.type === 'open-settings')
-      const fromQuick = sender === 'quick' && overlays.quickVisible() && settingsAction
+      const fromQuick = sender === 'quick' && overlays.quickVisible() && (settingsAction || bookmarkAction)
       if (!fromPanel && !fromQuick) return fail('forbidden-sender')
     }
 
@@ -2694,6 +2714,66 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
           action: { name: 'tab.move', index: command.index },
           target: { tabId: tab.id }
         })
+      }
+      /**
+       * 收藏当前页（地址栏星标，Chromium 的 `BookmarkCurrentTab`）。
+       *
+       * 和 Chromium 一样：**先落库再弹气泡**——`AddIfNotBookmarked` 只往库里加，气泡是"编辑
+       * 刚加的那条"。所以这里自己取当前标签的地址与标题，界面不传任何地址；内部页不是站点，
+       * 直接拒绝（星标在内部页也不显示）。
+       */
+      case 'bookmark-page': {
+        const tab = activeTab()
+        if (!tab) return fail('unknown-tab')
+        if (tab.internal) return fail('no-site')
+        const url = displayAddress(tab, safe(() => tab.view?.webContents.getURL() ?? '', '')).trim()
+        if (!isBookmarkableAddress(url)) return fail('invalid-address')
+        // 幂等：同一地址只收藏一次（Chromium 按 URL 判重，不看标题）。
+        if (!bookmarkNodes().some((entry) => entry.kind === 'url' && entry.url === url)) {
+          const title = String(describe(tab).title ?? '')
+          if (!addBookmarkData({ parentId: BOOKMARK_BAR_ROOT, kind: 'url', title, url })) {
+            return fail('bookmark-save-failed')
+          }
+          publishBookmarks()
+        }
+        break
+      }
+      /**
+       * 改写一条收藏（编辑气泡）：名称与文件夹可以只给一个。
+       *
+       * 只认两个永久根做目标文件夹——界面上能选的也只有这两项，任意文件夹要等管理页落地。
+       */
+      case 'update-bookmark': {
+        if (typeof command.id !== 'string' || command.id.length === 0) return fail('invalid-command')
+        const title = typeof command.title === 'string' ? command.title : undefined
+        const requestedRoot = command.parentId
+        const parentId = requestedRoot !== undefined && isPermanentRoot(requestedRoot) ? requestedRoot : undefined
+        if (title === undefined && parentId === undefined) return fail('invalid-command')
+        if (!updateBookmarkData(command.id, { ...(title === undefined ? {} : { title }), ...(parentId === undefined ? {} : { parentId }) })) {
+          return fail('bookmark-save-failed')
+        }
+        publishBookmarks()
+        break
+      }
+      case 'remove-bookmark': {
+        if (typeof command.id !== 'string' || command.id.length === 0) return fail('invalid-command')
+        if (!removeBookmarkData(command.id)) return fail('bookmark-save-failed')
+        publishBookmarks()
+        break
+      }
+      /**
+       * 打开一条收藏：地址取自库里，不取自界面。
+       *
+       * 这样"被导航的地址"只可能是用户自己收藏过的东西——收藏夹面板因此不需要 `navigate`
+       * 那样的任意导航能力（它和快捷设置共用一个飞窗文档）。
+       */
+      case 'open-bookmark': {
+        if (typeof command.id !== 'string' || command.id.length === 0) return fail('invalid-command')
+        const node = bookmarkNodes().find((entry) => entry.id === command.id && entry.kind === 'url')
+        if (!node?.url) return fail('bookmark-missing')
+        const tab = activeTab()
+        if (!tab) return fail('unknown-tab')
+        return navigateTab(tab, node.url)
       }
       case 'navigate': {
         const tab = activeTab()

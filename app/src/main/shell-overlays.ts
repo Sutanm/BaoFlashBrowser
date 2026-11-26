@@ -3,9 +3,9 @@ import type { BrowserWindow, Event, Input, IpcMainInvokeEvent, MouseInputEvent, 
 import { join } from 'node:path'
 import { browserChannels } from '../shared/browser'
 import type { BrowserState } from '../shared/browser'
-import { OVERLAY_QUERY, overlayChannels } from '../shared/overlay'
+import { OVERLAY_QUERY, isQuickView, overlayChannels } from '../shared/overlay'
 import { clampBelow, clampBounds } from '../shared/overlay-geometry'
-import type { OverlayBounds, OverlayEvent, OverlayKind } from '../shared/overlay'
+import type { OverlayBounds, OverlayEvent, OverlayKind, QuickView } from '../shared/overlay'
 import type { PrewarmMode } from '../shared/settings'
 import { beginOpen, markContent, markVisible, readSamples, resetSamples, summarize } from './overlay-metrics'
 import { getShellSession } from './sessions'
@@ -17,6 +17,8 @@ interface HostedView {
   text?: string
   /** 共用视图当前在显示哪一种内容（同一个文档按事件切换组件）。 */
   kind?: OverlayKind
+  /** 飞窗当前画哪一页（`kind === 'quick'` 时有效）：快捷设置 / 收藏夹。 */
+  quick?: QuickView
 }
 
 const FLYOUT_KINDS = ['panel', 'quick'] as const
@@ -92,6 +94,8 @@ export function createShellOverlays(
   let pendingOpen = 0
   /** 上一次真正通知渲染层的内容种类：用来判断「可见但换内容」是否要补发打开事件。 */
   let shownKind: OverlayKind | undefined
+  /** 上一次通知渲染层的飞窗内容页：换页（快捷设置 ↔ 收藏夹）同样要补发 open 事件。 */
+  let shownQuick: QuickView | undefined
   let disposed = false
 
   function sender(event: IpcMainInvokeEvent): 'shell' | 'panel' | 'quick' | 'toast' | undefined {
@@ -120,7 +124,9 @@ export function createShellOverlays(
   /** 只有叠加层自己会发的命令：共享模式下它们经外壳的桥发言，需要按当前内容种类认角色。 */
   const OVERLAY_ONLY_COMMANDS = new Set<string>([
     'report-ready', 'report-failure', 'resize-panel', 'resize-quick',
-    'close-panel', 'close-quick', 'dismiss-toast', 'pull-overlay', 'report-longtask'
+    'close-panel', 'close-quick', 'dismiss-toast', 'pull-overlay', 'report-longtask',
+    // 飞窗里的「收藏夹」入口同样由浮层文档发起（它不知道该把飞窗挂到哪个按钮下）。
+    'open-bookmarks'
   ])
 
   function hide(item: HostedView): void {
@@ -130,7 +136,9 @@ export function createShellOverlays(
     item.bounds = undefined
     item.text = undefined
     item.kind = undefined
+    item.quick = undefined
     shownKind = undefined
+    shownQuick = undefined
     item.view.setVisible(false)
     if (!window.isDestroyed()) window.contentView.removeChildView(item.view)
   }
@@ -207,21 +215,26 @@ export function createShellOverlays(
     if (current.x !== bounds.x || current.y !== bounds.y ||
         current.width !== bounds.width || current.height !== bounds.height) item.view.setBounds(bounds)
     const alreadyVisible = item.view.getVisible()
-    // 只有「刚显示」或「内容种类变了」才通知渲染层。
+    // 飞窗的内容页（快捷设置 / 收藏夹）与 kind 一样算「内容」：视图已经可见时换页，
+    // 必须补发一条 open 事件，否则文档不知道自己该画哪一页（视图亮着、内容还是旧的）。
+    const nextQuick = kind === 'quick' ? (item.quick ?? 'settings') : undefined
+    // 只有「刚显示」或「内容种类/内容页变了」才通知渲染层。
     // 之前每次 sync() 都重发 `*-opened`（例如每次 resize-quick 之后），渲染层收到就重新挂载/重测，
     // 于是「测量 → resize → sync → 再测量」变成正反馈：实测每 500 ms 约 4100 次 report-ready +
     // 6600 次 resize-quick（≈2.2 万次/秒），主进程被拖到单次定时器延迟上百毫秒甚至数秒。
-    const reopened = alreadyVisible && item.kind !== shownKind
+    const reopened = alreadyVisible && (item.kind !== shownKind ||
+      (kind === 'quick' && nextQuick !== shownQuick))
     if (!alreadyVisible) {
       item.view.setVisible(true)
       raise()
       if (pendingOpen) markVisible(pendingOpen)
     } else if (reopened) {
-      // 视图已经可见但内容换了（toast ↔ 面板/飞窗）：仍要通知渲染层切换并交接焦点，
+      // 视图已经可见但内容换了（toast ↔ 面板/飞窗，或飞窗换页）：仍要通知渲染层切换并交接焦点，
       // 否则会看到「视图亮着、内容不对、Esc 关不掉」。
       if (pendingOpen) markVisible(pendingOpen)
     }
     shownKind = kind
+    shownQuick = nextQuick
     if (kind !== 'toast' && (!alreadyVisible || reopened)) {
       // 后台窗口不抢前台（与 browser-window 的 focusContents 同一合同）：
       // 自动化或窗口被盖住时，打开飞窗不应该把窗口拉到前台。
@@ -230,7 +243,7 @@ export function createShellOverlays(
       const theme = currentTheme()
       send(item.view.webContents, kind === 'panel'
         ? { type: 'panel-opened', theme }
-        : { type: 'quick-opened', theme })
+        : { type: 'quick-opened', theme, view: nextQuick ?? 'settings' })
     }
   }
 
@@ -375,7 +388,7 @@ export function createShellOverlays(
   }
 
   /** 打开（或换内容并重新定位）叠加层。panel / quick / toast 用同一个视图。 */
-  function showOverlay(kind: OverlayKind, bounds: OverlayBounds): boolean {
+  function showOverlay(kind: OverlayKind, bounds: OverlayBounds, quick?: QuickView): boolean {
     // 度量：记录点击那一刻视图处于哪种状态（cold / warming / warm）。
     const state = flyout ? (flyout.ready ? 'warm' : 'warming') : 'cold'
     pendingOpen = beginOpen(kind, state)
@@ -384,6 +397,7 @@ export function createShellOverlays(
     const item = host()
     if (!item) return false
     item.kind = kind
+    if (quick !== undefined) item.quick = quick
     item.bounds = bounds
     sync(kind)
     return true
@@ -429,7 +443,7 @@ export function createShellOverlays(
         if (live.kind === 'toast') send(live.view.webContents, { type: 'toast', text: live.text ?? '' })
         else send(live.view.webContents, live.kind === 'panel'
           ? { type: 'panel-opened', theme: currentTheme() }
-          : { type: 'quick-opened', theme: currentTheme() })
+          : { type: 'quick-opened', theme: currentTheme(), view: live.quick ?? 'settings' })
         return true
       }
       case 'set-panel': {
@@ -444,13 +458,24 @@ export function createShellOverlays(
       }
       case 'set-quick': {
         if (role !== 'shell') return false
+        // 内容页只认白名单里的两个值：它是渲染层能直接指定的"画哪页"，非法值不能落进状态。
+        if (value.view !== undefined && !isQuickView(value.view)) return false
         if (value.bounds === null) {
           if (flyout?.kind === 'quick') hide(flyout)
           return true
         }
         const bounds = readBounds(value.bounds)
         if (!bounds) return false
-        return showOverlay('quick', bounds)
+        return showOverlay('quick', bounds, isQuickView(value.view) ? value.view : undefined)
+      }
+      /**
+       * 飞窗里的「收藏夹」入口：外壳负责锚点（它才知道星标按钮在哪），
+       * 所以这里只把请求转给外壳，自己不改变任何状态。
+       */
+      case 'open-bookmarks': {
+        if (role !== 'quick' || flyout?.kind !== 'quick' || !flyout.bounds) return false
+        sendToShell({ type: 'bookmarks-requested' })
+        return true
       }
       case 'set-toast': {
         if (role !== 'shell') return false

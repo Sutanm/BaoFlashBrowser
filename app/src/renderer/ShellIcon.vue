@@ -8,6 +8,7 @@
 defineProps<{
   name: 'lock' | 'chevron' | 'flash' | 'ruffle' | 'check' | 'error' | 'close' | 'gear'
   | 'palette' | 'shield' | 'home' | 'gauge' | 'translate' | 'info'
+  | 'star' | 'star-filled' | 'page' | 'folder' | 'bookmarks'
 }>()
 </script>
 
@@ -58,6 +59,22 @@ defineProps<{
     <g v-else-if="name === 'info'">
       <circle cx="12" cy="12" r="9" />
       <path d="M12 11v6M12 7.6v.4" />
+    </g>
+    <!-- 星标：工具栏「收藏此页面」。空心=未收藏，实心=已收藏（Chrome/Edge 同一套语义）。 -->
+    <path v-else-if="name === 'star'" d="m12 3.7 2.6 5.4 5.9.9-4.3 4.2 1 5.9-5.2-2.9-5.2 2.9 1-5.9-4.3-4.2 5.9-.9z" />
+    <path v-else-if="name === 'star-filled'" d="m12 3.7 2.6 5.4 5.9.9-4.3 4.2 1 5.9-5.2-2.9-5.2 2.9 1-5.9-4.3-4.2 5.9-.9z"
+      fill="currentColor" stroke="none" />
+    <!-- 文档：收藏夹列表里的网址收藏 -->
+    <g v-else-if="name === 'page'">
+      <path d="M7 3.6h6.4L18 8.2v12.2H7z" />
+      <path d="M13.4 3.6v4.6H18" />
+    </g>
+    <!-- 文件夹：收藏夹里的文件夹（本轮只展示，不可新建/拖动） -->
+    <path v-else-if="name === 'folder'" d="M4 7.6A1.6 1.6 0 0 1 5.6 6h3.6l1.7 2.1h7.5a1.6 1.6 0 0 1 1.6 1.6v7.3a1.6 1.6 0 0 1-1.6 1.6H5.6A1.6 1.6 0 0 1 4 17z" />
+    <!-- 收藏夹（书签带 + 列表）：工具栏那颗打开收藏夹树的按钮（星标在地址栏里，是另一件事） -->
+    <g v-else-if="name === 'bookmarks'">
+      <path d="M14 3.8h5.2v16.3l-2.6-2.7-2.6 2.7z" />
+      <path d="M4.2 6.4h6.4M4.2 11h6.4M4.2 15.6h4.4" />
     </g>
     <path v-else d="m6 6 12 12M18 6 6 18" />
   </svg>

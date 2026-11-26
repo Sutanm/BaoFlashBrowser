@@ -108,6 +108,16 @@ async function openSettings(): Promise<void> {
   await window.baoOverlay.closeQuick(true)
 }
 
+/**
+ * 「收藏夹」入口：请外壳在星标下方展开同一只飞窗的另一页。
+ *
+ * 为什么不在本文档里直接切页：锚点要贴着星标，而星标在外壳文档里——这里拿不到它的矩形。
+ * 外壳本来就在管"飞窗挂在哪颗按钮下"，切页也交给它，就只有一个地方知道飞窗现在挂在谁下面。
+ */
+async function openBookmarks(): Promise<void> {
+  await window.baoOverlay.openBookmarks()
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
   event.preventDefault()
@@ -119,6 +129,9 @@ onMounted(() => {
     if (event.type === 'quick-opened') {
       // 打开事件带着当前主题：叠加层是常驻文档，光靠推送会漏（文档还没订阅时的事件）。
       applyShellTheme(event.theme)
+      // 外壳给的初始高度只是猜测：每次打开都要重新上报一次，去重值必须一起清掉
+      // （否则第二次打开会留下一截空白视图，盖住页面上的点击）。
+      lastSentHeight = 0
       void nextTick(() => {
         // 不聚焦任何元素：面板用 tabindex 接过焦点会被 Chromium 画上默认焦点环
         // （打开飞窗就出现一圈黄边）。Tab 从文档进入时会先落到唯一可 tab 的选中档，
@@ -194,6 +207,11 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
       <p v-if="error" class="error" role="status">{{ error }}</p>
 
       <div class="divider" role="presentation"></div>
+      <button type="button" class="row footer" @click="openBookmarks">
+        <span class="lead-icon"><ShellIcon name="star" /></span>
+        <span>收藏夹</span>
+        <span class="chev"><ShellIcon name="chevron" /></span>
+      </button>
       <button type="button" class="row footer" @click="openSettings">
         <span class="lead-icon"><ShellIcon name="gear" /></span>
         <span>全部设置</span>
