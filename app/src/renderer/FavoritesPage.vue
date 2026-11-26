@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
-  BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT, BOOKMARK_ROOTS, childrenOf, descendantIds, isPermanentRoot,
-  matchesQuery
+  BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT, BOOKMARK_ROOTS, checkPlacement, childrenOf, descendantIds,
+  insertionIndex, isPermanentRoot, matchesQuery
 } from '../shared/bookmarks'
 import type { BookmarkNode } from '../shared/bookmarks'
 import type { FavoritesCommand, FavoritesCommandResult, FavoritesSnapshot } from '../shared/favorites'
@@ -298,6 +298,145 @@ function selectRow(node: BookmarkNode): void {
 }
 
 /* ---------------------------------------------------------------- *
+ * 拖动排序 / 换文件夹
+ *
+ * 落点算法照 `chrome/browser/resources/bookmarks/dnd_manager.ts`：一行分三段——
+ * 上 1/4 = 插到它前面、下 1/4 = 插到它后面、中间 1/2 = 放进这个文件夹（只有文件夹才给）。
+ * 树里只做"放进文件夹"（树的顺序就是库里的顺序，在树里排序会与右侧列表打架）。
+ *
+ * 换算成 `(parentId, index)` 只走一个纯函数 `insertionIndex()`：`moveBookmark()` 的 index 是
+ * **移除被拖项之后**的位置，界面算落点时被拖项还在列表里，差一位就会整体偏移。
+ * ---------------------------------------------------------------- */
+
+type DropMode = 'before' | 'after' | 'inside'
+
+interface DropTarget {
+  id: string
+  mode: DropMode
+}
+
+const dragging = ref<string>()
+const dropTarget = ref<DropTarget>()
+
+function canDrag(node: BookmarkNode): boolean {
+  // 永久根不能移动（存储层同样拒绝），改名中的行也不拖——否则会把输入框一起拖走。
+  return storageReady.value && !busy.value && !isPermanentRoot(node.id) && editingId.value !== node.id
+}
+
+function startDrag(node: BookmarkNode, event: DragEvent): void {
+  if (!canDrag(node)) {
+    event.preventDefault()
+    return
+  }
+  dragging.value = node.id
+  dropTarget.value = undefined
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    // 载荷只是"看起来像拖拽"，真正的身份以 dragging 为准（页面不消费外部拖入的数据）。
+    event.dataTransfer.setData('text/plain', node.id)
+  }
+}
+
+/** 行 + 落点 → (parentId, index)；**放不下**时返回 undefined（界面就不给指示线）。 */
+function placementFor(node: BookmarkNode, mode: DropMode): { parentId: string; index: number } | undefined {
+  const draggedId = dragging.value
+  if (!draggedId || draggedId === node.id) return undefined
+  if (mode === 'inside') {
+    if (node.kind !== 'folder') return undefined
+    if (!checkPlacement(nodes.value, draggedId, node.id).ok) return undefined
+    return { parentId: node.id, index: insertionIndex(nodes.value, node.id, null, draggedId) }
+  }
+  const parentId = node.parentId
+  if (!parentId) return undefined
+  if (!checkPlacement(nodes.value, draggedId, parentId).ok) return undefined
+  const beforeId = mode === 'before' ? node.id : nextSiblingId(node)
+  return { parentId, index: insertionIndex(nodes.value, parentId, beforeId, draggedId) }
+}
+
+function nextSiblingId(node: BookmarkNode): string | null {
+  const parentId = node.parentId
+  if (!parentId) return null
+  const siblings = childrenOf(nodes.value, parentId)
+  const at = siblings.findIndex((item) => item.id === node.id)
+  return at >= 0 && at + 1 < siblings.length ? siblings[at + 1].id : null
+}
+
+/** 列表行：三段式。 */
+function dragOverRow(node: BookmarkNode, event: DragEvent): void {
+  const draggedId = dragging.value
+  if (!draggedId || draggedId === node.id) return
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const ratio = (event.clientY - rect.top) / Math.max(rect.height, 1)
+  const mode: DropMode = node.kind === 'folder' && ratio > 0.25 && ratio < 0.75
+    ? 'inside'
+    : ratio < 0.5 ? 'before' : 'after'
+  acceptDrop(node, mode, event)
+}
+
+/** 树行：只接受「放进这个文件夹」。 */
+function dragOverTree(node: BookmarkNode, event: DragEvent): void {
+  if (node.kind !== 'folder') return
+  acceptDrop(node, 'inside', event)
+}
+
+function acceptDrop(node: BookmarkNode, mode: DropMode, event: DragEvent): void {
+  if (!placementFor(node, mode)) {
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    if (dropTarget.value?.id === node.id) dropTarget.value = undefined
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  if (dropTarget.value?.id !== node.id || dropTarget.value.mode !== mode) {
+    dropTarget.value = { id: node.id, mode }
+  }
+}
+
+function dragLeave(node: BookmarkNode): void {
+  if (dropTarget.value?.id === node.id) dropTarget.value = undefined
+}
+
+async function dropOnRow(node: BookmarkNode, event: DragEvent): Promise<void> {
+  event.preventDefault()
+  // 行上的 drop 不能冒泡到列表容器：那会把「插到这一行」又执行一次「追加到本文件夹末尾」，
+  // 于是同一次拖拽发两条 move 命令（第二次覆盖第一次）。
+  event.stopPropagation()
+  const id = dragging.value
+  const target = dropTarget.value?.id === node.id ? placementFor(node, dropTarget.value.mode) : undefined
+  endDrag()
+  if (!id || !target) return
+  await applyCommand({ type: 'move', id, parentId: target.parentId, index: target.index })
+  selectedId.value = id
+}
+
+/** 拖到列表空白处：追加到当前文件夹末尾（把条目拖进空文件夹不用非得瞄准树）。 */
+async function dropOnList(event: DragEvent): Promise<void> {
+  const id = dragging.value
+  const parentId = currentFolderId.value
+  const allowed = id ? checkPlacement(nodes.value, id, parentId).ok : false
+  endDrag()
+  if (!id || !allowed) return
+  await applyCommand({
+    type: 'move',
+    id,
+    parentId,
+    index: insertionIndex(nodes.value, parentId, null, id)
+  })
+  selectedId.value = id
+}
+
+function endDrag(): void {
+  dragging.value = undefined
+  dropTarget.value = undefined
+}
+
+/** 行上的落点样式（插线 / 放进高亮）。 */
+function dropClass(node: BookmarkNode): string {
+  if (dropTarget.value?.id !== node.id) return ''
+  return `drop-${dropTarget.value.mode}`
+}
+
+/* ---------------------------------------------------------------- *
  * 键盘
  * ---------------------------------------------------------------- */
 
@@ -409,11 +548,17 @@ watch(nodes, syncSelection)
           v-for="row in treeRows"
           :key="row.node.id"
           class="tree-row"
-          :class="{ selected: row.node.id === currentFolderId, root: row.depth === 0 }"
+          :class="[{ selected: row.node.id === currentFolderId, root: row.depth === 0 }, dropClass(row.node)]"
           :data-bookmark-id="row.node.id"
           :style="{ paddingInlineStart: `${6 + row.depth * 14}px` }"
+          :draggable="canDrag(row.node)"
           @click="selectFolder(row.node.id)"
           @dblclick="row.hasChildren && toggleFolder(row.node.id)"
+          @dragstart="startDrag(row.node, $event)"
+          @dragover="dragOverTree(row.node, $event)"
+          @dragleave="dragLeave(row.node)"
+          @drop="dropOnRow(row.node, $event)"
+          @dragend="endDrag"
         >
           <button
             v-if="row.hasChildren"
@@ -446,16 +591,30 @@ watch(nodes, syncSelection)
           <span class="fav-count">{{ listRows.length }}</span>
         </h1>
 
-        <div v-if="listRows.length > 0" class="fav-rows">
+        <div
+          v-if="listRows.length > 0"
+          class="fav-rows"
+          @dragover.prevent
+          @drop="dropOnList"
+        >
           <div
             v-for="row in listRows"
             :key="row.node.id"
             class="fav-row"
-            :class="{ selected: row.node.id === selectedId, folder: row.node.kind === 'folder' }"
+            :class="[
+              { selected: row.node.id === selectedId, folder: row.node.kind === 'folder' },
+              dropClass(row.node)
+            ]"
             :data-bookmark-id="row.node.id"
             :data-kind="row.node.kind"
+            :draggable="canDrag(row.node)"
             @click="selectRow(row.node)"
             @dblclick="openNode(row.node)"
+            @dragstart="startDrag(row.node, $event)"
+            @dragover="dragOverRow(row.node, $event)"
+            @dragleave="dragLeave(row.node)"
+            @drop="dropOnRow(row.node, $event)"
+            @dragend="endDrag"
           >
             <span class="row-icon" aria-hidden="true">
               <img v-if="faviconOf(row.node.url)" class="favicon" :src="faviconOf(row.node.url)" alt="">
@@ -689,6 +848,32 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
   color: var(--text-secondary);
 }
 .fav-row.folder .row-title { font-weight: 600; }
+
+/*
+ * 拖拽反馈：插到行间是 2px 的强调色直线（不占布局、不推行高），
+ * 放进文件夹是整行铺中性选中面 + 一圈细描边。两种都刻意不用光晕。
+ *
+ * 直线用绝对定位的伪元素而不是 `box-shadow: inset`：后者会被行的 6px 圆角切出弧形端头，
+ * 看起来像一条"胶囊"，而 Chromium 的插入线是直的（2026-11-26 截图对比）。
+ */
+.fav-row, .tree-row { position: relative; }
+.fav-row.drop-before::before, .tree-row.drop-before::before,
+.fav-row.drop-after::after, .tree-row.drop-after::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.fav-row.drop-before::before, .tree-row.drop-before::before { top: -1px; }
+.fav-row.drop-after::after, .tree-row.drop-after::after { bottom: -1px; }
+.fav-row.drop-inside, .tree-row.drop-inside {
+  background: var(--surface-selected);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
 
 .fav-empty { margin: 24px 8px; color: var(--text-secondary); }
 .fav-status { flex: none; min-height: 20px; margin: 0; padding: 0 12px 4px; font-size: var(--size-caption, 12px); color: var(--text-error); }

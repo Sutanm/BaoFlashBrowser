@@ -8,6 +8,7 @@ import {
   compactPositions,
   descendantIds,
   flattenTree,
+  insertionIndex,
   isBookmarkBarMode,
   isBookmarkableAddress,
   isPermanentRoot,
@@ -245,5 +246,44 @@ describe('收藏夹横条的显示规则', () => {
     expect(isBookmarkBarMode('show_on_all_tabs')).toBe(false)
     expect(isBookmarkBarMode(true)).toBe(false)
     expect(isBookmarkBarMode(undefined)).toBe(false)
+  })
+})
+
+describe('insertionIndex：拖拽落点 → moveBookmark 的 index', () => {
+  /**
+   * `moveBookmark(db, id, parentId, index)` 里的 index 是**移除被拖项之后**的最终位置
+   * （存储层先把自己从同级剔除，再按 index 插入）；界面算落点时被拖项还在列表里。
+   * 这两者差一位的表现是"向右拖永远偏一格"，只有像素级观察才看得出来，
+   * 所以换算必须是纯函数 + 用例。
+   */
+  const tree = [
+    ...roots,
+    node({ id: 'a', position: 0 }),
+    node({ id: 'b', position: 1 }),
+    node({ id: 'c', position: 2 })
+  ]
+
+  it('插到某个兄弟之前：位置按"排除自己之后"的列表算', () => {
+    // 同父内：c 拖到 a 前面。含 c 的列表是 [a,b,c]，排除 c 后是 [a,b] → a 的下标 0。
+    expect(insertionIndex(tree, BOOKMARK_BAR_ROOT, 'a', 'c')).toBe(0)
+    // a 拖到 c 前面（含 a 的列表 [a,b,c] 里 c 是 2；排除 a 后 [b,c] → c 的下标 1）。
+    expect(insertionIndex(tree, BOOKMARK_BAR_ROOT, 'c', 'a')).toBe(1)
+    // 跨父移动（被拖项不在目标同级里）：下标就是普通位置。
+    expect(insertionIndex(tree, BOOKMARK_BAR_ROOT, 'b', 'elsewhere')).toBe(1)
+  })
+
+  it('追加到末尾：null 表示"同级最后一位"', () => {
+    expect(insertionIndex(tree, BOOKMARK_BAR_ROOT, null, 'a')).toBe(2)
+    expect(insertionIndex(tree, BOOKMARK_BAR_ROOT, null)).toBe(3)
+    // 空文件夹里追加 = 0（新建的第一个）。
+    expect(insertionIndex(tree, 'empty-folder', null, 'a')).toBe(0)
+  })
+
+  it('落点不存在（已被删/换了父节点）时退回追加，而不是算出负数下标', () => {
+    expect(insertionIndex(tree, BOOKMARK_BAR_ROOT, 'gone', 'a')).toBe(2)
+  })
+
+  it('拖到自己身上是非法落点：checkPlacement 拒', () => {
+    expect(checkPlacement(tree, 'a', 'a')).toEqual({ ok: false, reason: 'into-itself' })
   })
 })

@@ -58,6 +58,15 @@ export type FavoritesCommand =
   | { type: 'rename'; id: string; title: string }
   /** 删除（文件夹连同子树）：永久根由存储层拒绝。 */
   | { type: 'remove'; id: string }
+  /**
+   * 移动 / 排序（拖动）。
+   *
+   * `index` 是**移除被拖项之后**的最终索引，与 `store.moveBookmark()` 的口径一致；
+   * 由界面用 `shared/bookmarks.ts` 的 `insertionIndex()` 换算出来，不要在两边各算一遍。
+   * 环（拖进自己的子孙）与非法父节点由存储层的 `checkPlacement()` 拒，命令返回
+   * `bookmark-placement`，界面据此提示而不用先本地改一遍再回滚。
+   */
+  | { type: 'move'; id: string; parentId: string; index: number }
 
 export type FavoritesCommandResult =
   | {

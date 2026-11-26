@@ -277,3 +277,28 @@ export function matchesQuery(node: BookmarkNode, query: string): boolean {
 export function compactPositions(ids: readonly string[]): Map<string, number> {
   return new Map(ids.map((id, index) => [id, index]))
 }
+
+/**
+ * 拖拽落点 → `moveBookmark()` 需要的插入位。
+ *
+ * 为什么要一个纯函数：`moveBookmark(db, id, parentId, index)` 的 `index` 是
+ * **移除被拖项之后**的最终索引（存储层先把自己从同级里剔除，再按 index 插入）。
+ * 而界面上算落点用的是"当前含被拖项"的列表——这两者差一位，向右拖永远偏一格。
+ * 这条换算在两个地方要一致（同父内排序、跨文件夹移动），所以只写一次，用用例钉住。
+ *
+ * @param beforeId 落点插入到哪个兄弟**之前**；`null` = 追加到末尾。
+ * @param draggedId 被拖的节点 id（同父内移动时它还在同级列表里，必须先排除）。
+ */
+export function insertionIndex(
+  nodes: readonly BookmarkNode[],
+  parentId: string,
+  beforeId: string | null,
+  draggedId?: string
+): number {
+  const siblings = childrenOf(nodes, parentId)
+    .map((node) => node.id)
+    .filter((id) => id !== draggedId)
+  if (beforeId === null) return siblings.length
+  const at = siblings.indexOf(beforeId)
+  return at < 0 ? siblings.length : at
+}

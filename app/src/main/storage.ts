@@ -138,6 +138,29 @@ export function updateBookmarkData(
 }
 
 /**
+ * 移动 / 排序一条收藏（管理页拖动、编辑气泡的「换文件夹」）。
+ *
+ * 返回三态而不是布尔：**放不下**（环、目标不是文件夹）与**写盘失败**对用户是两句不同的话，
+ * 混成一个 `false` 只能提示"没保存"，会让人以为数据出问题了。
+ */
+export type BookmarkMoveResult = 'ok' | 'placement' | 'unavailable'
+
+export function moveBookmarkData(id: string, parentId: string, index: number): BookmarkMoveResult {
+  if (!store) return 'unavailable'
+  try {
+    store.bookmarks = moveBookmark(store.db, id, parentId, index)
+    return 'ok'
+  } catch (error) {
+    const code = toDatabaseError(error).code
+    if (code === 'BOOKMARK_PLACEMENT') return 'placement'
+    console.error('[storage] 收藏移动失败。', error)
+    // 失败时把内存快照再读一遍：库里可能已经回滚，界面不该停在乐观结果上。
+    store.bookmarks = readBookmarks(store.db)
+    return 'unavailable'
+  }
+}
+
+/**
  * 新建文件夹（完整编辑器里的「新建文件夹」）。
  *
  * 父节点合法性由 `addBookmark` 判（必须是文件夹），这里只兜住"名字不能是空白"——

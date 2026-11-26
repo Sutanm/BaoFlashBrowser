@@ -106,6 +106,39 @@ const doubleClickFavText = (app, scope, text) => internalEval(app, FAV, `(() => 
   return true
 })()`)
 
+/** 行选择器（按库里的 id，比按文字稳：改名之后文字会变）。 */
+const rowSel = (id) => `.fav-row[data-bookmark-id="${id}"]`
+const treeSel = (id) => `.tree-row[data-bookmark-id="${id}"]`
+
+/**
+ * 一次完整的行间拖拽：dragstart → dragover（记录落点反馈）→ drop。
+ *
+ * 走真的 DragEvent（`new DataTransfer()` 在 Chromium 里可构造）：合成事件足以驱动
+ * `draggable` + `dragstart`/`dragover`/`drop` 这条链路，比直接调命令更能证明"画出来的拖拽真能用"。
+ * `ratio` 是释放点在目标行内的纵向比例：上 1/4 = 插到前面、下 1/4 = 插到后面、
+ * 中间 1/2 = 放进文件夹（与 `dnd_manager.ts` 的三段式一致）。
+ */
+const dragFav = (app, fromSelector, toSelector, ratio) => internalEval(app, FAV, `(async () => {
+  const from = document.querySelector(${JSON.stringify(fromSelector)})
+  const to = document.querySelector(${JSON.stringify(toSelector)})
+  if (!from || !to) throw new Error('拖拽两端有一个不存在')
+  const rect = to.getBoundingClientRect()
+  const clientY = rect.top + rect.height * ${ratio}
+  const transfer = new DataTransfer()
+  const frame = () => new Promise((done) => requestAnimationFrame(() => done(null)))
+  from.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+  to.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY }))
+  // 落点反馈是 Vue 的下一帧才写进 class 的：读之前先过一帧，否则量到的是旧 class。
+  await frame()
+  const during = to.className
+  to.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY }))
+  await frame()
+  return {
+    during,
+    indicators: document.querySelectorAll('.drop-before, .drop-after, .drop-inside').length
+  }
+})()`)
+
 /** 在收藏夹栏里收藏一个地址（复用主进程的 bookmark-page，效果与点星标一致）。 */
 async function bookmarkPage(shell, url) {
   await shell.evaluate((address) => window.baoBrowser.run({ type: 'navigate', address }), url)
@@ -338,6 +371,94 @@ test('收藏夹管理页：双击在新标签打开、搜索过滤、飞窗底�
     // ③ 状态区没有报错（有错就说明命令被拒了）。
     assert.equal((await favFacts(app)).status, '', '正常操作不该在状态区留错误')
     assert.ok(first.id)
+  } finally {
+    await close()
+    await server.close()
+  }
+})
+
+test('收藏夹管理页：拖动排序、拖进文件夹、非法落点不写库', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({
+    '/a': page('A 页面'),
+    '/b': page('B 页面'),
+    '/c': page('C 页面')
+  })
+  const { app, shell, close } = await launchApp()
+  try {
+    const a = await bookmarkPage(shell, `${server.baseUrl}/a`)
+    const b = await bookmarkPage(shell, `${server.baseUrl}/b`)
+    const c = await bookmarkPage(shell, `${server.baseUrl}/c`)
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'open-favorites' }))
+    await waitForFavorites(app)
+
+    /** 收藏夹栏里的顺序（按 position，不是插入顺序）。 */
+    const order = async () => {
+      const state = await snapshot(shell)
+      return state.bookmarks
+        .filter((node) => node.parentId === 'bar')
+        .sort((left, right) => left.position - right.position)
+        .map((node) => node.title)
+    }
+    assert.deepEqual(await order(), ['A 页面', 'B 页面', 'C 页面'])
+
+    // ① 同父内排序：C 拖到 A 的上四分之一（插到 A 前面）。
+    const first = await dragFav(app, rowSel(c.id), rowSel(a.id), 0.1)
+    assert.match(first.during, /drop-before/, 'dragover 时要画出插入线，而不是只变鼠标指针')
+    await waitFor(async () => (await order())[0] === 'C 页面' ? true : null,
+      { message: '拖动排序没有落库' })
+    assert.deepEqual(await order(), ['C 页面', 'A 页面', 'B 页面'])
+    assert.equal(first.indicators, 0, '放手后落点反馈要收起')
+
+    // ② C 拖到 B 的下四分之一 → 回到末尾（插线在下方）。
+    const second = await dragFav(app, rowSel(c.id), rowSel(b.id), 0.9)
+    assert.match(second.during, /drop-after/)
+    await waitFor(async () => (await order())[2] === 'C 页面' ? true : null,
+      { message: '向后拖动没有落库' })
+    assert.deepEqual(await order(), ['A 页面', 'B 页面', 'C 页面'])
+
+    // ③ 拖进文件夹：新建「稍后读」，把 B 拖到它行的中间（放进）。
+    await clickFav(app, '.fav-new-folder')
+    await waitFor(async () => (await favFacts(app)).editing ? true : null, { message: '没有进入改名态' })
+    await typeFav(app, '.tree-input, .row-input', '稍后读')
+    const folder = await waitFor(async () => {
+      const state = await snapshot(shell)
+      return state.bookmarks.find((node) => node.kind === 'folder' && node.title === '稍后读') ?? null
+    }, { message: '文件夹没有落库' })
+    const inside = await dragFav(app, rowSel(b.id), rowSel(folder.id), 0.5)
+    assert.match(inside.during, /drop-inside/, '拖到文件夹中间应整行高亮（"放进"而不是"插到旁边"）')
+    await waitFor(async () => {
+      const state = await snapshot(shell)
+      return state.bookmarks.find((node) => node.id === b.id)?.parentId === folder.id ? true : null
+    }, { message: '拖进文件夹没有落库' })
+    assert.deepEqual(await order(), ['A 页面', 'C 页面', '稍后读'])
+
+    // ④ 非法落点：把文件夹拖到它自己身上——不画反馈、也不写库。
+    const illegal = await dragFav(app, rowSel(folder.id), rowSel(folder.id), 0.5)
+    assert.equal(illegal.during.includes('drop-'), false, '拖到自己身上不该给落点反馈')
+    let state = await snapshot(shell)
+    assert.equal(state.bookmarks.find((node) => node.id === folder.id)?.parentId, 'bar',
+      '非法落点不能改任何数据')
+
+    // ⑤ 从文件夹里拖回收藏夹栏（放进左树的根）：这一步只有树行能做。
+    await doubleClickFavText(app, '.fav-row', '稍后读')
+    await waitFor(async () => {
+      const facts = await favFacts(app)
+      return facts.rows.length === 1 && facts.rows[0].title === 'B 页面' ? true : null
+    }, { message: '双击文件夹没有进入它里面' })
+    await dragFav(app, rowSel(b.id), treeSel('bar'), 0.5)
+    await waitFor(async () => {
+      const current = await snapshot(shell)
+      return current.bookmarks.find((node) => node.id === b.id)?.parentId === 'bar' ? true : null
+    }, { message: '拖到左树根上没有落库' })
+    assert.deepEqual(await order(), ['A 页面', 'C 页面', '稍后读', 'B 页面'], '放进根 = 追加到末尾')
+
+    // ⑥ 存库的排序位必须是连续的（拖拽最容易留下空洞）。
+    state = await snapshot(shell)
+    const positions = state.bookmarks
+      .filter((node) => node.parentId === 'bar')
+      .sort((left, right) => left.position - right.position)
+      .map((node) => node.position)
+    assert.deepEqual(positions, [0, 1, 2, 3])
   } finally {
     await close()
     await server.close()

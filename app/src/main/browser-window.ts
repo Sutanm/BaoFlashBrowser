@@ -16,7 +16,7 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, createBookmarkFolderData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
+import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, createBookmarkFolderData, moveBookmarkData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
 import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
 import type { BookmarkBarMode } from '../shared/bookmarks'
 import { bindInternalProtocol, FAVORITES_URL, internalKindOf, internalTitles, internalUrls, isFavoritesUrl, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
@@ -3547,6 +3547,26 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'remove': {
         if (!id) return { ok: false, code: 'invalid-command' }
         if (!removeBookmarkData(id)) return { ok: false, code: 'bookmark-save-failed' }
+        publishBookmarks()
+        return { ok: true, snapshot: favoritesSnapshot() }
+      }
+      /**
+       * 拖动排序 / 换文件夹。
+       *
+       * 存储层先做 `checkPlacement()`（环、永久根、目标不是文件夹），失败给 `placement`——
+       * 这与"写盘失败"是两句不同的话，界面各自提示。界面不乐观更新：拖进自己的子孙这种
+       * 操作必须**当场拒绝**，先画再回滚会让人以为自己拖成功了。
+       */
+      case 'move': {
+        if (!id) return { ok: false, code: 'invalid-command' }
+        const parentId = typeof (command as { parentId?: unknown }).parentId === 'string'
+          ? (command as { parentId: string }).parentId
+          : ''
+        const index = Number((command as { index?: unknown }).index)
+        if (!parentId || !Number.isFinite(index)) return { ok: false, code: 'invalid-command' }
+        const outcome = moveBookmarkData(id, parentId, Math.trunc(index))
+        if (outcome === 'unavailable') return { ok: false, code: 'storage-unavailable' }
+        if (outcome === 'placement') return { ok: false, code: 'bookmark-placement' }
         publishBookmarks()
         return { ok: true, snapshot: favoritesSnapshot() }
       }

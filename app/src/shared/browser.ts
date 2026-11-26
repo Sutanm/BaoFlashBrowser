@@ -126,6 +126,8 @@ export type BrowserFailureCode =
   | 'settings-save-failed'
   | 'bookmark-save-failed'
   | 'bookmark-missing'
+  /** 放不下：拖进了自己的子孙、或目标不是文件夹（`checkPlacement()` 的判定结果）。 */
+  | 'bookmark-placement'
   | 'storage-unavailable'
   | 'no-session'
   /** 统一能力层拒绝（A1-c）：详情看调用记录里的稳定码，界面只显示一句通用文案。 */
@@ -150,6 +152,7 @@ export const browserFailureText: Record<BrowserFailureCode, string> = {
   'settings-save-failed': '设置未能保存，已保留原值',
   'bookmark-save-failed': '收藏未能保存，原有收藏未更改',
   'bookmark-missing': '这条收藏已不存在',
+  'bookmark-placement': '不能把文件夹移到它自己或它的子文件夹里',
   'storage-unavailable': '设置存储不可用，本次无法保存',
   'no-session': '没有可恢复的上次会话',
   'capability-denied': '该操作被浏览器能力层拒绝'
