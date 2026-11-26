@@ -30,17 +30,34 @@ export interface FlashRootEnvironment {
   env: Record<string, string | undefined>
   /** 用户主目录；默认取 `USERPROFILE` / `HOME`。 */
   homeDir?: string
+  /**
+   * 是否把 `Downloads` / `Desktop` 也算进自动发现。
+   *
+   * **默认 false，且不应随便打开**（2026-11-26 审计：这是信任边界）。
+   * 这两个目录任何进程都能写，自动加载其中的 DLL 等于「谁能往下载目录丢文件，谁就在插件
+   * 进程里执行代码」——Pepper 沙箱限制的是插件的能力，不是它的来源可信度。
+   * 用户自备的插件走**显式导入**（设置页「导入」复制到 `<userData>\flash\`），
+   * 那条路径有用户选择、有来源记录、也有哈希校验。
+   * 保留开关只为排障（`BAO_FLASH_SCAN_USER_DIRS=1`），不作为默认行为。
+   */
+  includeUserFolders?: boolean
 }
 
-/** 按平台给出候选目录，按「命中概率」从高到低排列（预算用完时靠后的目录会被放弃）。 */
+/**
+ * 按平台给出候选目录，按「命中概率」从高到低排列（预算用完时靠后的目录会被放弃）。
+ *
+ * 默认只包含**安装位置**（系统目录、浏览器的组件更新目录、发行版包路径）。
+ * `Downloads` / `Desktop` 属于任何进程都能写的目录，只有显式 `includeUserFolders`
+ * 才纳入——见 `FlashRootEnvironment.includeUserFolders` 的信任边界说明。
+ */
 export function knownFlashRoots(options: FlashRootEnvironment): FlashRootSpec[] {
   const { platform, env } = options
   const home = options.homeDir ?? env.USERPROFILE ?? env.HOME
   const roots = platform === 'win32'
-    ? windowsRoots(env, home)
+    ? windowsRoots(env, home, options.includeUserFolders === true)
     : platform === 'darwin'
-      ? macRoots(env, home)
-      : posixRoots(env, home)
+      ? macRoots(env, home, options.includeUserFolders === true)
+      : posixRoots(env, home, options.includeUserFolders === true)
   return dedupe(roots)
 }
 
@@ -51,7 +68,7 @@ export function knownFlashRoots(options: FlashRootEnvironment): FlashRootSpec[] 
  * Chrome 的组件式 Flash 在 32 位 Chrome 下是 `pepflashplayer.dll`（32 位），
  * 会在 PE 校验里被拒掉，所以顺序不影响正确性，只影响「先读到谁」。
  */
-function windowsRoots(env: Record<string, string | undefined>, home: string | undefined): FlashRootSpec[] {
+function windowsRoots(env: Record<string, string | undefined>, home: string | undefined, includeUserFolders: boolean): FlashRootSpec[] {
   const roots: FlashRootSpec[] = []
   const systemRoot = env.WINDIR ?? env.SystemRoot
   if (systemRoot) {
@@ -85,7 +102,8 @@ function windowsRoots(env: Record<string, string | undefined>, home: string | un
     )
   }
 
-  if (home) {
+  // 用户目录（Downloads/Desktop）默认不扫：任何进程都能写，自动加载等于放弃来源校验。
+  if (home && includeUserFolders) {
     roots.push(
       { path: join(home, 'Downloads'), depth: 2, origin: 'downloads' },
       { path: join(home, 'Desktop'), depth: 2, origin: 'desktop' }
@@ -95,16 +113,14 @@ function windowsRoots(env: Record<string, string | undefined>, home: string | un
 }
 
 /** macOS：Chrome 的组件式 Flash 是 `PepperFlashPlayer.plugin/Contents/MacOS/PepperFlashPlayer`。 */
-function macRoots(env: Record<string, string | undefined>, home: string | undefined): FlashRootSpec[] {
+function macRoots(env: Record<string, string | undefined>, home: string | undefined, includeUserFolders: boolean): FlashRootSpec[] {
   const roots: FlashRootSpec[] = [
     { path: '/Library/Application Support/Google/Chrome/PepperFlash', depth: 2, origin: 'chrome' },
     { path: '/Library/Internet Plug-Ins', depth: 4, origin: 'system-flash' }
   ]
   if (home) {
-    roots.push(
-      { path: join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'PepperFlash'), depth: 2, origin: 'chrome' },
-      { path: join(home, 'Downloads'), depth: 2, origin: 'downloads' }
-    )
+    roots.push({ path: join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'PepperFlash'), depth: 2, origin: 'chrome' })
+    if (includeUserFolders) roots.push({ path: join(home, 'Downloads'), depth: 2, origin: 'downloads' })
   }
   const configHome = env.XDG_CONFIG_HOME ?? (home ? join(home, 'Library', 'Application Support') : undefined)
   if (configHome) roots.push({ path: join(configHome, 'Chromium', 'PepperFlash'), depth: 2, origin: 'chromium' })
@@ -112,7 +128,7 @@ function macRoots(env: Record<string, string | undefined>, home: string | undefi
 }
 
 /** Linux：发行版包（adobe-flashplugin / pepperflashplugin-nonfree）与 Chromium 自带的铜板目录。 */
-function posixRoots(env: Record<string, string | undefined>, home: string | undefined): FlashRootSpec[] {
+function posixRoots(env: Record<string, string | undefined>, home: string | undefined, includeUserFolders: boolean): FlashRootSpec[] {
   const roots: FlashRootSpec[] = [
     { path: '/usr/lib/adobe-flashplugin', depth: 1, origin: 'system-flash' },
     { path: '/usr/lib/flashplugin-installer', depth: 1, origin: 'system-flash' },
@@ -128,7 +144,7 @@ function posixRoots(env: Record<string, string | undefined>, home: string | unde
       { path: join(configHome, 'chromium', 'PepperFlash'), depth: 2, origin: 'chromium' }
     )
   }
-  if (home) roots.push({ path: join(home, 'Downloads'), depth: 2, origin: 'downloads' })
+  if (home && includeUserFolders) roots.push({ path: join(home, 'Downloads'), depth: 2, origin: 'downloads' })
   return roots
 }
 

@@ -91,7 +91,15 @@ export function discoverFlashPlugin(options: FlashDiscoveryOptions): FlashDiscov
     if (!isUsableNativePlugin(path, platform)) return undefined
     return { version: platform === 'win32' ? readPeFileVersion(path) : undefined }
   })
-  const roots = options.roots ?? knownFlashRoots({ platform, env, homeDir: options.homeDir })
+  const roots = options.roots ?? knownFlashRoots({
+    platform,
+    env,
+    homeDir: options.homeDir,
+    // 信任边界（2026-11-26 审计）：默认只扫**安装位置**。`Downloads` / `Desktop` 任何进程
+    // 都能写，自动加载其中的 DLL 等于放弃来源校验（Pepper 沙箱限制的是能力，不是来源可信度）。
+    // 用户自备的插件走设置页「导入」；这个开关只留给排障。
+    includeUserFolders: process.env.BAO_FLASH_SCAN_USER_DIRS === '1'
+  })
   const result = scanFlashPlugin(roots, {
     match,
     validate,

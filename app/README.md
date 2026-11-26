@@ -124,8 +124,14 @@ npm run dev
 5. 应用 `resources\`；
 6. **自动发现**：在本机常见位置找一份已经存在的插件——`C:\Windows\System32\Macromed\Flash`
    里 flash.cn 安装的 `pepflashplayer64_34_*.dll`、Chrome/Chromium 的 `PepperFlash`、
-   360/QQ/搜狗等双核浏览器、下载与桌面目录。找到的那份**不复制、不移动**，只记住路径，
+   360/QQ/搜狗等双核浏览器。找到的那份**不复制、不移动**，只记住路径，
    并且要先过 PE/Pepper 校验（64 位 + `PPP_GetInterface` 导出）才会被加载。
+
+   **`Downloads` / `Desktop` 不在默认扫描范围内**（2026-11-26 审计：这是信任边界）。这两个
+   目录任何进程都能写，自动加载其中的 DLL 等于「谁能往下载目录丢文件，谁就在插件进程里执行
+   代码」——Pepper 沙箱限制的是插件**能力**，不是它的**来源可信度**。放在那里的插件请走设置页
+   「导入」（有用户选择、来源记录与哈希校验）。排障时可 `BAO_FLASH_SCAN_USER_DIRS=1`
+   临时把用户目录纳入扫描，不作为默认行为。
 
 放好后重启应用即可启用原生引擎；自动发现按版本从新到旧挑一份，结果缓存在
 `<userData>\flash\discovery.json`（下次启动只 `stat` 一次，不重扫）。插件换了或删了都要重启

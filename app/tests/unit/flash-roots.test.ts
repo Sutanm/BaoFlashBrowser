@@ -23,7 +23,25 @@ describe('knownFlashRoots', () => {
     expect(roots[0]?.path).toBe(join('C:\\Windows', 'System32', 'Macromed', 'Flash'))
     expect(roots[0]?.origin).toBe('system-flash')
     expect(roots.some((root) => root.path.includes('PepperFlash') && root.origin === 'chrome')).toBe(true)
-    expect(roots.some((root) => root.origin === 'downloads')).toBe(true)
+  })
+
+  /**
+   * 信任边界（2026-11-26 审计）：`Downloads` / `Desktop` 任何进程都能写，默认**不得**自动
+   * 加载其中的 DLL——否则「谁能往下载目录丢文件，谁就在插件进程里执行代码」。用户自备的
+   * 插件走设置页「导入」（有用户选择、来源记录与哈希校验），自动发现只搜安装位置。
+   */
+  it('默认不扫 Downloads / Desktop；显式 opt-in 才纳入', () => {
+    const byDefault = knownFlashRoots({ platform: 'win32', env: windowsEnv })
+    expect(byDefault.some((root) => root.origin === 'downloads' || root.origin === 'desktop')).toBe(false)
+
+    const optedIn = knownFlashRoots({ platform: 'win32', env: windowsEnv, includeUserFolders: true })
+    expect(optedIn.some((root) => root.origin === 'downloads')).toBe(true)
+    expect(optedIn.some((root) => root.origin === 'desktop')).toBe(true)
+
+    const linuxDefault = knownFlashRoots({ platform: 'linux', env: {}, homeDir: '/home/u' })
+    expect(linuxDefault.some((root) => root.origin === 'downloads')).toBe(false)
+    const macDefault = knownFlashRoots({ platform: 'darwin', env: {}, homeDir: '/Users/u' })
+    expect(macDefault.some((root) => root.origin === 'downloads')).toBe(false)
   })
 
   it('Windows：深度都很小，不会展开 User Data 这类大目录', () => {
