@@ -46,7 +46,7 @@ A1 属于当前 M2 的基础工作，采用增量重构。为避免“多线并�
 | A1-b | 提取 Tab / Window / BrowsingContext 注册表（只提取 Capability 需要的部分，不做目录式重写） | **TabRegistry 已交付（2026-11-26）**：代际收口（字段已删）+ 生命周期事件；Window/BrowsingContext 注册表移入 A1-c，与第一个消费者一起做（无消费者不建空壳），见[接线报告](../reports/2026-11-26-tab-registry-wiring.md) |
 | A1-c | Capability 服务接线：动作走统一入口、代际可观察、休眠持有租约的标签不被销毁 | **已交付标签动作（2026-11-26）**：统一入口 + 世界快照 + 调用记录落地，外壳 10 类标签动作全部走入口（	ab-menu/snapshot 除外）；ShellRef 解析与两个注册表未接，见[能力入口报告](../reports/2026-11-26-capability-service.md) |
 | A1-d | 外壳 UI 的关键标签动作改走 Capability API | 未开始 |
-| A1-e | A1 退出条件回填与全量验证 | 未开始 |
+| A1-e | A1 退出条件回填与全量验证 | **已核对（2026-11-26）**：六条中五条有直接证据、harness 达成于合同层；遗留项与理由见[退出条件核对](../reports/2026-11-26-a1-exit-review.md) |
 
 **进度（2026-11-26）**：活动租约已落地（`user` 为唯一生产者，`keepAwake` 映射为无期限
 `preventsDiscard` 租约，休眠判定统一走 `blocksDiscard()`，标签关闭/窗口关闭/过期均确定性清理），
