@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { QuickView } from '../shared/overlay'
-import { OVERLAY_GUTTER } from '../shared/overlay-geometry'
+import { OVERLAY_GUTTER_BOTTOM, OVERLAY_GUTTER_X } from '../shared/overlay-geometry'
 import { useBrowserStore } from './stores/browser'
 import { applyShellTheme } from './theme'
 
@@ -58,9 +58,12 @@ function reportReadyAfterPaint(): void {
 
 onMounted(() => {
   setIdle(true)
-  // 卡片四周的透明边距（画投影用）只有一处定义：`OVERLAY_GUTTER`。
-  // 主进程的命中判定用同一个常量，两边必须一致，所以由这里写成 CSS 变量给各面板的 frame 用。
-  document.documentElement.style.setProperty('--overlay-gutter', `${OVERLAY_GUTTER}px`)
+  // 卡片两侧与底部的透明边距（画投影用）只有一处定义：`overlay-geometry.ts` 的
+  // `OVERLAY_GUTTER_X` / `OVERLAY_GUTTER_BOTTOM`。底部比两侧大，因为投影整体向下偏移
+  // （Chromium `ShadowValue::GetInsets()`：左右 = blur/2、下 = blur/2 + 偏移）。
+  // 主进程的命中判定用同一组常量，所以由这里写成 CSS 变量给各面板的 frame 用。
+  document.documentElement.style.setProperty('--overlay-gutter-x', `${OVERLAY_GUTTER_X}px`)
+  document.documentElement.style.setProperty('--overlay-gutter-bottom', `${OVERLAY_GUTTER_BOTTOM}px`)
   store.connect()
   /**
    * 长任务观测（2026-11-25 演示 §7.7-1 / ADR-0004「把纪律变成门槛」）。

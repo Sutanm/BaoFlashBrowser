@@ -183,7 +183,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
   height: 100vh;
   /* 视图比卡片大一圈：四周（除顶边）留透明边距画投影。数值来自 OVERLAY_GUTTER，
      由 OverlayHost 写成 CSS 变量；透明边距里的鼠标由主进程转发给页面（见 shell-overlays.ts）。 */
-  padding: 0 var(--overlay-gutter, 12px) var(--overlay-gutter, 12px);
+  padding: 0 var(--overlay-gutter-x, 12px) var(--overlay-gutter-bottom, 20px);
   display: flex;
   align-items: flex-start;
 }

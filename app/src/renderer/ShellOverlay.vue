@@ -166,7 +166,7 @@ onBeforeUnmount(() => {
    投影画在视图外扩出来的透明边距里（数值来自 `OVERLAY_GUTTER`，见 OverlayHost）。
    这里只留引擎档位与站点规则的排布。 */
 .overlay-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
-.overlay-frame.flyout { padding: 0 var(--overlay-gutter, 12px) var(--overlay-gutter, 12px); }
+.overlay-frame.flyout { padding: 0 var(--overlay-gutter-x, 12px) var(--overlay-gutter-bottom, 20px); }
 .toast {
   background: var(--surface-toolbar);
   /* 提示条也留了一圈透明边距（`ShellOverlay` 的 inline padding），所以同样用真投影。 */

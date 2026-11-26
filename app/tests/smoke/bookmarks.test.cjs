@@ -225,11 +225,21 @@ test('收藏夹：星标 = 收藏 + 气泡，文件夹是下拉，更多打开�
       const rect = document.querySelector('.bookmarks-button').getBoundingClientRect()
       return { right: Math.round(rect.right), bottom: Math.round(rect.bottom) }
     })
-    // 视图比卡片大一圈投影边距（OVERLAY_GUTTER=12，顶边不留），见 overlay-geometry.ts。
+    // 视图比卡片大一圈投影边距（左右 12、底部 20——底部更大，因为投影向下偏移），见 overlay-geometry.ts。
     const GUTTER = 12
+    const GUTTER_BOTTOM = 20
     assert.equal(empty.bounds.y, hubRect.bottom, '收藏夹卡片顶边应贴着按钮下沿')
     assert.equal(empty.bounds.x + empty.bounds.width - GUTTER, hubRect.right, '收藏夹卡片右缘应与按钮对齐')
     assert.equal(empty.bounds.width, 320 + 2 * GUTTER, '收藏夹卡片应与快捷设置同宽（三只飞窗挂在一起）')
+    // 视图高度会按内容收敛（`resize-quick`）：等它稳定后应是"卡片 + 底部投影边距"。
+    // 各面板上报时 +2px 余量（避免"刚好相等"时冒滚动条），所以允许几像素偏差。
+    const hubExtra = await waitFor(async () => {
+      const view = await overlayView(app)
+      const card = await inOverlay(app, `Math.round(document.querySelector('#bookmarks-panel').getBoundingClientRect().height)`)
+      const extra = (view?.bounds?.height ?? 0) - card
+      return extra >= GUTTER_BOTTOM && extra <= GUTTER_BOTTOM + 4 ? extra : null
+    }, { message: '视图高度没有收敛成"卡片 + 底部投影边距"' })
+    assert.ok(hubExtra >= GUTTER_BOTTOM, '底部投影边距比两侧大（投影向下偏移）')
     await dismissFlyout(app, shell)
 
     // ③ 网页上出现星标（空心）。

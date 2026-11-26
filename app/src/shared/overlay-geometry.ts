@@ -7,19 +7,25 @@
  * 而这两处当时都只被端到端截图覆盖。
  *
  * 2026-11-26：飞窗卡片去掉 1px 描边，改成**真投影**。投影必须画在视图内部（视图外的像素会被
- * 裁掉），所以视图 = 卡片 + 一圈 `OVERLAY_GUTTER` 的透明边距。透明边距落在视图命中区里，
- * 会吃掉鼠标，所以主进程要把边距里的鼠标**转发给当前页面**（`shell-overlays.ts` 的
- * `forwardGutterMouse`）——这条常量同时被 CSS（`--overlay-gutter`）与命中判定使用，只能有一份。
+ * 裁掉），所以视图 = 卡片 + 一圈透明边距。透明边距落在视图命中区里会吃掉鼠标，主进程要把边距
+ * 里的鼠标**转发给当前页面**（`shell-overlays.ts` 的 `forwardGutterMouse`）。
  *
- * 边距留在**左/右/下**三边（顶边不留：卡片顶边要贴住按钮，那圈投影落在工具栏上也看不出来）。
- * 锚点贴着窗口右缘时（例如齿轮是最后一个按钮），视图右缘会超出窗口一个 `OVERLAY_GUTTER`，
- * `clampBelow` 会把整只视图往左推同样多——卡片宽度不变、只平移几个像素，右边那圈投影被窗口裁掉。
+ * **边距不是四边一样的**——这一点照抄 Chromium：投影向下偏移 `dy`，所以
+ *   `左右 = blur/2`、`上 = blur/2 - dy`、`下 = blur/2 + dy`（`ui/gfx/shadow_value.cc` 的
+ * `GetInsets()`）；一个 elevation 12 的气泡就是 左/右 24、上 12、**下 36**（`MakeMdShadowValues`）。
+ * 我们的卡片投影是 `0 8px 20px`（远）+ `0 2px 6px`（近），按同一公式：
+ *   左右需要 blur/2 = 10、底部需要 blur/2 + dy = 18。
+ * 所以留 `OVERLAY_GUTTER_X = 12`（左右，留 2px 余量）与 `OVERLAY_GUTTER_BOTTOM = 20`（底部）。
+ * 顶边不留：卡片顶边要贴住锚点按钮，那圈投影落在工具栏上也看不见。
+ * 上一版四周都给 12，底部投影需要 18 被裁掉——这就是 2026-11-26「效果不对」的来源。
  */
 
 export const OVERLAY_INSET = 12
 export const OVERLAY_TOP_INSET = 4
-/** 飞窗卡片左/右/下的透明留白（画投影用）；顶边不留。 */
-export const OVERLAY_GUTTER = 12
+/** 卡片左右两侧的透明留白（画投影用）。 */
+export const OVERLAY_GUTTER_X = 12
+/** 卡片底部的透明留白：比左右大，因为投影整体向下偏移。 */
+export const OVERLAY_GUTTER_BOTTOM = 20
 /** 引擎面板的**卡片**宽度（视图宽度 = 卡片 + 两侧 gutter）。 */
 export const ENGINE_PANEL_CARD_WIDTH = 264
 export const ENGINE_PANEL_INITIAL_HEIGHT = 208
@@ -56,7 +62,7 @@ export function clampBelow(
   bounds: OverlayBounds,
   width: number,
   height: number,
-  inset = OVERLAY_GUTTER
+  inset = OVERLAY_GUTTER_BOTTOM
 ): OverlayBounds {
   const w = Math.min(width, Math.ceil(bounds.width))
   const y = Math.max(0, Math.min(height, Math.round(bounds.y)))
@@ -80,14 +86,15 @@ export interface FlyoutAnchor {
 
 /**
  * 飞窗的初始 bounds（**视图**边界，不是卡片）：
- * 卡片右缘与按钮右缘对齐、卡片顶边贴住按钮下沿；视图在左/右/下各外扩一个 `OVERLAY_GUTTER`。
+ * 卡片右缘与按钮右缘对齐、卡片顶边贴住按钮下沿；视图在左右各外扩 `OVERLAY_GUTTER_X`、
+ * 底部外扩 `OVERLAY_GUTTER_BOTTOM`（投影向下偏移，底部要更多空间）。
  */
 export function flyoutBounds(anchor: FlyoutAnchor, cardWidth: number, cardHeight: number): OverlayBounds {
   return {
-    x: Math.max(0, Math.round(anchor.anchorRight) - cardWidth - OVERLAY_GUTTER),
+    x: Math.max(0, Math.round(anchor.anchorRight) - cardWidth - OVERLAY_GUTTER_X),
     y: Math.round(anchor.anchorBottom),
-    width: cardWidth + 2 * OVERLAY_GUTTER,
-    height: cardHeight + OVERLAY_GUTTER
+    width: cardWidth + 2 * OVERLAY_GUTTER_X,
+    height: cardHeight + OVERLAY_GUTTER_BOTTOM
   }
 }
 
@@ -104,15 +111,15 @@ export function panelBounds(anchor: FlyoutAnchor, cardHeight: number): OverlayBo
  */
 export function cardRect(bounds: OverlayBounds): OverlayBounds {
   return {
-    x: bounds.x + OVERLAY_GUTTER,
+    x: bounds.x + OVERLAY_GUTTER_X,
     y: bounds.y,
-    width: Math.max(0, bounds.width - 2 * OVERLAY_GUTTER),
-    height: Math.max(0, bounds.height - OVERLAY_GUTTER)
+    width: Math.max(0, bounds.width - 2 * OVERLAY_GUTTER_X),
+    height: Math.max(0, bounds.height - OVERLAY_GUTTER_BOTTOM)
   }
 }
 
 /** 某个视图坐标是否落在卡片里（`x/y` 相对视图左上角）。 */
 export function insideCard(bounds: OverlayBounds, x: number, y: number): boolean {
-  return x >= OVERLAY_GUTTER && x < bounds.width - OVERLAY_GUTTER &&
-    y >= 0 && y < bounds.height - OVERLAY_GUTTER
+  return x >= OVERLAY_GUTTER_X && x < bounds.width - OVERLAY_GUTTER_X &&
+    y >= 0 && y < bounds.height - OVERLAY_GUTTER_BOTTOM
 }

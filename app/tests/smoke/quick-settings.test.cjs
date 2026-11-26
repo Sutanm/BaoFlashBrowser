@@ -88,14 +88,25 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
       return { right: Math.round(button.right), bottom: Math.round(button.bottom) }
     })
     // 紧贴按钮：顶边就是按钮下缘、右边缘与按钮右缘对齐；视图不额外留白。
-    // 视图 = 卡片 + 一圈投影边距（OVERLAY_GUTTER=12，只留左边与下边）：卡片右缘/顶边贴着按钮，
+    // 视图 = 卡片 + 透明投影边距（左右 12、底部 20——底部更大，因为投影向下偏移）：卡片右缘/顶边贴着按钮，
     // 多出来的透明区域用来画投影，里面的鼠标由主进程转发给页面。
     const GUTTER = 12
+    const GUTTER_BOTTOM = 20
     assert.equal(opened.bounds.y, geometry.bottom, '卡片顶边应贴着按钮下沿（视图顶边=卡片顶边）')
     // 齿轮是工具栏最后一个按钮，右边只剩 8px：视图会被夹取往左推几像素，卡片右缘允许差一个边距以内。
     assert.ok(Math.abs(opened.bounds.x + opened.bounds.width - GUTTER - geometry.right) <= GUTTER,
       '卡片右缘应与齿轮按钮对齐（贴窗口右缘时允许被夹取平移几个像素）')
     assert.equal(opened.bounds.width, 320 + 2 * GUTTER, '视图宽度 = 卡片 320 + 两侧投影边距')
+    // 视图高度按内容收敛（resize-quick），所以这里等它稳定：视图 = 卡片 + 底部边距。
+    const cardHeight = await waitFor(async () => {
+      const view = await quickView(app)
+      const card = await inQuick(app, `Math.round(document.querySelector('.quick').getBoundingClientRect().height)`)
+      const extra = (view?.bounds?.height ?? 0) - card
+      // 各面板上报高度时会 +2px 余量（避免"刚好相等"时冒出滚动条），允许几像素偏差。
+      return extra >= GUTTER_BOTTOM && extra <= GUTTER_BOTTOM + 4 ? card : null
+    }, { message: '视图高度没有收敛成"卡片 + 底部投影边距"' })
+    assert.ok(cardHeight > 0)
+    assert.equal(opened.bounds.width - 320, 2 * GUTTER, '视图宽度 = 卡片 + 两侧投影边距')
     assert.ok(opened.bounds.x >= 0 && opened.bounds.y >= 0, '飞窗不能越出窗口左侧/顶部')
     assert.ok(opened.bounds.x + opened.bounds.width <= opened.contentSize[0], '飞窗不能越出窗口右侧')
     assert.ok(opened.bounds.y + opened.bounds.height <= opened.contentSize[1], '飞窗不能越出窗口底部')

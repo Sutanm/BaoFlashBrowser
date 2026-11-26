@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { browserChannels } from '../shared/browser'
 import type { BrowserState } from '../shared/browser'
 import { OVERLAY_QUERY, isQuickView, overlayChannels } from '../shared/overlay'
-import { OVERLAY_GUTTER, cardRect, clampBelow, clampBounds, insideCard } from '../shared/overlay-geometry'
+import { OVERLAY_GUTTER_BOTTOM, clampBelow, clampBounds, insideCard } from '../shared/overlay-geometry'
 import type { OverlayBounds, OverlayEvent, OverlayKind, QuickView } from '../shared/overlay'
 import type { PrewarmMode } from '../shared/settings'
 import { beginOpen, markContent, markVisible, readSamples, resetSamples, summarize } from './overlay-metrics'
@@ -561,7 +561,7 @@ export function createShellOverlays(
       case 'resize-panel': {
         if (role !== 'panel' || flyout?.kind !== 'panel' || !flyout.bounds || !isFiniteNumber(value.height) || value.height <= 0) return false
         // 渲染层报的是**卡片**高度：视图还要加一圈投影留白（透明边距）。
-        flyout.bounds.height = value.height + OVERLAY_GUTTER
+        flyout.bounds.height = value.height + OVERLAY_GUTTER_BOTTOM
         sync('panel')
         return true
       }
@@ -569,7 +569,7 @@ export function createShellOverlays(
         if (role !== 'quick' || flyout?.kind !== 'quick' || !flyout.bounds || !isFiniteNumber(value.height) || value.height <= 0) return false
         // 高度没变就别再走一遍 sync()：渲染层按 scrollHeight 上报，1–2 px 的抖动会形成
         // 「设置 bounds → 布局变化 → 再上报」的循环（实测能到每秒上万次）。
-        const nextHeight = value.height + OVERLAY_GUTTER
+        const nextHeight = value.height + OVERLAY_GUTTER_BOTTOM
         if (Math.abs(flyout.bounds.height - nextHeight) < 1) return true
         flyout.bounds.height = nextHeight
         sync('quick')

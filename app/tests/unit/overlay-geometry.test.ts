@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   ENGINE_PANEL_CARD_WIDTH,
-  OVERLAY_GUTTER,
+  OVERLAY_GUTTER_BOTTOM,
+  OVERLAY_GUTTER_X,
   OVERLAY_INSET,
   cardRect,
   clampBelow,
@@ -59,13 +60,13 @@ describe('clampBelow（挂在按钮下的飞窗）', () => {
     // 窗口只有 360 高、飞窗从 84 开始：可用高度 = 360 - 84 - 默认 inset（投影留白 12）
     const result = clampBelow(bounds, 520, 360)
     expect(result.y).toBe(84)
-    expect(result.height).toBe(360 - 84 - OVERLAY_GUTTER)
+    expect(result.height).toBe(360 - 84 - OVERLAY_GUTTER_BOTTOM)
   })
 
   it('剩余空间不足时按剩余高度算', () => {
     const result = clampBelow({ x: 0, y: 340, width: 320, height: 320 }, 520, 360)
     expect(result.y).toBe(340)
-    expect(result.height).toBe(360 - 340 - OVERLAY_GUTTER)
+    expect(result.height).toBe(360 - 340 - OVERLAY_GUTTER_BOTTOM)
   })
 
   it('可用高度为负时高度归零（而不是变成负数或把顶边推上去）', () => {
@@ -97,14 +98,14 @@ describe('flyoutBounds（齿轮飞窗初始位置）', () => {
 
   it('卡片右缘与按钮右缘对齐、卡片顶边落在按钮下沿', () => {
     const bounds = flyoutBounds(anchor, 320, 320)
-    expect(bounds.x + bounds.width - OVERLAY_GUTTER).toBe(anchor.anchorRight)
+    expect(bounds.x + bounds.width - OVERLAY_GUTTER_X).toBe(anchor.anchorRight)
     expect(bounds.y).toBe(anchor.anchorBottom)
   })
 
   it('视图 = 卡片 + 一圈投影边距（左右与底部，顶边不留）', () => {
     const bounds = flyoutBounds(anchor, 320, 320)
-    expect(bounds.width).toBe(320 + 2 * OVERLAY_GUTTER)
-    expect(bounds.height).toBe(320 + OVERLAY_GUTTER)
+    expect(bounds.width).toBe(320 + 2 * OVERLAY_GUTTER_X)
+    expect(bounds.height).toBe(320 + OVERLAY_GUTTER_BOTTOM)
   })
 
   it('窗口太窄时贴左边缘（不能变成负的 x）', () => {
@@ -118,9 +119,9 @@ describe('panelBounds（引擎面板初始位置）', () => {
 
   it('与飞窗同一条锚定规则，只是卡片更窄', () => {
     const bounds = panelBounds(anchor, 208)
-    expect(bounds.x + bounds.width - OVERLAY_GUTTER).toBe(anchor.anchorRight)
+    expect(bounds.x + bounds.width - OVERLAY_GUTTER_X).toBe(anchor.anchorRight)
     expect(bounds.y).toBe(anchor.anchorBottom)
-    expect(bounds.width).toBe(ENGINE_PANEL_CARD_WIDTH + 2 * OVERLAY_GUTTER)
+    expect(bounds.width).toBe(ENGINE_PANEL_CARD_WIDTH + 2 * OVERLAY_GUTTER_X)
   })
 
   it('窄窗口下同样不越出左边缘', () => {
@@ -133,7 +134,7 @@ describe('cardRect / insideCard（透明投影边距的命中判定）', () => {
 
   it('卡片 = 视图去掉左/右/下边距（顶边不留）', () => {
     expect(cardRect(view)).toEqual({
-      x: view.x + OVERLAY_GUTTER,
+      x: view.x + OVERLAY_GUTTER_X,
       y: view.y,
       width: 320,
       height: 320
@@ -141,12 +142,31 @@ describe('cardRect / insideCard（透明投影边距的命中判定）', () => {
   })
 
   it('卡片里算卡片，边距里算外部（外部要转发给页面，不能吞掉点击）', () => {
-    expect(insideCard(view, OVERLAY_GUTTER, 0)).toBe(true)
-    expect(insideCard(view, OVERLAY_GUTTER + 10, 10)).toBe(true)
-    expect(insideCard(view, OVERLAY_GUTTER - 1, 10)).toBe(false)
-    expect(insideCard(view, view.width - OVERLAY_GUTTER - 1, 10)).toBe(true)
-    expect(insideCard(view, view.width - OVERLAY_GUTTER, 10)).toBe(false)
-    expect(insideCard(view, 100, view.height - OVERLAY_GUTTER)).toBe(false)
-    expect(insideCard(view, 100, view.height - OVERLAY_GUTTER - 1)).toBe(true)
+    expect(insideCard(view, OVERLAY_GUTTER_X, 0)).toBe(true)
+    expect(insideCard(view, OVERLAY_GUTTER_X + 10, 10)).toBe(true)
+    expect(insideCard(view, OVERLAY_GUTTER_X - 1, 10)).toBe(false)
+    expect(insideCard(view, view.width - OVERLAY_GUTTER_X - 1, 10)).toBe(true)
+    expect(insideCard(view, view.width - OVERLAY_GUTTER_X, 10)).toBe(false)
+    expect(insideCard(view, 100, view.height - OVERLAY_GUTTER_BOTTOM)).toBe(false)
+    expect(insideCard(view, 100, view.height - OVERLAY_GUTTER_BOTTOM - 1)).toBe(true)
+  })
+})
+
+describe('透明投影边距（照抄 Chromium 的不对称）', () => {
+  it('底部比左右大：投影向下偏移，底部要 blur/2 + 偏移', () => {
+    expect(OVERLAY_GUTTER_BOTTOM).toBeGreaterThan(OVERLAY_GUTTER_X)
+  })
+
+  it('视图高度 = 卡片 + 底部边距，宽度 = 卡片 + 两侧边距', () => {
+    const bounds = flyoutBounds({ anchorRight: 1092, anchorBottom: 78, viewportWidth: 1100 }, 320, 300)
+    expect(bounds.height - 300).toBe(OVERLAY_GUTTER_BOTTOM)
+    expect(bounds.width - 320).toBe(2 * OVERLAY_GUTTER_X)
+  })
+
+  it('卡片底部距视图底边正好一个底部边距（不是两侧的）', () => {
+    const bounds = flyoutBounds({ anchorRight: 1092, anchorBottom: 78, viewportWidth: 1100 }, 320, 300)
+    const rect = cardRect(bounds)
+    expect(bounds.height - rect.height).toBe(OVERLAY_GUTTER_BOTTOM)
+    expect(bounds.width - rect.width).toBe(2 * OVERLAY_GUTTER_X)
   })
 })
