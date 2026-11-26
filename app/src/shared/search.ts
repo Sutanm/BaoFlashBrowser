@@ -12,12 +12,16 @@ export const SEARCH_ENGINES = ['baidu', 'bing', 'google'] as const
 export type SearchEngine = (typeof SEARCH_ENGINES)[number]
 
 /**
- * 默认搜索引擎：百度。
+ * 默认搜索引擎：必应。
  *
- * 理由：本项目面向中文经典网页/Flash 站点用户，默认值必须**开箱就能出结果**；
- * Google 在目标网络环境下大概率连不上，Bing 可用但中文长尾偏弱。用户可在设置里改。
+ * 2026-11-26 由产品决定（原默认是百度）：必应是这三家里兼容性最好的一家——不需要额外的
+ * 网络环境，中文结果可用，且没有百度搜索那种跳转页/推广页。百度与 Google 保留为可选项，
+ * 用户可在设置里换。
+ *
+ * 改动这里只影响**没有显式写过** `search.engine` 的安装：用户选过就尊重他的选择
+ * （`settingsFromRows()` 只按库里的行覆盖，缺失才回落到默认值）。
  */
-export const DEFAULT_SEARCH_ENGINE: SearchEngine = 'baidu'
+export const DEFAULT_SEARCH_ENGINE: SearchEngine = 'bing'
 
 export function isSearchEngine(value: unknown): value is SearchEngine {
   return typeof value === 'string' && (SEARCH_ENGINES as readonly string[]).includes(value)

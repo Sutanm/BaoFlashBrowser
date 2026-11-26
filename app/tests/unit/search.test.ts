@@ -88,4 +88,9 @@ describe('引擎取值域', () => {
   it('默认引擎在目录里', () => {
     expect(isSearchEngine(DEFAULT_SEARCH_ENGINE)).toBe(true)
   })
+
+  it('默认是必应（2026-11-26 产品决定：不依赖额外网络环境、结果页没有跳转/推广页）', () => {
+    // 钉住产品决策：改默认值必须同时改这条用例与设置页文案，不能靠"顺手换一家"。
+    expect(DEFAULT_SEARCH_ENGINE).toBe('bing')
+  })
 })
