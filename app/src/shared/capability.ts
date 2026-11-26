@@ -16,6 +16,7 @@
  */
 
 import type { BrowserEngine } from './engine'
+import type { BrowserFailureCode } from './browser'
 
 /**
  * 操作者。与 `TargetProducer` 值域相同但**语义不同**，故意分开声明：
@@ -239,6 +240,32 @@ export interface CapabilityCallRecord {
   outcome: 'ok' | 'denied'
   code?: CapabilityFailureCode
   durationMs?: number
+}
+
+/**
+ * 能力失败码 → 界面稳定码。
+ *
+ * 界面已有自己那套码（`BrowserFailureCode`）与文案，21 个能力码不该灌进 UI：能对上的对上
+ * （「标签已关闭」「你的请求本身不合法」），对不上的统一 `capability-denied`，
+ * 细节留在调用记录的稳定码里（message 也会带上）。
+ */
+export function browserCodeFor(code: CapabilityFailureCode): BrowserFailureCode {
+  switch (code) {
+    case 'unknown-tab':
+      return 'unknown-tab'
+    case 'invalid-context':
+    case 'invalid-producer':
+    case 'invalid-target':
+    case 'unknown-action':
+    case 'actor-not-allowed':
+    case 'target-required':
+    case 'target-not-allowed':
+    case 'target-kind-mismatch':
+    case 'reason-required':
+      return 'invalid-command'
+    default:
+      return 'capability-denied'
+  }
 }
 
 /**

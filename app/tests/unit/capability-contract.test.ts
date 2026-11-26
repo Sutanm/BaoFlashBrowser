@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CAPABILITY_FAILURE_CODES, DEFAULT_PROFILE_ID, capabilityFailureText } from '../../src/shared/capability'
+import { CAPABILITY_FAILURE_CODES, DEFAULT_PROFILE_ID, browserCodeFor, capabilityFailureText } from '../../src/shared/capability'
 import type {
   ActionContext,
   CapabilityAction,
@@ -421,6 +421,44 @@ describe('稳定错误码', () => {
   it('每个码在本 harness 里都被真的走通过一次（不留"理论上会有"的码）', () => {
     const untested = CAPABILITY_FAILURE_CODES.filter((code) => !seenCodes.has(code))
     expect(untested).toEqual([])
+  })
+})
+
+describe('能力码 → 界面稳定码', () => {
+  it('标签已关闭直接对上（界面本来就有这条文案）', () => {
+    expect(browserCodeFor('unknown-tab')).toBe('unknown-tab')
+  })
+
+  it('「调用方请求本身不合法」归到 invalid-command', () => {
+    const invalid: Array<Parameters<typeof browserCodeFor>[0]> = [
+      'invalid-context',
+      'invalid-producer',
+      'invalid-target',
+      'unknown-action',
+      'actor-not-allowed',
+      'target-required',
+      'target-not-allowed',
+      'target-kind-mismatch',
+      'reason-required'
+    ]
+    for (const code of invalid) expect(browserCodeFor(code)).toBe('invalid-command')
+  })
+
+  it('门禁与代际失效走 capability-denied（细节留在记录的稳定码里）', () => {
+    const denied: Array<Parameters<typeof browserCodeFor>[0]> = [
+      'binding-stale',
+      'navigation-stale',
+      'observation-stale',
+      'frame-stale',
+      'surface-stale',
+      'capture-stale',
+      'transform-stale',
+      'unknown-shell-element',
+      'lease-blocks-discard',
+      'flash-content',
+      'tab-loading'
+    ]
+    for (const code of denied) expect(browserCodeFor(code)).toBe('capability-denied')
   })
 })
 

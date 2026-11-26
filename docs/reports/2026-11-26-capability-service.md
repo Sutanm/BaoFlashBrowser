@@ -82,3 +82,69 @@ assert.ok(capability.some((entry) =>
 3. **WindowRegistry / BrowsingContextRegistry** 仍未建（见[接线报告 §6](2026-11-26-tab-registry-wiring.md#6-未做归到-a1-c)）；
 4. **调用记录没有导出/查询入口**：`CapabilityCallLog` 只有 500 条环形缓冲与诊断钩子，
    审计导出属 A5。
+
+## 6. 同日追加：其余标签动作全部接线
+
+第一片只接了「保持活跃」。同一天把外壳能做的标签动作全部收进同一个入口：
+
+| 外壳命令 | 能力动作 | 分发（执行仍用原函数） |
+| --- | --- | --- |
+| `select` | `tab.activate` | `select(tab)` |
+| `close` | `tab.close` | `closeTab(tab)` |
+| `duplicate` | `tab.duplicate` | `duplicateTab(tab)` |
+| `pin` | `tab.pin` | `setPinned(tab, value)` |
+| `mute` | `tab.mute` | `toggleMuted(tab)`（先比对目标值） |
+| `move` | `tab.move` | `moveTab(tab, index)` |
+| `navigate` | `tab.navigate` | `navigateTab(tab, address)` |
+| `reload` | `tab.reload` | `reloadTab(tab)` |
+| `set-engine` | `tab.setEngine` | `switchEngine(tab, engine)` |
+| `tearoff` | `tab.tearoff` | `tearOffTab(controller, …)` |
+
+不进能力层的两个：`tab-menu`（纯外壳交互，不改变浏览器状态）、`snapshot`（只读投影）。
+没有 UI 生产者的三个：`tab.discard`（架构 §7 规则 12 只给自动化）、`tab.list`、`shell.invoke`
+（外壳元素表随指认 UI 落地）。
+
+### 6.1 分发必须幂等
+
+能力动作携带的是「要变成什么」（`value` / `index`），不是「翻转一下」。UI 与自动化共用这条
+路径时，翻转语义在重试下会变成两次翻转——所以 `pin` / `mute` 都先比对目标值再动，
+即使调用方重复发同一条命令也不会抖。
+
+### 6.2 能力码 → 界面码
+
+界面已有自己那套稳定码与文案。新增 `browserCodeFor()` 做映射：`unknown-tab` 直接对上，
+「调用方请求不合法」一组归到 `invalid-command`，门禁与代际失效统一 `capability-denied`，
+细节留在调用记录的稳定码里。**不为 21 个能力码新增 21 条 UI 文案**。
+
+### 6.3 踩到的坑：Flash 探测不能挂在每个动作上
+
+第一版 `capabilityWorld()` 对**所有**动作都做 Flash 探测。那是跨帧 `executeJavaScript`，
+给每次点击加了可观的延迟，后果不是"慢一点"——`tab-duplicate-ruffle` 立刻失败：
+地址栏 Enter（异步导航）与随后的 `set-engine` 之间本来就有竞态窗口，探测把它撑大到必然触发。
+
+修法：**只有 `tab.discard` 才探**（ADR-0004 的门禁只挂在这一个动作上）。
+修完该用例从 37 s 超时失败变成 3.5 s 通过。
+
+这条值得记住：**把"校验"接到热路径上，代价往往不是校验本身，而是校验里那个顺手做的 IO。**
+
+### 6.4 证据
+
+`tab-ops` 新增断言（外壳标签动作的真实执行路径）：
+
+```js
+const capability = await app.evaluate(async () => globalThis.__baoCapabilityCalls())
+assert.deepEqual([...new Set(okRecords.map((entry) => entry.actor))], ['human-ui'])
+for (const expected of ['tab.duplicate', 'tab.pin', 'tab.mute', 'tab.move', 'tab.setEngine'])
+  assert.ok(names.has(expected), `能力记录里缺少 ${expected}`)
+assert.ok(!JSON.stringify(engineRecord).includes('ruffle'), '调用记录写入了动作参数')
+```
+
+**变异验证**：把 `duplicate` / `pin` / `mute` 三个分支改回直连控制器 → 断言在 `tab-ops:122`
+失败；恢复后通过。
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm run typecheck` | 通过 |
+| `npm run test:unit` | 283/283（新增 3 条映射用例） |
+| `npm run test:data` | 11/11 |
+| 隐藏冒烟（全量，4 并发） | **30 个文件 0 失败**，98.2 s |

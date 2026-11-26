@@ -35,8 +35,8 @@ import { tabRegistry } from './tab-registry'
 import type { TabLifecycleKind } from './tab-registry'
 import { CapabilityCallLog, validateCapabilityCall } from './capability-contract'
 import type { CapabilityTabSnapshot, CapabilityWorld } from './capability-contract'
-import { DEFAULT_PROFILE_ID, capabilityFailureText, isShellRef } from '../shared/capability'
-import type { CapabilityInvocation } from '../shared/capability'
+import { DEFAULT_PROFILE_ID, browserCodeFor, capabilityFailureText, isShellRef } from '../shared/capability'
+import type { ActionContext, CapabilityInvocation } from '../shared/capability'
 import { SESSION_VERSION, sessionTabCount } from '../shared/session'
 import type { SessionSnapshot, SessionTab, SessionWindow } from '../shared/session'
 
@@ -2410,7 +2410,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (tab && identity) {
       const contents = tab.view?.webContents
       const alive = Boolean(contents && !contents.isDestroyed())
-      const flashContent = alive && contents ? await flashContentOf(tab, contents) : false
+      // Flash 判定只对「销毁 WebContents」的动作有意义（ADR-0004 门禁在 `tab.discard` 上）。
+      // 其他动作一律不探：那是一次跨帧脚本执行，给每次点击加这个延迟只会让 UI 变慢
+      // （2026-11-26 实测：导航被拖慢后，地址栏 Enter 与后续动作之间出现可见的时间窗）。
+      const needsFlashProbe = invocation.action.name === 'tab.discard'
+      const flashContent = needsFlashProbe && alive && contents ? await flashContentOf(tab, contents) : false
       snapshot = {
         tabId: tab.id,
         bindingId: identity.bindingId,
@@ -2428,29 +2432,70 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
-   * 统一能力入口（A1-c 第一片）：**校验 → 记录 → 分发**。
+   * 外壳动作的上下文。UI 适配层的职责就是这一行（架构 §5 规则 2）：
+   * 把「当前活动标签」翻译成显式 `tabId`，并把操作者标成 `human-ui`。
+   */
+  function uiContext(): ActionContext {
+    return { actor: 'human-ui', profileId: DEFAULT_PROFILE_ID }
+  }
+
+  /**
+   * 统一能力入口（A1-c）：**校验 → 记录 → 分发**。
    *
-   * 执行仍然走本控制器已有的函数（`setKeepAwake` / `closeTab`）：动作实现依赖闭包状态
-   * （标签表、视图、窗口），搬出去等于重写；这一片先把「谁能做什么」的判定与审计接上。
-   * UI 不再直接改租约表，而是走这里——这就是架构 §5 规则 6「人类与自动化共用同一条执行路径」
-   * 的第一个落点。
+   * 执行仍然走本控制器已有的函数（`setKeepAwake` / `closeTab` / `navigateTab` …）：动作实现
+   * 依赖闭包状态（标签表、视图、窗口），搬出去等于重写；这一片先把「谁能做什么」的判定与审计
+   * 接上。UI 不再直接改状态，而是走这里——这就是架构 §5 规则 6「人类与自动化共用同一条执行
+   * 路径」的落点。
    */
   async function runCapability(invocation: CapabilityInvocation): Promise<BrowserResult> {
     const world = await capabilityWorld(invocation)
     const decision = validateCapabilityCall(invocation, world)
     capabilityCalls.append(invocation, decision)
     if (!decision.ok) {
-      return { ok: false, code: 'capability-denied', message: `${decision.message}（${decision.code}）` }
+      // 界面对不上能力的 21 个码：能对上的映射回去，其余统一 `capability-denied`，
+      // 细节留在调用记录的稳定码里（message 也带上）。
+      return { ok: false, code: browserCodeFor(decision.code), message: `${decision.message}（${decision.code}）` }
     }
     const tab = decision.tabId === undefined ? undefined : tabs.find((entry) => entry.id === decision.tabId)
     if (!tab) return fail('unknown-tab')
+    // 分发一律**幂等**：能力动作携带的是"要变成什么"（value / index），不是"翻转一下"。
+    // UI 与自动化共用这条路径时，翻转语义在重试下会变成两次翻转。
     switch (invocation.action.name) {
-      case 'tab.keepAwake':
-        setKeepAwake(tab, invocation.action.value)
+      case 'tab.activate':
+        select(tab)
         return { ok: true, state: state() }
       case 'tab.close':
         closeTab(tab)
         return { ok: true, state: state() }
+      case 'tab.reload':
+        reloadTab(tab)
+        return { ok: true, state: state() }
+      case 'tab.move':
+        moveTab(tab, invocation.action.index)
+        return { ok: true, state: state() }
+      case 'tab.duplicate':
+        duplicateTab(tab)
+        return { ok: true, state: state() }
+      case 'tab.pin':
+        if (tab.pinned !== invocation.action.value) setPinned(tab, invocation.action.value)
+        return { ok: true, state: state() }
+      case 'tab.mute':
+        if (tab.muted !== invocation.action.value) toggleMuted(tab)
+        return { ok: true, state: state() }
+      case 'tab.keepAwake':
+        setKeepAwake(tab, invocation.action.value)
+        return { ok: true, state: state() }
+      case 'tab.navigate':
+        return navigateTab(tab, invocation.action.address)
+      case 'tab.setEngine':
+        return switchEngine(tab, invocation.action.engine)
+      case 'tab.tearoff':
+        return tearOffTab(controller, {
+          type: 'tearoff',
+          id: tab.id,
+          screenX: invocation.action.screenX,
+          screenY: invocation.action.screenY
+        })
       default:
         return fail('invalid-command')
     }
@@ -2487,9 +2532,12 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'close': {
         const tab = tabs.find(({ id }) => id === command.id)
         if (!tab) return fail('unknown-tab')
-        if (command.type === 'select') select(tab)
-        else closeTab(tab)
-        break
+        // A1-c：标签动作统一走能力入口（校验 → 记录 → 分发）。
+        return runCapability({
+          context: uiContext(),
+          action: { name: command.type === 'select' ? 'tab.activate' : 'tab.close' },
+          target: { tabId: tab.id }
+        })
       }
       case 'duplicate':
       case 'pin':
@@ -2497,11 +2545,20 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'tab-menu': {
         const tab = tabs.find(({ id }) => id === command.id)
         if (!tab) return fail('unknown-tab')
-        if (command.type === 'duplicate') duplicateTab(tab)
-        else if (command.type === 'pin') setPinned(tab, !tab.pinned)
-        else if (command.type === 'mute') toggleMuted(tab)
-        else showTabMenu(tab)
-        break
+        // 右键菜单只是外壳交互（不改变浏览器状态），不进能力层。
+        if (command.type === 'tab-menu') {
+          showTabMenu(tab)
+          break
+        }
+        return runCapability({
+          context: uiContext(),
+          action: command.type === 'duplicate'
+            ? { name: 'tab.duplicate' }
+            : command.type === 'pin'
+              ? { name: 'tab.pin', value: !tab.pinned }
+              : { name: 'tab.mute', value: !tab.muted },
+          target: { tabId: tab.id }
+        })
       }
       case 'keep-awake': {
         const tab = tabs.find(({ id }) => id === command.id)
@@ -2523,7 +2580,12 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         dismissCrashSession()
         break
       case 'tearoff':
-        return tearOffTab(controller, command)
+        // 拖出是显式动作（ADR-0004 §3b：不需要 save→ack），但同样要过能力层的身份与策略校验。
+        return runCapability({
+          context: uiContext(),
+          action: { name: 'tab.tearoff', screenX: command.screenX, screenY: command.screenY },
+          target: { tabId: command.id }
+        })
       case 'undo-close':
         return undoClose()
       case 'set-engine': {
@@ -2533,7 +2595,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         if (tab.internal) return fail('invalid-command')
         if (command.engine !== 'ppapi' && command.engine !== 'ruffle') return fail('invalid-command')
         if (command.engine === 'ppapi' && !plugins) return fail('engine-unavailable')
-        return switchEngine(tab, command.engine)
+        return runCapability({
+          context: uiContext(),
+          action: { name: 'tab.setEngine', engine: command.engine },
+          target: { tabId: tab.id }
+        })
       }
       case 'remember-engine':
       case 'forget-engine': {
@@ -2559,11 +2625,21 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'move': {
         const tab = tabs.find(({ id }) => id === command.id)
         if (!tab) return fail('unknown-tab')
-        moveTab(tab, command.index)
-        break
+        return runCapability({
+          context: uiContext(),
+          action: { name: 'tab.move', index: command.index },
+          target: { tabId: tab.id }
+        })
       }
-      case 'navigate':
-        return navigateTab(activeTab(), command.address)
+      case 'navigate': {
+        const tab = activeTab()
+        if (!tab) return fail('unknown-tab')
+        return runCapability({
+          context: uiContext(),
+          action: { name: 'tab.navigate', address: command.address },
+          target: { tabId: tab.id }
+        })
+      }
       case 'back': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
@@ -2604,8 +2680,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       case 'reload': {
         const tab = activeTab()
         if (!tab) return fail('unknown-tab')
-        reloadTab(tab)
-        break
+        return runCapability({
+          context: uiContext(),
+          action: { name: 'tab.reload' },
+          target: { tabId: tab.id }
+        })
       }
       default:
         return fail('invalid-command')

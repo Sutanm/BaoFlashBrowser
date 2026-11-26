@@ -111,6 +111,22 @@ test('标签操作：复制、固定排序、静音迁移与拖出判定', { tim
       return focused.inStrip && focused.selected ? focused : null
     }, { message: '方向键切标签后焦点没有留在标签栏' })
 
+    // A1-c：这些标签动作必须全部经过统一能力入口（校验 + 记录 + 分发），
+    // 不能有哪一条还在直连控制器——否则「人类与自动化共用同一条执行路径」就是空话。
+    const capability = await app.evaluate(async () => globalThis.__baoCapabilityCalls())
+    assert.ok(Array.isArray(capability), '主进程能力调用记录钩子不可用')
+    const actorKinds = new Set(capability.filter((entry) => entry.outcome === 'ok').map((entry) => entry.actor))
+    assert.deepEqual([...actorKinds], ['human-ui'], '外壳动作的操作者应全部是 human-ui')
+    const names = new Set(capability.map((entry) => entry.action))
+    for (const expected of ['tab.duplicate', 'tab.pin', 'tab.mute', 'tab.move', 'tab.setEngine']) {
+      assert.ok(names.has(expected), `能力记录里缺少 ${expected}，该动作没有走统一入口`)
+    }
+    assert.ok(capability.every((entry) => entry.outcome === 'ok'), '正常操作不应出现被拒记录')
+    // 记录只放身份与结论：引擎值这类参数不得写进审计（架构 §8 的口径）。
+    const engineRecord = capability.find((entry) => entry.action === 'tab.setEngine')
+    assert.ok(engineRecord, '缺少 tab.setEngine 的记录')
+    assert.ok(!JSON.stringify(engineRecord).includes('ruffle'), '调用记录写入了动作参数')
+
   } finally {
     await close()
     await server.close()
