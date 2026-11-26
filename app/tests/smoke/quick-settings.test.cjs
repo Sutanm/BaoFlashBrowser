@@ -88,14 +88,19 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
       return { right: Math.round(button.right), bottom: Math.round(button.bottom) }
     })
     // 紧贴按钮：顶边就是按钮下缘、右边缘与按钮右缘对齐；视图不额外留白。
-    assert.equal(opened.bounds.y, geometry.bottom, '飞窗顶边应贴着按钮下沿')
-    assert.equal(opened.bounds.x + opened.bounds.width, geometry.right, '飞窗右边缘应与齿轮按钮对齐')
-    assert.equal(opened.bounds.width, 320, '视图宽度就是面板宽度（没有投影留白）')
+    // 视图 = 卡片 + 一圈投影边距（OVERLAY_GUTTER=12，只留左边与下边）：卡片右缘/顶边贴着按钮，
+    // 多出来的透明区域用来画投影，里面的鼠标由主进程转发给页面。
+    const GUTTER = 12
+    assert.equal(opened.bounds.y, geometry.bottom, '卡片顶边应贴着按钮下沿（视图顶边=卡片顶边）')
+    // 齿轮是工具栏最后一个按钮，右边只剩 8px：视图会被夹取往左推几像素，卡片右缘允许差一个边距以内。
+    assert.ok(Math.abs(opened.bounds.x + opened.bounds.width - GUTTER - geometry.right) <= GUTTER,
+      '卡片右缘应与齿轮按钮对齐（贴窗口右缘时允许被夹取平移几个像素）')
+    assert.equal(opened.bounds.width, 320 + 2 * GUTTER, '视图宽度 = 卡片 320 + 两侧投影边距')
     assert.ok(opened.bounds.x >= 0 && opened.bounds.y >= 0, '飞窗不能越出窗口左侧/顶部')
     assert.ok(opened.bounds.x + opened.bounds.width <= opened.contentSize[0], '飞窗不能越出窗口右侧')
     assert.ok(opened.bounds.y + opened.bounds.height <= opened.contentSize[1], '飞窗不能越出窗口底部')
 
-    // Chromium 数值：四角圆角 12（kMenuRadius → kMediumSmall），且不要投影。
+    // Chromium 数值：四角圆角 12（kMenuRadius → kMediumSmall）。
     const look = await inQuick(app, `(() => {
       const style = getComputedStyle(document.querySelector('.quick'))
       return { top: style.borderTopLeftRadius, bottom: style.borderBottomLeftRadius, shadow: style.boxShadow,
@@ -103,13 +108,19 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     })()`)
     assert.equal(look.top, '12px', '上侧也应是 12px 圆角')
     assert.equal(look.bottom, '12px', '下侧应是 12px 圆角')
-    assert.match(look.shadow, /inset/, '分层靠 inset 描边，不用外投影（架构铁律：首帧表面用 stroke）')
+    // 2026-11-26 反馈：那圈 1px 描边把内距衬得像没利用的留白，已经去掉——改用**真投影**分层，
+    // 投影画在视图外扩出来的透明边距里（所以卡片自己既没有描边也没有 inset 阴影）。
+    assert.doesNotMatch(look.shadow, /inset/, '卡片不再用 inset 描边（反馈：去掉外边框）')
+    assert.notEqual(look.shadow, 'none', '卡片要画投影（投影画在视图的透明边距里）')
     assert.equal(look.border, '0px', '不画外边框（Chromium 菜单 use_outer_border = false）')
 
     // 打开时不该有焦点：否则面板会被画上默认焦点环（实测出现过一圈黄边）。
     assert.equal(await inQuick(app, `document.activeElement?.tagName`), 'BODY', '打开飞窗后不应程序化聚焦任何元素')
     const afterTab = await app.evaluate(async ({ webContents }, marker) => {
       const quick = webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').includes(marker))
+      // 先显式把焦点交给飞窗文档：隐藏窗口里"点击带来的焦点"不一定成立，
+      // 不聚焦时 Tab 不会在文档内移动（实测偶发，见 2026-11-26 的 flake）。
+      quick.focus()
       quick.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
       quick.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
       await new Promise((done) => setTimeout(done, 150))
@@ -120,6 +131,7 @@ test('齿轮飞窗：贴合齿轮、写入同步、入口行与关闭路径', { 
     // 菜单式键盘焦点：行用整行高亮，不画环（与 Chrome 菜单一致）。
     const rowFocus = await app.evaluate(async ({ webContents }, marker) => {
       const quick = webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').includes(marker))
+      quick.focus()
       quick.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
       quick.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
       await new Promise((done) => setTimeout(done, 150))
@@ -240,5 +252,68 @@ test('齿轮飞窗：最小窗口下按内容区夹取，内容需要时可内�
       `最小窗口下面板内容尺寸异常：${JSON.stringify(overflow)}`)
   } finally {
     await close()
+  }
+})
+
+/**
+ * 透明投影边距**不能吃掉点击**（2026-11-26 的评估里这条被明确否掉过）。
+ *
+ * 视图比卡片大一圈（`OVERLAY_GUTTER=12`，顶边不留），那一圈是画投影用的；命中区仍然按视图
+ * 的矩形算，所以主进程会把边距里的鼠标**转发给当前页面**（`shell-overlays.ts` 的
+ * `forwardGutterMouse`）。这里用真实注入的鼠标事件验证：
+ * - 落在边距里 → 页面收到 mousedown，飞窗收起；
+ * - 落在卡片里 → 页面收不到（面板自己消费）。
+ * 只断言 `mousedown`：`mouseDown` 之后飞窗已收起，真实的 `mouseUp` 由系统直接投递给页面
+ * （注入的 `mouseUp` 仍然打在飞窗上，所以这里不拿 `click` 当判据）。
+ */
+test('齿轮飞窗：投影边距里的点击会转发给页面，不会被吞掉', { timeout: 120_000 }, async () => {
+  const server = await startFixtureServer({
+    '/': page('边距转发页', '<div id="hit" style="position:fixed;inset:0"></div><script>window.__downs = 0; document.getElementById("hit").addEventListener("mousedown", () => { window.__downs += 1 })</script>')
+  })
+  const { app, shell, close } = await launchApp()
+  try {
+    const address = shell.getByRole('textbox', { name: '地址栏' })
+    await address.fill(server.baseUrl)
+    await address.press('Enter')
+    await shell.getByRole('button', { name: '边距转发页', exact: true }).waitFor({ timeout: 30_000 })
+
+    await shell.getByRole('button', { name: '快捷设置', exact: true }).click()
+    const view = await waitFor(async () => {
+      const value = await quickView(app)
+      return value?.attached ? value : null
+    }, { message: '飞窗没有打开' })
+
+    const pageId = await waitFor(async () => app.evaluate(({ webContents }) =>
+      webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').startsWith('http://127.0.0.1'))?.id ?? null))
+    const pageDowns = () => app.evaluate(async ({ webContents }, id) =>
+      webContents.fromId(id).executeJavaScript('window.__downs ?? 0'), pageId)
+    const clickAt = async (x, y) => {
+      await app.evaluate(({ webContents }, payload) => {
+        const target = webContents.fromId(payload.id)
+        const common = { x: payload.x, y: payload.y, button: 'left', clickCount: 1 }
+        target.sendInputEvent({ type: 'mouseDown', ...common })
+        target.sendInputEvent({ type: 'mouseUp', ...common })
+      }, { id: view.id, x, y })
+      await new Promise((done) => setTimeout(done, 250))
+    }
+
+    // ① 卡片里点一下：面板自己消费，页面收不到。
+    const before = await pageDowns()
+    await clickAt(60, 40)
+    assert.equal(await pageDowns(), before, '卡片里的点击不该漏到页面')
+    assert.ok((await quickView(app))?.attached, '卡片里的点击不该关掉飞窗')
+
+    // ② 左侧投影边距（x=4 < 12）里点一下：转发给页面，并且飞窗收起。
+    await clickAt(4, 120)
+    const afterGutter = await waitFor(async () => {
+      const value = await pageDowns()
+      return value > before ? value : null
+    }, { message: '投影边距里的点击被吞掉了（没有转发给页面）' })
+    assert.equal(afterGutter, before + 1, '边距里的点击应当转发一次给页面')
+    await waitFor(async () => (await quickView(app))?.attached !== true ? true : null,
+      { message: '点边距应当收起飞窗' })
+  } finally {
+    await close()
+    await server.close()
   }
 })

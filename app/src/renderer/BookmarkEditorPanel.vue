@@ -220,7 +220,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
               role="radio"
               class="overlay-row folder-row"
               :aria-checked="folderDraft === folder.id"
-              :style="{ paddingInlineStart: `${9 + folder.depth * 14}px` }"
+              :style="{ paddingInlineStart: `${8 + folder.depth * 14}px` }"
               :disabled="busy"
               @click="folderDraft = folder.id"
             >
@@ -247,7 +247,16 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 <style>
 /* 卡片/标题/标签/输入/行/按钮都取 `overlay-panel.css`；这里只留编辑器独有的排布。 */
-.editor-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
+.editor-frame {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  /* 视图比卡片大一圈：四周（除顶边）留透明边距画投影。数值来自 OVERLAY_GUTTER，
+     由 OverlayHost 写成 CSS 变量；透明边距里的鼠标由主进程转发给页面（见 shell-overlays.ts）。 */
+  padding: 0 var(--overlay-gutter, 12px) var(--overlay-gutter, 12px);
+  display: flex;
+  align-items: flex-start;
+}
 
 .editor-head { display: flex; align-items: center; gap: 6px; }
 .editor-head .overlay-title { flex: 1; }
@@ -259,7 +268,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .editor-close:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: -1px; }
 .editor-close .shell-icon { width: 13px; height: 13px; }
 
-.editor-field { display: grid; gap: 3px; padding: 0 6px 6px; }
+.editor-field { display: grid; gap: 3px; padding: 0 4px 6px; }
 .editor-field .overlay-label { padding: 2px 3px 0; }
 
 /* 文件夹标题行右侧放「新建文件夹」——它作用的对象就是这棵树。 */

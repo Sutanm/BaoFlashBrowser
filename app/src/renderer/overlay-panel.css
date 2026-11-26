@@ -1,24 +1,34 @@
 /*
  * 飞窗（叠加层）里所有面板共用的「卡片 + 菜单行」样式。
  *
- * 为什么要一个共用文件：快捷设置、引擎面板、收藏夹、编辑气泡是**同一只飞窗的四页**，
+ * 为什么要一个共用文件：快捷设置、引擎面板、收藏夹、编辑气泡、完整编辑器是**同一只飞窗的几页**，
  * 出现在同一颗按钮下方。各写一份 CSS 的结果就是数值漂移——2026-11-26 实测过：
  * 收藏夹那两页的内距 8px、标题 12px 粗体、输入框 28px、档位 24px，而既有两页是
  * 6px / 11px 灰 / 32px / 32px，看起来"不是一套东西"。
  *
- * 数值来源是既有的两个面板（Chromium 菜单的量级 + Fluent token）：
- * 圆角 12、inset 1px 描边（视图与面板同尺寸，外投影会被裁成一条光影，所以不投影）、
- * 行高 36 / 档位 32、字号 12、标签 11 灰、控件圆角 7–8。
+ * 2026-11-26 第二版：**去掉卡片的 1px 描边**（反馈：那圈线把内距衬得像没利用的留白），
+ * 改用**真投影**做分层：视图在卡片四周留 `OVERLAY_GUTTER`(12px) 透明边距，投影画在这圈边距里。
+ * 边距落在视图命中区里，所以主进程会把边距里的鼠标事件转发给页面（`shell-overlays.ts`），
+ * 点面板旁边的东西不会"没反应"。内距也从 6px 收到 4px、行内距 9→8，内容更贴近卡片边缘。
+ *
+ * 数值来源是既有面板（Chromium 菜单的量级 + Fluent token）：
+ * 圆角 12、行高 36 / 档位 32、字号 12、标签 11 灰、控件圆角 7。
  */
 .overlay-card {
   box-sizing: border-box;
   width: 100%;
-  max-height: 100vh;
+  /*
+   * 高度**必须由内容决定**：主进程按渲染层上报的 `scrollHeight` 设视图高度（卡片 + 投影边距）。
+   * 写成 `height: 100%` 会让卡片跟着视图长、`scrollHeight` 又跟着卡片长，形成每轮 +12px 的自激
+   * 循环（实测 320 → 342 → …，一直涨到被窗口夹住）。`max-height: 100%` 只负责"超了就内部滚动"。
+   */
+  max-height: 100%;
   overflow: auto;
-  padding: 6px;
+  padding: 4px;
   border: 0;
   border-radius: 12px;
-  box-shadow: inset 0 0 0 1px var(--stroke-divider);
+  /* 与 Chromium 菜单的 elevation 12 同一量级：两层（近处紧贴 + 远处扩散）。 */
+  box-shadow: 0 2px 6px rgb(0 0 0 / 10%), 0 8px 20px rgb(0 0 0 / 14%);
   background: var(--surface-toolbar);
   color: var(--text-primary);
   font: var(--size-body)/1.4 var(--shell-font);
@@ -33,13 +43,13 @@
 .overlay-card button:focus-visible { outline: none; background: var(--surface-hover); }
 .overlay-card button:focus:not(:focus-visible) { outline: none; }
 
-/* 面板标题：与引擎面板的 `h2` 一致（11px、灰、不加粗）。 */
+/* 面板标题：11px 灰半粗（引擎面板 / 收藏夹 / 气泡 / 编辑器同一档）。 */
 .overlay-title {
   display: flex;
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 1px 6px 5px;
+  padding: 2px 8px 4px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -50,12 +60,12 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 6px 9px 2px;
+  padding: 6px 8px 2px;
   font-size: 11px;
   color: var(--text-secondary);
 }
 .overlay-label .count { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
-.overlay-divider { height: 1px; margin: 6px 4px; background: var(--stroke-divider); }
+.overlay-divider { height: 1px; margin: 5px 4px; background: var(--stroke-divider); }
 
 /* 菜单行：36px、圆角 7、整行可点。选中态用 Fluent 的中性选中面（不是品牌色）。 */
 .overlay-row {
@@ -64,7 +74,7 @@
   gap: 9px;
   width: 100%;
   min-height: 36px;
-  padding: 0 9px;
+  padding: 0 8px;
   border-radius: 7px;
   text-align: start;
   font-size: 12px;
@@ -134,5 +144,5 @@
 }
 .overlay-button.danger:hover { background: color-mix(in srgb, var(--text-error) 20%, var(--surface-toolbar)); }
 
-.overlay-empty { margin: 0; padding: 4px 9px 6px; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
-.overlay-error { margin: 6px 9px 2px; font-size: 11px; color: var(--text-error); }
+.overlay-empty { margin: 0; padding: 4px 8px 6px; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
+.overlay-error { margin: 6px 8px 2px; font-size: 11px; color: var(--text-error); }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { QuickView } from '../shared/overlay'
+import { OVERLAY_GUTTER } from '../shared/overlay-geometry'
 import { useBrowserStore } from './stores/browser'
 import { applyShellTheme } from './theme'
 
@@ -57,6 +58,9 @@ function reportReadyAfterPaint(): void {
 
 onMounted(() => {
   setIdle(true)
+  // 卡片四周的透明边距（画投影用）只有一处定义：`OVERLAY_GUTTER`。
+  // 主进程的命中判定用同一个常量，两边必须一致，所以由这里写成 CSS 变量给各面板的 frame 用。
+  document.documentElement.style.setProperty('--overlay-gutter', `${OVERLAY_GUTTER}px`)
   store.connect()
   /**
    * 长任务观测（2026-11-25 演示 §7.7-1 / ADR-0004「把纪律变成门槛」）。

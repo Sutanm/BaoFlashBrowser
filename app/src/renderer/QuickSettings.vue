@@ -207,15 +207,15 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
       <p v-if="error" class="overlay-error" role="status">{{ error }}</p>
 
       <div class="overlay-divider" role="presentation"></div>
+      <!-- 两行都是"直接动作"（打开收藏夹页 / 打开设置标签），不是展开子菜单，
+           所以不画 `>` —— 那个箭头会让人以为还要再展开一层。 -->
       <button type="button" class="overlay-row footer" @click="openBookmarks">
         <span class="lead-icon"><ShellIcon name="star" /></span>
         <span>收藏夹</span>
-        <span class="chev"><ShellIcon name="chevron" /></span>
       </button>
       <button type="button" class="overlay-row footer" @click="openSettings">
         <span class="lead-icon"><ShellIcon name="gear" /></span>
         <span>全部设置</span>
-        <span class="chev"><ShellIcon name="chevron" /></span>
       </button>
     </section>
   </div>
@@ -226,11 +226,20 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
    卡片、分组标签、分隔线、行、radio 圆点都取 `overlay-panel.css` 的共用类——
    四个飞窗（快捷设置/引擎/收藏夹/编辑气泡）必须是同一套数值，各写一份就是漂移。 */
 .shell-overlay, .shell-overlay body { margin: 0; overflow: hidden; background: transparent; }
-.quick-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
+.quick-frame {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  /* 视图比卡片大一圈：四周（除顶边）留透明边距画投影。数值来自 OVERLAY_GUTTER，
+     由 OverlayHost 写成 CSS 变量；透明边距里的鼠标由主进程转发给页面（见 shell-overlays.ts）。 */
+  padding: 0 var(--overlay-gutter, 12px) var(--overlay-gutter, 12px);
+  display: flex;
+  align-items: flex-start;
+}
 
 /* 只有这一页独有的排布留在这里。 */
 .overlay-row.engine { grid-template-columns: 13px 1fr auto; }
-.overlay-row.footer { grid-template-columns: 18px 1fr 14px; min-height: 38px; }
+.overlay-row.footer { grid-template-columns: 18px 1fr; min-height: 38px; }
 .overlay-row[aria-disabled='true'] { opacity: .45; cursor: default; }
 /* 菜单式的键盘焦点：整行高亮，不画环（Chrome 的菜单项就是这么做的）。
    选中行本来就有底色，聚焦时换成更饱和的 accent 混合色，保证「聚焦」看得出来。 */
@@ -242,7 +251,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
-  margin: 5px 9px 8px;
+  margin: 5px 8px 8px;
   padding: 3px;
   border: 1px solid var(--stroke-control);
   border-radius: 10px;
@@ -274,10 +283,9 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .overlay-row[aria-checked='true'] .check { visibility: visible; }
 .overlay-row .warn { width: 13px; height: 13px; color: var(--engine-override); }
 
-.overlay-row.footer .lead-icon, .overlay-row.footer .chev { display: grid; place-items: center; color: var(--text-secondary); }
+.overlay-row.footer .lead-icon { display: grid; place-items: center; color: var(--text-secondary); }
 .overlay-row.footer .lead-icon .shell-icon { width: 15px; height: 15px; }
-.overlay-row.footer .chev .shell-icon { width: 14px; height: 14px; /* chevron 是向下箭头，旋成向右 */ transform: rotate(-90deg); }
-.overlay-row.footer:hover .lead-icon, .overlay-row.footer:hover .chev { color: var(--text-primary); }
+.overlay-row.footer:hover .lead-icon { color: var(--text-primary); }
 
 
 

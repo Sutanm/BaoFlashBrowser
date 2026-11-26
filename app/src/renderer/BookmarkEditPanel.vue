@@ -282,7 +282,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
               role="option"
               class="overlay-row folder-option"
               :aria-selected="node.parentId === folder.id"
-              :style="{ paddingInlineStart: `${9 + folder.depth * 14}px` }"
+              :style="{ paddingInlineStart: `${8 + folder.depth * 14}px` }"
               @click="chooseFolder(folder.id)"
             >
               <ShellIcon name="folder" class="option-icon" />
@@ -311,7 +311,16 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 <style>
 /* 只有"这一页独有"的排布留在这里；卡片、标题、行、输入框、按钮全部取共用类。 */
-.bubble-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
+.bubble-frame {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  /* 视图比卡片大一圈：四周（除顶边）留透明边距画投影。数值来自 OVERLAY_GUTTER，
+     由 OverlayHost 写成 CSS 变量；透明边距里的鼠标由主进程转发给页面（见 shell-overlays.ts）。 */
+  padding: 0 var(--overlay-gutter, 12px) var(--overlay-gutter, 12px);
+  display: flex;
+  align-items: flex-start;
+}
 
 .bubble-head { display: flex; align-items: center; gap: 6px; }
 .bubble-head .overlay-title { flex: 1; }
@@ -324,12 +333,12 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .bubble-close .shell-icon { width: 13px; height: 13px; }
 
 /* 站点一行：只是"这是哪个站点的收藏"，名字在下面的输入框里。 */
-.bubble-site { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0 9px 4px; color: var(--text-secondary); }
+.bubble-site { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0 8px 4px; color: var(--text-secondary); }
 .site-icon { display: grid; place-items: center; }
 .site-icon .shell-icon { width: 13px; height: 13px; }
 .site-host { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.bubble-field { display: grid; gap: 3px; padding: 0 6px 6px; }
+.bubble-field { display: grid; gap: 3px; padding: 0 4px 6px; }
 .bubble-field .overlay-label { padding: 2px 3px 0; }
 .bubble-field .overlay-input { width: 100%; }
 

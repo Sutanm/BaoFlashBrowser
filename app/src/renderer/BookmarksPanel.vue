@@ -144,7 +144,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
             v-for="row in group.rows"
             :key="row.node.id"
             class="hub-row"
-            :style="{ paddingInlineStart: `${9 + row.depth * 14}px` }"
+            :style="{ paddingInlineStart: `${8 + row.depth * 14}px` }"
           >
             <span v-if="row.node.kind === 'url'" class="row-icon" aria-hidden="true"><ShellIcon name="page" /></span>
             <span v-else class="row-icon folder" aria-hidden="true"><ShellIcon name="folder" /></span>
@@ -177,7 +177,16 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 
 <style>
 /* 卡片/标题/分组标签/分隔线/空状态全部取 `overlay-panel.css`；这里只留树行的排布。 */
-.hub-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
+.hub-frame {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  /* 视图比卡片大一圈：四周（除顶边）留透明边距画投影。数值来自 OVERLAY_GUTTER，
+     由 OverlayHost 写成 CSS 变量；透明边距里的鼠标由主进程转发给页面（见 shell-overlays.ts）。 */
+  padding: 0 var(--overlay-gutter, 12px) var(--overlay-gutter, 12px);
+  display: flex;
+  align-items: flex-start;
+}
 .hub-count { font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
 /* 列表封顶滚动：收藏夹可以是几百条，但飞窗不该长成一整屏（与设置页规则列表同一做法）。 */

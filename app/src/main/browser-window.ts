@@ -30,6 +30,7 @@ import { shellThemes, windowPalette } from '../shared/shell-theme'
 import type { ShellTheme } from '../shared/shell-theme'
 import { overlayChannels } from '../shared/overlay'
 import { createShellOverlays } from './shell-overlays'
+import type { PageFrame } from './shell-overlays'
 import { attachPopupChrome } from './popup-chrome'
 import { activityLeases } from './activity-lease'
 import { tabRegistry } from './tab-registry'
@@ -539,7 +540,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   })
 
   const shellContentsId = window.webContents.id
-  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background, overlayPrewarmPolicy, sharedOverlayMode)
+  /**
+   * 当前页面视图的位置 + WebContents：飞窗的透明投影边距需要它来做鼠标转发
+   * （边距落在视图命中区里，不转发就等于吞掉页面上的点击）。
+   */
+  const pageFrame = (): PageFrame | undefined => {
+    const view = active?.view
+    const contents = view?.webContents
+    if (!view || !contents || contents.isDestroyed() || view.getVisible() === false) return undefined
+    return { contents, bounds: view.getBounds() }
+  }
+  const overlays = createShellOverlays(window, shellUrl, sameDocument, (input) => (active ? handleShortcut(active, input) : false), currentTheme, () => !hidden && !background, overlayPrewarmPolicy, sharedOverlayMode, pageFrame)
   const tabs: Tab[] = []
   const recentlyClosed: ClosedTab[] = []
   let active: Tab | undefined

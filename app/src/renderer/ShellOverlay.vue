@@ -106,7 +106,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="overlay-frame" :style="kind === 'toast' ? { padding: `${OVERLAY_TOP_INSET}px ${OVERLAY_INSET}px ${OVERLAY_INSET}px` } : undefined">
+  <div class="overlay-frame" :class="{ flyout: kind === 'panel' }" :style="kind === 'toast' ? { padding: `${OVERLAY_TOP_INSET}px ${OVERLAY_INSET}px ${OVERLAY_INSET}px` } : undefined">
     <section v-if="kind === 'panel'" id="engine-panel" ref="panel" class="engine-panel overlay-card" role="dialog" aria-labelledby="engine-heading">
       <h2 id="engine-heading" class="overlay-title">渲染引擎</h2>
       <div class="engine-choices" role="group" aria-label="选择当前标签的引擎">
@@ -161,17 +161,19 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--engine-accent) 20%, var(--surface-toolbar));
 }
 .overlay-frame button:focus:not(:focus-visible) { outline: none; }
-/* 与齿轮飞窗一致：卡片（圆角 12、inset 1px 描边、不投影）与标题都取
-   `overlay-panel.css` 的共用类；这里只留引擎档位与站点规则的排布。 */
+
+/* 面板与飞窗同一套分层：卡片（圆角 12 + 真投影）取 `overlay-panel.css` 的共用类，
+   投影画在视图外扩出来的透明边距里（数值来自 `OVERLAY_GUTTER`，见 OverlayHost）。
+   这里只留引擎档位与站点规则的排布。 */
+.overlay-frame { box-sizing: border-box; width: 100%; height: 100vh; display: flex; align-items: flex-start; }
+.overlay-frame.flyout { padding: 0 var(--overlay-gutter, 12px) var(--overlay-gutter, 12px); }
 .toast {
   background: var(--surface-toolbar);
-  /* 与飞窗、引擎面板同一套分层：圆角 + inset 1px 描边，不画外投影
-     （视图与内容同尺寸，投影只会落在视图外被裁掉，反而像一层「光影」）。 */
+  /* 提示条也留了一圈透明边距（`ShellOverlay` 的 inline padding），所以同样用真投影。 */
   border: 0;
   border-radius: 12px;
-  box-shadow: inset 0 0 0 1px var(--stroke-divider);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 10%), 0 8px 20px rgb(0 0 0 / 14%);
 }
-.engine-panel { padding: 6px; }
 .engine-choices { display: grid; gap: 2px; }
 .engine-choice {
   display: grid; grid-template-columns: 22px 1fr auto 14px; gap: 7px; align-items: center;

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { browserChannels } from '../shared/browser'
 import type { BrowserState } from '../shared/browser'
 import { OVERLAY_QUERY, isQuickView, overlayChannels } from '../shared/overlay'
-import { clampBelow, clampBounds } from '../shared/overlay-geometry'
+import { OVERLAY_GUTTER, cardRect, clampBelow, clampBounds, insideCard } from '../shared/overlay-geometry'
 import type { OverlayBounds, OverlayEvent, OverlayKind, QuickView } from '../shared/overlay'
 import type { PrewarmMode } from '../shared/settings'
 import { beginOpen, markContent, markVisible, readSamples, resetSamples, summarize } from './overlay-metrics'
@@ -74,6 +74,15 @@ function isText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 4096
 }
 
+/**
+ * 转发透明边距里的鼠标时要知道"页面在哪"：当前页面的 WebContents 与它在窗口里的位置。
+ * 由 `browser-window` 提供（它才是布局的唯一负责人）。
+ */
+export interface PageFrame {
+  contents: WebContents
+  bounds: { x: number; y: number; width: number; height: number }
+}
+
 /** Native sibling views cover the active page without changing its layout. */
 export function createShellOverlays(
   window: BrowserWindow,
@@ -86,7 +95,9 @@ export function createShellOverlays(
   /** 预热策略：always=窗口创建即预热（默认）；never=用到才建、不做任何提前创建。 */
   prewarmPolicy: () => PrewarmMode,
   /** 共享进程模式（proto）：视图由外壳 window.open 产生，主进程只接管，不自己建。 */
-  shared: () => boolean
+  shared: () => boolean,
+  /** 当前页面视图的位置与 WebContents（透明边距里的鼠标转发到它）。 */
+  pageFrame: () => PageFrame | undefined
 ) {
   const shell = window.webContents
   let flyout: HostedView | undefined
@@ -186,6 +197,45 @@ export function createShellOverlays(
     if (input.type !== 'mouseDown') return
     closePanel(false)
     closeQuick(false)
+  }
+
+  /**
+   * 飞窗视图四周那一圈**透明投影边距**里的鼠标，转发给当前页面。
+   *
+   * 为什么需要：视图是矩形，命中区不跟卡片走（Electron 的 `View.setBorderRadius` 官方注释也写
+   * "the cutout still captures clicks"）。边距是给投影留的，若直接吞掉事件，用户点面板旁边的
+   * 链接就会"没反应"——2026-11-26 的评估里这条被明确否掉了，所以这里补上转发。
+   *
+   * 只转发 `mouseDown` / `mouseMove`：`mouseDown` 之后飞窗会被收起，紧随其后的 `mouseUp`
+   * 由系统直接投递给下面的页面视图，再补一次会变成两次抬起。
+   */
+  function forwardGutterMouse(item: HostedView, input: MouseInputEvent): boolean {
+    if (!item.bounds || item.kind === 'toast') return false
+    if (input.type !== 'mouseDown' && input.type !== 'mouseMove') return false
+    if (item.kind !== undefined && insideCard(item.bounds, input.x, input.y)) return false
+    const frame = pageFrame()
+    if (!frame || frame.contents.isDestroyed()) return false
+    const x = Math.round(item.bounds.x + input.x - frame.bounds.x)
+    const y = Math.round(item.bounds.y + input.y - frame.bounds.y)
+    if (x < 0 || y < 0 || x >= frame.bounds.width || y >= frame.bounds.height) return false
+    frame.contents.sendInputEvent({
+      type: input.type,
+      x,
+      y,
+      button: input.button,
+      clickCount: input.clickCount,
+      modifiers: input.modifiers
+    })
+    return true
+  }
+
+  /** 飞窗收到鼠标：落在卡片外就把事件转发给页面（点外部仍然收起飞窗）。 */
+  function onFlyoutMouse(input: MouseInputEvent): void {
+    const item = flyout
+    if (!item?.bounds || !item.kind) return
+    if (insideCard(item.bounds, input.x, input.y)) return
+    forwardGutterMouse(item, input)
+    if (input.type === 'mouseDown') close(item.kind === 'toast' ? 'quick' : item.kind, false)
   }
 
   function setActivePage(contents: WebContents | undefined): void {
@@ -305,6 +355,8 @@ export function createShellOverlays(
     contents.on('before-input-event', (event, input) => {
       if (escape(input) || handleShortcut(input)) event.preventDefault()
     })
+    // 透明投影边距里的鼠标要转给页面，不能凭空吞掉（见 forwardGutterMouse）。
+    contents.on('before-mouse-event', (_event, input) => onFlyoutMouse(input))
     contents.on('destroyed', () => {
       if (!isCurrent()) return
       flyout = undefined
@@ -377,6 +429,8 @@ export function createShellOverlays(
     contents.on('before-input-event', (event, input) => {
       if (escape(input) || handleShortcut(input)) event.preventDefault()
     })
+    // 透明投影边距里的鼠标要转给页面，不能凭空吞掉（见 forwardGutterMouse）。
+    contents.on('before-mouse-event', (_event, input) => onFlyoutMouse(input))
     contents.on('render-process-gone', invalidate)
     contents.on('destroyed', invalidate)
     contents.on('did-finish-load', () => {
@@ -506,7 +560,8 @@ export function createShellOverlays(
       }
       case 'resize-panel': {
         if (role !== 'panel' || flyout?.kind !== 'panel' || !flyout.bounds || !isFiniteNumber(value.height) || value.height <= 0) return false
-        flyout.bounds.height = value.height
+        // 渲染层报的是**卡片**高度：视图还要加一圈投影留白（透明边距）。
+        flyout.bounds.height = value.height + OVERLAY_GUTTER
         sync('panel')
         return true
       }
@@ -514,8 +569,9 @@ export function createShellOverlays(
         if (role !== 'quick' || flyout?.kind !== 'quick' || !flyout.bounds || !isFiniteNumber(value.height) || value.height <= 0) return false
         // 高度没变就别再走一遍 sync()：渲染层按 scrollHeight 上报，1–2 px 的抖动会形成
         // 「设置 bounds → 布局变化 → 再上报」的循环（实测能到每秒上万次）。
-        if (Math.abs(flyout.bounds.height - value.height) < 1) return true
-        flyout.bounds.height = value.height
+        const nextHeight = value.height + OVERLAY_GUTTER
+        if (Math.abs(flyout.bounds.height - nextHeight) < 1) return true
+        flyout.bounds.height = nextHeight
         sync('quick')
         return true
       }
