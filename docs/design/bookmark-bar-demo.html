@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BaoFlash · 收藏夹形态演示（三方案 + 空态 + 文件夹下拉）</title>
+<style>
+  /* ---------- tokens：与 settings-entry-options.html 同一套视觉语言 ---------- */
+  :root {
+    color-scheme: light;
+    --bg: #eef0f4; --chrome: #f0f1f4; --surface: #fff; --page: #f9fafd;
+    --ink: #232630; --muted: #626879; --line: #dcdfe6; --hover: #eff1f6;
+    --selected: #eeebfb; --accent: #5940ac; --flash: #bd4136; --ruffle: #7254d6;
+    --warn: #8f5610; --shadow: 0 12px 36px #24243b22, 0 2px 6px #24243b0c;
+    --panel-shadow: 0 16px 44px #24243b2b, 0 2px 8px #24243b14;
+    --tabbar: 40px; --toolbar: 44px; --bookmarkbar: 32px;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14151a; --chrome: #22232a; --surface: #292b33; --page: #1d1f27;
+    --ink: #f2f2f6; --muted: #b4b7c6; --line: #434552; --hover: #373945;
+    --selected: #3b3059; --accent: #c8b7ff; --flash: #f0776c; --ruffle: #ad97fe;
+    --warn: #efbf78; --shadow: 0 12px 36px #0006, 0 2px 6px #0003;
+    --panel-shadow: 0 18px 48px #000a, 0 2px 8px #0006;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.5 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif; }
+  main { width: min(1040px, calc(100% - 32px)); margin: clamp(18px, 3.4vw, 40px) auto 72px; }
+  h1, h2, h3, p, ul { margin: 0; }
+  h1 { font-size: clamp(20px, 3.2vw, 25px); letter-spacing: -.025em; margin-bottom: 6px; }
+  h2 { font-size: 14px; letter-spacing: -.01em; }
+  h3 { font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  button, input { font: inherit; color: inherit; }
+  button { background: none; border: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .muted { color: var(--muted); }
+  .kicker { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 700;
+            letter-spacing: .16em; color: var(--accent); margin-bottom: 6px; }
+  .kicker::before { content: ''; width: 9px; height: 9px; border-radius: 3px;
+                    background: linear-gradient(135deg, var(--flash), var(--ruffle)); }
+  .intro { max-width: 74ch; font-size: 13px; color: var(--muted); }
+  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 18px;
+              padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .controls strong { font-size: 12px; }
+  .seg { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--page); }
+  .seg button { padding: 3px 10px; border-radius: 6px; font-size: 12px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); font-weight: 600; }
+  :root[data-theme="dark"] .seg button[aria-pressed="true"] { color: #16121f; }
+
+  /* ---------- 模拟窗口 ---------- */
+  .stage { position: relative; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+           background: var(--chrome); box-shadow: var(--shadow); }
+  .tabstrip { display: flex; align-items: center; gap: 6px; height: var(--tabbar); padding: 6px 8px 0; background: var(--chrome); }
+  .tab { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px 8px 0 0;
+         background: var(--surface); font-size: 12px; max-width: 210px; }
+  .tab .dot { width: 13px; height: 13px; border-radius: 3px; background: linear-gradient(135deg, var(--flash), var(--ruffle)); flex: none; }
+  .tab .x { color: var(--muted); }
+  .newtab-btn { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); }
+  .toolbar { display: flex; align-items: center; gap: 8px; height: var(--toolbar); padding: 0 8px; background: var(--chrome);
+             border-bottom: 1px solid var(--line); }
+  .iconbtn { width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; color: var(--ink); }
+  .iconbtn:hover, .newtab-btn:hover { background: var(--hover); }
+  .iconbtn[aria-pressed="true"] { background: var(--selected); color: var(--accent); }
+  .omnibox { flex: 1; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
+             border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 12.5px; color: var(--muted); }
+  .omnibox .grow { flex: 1; }
+  .omnibox .star { color: var(--muted); }
+  .omnibox .star.on { color: var(--warn); }
+
+  /* 书签栏（本次要定的东西） */
+  .bookmarkbar { display: flex; align-items: center; gap: 4px; height: var(--bookmarkbar); padding: 0 8px;
+                 background: var(--chrome); border-bottom: 1px solid var(--line); overflow: hidden; }
+  .bookmarkbar .bm { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
+                     border-radius: 6px; font-size: 12px; white-space: nowrap; }
+  .bookmarkbar .bm:hover { background: var(--hover); }
+  .bookmarkbar .bm .fav { width: 14px; height: 14px; border-radius: 3px; background: var(--line); flex: none; }
+  .bookmarkbar .bm.folder .chev { color: var(--muted); font-size: 10px; }
+  .bookmarkbar .hint { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .bookmarkbar .hint a { color: var(--accent); text-decoration: none; }
+  .bookmarkbar .overflow { margin-left: auto; color: var(--muted); }
+
+  .page { position: relative; height: 340px; background: var(--page); overflow: hidden; }
+  .page .ntp { display: grid; place-items: center; height: 100%; }
+  .page .ntp .logo { font-size: 40px; font-weight: 700; letter-spacing: -.03em; color: var(--accent); opacity: .85; }
+  .page .ntp .search { width: min(520px, 74%); height: 40px; margin-top: 14px; border-radius: 999px;
+                       border: 1px solid var(--line); background: var(--surface); }
+  .page .ntp .tiles { display: flex; gap: 12px; margin-top: 18px; }
+  .page .ntp .tile { width: 68px; height: 52px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+  .page .web { padding: 20px 26px; }
+  .page .web .bar { height: 12px; border-radius: 4px; background: var(--line); margin-bottom: 10px; }
+  .page .web .bar.w80 { width: 80%; } .page .web .bar.w60 { width: 60%; } .page .web .bar.w70 { width: 70%; }
+  .page .web .hero { height: 84px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); margin-bottom: 16px; }
+  .pagelabel { position: absolute; right: 10px; bottom: 8px; font-size: 11px; color: var(--muted);
+               background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+
+  /* 浮层：Edge 式收藏夹面板 / Chrome 式应用菜单 */
+  .flyout, .appmenu { position: absolute; top: calc(var(--tabbar) + var(--toolbar) - 4px); z-index: 20;
+                      background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+                      box-shadow: var(--panel-shadow); padding: 8px; min-width: 240px; }
+  .flyout { right: 96px; }
+  .appmenu { right: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 7px; font-size: 12.5px; }
+  .row:hover { background: var(--hover); }
+  .row .chev { margin-left: auto; color: var(--muted); font-size: 10px; }
+  .sep { height: 1px; background: var(--line); margin: 6px 4px; }
+  .submenu { position: absolute; right: 100%; top: 0; margin-right: 4px; min-width: 200px;
+             background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+             box-shadow: var(--panel-shadow); padding: 8px; }
+  .submenu-wrap { position: relative; }
+
+  /* 文件夹下拉 */
+  .dropdown { position: absolute; top: calc(var(--tabbar) + var(--toolbar) + var(--bookmarkbar) - 2px);
+              z-index: 20; min-width: 220px; background: var(--surface); border: 1px solid var(--line);
+              border-radius: 10px; box-shadow: var(--panel-shadow); padding: 8px; }
+
+  .ruler { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0 26px; font-size: 12px; color: var(--muted); }
+  .ruler b { color: var(--ink); font-weight: 600; }
+  .notes { display: grid; gap: 10px; margin-top: 22px; padding: 14px; border: 1px solid var(--line);
+           border-radius: 10px; background: var(--surface); font-size: 12.5px; }
+  .notes h2 { margin-bottom: 4px; }
+  .notes table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .notes th, .notes td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .notes th { color: var(--muted); font-weight: 600; }
+  code { background: var(--page); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="kicker">设计演示 · 2026-11-26</div>
+  <h1>收藏夹（书签）形态：三方案 + 空态 + 文件夹下拉</h1>
+  <p class="intro">
+    这一页只回答三个问题：① 入口放哪（工具栏按钮 / 主菜单二级）；② 一条书签都没有时，新标签页上还留不留那条横条；
+    ③ 「文件夹下拉」到底长什么样。下面所有高度都按真实数值排：标签栏 <code>40</code> + 工具栏 <code>44</code> +
+    书签栏 <code>32</code>（= 页面区域下移 <b id="offset">116</b> px）。
+  </p>
+
+  <div class="controls">
+    <strong>方案</strong>
+    <div class="seg" role="group" aria-label="方案">
+      <button data-variant="edge" aria-pressed="true">A · Edge 式</button>
+      <button data-variant="chrome" aria-pressed="false">B · Chrome 式</button>
+      <button data-variant="empty" aria-pressed="false">C · 空态对照</button>
+    </div>
+    <strong>当前页</strong>
+    <div class="seg" role="group" aria-label="当前页">
+      <button data-page="ntp" aria-pressed="true">新标签页</button>
+      <button data-page="web" aria-pressed="false">普通网页</button>
+    </div>
+    <strong>书签</strong>
+    <div class="seg" role="group" aria-label="书签">
+      <button data-count="0" aria-pressed="false">0 个</button>
+      <button data-count="3" aria-pressed="true">3 个</button>
+      <button data-count="folder" aria-pressed="false">3 个 + 文件夹</button>
+    </div>
+    <div class="seg"><button id="theme">切换主题</button></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="tabstrip">
+      <div class="tab"><span class="dot"></span><span id="tabTitle">新标签页</span><span class="x">✕</span></div>
+      <button class="newtab-btn" title="新建标签页">＋</button>
+    </div>
+
+    <div class="toolbar">
+      <button class="iconbtn" title="后退">←</button>
+      <button class="iconbtn" title="前进">→</button>
+      <button class="iconbtn" title="重新加载">⟳</button>
+      <div class="omnibox">
+        <span id="omni">搜索或输入网址</span>
+        <span class="grow"></span>
+        <button class="iconbtn star" id="star" title="收藏此页">☆</button>
+      </div>
+      <!-- A · Edge 式：收藏夹按钮在工具栏右侧 -->
+      <button class="iconbtn" id="favBtn" title="收藏夹" aria-pressed="false">▤</button>
+      <button class="iconbtn" title="集锦">✂</button>
+      <button class="iconbtn" id="menuBtn" title="设置及其他" aria-pressed="false">⋮</button>
+    </div>
+
+    <!-- 书签栏 -->
+    <div class="bookmarkbar" id="bookmarkbar"></div>
+
+    <!-- 页面 -->
+    <div class="page" id="page">
+      <div class="ntp" id="ntp">
+        <div style="text-align:center">
+          <div class="logo">Bao</div>
+          <div class="search"></div>
+          <div class="tiles"><div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div></div>
+        </div>
+      </div>
+      <div class="web" id="web" hidden>
+        <div class="hero"></div>
+        <div class="bar w80"></div><div class="bar w60"></div><div class="bar w70"></div>
+        <div class="bar w80"></div><div class="bar w60"></div>
+      </div>
+      <div class="pagelabel" id="pagelabel">页面区域起点 116px</div>
+    </div>
+
+    <!-- Edge 式面板 -->
+    <div class="flyout" id="flyout" hidden>
+      <div class="row"><span>🔍</span><span>搜索收藏夹</span></div>
+      <div class="sep"></div>
+      <div class="row"><span class="fav" style="width:14px;height:14px;border-radius:3px;background:var(--line)"></span><span>4399 小游戏</span></div>
+      <div class="row"><span class="fav" style="width:14px;height:14px;border-radius:3px;background:var(--line)"></span><span>摩尔庄园</span></div>
+      <div class="row"><span>📁</span><span>常用站点</span></div>
+      <div class="sep"></div>
+      <div class="row"><span>＋</span><span>收藏当前页面</span></div>
+      <div class="row"><span>⇪</span><span>导入收藏夹</span></div>
+      <div class="row"><span>✎</span><span>管理收藏夹</span></div>
+    </div>
+
+    <!-- Chrome 式应用菜单（二级） -->
+    <div class="appmenu" id="appmenu" hidden>
+      <div class="row"><span>＋</span><span>新建标签页</span></div>
+      <div class="row"><span>▤</span><span>新建窗口</span></div>
+      <div class="sep"></div>
+      <div class="row"><span>★</span><span>历史记录</span></div>
+      <div class="row"><span>⇩</span><span>下载内容</span></div>
+      <div class="submenu-wrap">
+        <div class="row" id="bookmarksRow"><span>🔖</span><span>书签和清单</span><span class="chev">▸</span></div>
+        <div class="submenu" id="bookmarksSub" hidden>
+          <div class="row"><span>📁</span><span>书签管理器</span></div>
+          <div class="row"><span>▤</span><span>显示书签栏</span></div>
+          <div class="row"><span>◫</span><span>在侧边栏中打开</span></div>
+          <div class="sep"></div>
+          <div class="row"><span>📁</span><span>常用站点</span></div>
+          <div class="row"><span class="fav" style="width:14px;height:14px;border-radius:3px;background:var(--line)"></span><span>4399 小游戏</span></div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="row"><span>⚙</span><span>设置</span></div>
+    </div>
+
+    <!-- 文件夹下拉 -->
+    <div class="dropdown" id="dropdown" hidden>
+      <div class="row"><span>📄</span><span>7k7k 小游戏</span></div>
+      <div class="row"><span>📄</span><span>淘米账号中心</span></div>
+      <div class="sep"></div>
+      <div class="row"><span>📁</span><span>子文件夹</span><span class="chev">▸</span></div>
+    </div>
+  </div>
+
+  <div class="ruler">
+    <span>标签栏 <b>40</b></span>
+    <span>工具栏 <b>44</b></span>
+    <span>书签栏 <b id="barState">显示 32</b></span>
+    <span>页面起点 <b id="offset2">116</b> px</span>
+    <span id="why" class="muted"></span>
+  </div>
+
+  <div class="notes">
+    <h2>三条事实（可复核，不是凭印象）</h2>
+    <table>
+      <tr><th>问题</th><th>结论</th><th>依据</th></tr>
+      <tr>
+        <td>一条书签都没有时，Chrome 的新标签页上有书签栏吗？</td>
+        <td><b>没有</b></td>
+        <td>Chromium 142 源码 <code>BookmarkBarController::ShouldShowBookmarkBar()</code>：
+          <code>if (!has_bookmarks &amp;&amp; !has_saved_tab_groups) return false;</code>；
+          实测 Chrome 158 全新 profile 的新标签页也没有（见
+          <code>evidence-2026-11-26-chrome158-ntp-empty.png</code>）</td>
+      </tr>
+      <tr>
+        <td>Edge 呢？</td>
+        <td><b>有</b>，而且带一行提示文案</td>
+        <td>实测 Edge 158 全新 profile：「若要进行快速访问，请将你的网址收藏在此收藏栏上。立即管理收藏」（见
+          <code>evidence-2026-11-26-edge158-ntp-empty.png</code>）</td>
+      </tr>
+      <tr>
+        <td>「只有新标签页有横条」准确吗？</td>
+        <td>默认成立，但有三个补充</td>
+        <td>① 用户可开关成「所有标签都显示」（<code>bookmark_bar.show_on_all_tabs</code>，默认 false）；
+          ② 空书签不显示（Chrome）；③ 判定是「前台标签里有新标签页」，不是「当前标签是新标签页」</td>
+      </tr>
+    </table>
+
+    <h2>「文件夹下拉」是什么行为</h2>
+    <p class="muted" style="font-size:12.5px">
+      书签栏上的一个书签项如果指向的是<b>文件夹</b>，它右边会带一个小三角；<b>点它不会导航</b>，而是在条下方弹出一个列表，
+      列出该文件夹里的项——这就是「下拉」。里层还可以有子文件夹（再套一层下拉）。
+      代价：横条要处理「点开位置、自动关闭、键盘可达、以及条上的项太多时怎么溢出」。
+      首版如果不做，条上就只能平铺根层的普通书签，文件夹只能在面板里展开。
+    </p>
+  </div>
+</main>
+
+<script>
+  const state = { variant: 'edge', page: 'ntp', count: '3' }
+  const el = (id) => document.getElementById(id)
+  const defaults = [
+    { title: '4399 小游戏', folder: false },
+    { title: '摩尔庄园', folder: false },
+    { title: '7k7k 小游戏', folder: false }
+  ]
+  const withFolder = [
+    { title: '4399 小游戏', folder: false },
+    { title: '摩尔庄园', folder: false },
+    { title: '常用站点', folder: true }
+  ]
+
+  function render () {
+    const bar = el('bookmarkbar')
+    const items = state.count === '0' ? [] : (state.count === 'folder' ? withFolder : defaults)
+    // 空态规则：Edge 式（方案 C 与 A 都演示）显示提示条；Chrome 式按源码规则隐藏
+    const showEmptyHint = items.length === 0 && state.variant !== 'chrome'
+    const showBar = items.length > 0 || showEmptyHint
+
+    bar.hidden = !showBar
+    bar.innerHTML = ''
+    if (items.length === 0) {
+      bar.innerHTML = '<div class="hint"><span>📁</span><span>导入收藏夹</span><span>|</span>'
+        + '<span>若要进行快速访问，请将你的网址收藏在此收藏栏上。</span><a href="#">立即管理收藏</a></div>'
+    } else {
+      for (const item of items) {
+        const b = document.createElement('button')
+        b.className = 'bm' + (item.folder ? ' folder' : '')
+        b.innerHTML = '<span class="fav"></span><span>' + item.title + '</span>'
+          + (item.folder ? '<span class="chev">▾</span>' : '')
+        if (item.folder) {
+          b.addEventListener('click', (event) => {
+            const dropdown = el('dropdown')
+            dropdown.hidden = !dropdown.hidden
+            const rect = event.currentTarget.getBoundingClientRect()
+            const stage = el('stage').getBoundingClientRect()
+            dropdown.style.left = (rect.left - stage.left) + 'px'
+          })
+        }
+        bar.appendChild(b)
+      }
+      const more = document.createElement('button')
+      more.className = 'bm overflow'
+      more.innerHTML = '⋯'
+      bar.appendChild(more)
+    }
+
+    // 入口：A/C 显示工具栏按钮；B 隐藏，只能从应用菜单进
+    el('favBtn').hidden = state.variant === 'chrome'
+    el('tabTitle').textContent = state.page === 'ntp' ? '新标签页' : '4399 小游戏'
+    el('omni').textContent = state.page === 'ntp' ? '搜索或输入网址' : '4399.com'
+    el('ntp').hidden = state.page !== 'ntp'
+    el('web').hidden = state.page === 'ntp'
+
+    const offset = 40 + 44 + (showBar ? 32 : 0)
+    el('offset').textContent = offset
+    el('offset2').textContent = offset
+    el('barState').textContent = showBar ? '显示 32' : '隐藏'
+    el('pagelabel').textContent = '页面区域起点 ' + offset + 'px'
+    el('why').textContent = showBar
+      ? (items.length ? '' : '（空书签：Edge 显示提示条，Chrome 隐藏）')
+      : '（空书签 + Chrome 规则 → 整条不占高度）'
+    el('pagelabel').style.bottom = '8px'
+  }
+
+  for (const button of document.querySelectorAll('[data-variant]')) {
+    button.addEventListener('click', () => {
+      state.variant = button.dataset.variant
+      for (const other of document.querySelectorAll('[data-variant]')) {
+        other.setAttribute('aria-pressed', String(other === button))
+      }
+      el('flyout').hidden = true
+      el('appmenu').hidden = true
+      render()
+    })
+  }
+  for (const button of document.querySelectorAll('[data-page]')) {
+    button.addEventListener('click', () => {
+      state.page = button.dataset.page
+      for (const other of document.querySelectorAll('[data-page]')) {
+        other.setAttribute('aria-pressed', String(other === button))
+      }
+      render()
+    })
+  }
+  for (const button of document.querySelectorAll('[data-count]')) {
+    button.addEventListener('click', () => {
+      state.count = button.dataset.count
+      for (const other of document.querySelectorAll('[data-count]')) {
+        other.setAttribute('aria-pressed', String(other === button))
+      }
+      render()
+    })
+  }
+
+  el('favBtn').addEventListener('click', () => {
+    const flyout = el('flyout')
+    flyout.hidden = !flyout.hidden
+    el('favBtn').setAttribute('aria-pressed', String(!flyout.hidden))
+  })
+  el('menuBtn').addEventListener('click', () => {
+    const menu = el('appmenu')
+    menu.hidden = !menu.hidden
+    el('menuBtn').setAttribute('aria-pressed', String(!menu.hidden))
+  })
+  el('bookmarksRow').addEventListener('mouseenter', () => { el('bookmarksSub').hidden = false })
+  el('bookmarksRow').addEventListener('click', () => { el('bookmarksSub').hidden = false })
+  el('theme').addEventListener('click', () => {
+    const root = document.documentElement
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark'
+  })
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('#flyout') && !event.target.closest('#favBtn')) {
+      el('flyout').hidden = true
+      el('favBtn').setAttribute('aria-pressed', 'false')
+    }
+    if (!event.target.closest('#appmenu') && !event.target.closest('#menuBtn')) {
+      el('appmenu').hidden = true
+      el('menuBtn').setAttribute('aria-pressed', 'false')
+    }
+    if (!event.target.closest('#dropdown') && !event.target.closest('.bm.folder')) el('dropdown').hidden = true
+  })
+
+  render()
+</script>
+</body>
+</html>
