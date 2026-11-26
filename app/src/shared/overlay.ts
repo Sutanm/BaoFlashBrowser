@@ -50,12 +50,8 @@ export type OverlayCommand =
   | { type: 'close-quick'; restoreFocus: boolean }
   | { type: 'dismiss-toast' }
   | { type: 'report-failure'; text: string }
-  /** 叠加层文档报告「本次内容已渲染」（度量用，非产品行为）。 */
+  /** Shell only. 叠加层文档报告「本次内容已渲染」（度量用，非产品行为）。 */
   | { type: 'report-ready' }
-  /** Shell only. 悬停预热的闸门：`never` 档、自动化/后台模式一律 false（不建任何东西）。 */
-  | { type: 'can-prewarm' }
-  /** Shell only. 现在就预热（主进程已按策略与环境判定过，调用即执行）。 */
-  | { type: 'prewarm' }
   /** Shell only. 是否处于共享进程模式（浮层由外壳 window.open 产生）。 */
   | { type: 'shared-mode' }
   /**
@@ -95,10 +91,6 @@ export interface OverlayBridge {
   reportFailure(text: string): Promise<boolean>
   /** 叠加层报告内容已渲染（度量用）。 */
   reportReady(): Promise<boolean>
-  /** Shell only. 悬停预热的闸门（只回答，不建东西）：`never` 档与自动化/后台模式为 false。 */
-  canPrewarm(): Promise<boolean>
-  /** Shell only. 现在预热：独立进程路径建隐藏视图，共享模式让外壳 `window.open` 出文档。 */
-  prewarm(): Promise<boolean>
   /** Shell only. 共享进程模式探测。 */
   sharedMode(): Promise<boolean>
   /** 叠加层专用。订阅注册完成后拉取当前内容（补发漏掉的 `*-opened`）。 */

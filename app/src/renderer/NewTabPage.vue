@@ -254,7 +254,7 @@ input:disabled { opacity: 0.7; }
   width: 52px;
   height: 52px;
   border-radius: 15px;
-  background: linear-gradient(145deg, var(--engine-accent), var(--brand-stroke));
+  background: linear-gradient(145deg, var(--accent), var(--accent-strong));
   color: var(--surface-toolbar);
   font-size: 17px;
   font-weight: 700;

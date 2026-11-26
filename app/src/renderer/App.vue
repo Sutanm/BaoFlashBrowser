@@ -154,7 +154,6 @@ async function toggleQuick(): Promise<void> {
     closeQuick(true)
     return
   }
-  cancelHoverPrewarm()
   closeEnginePanel()
   const bounds = quickBounds()
   if (!bounds) return
@@ -167,18 +166,19 @@ async function toggleQuick(): Promise<void> {
 let sharedOverlayMode: boolean | undefined
 /** 已经打开的浮层窗口句柄；窗口被关掉（closed）才重新开。 */
 let sharedOverlayWindow: Window | null = null
-/** 正在进行的开窗动作（单飞）：悬停预热与点击兜底会几乎同时调用它。 */
+/** 正在进行的开窗动作（单飞）：预热事件与点击兜底可能几乎同时调用它。 */
 let sharedOverlayOpening: Promise<void> | undefined
 
 /**
  * 共享进程模式（proto）：浮层由外壳自己 `window.open` 产生，复用外壳的渲染进程。
  *
  * 注意**不能**每次都 `window.open(url, name)`：同名窗口会被复用，但会`navigate`到该 URL，
- * 也就是把浮层文档整个重新加载（实测：齿轮 pointerenter 走预热 → 文档重载 → 已订阅的
+ * 也就是把浮层文档整个重新加载（实测：预热先开窗、点击再来一次 → 文档重载 → 已订阅的
  * 监听器、DOM 状态全丢，飞窗打开后既收不到 `quick-opened` 也没有焦点）。
- * 因此这里缓存 WindowProxy，窗口还活着就直接返回，只做幂等的「保证存在」。
+ * 因此这里缓存 WindowProxy，窗口还活着就直接返回，只做幂等的「保证存在」
+ * （主进程把文档关掉后 `.closed` 变 true，自然会重新开一份）。
  *
- * 而且必须**单飞**：Playwright/真人都是先 pointerenter 再 click，两者间隔十几毫秒，
+ * 而且必须**单飞**：预热事件与紧随其后的点击间隔十几毫秒，
  * 两个调用会同时看到 `sharedOverlayWindow === null` → 连开两次同名窗口（第二次把第一次
  * 导航掉）→ 飞窗文档刚好在 `setQuick` 那一刻被重载，视图亮着但内容/订阅全空。
  * 见 docs/discussions/2026-11-25-overlay-shared-process-demo.md
@@ -201,61 +201,18 @@ async function openSharedOverlay(): Promise<void> {
   }
 }
 /**
- * 常驻档（`overlay.prewarm=always`）：文档启动后就建好、一直热着，**第一次点开也是热的**。
+ * 预热（设置项 `overlay.prewarm` 打开时，默认开）：文档建好后就一直在，**第一次点开也是热的**。
  *
  * 触发权在主进程（`overlay-prewarm` 事件）：共享模式下建文档要由外壳 `window.open` 完成，
  * 而"该不该建"取决于主进程独占的信息（设置项、自动化/后台模式、策略覆盖）。
  *
- * 时机是**立刻**，不再等空闲：主进程在 `window.show()` **之前**推这个事件，那时窗口还不可见，
+ * 时机是**立刻**，不等空闲：主进程在 `window.show()` **之前**推这个事件，那时窗口还不可见，
  * 用户不可能正在输入，因此"建文档"与"用户打字"不可能重叠。这一条是被实测逼出来的——
  * 放在空闲时刻建时，开窗恰好落在"用户填好地址、还没敲回车"的窗口里，回车被吞（见 §7.4）。
- * 价格实测只有 +6 MB（共享进程），代价是启动期多付一次开窗（~40 ms 量级）。
+ * 价格实测每窗口 5–9 MB（共享进程），代价是启动期多付一次开窗（~40 ms 量级）。
  */
 function prewarmSharedOverlay(): void {
   void ensureSharedOverlay()
-}
-
-/** 悬停预热（auto 策略）：主进程先回答"这一档准不准"，准了才排开窗。 */
-let hoverPrewarmTimer = 0
-/**
- * 悬停"意图"时长：不能在 pointerenter 里同步开窗（会把紧随其后的 click 吞掉）。
- *
- * 180 ms 是实测出来的折中：太短等于同步开窗（页面有内容时必现 click 丢失），
- * 太长则真人在"悬停→点击"之间等不到预热，等于还是冷开。
- */
-const HOVER_PREWARM_MS = 180
-
-/**
- * 悬停定时器到点：**开窗前再问一次主进程**。
- *
- * 排队这 180 ms 里策略可能已经从 `auto` 变成 `never`（设置页切换、自动化开始、窗口转后台），
- * 而主进程此时会 `retire()` 掉已有的浮层文档；如果这里不复查，定时器会立刻把刚退役的文档
- * 又开回来（2026-11-26 审计）。
- */
-function prewarmOpen(): void {
-  void window.baoOverlay.canPrewarm().then((allowed) => {
-    if (allowed) void ensureSharedOverlay()
-  })
-}
-
-function prewarmOverlay(): void {
-  // 闸门在主进程：`overlay.prewarm=never` 和自动化/后台模式一律回答 false。
-  // 早先这里不看返回值、直接排开窗定时器，于是三档行为完全一致（never 也照样悬停即建、
-  // 建完也不回收）—— 见 docs/discussions/2026-11-25-overlay-shared-process-demo.md §7。
-  void window.baoOverlay.canPrewarm().then((allowed) => {
-    if (!allowed) return
-    // 独立进程模式：主进程自己建隐藏视图，这一步就是"预热"的全部。
-    // 共享模式：这条命令是空操作（主进程不建视图），真正做事的是下面那次延迟开窗。
-    void window.baoOverlay.prewarm()
-    // 共享模式（以及模式还没探测出来时）按"悬停意图"延迟开窗：点得快就取消，让点击路径
-    // 自己去冷开（`cancelHoverPrewarm`）。独立进程模式下 `ensureSharedOverlay()` 立刻返回。
-    window.clearTimeout(hoverPrewarmTimer)
-    hoverPrewarmTimer = window.setTimeout(prewarmOpen, HOVER_PREWARM_MS)
-  })
-}
-
-function cancelHoverPrewarm(): void {
-  window.clearTimeout(hoverPrewarmTimer)
 }
 
 function closeQuick(restoreFocus = false): void {
@@ -278,7 +235,6 @@ async function toggleEnginePanel(): Promise<void> {
     closeEnginePanel()
     return
   }
-  cancelHoverPrewarm()
   closeQuick(false)
   const bounds = panelBounds()
   if (!bounds) return
@@ -313,7 +269,7 @@ function showToast(text: string): void {
     width: TOAST_WIDTH,
     height: TOAST_HEIGHT
   }
-  // 共享模式：提示条也可能在没有任何悬停预热的情况下出现，先确保浮层文档存在。
+  // 共享模式：提示条也可能在没有任何预热的情况下出现（关掉预热时），先确保浮层文档存在。
   void ensureSharedOverlay().then(() => window.baoOverlay.setToast({ bounds, text }))
   toastTimer = setTimeout(() => {
     clearToast()
@@ -340,8 +296,8 @@ function onShellResize(): void {
 
 onMounted(() => {
   // 共享模式探测提前问一次（点击路径里不要再等一次 IPC）。这里**不**顺手开窗：
-  // 实测"启动后空闲时建文档"会抢焦点、吞掉用户正在敲的键（整轮前台套件里打出 7 条随机失败），
-  // 所以预热只挂在用户的显式动作上（悬停 / 点击兜底）。见 docs/discussions 2026-11-25 飞窗共享进程。
+  // 开窗时机只由主进程的 `overlay-prewarm` 事件决定（窗口 show 之前那一刻，用户不可能正在输入）。
+  // 见 docs/discussions 2026-11-25 飞窗共享进程。
   void window.baoOverlay.sharedMode().then((mode) => { sharedOverlayMode = mode })
   detachOverlay = window.baoOverlay.subscribe((event) => {
     if (event.type === 'panel-closed') {
@@ -631,7 +587,7 @@ onBeforeUnmount(() => store.disconnect())
         </button>
         <button ref="engineTrigger" type="button" class="engine-more" :aria-expanded="enginePanelOpen"
           aria-haspopup="dialog" aria-label="引擎设置" title="引擎设置"
-          @pointerenter="prewarmOverlay" @click="toggleEnginePanel">
+          @click="toggleEnginePanel">
           <ShellIcon name="chevron" />
         </button>
       </div>
@@ -643,7 +599,6 @@ onBeforeUnmount(() => store.disconnect())
         aria-haspopup="dialog"
         aria-label="快捷设置"
         title="快捷设置"
-        @pointerenter="prewarmOverlay"
         @click="toggleQuick"
       ><ShellIcon name="gear" /></button>
     </form>

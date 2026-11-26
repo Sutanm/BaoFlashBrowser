@@ -1,17 +1,16 @@
 /**
- * 探针 3：`overlay.prewarm` 三档在**共享进程模式**下的真实行为。
+ * 探针 3：`overlay.prewarm` 开关在**共享进程模式**下的真实行为。
  *
- * 三档的合同（改前：三档行为完全一致，never 也照样悬停即建、建完也不回收）：
- *   auto   悬停 180 ms 预热；隐藏后空闲 RETIRE_AFTER_MS 回收，下次再建
- *   always 启动后空闲即建、一直热着（第一次点开就是热的），不回收
- *   never  悬停/启动都不建；只有点击（或 toast）才建
+ * 两档的合同（2026-11-26 由三档收敛；改前三档行为完全一致，never 也照样悬停即建、建完也不回收）：
+ *   always（默认） 启动后（show 之前）就建、一直热着（第一次点开就是热的），不回收
+ *   never          启动/悬停都不建；只有点击（或 toast）才建
  *
- * 每一档都验到底：文档有没有被建、视图是不是隐藏态、点击能不能打开、回收后能不能重开。
+ * 每一档都验到底：文档有没有被建、视图是不是隐藏态、点击能不能打开。
  *
  * 用法：
  *   $env:ELECTRON_EXEC_PATH=(Resolve-Path '.runtime\win-x64\electron.exe').Path
- *   node scripts/probe-overlay-policy.cjs            # 三档全跑
- *   node scripts/probe-overlay-policy.cjs auto       # 只跑一档
+ *   node scripts/probe-overlay-policy.cjs            # 两档全跑
+ *   node scripts/probe-overlay-policy.cjs never      # 只跑一档
  */
 const assert = require('node:assert/strict')
 const { mkdtempSync } = require('node:fs')
@@ -83,50 +82,6 @@ async function overlay(app) {
   })
 }
 
-async function runAuto() {
-  const { app, shell } = await launch({ BAO_RETIRE_MS: '1500' })
-  try {
-    assert.equal((await overlay(app)).present, false, 'auto：启动后不该有浮层文档（等悬停）')
-
-    await shell.getByRole('button', { name: '快捷设置', exact: true }).hover()
-    const warmed = await waitFor(async () => {
-      const state = await overlay(app)
-      return state.present ? state : null
-    }, { message: 'auto：悬停 180 ms 后应当预热出文档' })
-    assert.equal(warmed.visible, false, 'auto：预热出来的视图必须是隐藏的')
-    console.log(`auto：悬停预热 ✅（guest id=${warmed.id}，隐藏未挂载）`)
-
-    await shell.getByRole('button', { name: '快捷设置', exact: true }).click()
-    const opened = await waitFor(async () => {
-      const state = await overlay(app)
-      return state.visible ? state : null
-    }, { message: 'auto：点击后应当显示浮层' })
-    assert.equal(opened.id, warmed.id, 'auto：点击不该重开一个新文档（复用了预热的那个）')
-    console.log('auto：点击复用预热的文档 ✅')
-
-    // 关掉：点页面区域（外壳的 pointerdown 会关飞窗）。
-    await shell.getByRole('textbox', { name: '地址栏' }).click()
-    await waitFor(async () => !(await overlay(app)).visible, { message: 'auto：点击别处应当隐藏浮层' })
-    const retired = await waitFor(async () => !(await overlay(app)).present, {
-      timeout: 10_000, message: 'auto：隐藏后空闲 1.5 s 应当回收文档'
-    })
-    assert.equal(retired, true)
-    console.log('auto：隐藏后按 RETIRE_AFTER_MS 回收 ✅')
-
-    await shell.getByRole('button', { name: '快捷设置', exact: true }).hover()
-    const reopened = await waitFor(async () => {
-      const state = await overlay(app)
-      return state.present ? state : null
-    }, { message: 'auto：回收后再悬停应当重新预热' })
-    assert.notEqual(reopened.id, warmed.id, 'auto：回收后应当是一个新文档')
-    await shell.getByRole('button', { name: '快捷设置', exact: true }).click()
-    await waitFor(async () => (await overlay(app)).visible, { message: 'auto：回收后点击仍应能打开' })
-    console.log(`auto：回收 → 重新预热（id=${reopened.id}）→ 点击打开 ✅`)
-  } finally {
-    await app.close().catch(() => {})
-  }
-}
-
 async function runNever() {
   const { app, shell } = await launch({ BAO_OVERLAY_PREWARM: 'never' })
   try {
@@ -178,7 +133,7 @@ async function runAlways() {
 
 async function main() {
   const only = process.argv[2]
-  const modes = [['auto', runAuto], ['never', runNever], ['always', runAlways]]
+  const modes = [['never', runNever], ['always', runAlways]]
   for (const [name, run] of modes) {
     if (only && only !== name) continue
     console.log(`\n########## ${name} ##########`)

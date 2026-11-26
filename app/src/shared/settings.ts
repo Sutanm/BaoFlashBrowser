@@ -21,10 +21,20 @@ export const SESSION_STARTUP_MODES = ['newtab', 'continue'] as const
 export type SessionStartupMode = (typeof SESSION_STARTUP_MODES)[number]
 
 /**
- * 预热档位的取值域。顺序即设置页分段控件的顺序：默认档（常驻）放最前。
- * 注意顺序不参与校验，老库里存的 `auto`/`never` 照样合法。
+ * 预热档位。**只有两档**（2026-11-26 收敛，由三档改为开关）：
+ *
+ * - `always`（默认）：窗口创建即准备好飞窗文档，第一次打开就是热的；
+ * - `never`：不提前创建，用到才建。
+ *
+ * 曾经还有中间档 `auto`（悬停 180 ms 预热 + 空闲 5 分钟回收）：它省下的就是这 5–9 MB，
+ * 却要养一套悬停意图/主进程闸门/空闲回收定时器/切档特判，外加一类真 bug（180 ms 排队期间
+ * 策略变了，定时器把刚退役的文档又开回来，2026-11-26 审计）。飞窗寄居外壳渲染进程之后，
+ * 常驻每窗口只值 5–9 MB 且不新增渲染进程，中间档的性价比不成立，于是删掉。
+ *
+ * 老库里残留的 `auto` 不需要迁移脚本：`settingsFromRows()` 逐行丢弃未知取值，
+ * 于是它自然回落到默认档（= 开）。
  */
-export const PREWARM_MODES = ['always', 'auto', 'never'] as const
+export const PREWARM_MODES = ['always', 'never'] as const
 export type PrewarmMode = (typeof PREWARM_MODES)[number]
 
 export const THEME_MODES = ['system', 'light', 'dark'] as const
@@ -35,12 +45,12 @@ export type Locale = 'zh-CN'
 /** 用户可见设置的形状（键值平铺，便于投影与持久化对齐）。 */
 export interface Settings {
   /**
-   * 叠加层预热策略：always=窗口创建即常驻（默认；共享进程下每窗口约 +5–6 MB，第一次点开就是热的）；
-   * auto=悬停预热 + 空闲 5 分钟回收；never=用到才建。
+   * 飞窗预热：always=窗口创建即准备好叠加层文档（默认；共享进程下每窗口约 5–9 MB，
+   * 不新增渲染进程）；never=不提前创建，首次打开时再建。
    *
-   * 默认曾是 `auto`（悬停预热）：那时"常驻"要独占一个渲染进程（+90–110 MB），很贵。
-   * 浮层寄居外壳渲染进程之后常驻只值 +5–6 MB、不多一个进程，于是 2026-11-25 反转默认
-   * （实测：docs/discussions/2026-11-25-overlay-shared-process-demo.md §7.5）。
+   * 默认曾是 `auto`（悬停预热 + 空闲回收）：那时"常驻"要独占一个渲染进程（+90–110 MB），很贵。
+   * 浮层寄居外壳渲染进程之后常驻只值 5–9 MB、不多一个进程，于是 2026-11-25 反转默认、
+   * 2026-11-26 把中间档 `auto` 一并删掉（见 `PREWARM_MODES` 的说明）。
    */
   overlayPrewarm: PrewarmMode
   /** 后台标签休眠：auto=后台超过 TTL 丢弃视图（切回重新加载）；never=从不丢弃（挂机场景）。 */
@@ -166,13 +176,21 @@ export const sessionStartupLabels: Record<SessionStartupMode, string> = {
   continue: '打开上一个会话中的标签页'
 }
 
-export const prewarmModeLabels: Record<PrewarmMode, string> = {
-  // 默认档放最前，且文案说明它换来了什么/付出了什么：共享进程下常驻只值 +5–6 MB，
-  // 但"更快"和"省内存"的取舍仍应由用户看得见地做（见 §7.5 的实测表）。
-  always: '常驻（默认，更快）',
-  auto: '自动（悬停预热，省内存）',
-  never: '不预热（最省内存）'
+/**
+ * 开关右侧那一行「当前实际行为」。
+ *
+ * 为什么跟着开关状态变：静态一句「决定飞窗在使用前何时准备好」看不出**现在**到底会不会预热
+ * （2026-11-26 反馈：库里存着 `auto`，用户以为默认是常驻却看到别的档位）。默认档的说明直接
+ * 带上「默认」二字，不额外做徽标。
+ */
+export const prewarmModeSummaries: Record<PrewarmMode, string> = {
+  always: '默认：窗口创建后即准备好飞窗，首次打开无需等待',
+  never: '不提前创建，打开时再加载'
 }
+
+/** 开关的悬浮提示 / 读屏说明：开与关各自付什么、换什么。 */
+export const prewarmToggleHint =
+  '窗口创建后即准备好飞窗文档，首次打开无需等待；共享渲染进程下每窗口约增加 5–9 MB，不新增渲染进程。关闭后第一次打开要先创建文档，会慢一截。'
 
 export const themeModeLabels: Record<ThemeMode, string> = {
   system: '跟随系统',
@@ -235,6 +253,14 @@ export interface SettingsSnapshot {
   storage: 'ready' | 'unavailable'
   /** 原生 Flash 插件是否可用（BYOP：没放插件时引擎项置灰）。 */
   flash: boolean
+  /**
+   * 「关于」分区要显示的版本三元组。
+   *
+   * 为什么走快照而不是让页面自己问 `process.versions`：内部页的 preload 只暴露
+   * `baoSettings`（拿不到 process/nodeIntegration），而这些值只有主进程知道。
+   * 顺手把应用版本一起带上——`app.getVersion()` 在 main 里是一次调用，页面不必再开通道。
+   */
+  runtime: { app: string; electron: string; chromium: string }
 }
 
 export type SettingsWriteFailure =

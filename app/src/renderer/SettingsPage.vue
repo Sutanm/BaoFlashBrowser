@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
-  SESSION_STARTUP_MODES, THEME_MODES, discardModeLabels, prewarmModeLabels, sessionStartupLabels,
-  themeModeLabels, PREWARM_MODES
+  SESSION_STARTUP_MODES, THEME_MODES, discardModeLabels, prewarmModeSummaries, prewarmToggleHint,
+  sessionStartupLabels, themeModeLabels
 } from '../shared/settings'
-import type { PrewarmMode, SessionStartupMode, SettingsSnapshot, ThemeMode } from '../shared/settings'
+import type { SessionStartupMode, SettingsSnapshot, ThemeMode } from '../shared/settings'
 import type { FlashPluginState } from '../shared/settings'
 import type { BrowserEngine } from '../shared/engine'
-import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme } from './theme'
 
 /**
@@ -34,13 +33,30 @@ const engine = computed(() => current.value?.defaultEngine ?? 'ppapi')
 const prewarm = computed(() => current.value?.overlayPrewarm ?? 'always')
 const tabDiscard = computed(() => current.value?.tabDiscard ?? 'auto')
 const sessionStartup = computed(() => current.value?.sessionStartup ?? 'newtab')
-const prewarmModes = PREWARM_MODES
 const themeModes = THEME_MODES
 const startupModes = SESSION_STARTUP_MODES
 const storage = computed(() => snapshot.value?.storage ?? 'ready')
 
 /**
- * 「数据」分区：分类清理已保存的会话。
+ * 左侧分区：**每一项都有真实内容**，点得动。
+ *
+ * 早期那版还列了「下载」且全是置灰摆设——本版本按安全策略拒绝所有下载
+ * （见 `main/sessions.ts` 的 `denyDownloads`，下载能力在 M2 立项），
+ * 列一个点进去也没内容的条目等于假 UI，所以直接不列；接入下载时再加回来。
+ */
+const sections = [
+  { id: 'appearance', label: '外观与偏好' },
+  { id: 'privacy', label: '隐私与清理' },
+  { id: 'about', label: '关于' }
+] as const
+type SettingsSection = (typeof sections)[number]['id']
+const section = ref<SettingsSection>('appearance')
+
+/** 「关于」的版本三元组由主进程随快照下发（内部页拿不到 process.versions）。 */
+const runtime = computed(() => snapshot.value?.runtime ?? { app: '—', electron: '—', chromium: '—' })
+
+/**
+ * 「隐私与清理 → 浏览数据」：分类清理已保存的会话。
  *
  * 清除后本次运行不再记录会话（主进程挂起写盘），所以提示文案要说清楚"下次启动恢复记录"，
  * 否则用户会以为按钮没生效（`session.startup = continue` 时尤其明显）。
@@ -120,8 +136,12 @@ function chooseStartup(mode: SessionStartupMode): void {
   void write({ key: 'session.startup', value: mode })
 }
 
-function choosePrewarm(mode: PrewarmMode): void {
-  void write({ key: 'overlay.prewarm', value: mode })
+/**
+ * 预热是开/关能力（不是三选一）：用 switch 表达比分段控件更直接，也和下面「后台标签休眠」同构。
+ * 中间档「自动」已于 2026-11-26 删除——常驻只要 5–9 MB，悬停预热换不来相应的收益。
+ */
+function togglePrewarm(): void {
+  void write({ key: 'overlay.prewarm', value: prewarm.value === 'always' ? 'never' : 'always' })
 }
 
 /** 后台休眠本质是开/关能力，用 switch 比两个互斥选项更直接。 */
@@ -196,10 +216,14 @@ function focusFlashSection(): void {
   <div class="settings-body">
     <nav class="settings-nav" aria-label="设置分类">
       <h1 class="nav-title">设置</h1>
-      <button type="button" aria-current="page"><ShellIcon name="gear" />外观与偏好</button>
-      <button type="button" disabled>下载</button>
-      <button type="button" disabled>隐私与清理</button>
-      <button type="button" disabled>关于</button>
+      <!-- 左侧导航是真的分区切换（`:hidden` 只换内容，不重载文档）：每一项都有对应内容。 -->
+      <button
+        v-for="item in sections"
+        :key="item.id"
+        type="button"
+        :aria-current="section === item.id ? 'page' : undefined"
+        @click="section = item.id"
+      >{{ item.label }}</button>
     </nav>
 
     <main class="settings-content">
@@ -207,7 +231,7 @@ function focusFlashSection(): void {
         设置存储不可用：本次修改不会保存，重启后回到默认值。
       </p>
 
-      <section class="setting-section" aria-labelledby="theme-title">
+      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="theme-title">
         <header class="section-heading">
           <h2 id="theme-title">主题</h2>
           <p class="section-caption">选择最适合当前环境的界面外观</p>
@@ -226,17 +250,16 @@ function focusFlashSection(): void {
               role="radio"
               :aria-checked="theme === mode"
               :aria-label="themeModeLabels[mode]"
-              :disabled="busy"
               @click="chooseTheme(mode)"
             >
               <span class="theme-mode-icon" :data-mode="mode" aria-hidden="true"></span>
-              <span>{{ themeModeLabels[mode] }}</span>
+              <span class="segmented-option-label">{{ themeModeLabels[mode] }}</span>
             </button>
           </div>
         </div>
       </section>
 
-      <section class="setting-section" aria-labelledby="engine-title">
+      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="engine-title">
         <header class="section-heading">
           <h2 id="engine-title">默认引擎</h2>
           <p class="section-caption">决定 Flash 内容优先使用的运行方式</p>
@@ -248,7 +271,7 @@ function focusFlashSection(): void {
               class="choice"
               role="radio"
               :aria-checked="engine === 'ppapi'"
-              :aria-disabled="busy || !flashReady ? 'true' : 'false'"
+              :aria-disabled="flashReady ? 'false' : 'true'"
               :title="flashReady ? undefined : '未检测到 Flash 插件，当前自动使用 Ruffle'"
               @click="chooseEngine('ppapi')"
             >
@@ -260,7 +283,6 @@ function focusFlashSection(): void {
               class="choice"
               role="radio"
               :aria-checked="engine === 'ruffle'"
-              :disabled="busy"
               @click="chooseEngine('ruffle')"
             >
               <span class="radio" aria-hidden="true"></span>
@@ -270,7 +292,7 @@ function focusFlashSection(): void {
         </div>
       </section>
 
-      <section id="flash-section" class="setting-section" aria-labelledby="flash-title">
+      <section id="flash-section" class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="flash-title">
         <header class="section-heading"><h2 id="flash-title">Flash 插件</h2></header>
         <div class="setting-card">
           <div class="select-row flash-row">
@@ -287,7 +309,7 @@ function focusFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" aria-labelledby="startup-title">
+      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="startup-title">
         <header class="section-heading"><h2 id="startup-title">启动</h2></header>
         <div class="setting-card">
           <div role="radiogroup" aria-label="启动时" class="choices">
@@ -298,7 +320,6 @@ function focusFlashSection(): void {
               class="choice"
               role="radio"
               :aria-checked="sessionStartup === mode"
-              :disabled="busy"
               @click="chooseStartup(mode)"
             >
               <span class="radio" aria-hidden="true"></span>
@@ -308,28 +329,26 @@ function focusFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" aria-labelledby="perf-title">
+      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="perf-title">
         <header class="section-heading"><h2 id="perf-title">性能</h2></header>
         <div class="setting-card">
-          <div class="preference-block">
+          <div class="toggle-row">
             <div class="preference-copy">
               <h3>飞窗预热</h3>
-              <p>决定飞窗在使用前何时准备好</p>
+              <!-- 说明跟着开关走：静态一句「决定何时准备好」看不出现在到底会不会预热。 -->
+              <p>{{ prewarmModeSummaries[prewarm] }}</p>
             </div>
-            <div role="radiogroup" aria-label="飞窗预热" class="segmented-control segmented-control--prewarm">
-              <button
-                v-for="mode in prewarmModes"
-                :key="mode"
-                type="button"
-                class="segmented-option"
-                role="radio"
-                :aria-checked="prewarm === mode"
-                :disabled="busy"
-                @click="choosePrewarm(mode)"
-              >
-                <span>{{ prewarmModeLabels[mode] }}</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              class="toggle"
+              role="switch"
+              :aria-checked="prewarm === 'always'"
+              aria-label="飞窗预热"
+              :title="prewarmToggleHint"
+              @click="togglePrewarm"
+            >
+              <span class="toggle-knob" aria-hidden="true"></span>
+            </button>
           </div>
           <div class="preference-divider" aria-hidden="true"></div>
           <div class="toggle-row">
@@ -343,7 +362,6 @@ function focusFlashSection(): void {
               role="switch"
               :aria-checked="tabDiscard === 'auto'"
               aria-label="后台标签休眠"
-              :disabled="busy"
               @click="toggleTabDiscard"
             >
               <span class="toggle-knob" aria-hidden="true"></span>
@@ -352,7 +370,7 @@ function focusFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" aria-labelledby="language-title">
+      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="language-title">
         <header class="section-heading"><h2 id="language-title">语言</h2></header>
         <div class="setting-card">
           <div class="value-row">
@@ -365,10 +383,10 @@ function focusFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" aria-labelledby="data-title">
+      <section class="setting-section" :hidden="section !== 'privacy'" aria-labelledby="privacy-title">
         <header class="section-heading">
-          <h2 id="data-title">数据</h2>
-          <p class="section-caption">管理保存在本机上的浏览会话</p>
+          <h2 id="privacy-title">浏览数据</h2>
+          <p class="section-caption">清除保存在本机上的会话与站点规则</p>
         </header>
         <div class="setting-card">
           <div class="select-row">
@@ -383,6 +401,37 @@ function focusFlashSection(): void {
           </div>
           <p class="lead">删除各站点「记住的引擎」规则；已打开的标签不会重新加载，来源回到默认。</p>
           <p v-if="rulesNotice" role="status">{{ rulesNotice }}</p>
+        </div>
+      </section>
+
+      <section class="setting-section" :hidden="section !== 'about'" aria-labelledby="about-title">
+        <header class="section-heading">
+          <h2 id="about-title">版本信息</h2>
+          <p class="section-caption">运行时版本与本机 Flash 插件状态</p>
+        </header>
+        <div class="setting-card">
+          <div class="value-row">
+            <div class="preference-copy">
+              <h3>BaoFlashBrowser Next</h3>
+              <p>自带 Flash（PPAPI）运行时的浏览器外壳</p>
+            </div>
+            <span class="current-value">v{{ runtime.app }}</span>
+          </div>
+          <div class="preference-divider" aria-hidden="true"></div>
+          <div class="value-row">
+            <div class="preference-copy">
+              <h3>内核</h3>
+              <p>Electron {{ runtime.electron }} · Chromium {{ runtime.chromium }}</p>
+            </div>
+          </div>
+          <div class="preference-divider" aria-hidden="true"></div>
+          <div class="value-row">
+            <div class="preference-copy">
+              <h3>Flash 插件</h3>
+              <p :title="flash?.path">{{ flashStatusText }}</p>
+            </div>
+            <button v-if="flash?.found" type="button" class="action" aria-label="打开 Flash 插件所在文件夹" @click="revealFlash">打开所在文件夹</button>
+          </div>
         </div>
       </section>
 
@@ -403,11 +452,11 @@ function focusFlashSection(): void {
 
 * { box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
+/* 页面底色就是主题的 surface-page：去掉早期那圈紫色光晕——设置页要和外壳的中性面
+   同一个体系，强调色只留给控件（radio/开关/链接/焦点环）。 */
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at 72% -20%, color-mix(in srgb, var(--engine-accent) 8%, transparent), transparent 38%),
-    var(--surface-page);
+  background: var(--surface-page);
 }
 h1, h2, h3, p { margin: 0; }
 button { font: inherit; color: inherit; }
@@ -476,6 +525,8 @@ button:disabled { cursor: default; opacity: 0.6; }
 }
 .settings-nav button[aria-current='page'] .shell-icon { color: var(--engine-accent); }
 .settings-nav button:disabled { color: var(--text-secondary); opacity: 0.55; }
+/* 分区切换只换内容，导航项保持同一个滚动容器：不跳滚动位置、不重排。 */
+.settings-nav button[aria-current='page']:hover { background: color-mix(in srgb, var(--engine-accent) 14%, var(--surface-toolbar)); }
 
 /* Chromium Settings 的核心是稳定的单列扫描路径；宽屏只增加两侧留白，不重排设置顺序。 */
 .settings-content {
@@ -548,6 +599,13 @@ button:disabled { cursor: default; opacity: 0.6; }
   white-space: nowrap;
   transition: background var(--motion-fast), box-shadow var(--motion-fast), color var(--motion-fast);
 }
+/* 文本容器自己兜住溢出：三等分网格里任何一档变长都只在这格内省略，绝不画到圆角外面去。 */
+.segmented-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .segmented-option:hover:not(:disabled):not([aria-checked='true']) { background: var(--surface-hover); }
 .segmented-option[aria-checked='true'] {
   background: var(--surface-toolbar);
@@ -555,7 +613,6 @@ button:disabled { cursor: default; opacity: 0.6; }
   box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
 }
 .segmented-option:disabled { opacity: .6; cursor: default; }
-.segmented-control--prewarm { width: min(62%, 480px); }
 
 .theme-mode-icon {
   position: relative;
@@ -616,7 +673,8 @@ button:disabled { cursor: default; opacity: 0.6; }
 .choice:hover:not([aria-disabled='true']) { background: var(--surface-hover); }
 .choice[aria-disabled='true'] { opacity: .55; cursor: default; }
 .choice[aria-checked='true'] {
-  background: var(--engine-selection);
+  /* 选中行用中性选中面 + 紫色圆点：整行铺品牌色在深色下就是一块紫斑，不像这个主题。 */
+  background: var(--surface-selected);
   border-color: color-mix(in srgb, var(--engine-accent) 22%, transparent);
 }
 .choice .radio {
@@ -750,8 +808,7 @@ button:disabled { cursor: default; opacity: 0.6; }
   .setting-card { padding: 18px 16px; border-radius: 14px; }
   .setting-card--row,
   .preference-block { align-items: stretch; flex-direction: column; gap: 16px; }
-  .segmented-control,
-  .segmented-control--prewarm { width: 100%; }
+  .segmented-control { width: 100%; }
   .flash-row { flex-wrap: wrap; }
   .flash-path { order: 4; flex-basis: 100%; }
 }

@@ -84,6 +84,17 @@ describe('settingsFromRows', () => {
     })
   })
 
+  it('老库里残留的 `auto` 预热档被丢弃并回落到默认（删档不需要迁移脚本）', () => {
+    const settings = settingsFromRows([
+      { key: 'overlay.prewarm', value: 'auto' },
+      { key: 'tab.discard', value: 'auto' }
+    ])
+    // 2026-11-26：预热由三档收敛成开关，中间档 `auto` 从取值域里删掉。
+    // 磁盘上残留的 `auto` 不该让整份设置报废，也不该被当成"关"，回落到默认档即可。
+    expect(settings.overlayPrewarm).toBe(DEFAULT_SETTINGS.overlayPrewarm)
+    expect(settings.overlayPrewarm).toBe('always')
+  })
+
   it('同一个键出现多次时后者生效（迁移/重复写不会留两份状态）', () => {
     const settings = settingsFromRows([
       { key: 'theme.mode', value: 'dark' },
@@ -96,11 +107,11 @@ describe('settingsFromRows', () => {
 describe('settingsToRows', () => {
   it('摊成固定的行，键名与表一致', () => {
     const rows = settingsToRows({
-      themeMode: 'dark', defaultEngine: 'ruffle', locale: 'zh-CN', overlayPrewarm: 'auto',
+      themeMode: 'dark', defaultEngine: 'ruffle', locale: 'zh-CN', overlayPrewarm: 'never',
       tabDiscard: 'auto', sessionStartup: 'newtab'
     })
     expect(rows).toEqual([
-      { key: 'overlay.prewarm', value: 'auto' },
+      { key: 'overlay.prewarm', value: 'never' },
       { key: 'tab.discard', value: 'auto' },
       { key: 'session.startup', value: 'newtab' },
       { key: 'theme.mode', value: 'dark' },

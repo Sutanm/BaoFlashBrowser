@@ -6,10 +6,10 @@
  * 也就是「输入地址 → 回车」这一步没生效，标签还是新标签页。**外壳没有崩**（自愈轨迹为空）。
  *
  * 这里逐步打印：填完地址后输入框的值、回车后主进程快照、渲染进程/网关状态，
- * 并与 auto 档对照。用法：
+ * 并与 never 档对照（那是"完全不预热"的现场）。用法：
  *   $env:ELECTRON_EXEC_PATH=(Resolve-Path '.runtime\win-x64\electron.exe').Path
  *   node scripts/probe-overlay-navigation.cjs always
- *   node scripts/probe-overlay-navigation.cjs auto
+ *   node scripts/probe-overlay-navigation.cjs never
  */
 const { mkdtempSync } = require('node:fs')
 const { tmpdir } = require('node:os')
@@ -59,7 +59,7 @@ async function main() {
       .filter((item) => { try { return item.getURL().includes('baoOverlay=overlay') } catch { return false } })
       .map((item) => item.id))
 
-    // 等常驻预热落地（always 档）或干脆不等（auto 档）。
+    // 等常驻预热落地（always 档）或干脆不等（never 档）。
     const warmed = await Promise.race([
       waitFor(async () => ((await overlayIds()).length ? true : null), { timeout: 6_000, message: '没有预热' })
         .then(() => true).catch(() => false),

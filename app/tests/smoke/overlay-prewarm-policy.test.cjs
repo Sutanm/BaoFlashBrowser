@@ -3,17 +3,18 @@ const { test } = require('node:test')
 const { launchApp, waitFor } = require('./helpers.cjs')
 
 /**
- * `overlay.prewarm` 三档在**共享进程模式**下的合同（2026-11-25）。
+ * `overlay.prewarm` 开关在**共享进程模式**下的合同（2026-11-26 由三档收敛为开关）。
  *
- * 为什么单独一条：共享模式落地后三档行为**完全一致**——悬停路径不看策略、直接
+ * 为什么单独一条：共享模式落地后三档曾行为**完全一致**——悬停路径不看策略、直接
  * `window.open`，于是 `never` 也照样预热，`always` 反而没人建（主进程的 `prewarm()`
  * 在共享模式下是空操作），建出来的文档也从不回收。三档在界面上是三个选项，
  * 实测却是同一档，这种"设置项骗人"只能靠用例钉住。
  *
- * 合同：
- *   auto   悬停 180 ms 预热；隐藏后空闲 RETIRE_AFTER_MS 回收，下次再建
- *   always 启动后（空闲时）就建好并常驻，第一次点开就是热的，不回收
- *   never  悬停/启动都不建；点击（或 toast）才建
+ * 中间档 `auto`（悬停 180 ms 预热 + 空闲回收）已删除：常驻只要 5–9 MB、不新增渲染进程，
+ * 中间档换不来相应收益，却要养悬停意图/闸门/回收定时器/切档特判。现在只剩两条：
+ *
+ *   always（默认） 启动后（show 之前）就建好并常驻，第一次点开就是热的，不回收
+ *   never          启动/悬停都不建；点击（或 toast）才建，且切到 never 会立刻释放已有文档
  *
  * 预热在自动化窗口模式（隐藏/后台）下被主进程主动禁用，所以只能用前台跑：
  *   npm run smoke:foreground -- --serial
@@ -45,63 +46,26 @@ function gear(shell) {
   return shell.getByRole('button', { name: '快捷设置', exact: true })
 }
 
-test('overlay.prewarm=auto：悬停预热 → 复用 → 空闲回收 → 重新预热', {
-  timeout: 120_000,
-  skip: hiddenMode && '预热在隐藏模式下被禁用，需前台运行：npm run smoke:foreground'
-}, async () => {
-  // 显式钉住 auto：外层可能用 `BAO_OVERLAY_PREWARM=always` 跑整轮（常驻档验收），
-  // 不钉死的话本用例会被外层覆盖成 always，测的就不是 auto 了。
-  const { app, shell, close } = await launchApp({ env: { BAO_RETIRE_MS: '1500', BAO_OVERLAY_PREWARM: 'auto' } })
-  try {
-    await gear(shell).waitFor({ timeout: 30_000 })
-    assert.equal((await overlayState(app)).present, false, 'auto：启动后不该有浮层文档')
+/** 在设置页里点「飞窗预热」开关（设置页是独立 WebContentsView，用 JS 点与真人路径一致）。 */
+async function togglePrewarmSwitch(app) {
+  return app.evaluate(async ({ webContents }) => {
+    const target = webContents.getAllWebContents().find((contents) => (contents.getURL() ?? '').startsWith('bao://settings'))
+    if (!target) return 'no-settings-page'
+    await target.executeJavaScript(`document.querySelector('[role="switch"][aria-label="飞窗预热"]')?.click()`)
+    return 'clicked'
+  })
+}
 
-    await gear(shell).hover()
-    const warmed = await waitFor(async () => {
-      const state = await overlayState(app)
-      return state.present ? state : null
-    }, { message: 'auto：悬停 180 ms 后应当预热出文档' })
-    assert.equal(warmed.visible, false, 'auto：预热出来的视图必须是隐藏的')
-    assert.equal(warmed.attached, false, 'auto：预热阶段不该把视图挂到窗口上')
-
-    await gear(shell).click()
-    const opened = await waitFor(async () => {
-      const state = await overlayState(app)
-      return state.visible ? state : null
-    }, { message: 'auto：点击后应当显示浮层' })
-    assert.equal(opened.id, warmed.id, 'auto：点击应复用预热文档，而不是再开一个')
-
-    // 点别处关闭 → 按 RETIRE_AFTER_MS 回收 → 再悬停应当重新预热。
-    await shell.getByRole('textbox', { name: '地址栏' }).click()
-    await waitFor(async () => !(await overlayState(app)).visible, { message: 'auto：点击别处应当隐藏浮层' })
-    await waitFor(async () => !(await overlayState(app)).present, {
-      message: 'auto：隐藏后空闲 1.5 s 应当回收文档（此前共享模式从不回收）'
-    })
-
-    await gear(shell).hover()
-    const reopened = await waitFor(async () => {
-      const state = await overlayState(app)
-      return state.present ? state : null
-    }, { message: 'auto：回收后再悬停应当重新预热' })
-    assert.notEqual(reopened.id, warmed.id, 'auto：回收后应当是一个新文档')
-    await gear(shell).click()
-    await waitFor(async () => (await overlayState(app)).visible, { message: 'auto：回收后点击仍应能打开' })
-  } finally {
-    await close()
-  }
-})
-
-test('overlay.prewarm=never：悬停不建文档，点击仍能冷开', {
+test('overlay.prewarm=never：不做任何提前创建，点击仍能冷开', {
   timeout: 120_000,
   skip: hiddenMode && '预热在隐藏模式下被禁用，需前台运行：npm run smoke:foreground'
 }, async () => {
   const { app, shell, close } = await launchApp({ env: { BAO_OVERLAY_PREWARM: 'never' } })
   try {
     await gear(shell).waitFor({ timeout: 30_000 })
-    await gear(shell).hover()
-    // 悬停意图是 180 ms：等足 1.2 s 仍然没有文档才算「真的不预热」。
+    // 不碰任何入口，等足 1.2 s：仍然没有文档才算「真的不预热」。
     await new Promise((done) => setTimeout(done, 1_200))
-    assert.equal((await overlayState(app)).present, false, 'never：悬停不该建文档')
+    assert.equal((await overlayState(app)).present, false, 'never：不该有任何预热文档')
 
     await gear(shell).click()
     await waitFor(async () => (await overlayState(app)).visible, {
@@ -123,7 +87,7 @@ test('overlay.prewarm=always：启动后常驻预热，第一次点开复用同�
     const warmed = await waitFor(async () => {
       const state = await overlayState(app)
       return state.present ? state : null
-    }, { message: 'always：启动后空闲时应当常驻预热出文档' })
+    }, { message: 'always：启动后应当常驻预热出文档' })
     assert.equal(warmed.visible, false, 'always：常驻预热不该显示视图')
 
     await gear(shell).click()
@@ -133,11 +97,53 @@ test('overlay.prewarm=always：启动后常驻预热，第一次点开复用同�
     }, { message: 'always：点击后应当显示浮层' })
     assert.equal(opened.id, warmed.id, 'always：第一次点开就该复用常驻文档')
 
-    // 常驻档不回收（「不预热」才回收）。
+    // 常驻档不回收。
     await shell.getByRole('textbox', { name: '地址栏' }).click()
     await waitFor(async () => !(await overlayState(app)).visible, { message: 'always：点击别处应当隐藏' })
     await new Promise((done) => setTimeout(done, 1_500))
     assert.equal((await overlayState(app)).present, true, 'always：常驻档不该回收文档')
+  } finally {
+    await close()
+  }
+})
+
+test('overlay.prewarm 开关：关掉立刻释放已建好的文档，再打开立刻预热', {
+  timeout: 120_000,
+  skip: hiddenMode && '预热在隐藏模式下被禁用，需前台运行：npm run smoke:foreground'
+}, async () => {
+  const { app, shell, close } = await launchApp({ env: { BAO_OVERLAY_PREWARM: 'always' } })
+  try {
+    await gear(shell).waitFor({ timeout: 30_000 })
+    const warmed = await waitFor(async () => {
+      const state = await overlayState(app)
+      return state.present ? state : null
+    }, { message: '开关：启动后应当先预热出文档' })
+
+    // 打开设置页（Ctrl+,）→ 关掉开关。
+    await app.evaluate(async ({ webContents }) => {
+      const target = webContents.getAllWebContents().find((contents) => contents.getURL().endsWith('index.html'))
+      for (const type of ['keyDown', 'char', 'keyUp']) {
+        target.sendInputEvent({ type, keyCode: ',', modifiers: ['control'] })
+      }
+      await new Promise((done) => setTimeout(done, 50))
+    })
+    await waitFor(async () => app.evaluate(({ webContents }) =>
+      webContents.getAllWebContents().some((contents) => (contents.getURL() ?? '').startsWith('bao://settings'))
+    ), { message: '开关：Ctrl+, 没有打开设置页' })
+    assert.equal(await togglePrewarmSwitch(app), 'clicked')
+
+    await waitFor(async () => !(await overlayState(app)).present, {
+      message: '开关：关掉预热应当立刻释放已建好的文档（不用等关窗/回收计时）'
+    })
+
+    // 再打开：应当立刻重新预热，且是一次新的开窗（旧 WindowProxy 已 closed）。
+    assert.equal(await togglePrewarmSwitch(app), 'clicked')
+    const rewarmed = await waitFor(async () => {
+      const state = await overlayState(app)
+      return state.present ? state : null
+    }, { message: '开关：重新打开后应当立刻预热出文档' })
+    assert.notEqual(rewarmed.id, warmed.id, '开关：重新打开应当是一份新文档')
+    assert.equal(rewarmed.visible, false, '开关：重新预热不该显示视图')
   } finally {
     await close()
   }

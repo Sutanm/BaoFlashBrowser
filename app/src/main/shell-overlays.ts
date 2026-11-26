@@ -6,6 +6,7 @@ import type { BrowserState } from '../shared/browser'
 import { OVERLAY_QUERY, overlayChannels } from '../shared/overlay'
 import { clampBelow, clampBounds } from '../shared/overlay-geometry'
 import type { OverlayBounds, OverlayEvent, OverlayKind } from '../shared/overlay'
+import type { PrewarmMode } from '../shared/settings'
 import { beginOpen, markContent, markVisible, readSamples, resetSamples, summarize } from './overlay-metrics'
 import { getShellSession } from './sessions'
 
@@ -44,9 +45,9 @@ function traceOverlayLongTask(duration: number, source: string): void {
 }
 
 /**
- * 叠加层只保留**两个**视图：一个飞窗视图（panel 与 quick 共用）+ 一个 toast 视图。
+ * 叠加层只保留**一个**视图：panel / quick / toast 共用同一个文档与渲染进程。
  *
- * 为什么合并：每多一个 WebContentsView 就多一个渲染进程（建进程 30–90 ms），
+ * 为什么不按 kind 分开：每多一个 WebContentsView 就多一个渲染进程（建进程 30–90 ms），
  * 于是每种飞窗都得自己预热、还得错开预热时间。合并后飞窗只有一个渲染进程，
  * 打开时只需要 setBounds + setVisible + 一条「显示哪种内容」的事件。
  */
@@ -80,8 +81,8 @@ export function createShellOverlays(
   currentTheme: () => 'light' | 'dark',
   /** 自动化模式下不预热：多出来的视图会干扰「页面视图计数」类断言。 */
   canPrewarm: () => boolean,
-  /** 预热策略：never 不预热；always 不回收；auto 悬停预热 + 空闲回收。 */
-  prewarmPolicy: () => 'auto' | 'always' | 'never',
+  /** 预热策略：always=窗口创建即预热（默认）；never=用到才建、不做任何提前创建。 */
+  prewarmPolicy: () => PrewarmMode,
   /** 共享进程模式（proto）：视图由外壳 window.open 产生，主进程只接管，不自己建。 */
   shared: () => boolean
 ) {
@@ -89,12 +90,8 @@ export function createShellOverlays(
   let flyout: HostedView | undefined
   let activePage: WebContents | undefined
   let pendingOpen = 0
-  let retireTimer: ReturnType<typeof setTimeout> | undefined
   /** 上一次真正通知渲染层的内容种类：用来判断「可见但换内容」是否要补发打开事件。 */
   let shownKind: OverlayKind | undefined
-  /** 空闲回收：预热的视图在 5 分钟没有打开就释放（用户可在设置里选「常驻」关掉回收）。 */
-  // 默认 5 分钟；BAO_RETIRE_MS 仅供测试/度量缩短短语。
-  const RETIRE_AFTER_MS = Number(process.env.BAO_RETIRE_MS ?? 5 * 60_000)
   let disposed = false
 
   function sender(event: IpcMainInvokeEvent): 'shell' | 'panel' | 'quick' | 'toast' | undefined {
@@ -136,7 +133,6 @@ export function createShellOverlays(
     shownKind = undefined
     item.view.setVisible(false)
     if (!window.isDestroyed()) window.contentView.removeChildView(item.view)
-    armRetire()
   }
 
   function close(kind: FlyoutKind, restoreFocus: boolean): boolean {
@@ -238,27 +234,14 @@ export function createShellOverlays(
     }
   }
 
-  function cancelRetire(): void {
-    if (retireTimer) {
-      clearTimeout(retireTimer)
-      retireTimer = undefined
-    }
-  }
-
-  function armRetire(): void {
-    cancelRetire()
-    // 只有「自动」档才做空闲回收；「常驻」是用户明确要求一直热着。
-    if (prewarmPolicy() !== 'auto') return
-    retireTimer = setTimeout(() => {
-      retireTimer = undefined
-      if (flyout?.view.getVisible()) return
-      if (flyout && !flyout.view.webContents.isDestroyed()) flyout.view.webContents.close()
-      flyout = undefined
-    }, RETIRE_AFTER_MS)
-  }
-
-  function retireNow(): void {
-    cancelRetire()
+  /**
+   * 释放预热出来的叠加层文档，回到「用到才建」。
+   *
+   * 用户在设置里关掉预热时要立刻生效，否则已经建好的那份文档会一直留到关窗。
+   * 这正是当年 `auto` 档那台空闲回收定时器想解决的问题——现在只有开/关两个状态，
+   * 一次显式调用就够，不用再养计时器（连同"策略在排队期间变了"那类竞态）。
+   */
+  function releaseOverlay(): void {
     if (!flyout) return
     // 正在显示的先按正常路径关闭（会通知外壳），再销毁视图，避免「界面没了但外壳以为还开着」。
     if (flyout.kind === 'toast') dismissToast()
@@ -326,14 +309,6 @@ export function createShellOverlays(
     }
     if (contents.isLoading()) contents.once('did-finish-load', onLoaded)
     else onLoaded()
-    /**
-     * 预热出来但**始终没被打开**的文档也要走退役计时（2026-11-26 审计）。
-     *
-     * 共享模式下"预热"由外壳 `window.open` 完成，`prewarmForShell()` 在 shared 分支直接返回，
-     * 于是 `armRetire()` 从来没被调用：只悬停、不点击的用户会一直留着一份浮层文档，直到关窗。
-     * `armRetire()` 自己只对 `auto` 档生效，`always` / `never` 不受影响。
-     */
-    armRetire()
     return true
   }
 
@@ -405,7 +380,6 @@ export function createShellOverlays(
     const state = flyout ? (flyout.ready ? 'warm' : 'warming') : 'cold'
     pendingOpen = beginOpen(kind, state)
     // toast 与飞窗互斥：先按正常路径关掉当前那种（会通知外壳），再切内容。
-    cancelRetire()
     if (flyout?.kind && flyout.kind !== kind && flyout.kind !== 'toast') close(flyout.kind, false)
     const item = host()
     if (!item) return false
@@ -416,13 +390,13 @@ export function createShellOverlays(
   }
 
   /**
-   * 预热闸门：`never` 档、自动化/后台窗口一律不预热。
+   * 预热闸门：关掉预热、自动化/后台窗口一律不预热。
    *
    * 这是"该不该预热"的**唯一判定**（设置项由主进程读，别让渲染层猜——两边各读一次
    * 就会对不上，`overlay.prewarm=never` 在共享模式下被忽略正是这么来的）。
    */
   function canPrewarmNow(): boolean {
-    return canPrewarm() && prewarmPolicy() !== 'never'
+    return canPrewarm() && prewarmPolicy() === 'always'
   }
 
   /** 预热：独立进程路径自己建隐藏视图；共享模式让外壳 `window.open` 出文档（主进程不建）。 */
@@ -433,22 +407,6 @@ export function createShellOverlays(
       return true
     }
     host()
-    armRetire()
-    return true
-  }
-
-  /**
-   * 外壳请求预热（悬停路径）。
-   *
-   * 与 `startPrewarm()` 只差共享模式那一支：这里**不**推 `overlay-prewarm`，
-   * 因为外壳还要等 180 ms「悬停意图」再开窗（同步开窗会吞掉紧随的 click）。
-   * 独立进程模式没这个约束，直接建视图。
-   */
-  function prewarmForShell(): boolean {
-    if (!canPrewarmNow()) return false
-    if (shared()) return true
-    host()
-    armRetire()
     return true
   }
 
@@ -534,10 +492,6 @@ export function createShellOverlays(
         return role === 'quick' && typeof value.restoreFocus === 'boolean' && closeQuick(value.restoreFocus)
       case 'dismiss-toast':
         return role === 'toast' && dismissToast()
-      case 'can-prewarm':
-        return role === 'shell' && canPrewarmNow()
-      case 'prewarm':
-        return role === 'shell' && prewarmForShell()
       case 'report-ready': {
         if (role !== 'panel' && role !== 'quick' && role !== 'toast') return false
         if (pendingOpen) markContent(pendingOpen)
@@ -592,11 +546,9 @@ export function createShellOverlays(
     prewarm() {
       startPrewarm()
     },
-    /** 重新起算空闲回收（策略从常驻切回自动时用）。 */
-    armRetire,
-    /** 立即释放叠加层视图（设置切到「不预热」时用）。 */
-    retire() {
-      retireNow()
+    /** 立即释放预热出来的文档（用户在设置里关掉预热时用）。 */
+    release() {
+      releaseOverlay()
     },
     layout() {
       if (flyout?.kind) sync(flyout.kind)
@@ -618,7 +570,6 @@ export function createShellOverlays(
       activePage = undefined
       if (flyout && !flyout.view.webContents.isDestroyed()) flyout.view.webContents.close()
       flyout = undefined
-      cancelRetire()
     }
   }
 }

@@ -188,7 +188,7 @@ onBeforeUnmount(() => {
 }
 .engine-choice:not([aria-disabled='true']):hover, .compact-action:hover, .toast-close:hover { background: var(--surface-hover); }
 .engine-choice[aria-pressed='true'] {
-  background: var(--engine-selection); border-color: color-mix(in srgb, var(--engine-accent) 20%, transparent);
+  background: var(--surface-selected); border-color: color-mix(in srgb, var(--engine-accent) 20%, transparent);
 }
 .engine-symbol {
   display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px;

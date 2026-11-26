@@ -46,7 +46,7 @@ npm run dev
 | `npm run smoke:file -- --only=a,b` | **只跑指定用例**（改完一个模块的日常验证，通常 8–25 s）。名字可写 `quick-settings`、`tests/smoke/quick-settings.test.cjs` 任一种；前台专用用例要加 `--foreground`（否则会按隐藏模式跳过）。 |
 | `npm run smoke:changed` | **按 `git diff` 自动选用例**。映射表在 `scripts/test-map.cjs`（手写的近似依赖：改 `shell-overlays.ts` → 叠加层与快捷设置；改 `activity-lease.ts` → 休眠与拖出）。碰到 `browser-window.ts`、`package.json`、`preload/index.ts` 这类全局文件、或 `src/` 里没有规则的新模块，会自动退回全量。改动只在文档/记忆时不跑用例。 |
 | 构建缓存 | `test.cjs` 会先算 `src/scripts/tests/package.json/配置文件` 的指纹，没变就跳过 typecheck + build（约省 6–7 s）；`BAO_FORCE_BUILD=1` 强制重建，`BAO_SKIP_TYPECHECK=1` 只构建不检查类型。 |
-| `npm run smoke:foreground` | 显式前台验收：**会弹出真实窗口并抢焦点**，覆盖最大化/全屏、指针锁、DevTools、Ruffle 画布焦点、叠加层预热（`overlay.prewarm` 三档）与原生 Flash。期望 **70 用例全过、0 跳过**；期间不要切走焦点。 |
+| `npm run smoke:foreground` | 显式前台验收：**会弹出真实窗口并抢焦点**，覆盖最大化/全屏、指针锁、DevTools、Ruffle 画布焦点、叠加层预热（`overlay.prewarm` 开关，含"关掉即释放/再开即升温"）与原生 Flash。期望 **70 用例全过、0 跳过**；期间不要切走焦点。 |
 | `node scripts/test.cjs unit` | 单元层（vitest，纯 Node，不启动 Electron）：设置校验与回落、引擎与站点规则、站点边界（公共后缀）、日晷日夜换算、`bao://` 地址解析。45 个用例约 1 s；`npm run test:unit`。 |
 | `node scripts/test.cjs data` | 无窗口跑存储合同用例：设置落库与跨重启、非法值拒绝、`engine-rules.json` 一次性迁移与幂等、坏值回落、硬杀后数据完整、写失败不应用。终端可用 `npm run test:data`。 |
 | `npm run runtime:check` | 校验 `.runtime/win-x64` 的内核与插件 SHA-256（按 `scripts/runtime-manifest.json`），失败时给出拷贝/重建两条恢复路径。 |
@@ -63,9 +63,9 @@ npm run dev
 
 - 无边框两行外壳、Windows 原生窗口控件、Fluent 2 token 与深浅色跟随；默认应用菜单已移除。
 - **主题**：设置项 `theme.mode`（跟随系统 / 浅色 / 深色）1:1 映射 `nativeTheme.themeSource`；外壳 token、叠加层、系统窗口按钮配色、起始页与站点看到的 `prefers-color-scheme` 由同一个解析值派生。
-- **设置页**：`bao://settings` 作为内部页在标签里打开（`Ctrl+,` 或地址栏输入），已存在则复用；**当前标签是新标签页时就地覆盖它**（标签 id/位置不变，后退可回新标签页）。内部页跑在 `persist:bao-next-internal`、与页面同一套沙箱，只拿到 `baoSettings`（read/write/subscribe），拿不到外壳桥。在设置页里输入 http(s) 会新开普通标签，设置页原地不动。
+- **设置页**：`bao://settings` 作为内部页在标签里打开（`Ctrl+,` 或地址栏输入），已存在则复用；**当前标签是新标签页时就地覆盖它**（标签 id/位置不变，后退可回新标签页）。左侧是**真分区导航**（外观与偏好 / 隐私与清理 / 关于，切换不重载文档）；「下载」暂不列——本版本按安全策略拒绝所有下载（`main/sessions.ts` 的 `denyDownloads`），下载能力在 M2 立项，接入后再加回这一项。内部页跑在 `persist:bao-next-internal`、与页面同一套沙箱，只拿到 `baoSettings`（read/write/subscribe），拿不到外壳桥。在设置页里输入 http(s) 会新开普通标签，设置页原地不动。配色只有**一个强调色**（紫 `--accent`）：列表行选中态用 Fluent 中性选中面，品牌色只出现在 radio/开关/链接/焦点环上（早期混用 Fluent 蓝 `colorBrandStroke1` 与紫色，地址栏焦点环是蓝的、选中行是紫的，看起来不跟主题）。
 - **新标签页**：`bao://newtab` 是真实内部页（与设置页同会话、不同 origin），`Ctrl+T` / 「+」/ 双击标签栏 / 关闭最后一个标签都新建一个 NTP（不复用）；打开时焦点在地址栏。页面本体是 realbox（回车在本标签导航）+ 设置入口 + 原生 Flash 状态，快捷方式/最近访问等依赖历史与书签的板块尚未接入。NTP → 网页是同一个标签换视图（内部会话永不承载 http(s)）；网页的**最早一条历史后退会回到 NTP**（重建 NTP 视图，页面状态不保留），再前进会重新加载该网页。
-- **飞窗预热**：设置 → 性能 → 飞窗预热，三档：`常驻`（**默认**；窗口创建即预热，第一次点开就是热的，共享进程下**每窗口约 +5–6 MB、不多一个渲染进程**）、`自动`（鼠标移到入口才预热，空闲 5 分钟释放）、`不预热`（用到才建，最省内存）。预热后打开 3 / 9 ms；完全不预热的键盘冷开 3 / 27 ms（端到端 144 ms）。实测见 `docs/discussions/2026-11-25-overlay-shared-process-demo.md` §5.1 与 §7.5。
+- **飞窗预热**：设置 → 性能 → 飞窗预热，是一个开关（**默认开**）。开=窗口创建即准备好飞窗文档，第一次点开就是热的（共享进程下**每窗口约 5–9 MB、不多一个渲染进程**）；关=不提前创建、用到才建，关掉的瞬间还会释放已经建好的那份。预热后打开 3 / 9 ms；完全不预热的键盘冷开 3 / 27 ms（端到端 144 ms）。原三档里的「自动（悬停预热 + 空闲 5 分钟回收）」已于 2026-11-26 删除：它省的就是这几 MB，却要养悬停意图/闸门/回收计时器。实测见 `docs/discussions/2026-11-25-overlay-shared-process-demo.md` §5.1 与 §7.5。
 - **齿轮快捷设置**：工具栏齿轮打开飞窗（主题 / 默认引擎 / 全部设置），与设置页共用同一份 store，任一侧修改两边立刻同步。视觉取 Chromium 数值（圆角 12、`elevation 12` 投影、`kColorMenuBorder` 边框），无关闭按钮（点外部 / Esc 关闭）。飞窗**永远在窗口内**：贴着齿轮按钮下沿、右边缘对齐，超出内容区时面板内部滚动。
 - **启动只有一个标签页**；多标签由「新建标签页」按钮、双击标签栏或 `Ctrl+T` 创建。
 - 标签栏交互：点击/键盘切换、中键关闭、关闭按钮按需显示、拖动排序、拖出窗口（tearoff）、右键菜单（重新加载/复制/固定/静音/关闭/撤销关闭）、`Ctrl+W` 关闭、`Ctrl+Shift+T` 撤销关闭。

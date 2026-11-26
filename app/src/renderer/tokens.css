@@ -12,22 +12,36 @@
   --new-tab-button-size: 28px;
   --nav-gap: var(--space-xs);
   --address-radius: var(--radius-pill);
+  /*
+   * 强调色只有一个：紫色。
+   *
+   * `engine-*` 是历史命名（最早只给引擎胶囊用），今天它同时是品牌强调色——
+   * radio 圆点、开关、链接、焦点环、导航选中态都取它。不要再引入第二个强调色：
+   * Fluent 的默认 brand 是蓝的（#0f6cbd），曾经由 `--brand-stroke` 混进来，
+   * 于是地址栏焦点环是蓝的、设置页选中行是紫的，看起来就是"配色不跟主题"。
+   * 现在 `--brand-stroke` 只是 `--accent` 的别名，全部收敛到同一个紫。
+   */
+  --accent: #5940ac;
+  --accent-strong: #46328c;
+  --accent-soft: #eeebfb;
   --engine-flash: #bd4136;
   --engine-ruffle: #7254d6;
-  --engine-accent: #5940ac;
   --engine-override: #8f5610;
-  --engine-selection: #eeebfb;
+  --engine-accent: var(--accent);
+  --engine-selection: var(--accent-soft);
+  --brand-stroke: var(--accent);
   /* 焦点环：Chrome（Views）是 2dp、画在控件外侧、圆角 +1dp、取 accent 色。
      不透明度我们取 62% 而不是它的 40%：40% 的紫在白底上对比度只有 ~2.1:1，
      62% 能到 3:1 左右（WCAG 2.4.11 的可感知焦点要求），观感仍是柔和的。 */
-  --stroke-focus-ring: color-mix(in srgb, var(--engine-accent) 62%, transparent);
+  --stroke-focus-ring: color-mix(in srgb, var(--accent) 62%, transparent);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --accent: #c8b7ff;
+  --accent-strong: #b7a1ff;
+  --accent-soft: #3b3059;
   --engine-flash: #f0776c;
   --engine-ruffle: #ad97fe;
-  --engine-accent: #c8b7ff;
   --engine-override: #efbf78;
-  --engine-selection: #3b3059;
 }

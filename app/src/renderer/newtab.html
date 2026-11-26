@@ -16,8 +16,12 @@
         --critical-text: #242424;
         --critical-muted: #616161;
         --critical-stroke: #d1d1d1;
+        /* 首帧用的强调色副本：值必须与 tokens.css 的 --accent / --accent-strong 一致
+           （静态 HTML 没法 import CSS 变量，只能抄一份；tests/unit/brand-tokens.test.ts
+           会把这两处对起来，漂了就让用例失败）。早先这里第二个色还留着 Fluent 的蓝 #0f6cbd，
+           于是 NTP 第一帧的 logo 是蓝的、挂载后才变紫。 */
         --critical-accent: #5940ac;
-        --critical-brand: #0f6cbd;
+        --critical-brand: #46328c;
         background: var(--critical-page);
       }
       @media (prefers-color-scheme: dark) {
@@ -28,7 +32,7 @@
           --critical-muted: #adadad;
           --critical-stroke: #666666;
           --critical-accent: #c8b7ff;
-          --critical-brand: #479ef5;
+          --critical-brand: #b7a1ff;
         }
       }
       html, body, #app { height: 100%; }

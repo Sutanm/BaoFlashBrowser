@@ -240,7 +240,7 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .row.footer { grid-template-columns: 18px 1fr 14px; min-height: 38px; }
 .row:hover:not([aria-disabled='true']) { background: var(--surface-hover); }
 .row[aria-disabled='true'] { opacity: .45; cursor: default; }
-.row[aria-checked='true'] { background: var(--engine-selection); }
+.row[aria-checked='true'] { background: var(--surface-selected); }
 /* 菜单式的键盘焦点：整行高亮，不画环（Chrome 的菜单项就是这么做的）。
    选中行本来就有底色，聚焦时换成更饱和的 accent 混合色，保证「聚焦」看得出来。 */
 .row:focus-visible { outline: none; background: var(--surface-hover); }

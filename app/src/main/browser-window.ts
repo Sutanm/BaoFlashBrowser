@@ -213,11 +213,12 @@ const sharedOverlayMode = (): boolean => process.env.BAO_OVERLAY_SHARED !== '0'
  * 策略一旦两处各读一次，就会出现"主进程以为预热了、渲染层却照旧冷开"这种对不上的状态
  * ——`overlay.prewarm=never` 在共享模式下长期被忽略，正是这么来的。
  *
- * `BAO_OVERLAY_PREWARM` 仅供测试/度量强制某一档（与 `BAO_OVERLAY_SHARED`、`BAO_RETIRE_MS` 同类）。
+ * `BAO_OVERLAY_PREWARM` 仅供测试/度量强制一档（与 `BAO_OVERLAY_SHARED` 同类）。
+ * 只接受开/关两个值：中间档 `auto` 已于 2026-11-26 删除（见 `PREWARM_MODES`）。
  */
 function overlayPrewarmPolicy(): PrewarmMode {
   const forced = process.env.BAO_OVERLAY_PREWARM
-  if (forced === 'auto' || forced === 'always' || forced === 'never') return forced
+  if (forced === 'always' || forced === 'never') return forced
   return currentSettings().overlayPrewarm
 }
 
@@ -685,13 +686,14 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!sessionQuitting) scheduleSessionSave(shellContentsId, sessionWindowSnapshot())
   }
 
-  /** 内部页读到的快照：设置 + **解析后**的亮/暗 + 存储状态 + 插件可用性。 */
+  /** 内部页读到的快照：设置 + **解析后**的亮/暗 + 存储状态 + 插件可用性 + 版本信息。 */
   function internalSnapshot(): SettingsSnapshot {
     return {
       settings: currentSettings(),
       theme: currentTheme(),
       storage: storageStatus(),
-      flash: plugins
+      flash: plugins,
+      runtime: { app: app.getVersion(), electron: process.versions.electron, chromium: process.versions.chrome }
     }
   }
 
@@ -2369,12 +2371,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     shortcut: handleShortcut,
     refreshSettings: () => {
       updateWindowControls()
-      // 预热策略切换要立刻生效：改成「常驻」马上升温，改成「不预热」立刻释放。
-      // 「自动」档切回来时补一次空闲回收，否则之前常驻下来的文档会一直留着。
-      const policy = overlayPrewarmPolicy()
-      if (policy === 'always') overlays.prewarm()
-      else if (policy === 'never') overlays.retire()
-      else overlays.armRetire()
+      // 预热开关切换要立刻生效：打开就马上升温，关掉就立刻释放已建好的文档。
+      if (overlayPrewarmPolicy() === 'always') overlays.prewarm()
+      else overlays.release()
     },
     broadcastSettings,
     ownsContents,
@@ -2736,7 +2735,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     shellCrashes.push(now)
     while (shellCrashes.length > 0 && now - shellCrashes[0] > 60_000) shellCrashes.shift()
     // 外壳没了，浮层视图的「打开」状态对不上（共享模式下它已随进程一起死），先按关闭处理。
-    overlays.retire()
+    overlays.release()
     if (shellCrashes.length > 3) return
     traceSelfHeal(details.reason)
     window.webContents.reload()
@@ -2953,10 +2952,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     // 这条顺序是被实测逼出来的：放到 show 之后、空闲时刻建时，开窗恰好落进"用户填好地址、
     // 还没敲回车"的窗口，回车会被吞掉（见 docs/discussions/2026-11-25-overlay-shared-process-demo.md §7.4）。
     // 自动化模式不预热——那会给「页面视图计数」类断言多一个 webContents。
-    // 预热策略（设置项 overlay.prewarm，见 overlayPrewarmPolicy）：
-    // - always：文档启动后常驻（共享模式 +6 MB；第一次点开就是热的）；
-    // - auto（默认）：入口悬停时预热，空闲 5 分钟回收；
-    // - never：完全不预热，用到才建。
+    // 预热开关（设置项 overlay.prewarm，见 overlayPrewarmPolicy）：开=文档启动后常驻
+    // （共享模式每窗口 5–9 MB；第一次点开就是热的）；关=完全不预热，用到才建。
     // 共享模式下 `prewarm()` 只是把"现在就建"推给外壳文档（`overlay-prewarm` 事件），
     // 主进程不自己建——但闸门（canPrewarm / 策略）仍在这里，所以必须调。
     // BAO_NO_PREWARM=1 只用于度量。

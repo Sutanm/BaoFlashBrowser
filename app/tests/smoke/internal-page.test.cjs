@@ -175,6 +175,87 @@ test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后�
       return app.evaluate(({ webContents }, target) => webContents.fromId(target)?.getURL(), id)
     }, { message: '恢复后的设置页没有加载' })
     assert.equal(restoredUrl, 'bao://settings/')
+
+    // ⑦ 「飞窗预热」是开/关开关（不是三选一），说明行要跟着开关走、悬浮说明不能为空。
+    //    2026-11-26 收敛：删掉中间档 `auto`，并顺手钉住"默认在描述里"这条（不在档位名上加徽标）。
+    const prewarm = await inSettings(app, `(() => {
+      const toggle = document.querySelector('[role="switch"][aria-label="飞窗预热"]')
+      if (!toggle) return null
+      const row = toggle.closest('.toggle-row')
+      const read = () => ({
+        checked: toggle.getAttribute('aria-checked'),
+        summary: row?.querySelector('.preference-copy p')?.textContent?.trim() ?? '',
+        hint: (toggle.getAttribute('title') ?? '').length,
+        width: toggle.getBoundingClientRect().width
+      })
+      return { initial: read(), segmented: document.querySelectorAll('#perf-title ~ * .segmented-control').length }
+    })()`)
+    assert.ok(prewarm, '没有找到「飞窗预热」开关')
+    assert.equal(prewarm.initial.checked, 'true', '飞窗预热默认应当打开（常驻）')
+    assert.ok(prewarm.initial.summary.startsWith('默认'),
+      `默认档的说明行必须以「默认」开头（不在档位名上加徽标）：${prewarm.initial.summary}`)
+    assert.ok(prewarm.initial.hint > 20, `开关必须有悬浮说明：${prewarm.initial.hint}`)
+    assert.ok(prewarm.initial.width > 20, `开关没有实际布局宽度（隐藏窗口），几何断言会变成空断言：${prewarm.initial.width}`)
+    assert.equal(prewarm.segmented, 0, '性能分区不该再有分段控件（预热已退化为开关）')
+
+    // 点一下关掉：写入 never → 外壳与页面同时重绘，说明行换成"不提前创建"。
+    await inSettings(app, `document.querySelector('[role="switch"][aria-label="飞窗预热"]').click()`)
+    const off = await waitFor(async () => {
+      const value = await inSettings(app, `(() => {
+        const toggle = document.querySelector('[role="switch"][aria-label="飞窗预热"]')
+        return {
+          checked: toggle?.getAttribute('aria-checked'),
+          summary: toggle?.closest('.toggle-row')?.querySelector('.preference-copy p')?.textContent?.trim() ?? ''
+        }
+      })()`)
+      return value.checked === 'false' && !value.summary.startsWith('默认') ? value : null
+    }, { message: '关掉飞窗预热后开关/说明没有跟着变' })
+    assert.ok(off.summary.length > 0, '关掉后说明行不能为空')
+    assert.equal((await snapshot(shell)).settings.overlayPrewarm, 'never', '开关没有写进设置')
+    // 复原：后面的用例（以及重启恢复类断言）都假设默认档。
+    await inSettings(app, `document.querySelector('[role="switch"][aria-label="飞窗预热"]').click()`)
+    await waitFor(async () => (await snapshot(shell)).settings.overlayPrewarm === 'always' ? true : null,
+      { message: '再次打开飞窗预热没有恢复 always' })
+
+    // ⑧ 左侧导航是真分区（不是摆设）：每一项切过去都有真实内容，且切换不重载文档。
+    //    2026-11-26 反馈：导航四项里三项是置灰假条目。现在「下载」不再列（本版本按安全策略
+    //    拒绝所有下载，见 sessions.ts），另外三项各有内容。
+    const nav = await inSettings(app, `(() => {
+      globalThis.__navMarker = 'still-here'
+      return [...document.querySelectorAll('.settings-nav button')].map((el) => el.textContent.trim())
+    })()`)
+    assert.deepEqual(nav, ['外观与偏好', '隐私与清理', '关于'],
+      '导航项必须逐项有真实内容（不列空分区）')
+
+    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '关于')?.click()`)
+    const about = await waitFor(async () => {
+      const value = await inSettings(app, `(() => {
+        const section = document.getElementById('about-title')?.closest('.setting-section')
+        const current = document.querySelector('.settings-nav button[aria-current="page"]')?.textContent?.trim() ?? ''
+        if (!section || section.hidden) return null
+        return { text: section.innerText.replace(/\\s+/g, ' ').trim(), current }
+      })()`)
+      return value && value.text.includes('Electron') ? value : null
+    }, { message: '「关于」分区没有显示版本信息' })
+    assert.ok(/Chromium \d/.test(about.text), `关于里应有 Chromium 版本：${about.text}`)
+    assert.equal(about.current, '关于', '切换后导航的 aria-current 要跟着走')
+
+    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '隐私与清理')?.click()`)
+    const privacy = await waitFor(async () => {
+      const value = await inSettings(app, `(() => {
+        const section = document.getElementById('privacy-title')?.closest('.setting-section')
+        if (!section || section.hidden) return null
+        return [...section.querySelectorAll('button.action')].map((el) => el.getAttribute('aria-label'))
+      })()`)
+      return value && value.length ? value : null
+    }, { message: '「隐私与清理」分区没有清除入口' })
+    assert.deepEqual(privacy, ['清除已保存的会话', '清除站点引擎规则'])
+
+    assert.equal(await inSettings(app, 'globalThis.__navMarker'), 'still-here', '分区切换不该重载文档（那是"刷新感"的来源）')
+    // 回到默认分区，后面的断言/用例都按「外观与偏好」看。
+    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '外观与偏好')?.click()`)
+    await waitFor(async () => (await inSettings(app, `document.querySelector('.settings-nav button[aria-current="page"]')?.textContent?.trim()`)) === '外观与偏好'
+      ? true : null, { message: '没能切回「外观与偏好」' })
   } finally {
     await close()
     await server.close()
@@ -255,7 +336,9 @@ test('设置页：焦点环只在键盘操作时出现（鼠标点击不出环�
     const keyboard = await app.evaluate(async ({ webContents }, target) => {
       const page = webContents.fromId(target)
       page.focus()
-      for (let step = 0; step < 6; step += 1) {
+      // 左侧导航现在是**可聚焦的真按钮**（3 个），Tab 顺序里排在内容之前，所以要给够步数：
+      // 导航 3 → 主题 3 → 引擎选项。
+      for (let step = 0; step < 14; step += 1) {
         page.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
         page.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
         await new Promise((done) => setTimeout(done, 90))

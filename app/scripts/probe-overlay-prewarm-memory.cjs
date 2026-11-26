@@ -1,11 +1,12 @@
 /**
- * 探针 9：`overlay.prewarm` 改默认（`auto` → `always`）的内存代价。
+ * 探针 9：`overlay.prewarm` 开关（常驻 vs 不预热）的内存代价。
  *
  * 口径与 docs/discussions 2026-11-25 §5.1 一致：`app.getAppMetrics()` 的 workingSetSize
  * 与 privateBytes，按进程类型拆开（`Tab` 就是各 WebContents 的渲染进程）。
  *
  * 为什么对跑：内存受 GC/第一次绘制影响，单次采样噪声能到几 MB。这里 `always` / `never`
- * 交替各跑两轮，取每档的中位数，差值才是"常驻一份浮层文档"的真实价格。
+ * 交替各跑两轮，取每档的中位数，差值才是"常驻一份浮层文档"的真实价格
+ * （2026-11-25 实测 +5.5 MB；用户侧观测 ~+9 MB。这也是"三档收敛成开关"的依据之一）。
  *
  * 必须前台跑：隐藏/后台自动化模式下 `canPrewarm()` 为 false，`always` 不会建文档。
  *

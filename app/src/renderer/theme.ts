@@ -22,7 +22,13 @@ export function applyShellTheme(mode: ShellTheme): void {  const theme = shellTh
     '--stroke-control': theme.colorNeutralStroke1,
     '--stroke-focus-inner': theme.colorStrokeFocus1,
     '--stroke-focus-outer': theme.colorStrokeFocus2,
-    '--brand-stroke': theme.colorBrandStroke1,
+    /*
+     * 列表行的"选中"底色取 Fluent 的中性选中面，不取品牌色。
+     *
+     * 品牌色（紫）留给强调元素：radio 圆点、开关、链接、焦点环。整行铺品牌色在深色下
+     * 就是一块饱和紫，跟两侧中性灰的卡片不在一个体系里——那正是"配色不跟主题"的来源。
+     */
+    '--surface-selected': theme.colorNeutralBackground1Selected,
     '--size-caption': theme.fontSizeBase200,
     '--size-body': theme.fontSizeBase300,
     '--space-xs': theme.spacingHorizontalXS,

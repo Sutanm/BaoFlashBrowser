@@ -46,7 +46,7 @@ async function inSettings(app, code) {
 
 const snapshot = (shell) => shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' })).then((result) => result.state)
 
-test('设置页「数据 → 清除会话」：删掉会话与退出标记，本次不再记录，重启不提示恢复', { timeout: 180_000 }, async () => {
+test('设置页「隐私与清理 → 清除会话」：删掉会话与退出标记，本次不再记录，重启不提示恢复', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({ '/one': page('清理测试页') })
   const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-cleanup-'))
   try {
@@ -64,11 +64,19 @@ test('设置页「数据 → 清除会话」：删掉会话与退出标记，本
 
       // Ctrl+, 打开设置页（当前标签是网页，所以会新建一个设置标签）。
       await pressShortcut(first.app, ',', ['control'])
+      // 2026-11-26：清理入口从「数据」分区搬到左侧导航的「隐私与清理」（真分区，不再是摆设）。
+      await waitFor(async () => inSettings(first.app, `(() => {
+        const nav = [...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '隐私与清理')
+        if (!nav) return false
+        nav.click()
+        return true
+      })()`), { message: '设置页没有「隐私与清理」分区入口' })
       const hasDataSection = await inSettings(first.app, `(() => {
         const button = document.querySelector('button[aria-label="清除已保存的会话"]')
-        return Boolean(button && document.querySelector('#data-title'))
+        const section = document.getElementById('privacy-title')?.closest('.setting-section')
+        return Boolean(button && section && !section.hidden)
       })()`)
-      assert.equal(hasDataSection, true, '设置页应有「数据」分区与「清除已保存的会话」按钮')
+      assert.equal(hasDataSection, true, '「隐私与清理」应包含「清除已保存的会话」按钮')
 
       const clicked = await inSettings(first.app, `(() => {
         const button = document.querySelector('button[aria-label="清除已保存的会话"]')
@@ -129,7 +137,7 @@ test('设置页「数据 → 清除会话」：删掉会话与退出标记，本
     await server.close()
   }
 })
-test('设置页「数据 → 清除站点引擎规则」：规则真的删掉，新标签回到默认来源', { timeout: 180_000 }, async () => {
+test('设置页「隐私与清理 → 清除站点引擎规则」：规则真的删掉，新标签回到默认来源', { timeout: 180_000 }, async () => {
   const server = await startFixtureServer({ '/site': page('规则站点') })
   const profilePath = await mkdtemp(join(tmpdir(), 'bao-next-rules-'))
   try {
