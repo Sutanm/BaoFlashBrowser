@@ -92,11 +92,11 @@ npm run dev
 - **引擎相关未验证**：引擎切换失败回退（`restore()` 抛错）没有构造用例；真实站点（4399 等）在两种引擎下的对照未复测；UA、插件版本通告、`mms.cfg`、SWFObject 等站点兼容项按审计 §C7 另行验证。
 - **输入相关未验证**：Ruffle 引擎下 `ruffle-embed` 画布的键盘焦点与游戏内输入未测（PPAPI 引擎下的插件内部输入已由 `plugin-input.test.cjs` 覆盖，样本见 `tests/smoke/fixtures/README.md`）。
 - **自动化窗口模式**：测试入口默认使用 `BAO_SMOKE_HIDDEN=1`（不调用 `show()`）。成品冒烟还会传入自动化命令行开关；普通启动成品不受测试环境变量影响。需要真实窗口或焦点的用例会明确标记跳过，可用 `npm run smoke:foreground` 验收。
-- **两套跑法（2026-11-25 定）**：日常用隐藏并行（快、不抢焦点、覆盖后台路径）；**每次换内核后必须跑一次前台** `npm run smoke:foreground --serial`（**78 通过 / 0 跳过**）作为闸门。不把用例整体改成前台——那会丢掉后台状态覆盖并只能串行。
+- **两套跑法（2026-11-25 定）**：日常用隐藏并行（快、不抢焦点、覆盖后台路径）；**每次换内核后必须跑一次前台** `npm run smoke:foreground --serial`（**85 通过 / 0 跳过**）作为闸门。不把用例整体改成前台——那会丢掉后台状态覆盖并只能串行。
 - **flaky 排查**：`waitFor()` 超时会自动 dump 现场（进程分布、外壳页状态、标签栏文案），失败的报错里带 `[超时现场]`；
   「等标签出现」一律用 `waitForTabLabel()`（DOM 轮询）而不是 Playwright 的可见性等待。
   第一轮治理记录见 [`docs/reports/2026-11-25-smoke-flake.md`](../docs/reports/2026-11-25-smoke-flake.md)。
-- **前台模式此前从未真正生效（2026-11-25 修复）**：`scripts/test.cjs` 里 `--foreground` 删掉的 `BAO_SMOKE_HIDDEN` 会被后面的 `else` 重新设回，导致 7 条前台用例长期被跳过。修复后实跑 **58/58 通过**（后续新增用例，现为 **78/78**：+2 休眠门禁、+6 两阶段引擎切换），记录见 [`docs/reports/2026-11-25-foreground-smoke.md`](../docs/reports/2026-11-25-foreground-smoke.md)。
+- **前台模式此前从未真正生效（2026-11-25 修复）**：`scripts/test.cjs` 里 `--foreground` 删掉的 `BAO_SMOKE_HIDDEN` 会被后面的 `else` 重新设回，导致 7 条前台用例长期被跳过。修复后实跑 **58/58 通过**（后续新增用例，现为 **85/85**：+2 休眠门禁、+6 两阶段引擎切换、+2 会话恢复、+2 引擎切换、+1 拖出回滚），记录见 [`docs/reports/2026-11-25-foreground-smoke.md`](../docs/reports/2026-11-25-foreground-smoke.md)。
 - **原生 Flash 验收**：匹配运行时清单中已验证沙箱的内核时，应用后台冒烟会验证 PPAPI 装载、JS 桥和插件输入。自定义或旧内核以及成品的原生 Flash 验收可用显式前台模式。
 - **自动化宿主**：如果编辑器或自动化工具启动 `npm` 本身就会弹出终端，可从该工具直接启动 `node scripts/test.cjs smoke`，工作目录设为 `app`，并由该工具把入口进程设为不显示控制台。入口脚本只控制它启动的子进程。
 - **下载默认拒绝**：页面与外壳会话的 `will-download` 一律 `preventDefault()`。M1 没有下载能力与落盘策略，没有明确策略前不静默写文件；下载的身份、分区、暂停/恢复按 §4 在 M2 立项。
