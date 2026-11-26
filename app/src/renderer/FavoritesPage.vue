@@ -133,6 +133,9 @@ function revealParent(id: string): void {
 function selectFolder(id: string): void {
   currentFolderId.value = id
   selectedId.value = id
+  // 在树里点文件夹（或在搜索结果里双击文件夹）是**导航动作**：搜索态要退出，
+  // 否则右边的列表还是过滤后的那几条，"进文件夹"看起来像没反应。
+  query.value = ''
   revealParent(id)
 }
 
