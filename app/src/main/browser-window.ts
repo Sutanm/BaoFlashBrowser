@@ -133,7 +133,7 @@ interface WindowController extends TabHost {
   run(event: IpcMainInvokeEvent, command: BrowserCommand): BrowserResult | Promise<BrowserResult>
   readonly overlays: ReturnType<typeof createShellOverlays>
   detachTab(id: number): { tab: Tab; index: number } | undefined
-  adoptTab(tab: Tab, index?: number): void
+  adoptTab(tab: Tab, index?: number, options?: { wake?: boolean }): void
   isEmpty(): boolean
   /** 窗口仍可接收标签：未请求关闭、未进入关闭流程、未销毁。 */
   isAlive(): boolean
@@ -2210,7 +2210,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 排序、固定或关闭过。真正落位按本窗口**当前**的固定分组夹取——固定标签只进最左
    * 前缀，未固定标签不能插到固定前缀之前。
    */
-  function adoptTab(tab: Tab, index = 0): void {
+  function adoptTab(tab: Tab, index = 0, options: { wake?: boolean } = {}): void {
     // 不递增 binding：现有监听器仍然有效，只是改按新宿主分发。
     tab.host = controller
     tab.error = ''
@@ -2220,6 +2220,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       ? Math.min(Math.max(requested, 0), pinnedCount)
       : Math.min(Math.max(requested, pinnedCount), tabs.length)
     tabs.splice(at, 0, tab)
+    /**
+     * `wake: false` 用于**失败回挂**：休眠标签本来就没有视图，`select()` 会顺手 `revive()`
+     * 把它唤醒并重新加载——那不是"退回原窗口"，是白丢一次休眠（2026-11-26 审计）。
+     * 只把元数据与租约挂回去，等用户切到它时再按正常路径唤醒。
+     */
+    if (options.wake === false) {
+      publish()
+      return
+    }
     select(tab, true)
   }
 
@@ -2832,6 +2841,15 @@ async function tearOffTab(
       discardDetachedTab(tab)
       console.error('跨窗口移动失败，原窗口已关闭，标签已清理。', error)
       return fail('tearoff-source-closed')
+    }
+    /**
+     * 休眠标签**本来就没有视图**：这不是"页面丢了"，而是"要重建"。按失效处理会直接丢掉
+     * 用户的标签（连同租约与会话），2026-11-26 审计就是这条。回挂时不要唤醒它。
+     */
+    if (tab.discarded && !tab.view) {
+      source.adoptTab(tab, detached.index, { wake: false })
+      console.error('跨窗口移动失败，标签处于休眠态，按元数据退回原窗口。', error)
+      return fail('tearoff-failed')
     }
     // `view.webContents` 在页面被外部销毁后可能已经取不到：一律按「页面已失效」处理。
     const contents = tab.view?.webContents

@@ -679,3 +679,44 @@ test('等待期间被移交页面失效：清理并返回 tearoff-page-lost', { 
     await server.close()
   }
 })
+
+/**
+ * 审计 P2（2026-11-26）：休眠标签**本来就没有视图**，不能当成"页面已失效"——那样会把用户的
+ * 标签（连同租约与会话）直接丢掉。失败回挂必须只挂元数据，**不唤醒**。
+ */
+test('拖出休眠标签失败：按休眠态退回源窗口，不丢标签', { timeout: 180_000 }, async () => {
+  process.env.BAO_DISCARD_TTL_MS = '2000'
+  process.env.BAO_DISCARD_SWEEP_MS = '200'
+  const server = await startFixtureServer({ '/sleep': page('SLEEP'), '/other': page('OTHER') })
+  const { app, shell, close } = await launchApp()
+  try {
+    for (const [path, title] of [['/sleep', 'SLEEP'], ['/other', 'OTHER']]) {
+      await addTab(shell)
+      await shell.evaluate((url) => window.baoBrowser.run({ type: 'navigate', address: url }), `${server.baseUrl}${path}`)
+      await waitForTabLabel(shell, title)
+    }
+    const sleeping = await waitFor(async () => {
+      const { state } = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
+      return state.tabs.find((tab) => tab.title === 'SLEEP' && tab.discarded) ?? null
+    }, { timeout: 30_000, message: 'SLEEP 标签没有进入休眠' })
+
+    await injectTearoffEnv(app, { BAO_TEAROFF_INIT_FAIL: '1' })
+    const windowHandle = await app.browserWindow(shell)
+    const bounds = await windowHandle.evaluate((window) => window.getBounds())
+    const result = await tearoffAt(shell, { id: sleeping.id, x: bounds.x - 240, y: bounds.y + 24 })
+    assert.equal(result.ok, false)
+    assert.equal(result.code, 'tearoff-failed')
+
+    const { state } = await shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }))
+    const kept = state.tabs.find((tab) => tab.id === sleeping.id)
+    assert.ok(kept, '休眠标签被丢掉了（当成页面失效）')
+    assert.equal(kept.discarded, true, '回挂不能把休眠标签唤醒')
+    assert.equal(kept.address, `${server.baseUrl}/sleep`)
+  } finally {
+    await injectTearoffEnv(app, { BAO_TEAROFF_INIT_DELAY_MS: null, BAO_TEAROFF_INIT_FAIL: null }).catch(() => {})
+    delete process.env.BAO_DISCARD_TTL_MS
+    delete process.env.BAO_DISCARD_SWEEP_MS
+    await close()
+    await server.close()
+  }
+})
