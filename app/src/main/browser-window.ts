@@ -64,6 +64,13 @@ interface Tab {
   /** 休眠（丢弃）时为空：省掉一整个渲染进程，切回时按 lastUrl 重建。 */
   view?: WebContentsView
   binding: number
+  /**
+   * 导航版本：普通导航、重定向与同文档历史更新都会推进。
+   *
+   * 引擎切换的准备阶段旧页仍然可交互，用户可以在那时导航；提交时必须比对版本，
+   * 否则会把用户刚导航到的页面换回快照里的旧地址（2026-11-26 审计复现）。
+   */
+  navVersion: number
   error: string
   failedUrl?: string
   notice?: BrowserTab['notice']
@@ -915,8 +922,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     contents.on('did-stop-loading', () => {
       if (live()) tab.host?.notify(tab)
     })
+    contents.on('did-start-navigation', (details) => {
+      // 任何主帧导航（含重定向、fragment、pushState）都推进版本：引擎切换准备期间旧页仍可
+      // 交互，提交前必须能发现"用户已经导航过"，否则会把他的新页面换回快照里的旧地址。
+      if (!live() || !details.isMainFrame) return
+      tab.navVersion += 1
+    })
     contents.on('did-navigate', (_event, url) => {
       if (!live()) return
+      tab.navVersion += 1
       // 内部页身份以 URL 为准：任何来源的就地导航（地址栏、页内链接）都能被正确归类，
       // 避免「标签说是新标签页、文档已经是设置页」的陈旧值。
       if (tab.internal) {
@@ -930,7 +944,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       tab.host?.notify(tab)
     })
     contents.on('did-navigate-in-page', () => {
-      if (live()) tab.host?.notify(tab)
+      if (!live()) return
+      tab.navVersion += 1
+      tab.host?.notify(tab)
     })
     contents.on('page-title-updated', () => {
       if (live()) tab.host?.notify(tab)
@@ -951,7 +967,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   ): Tab {
     const view = createPageView(engine)
     const tab: Tab = {
-      id: nextTabId++, view, binding: 1, error: '', initialTitle, engine, manualOverride: source === 'manual', pinned: false, muted: false, host: controller
+      id: nextTabId++, view, binding: 1, navVersion: 0, error: '', initialTitle, engine, manualOverride: source === 'manual', pinned: false, muted: false, host: controller
     }
     tabs.push(tab)
     bind(tab, view)
@@ -971,6 +987,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       id: nextTabId++,
       view,
       binding: 1,
+      navVersion: 0,
       error: '',
       initialTitle: kind === 'newtab' ? '新标签页' : '设置',
       engine: engineFor(undefined).engine,
@@ -1018,6 +1035,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const tab: Tab = {
       id: nextTabId++,
       binding: 1,
+      navVersion: 0,
       error: '',
       initialTitle: entry.title || (entry.internal === 'newtab' ? '新标签页' : entry.url),
       manualOverride: entry.manualOverride,
@@ -1579,6 +1597,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const fallbackUrl = tab.failedUrl ?? (isWebAddress(currentUrl) ? currentUrl : '')
 
     const attempt = createEngineAttempt(tab, engine, 'manual')
+    // 准备期间旧页仍可交互：记下此刻的导航版本，提交前必须仍然一致。
+    const navVersion = tab.navVersion
     const outcome = await Promise.race([
       prepareEngineCandidate(attempt, entries, index, fallbackUrl),
       attempt.cancelSignal
@@ -1588,11 +1608,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       if (tab.engineSwitch === attempt) cancelEngineSwitch(tab)
       return fail('engine-switch-cancelled')
     }
-    // 准备期间可能已被新请求取代、标签被关闭/移交，或旧视图被重建。
+    // 准备期间可能已被新请求取代、标签被关闭/移交，旧视图被重建，或**用户在旧页上导航过**。
     const stillCurrent = tab.engineSwitch === attempt && !attempt.cancelled &&
-      tabs.includes(tab) && tab.view === oldView
+      tabs.includes(tab) && tab.view === oldView && tab.navVersion === navVersion
     if (!stillCurrent) {
       if (tab.engineSwitch === attempt) cancelEngineSwitch(tab)
+      if (tab.navVersion !== navVersion) {
+        // 导航已经生效，用户看到的页面比快照新：不能拿旧栈把它换回去。
+        console.error('引擎切换已取消：准备期间旧页发生了导航，提交会覆盖更新的页面。')
+      }
       return fail('engine-switch-cancelled')
     }
     if (outcome.status === 'failed') {
@@ -1733,23 +1757,42 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     let restoreFailed = takeEngineFault('BAO_ENGINE_SWITCH_RESTORE_FAIL')
     if (!restoreFailed && entries.length > 0) {
       const waiter = createLoadWaiter(contents)
-      try {
-        await contents.navigationHistory.restore({ entries, index })
-      } catch (error) {
-        // restore() 会异步拉起导航；失败时旧页面仍在，改用当前地址重开。
-        console.error('引擎切换：导航栈恢复调用失败，尝试按当前地址重新打开。', error)
-        restoreFailed = true
-      }
-      if (!restoreFailed) {
-        const outcome = await Promise.race([waiter.promise, attempt.cancelSignal])
-        waiter.cancel()
-        if (outcome === 'loaded') {
-          return candidateAddressReady(contents) ? { status: 'prepared' } : { status: 'failed', reason: 'restore-load' }
+      /**
+       * `restore()` 自己可能一直不返回（审计 P2：Electron 39 没有给恢复独立的截止时间）。
+       * 所以**先把调用挂上**，再和「加载完成 / 取消 / 15 s 超时」赛跑：超时后即使 `restore()`
+       * 仍然挂着，切换也会结束并清掉候选，不会永久占着 `engineSwitch`（那会连带卡住休眠门禁
+       * 和后续切换）。
+       */
+      const restoreCall = contents.navigationHistory.restore({ entries, index }).then(
+        () => 'ok' as const,
+        (error: unknown) => {
+          // restore() 会异步拉起导航；失败时旧页面仍在，改用当前地址重开。
+          console.error('引擎切换：导航栈恢复调用失败，尝试按当前地址重新打开。', error)
+          return 'error' as const
         }
-        if (outcome === 'cancelled') return { status: 'failed', reason: 'cancelled' }
+      )
+      const first = await Promise.race([restoreCall, waiter.promise, attempt.cancelSignal])
+      if (first === 'cancelled') {
+        waiter.cancel()
+        return { status: 'failed', reason: 'cancelled' }
+      }
+      if (first === 'failed') {
+        waiter.cancel()
         return { status: 'failed', reason: 'restore-load' }
       }
-      waiter.cancel()
+      if (first === 'error') {
+        waiter.cancel()
+        restoreFailed = true
+      } else {
+        // 'ok'（restore 已返回）或 'loaded'（加载先完成）：都还要等加载真正结束。
+        const outcome = await Promise.race([waiter.promise, attempt.cancelSignal])
+        waiter.cancel()
+        if (outcome === 'cancelled') return { status: 'failed', reason: 'cancelled' }
+        if (outcome !== 'loaded') return { status: 'failed', reason: 'restore-load' }
+        return candidateAddressReady(contents)
+          ? { status: 'prepared' }
+          : { status: 'failed', reason: 'restore-load' }
+      }
     }
 
     if (attempt.cancelled) return { status: 'failed', reason: 'cancelled' }

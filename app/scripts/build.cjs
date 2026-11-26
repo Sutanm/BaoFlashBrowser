@@ -21,9 +21,25 @@ function electronViteBin() {
   return resolve(dirname(require.resolve('electron-vite/package.json')), 'bin/electron-vite.js')
 }
 
+const STAMP_FILE = () => join(ROOT, '.cache', 'build.stamp')
+
+/**
+ * 记下「当前源码 = 刚构建出来的产物」，让下一次 `test.cjs` 能跳过构建。
+ *
+ * 为什么手工 `npm run build` 也必须写：指纹是**源码内容**的哈希。手工构建后若不写戳，
+ * 戳会停在更早那份源码上；此时 `git stash`/`pop`、或任何把源码改回"戳对应版本"的操作，
+ * 都会让 `buildIfChanged()` 认为产物是新的，于是**跑到手工构建的那份旧产物上**。
+ * 2026-11-26 已因此连续误判两次（新用例失败、实为旧 out/）。
+ */
+function writeStamp(typecheck = process.env.BAO_SKIP_TYPECHECK !== '1') {
+  mkdirSync(dirname(STAMP_FILE()), { recursive: true })
+  writeFileSync(STAMP_FILE(), `${fingerprint()}:${typecheck}`)
+}
+
 function build() {
   runNode([resolve(dirname(require.resolve('vue-tsc/package.json')), 'bin/vue-tsc.js'), '--noEmit'])
   runNode(['--require', resolve(__dirname, 'windows-build-spawn.cjs'), electronViteBin(), 'build'])
+  writeStamp(true)
 }
 
 /**
@@ -62,7 +78,7 @@ function fingerprint() {
  * `BAO_SKIP_TYPECHECK=1` 只构建不跑 vue-tsc。
  */
 function buildIfChanged() {
-  const stampFile = join(ROOT, '.cache', 'build.stamp')
+  const stampFile = STAMP_FILE()
   const stampText = existsSync(stampFile) ? readFileSync(stampFile, 'utf8').trim() : ''
   const [stampHash, stampTypecheck] = stampText.split(':')
   const hash = fingerprint()
@@ -79,8 +95,7 @@ function buildIfChanged() {
     runNode([resolve(dirname(require.resolve('vue-tsc/package.json')), 'bin/vue-tsc.js'), '--noEmit'])
   }
   runNode(['--require', resolve(__dirname, 'windows-build-spawn.cjs'), electronViteBin(), 'build'])
-  mkdirSync(dirname(stampFile), { recursive: true })
-  writeFileSync(stampFile, `${hash}:${typecheck}`)
+  writeStamp(typecheck)
 }
 
 const DURATIONS_FILE = () => join(ROOT, '.cache', 'test-durations.json')

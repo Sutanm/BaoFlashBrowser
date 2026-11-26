@@ -342,3 +342,83 @@ test('准备期间跨窗口移交：请求取消，新窗口保留旧引擎与�
     await server.close()
   }
 })
+
+/**
+ * 审计 P1（2026-11-26）：准备期间旧页仍可交互，用户/页面可以在这时导航。
+ * 提交只校验「切换任务 + 视图身份」不够——必须同时校验**导航版本**，否则会把用户刚导航到的 B
+ * 换回快照里的 A（B 的页面状态被丢弃，属于静默数据丢失）。
+ *
+ * 这里用**页面内**导航（`location.href`）而不是 IPC `navigate`：后者本身就会取消切换
+ * （`navigateTab()` 里的 `cancelEngineSwitch`），测不到版本校验。
+ */
+test('准备期间旧页导航：切换取消，不覆盖更新的页面', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/a': page('A'), '/b': page('B') })
+  const { app, shell, close } = await launchApp()
+  try {
+    await envInjection(app, { BAO_ENGINE_SWITCH_PREPARE_DELAY_MS: 2500 })
+    await navigate(shell, `${server.baseUrl}/a`, 'A')
+    const tabId = (await snapshot(shell)).activeId
+    const oldViewId = await activeViewId(app, shell)
+
+    const switching = setEngine(shell, 'ruffle')
+    await waitPending(app, tabId, 'ruffle')
+
+    // 旧页在准备期间导航到 B（真实用户点链接就是这个路径）。
+    await evalInPage(app, oldViewId, `location.href = ${JSON.stringify(`${server.baseUrl}/b`)}`)
+    await waitForTabLabel(shell, 'B')
+
+    const result = await switching
+    assert.equal(result.ok, false, '准备期间旧页导航过，切换不能提交')
+    assert.equal(result.code, 'engine-switch-cancelled')
+
+    const after = await snapshot(shell)
+    assert.equal(activeTabOf(after).address, `${server.baseUrl}/b`, '不能把页面换回快照里的 A')
+    assert.equal(activeTabOf(after).engine, 'ppapi', '未提交时引擎必须保持原值')
+    assert.equal(await activeViewId(app, shell), oldViewId, '未提交时视图不能被替换')
+  } finally {
+    await close()
+    await server.close()
+  }
+})
+
+/**
+ * 审计 P2（2026-11-26）：`navigationHistory.restore()` 没有独立截止时间，候选可能一直占着
+ * `engineSwitch`（连带卡住休眠门禁与后续切换）。取消路径必须真的销毁候选，且要按
+ * **WebContents ID** 验证——按 URL 找会漏掉"还没拿到 http URL 的候选"。
+ */
+test('被取代的候选必须销毁，且不残留挂载', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/a': page('A') })
+  const { app, shell, close } = await launchApp()
+  const allIds = () => app.evaluate(({ webContents }) => webContents.getAllWebContents().map((item) => item.id))
+  try {
+    await envInjection(app, { BAO_ENGINE_SWITCH_PREPARE_DELAY_MS: 2000 })
+    await navigate(shell, `${server.baseUrl}/a`, 'A')
+    const tabId = (await snapshot(shell)).activeId
+    const beforeIds = new Set(await allIds())
+
+    const first = setEngine(shell, 'ruffle')
+    await waitPending(app, tabId, 'ruffle')
+    const fresh = (await allIds()).filter((id) => !beforeIds.has(id))
+    assert.equal(fresh.length, 1, `准备阶段应恰好多一个候选 WebContents：${JSON.stringify(fresh)}`)
+    const candidateId = fresh[0]
+
+    // 切回当前引擎 = 取消在途候选（不走 prepare，直接清候选）。
+    const cancelled = await setEngine(shell, 'ppapi')
+    assert.equal(cancelled.ok, true, `切回当前引擎应直接成功：${cancelled.code ?? ''}`)
+    const firstResult = await first
+    assert.equal(firstResult.ok, false)
+    assert.equal(firstResult.code, 'engine-switch-cancelled')
+
+    await waitFor(async () => {
+      const alive = await contentsAlive(app, candidateId)
+      return alive ? null : true
+    }, { message: `被取代的候选 WebContents ${candidateId} 没有被销毁` })
+
+    const after = await snapshot(shell)
+    assert.equal(activeTabOf(after).engine, 'ppapi', '未提交时引擎必须保持原值')
+    assert.deepEqual((await allIds()).filter((id) => !beforeIds.has(id)), [], '取消后不应残留候选')
+  } finally {
+    await close()
+    await server.close()
+  }
+})
