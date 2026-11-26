@@ -293,6 +293,19 @@ let sessionQuitting = false
  * 待恢复的会话——提示条还在，内容已经没了。
  */
 let sessionHeld = false
+/**
+ * 崩溃恢复提示「还没被回答」时为 true（模块级，跨窗口）。
+ *
+ * 为什么不能用窗口内的 `crashSession` 判断：用户可以直接关掉带提示的窗口——那一刻
+ * `crashSession` 随窗口销毁，但磁盘上那份待恢复会话**一条都没少**。退出时若据此写
+ * `clean`，下次启动就不再提示，随后一次写盘就把原 URL 覆盖没了（2026-11-26 审计）。
+ */
+let restorePromptPending = false
+
+/** 是否有待恢复会话仍在等用户决定（`index.ts` 的退出标记据此决定写 `pending` 还是 `clean`）。 */
+export function sessionRestorePending(): boolean {
+  return restorePromptPending
+}
 
 function writeSessionNow(): void {
   if (sessionTimer) {
@@ -308,6 +321,20 @@ function writeSessionNow(): void {
   }
   // 没有窗口（例如刚启动就被关闭的自动化窗口）时不写：写入空会话等于把上次的会话清掉。
   if (snapshot.windows.length === 0) return
+  const tabCount = snapshot.windows.reduce((total, window) => total + window.tabs.length, 0)
+  if (tabCount === 0) {
+    /**
+     * 本次**没有任何可恢复的标签**（典型：只开着设置页，它不落盘）。
+     *
+     * 这里不能"什么都不做"：`writeSession()` 会以「载荷未通过校验」拒绝空投影，磁盘上那份
+     * 旧会话原样留下，下次启动就会提示恢复用户早就关掉的标签（2026-11-26 审计）。
+     * 正确语义是**清掉**它——「没有可恢复的标签」和「保存失败」必须能区分。
+     */
+    if (!clearSessionData()) {
+      console.error('[session] 会话已空，但旧载荷清除失败；下次启动可能重现已关闭的标签。')
+    }
+    return
+  }
   saveSession(snapshot)
 }
 
@@ -515,6 +542,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   let closeRequested = false
   /** 崩溃会话：用户点「恢复」之前一直挂着，不自动建标签。 */
   let crashSession = options.crashSession
+  // 有待恢复会话 = 提示待回答（跨窗口；见模块级 `restorePromptPending`）。
+  if (crashSession) restorePromptPending = true
 
   /** 崩溃恢复提示条的投影；没有待决会话时为空（提示条随之消失，页面视图上移）。 */
   function sessionPromptOf(): BrowserSessionPrompt | undefined {
@@ -1088,6 +1117,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const session = crashSession
     if (!session) return
     crashSession = undefined
+    restorePromptPending = false
     applySession(session)
     // 用户已经回答，解除写盘挂起：当前状态（恢复后的标签）覆盖磁盘上的崩溃会话。
     releaseSessionHold()
@@ -1098,6 +1128,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function dismissCrashSession(): void {
     if (!crashSession) return
     crashSession = undefined
+    restorePromptPending = false
     releaseSessionHold()
     publish()
     layout()
@@ -1112,6 +1143,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function forgetSessionPrompt(): void {
     if (!crashSession) return
     crashSession = undefined
+    restorePromptPending = false
     publish()
     layout()
   }

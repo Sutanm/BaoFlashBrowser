@@ -310,3 +310,126 @@ test('异常退出后点「忽略」：不恢复标签，且下次启动不再�
     await server.close()
   }
 })
+
+/**
+ * 审计 P1（2026-11-26）：「提示没人回答就退出」不能丢会话。
+ *
+ * 原实现里 `before-quit` 无条件写 `clean`：用户看到恢复提示、什么都不点直接退出，下次启动
+ * 就不再提示，磁盘上那份崩溃会话随后被本次的空白会话覆盖——原 URL 彻底消失。
+ * 现在退出标记有第三态 `pending`：提示未回答时保持 `pending`，下次启动继续提示。
+ */
+test('恢复提示未回答就退出：下次启动仍提示，原 URL 还在', { timeout: 240_000 }, async () => {
+  const server = await startFixtureServer({ '/a': page('A'), '/b': page('B') })
+  try {
+    await withProfile(async (profilePath) => {
+      const first = await launchAppAt(profilePath)
+      try {
+        await prepareTabs(first.shell, server.baseUrl)
+        await waitForSession(profilePath, (tab) =>
+          tab.url === `${server.baseUrl}/b` && tab.keepAwake === true && tab.engine === 'ruffle')
+        first.app.process().kill('SIGKILL')
+        await new Promise((done) => setTimeout(done, 800))
+      } finally {
+        await first.close()
+      }
+
+      // 第二次启动：出现提示，但**什么都不点**，正常退出（走 before-quit）。
+      const second = await launchAppAt(profilePath)
+      try {
+        const pending = await waitFor(async () => {
+          const state = await snapshot(second.shell)
+          return state.sessionPrompt ? state : null
+        }, { message: '异常退出后重启没有出现恢复提示' })
+        assert.ok(pending.sessionPrompt.tabs >= 2, '提示应报出可恢复的标签数')
+      } finally {
+        await second.close()
+      }
+
+      // 第三次启动：必须**继续提示**，且磁盘上的会话仍是原始那份。
+      const third = await launchAppAt(profilePath)
+      try {
+        const state = await waitFor(async () => {
+          const current = await snapshot(third.shell)
+          return current.sessionPrompt ? current : null
+        }, { message: '提示未回答就退出后，下次启动不再提示（退出标记被写成了 clean）' })
+        assert.ok(state.sessionPrompt.tabs >= 2)
+
+        const db = new DatabaseSync(join(profilePath, 'db', 'browser.sqlite3'))
+        try {
+          const rows = db.prepare('SELECT payload FROM session WHERE id = 0').all()
+          assert.equal(rows.length, 1, '会话载荷被清掉了')
+          const payload = JSON.parse(rows[0].payload)
+          const urls = payload.windows.flatMap((window) => window.tabs).map((tab) => tab.url)
+          assert.ok(urls.includes(`${server.baseUrl}/b`), `会话载荷里已经没有原 URL：${JSON.stringify(urls)}`)
+          const exit = db.prepare('SELECT value FROM meta WHERE key = ?').all('session.last-exit')
+          assert.equal(exit[0]?.value, 'pending', '未回答的提示应保持 pending 状态')
+        } finally {
+          db.close()
+        }
+      } finally {
+        await third.close()
+      }
+    })
+  } finally {
+    await server.close()
+  }
+})
+
+/**
+ * 审计 P2（2026-11-26）：会话投影排除设置页，而 `writeSession()` 拒绝空投影（`INVALID_PARAM`），
+ * 于是"本次没有可恢复的标签"被当成"本次保存失败"——磁盘上那份旧会话原样留下，下次启动提示
+ * 恢复用户早就关掉的标签。
+ *
+ * 正确语义：投影为空 = **清掉**旧载荷（并且随后的退出标记写 `clean`）。
+ */
+test('只剩设置页时退出：旧会话被清掉，下次启动不提示', { timeout: 180_000 }, async () => {
+  const server = await startFixtureServer({ '/a': page('A') })
+  try {
+    await withProfile(async (profilePath) => {
+      const first = await launchAppAt(profilePath)
+      try {
+        const tabA = await openPage(first.shell, `${server.baseUrl}/a`, 'A')
+        // 先让 A 真的落盘（节流 800 ms），否则"清掉旧会话"没有前置可清。
+        await waitForSession(profilePath, (tab) => tab.url === `${server.baseUrl}/a`)
+        // 打开设置页（不落盘），再关掉 A：此刻投影里一个可恢复的标签都没有。
+        await first.shell.evaluate(() => window.baoBrowser.run({ type: 'open-settings' }))
+        await waitFor(async () => (await snapshot(first.shell)).tabs.some((tab) => tab.internal === 'settings')
+          ? true : null, { message: '设置页没有打开' })
+        assert.equal((await first.shell.evaluate((id) => window.baoBrowser.run({ type: 'close', id }), tabA.id)).ok, true)
+        // 把除设置页之外的标签全部关掉（NTP 也会被算进会话投影，必须一起关）。
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          const others = (await snapshot(first.shell)).tabs.filter((tab) => tab.internal !== 'settings')
+          if (others.length === 0) break
+          for (const tab of others) {
+            await first.shell.evaluate((id) => window.baoBrowser.run({ type: 'close', id }), tab.id)
+          }
+          await new Promise((done) => setTimeout(done, 300))
+        }
+        await waitFor(async () => (await snapshot(first.shell)).tabs.every((tab) => tab.internal === 'settings')
+          ? true : null, { message: '页面标签没有关掉' })
+        // 给节流写盘留出一次机会，再正常退出。
+        await new Promise((done) => setTimeout(done, 1_200))
+      } finally {
+        await first.close()
+      }
+
+      const db = new DatabaseSync(join(profilePath, 'db', 'browser.sqlite3'))
+      try {
+        const rows = db.prepare('SELECT COUNT(*) AS count FROM session').all()
+        assert.equal(rows[0].count, 0, '投影为空时应清掉旧会话载荷，而不是留着旧 URL')
+      } finally {
+        db.close()
+      }
+
+      const second = await launchAppAt(profilePath)
+      try {
+        const state = await snapshot(second.shell)
+        assert.equal(state.sessionPrompt, undefined, '没有可恢复的标签时不应出现恢复提示')
+      } finally {
+        await second.close()
+      }
+    })
+  } finally {
+    await server.close()
+  }
+})

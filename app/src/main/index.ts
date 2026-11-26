@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, protocol } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createBrowserWindow, flushSession, holdSession, registerBrowserIpc } from './browser-window'
+import { createBrowserWindow, flushSession, holdSession, registerBrowserIpc, sessionRestorePending } from './browser-window'
 import { configureFlashPlugin } from './plugins'
 import { ruffleSchemePrivileges, registerRuffleIpc } from './ruffle'
 import { registerPopupChromeIpc } from './popup-chrome'
@@ -81,15 +81,22 @@ app.whenReady()
   .then(async () => {
     await initStorage()
     const saved = initialAddress() ? undefined : storedSession()
-    const crashed = sessionExit() === 'crash' && !!saved && sessionTabCount(saved) > 0
+    /**
+     * `'pending'` = 上次的恢复提示**没人回答**（用户直接退出或关掉了提示窗口）。
+     *
+     * 这种启动必须继续提示，否则保存的会话会在本次的某次写盘里被覆盖掉——「看不到提示」
+     * 和「没有会话」是两件事，不能混（2026-11-26 审计）。
+     */
+    const exit = sessionExit()
+    const awaitingRestore = (exit === 'crash' || exit === 'pending') && !!saved && sessionTabCount(saved) > 0
     // 先武装再开窗口：武装失败只影响下一次崩溃检测，不阻断启动。
-    markSessionExit('crash')
+    markSessionExit(awaitingRestore ? 'pending' : 'crash')
     if (saved && settings().sessionStartup === 'continue') {
       // 「继续上次会话」：恢复即用户已选择，不需要再问一次。
       await openShellWindow({ initialSession: saved })
       return
     }
-    if (crashed && saved) {
+    if (awaitingRestore && saved) {
       // 用户回答之前不许覆盖磁盘上的崩溃会话（否则提示条还在、内容已经没了）。
       holdSession()
       await openShellWindow({ crashSession: saved })
@@ -105,7 +112,11 @@ app.whenReady()
 /** 正常退出：先冻结会话内容，再把退出标记改成 `clean`（硬杀时这两步都来不及）。 */
 app.on('before-quit', () => {
   flushSession()
-  markSessionExit('clean')
+  /**
+   * 提示还没被回答时**不能**写 `clean`：那会让下次启动不再提示，磁盘上那份崩溃会话随后
+   * 被本次的空白会话覆盖（2026-11-26 审计）。关掉提示窗口也算"没回答"。
+   */
+  markSessionExit(sessionRestorePending() ? 'pending' : 'clean')
 })
 app.on('will-quit', () => closeStorage())
 

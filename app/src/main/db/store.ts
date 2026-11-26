@@ -43,7 +43,7 @@ const LEGACY_IMPORT_VERSION = 1
  */
 const SESSION_EXIT_KEY = 'session.last-exit'
 
-export type SessionExitState = 'clean' | 'crash'
+export type SessionExitState = 'clean' | 'crash' | 'pending'
 
 export interface StorePaths {
   directory: string
@@ -159,12 +159,19 @@ function importLegacyRules(db: Database, file: string | undefined): OpenedStore[
   let imported = 0
   const insert = 'INSERT INTO engine_rules(host, engine, created_at, updated_at) VALUES(?, ?, ?, ?) ' +
     'ON CONFLICT(host) DO NOTHING'
-  for (const [host, engine] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!isBrowserEngine(engine) || !host) continue
-    db.run(insert, host, engine, now, now)
-    imported += 1
-  }
-  db.run('INSERT INTO meta(key, value) VALUES(?, ?)', IMPORT_MARKER, String(imported))
+  /**
+   * 规则与迁移标记必须**同一个事务**（2026-11-26 审计）：只写进去一半时，下次启动会看到
+   * "没有标记但有部分规则"，于是重新导入——虽然 `ON CONFLICT DO NOTHING` 让重跑是幂等的，
+   * 但"部分生效"这种中间态不该在磁盘上出现过。
+   */
+  db.transaction(() => {
+    for (const [host, engine] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!isBrowserEngine(engine) || !host) continue
+      db.run(insert, host, engine, now, now)
+      imported += 1
+    }
+    db.run('INSERT INTO meta(key, value) VALUES(?, ?)', IMPORT_MARKER, String(imported))
+  })
   console.info(`[store] 已导入 ${imported} 条站点引擎规则。`)
   return imported === 0 ? 'empty' : 'imported'
 }
@@ -328,7 +335,7 @@ export function settingValue(settings: Settings, key: SettingKey): SettingValue[
 export function readSessionExit(db: Database): SessionExitState | undefined {
   const row = db.get('SELECT value FROM meta WHERE key = ?', SESSION_EXIT_KEY)
   const value = typeof row?.value === 'string' ? row.value : undefined
-  return value === 'clean' || value === 'crash' ? value : undefined
+  return value === 'clean' || value === 'crash' || value === 'pending' ? value : undefined
 }
 
 /**
