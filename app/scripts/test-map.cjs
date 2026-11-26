@@ -177,6 +177,11 @@ const RULES = [
     tests: ['tab-discard', 'flash']
   },
   {
+    // 标签身份与代际（A1-b）：休眠/唤醒、引擎切换、拖出移交、会话恢复都会推进代际。
+    match: [/^src\/main\/tab-registry\.ts$/],
+    tests: ['tab-discard', 'tearoff', 'engine-switch', 'session-restore', 'tab-ops']
+  },
+  {
     // 引用来源头。
     match: [/^src\/shared\/referer\.ts$/],
     tests: ['link-target']
