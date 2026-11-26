@@ -214,6 +214,24 @@ A/B 口径：同一段脚本负载，分别 `BAO_OVERLAY_SHARED=1`（浮层文�
 > 若不可用，就地确认硬约束，B6 只能做 Ruffle 侧。
 > 这一个用例 15 分钟能出结果，而且 `--renderer-process-limit=2` 跑一轮冒烟可以顺带把它验证掉。
 
+> **实验结果（2026-11-26，已写进 `app/tests/smoke/flash.test.cjs`）：约束被否证。**
+>
+> 同一页面里两个 `<embed type="application/x-shockwave-flash">` **都**到了
+> `PercentLoaded() === 100`，且 `app.getAppMetrics()` 里只有**一个** `Pepper Plugin` 进程
+> （`sandboxed: true`）。也就是说：
+>
+> 1. 「一进程一个 Flash 实例」**不成立**——一个渲染进程里可以同时跑多个 PPAPI 实例，
+>    它们共用一个插件进程；
+> 2. `clone()` 那条"第二个实例退化"的观察，**不能**再当作"双实例互踩"的证据。更可能的解释是
+>    克隆体拿不到 preload / 插件注册（我们自己也实测到克隆体 `preload: undefined`），
+>    属于那条路径的实现缺陷，而不是能力边界；
+> 3. 因此 **B6 的进程合并对 Flash 标签也可行**，收益估算从"只能合并 Ruffle"扩到"可以合并所有
+>    Flash 标签"；同时「复制标签」被否决的那条理由（Flash 单实例）需要重新审——它当初还叠了
+>    Ruffle 注入的会话归属，那一条仍然成立，但不再是"Flash 不能同进程"。
+>
+> 待办：`docs/discussions/2026-11-25-electron-patch-backport-audit.md` 与架构里"Flash 单实例"
+> 的表述需要按这条实测更正（该文档是别人的在途改动，本会话未擅改）。
+
 叠加的其它问题：
 
 - **引擎切换**：切引擎是重建 WebContents（`swapView`）。新 WebContents 默认新进程，
