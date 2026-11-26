@@ -8,6 +8,8 @@ import type { BrowserEngine, EngineRules } from '../../shared/engine'
 import { sanitizeSession, sessionFromPayload } from '../../shared/session'
 import { BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT, checkPlacement, childrenOf, descendantIds, isPermanentRoot, nextPosition, titleFor } from '../../shared/bookmarks'
 import type { BookmarkKind, BookmarkNode } from '../../shared/bookmarks'
+import { IMPORTED_FOLDER_TITLE, uniqueFolderTitle } from '../../shared/bookmark-import'
+import type { ImportedNode as ParsedNode, ParsedBookmarks } from '../../shared/bookmark-import'
 import type { SessionSnapshot } from '../../shared/session'
 import { Database, DatabaseError, toDatabaseError } from './sqlite'
 
@@ -597,4 +599,115 @@ export function clearBookmarks(db: Database): BookmarkNode[] {
     writePositions(db, [BOOKMARK_BAR_ROOT, BOOKMARK_OTHER_ROOT])
   })
   return readBookmarks(db)
+}
+
+export interface BookmarkImportResult {
+  nodes: BookmarkNode[]
+  /** 新建的文件夹数（含「已导入」容器）。 */
+  folders: number
+  urls: number
+}
+
+/**
+ * 把解析好的导出树**合并**进库里（`shared/bookmark-import.ts` 的 `ParsedBookmarks`）。
+ *
+ * 合并规则逐条对齐 Chromium 的 `ProfileWriter::AddBookmarks()`
+ * （`chrome/browser/importer/profile_writer.cc:122-226`）：
+ * 1. 收藏夹栏**空着** → 书签栏那批直接铺进栏里（跳过"Bookmarks bar"那层套娃），
+ *    其余内容进一个新容器；连书签栏都没有（`addAllToTopLevel`）→ 全部铺进栏里。
+ * 2. 收藏夹栏**已经有东西** → 全部进新容器（`已导入`），免得把用户现有排布冲掉；
+ *    书签栏那批的层级结构原样保留在容器里。
+ * 3. 目标父节点下**同名文件夹复用不重建**（`:196-203`）——重复导入同一份文件不该长出一串
+ *    `已导入 (1) (2)` 的套娃。
+ * 4. 容器名冲突时按 `已导入 (n)` 递增（`:49-71`）。
+ *
+ * 全部写入在**一个事务**里：导入要么整份完成，要么一条都不留（半份导入比失败更难收拾）。
+ * 位置不重排已有条目：新条目一律追加在该父节点末尾（`position` 连续由 `nextPosition` 保证）。
+ */
+export function importBookmarks(db: Database, parsed: ParsedBookmarks): BookmarkImportResult {
+  const nodes = readBookmarks(db)
+  const importToTopLevel = childrenOf(nodes, BOOKMARK_BAR_ROOT).length === 0
+  const addAllToTopLevel = importToTopLevel && parsed.bar.length === 0
+  const now = Date.now()
+  /** 每个父节点下一个可用的 position（避免每条都 `readBookmarks()` 一次）。 */
+  const nextPositions = new Map<string, number>()
+  let folders = 0
+  let urls = 0
+  let containerId: string | undefined
+
+  const nextPositionOf = (parentId: string): number => {
+    const cached = nextPositions.get(parentId)
+    if (cached !== undefined) return cached
+    const siblings = childrenOf(nodes, parentId)
+    return siblings.length === 0 ? 0 : siblings[siblings.length - 1].position + 1
+  }
+
+  const insertRow = (parentId: string, kind: BookmarkKind, title: string, url?: string): BookmarkNode => {
+    const position = nextPositionOf(parentId)
+    const node: BookmarkNode = {
+      id: randomUUID(),
+      parentId,
+      position,
+      kind,
+      title,
+      ...(kind === 'url' ? { url } : {}),
+      addedAt: now
+    }
+    db.run(
+      'INSERT INTO bookmarks(id, parent_id, position, kind, title, url, added_at) VALUES(?, ?, ?, ?, ?, ?, ?)',
+      node.id,
+      node.parentId,
+      node.position,
+      node.kind,
+      node.title,
+      node.url ?? null,
+      node.addedAt
+    )
+    nextPositions.set(parentId, position + 1)
+    // 同一个事务里的后续查询（同名文件夹复用）要看到它，所以同步进内存视图。
+    nodes.push(node)
+    return node
+  }
+
+  /** 目标文件夹下同名文件夹复用，否则新建。 */
+  const ensureFolder = (parentId: string, rawTitle: string): string => {
+    const title = rawTitle.trim() || '未命名文件夹'
+    const existing = childrenOf(nodes, parentId)
+      .find((node) => node.kind === 'folder' && node.title.trim() === title)
+    if (existing) return existing.id
+    folders += 1
+    return insertRow(parentId, 'folder', title).id
+  }
+
+  const importNode = (parentId: string, node: ParsedNode): void => {
+    if (node.kind === 'folder') {
+      const id = ensureFolder(parentId, node.title)
+      for (const child of node.children ?? []) importNode(id, child)
+      return
+    }
+    urls += 1
+    insertRow(parentId, 'url', titleFor(node.title ?? '', node.url ?? ''), (node.url ?? '').trim())
+  }
+
+  /**
+   * 每个条目该落在哪个父节点下。
+   *
+   * `inBar` 是"它在导出文件的书签栏里"；只有**栏为空**时它才直接进栏，否则整份进容器。
+   */
+  const targetOf = (inBar: boolean): string => {
+    if (importToTopLevel && (addAllToTopLevel || inBar)) return BOOKMARK_BAR_ROOT
+    if (!containerId) {
+      containerId = ensureFolder(
+        BOOKMARK_BAR_ROOT,
+        uniqueFolderTitle(nodes, BOOKMARK_BAR_ROOT, IMPORTED_FOLDER_TITLE)
+      )
+    }
+    return containerId
+  }
+
+  db.transaction(() => {
+    for (const node of parsed.bar) importNode(targetOf(true), node)
+    for (const node of parsed.other) importNode(targetOf(false), node)
+  })
+  return { nodes: readBookmarks(db), folders, urls }
 }

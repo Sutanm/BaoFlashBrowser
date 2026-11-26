@@ -44,14 +44,19 @@ const editingTitle = ref('')
 /** 等待确认的删除（只用于「带子项的文件夹」）。 */
 const pendingRemove = ref<BookmarkNode>()
 const status = ref('')
+/** 状态行的语气：成功是普通文字色，失败才用错误色（一句绿色提示也被染红会像出错）。 */
+const statusKind = ref<'ok' | 'error'>('error')
 const busy = ref(false)
+const importing = ref(false)
+const fileField = ref<HTMLInputElement>()
 
 const failureText: Record<string, string> = {
   'forbidden-sender': '当前页面无权修改收藏夹',
   'invalid-command': '这个操作不被允许',
   'bookmark-save-failed': '收藏夹没有保存成功，原有内容未更改',
   'bookmark-missing': '这条收藏已经不存在了',
-  'storage-unavailable': '收藏夹存储不可用，本次无法保存'
+  'storage-unavailable': '收藏夹存储不可用，本次无法保存',
+  'bookmark-placement': '不能把文件夹移到它自己或它的子文件夹里'
 }
 
 const searching = computed(() => query.value.trim().length > 0)
@@ -202,9 +207,11 @@ async function applyCommand(command: FavoritesCommand): Promise<FavoritesCommand
       snapshot.value = result.snapshot
       return result
     }
+    statusKind.value = 'error'
     status.value = failureText[result.code] ?? '这个操作没有完成'
     return result
   } catch {
+    statusKind.value = 'error'
     status.value = '收藏夹操作失败'
     return { ok: false, code: 'storage-unavailable' }
   } finally {
@@ -295,6 +302,54 @@ async function openNode(node: BookmarkNode): Promise<void> {
 
 function selectRow(node: BookmarkNode): void {
   selectedId.value = node.id
+}
+
+/* ---------------------------------------------------------------- *
+ * 导入（浏览器的「导出书签」HTML）
+ *
+ * 为什么是页面读文件：命令只收文本，主进程不碰文件路径（少一条"页面诱导主进程读任意文件"
+ * 的通路）；`<input type="file">` 的对话框是系统的，选中的 `File` 由本页 `text()` 读出来。
+ * ---------------------------------------------------------------- */
+
+function chooseFile(): void {
+  if (!canModify.value || importing.value) return
+  fileField.value?.click()
+}
+
+async function onFilePicked(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // 选完就清空：不清的话，同一个文件第二次选不会触发 change（"再导一次没反应"）。
+  input.value = ''
+  if (!file) return
+  importing.value = true
+  status.value = ''
+  try {
+    const html = await file.text()
+    const result = await window.baoFavorites.run({ type: 'import-html', html })
+    if (!result.ok) {
+      statusKind.value = 'error'
+      status.value = result.reason === 'empty'
+        ? '这个文件里没有可导入的收藏（导出 HTML 里一条都没解析出来）'
+        : result.reason === 'unreadable'
+          ? '读不懂这个文件，请确认它是浏览器「导出书签」得到的 HTML'
+          : failureText[result.code] ?? '导入没有完成'
+      return
+    }
+    snapshot.value = result.snapshot
+    const counts = result.imported
+    statusKind.value = 'ok'
+    status.value = counts
+      ? `已导入 ${counts.urls} 条收藏、${counts.folders} 个文件夹` +
+        (counts.skipped > 0 ? `（跳过 ${counts.skipped} 条非网页地址）` : '') +
+        (counts.toolbarFolder ? '' : '（文件里没有标出书签栏，全部放进了「已导入」）')
+      : '导入完成'
+  } catch {
+    statusKind.value = 'error'
+    status.value = '读取文件失败，请换一个文件再试'
+  } finally {
+    importing.value = false
+  }
 }
 
 /* ---------------------------------------------------------------- *
@@ -521,6 +576,22 @@ watch(nodes, syncSelection)
         :disabled="!canRemove"
         @click="removeSelected"
       >删除</button>
+      <button
+        type="button"
+        class="fav-action fav-import"
+        :disabled="!canModify || importing"
+        @click="chooseFile"
+      >{{ importing ? '正在导入…' : '导入…' }}</button>
+      <!-- 真正的文件选择器：系统对话框，页面只拿到 File（见 onFilePicked）。 -->
+      <input
+        ref="fileField"
+        type="file"
+        class="fav-file"
+        accept=".html,.htm,text/html"
+        aria-hidden="true"
+        tabindex="-1"
+        @change="onFilePicked"
+      >
       <div class="fav-search">
         <ShellIcon name="search" />
         <input
@@ -642,7 +713,7 @@ watch(nodes, syncSelection)
       </section>
     </div>
 
-    <p class="fav-status" role="status">{{ status }}</p>
+    <p class="fav-status" :class="{ ok: statusKind === 'ok' }" role="status">{{ status }}</p>
   </div>
 </template>
 
@@ -659,6 +730,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 
 .fav-page {
   box-sizing: border-box;
+  /* 文件选择框用绝对定位藏起来，锚在这里（不要让它逃到文档根上）。 */
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -877,4 +950,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 
 .fav-empty { margin: 24px 8px; color: var(--text-secondary); }
 .fav-status { flex: none; min-height: 20px; margin: 0; padding: 0 12px 4px; font-size: var(--size-caption, 12px); color: var(--text-error); }
+/* 成功的提示用正文字色，不染红也不染绿：这一行只是"说发生了什么"。 */
+.fav-status.ok { color: var(--text-secondary); }
+/* 文件选择框是触发器，不参与布局（用按钮代理点击）。 */
+.fav-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 </style>

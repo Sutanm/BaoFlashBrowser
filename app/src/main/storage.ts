@@ -6,10 +6,12 @@ import type { BrowserEngine, EngineRules } from '../shared/engine'
 import type { BookmarkNode } from '../shared/bookmarks'
 import type { SessionSnapshot } from '../shared/session'
 import {
-  addBookmark, clearEngineRules, clearSession, deleteBookmark, deleteRule, moveBookmark, openStore,
+  addBookmark, clearEngineRules, clearSession, deleteBookmark, deleteRule, importBookmarks, moveBookmark, openStore,
   readBookmarks, renameBookmark, updateBookmarkUrl, writeRule, writeSession, writeSessionExit, writeSetting
 } from './db/store'
 import type { AddBookmarkInput, OpenedStore, SessionExitState } from './db/store'
+import { parseBookmarksHtml } from '../shared/bookmark-import'
+import type { ParsedBookmarks } from '../shared/bookmark-import'
 import { toDatabaseError } from './db/sqlite'
 
 /**
@@ -177,6 +179,48 @@ export function createBookmarkFolderData(input: { title: string; parentId: strin
   } catch (error) {
     console.error('[storage] 新建文件夹失败。', error)
     return undefined
+  }
+}
+
+/**
+ * 导入一份浏览器导出的书签 HTML。
+ *
+ * 解析在 `shared/bookmark-import.ts`（纯逻辑、有单测），合并规则在 `db/store.ts`
+ * 的 `importBookmarks()`（对齐 Chromium 的 `ProfileWriter::AddBookmarks()`）。
+ * 这里只做三件事：拿到当前库、把结果换成新快照、把"为什么没成功"翻译成稳定原因。
+ *
+ * 失败时**不写半份**：合并本身在一个事务里，异常回滚；这里再把内存快照重新读一遍，
+ * 保证界面看到的一定是库里的样子。
+ */
+export type BookmarkImportOutcome =
+  | { ok: true; folders: number; urls: number; skipped: number; toolbarFolder: boolean }
+  | { ok: false; reason: 'unavailable' | 'unreadable' | 'empty' }
+
+export function importBookmarksData(html: string): BookmarkImportOutcome {
+  if (!store) return { ok: false, reason: 'unavailable' }
+  let parsed: ParsedBookmarks
+  try {
+    parsed = parseBookmarksHtml(html)
+  } catch (error) {
+    console.error('[storage] 书签文件解析失败。', error)
+    return { ok: false, reason: 'unreadable' }
+  }
+  // 一条都没解析出来：多半是选错了文件（比如导出的设置 JSON），说清楚比"导入 0 条"好。
+  if (parsed.counts.urls === 0 && parsed.counts.folders === 0) return { ok: false, reason: 'empty' }
+  try {
+    const result = importBookmarks(store.db, parsed)
+    store.bookmarks = result.nodes
+    return {
+      ok: true,
+      folders: result.folders,
+      urls: result.urls,
+      skipped: parsed.counts.skipped,
+      toolbarFolder: parsed.toolbarFolder
+    }
+  } catch (error) {
+    console.error('[storage] 书签导入失败（已回滚）。', error)
+    store.bookmarks = readBookmarks(store.db)
+    return { ok: false, reason: 'unreadable' }
   }
 }
 

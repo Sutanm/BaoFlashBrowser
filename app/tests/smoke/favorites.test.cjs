@@ -1,5 +1,7 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
 const {
   internalEval, internalUrlOf, launchApp, overlayEval, page, pageViewBounds, startFixtureServer, waitFor
 } = require('./helpers.cjs')
@@ -204,7 +206,7 @@ test('收藏夹管理页：从横条空态打开，树/列表/只读边界都对
     assert.equal(facts.toolbar.h, 48)
     assert.equal(facts.tree.w, 232)
     assert.equal(facts.list.x, 232, '列表紧贴左树（工具栏与内容同一张面）')
-    assert.deepEqual(facts.buttons, ['新建文件夹', '重命名', '删除'])
+    assert.deepEqual(facts.buttons, ['新建文件夹', '重命名', '删除', '导入…'])
 
     // ⑤ 空收藏夹：两个永久根都在树里，列表是空状态，按钮该禁用的都禁用。
     assert.deepEqual(facts.treeLabels, ['收藏夹栏', '其他收藏夹'])
@@ -462,5 +464,92 @@ test('收藏夹管理页：拖动排序、拖进文件夹、非法落点不写�
   } finally {
     await close()
     await server.close()
+  }
+})
+
+test('收藏夹管理页：导入导出的书签 HTML（书签栏结构保住、重复导入不混）', { timeout: 180_000 }, async () => {
+  const { app, shell, close } = await launchApp()
+  try {
+    await shell.evaluate(() => window.baoBrowser.run({ type: 'open-favorites' }))
+    await waitForFavorites(app)
+
+    /**
+     * 走**真实的文件选择链路**：构造 `File` → 塞进 `input.files` → 触发 change。
+     * 这样覆盖的是页面 `onFilePicked`（读文件 → 发命令 → 报数），而不是绕过 UI 直接发命令。
+     */
+    const pick = (html, name) => internalEval(app, FAV, `(async () => {
+      const input = document.querySelector('.fav-file')
+      if (!input) throw new Error('管理页里没有文件选择框')
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([${JSON.stringify(html)}], ${JSON.stringify(name)}, { type: 'text/html' }))
+      input.files = transfer.files
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      return { accept: input.accept }
+    })()`)
+
+    const chromeHtml = readFileSync(join(__dirname, 'fixtures', 'bookmarks-chrome.html'), 'utf8')
+    const picked = await pick(chromeHtml, 'bookmarks-chrome.html')
+    assert.match(picked.accept, /html/, '文件框要限定书签 HTML，别让人选到别的东西')
+
+    const done = await waitFor(async () => {
+      const facts = await favFacts(app)
+      return /已导入/.test(facts.status ?? '') ? facts : null
+    }, { message: '导入完了但界面没有报数（用户不知道发生了什么）' })
+    assert.match(done.status, /5 条收藏/)
+    assert.match(done.status, /4 个文件夹/)
+    assert.match(done.status, /跳过 3 条/)
+
+    // 库里的形状：栏 = 前端 + GitHub + 已导入；「书签栏」那一层没有变成套娃。
+    const state = await snapshot(shell)
+    const bar = state.bookmarks
+      .filter((node) => node.parentId === 'bar')
+      .sort((left, right) => left.position - right.position)
+    assert.deepEqual(bar.map((node) => node.title), ['前端', 'GitHub', '已导入'])
+    const frontend = state.bookmarks.find((node) => node.title === '前端')
+    assert.deepEqual(
+      state.bookmarks
+        .filter((node) => node.parentId === frontend.id)
+        .sort((left, right) => left.position - right.position)
+        .map((node) => node.title),
+      ['MDN & 文档', 'Vue'],
+      '书签栏里的文件夹连同它的子项一起保住，标题里的实体也反转义了'
+    )
+    const container = bar[2]
+    const nested = state.bookmarks.filter((node) => node.parentId === container.id).map((node) => node.title)
+    assert.deepEqual(nested, ['Other bookmarks'], '其余内容进「已导入」，不是铺进栏里')
+    // javascript:/place:/feed: 三条都不许进库。
+    assert.equal(state.bookmarks.some((node) => /^(javascript|place|feed):/.test(node.url ?? '')), false)
+
+    // 第二次导入（栏此刻已有内容）：整份进「已导入 (1)」，两份不混。
+    const edgeHtml = readFileSync(join(__dirname, 'fixtures', 'bookmarks-edge.html'), 'utf8')
+    await pick(edgeHtml, 'bookmarks-edge.html')
+    await waitFor(async () => {
+      const facts = await favFacts(app)
+      return /已导入/.test(facts.status ?? '') ? facts : null
+    }, { message: '第二次导入没有报数' })
+    const second = await snapshot(shell)
+    const bar2 = second.bookmarks
+      .filter((node) => node.parentId === 'bar')
+      .sort((left, right) => left.position - right.position)
+    assert.deepEqual(bar2.map((node) => node.title), ['前端', 'GitHub', '已导入', '已导入 (1)'])
+    // 中文导出里的空文件夹也要活着进来（导入最容易丢的就是空目录）。
+    const box = second.bookmarks.find((node) => node.title === '空文件夹也要保住')
+    assert.ok(box, '空文件夹丢了')
+    assert.equal(second.bookmarks.filter((node) => node.parentId === box.id).length, 0)
+    // 树里能看到新导入的文件夹（数据进库了界面没刷新，等于没导入）。
+    const facts = await favFacts(app)
+    assert.ok(facts.treeLabels.includes('已导入'), '第一个「已导入」容器没出现在树里')
+    assert.ok(facts.treeLabels.includes('已导入 (1)'), '第二次导入的容器没出现在树里')
+    // 展开第二次的容器：里面的文件夹（含那个空的）也要能一层层看下去。
+    const secondContainer = second.bookmarks.find((node) => node.title === '已导入 (1)')
+    assert.ok(secondContainer)
+    await clickFav(app, `${treeSel(secondContainer.id)} .tree-chevron`)
+    const expandedTree = await waitFor(async () => {
+      const next = await favFacts(app)
+      return next.treeLabels.includes('日常') ? next : null
+    }, { message: '展开「已导入 (1)」后没有看到导入进来的文件夹' })
+    assert.ok(expandedTree.treeLabels.includes('其他收藏夹'))
+  } finally {
+    await close()
   }
 })

@@ -67,6 +67,15 @@ export type FavoritesCommand =
    * `bookmark-placement`，界面据此提示而不用先本地改一遍再回滚。
    */
   | { type: 'move'; id: string; parentId: string; index: number }
+  /**
+   * 导入一份浏览器导出的书签 HTML（Chrome / Edge / Firefox 的「导出书签」都是同一格式）。
+   *
+   * **内容由页面读、命令只收文本**：页面用 `<input type="file">` 拿到 `File` 再 `text()`，
+   * 主进程完全不碰文件路径——这比让主进程开 `dialog.showOpenDialog` 少一条"页面能诱导
+   * 主进程读任意文件"的路径，也让冒烟可以在不弹原生对话框的情况下走完整条链路。
+   * 大小上限由主进程判（IPC 载荷不该无界）。
+   */
+  | { type: 'import-html'; html: string }
 
 export type FavoritesCommandResult =
   | {
@@ -75,8 +84,11 @@ export type FavoritesCommandResult =
     snapshot: FavoritesSnapshot
     /** 新建文件夹返回新节点 id（页面据此进入改名态）。 */
     createdId?: string
+    /** 导入的统计（只有 `import-html` 有）：页面据此报告"导入了多少"。 */
+    imported?: { folders: number; urls: number; skipped: number; toolbarFolder: boolean }
   }
-  | { ok: false; code: BrowserFailureCode }
+  /** `import-html` 失败时的原因：读不懂文件 / 文件里没有收藏 / 存储不可用。 */
+  | { ok: false; code: BrowserFailureCode; reason?: 'unreadable' | 'empty' }
 
 export interface FavoritesBridge {
   read(): Promise<FavoritesSnapshot | undefined>

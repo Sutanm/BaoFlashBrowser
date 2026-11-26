@@ -170,6 +170,11 @@ const RULES = [
     tests: ['theme', 'titlebar', 'newtab', 'internal-page', 'quick-settings', 'bookmarks']
   },
   {
+    // 收藏夹导入的样本文件：只有 `favorites` 用例读它们。
+    match: [/^tests\/smoke\/fixtures\/bookmarks-/],
+    tests: ['favorites']
+  },
+  {
     // 弹窗与页面 preload。
     match: [/^src\/main\/popup-chrome\.ts$/, /^src\/preload\/popup-chrome\.ts$/],
     tests: ['popup']

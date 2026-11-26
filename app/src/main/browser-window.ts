@@ -16,7 +16,7 @@ import { getInternalSession, getPageSession, getShellSession } from './sessions'
 import { bindRuffleProtocol } from './ruffle'
 import { registerPageView } from './page-views'
 import * as engineRules from './engine-rules'
-import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, createBookmarkFolderData, moveBookmarkData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
+import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, createBookmarkFolderData, importBookmarksData, moveBookmarkData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
 import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
 import type { BookmarkBarMode } from '../shared/bookmarks'
 import { bindInternalProtocol, FAVORITES_URL, internalKindOf, internalTitles, internalUrls, isFavoritesUrl, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
@@ -3569,6 +3569,36 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         if (outcome === 'placement') return { ok: false, code: 'bookmark-placement' }
         publishBookmarks()
         return { ok: true, snapshot: favoritesSnapshot() }
+      }
+      /**
+       * 导入导出文件（`import-html`）。
+       *
+       * 页面读文件、命令只收文本（见 `shared/favorites.ts` 的说明）；上限 8 MB 是防御：
+       * 一份几万条的书签导出也就几百 KB，超过这个量级的"书签文件"不会是用户想导入的东西，
+       * 而 IPC 载荷不该无界。
+       */
+      case 'import-html': {
+        const html = typeof (command as { html?: unknown }).html === 'string'
+          ? (command as { html: string }).html
+          : ''
+        if (!html) return { ok: false, code: 'invalid-command' }
+        if (html.length > 8 * 1024 * 1024) return { ok: false, code: 'invalid-command' }
+        const outcome = importBookmarksData(html)
+        if (!outcome.ok) {
+          if (outcome.reason === 'unavailable') return { ok: false, code: 'storage-unavailable' }
+          return { ok: false, code: 'invalid-command', reason: outcome.reason }
+        }
+        publishBookmarks()
+        return {
+          ok: true,
+          snapshot: favoritesSnapshot(),
+          imported: {
+            folders: outcome.folders,
+            urls: outcome.urls,
+            skipped: outcome.skipped,
+            toolbarFolder: outcome.toolbarFolder
+          }
+        }
       }
       default:
         return { ok: false, code: 'invalid-command' }
