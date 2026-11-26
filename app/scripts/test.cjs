@@ -9,7 +9,9 @@ const [suite, ...flags] = process.argv.slice(2)
 const suites = {
   smoke: ['startup', 'tabs', 'tab-ops', 'engine', 'engine-switch', 'input', 'plugin-input', 'ruffle-input',
     'ruffle-cors', 'engine-broker', 'popup', 'permissions', 'theme', 'titlebar',
-    'internal-page', 'newtab', 'quick-settings', 'bookmarks', 'overlay-prewarm-hidden', 'overlay-prewarm-policy',
+    'internal-page', 'newtab', 'favicon', 'quick-settings', 'bookmarks', 'bookmark-bar',
+    'settings-search-engine',
+    'overlay-prewarm-hidden', 'overlay-prewarm-policy',
     'tab-discard', 'tab-duplicate-ruffle', 'session-restore', 'data-cleanup',
     'link-target', 'flash', 'isolation', 'engine-rules', 'tearoff', 'shell-crash-heal', 'heartbeat'].map((name) => `tests/smoke/${name}.test.cjs`),
   data: ['tests/data/settings-store.test.cjs', 'tests/data/session-store.test.cjs'],

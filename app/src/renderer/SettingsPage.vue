@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   SESSION_STARTUP_MODES, THEME_MODES, bookmarkBarHint, bookmarkBarModeLabels, discardModeLabels,
   prewarmModeSummaries, prewarmToggleHint, sessionStartupLabels, themeModeLabels
@@ -187,10 +187,27 @@ onMounted(async () => {
   const initial = await window.baoSettings.read()
   if (initial) apply(initial)
   detach = window.baoSettings.subscribe(apply)
+  document.addEventListener('pointerdown', onDocumentPointerDown, true)
+  window.addEventListener('scroll', onDocumentScrollOrResize, true)
+  window.addEventListener('resize', onDocumentScrollOrResize)
   await loadFlash()
+  // 首帧分区是隐藏的（`:hidden`），量出来是 0：切到「隐私、搜索和服务」时再量一次。
+  void nextTick(measureTrigger)
+  // 字体就绪后再量一次：Web 字体换掉系统字体时字宽会变，早量出来会偏窄（标签被截成"Go…"）。
+  void document.fonts?.ready.then(() => measureTrigger())
 })
 
-onBeforeUnmount(() => detach?.())
+/** 分区切换后重量一次：隐藏的分区量不出宽度（`getBoundingClientRect()` 全是 0）。 */
+watch(section, (next) => {
+  if (next === 'privacy') void nextTick(measureTrigger)
+})
+
+onBeforeUnmount(() => {
+  detach?.()
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  window.removeEventListener('scroll', onDocumentScrollOrResize, true)
+  window.removeEventListener('resize', onDocumentScrollOrResize)
+})
 
 async function write(patch: { key: SettingKey; value: string }): Promise<void> {
   if (busy.value) return
@@ -240,9 +257,129 @@ function chooseEngine(next: BrowserEngine): void {
   void write({ key: 'engine.default', value: next })
 }
 
-/** 默认搜索引擎：与非 URL 输入的搜索回退是同一份目录（`shared/search.ts`）。 */
+/**
+ * 默认搜索引擎：与非 URL 输入的搜索回退是同一份目录（`shared/search.ts`）。
+ *
+ * 形态是**下拉框**（2026-11-26 反馈）：竖排单选把六项铺成六行，占掉半屏却没有信息量；
+ * 下拉里**当前选中的排第一行**——打开就能看见"我现在选的是谁"，不用先扫一遍找勾。
+ */
+const searchEngineOptions = computed<SearchEngine[]>(() => [
+  searchEngine.value,
+  ...SEARCH_ENGINES.filter((item) => item !== searchEngine.value)
+])
+const engineMenuOpen = ref(false)
+/** 键盘高亮项（鼠标悬停也会同步它）：不用鼠标也能选。 */
+const engineMenuActive = ref(0)
+const engineSelect = ref<HTMLElement>()
+const engineTrigger = ref<HTMLButtonElement>()
+const engineMenu = ref<HTMLElement>()
+/**
+ * 菜单用 `position: fixed` 挂在 `body` 上（Teleport）。
+ *
+ * 为什么不能就地绝对定位：`.setting-card` 有 `overflow: hidden`（圆角要裁），就地定位会被
+ * 卡片裁掉——只露出第一项（2026-11-26 截图里就是这样）。改成 Teleport + fixed，菜单永远完整。
+ */
+const engineMenuStyle = ref<Record<string, string>>({})
+
+/**
+ * 按钮宽度**贴着最宽的引擎名**（2026-11-26 反馈："空白太多太空旷"）。
+ *
+ * 为什么用 JS 量：撑宽层若参与布局会顶高按钮，用 `position: absolute` 又不参与宽度计算——
+ * 两边都不成立。所以用一个绝对定位的隐形副本量出文字宽度，写到 `min-width` 上，菜单取同一个值。
+ *
+ * 量不到（分区隐藏时 `getBoundingClientRect()` 全是 0）就**不加下限**：宁可让按钮先按内容
+ * 显示，也不留一块空白——切到该分区、字体就绪、点开下拉时都会重量一次。
+ */
+const engineTriggerWidth = ref(0)
+
+function measureTrigger(): void {
+  const spans = engineSelect.value?.querySelectorAll<HTMLElement>('.engine-trigger-sizer > span')
+  if (!spans || spans.length === 0) return
+  const widest = Math.max(0, ...[...spans].map((el) => el.getBoundingClientRect().width))
+  if (widest <= 0) return
+  // 20 = 左右内距(10×2)、8 = 与箭头的间距、12 = 箭头、2 = 边框。
+  engineTriggerWidth.value = Math.ceil(widest + 20 + 8 + 12 + 2)
+}
+
+function placeEngineMenu(): void {
+  const rect = engineTrigger.value?.getBoundingClientRect()
+  if (!rect) return
+  // 先重量：分区刚切过来时 `min-width` 还没生效，用按钮的旧矩形算会偏窄（2026-11-26 实测）。
+  measureTrigger()
+  engineMenuStyle.value = {
+    top: `${Math.round(rect.bottom + 4)}px`,
+    // 右缘与触发按钮对齐（设置页在窗口右侧，右对齐不会顶出屏幕）。
+    right: `${Math.max(8, Math.round(window.innerWidth - rect.right))}px`,
+    // 宽度**与触发按钮一致**（2026-11-26 反馈）：菜单比按钮宽会显得两块东西不是一套。
+    width: `${engineTriggerWidth.value || Math.round(rect.width)}px`
+  }
+}
+
+function openEngineMenu(active = 0): void {
+  placeEngineMenu()
+  engineMenuOpen.value = true
+  engineMenuActive.value = active < 0 ? searchEngineOptions.value.length - 1 : Math.min(active, searchEngineOptions.value.length - 1)
+  void nextTick(() => {
+    engineMenu.value?.querySelector<HTMLElement>('.engine-option.active')?.focus()
+  })
+}
+
+/** 关掉下拉并把焦点还给触发按钮（键盘用户不该被丢在 document.body 上）。 */
+function closeEngineMenu(restoreFocus = false): void {
+  if (!engineMenuOpen.value) return
+  engineMenuOpen.value = false
+  if (restoreFocus) engineTrigger.value?.focus()
+}
+
+function toggleEngineMenu(): void {
+  if (engineMenuOpen.value) closeEngineMenu(true)
+  else openEngineMenu(0)
+}
+
 function chooseSearchEngine(next: SearchEngine): void {
+  closeEngineMenu()
   void write({ key: 'search.engine', value: next })
+}
+
+function onEngineMenuKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeEngineMenu(true)
+    return
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    engineMenuActive.value = (engineMenuActive.value + 1) % searchEngineOptions.value.length
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    engineMenuActive.value = (engineMenuActive.value - 1 + searchEngineOptions.value.length) % searchEngineOptions.value.length
+    return
+  }
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    const next = searchEngineOptions.value[engineMenuActive.value]
+    if (next) chooseSearchEngine(next)
+  }
+}
+
+/**
+ * 点外面收起（与飞窗同一手法：捕获阶段听 pointerdown，不受 stopPropagation 影响）。
+ *
+ * 菜单被 Teleport 到 `body` 之后**不再是**触发按钮的后代，所以两处都要判：
+ * 否则点选项会先被判成"点外面"，菜单一关，click 就落空了。
+ */
+function onDocumentPointerDown(event: PointerEvent): void {
+  if (!engineMenuOpen.value) return
+  if (!(event.target instanceof Node)) return
+  if (engineSelect.value?.contains(event.target) || engineMenu.value?.contains(event.target)) return
+  closeEngineMenu()
+}
+
+/** 滚动/缩放时菜单会脱离触发按钮：直接收起（比重算位置简单且不会错位）。 */
+function onDocumentScrollOrResize(): void {
+  if (engineMenuOpen.value) closeEngineMenu()
 }
 
 const flashReady = computed(() => snapshot.value?.flash !== false)
@@ -427,21 +564,70 @@ function goFlashSection(): void {
           <p class="section-caption">地址栏和新标签页里不像是网址的输入，用它来搜索</p>
         </header>
         <div class="setting-card">
-          <div role="radiogroup" aria-label="搜索引擎" class="choices">
-            <button
-              v-for="item in SEARCH_ENGINES"
-              :key="item"
-              type="button"
-              class="choice"
-              role="radio"
-              :aria-checked="searchEngine === item"
-              @click="chooseSearchEngine(item)"
-            >
-              <span class="radio" aria-hidden="true"></span>
-              <span class="label">{{ searchEngineLabels[item] }}</span>
-            </button>
+          <div class="select-row">
+            <div class="preference-copy">
+              <h3>地址栏中使用的搜索引擎</h3>
+              <p>不像是网址的输入，用它来搜索</p>
+            </div>
+            <!-- 下拉框：当前选中的排第一行（打开就见"现在选的是谁"），点外面 / Esc 收起。 -->
+            <div ref="engineSelect" class="engine-select">
+              <button
+                ref="engineTrigger"
+                type="button"
+                class="engine-trigger"
+                role="combobox"
+                aria-haspopup="listbox"
+                aria-controls="search-engine-menu"
+                :aria-expanded="engineMenuOpen"
+                :aria-label="`搜索引擎：${searchEngineLabels[searchEngine]}`"
+                :style="engineTriggerWidth ? { minWidth: `${engineTriggerWidth}px` } : undefined"
+                @click="toggleEngineMenu"
+                @keydown.down.prevent="openEngineMenu(0)"
+                @keydown.up.prevent="openEngineMenu(-1)"
+                @keydown.esc.prevent="closeEngineMenu(true)"
+              >
+                <span class="engine-trigger-label">{{ searchEngineLabels[searchEngine] }}</span>
+                <!--
+                  撑宽用的隐形副本（Edge 的做法）：取**最宽的那个引擎名**，这样切换选项时
+                  按钮宽度不会跳，下拉也就不必比按钮宽出一截（2026-11-26 反馈）。
+                -->
+                <span class="engine-trigger-sizer" aria-hidden="true">
+                  <span v-for="item in SEARCH_ENGINES" :key="item">{{ searchEngineLabels[item] }}</span>
+                </span>
+                <ShellIcon name="chevron" class="engine-chevron" />
+              </button>
+              <!-- 菜单 Teleport 到 body：`.setting-card` 的 `overflow: hidden` 会把它裁掉。 -->
+              <Teleport to="body">
+                <ul
+                  v-if="engineMenuOpen"
+                  id="search-engine-menu"
+                  ref="engineMenu"
+                  class="engine-menu"
+                  role="listbox"
+                  aria-label="搜索引擎"
+                  :style="engineMenuStyle"
+                  @keydown="onEngineMenuKeydown"
+                >
+                  <li v-for="(item, index) in searchEngineOptions" :key="item" role="presentation">
+                    <button
+                      type="button"
+                      class="engine-option"
+                      :class="{ active: index === engineMenuActive }"
+                      role="option"
+                      :aria-selected="searchEngine === item"
+                      @click="chooseSearchEngine(item)"
+                      @pointerenter="engineMenuActive = index"
+                    >
+                      <span class="engine-check" aria-hidden="true">
+                        <ShellIcon v-if="searchEngine === item" name="check" />
+                      </span>
+                      <span class="label">{{ searchEngineLabels[item] }}</span>
+                    </button>
+                  </li>
+                </ul>
+              </Teleport>
+            </div>
           </div>
-          <p class="lead">输入带点号的网址（如 4399.com）仍然直接打开；其余文字按这里的选择搜索。</p>
         </div>
       </section>
 
@@ -465,16 +651,16 @@ function goFlashSection(): void {
       <section class="setting-section" :hidden="section !== 'engine'" aria-labelledby="rules-title">
         <header class="section-heading">
           <h2 id="rules-title">站点引擎规则</h2>
-          <p class="section-caption">各站点「记住的引擎」</p>
+          <p class="section-caption">
+            各站点「记住的引擎」决定它下次打开用哪种渲染方式
+          </p>
         </header>
         <div class="setting-card">
           <div class="select-row">
             <span>已记住 {{ engineRules.length }} 个站点</span>
             <button type="button" class="action" aria-label="清除站点引擎规则" :disabled="rulesClearing || engineRules.length === 0" @click="clearEngineRules">全部清除</button>
           </div>
-          <p v-if="engineRules.length === 0" class="lead">
-            还没有记住的站点 —— 在引擎飞窗里切到某个站点后打开「记住当前引擎」，这里就会出现它的规则。
-          </p>
+          <p v-if="engineRules.length === 0" class="lead">还没有记住的站点。</p>
           <template v-else>
             <!-- 规则可能很多（每个站点一条）：超过阈值给过滤框，列表自身封顶滚动，
                  不把整页拉成几千像素（2026-11-26）。 -->
@@ -502,7 +688,6 @@ function goFlashSection(): void {
             </ul>
             <p v-else class="lead">没有匹配「{{ ruleQuery }}」的站点。</p>
           </template>
-          <p class="lead">「记住的引擎」决定该站点下次打开用哪种渲染方式；已打开的标签不会重新加载，来源回到默认。</p>
           <p v-if="rulesNotice" role="status">{{ rulesNotice }}</p>
         </div>
       </section>
@@ -866,6 +1051,74 @@ button:disabled { cursor: default; opacity: 0.6; }
 }
 
 .choices { display: grid; gap: 2px; }
+/*
+ * 搜索引擎下拉框（2026-11-26 反馈：竖排单选把六项铺成六行，占半屏却没信息量）。
+ *
+ * 触发按钮与菜单都照 Edge 的「地址栏中使用的搜索引擎」：右侧一个小圆角浅灰按钮 + 下箭头，
+ * 展开是一张带投影的浮层，当前项打勾。菜单**绝对定位**在触发按钮下方，不撑高卡片。
+ */
+.engine-select { position: relative; flex: none; }
+.engine-trigger {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke-control);
+  border-radius: 8px;
+  background: var(--surface-page);
+  font-size: 13px;
+}
+.engine-trigger:hover { background: var(--surface-hover); }
+.engine-trigger[aria-expanded='true'] { background: var(--surface-pressed); }
+.engine-trigger:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offset: 1px; }
+.engine-trigger-label,
+.engine-trigger-sizer { grid-area: 1 / 1; }
+.engine-trigger-label { justify-self: start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 隐形量宽层：绝对定位（不参与布局），只用来量"最宽的引擎名"有多宽。 */
+.engine-trigger-sizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  visibility: hidden;
+  pointer-events: none;
+}
+.engine-trigger-sizer > span { grid-area: 1 / 1; white-space: nowrap; }
+.engine-chevron { grid-area: 1 / 2; width: 12px; height: 12px; flex: none; color: var(--text-secondary); }
+.engine-menu {
+  /* Teleport 到 body 之后用 fixed：位置与**宽度**由 `placeEngineMenu()` 按触发按钮的矩形算。 */
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  max-height: 300px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--stroke-control);
+  border-radius: 10px;
+  background: var(--surface-toolbar);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%), 0 2px 6px rgb(0 0 0 / 8%);
+}
+.engine-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  text-align: start;
+}
+.engine-option:hover, .engine-option.active { background: var(--surface-hover); }
+.engine-option[aria-selected='true'] { background: var(--surface-selected); }
+/* 宽度跟触发按钮走，长标签截断而不是把菜单撑宽。 */
+.engine-option .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.engine-check { display: grid; place-items: center; width: 14px; height: 14px; flex: none; }
+.engine-check .shell-icon { width: 14px; height: 14px; }
 .choice {
   display: flex;
   align-items: center;

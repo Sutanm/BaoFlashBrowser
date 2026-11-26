@@ -3,16 +3,25 @@ import type { BookmarkNode } from './bookmarks'
 import type { BrowserEngine, EngineSource } from './engine'
 import type { Locale, SettingKey, SettingValue, Settings, ThemeMode } from './settings'
 
-export const TAB_BAR_HEIGHT = 40
-export const TOOLBAR_HEIGHT = 44
 /**
- * 收藏夹横条的高度（工具栏下面那第三行，显示与否见 `showsBookmarkBar()`）。
+ * 外壳三行 chrome 的固定高度（页面视图的 y 偏移由它们算出来）。
  *
- * 28 是 Chromium 的 `BOOKMARK_BAR_HEIGHT`（`chrome/browser/ui/layout_constants.cc:29`，
- * 触摸 UI 是 36）；我们的工具栏按钮比 Chromium 大一号（32 vs 28），横条按钮 24，
- * 上下各 4px 内边距，于是取 32。这个值同时决定页面视图的 y 偏移，改它要连测试一起改。
+ * 数值照抄 Chromium 142 的布局常量（**非触摸**档，`chrome/browser/ui/layout_constants.cc`）：
+ * - 标签栏 = `TAB_STRIP_HEIGHT` = `TAB_HEIGHT(34) + TABSTRIP_TOOLBAR_OVERLAP(1)` + `TAB_STRIP_PADDING(6)` = **41**；
+ * - 工具栏 = `max(location_bar, back) + TOOLBAR_INTERIOR_MARGIN.vertical()(6×2)` = 34 + 12 = **46**
+ *   （`ToolbarView::CalculatePreferredSize`，`toolbar_view.cc:765`）；
+ * - 收藏夹横条 = `BOOKMARK_BAR_BUTTON_HEIGHT(28) + 6`（居中留白）= **34**。
+ *
+ * 2026-11-26 反馈"地址栏/工具栏高度差几像素、标签页没有正常浏览器宽"：我们原来是 40 / 44 / 32、
+ * 标签宽 180；Chromium 是 41 / 46 / 34，标签**标准宽 256**（`kTabWidth(232) + 2×12` 底角，
+ * `chrome/browser/ui/tabs/tab_style.cc:31`）。三行都按 Chromium 走，页面视图因此下移 3px。
  */
-export const BOOKMARK_BAR_HEIGHT = 32
+export const TAB_BAR_HEIGHT = 41
+export const TOOLBAR_HEIGHT = 46
+/** 崩溃恢复提示条的高度（只在外壳顶部显示，页面视图相应下移）。 */
+export const INFOBAR_HEIGHT = 36
+/** 收藏夹横条的高度（显示与否见 `showsBookmarkBar()`）。 */
+export const BOOKMARK_BAR_HEIGHT = 34
 
 export const browserChannels = {
   command: 'browser:command',
@@ -168,6 +177,13 @@ export interface BrowserTab {
   discarded?: boolean
   /** 用户标记「保持活跃」：挂机/游戏标签，永不自动休眠。 */
   keepAwake?: boolean
+  /**
+   * 站点图标（`data:` URL）。没有就是没有——界面退回通用页形图标，不画占位方块。
+   *
+   * 为什么是 data URL 而不是图标地址：渲染层拿不到能发网络请求的会话（页面 preload 只暴露
+   * 窄桥），把图标抓到主进程再内联，标签栏就不用为一行图标开一条 HTTP 通道。
+   */
+  favicon?: string
 }
 
 /**
@@ -216,6 +232,14 @@ export interface BrowserState {
    * `shared/bookmarks.ts` 的 `showsBookmarkBar()`。
    */
   bookmarkBarShown: boolean
+  /**
+   * 有图标的站点：`origin → data URL`（收藏夹横条/面板按书签地址查这张表）。
+   *
+   * 只放真的拿到的那些——查不到就是查不到，界面画通用页形，不画占位方块。
+   * 为什么按 origin：书签存的是完整地址，图标是站点级的（`https://a.com/x` 与 `https://a.com/y`
+   * 共用一个图标，抓两次没有意义）。
+   */
+  favicons: Record<string, string>
   tabs: BrowserTab[]
 }
 

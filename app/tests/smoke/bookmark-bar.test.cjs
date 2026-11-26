@@ -19,9 +19,9 @@ const { launchApp, launchAppAt, page, startFixtureServer, waitFor } = require('.
  * 产品裁决见 docs/reports/2026-11-26-bookmarks-store.md §1。
  */
 
-const TAB = 40
-const TOOLBAR = 44
-const BAR = 32
+const TAB = 41
+const TOOLBAR = 46
+const BAR = 34
 const GUTTER = 6
 
 const snapshot = (shell) => shell.evaluate(() => window.baoBrowser.run({ type: 'snapshot' }).then((result) => result.state))

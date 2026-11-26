@@ -274,6 +274,21 @@ const barVisible = computed(() => state.value?.bookmarkBarShown === true)
 const barItems = computed<BookmarkNode[]>(() => childrenOf(state.value?.bookmarks ?? [], BOOKMARK_BAR_ROOT))
 
 /**
+ * 站点图标（按 origin 查主进程抓好的那张表）。
+ *
+ * 书签存的是完整地址、图标是站点级的；查不到就是查不到——画通用页形，不画占位方块。
+ * `URL` 解析失败（手写的怪地址）同样返回 `undefined`。
+ */
+function faviconOf(url: string | undefined): string | undefined {
+  if (!url) return undefined
+  try {
+    return state.value?.favicons?.[new URL(url).origin]
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * 放不下的项从第几个开始隐藏（Chromium 的 `first_hidden_node_idx_`）。
  *
  * 为什么用 `visibility` 而不是 `v-if`：**隐藏的项必须继续占布局**，否则"先全部排出来量一次、
@@ -817,8 +832,26 @@ onBeforeUnmount(() => store.disconnect())
             :aria-busy="tab.loading"
             :title="tab.title"
           >
-            <span v-if="tab.internal === 'settings'" class="site-icon settings-icon" aria-hidden="true"><ShellIcon name="gear" /></span>
-            <span v-else class="glyph page site-icon" :class="{ loading: tab.loading }" aria-hidden="true"></span>
+            <!--
+              加载中：Chromium 的转圈（throbber）**顶替**图标——加载完再把图标放回来。
+              数值照抄 `ui/gfx/paint_throbber.cc`：弧最大 270°、伸长期 667ms、整圈 1568ms、
+              2dp 描边、缓动 cubic-bezier(.4, 0, .2, 1)（滚动约定见下方 CSS）。
+            -->
+            <svg v-if="tab.loading" class="site-icon throbber" viewBox="0 0 50 50" aria-hidden="true">
+              <circle class="throbber-arc" cx="25" cy="25" r="20" />
+            </svg>
+            <span v-else-if="tab.internal === 'settings'" class="site-icon settings-icon" aria-hidden="true"><ShellIcon name="gear" /></span>
+            <!--
+              站点图标：有就画（Chromium 的 tab favicon，16px），没有才退回通用页形。
+            -->
+            <img
+              v-else-if="tab.favicon"
+              class="site-icon favicon"
+              :src="tab.favicon"
+              alt=""
+              aria-hidden="true"
+            >
+            <span v-else class="glyph page site-icon" aria-hidden="true"></span>
             <span v-if="!tab.pinned" class="tab-label">{{ tab.title }}</span>
             <span v-if="tab.keepAwake" class="awake-mark" aria-hidden="true" title="保持活跃（不自动休眠）"></span>
             <span v-if="tab.muted" class="muted-mark" aria-hidden="true">
@@ -960,7 +993,10 @@ onBeforeUnmount(() => store.disconnect())
           :tabindex="index >= barClippedFrom ? -1 : 0"
           @click="item.kind === 'folder' ? toggleBarFolder(item, $event) : openBarItem(item)"
         >
-          <span class="bar-icon" aria-hidden="true"><ShellIcon :name="item.kind === 'folder' ? 'folder' : 'page'" /></span>
+          <span class="bar-icon" aria-hidden="true">
+            <img v-if="faviconOf(item.url)" class="favicon" :src="faviconOf(item.url)" alt="">
+            <ShellIcon v-else :name="item.kind === 'folder' ? 'folder' : 'page'" />
+          </span>
           <span class="bar-label">{{ item.title }}</span>
         </button>
         <!-- 放不下的项：这里不自己画菜单，直接打开收藏夹面板（那里是完整的树）。 -->
@@ -1034,9 +1070,9 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
   isolation: isolate;
   display: flex;
   align-items: center;
-  flex: 0 1 180px;
-  min-width: 88px;
-  width: 180px;
+  flex: 0 1 var(--tab-width);
+  min-width: var(--tab-min-width);
+  width: var(--tab-width);
   height: var(--tab-height);
   padding-inline-end: var(--space-xs);
   border: var(--shell-stroke) solid transparent;
@@ -1112,19 +1148,48 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
   min-width: 0;
   height: 100%;
   text-align: start;
-  padding: 0 var(--space-xs) 0 var(--space-m);
+  /* Chromium：标题左内距 `TAB_PRE_TITLE_PADDING` = 8、右 `TAB_AFTER_TITLE_PADDING` = 4。 */
+  padding: 0 var(--space-xs) 0 var(--space-s);
   border-radius: var(--tab-radius) 0 0 0;
 }
 
 .tab.selected .tab-title { font-weight: 600; }
 .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .site-icon { color: var(--text-secondary); }
+/* 站点图标：Chromium 的标签图标是 16px、2px 圆角（站点自己就是方形的位图也收个角）。 */
+.favicon { flex: none; width: 16px; height: 16px; border-radius: 2px; object-fit: contain; }
+/*
+ * 加载转圈（Chromium 的 MD spinner 端口，`ui/gfx/paint_throbber.cc`）：
+ * - 弧长在 667ms 内从 0 伸到 **270°**，再缩回去（两次关键帧 = 1333ms 一轮）；
+ * - 同时整体 1568ms 转一圈；
+ * - 描边 2dp（`kLoadingAnimationStrokeWidthDp`，在 50 的 viewBox 里是 6.25）；
+ * - 缓动 `cubic-bezier(.4, 0, .2, 1)`（Chromium 的 `FAST_OUT_SLOW_IN`）。
+ * 周长 2πr = 125.7，270° ≈ 94。
+ */
+.throbber { flex: none; width: 16px; height: 16px; }
+.throbber-arc {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 6.25;
+  stroke-linecap: round;
+  stroke-dasharray: 1 155;
+  transform-origin: 50% 50%;
+  animation: throbber-rotate 1568ms linear infinite, throbber-dash 1333ms cubic-bezier(.4, 0, .2, 1) infinite;
+}
+@keyframes throbber-rotate { to { transform: rotate(360deg); } }
+@keyframes throbber-dash {
+  0% { stroke-dasharray: 1 155; stroke-dashoffset: 0; }
+  50% { stroke-dasharray: 94 155; stroke-dashoffset: -33; }
+  100% { stroke-dasharray: 94 155; stroke-dashoffset: -125; }
+}
+/* 减少动态：静止的 3/4 弧（不留一个转个不停的圈）。 */
+@media (prefers-reduced-motion: reduce) {
+  .throbber-arc { animation: none; stroke-dasharray: 94 32; }
+}
 .settings-icon { display: inline-flex; align-items: center; }
 .settings-icon .shell-icon { width: 14px; height: 14px; }
 .tab.selected .site-icon { color: var(--brand-stroke); }
 .tab.crashed .site-icon { color: var(--text-error); }
-.glyph.page.loading::before { inset: 2px; border-radius: 50%; border-inline-end-color: transparent; }
-.glyph.page.loading::after { content: none; }
 
 @media (prefers-reduced-motion: no-preference) {
   .tab, .icon-button { transition: background-color var(--motion-fast) ease; }
@@ -1135,8 +1200,9 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
   display: grid;
   place-items: center;
   flex: none;
-  width: 32px;
-  height: 32px;
+  /* Chromium 的 `TOOLBAR_BUTTON_HEIGHT` = 34（触摸 48）。原来 32，看着比 Chrome 小一号。 */
+  width: var(--toolbar-button-size);
+  height: var(--toolbar-button-size);
   padding: 0;
   border-radius: var(--button-radius);
   color: var(--text-secondary);
@@ -1221,7 +1287,8 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
   align-items: center;
   gap: var(--nav-gap);
   height: var(--toolbar-height);
-  padding: 0 var(--space-s);
+  /* Chromium 的 `TOOLBAR_INTERIOR_MARGIN` 水平 5（垂直 6，已经算在 46 里了）。 */
+  padding: 0 5px;
   background: var(--surface-toolbar);
   border-bottom: var(--shell-stroke) solid var(--stroke-divider);
 }
@@ -1262,6 +1329,8 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
 .bar-item.clipped { visibility: hidden; }
 .bar-icon { display: grid; place-items: center; flex: none; color: var(--text-secondary); }
 .bar-icon .shell-icon { width: 13px; height: 13px; }
+/* 横条上的站点图标：16px（Chromium 的横条图标就是 16）。 */
+.bar-icon .favicon { width: 16px; height: 16px; }
 .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 「其余收藏」：绝对定位到右端，不参与 flex 排布——它的宽度由测量预留（`BAR_OVERFLOW_RESERVE`）。 */
 .bar-overflow {
@@ -1297,7 +1366,8 @@ button:focus-visible { outline: 2px solid var(--stroke-focus-ring); outline-offs
   align-items: center;
   flex: 1;
   min-width: 0;
-  height: 32px;
+  /* Chromium 的 `LOCATION_BAR_HEIGHT` = 34（与工具栏按钮同高，垂直居中后上下各 6）。 */
+  height: var(--address-height);
   margin-inline-start: var(--space-xs);
   padding: 0 var(--space-m);
   border: var(--shell-stroke) solid var(--stroke-control);

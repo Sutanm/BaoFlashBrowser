@@ -5,12 +5,22 @@
   --motion-fast: 120ms;
   --motion-normal: 180ms;
 
-  --tab-radius: var(--radius-surface);
+  --tab-radius: 10px;
   --button-radius: var(--radius-control);
-  --tab-height: 34px;
-  --tab-foot: var(--radius-control);
+  --tab-height: 35px;
+  /*
+   * 标签标准宽度：Chromium 是 `kTabWidth(232) + 2 × 底角半径(12)` = 256
+   * （`chrome/browser/ui/tabs/tab_style.cc:31`）。原来是 180，比正常浏览器窄一截。
+   * 窄窗口下允许收缩到 88（Chromium 的 `GetMinimumInactiveWidth` 更狠，但它不滚动，
+   * 我们横向滚动，收缩只作兜底）。
+   */
+  --tab-width: 256px;
+  --tab-min-width: 88px;
+  --tab-foot: 12px;
   --new-tab-button-size: 28px;
   --nav-gap: var(--space-xs);
+  --toolbar-button-size: 34px;
+  --address-height: 34px;
   --address-radius: var(--radius-pill);
   /*
    * 强调色只有一个：紫色。

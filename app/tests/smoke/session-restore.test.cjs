@@ -188,9 +188,9 @@ test('异常退出后重启：只提示不恢复，点「恢复」才重建并�
         const frame = await pageViewBounds(second.app)
         assert.ok(frame, '找不到页面视图')
         // 提示条那版会把页面视图的 y 加上 INFOBAR_HEIGHT(36)；气泡是浮层，页面位置只由
-        // 标签栏(40) + 工具栏(44) [+ 收藏夹横条(32)] 决定。
-        assert.ok(frame.y === 84 || frame.y === 116,
-          `气泡不应把页面往下推（页面视图 y=${frame.y}，带提示条时会 ≥120）`)
+        // 标签栏(41) + 工具栏(46) [+ 收藏夹横条(34)] 决定。
+        assert.ok(frame.y === 87 || frame.y === 121,
+          `气泡不应把页面往下推（页面视图 y=${frame.y}，带提示条时会 ≥123）`)
 
         // 用户选择恢复。
         assert.equal(await clickSessionBubble(second.app, 'restore'), true)

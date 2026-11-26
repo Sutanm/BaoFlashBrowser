@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
+    <!--
+      站点图标（favicon）是主进程内联出来的 `data:` URL，所以 `img-src` 必须放行 data:——
+      `default-src 'self'` 会把它拦成一张破图（2026-11-26 实测：标签上是一张加载失败的图标）。
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
     <title>BaoFlashBrowser Next</title>
   </head>
   <body>

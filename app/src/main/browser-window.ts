@@ -134,6 +134,13 @@ interface Tab {
   /** 从新标签页 Back 回来后，Forward 要重开的网页地址。 */
   newTabForwardUrl?: string
   /**
+   * 站点图标（`data:` URL，Chromium 的 `FaviconTabHelper` 往标签图标里塞的那一份）。
+   *
+   * 只在**这个标签**还在那个站点时才更新：导航走了一半、图标后到，不能把新页面的图标
+   * 画成上一个站点的（见 `applyFavicon()`）。
+   */
+  favicon?: string
+  /**
    * 收藏夹横条暂时**按住不收**：刚从新标签页离开、新页面还没提交。
    *
    * 为什么需要它：离开 NTP 要换 WebContents（`leaveNewTab`），而 `internal` 在导航**开始**
@@ -331,6 +338,56 @@ let nextNoticeId = 1
 
 /** 写盘节流：标题/加载状态会高频变化，但会话只需"最近的样子"。 */
 const SESSION_SAVE_DEBOUNCE_MS = 800
+
+/* ------------------------------------------------------------------ *
+ * 站点图标（favicon）缓存
+ *
+ * 进程级共享：同一个图标地址被多少个窗口/标签用到，都只该抓一次。
+ * 缓存键是**图标 URL**（不是 origin）：同一个站点下不同页面可以用不同图标
+ * （`<link rel=icon>` 完全可能指到别处），按 origin 缓存会把 A 页的图标画到 B 页上。
+ * 真实站点的图标地址通常就那一个（`/favicon.ico`），所以去重照样生效。
+ *
+ * 值的两种"空"要分开（`Map.has` 区分）：
+ * - **没查过**：发请求；
+ * - **查过但没拿到**（`undefined`）：不再发——否则每个页面都会重复一次注定失败的请求。
+ * ------------------------------------------------------------------ */
+const faviconCache = new Map<string, string | undefined>()
+/**
+ * `origin → 图标 data URL`：投影给外壳用（收藏夹横条/面板按书签地址查）。
+ *
+ * 与 `faviconCache` 分开：那张表的键是**图标 URL**（去重用），这张表的键是**站点**
+ * （界面查表用）。只保留真的拿到的那些——没图标的站点不进投影，界面就不画占位方块。
+ */
+const originFavicons = new Map<string, string | undefined>()
+/** 缓存上限：几百个站点的 data URL 也就几十 KB，超了整表丢掉重来（比 LRU 简单且够用）。 */
+const FAVICON_CACHE_LIMIT = 256
+/** 图标大小上限：`favicon.ico` 可以到几百 KB，标签上那 16px 不需要。 */
+const FAVICON_MAX_BYTES = 64 * 1024
+/** 抓取超时：图标是装饰，卡住不能拖累标签。 */
+const FAVICON_TIMEOUT_MS = 5_000
+
+/**
+ * 按**魔数**认图片类型（不信 `Content-Type`）。
+ *
+ * 老站点（以及一堆 404 兜底页）把 `favicon.ico` 发成 `text/plain` /
+ * `application/octet-stream` / `text/html`：按响应头判断就永远拿不到图标。反过来，
+ * 认不出的字节必须丢弃——宁可没有图标，也不要往 `<img>` 里塞 HTML 或半张损坏的位图。
+ */
+function sniffImageType(bytes: Buffer): string | undefined {
+  const ascii = (start: number, end: number): string => bytes.subarray(start, end).toString('latin1')
+  if (bytes.length >= 8 && bytes[0] === 0x89 && ascii(1, 4) === 'PNG') return 'image/png'
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.length >= 4 && ascii(0, 3) === 'GIF') return 'image/gif'
+  if (bytes.length >= 4 && bytes[0] === 0 && bytes[1] === 0 && (bytes[2] === 1 || bytes[2] === 2) && bytes[3] === 0) {
+    // `.ico`：浏览器认 `image/x-icon`（`image/vnd.microsoft.icon` 同样可以）。
+    return 'image/x-icon'
+  }
+  if (bytes.length >= 2 && ascii(0, 2) === 'BM') return 'image/bmp'
+  if (bytes.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp'
+  const head = bytes.subarray(0, 512).toString('utf8').trimStart()
+  if (head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) return 'image/svg+xml'
+  return undefined
+}
 
 const sessionWindows = new Map<number, SessionWindow>()
 let sessionTimer: ReturnType<typeof setTimeout> | undefined
@@ -676,7 +733,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         muted: tab.muted,
         internal: tab.internal,
         keepAwake: keptAwake(tab),
-        discarded: true
+        discarded: true,
+        favicon: tab.favicon
       }
     }
     const contents = tab.view.webContents
@@ -732,7 +790,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       pinned: tab.pinned,
       muted: tab.muted,
       internal: tab.internal,
-      keepAwake: keptAwake(tab)
+      keepAwake: keptAwake(tab),
+      favicon: tab.favicon
     }
   }
 
@@ -748,6 +807,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       sessionPrompt: sessionPromptOf(),
       bookmarks: bookmarkNodes(),
       bookmarkBarShown: bookmarkBarShown(active),
+      favicons: faviconProjection(),
       tabs: tabs.map(describe)
     }
   }
@@ -793,6 +853,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    */
   function publishBookmarks(): void {
     publish()
+    // 新加/改过的收藏可能带来没见过的站点：补一次图标（单飞，重复调用无副作用）。
+    ensureBookmarkFavicons()
     for (const other of controllers.values()) {
       if (other !== controller) other.refreshProjection()
     }
@@ -1065,6 +1127,147 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 注意顺序：先 `ensureRegistered` 再读代际。写成参数默认值 `binding = bindingOf(tab)`
    * 会在登记之前求值（未登记 → 0），之后 `live()` 永远为假——又是一次静默丢事件。
    */
+  /**
+   * 抓一个图标并内联成 `data:` URL（抓不到返回 `undefined`）。
+   *
+   * 三个真实约束：
+   * 1. **类型靠**字节**判断，不信 `Content-Type`**。大量老站点（以及一堆 404 兜底页）把
+   *    `favicon.ico` 发成 `text/plain` / `application/octet-stream` / `text/html`，
+   *    按响应头一票否决就永远拿不到图标。这里读回字节后按魔数认（PNG/JPEG/GIF/ICO/BMP/WEBP/SVG）。
+   * 2. **大小上限**：`favicon.ico` 可以是多尺寸的大文件（几百 KB 很常见），标签上只有 16px；
+   *    超限直接丢。这也是"老站点抓着抓着就崩"的同类问题——别把任意字节塞进渲染进程。
+   * 3. **认不出的字节一律丢弃**：宁可没有图标，也不要 `<img>` 里挂一段 HTML/脚本。
+   */
+  async function fetchFavicon(url: string): Promise<string | undefined> {
+    try {
+      const response = await pageSession.fetch(url, { signal: AbortSignal.timeout(FAVICON_TIMEOUT_MS) })
+      if (!response.ok) return undefined
+      const bytes = Buffer.from(await response.arrayBuffer())
+      if (bytes.byteLength === 0 || bytes.byteLength > FAVICON_MAX_BYTES) return undefined
+      const type = sniffImageType(bytes)
+      if (!type) return undefined
+      return `data:${type};base64,${bytes.toString('base64')}`
+    } catch {
+      // 超时/网络失败：图标缺失是常态，不是故障，不抛也不写日志。
+      return undefined
+    }
+  }
+
+  /**
+   * 抓一个站点图标并投给标签（Chromium 的 `FaviconTabHelper` + `FaviconService` 的简化版）。
+   *
+   * 三个真实约束：
+   * 1. **按图标 URL 去重**：页面会因为 `<link rel=icon>`、`/favicon.ico` 回落等原因多次上报，
+   *    同一地址只抓一次；
+   * 2. **只在还停在这个站点时应用**：图标是异步来的，等它回来时标签可能已经导航走了——
+   *    那会把上一个站点的图标画到新页面上（`tab.favicon` 的注释）；
+   * 3. **失败也要缓存**：没有图标的站点（大量内网页）否则每次导航都发一次注定失败的请求。
+   *
+   * 抓取走**页面会话**（`pageSession.fetch`），所以 cookie/代理/证书策略与实际页面一致；
+   * 不新开无痕会话，也不碰 `net.fetch` 的进程级默认。
+   */
+  async function applyFavicon(tab: Tab, url: string): Promise<void> {
+    let origin = ''
+    try {
+      origin = new URL(url).origin
+    } catch {
+      return
+    }
+    if (!origin || origin === 'null') return
+    const key = url
+    if (faviconCache.has(key)) {
+      const cached = faviconCache.get(key)
+      if (cached && tab.favicon !== cached) {
+        tab.favicon = cached
+        tab.host?.notify(tab)
+      }
+      return
+    }
+    if (faviconCache.size >= FAVICON_CACHE_LIMIT) faviconCache.clear()
+    // 先占位：同一个图标 URL 的多次上报只发一次请求。
+    faviconCache.set(key, undefined)
+    const dataUrl = await fetchFavicon(url)
+    if (!dataUrl) return
+    faviconCache.set(key, dataUrl)
+    // 站点 → 图标：收藏夹横条/面板按书签地址查这张表。
+    originFavicons.set(origin, dataUrl)
+    // 图标回来时标签可能已经走了：只有还在这个 origin 上才画。
+    const current = tab.view && !tab.view.webContents.isDestroyed()
+      ? safe(() => tab.view?.webContents.getURL() ?? '', '')
+      : ''
+    let currentOrigin = ''
+    try {
+      currentOrigin = current ? new URL(current).origin : ''
+    } catch {
+      currentOrigin = ''
+    }
+    if (currentOrigin !== origin) return
+    tab.favicon = dataUrl
+    tab.host?.notify(tab)
+  }
+
+  /**
+   * 收藏夹条目的站点图标：**按站点抓 `<origin>/favicon.ico`**。
+   *
+   * 书签里的地址可能从来没被打开过（手动添加、以后从别的浏览器导入），它们的图标只能由主
+   * 进程去要——这是 Chromium `FaviconService` 的兜底路径（先查缓存，没有就按
+   * `/favicon.ico` 抓一次）。抓到就 `publish()`，收藏夹横条与面板随之补上图标。
+   */
+  async function ensureBookmarkFavicon(url: string): Promise<void> {
+    let origin = ''
+    try {
+      origin = new URL(url).origin
+    } catch {
+      return
+    }
+    if (!origin || origin === 'null' || originFavicons.has(origin)) return
+    if (originFavicons.size >= FAVICON_CACHE_LIMIT) originFavicons.clear()
+    // 占位：同一站点的多个书签只发一次请求。
+    originFavicons.set(origin, undefined)
+    const iconUrl = `${origin}/favicon.ico`
+    if (faviconCache.has(iconUrl)) {
+      const cached = faviconCache.get(iconUrl)
+      if (cached) {
+        originFavicons.set(origin, cached)
+        publish()
+      }
+      return
+    }
+    faviconCache.set(iconUrl, undefined)
+    const dataUrl = await fetchFavicon(iconUrl)
+    if (!dataUrl) return
+    faviconCache.set(iconUrl, dataUrl)
+    originFavicons.set(origin, dataUrl)
+    publish()
+  }
+
+  /**
+   * 给**所有**收藏夹网址补图标（串行：一个站点一次，别在启动瞬间打满连接）。
+   *
+   * 单飞：上一轮还没跑完时直接返回——每加一条收藏就重扫一遍会让"加书签"变成一串重复请求。
+   *
+   * 注意这里是 `faviconSweep = ……finally(清空)` 而不是 `??= (async () => { …… finally { 清空 } })()`：
+   * 没有 await 的路径（收藏全是文件夹、或全部命中缓存）会在**赋值之前**就执行 finally，
+   * 于是 `faviconSweep` 被写回一个"已完成的 promise"并永远为真——之后每次调用都被当成
+   * in-flight 直接返回，图标再也不抓（2026-11-26 实测就是这样一直没图标）。
+   */
+  let faviconSweep: Promise<void> | undefined
+  function ensureBookmarkFavicons(): void {
+    if (faviconSweep) return
+    faviconSweep = (async () => {
+      for (const node of bookmarkNodes()) {
+        if (node.kind === 'url' && node.url) await ensureBookmarkFavicon(node.url)
+      }
+    })().catch(() => {}).finally(() => { faviconSweep = undefined })
+  }
+
+  /** 有图标的站点（`origin → data URL`）。只投影真的拿到的，界面查不到就画通用页形。 */
+  function faviconProjection(): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const [origin, dataUrl] of originFavicons) if (dataUrl) out[origin] = dataUrl
+    return out
+  }
+
   function bind(tab: Tab, view: WebContentsView, generation?: number): void {
     ensureRegistered(tab)
     const binding = generation ?? bindingOf(tab)
@@ -1105,6 +1308,29 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     contents.on('did-stop-loading', () => {
       if (live()) tab.host?.notify(tab)
     })
+    /**
+     * 站点图标：渲染进程报出候选 URL（可能多个：`.ico` 多尺寸、`<link rel=icon>` 多个）。
+     *
+     * 取**最后一个**：Chromium 把页面声明的图标按顺序收集，最后一个是页面作者最想用的那个。
+     * 候选**必须按页面地址解析**：大量站点写的是协议相对地址（`//s1.example.com/favicon.ico`）
+     * 或站内相对路径（`/static/icon.png`），直接当绝对地址会被判成非法 URL 而整个丢掉
+     * （2026-11-26 实测：bilibili 的图标就是这么丢的）。
+     */
+    contents.on('page-favicon-updated', (_event, favicons) => {
+      if (!live()) return
+      const pageUrl = safe(() => contents.getURL(), '')
+      for (const candidate of [...favicons].reverse()) {
+        let resolved = ''
+        try {
+          resolved = new URL(candidate, pageUrl).href
+        } catch {
+          continue
+        }
+        if (!/^(https?|data):/i.test(resolved)) continue
+        void applyFavicon(tab, resolved)
+        return
+      }
+    })
     contents.on('did-start-navigation', (details) => {
       // 任何主帧导航（含重定向、fragment、pushState）都推进版本：引擎切换准备期间旧页仍可
       // 交互，提交前必须能发现"用户已经导航过"，否则会把他的新页面换回快照里的旧地址。
@@ -1124,6 +1350,15 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         }
       }
       tab.failedUrl = undefined
+      /**
+       * 新文档提交：图标先清掉，等这个页面自己上报。
+       *
+       * 不清的话，从"有图标"的页面走到"没有图标"的页面（同站点，例如 `/with-icon` →
+       * `/no-icon`）会一直挂着**上一个页面**的图标——那正是 Chrome 里"首页的图标跟着你
+       * 到处跑"的 bug 形态。清空后同站点的图标会在下一次 `page-favicon-updated` 里
+       * 从缓存瞬间补上，所以只有"新页面确实没有图标"时才会看到通用页形。
+       */
+      if (tab.favicon) tab.favicon = undefined
       // 提交之后 `getURL()` 就是权威：清掉"正在请求的地址"，否则历史前进/后退会让地址栏
       // 一直停在上一次输入的地址上（`displayAddress()` 只在两者不同时才用它）。
       tab.requestedUrl = undefined
@@ -3311,6 +3546,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   try {
     await window.loadURL(shellUrl)
     if (options.adopt) adoptTab(options.adopt, options.adoptIndex ?? 0)
+    // 库里已有的收藏在启动时补一次站点图标（只影响横条/面板里的那一列图标，失败不阻断启动）。
+    ensureBookmarkFavicons()
     // 预热飞窗（**在 show 之前**）：外壳文档已经加载完（上面的 await loadURL），此时窗口还不可见，
     // 用户不可能正在输入，所以"建浮层文档"与"用户打字"这两件事不可能重叠。
     // 这条顺序是被实测逼出来的：放到 show 之后、空闲时刻建时，开窗恰好落进"用户填好地址、

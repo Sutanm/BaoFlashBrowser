@@ -60,13 +60,15 @@ const RULES = [
       /^src\/renderer\/BookmarkEditorPanel\.vue$/,
       /^src\/renderer\/ShellOverlay\.vue$/
     ],
-    tests: ['overlay-prewarm-hidden', 'overlay-prewarm-policy', 'quick-settings', 'bookmarks', 'theme', 'engine', 'shell-crash-heal']
+    tests: ['overlay-prewarm-hidden', 'overlay-prewarm-policy', 'quick-settings', 'bookmarks', 'bookmark-bar',
+      'theme', 'engine', 'shell-crash-heal']
   },
   {
     // 外壳 UI 主体（标签栏/工具栏/地址栏/飞窗入口）。
     match: [/^src\/renderer\/App\.vue$/, /^src\/renderer\/ShellIcon\.vue$/],
-    tests: ['tabs', 'tab-ops', 'tearoff', 'quick-settings', 'bookmarks', 'engine', 'theme', 'titlebar',
-      'newtab', 'internal-page', 'input', 'overlay-prewarm-hidden', 'overlay-prewarm-policy']
+    tests: ['tabs', 'tab-ops', 'tearoff', 'quick-settings', 'bookmarks', 'bookmark-bar', 'favicon', 'engine',
+      'theme', 'titlebar', 'newtab', 'internal-page', 'input', 'overlay-prewarm-hidden',
+      'overlay-prewarm-policy']
   },
   {
     // 页面视图生命周期 + 标签拖拽。

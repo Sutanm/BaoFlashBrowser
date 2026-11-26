@@ -109,10 +109,10 @@ async function panelFacts(app) {
       editorSelected: editor?.querySelector('.folder-row[aria-checked="true"]')?.textContent?.trim() ?? null,
       editorActions: [...(editor?.querySelectorAll('.editor-actions button') ?? [])].map((el) => el.textContent.trim()),
       hubRows: [...(hub?.querySelectorAll('.hub-row .row-title') ?? [])].map((el) => el.textContent.trim()),
-      hubGroups: [...(hub?.querySelectorAll('.hub-lists .overlay-label') ?? [])].map((el) => [
-        el.querySelector('span')?.textContent.trim() ?? '',
-        el.querySelector('.count')?.textContent.trim() ?? ''
-      ]),
+      // 两个永久根是可展开的行（不是分组标题）：hubRoots 是顶层行，hubExpanded 是展开中的箭头。
+      hubRoots: [...(hub?.querySelectorAll('.hub-row.root .row-title') ?? [])].map((el) => el.textContent.trim()),
+      hubExpanded: [...(hub?.querySelectorAll('.row-chevron[aria-expanded="true"]') ?? [])].length,
+      hubChevrons: hub?.querySelectorAll('.row-chevron').length ?? 0,
       hubEmpty: Boolean(hub?.querySelector('.overlay-empty'))
     }
   })()`)
@@ -219,18 +219,29 @@ test('收藏夹：星标 = 收藏 + 气泡，文件夹是下拉，更多打开�
     // ② 空收藏夹：点工具栏的「收藏夹」→ 树打开、显示空状态；宽度与快捷设置同为 320。
     await shell.locator('.bookmarks-button').click()
     const empty = await openHub(app)
-    assert.equal(empty.hubEmpty, true)
+    assert.equal(empty.hubEmpty, true, '空收藏夹应显示空状态，而不是两个空文件夹')
     assert.deepEqual(empty.hubRows, [])
     const hubRect = await shell.evaluate(() => {
       const rect = document.querySelector('.bookmarks-button').getBoundingClientRect()
       return { right: Math.round(rect.right), bottom: Math.round(rect.bottom) }
     })
-    // 视图比卡片大一圈投影边距（左右 12、底部 20——底部更大，因为投影向下偏移），见 overlay-geometry.ts。
+    // 视图比卡片大一圈投影边距（左右 6、底部 10——底部更大，因为投影向下偏移），见 overlay-geometry.ts。
     const GUTTER = 6
     const GUTTER_BOTTOM = 10
-    assert.equal(empty.bounds.y, hubRect.bottom, '收藏夹卡片顶边应贴着按钮下沿')
-    assert.equal(empty.bounds.x + empty.bounds.width - GUTTER, hubRect.right, '收藏夹卡片右缘应与按钮对齐')
-    assert.equal(empty.bounds.width, 320 + 2 * GUTTER, '收藏夹卡片应与快捷设置同宽（三只飞窗挂在一起）')
+    /**
+     * 锚定断言要**等视图 bounds 与页面可见性对齐**：`openHub()` 里 `bounds` 与 `facts`
+     * 是两次 IPC，机器满载（并行跑 4 个文件）时可能先读到上一次的位置。这里等到两者
+     * 一致为止——只等时机，不放宽阈值。
+     */
+    const anchored = await waitFor(async () => {
+      const view = await overlayView(app)
+      if (!view?.bounds) return null
+      const cardRight = view.bounds.x + view.bounds.width - GUTTER
+      return Math.abs(cardRight - hubRect.right) <= 1 ? view.bounds : null
+    }, { message: '收藏夹卡片右缘没有对齐到「收藏夹」按钮' })
+    assert.equal(anchored.y, hubRect.bottom, '收藏夹卡片顶边应贴着按钮下沿')
+    assert.equal(anchored.x + anchored.width - GUTTER, hubRect.right, '收藏夹卡片右缘应与按钮对齐')
+    assert.equal(anchored.width, 320 + 2 * GUTTER, '收藏夹卡片应与快捷设置同宽（三只飞窗挂在一起）')
     // 视图高度会按内容收敛（`resize-quick`）：等它稳定后应是"卡片 + 底部投影边距"。
     // 各面板上报时 +2px 余量（避免"刚好相等"时冒滚动条），所以允许几像素偏差。
     const hubExtra = await waitFor(async () => {
@@ -389,9 +400,18 @@ test('收藏夹：星标 = 收藏 + 气泡，文件夹是下拉，更多打开�
     await flyoutClosed(app)
     await shell.locator('.bookmarks-button').click()
     const hub = await openHub(app)
-    // 树里还有上一步留下的「专题」文件夹（在「其他收藏夹」下），所以两组都各有一条。
-    assert.deepEqual(hub.hubGroups, [['收藏夹栏', '1'], ['其他收藏夹', '1']])
-    assert.deepEqual(hub.hubRows, ['第二个页面', '专题'])
+    // 树里还有上一步留下的「专题」文件夹（在「其他收藏夹」下）。
+    // 两个永久根默认**收起**：先只有两行，点开「收藏夹栏」才铺出里面的条目。
+    assert.deepEqual(hub.hubRoots, ['收藏夹栏', '其他收藏夹'])
+    assert.deepEqual(hub.hubRows, ['收藏夹栏', '其他收藏夹'], '默认收起：只画两个文件夹行')
+    assert.equal(hub.hubExpanded, 0, '默认全部收起')
+    await inOverlay(app, `document.querySelector('.hub-row.root .row-chevron').click()`)
+    const expanded = await waitFor(async () => {
+      const facts = await panelFacts(app)
+      return facts.hubExpanded === 1 ? facts : null
+    }, { message: '点箭头没有展开「收藏夹栏」' })
+    assert.deepEqual(expanded.hubRows, ['收藏夹栏', '第二个页面', '其他收藏夹'],
+      '展开后子项缩进铺在下面')
     await inOverlay(app, `(() => {
       const row = [...document.querySelectorAll('#bookmarks-panel .hub-row .row-title')]
         .find((el) => el.textContent.trim() === '第二个页面')
@@ -421,8 +441,16 @@ test('收藏夹：星标 = 收藏 + 气泡，文件夹是下拉，更多打开�
       const rect = document.querySelector('.bookmarks-button').getBoundingClientRect()
       return { right: Math.round(rect.right), bottom: Math.round(rect.bottom) }
     })
-    assert.equal(switched.bounds.y, anchor.bottom, '换页后应重新锚定到收藏夹按钮下沿')
-    assert.equal(switched.bounds.x + switched.bounds.width - GUTTER, anchor.right, '换页后应重新对齐收藏夹按钮右缘')
+    // 同样是"等 bounds 与页面可见性对齐"：`openHub()` 里两次 IPC 之间存在窗口
+    // （满载时能差一整个渲染帧），只等时机、不放宽阈值。
+    const reanchored = await waitFor(async () => {
+      const view = await overlayView(app)
+      if (!view?.bounds) return null
+      const cardRight = view.bounds.x + view.bounds.width - GUTTER
+      return Math.abs(cardRight - anchor.right) <= 1 ? view.bounds : null
+    }, { message: '换页后没有重新锚定到「收藏夹」按钮' })
+    assert.equal(reanchored.y, anchor.bottom, '换页后应重新锚定到收藏夹按钮下沿')
+    assert.equal(reanchored.x + reanchored.width - GUTTER, anchor.right, '换页后应重新对齐收藏夹按钮右缘')
   } finally {
     await close()
     await server.close()
@@ -465,10 +493,16 @@ test('收藏夹：重启后收藏还在，星标认得出来', { timeout: 180_00
       }, { message: '重启后星标没有认出已收藏的地址' })
       assert.equal(starred.label, '编辑收藏夹')
 
-      // 树里也有它。
+      // 树里也有它：默认收起时只有两个文件夹行，展开「收藏夹栏」才看得到。
       await second.shell.locator('.bookmarks-button').click()
       const hub = await openHub(second.app)
-      assert.deepEqual(hub.hubRows, ['保存过的页面'])
+      assert.deepEqual(hub.hubRows, ['收藏夹栏', '其他收藏夹'])
+      await inOverlay(second.app, `document.querySelector('.hub-row.root .row-chevron').click()`)
+      const reopened = await waitFor(async () => {
+        const facts = await panelFacts(second.app)
+        return facts.hubRows.includes('保存过的页面') ? facts : null
+      }, { message: '展开「收藏夹栏」后没有看到保存过的收藏' })
+      assert.deepEqual(reopened.hubRows, ['收藏夹栏', '保存过的页面', '其他收藏夹'])
     } finally {
       await second.close()
     }
