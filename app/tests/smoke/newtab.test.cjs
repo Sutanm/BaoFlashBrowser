@@ -314,6 +314,9 @@ test('新标签页：realbox 的非 URL 输入按默认搜索引擎搜索（不�
     }, { message: 'realbox 的搜索没有离开新标签页' })
     assert.equal(state.tabs.length, 1, 'realbox 搜索不应新开标签')
     assert.match(state.tabs[0].address, /^https:\/\/www\.baidu\.com\/s\?wd=/, `没走到搜索：${state.tabs[0].address}`)
+    // 导航未提交时地址栏用 `requestedUrl` 顶替，但**标题**不能跟着用目标地址去判占位：
+    // 那样 Chromium 的临时标题 `loading` 会被当成真标题显示出来（2026-11-26 自查）。
+    assert.notEqual(state.tabs[0].title, 'loading', '标签标题不该出现 Chromium 的 loading 占位')
     // NTP 的 WebContents 已在导航时被换掉（内部会话永不承载网页），所以不再去原文档里读提示；
     // "没有行内错误"由投影的 error 字段表达。
     assert.equal(state.tabs[0].error, '', `搜索不该报页面错误：${state.tabs[0].error}`)

@@ -663,16 +663,21 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     // 新标签页与 Chrome 一致：地址栏不显示 URL（空串 + 占位文案）。
     const address = displayAddress(tab, url)
     const pin = engineRules.resolve(hostOf(address))
+    /**
+     * 标题的「占位」判定只认**已提交文档**的地址，不能用 `address`。
+     *
+     * `displayAddress()` 在导航未提交时给的是**目标地址**，而此刻 Chromium 的临时标题是
+     * `loading`（英文占位）——拿目标地址去比判定不出占位，标签栏就会显示一个 `loading`。
+     * 用已提交的地址（或休眠前的 `lastUrl`）比较，行为与本次改动之前一致。
+     */
+    const committed = tab.failedUrl ?? (url || tab.lastUrl || '')
     return {
       id: tab.id,
       // 文档还没给出 <title> 时，Chromium 会把标题当成 URL——直接透出去会让标签栏
       // 闪一下 `bao://settings/`。所以「标题等于地址（忽略结尾斜杠）」或「标题本身就是
       // 内部地址」时回落到建标签时给的初始标题。2026-11-24 实测：内部设置页在页面加载
       // 完成前约 60–200 ms 处于这个状态，且 Chromium 给的占位标题不带结尾斜杠。
-      // 文档还没给出 <title> 时，Chromium 会把标题当成 URL——直接透出去会让标签栏
-      // 闪一下 `bao://settings/`。占位时回落到建标签时给的初始标题。
-      // 2026-11-24 实测：内部设置页在首帧前约 60–200 ms 处于这个状态。
-      title: address ? (placeholderTitle(title, address) ? tab.initialTitle : title) : tab.initialTitle,
+      title: committed ? (placeholderTitle(title, committed) ? tab.initialTitle : title) : tab.initialTitle,
       address,
       canGoBack,
       canGoForward,
