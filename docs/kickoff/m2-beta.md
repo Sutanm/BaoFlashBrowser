@@ -30,6 +30,7 @@ M2 的历史退出口径来自旧架构 §6：书签/历史、会话与下载基
 | **运行时导出/导入互通** | 已交付；来源标记（runtime-prefixed）与包完整性分离，双 profile 往返门禁接入打包 | `runtime-roundtrip`；`cdf2a0e` |
 | **观测底座（外壳心跳 + 浮层长任务）** | 已交付；主进程 ↔ 外壳渲染线程 100 ms RTT 心跳，浮层在自己的执行环境上报 `longtask`/LoAF，落诊断文件 | `heartbeat` 用例 3 条 + 单测 6 条；`b0bef6e` |
 | **安全与正确性修复一批** | 已交付；broker 重定向逐跳授权、crossdomain 收紧到同源并 fail-closed、开发态代理只对回环放行并下发生产 CSP、Flash 自动发现不再扫用户目录、引擎诊断按导航版本校验 | `engine-broker`、`ruffle-cors`、`internal-page`、`flash`；`1d1ff51`、`513ac19`、`35b92a2` |
+| **窗口控制器判据纯化（A1 前置）** | 已交付；地址/文档身份判断与 Flash 内容判定从 2340 行闭包里抽出为纯模块，行为零变化，Flash 判据从此可被能力层复用（ADR-0004 只允许一份实现） | [判据纯化报告](../reports/2026-11-26-window-extraction.md) |
 | 测试与发布门禁增量 | 已交付部分；并行 smoke、按改动/按名字选跑、构建指纹、PPAPI 沙箱进程断言、来源校验、前台闸门 85/85 | [前台冒烟基线](../reports/2026-11-25-foreground-smoke.md)、`cda66c0` |
 
 “已交付”只描述对应增量，不表示 M2 整体通过。

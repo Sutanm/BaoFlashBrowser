@@ -1,7 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView, webContents } from 'electron'
 import { backgroundSmoke as background, hiddenSmoke as hidden } from './automation'
-import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents, WebFrameMain } from 'electron'
+import type { Input, IpcMainInvokeEvent, MenuItemConstructorOptions, NavigationEntry, Rectangle, WebContents } from 'electron'
 import { join } from 'node:path'
+import { isWebAddress, parseAddress, placeholderTitle, sameDocument } from './address'
+import { FlashPresenceCache, detectFlashContent } from './flash-probe'
 import { browserChannels, browserFailureText, INFOBAR_HEIGHT, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../shared/browser'
 import type { BrowserCommand, BrowserFailureCode, BrowserResult, BrowserSessionPrompt, BrowserState, BrowserTab } from '../shared/browser'
 import { hostOf } from '../shared/engine'
@@ -429,42 +431,8 @@ function popupSize(details: { features?: string }): { width: number; height: num
   return { width, height, x, y }
 }
 
-function isWebAddress(value: string): boolean {
-  const url = URL.parse(value)
-  return !!url && (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password
-}
-
-/**
- * 判断标题是不是 Chromium 的「占位标题」（文档还没给出 `<title>` 时它等于 URL）。
- *
- * 内部页最容易撞上：标签一建好就有地址，标题先是 `bao://settings`（注意不带结尾斜杠），
- * 标签栏会闪一下地址。占位判定用「忽略结尾斜杠后相等」+「本身就是 bao: 地址」两条。
- */
-function placeholderTitle(title: string, address: string): boolean {
-  if (!title) return true
-  if (/^bao:\/\//i.test(title)) return true
-  const normalize = (value: string): string => value.replace(/\/+$/, '')
-  return normalize(title) === normalize(address)
-}
-function parseAddress(input: string): string | undefined {
-  const address = input.trim()
-  if (!address || /\s/.test(address)) return
-  const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(address)
-  const hasPort = /^[^/:]+:\d+(?:[/?#]|$)/.test(address)
-  const value = hasScheme && !hasPort ? address : `https://${address}`
-  if (isWebAddress(value)) return new URL(value).href
-}
-
-function sameDocument(actual: string, expected: string): boolean {
-  try {
-    const left = new URL(actual)
-    const right = new URL(expected)
-    return left.protocol === right.protocol && left.host === right.host &&
-      left.pathname.replace(/\/$/, '') === right.pathname.replace(/\/$/, '')
-  } catch {
-    return false
-  }
-}
+// 地址解析、占位标题、同文档判定在 `./address`（纯函数 + 单测）：它们的边界值得被单独钉住，
+// 而不是靠 30 个 smoke 文件才发现改错了。
 
 /**
  * 站点近似（M1 用「注册域」的最后两段）。
@@ -1364,48 +1332,26 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /**
    * 这个标签的**页面上**有没有 Flash 内容（ADR-0004 §2 硬门禁）。
    *
-   * 为什么不用引擎判定：本产品的默认引擎就是 `ppapi`（插件可用时每个标签都是它），
-   * 所以"引擎是 ppapi"≠"装着 Flash"。实测拿它当判据会把**所有**标签都保护起来，
-   * 休眠直接失效（用例里 trace 全是 `flash-content`，普通页也不睡）。
-   *
-   * 三个必须记住的坑（2026-11-26 审计复现）：
-   * 1. **不能缓存阴性结果**：页面可以在首次探测之后才插入播放器（懒加载、SPA 换页、
-   *    iframe 里的客户端 SWF），按 URL 缓存阴性会让它照样被睡。所以只在**决策那一刻**探，
-   *    且只有阳性结果被粘住（键是绑定代际，视图一换就自动失效）。
-   * 2. **必须遍历所有帧**：`document.querySelector` 看不到 iframe 里的播放器，而本产品的
-   *    站点客户端 SWF 经常挂在跨源 iframe 里（淘米摩尔庄园那类）。
-   * 3. 判不出（帧已 detach / 执行失败 / 取不到主帧）一律按"有"处理（fail-closed）。
+   * 判定逻辑、缓存语义与三个历史坑（不用引擎判定、阴性不缓存、跨帧遍历、fail-closed）
+   * 都在 `./flash-probe`，那里是纯模块、有单测，A1 的 Capability 校验层（`flash-content`）
+   * 必须复用同一份实现。这里只做接线：把「取主帧」这件唯一需要 Electron 的事做成闭包传进去。
    */
-  const flashSeen = new Map<number, string>()
+  const flashPresence = new FlashPresenceCache()
 
-  const FLASH_PROBE =
-    'Boolean(document.querySelector("embed,object,ruffle-player,ruffle-embed,[type*=shockwave],[type*=flash]"))'
-
-  async function flashContentOf(tab: Tab, contents: WebContents): Promise<boolean> {
-    const binding = String(tab.binding)
-    if (flashSeen.get(tab.id) === binding) return true
-    let frame: WebFrameMain
-    try {
-      frame = contents.mainFrame
-    } catch {
-      return true
-    }
-    if (!frame) return true
-    for (const target of frame.framesInSubtree) {
-      if (target.detached) continue
-      let hit: unknown
-      try {
-        hit = await target.executeJavaScript(FLASH_PROBE, true)
-      } catch {
-        // 帧正在销毁/导航：判不出就当"有"（fail-closed），下一轮重探。
-        return true
+  function flashContentOf(tab: Tab, contents: WebContents): Promise<boolean> {
+    return detectFlashContent({
+      tabId: tab.id,
+      binding: tab.binding,
+      cache: flashPresence,
+      // 主帧已 detach 或 WebContents 已销毁时 getter 会抛：交给纯层按「有 Flash」处理。
+      frames: () => {
+        try {
+          return contents.mainFrame?.framesInSubtree
+        } catch {
+          return undefined
+        }
       }
-      if (hit === true) {
-        flashSeen.set(tab.id, binding)
-        return true
-      }
-    }
-    return false
+    })
   }
 
   /** 让标签进入休眠：销毁它的视图（省掉一整个渲染进程），只保留元数据。 */
@@ -1423,7 +1369,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.error = ''
     tab.notice = undefined
     discardBlocked.delete(tab.id)
-    flashSeen.delete(tab.id)
+    flashPresence.forget(tab.id)
     traceDiscard(`tab=${tab.id} 休眠 engine=${tab.engine} url=${tab.lastUrl}`)
     if (!view.webContents.isDestroyed()) view.webContents.close()
     publish()

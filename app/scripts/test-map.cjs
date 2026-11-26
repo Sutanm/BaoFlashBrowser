@@ -167,6 +167,16 @@ const RULES = [
     tests: ['tab-ops', 'tab-discard']
   },
   {
+    // 地址/文档身份判断：地址栏导航、外壳页识别（同文档）、内部页、链接目标分配都吃它。
+    match: [/^src\/main\/address\.ts$/],
+    tests: ['tabs', 'tab-ops', 'internal-page', 'newtab', 'link-target', 'popup', 'overlay-prewarm-policy']
+  },
+  {
+    // Flash 内容判定：休眠硬门禁与插件可用性两条线。
+    match: [/^src\/main\/flash-probe\.ts$/],
+    tests: ['tab-discard', 'flash']
+  },
+  {
     // 引用来源头。
     match: [/^src\/shared\/referer\.ts$/],
     tests: ['link-target']
