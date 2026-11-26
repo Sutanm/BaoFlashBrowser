@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
-import { net, protocol } from 'electron'
+import { app, net, protocol } from 'electron'
+import { resolveDevRendererUrl } from './dev-renderer-url'
 import type { Session } from 'electron'
 
 /**
@@ -84,13 +85,7 @@ function rendererRoot(): string {
  * 有旧产物时又会显示上一次构建的页面（审计 P2）。这里让内部页在开发态也走开发服务器。
  */
 function devRendererUrl(): URL | undefined {
-  const raw = process.env.ELECTRON_RENDERER_URL
-  if (!raw) return undefined
-  try {
-    return new URL(raw)
-  } catch {
-    return undefined
-  }
+  return resolveDevRendererUrl(process.env.ELECTRON_RENDERER_URL, app.isPackaged)
 }
 
 /** 开发态代理：把 `bao://<host>/<path>` 转给 Vite dev server，保持查询串。 */
@@ -102,7 +97,10 @@ async function proxyToDevServer(dev: URL, url: URL, entry: string): Promise<Resp
     status: response.status,
     headers: {
       'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'no-store',
+      // 开发态同样下发生产 CSP 与 nosniff：否则「开发能跑、打包被拦」只会在发布时暴露。
+      'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+      'X-Content-Type-Options': 'nosniff'
     }
   })
 }
