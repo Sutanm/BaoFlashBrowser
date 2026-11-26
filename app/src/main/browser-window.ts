@@ -31,6 +31,8 @@ import { overlayChannels } from '../shared/overlay'
 import { createShellOverlays } from './shell-overlays'
 import { attachPopupChrome } from './popup-chrome'
 import { activityLeases } from './activity-lease'
+import { tabRegistry } from './tab-registry'
+import type { TabLifecycleKind } from './tab-registry'
 import { SESSION_VERSION, sessionTabCount } from '../shared/session'
 import type { SessionSnapshot, SessionTab, SessionWindow } from '../shared/session'
 
@@ -889,6 +891,30 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     })
   }
 
+  /**
+   * 标签身份与代际（A1-b）：**账本**是 `tabRegistry`，`tab.binding` / `tab.navVersion`
+   * 是它的镜像。
+   *
+   * 为什么先做镜像而不是直接删字段：这两个数字的读取点有十几处（事件守卫 `live()`、
+   * 引擎切换提交校验、会话快照、诊断），一次性全改成账本查询会把「代际收口」和
+   * 「读取侧重构」混成一次高风险改动。当前这一步保证的是**只有这里能推进代际**，
+   * 且每次推进都会发出生命周期事件（架构 §7 规则 9）。
+   * 下一片再把读取侧切到账本，然后删掉镜像字段。
+   */
+  function registerTab(tab: Tab): void {
+    tabRegistry.create({ tabId: tab.id, windowId: window.id, bindingId: tab.binding, navigationId: tab.navVersion })
+  }
+
+  function advanceBinding(tab: Tab, kind: TabLifecycleKind): void {
+    const next = tabRegistry.bumpBinding(tab.id, kind)
+    tab.binding = next ?? tab.binding + 1
+  }
+
+  function advanceNavigation(tab: Tab): void {
+    const next = tabRegistry.bumpNavigation(tab.id)
+    tab.navVersion = next ?? tab.navVersion + 1
+  }
+
   function bind(tab: Tab, view: WebContentsView, binding = tab.binding): void {
     const contents = view.webContents
     const live = () => tab.view === view && tab.binding === binding && !contents.isDestroyed()
@@ -931,11 +957,11 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       // 任何主帧导航（含重定向、fragment、pushState）都推进版本：引擎切换准备期间旧页仍可
       // 交互，提交前必须能发现"用户已经导航过"，否则会把他的新页面换回快照里的旧地址。
       if (!live() || !details.isMainFrame) return
-      tab.navVersion += 1
+      advanceNavigation(tab)
     })
     contents.on('did-navigate', (_event, url) => {
       if (!live()) return
-      tab.navVersion += 1
+      advanceNavigation(tab)
       // 内部页身份以 URL 为准：任何来源的就地导航（地址栏、页内链接）都能被正确归类，
       // 避免「标签说是新标签页、文档已经是设置页」的陈旧值。
       if (tab.internal) {
@@ -950,7 +976,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     })
     contents.on('did-navigate-in-page', () => {
       if (!live()) return
-      tab.navVersion += 1
+      advanceNavigation(tab)
       tab.host?.notify(tab)
     })
     contents.on('page-title-updated', () => {
@@ -975,6 +1001,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       id: nextTabId++, view, binding: 1, navVersion: 0, error: '', initialTitle, engine, manualOverride: source === 'manual', pinned: false, muted: false, host: controller
     }
     tabs.push(tab)
+    registerTab(tab)
     bind(tab, view)
     if (url !== null) load(tab, url)
     return tab
@@ -1003,6 +1030,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       internal: kind
     }
     tabs.push(tab)
+    registerTab(tab)
     bind(tab, view)
     load(tab, internalUrls[kind])
     return tab
@@ -1081,6 +1109,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const others = restored.filter((tab) => !tab.pinned)
     tabs.unshift(...pinnedRestored)
     tabs.push(...others)
+    for (const restoredTab of restored) registerTab(restoredTab)
 
     const activeIndex = entries.findIndex((entry) => entry.active)
     const chosen = (activeIndex >= 0 ? restored[activeIndex] : undefined) ?? restored[0]
@@ -1362,7 +1391,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tab.lastUrl = safe(() => view.webContents.getURL(), tab.lastUrl ?? '')
     tab.lastTitle = safe(() => view.webContents.getTitle(), tab.lastTitle ?? '')
     if (window.contentView.children.includes(view)) window.contentView.removeChildView(view)
-    tab.binding += 1
+    advanceBinding(tab, 'tab-discarded')
     tab.view = undefined
     tab.discarded = true
     tab.backgroundSince = undefined
@@ -1394,7 +1423,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (tab.view) return
     const view = tab.internal ? createInternalView() : createPageView(tab.engine)
     tab.view = view
-    tab.binding += 1
+    advanceBinding(tab, 'tab-revived')
     tab.discarded = false
     bind(tab, view)
     // 静音跟着标签走：休眠丢掉了 WebContents，醒来必须重新应用（与 swapView 同一条规则）。
@@ -1521,7 +1550,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const previous = tab.view
     // 内部页重建仍是内部页：不能因为崩溃/快捷键把它换成页面视图。
     const view = tab.internal ? createInternalView() : createPageView(engine)
-    tab.binding += 1
+    advanceBinding(tab, 'tab-rebuilt')
     tab.view = view
     tab.engine = engine
     tab.manualOverride = source === 'manual'
@@ -1634,7 +1663,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   /** 建候选视图：按「旧代际 + 1」绑定，事件在提交前全部作废（`tab.binding` 尚未推进）。 */
   function createEngineAttempt(tab: Tab, engine: BrowserEngine, source: EngineSource): EngineAttempt {
     const view = createPageView(engine)
-    const binding = tab.binding + 1
+    const binding = tabRegistry.reserveBinding(tab.id) ?? tab.binding + 1
     bind(tab, view, binding)
     applyMuted(tab, view)
     let cancel = () => {}
@@ -1800,6 +1829,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const previous = tab.view
     const view = attempt.view
     tab.engineSwitch = undefined
+    // 提交预留代际：账本先推进（并发出 engine-committed 事件），镜像无条件跟上。
+    // 注意 `commitReserved` 返回 true 才是正常路径——写成 `if (!commit) 同步镜像` 会让
+    // 镜像永远停在旧代际，`live()` 从此恒为假，页面事件全部被忽略（2026-11-26 实测）。
+    tabRegistry.commitReserved(tab.id, attempt.binding, 'engine-committed')
     tab.binding = attempt.binding
     tab.view = view
     tab.engine = attempt.engine
@@ -2057,7 +2090,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     tabs.splice(index, 1)
     // 标签关闭就清空它的全部租约：不然租约表会随着「标记过保持活跃的标签」一直长。
     activityLeases.releaseTab(tab.id)
-    tab.binding += 1
+    tabRegistry.close(tab.id)
+    advanceBinding(tab, 'tab-closed')
     tab.host = undefined
     if (tab.view && window.contentView.children.includes(tab.view)) window.contentView.removeChildView(tab.view)
     if (active === tab) active = undefined
@@ -2206,6 +2240,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       ? Math.min(Math.max(requested, 0), pinnedCount)
       : Math.min(Math.max(requested, pinnedCount), tabs.length)
     tabs.splice(at, 0, tab)
+    // 跨窗口移交：身份与代际都不变，只换归属窗口（拖出标签不是重建页面）。
+    tabRegistry.migrate(tab.id, window.id)
     /**
      * `wake: false` 用于**失败回挂**：休眠标签本来就没有视图，`select()` 会顺手 `revive()`
      * 把它唤醒并重新加载——那不是"退回原窗口"，是白丢一次休眠（2026-11-26 审计）。
@@ -2699,7 +2735,8 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     nativeTheme.off('updated', onNativeThemeUpdated)
     for (const tab of tabs) {
       cancelEngineSwitch(tab)
-      tab.binding += 1
+      tabRegistry.close(tab.id)
+      advanceBinding(tab, 'tab-closed')
       tab.host = undefined
       // 窗口关闭只清理**仍属于本窗口**的标签租约：拖出中的标签已从 `tabs` 摘除，
       // 它的租约必须跟着 tabId 活到新窗口（架构 §7：租约按稳定业务身份归属）。
@@ -2833,6 +2870,9 @@ function placeWindow(options: BrowserWindowOptions): { x?: number; y?: number; w
  * 可承载，留一条「撤销关闭」只会恢复出空白。任何一步都不依赖源窗口仍然存在。
  */
 function discardDetachedTab(tab: Tab): void {
+  // 标签已没有窗口可承载：账本先注销（它不会再被任何窗口列出），代际推进只剩
+  // 「作废在飞事件」的意义，所以仍然保留。
+  tabRegistry.close(tab.id)
   tab.binding += 1
   tab.host = undefined
   activityLeases.releaseTab(tab.id)

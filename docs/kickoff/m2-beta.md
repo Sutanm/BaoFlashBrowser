@@ -43,7 +43,7 @@ A1 属于当前 M2 的基础工作，采用增量重构。为避免“多线并�
 | 步骤 | 内容 | 状态 |
 | --- | --- | --- |
 | A1-a | Capability 合同与纯层：`ActorKind`/`ActionContext`、`BrowserTarget`、`TargetRef`（含 `producedBy`）、`ShellRef`、动作与稳定错误码、结构化调用记录、纯校验器 + 合同 harness | **已交付（2026-11-26）**，见[能力合同报告](../reports/2026-11-26-capability-contract.md) |
-| A1-b | 提取 Tab / Window / BrowsingContext 注册表（只提取 Capability 需要的部分，不做目录式重写） | 未开始 |
+| A1-b | 提取 Tab / Window / BrowsingContext 注册表（只提取 Capability 需要的部分，不做目录式重写） | **部分交付（2026-11-26）**：TabRegistry 落地，代际写入侧收口 + 生命周期事件；读取侧切换、Window/BrowsingContext 注册表未做，见[接线报告](../reports/2026-11-26-tab-registry-wiring.md) |
 | A1-c | Capability 服务接线：动作走统一入口、代际可观察、休眠持有租约的标签不被销毁 | 未开始 |
 | A1-d | 外壳 UI 的关键标签动作改走 Capability API | 未开始 |
 | A1-e | A1 退出条件回填与全量验证 | 未开始 |
