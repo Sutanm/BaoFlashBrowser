@@ -8,10 +8,15 @@ import ThemeSwitch from './ThemeSwitch.vue'
 import { applyShellTheme } from './theme'
 
 /**
- * 新标签页（`bao://newtab`）：关键首帧由 `newtab.html` 先画出同尺寸的品牌与 realbox，
- * Vue 接管交互后再补真实的 Flash / 默认引擎 / 存储状态。没有数据源的历史与推荐不伪造。
+ * 新标签页（`bao://newtab`）：品牌、realbox、主题拨盘、三块真实状态入口。
+ *
+ * 首帧（2026-11-26 重做）：主进程在 HTML 里注入了主题与 `NtpSnapshot`，`newtab.ts` 带着它
+ * 挂载——所以 `snapshot` 在**第一次渲染**就有值，`v-if="snapshot"` 的板块不会"晚一帧冒出来"，
+ * 也没有"骨架 → 真页面"的交接。`read()` 只用来校正（跨窗口改设置、插件后发现等）。
  */
-const snapshot = ref<NtpSnapshot>()
+const props = defineProps<{ bootstrap?: NtpSnapshot }>()
+
+const snapshot = ref<NtpSnapshot | undefined>(props.bootstrap)
 const address = ref('')
 const error = ref('')
 const busy = ref(false)
@@ -19,7 +24,6 @@ const themeBusy = ref(false)
 const field = ref<HTMLInputElement>()
 
 let detach: (() => void) | undefined
-let revealFrame: number | undefined
 const systemTheme = matchMedia('(prefers-color-scheme: dark)')
 
 const failureText: Record<string, string> = {
@@ -54,16 +58,10 @@ function onSystemTheme(): void {
   if (!snapshot.value) applyTheme()
 }
 
-function revealApp(): void {
-  document.documentElement.dataset.ntpReady = 'true'
-  document.getElementById('ntp-first-paint')?.remove()
-}
-
 onMounted(async () => {
-  applyTheme()
+  // 注入的主题已经由 `newtab.ts` 应用；这里只在快照缺失时按系统偏好兜底。
+  if (!snapshot.value) applyTheme()
   systemTheme.addEventListener('change', onSystemTheme)
-  // 下一帧直接用完全同尺寸的 Vue 内容接管关键首帧；不做整页淡入，避免「一起刷新」感。
-  revealFrame = requestAnimationFrame(revealApp)
   const initial = await window.baoNtp.read()
   if (initial) apply(initial)
   detach = window.baoNtp.subscribe(apply)
@@ -71,7 +69,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   detach?.()
-  if (revealFrame !== undefined) cancelAnimationFrame(revealFrame)
   systemTheme.removeEventListener('change', onSystemTheme)
 })
 

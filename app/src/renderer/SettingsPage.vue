@@ -17,8 +17,14 @@ import { applyShellTheme } from './theme'
  * 数据来源只有一条：preload 暴露的 `baoSettings`。页面不持有权威状态——
  * 每次写入都用主进程返回的快照覆盖本地值，因此「叠加层改了主题 → 页面立刻跟着变」
  * 是同一份 store 的自然结果，不需要额外同步逻辑。
+ *
+ * 首帧（2026-11-26）：主进程在返回 HTML 时注入了主题变量与 `SettingsSnapshot`
+ * （见 `shared/internal-bootstrap.ts`），`settings.ts` 把它作为 `bootstrap` 传进来——
+ * 所以第一次渲染就有真实值，后面的 `read()` 只是校正。
  */
-const snapshot = ref<SettingsSnapshot>()
+const props = defineProps<{ bootstrap?: SettingsSnapshot }>()
+
+const snapshot = ref<SettingsSnapshot | undefined>(props.bootstrap)
 const busy = ref(false)
 const error = ref('')
 

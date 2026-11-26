@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
 import { app, net, protocol } from 'electron'
+import { injectInternalBootstrap } from '../shared/internal-bootstrap'
 import { resolveDevRendererUrl } from './dev-renderer-url'
+import type { InternalBootstrap } from '../shared/internal-bootstrap'
 import type { Session } from 'electron'
 
 /**
@@ -89,20 +91,36 @@ function devRendererUrl(): URL | undefined {
 }
 
 /** 开发态代理：把 `bao://<host>/<path>` 转给 Vite dev server，保持查询串。 */
-async function proxyToDevServer(dev: URL, url: URL, entry: string): Promise<Response> {
+async function proxyToDevServer(
+  dev: URL,
+  url: URL,
+  entry: string,
+  kind: InternalKind,
+  bootstrap: BootstrapProvider
+): Promise<Response> {
   const target = new URL(url.pathname === '/' ? `/${entry}` : url.pathname, dev)
   target.search = url.search
   const response = await net.fetch(target.href)
-  return new Response(response.body, {
-    status: response.status,
-    headers: {
-      'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
-      'Cache-Control': 'no-store',
-      // 开发态同样下发生产 CSP 与 nosniff：否则「开发能跑、打包被拦」只会在发布时暴露。
-      'Content-Security-Policy': CONTENT_SECURITY_POLICY,
-      'X-Content-Type-Options': 'nosniff'
+  const headers = {
+    'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
+    'Cache-Control': 'no-store',
+    // 开发态同样下发生产 CSP 与 nosniff：否则「开发能跑、打包被拦」只会在发布时暴露。
+    'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+    'X-Content-Type-Options': 'nosniff'
+  }
+  /**
+   * 首帧注入在开发态也要做：不然会出现「dev 闪、打包不闪」，验收永远对不上。
+   * 只有入口 HTML 才注入（子资源交给 Vite 原样返回）。
+   */
+  if (bootstrap && url.pathname === '/' && extname(entry).toLowerCase() === '.html') {
+    try {
+      const html = await response.text()
+      return new Response(injectInternalBootstrap(html, bootstrap(kind)), { status: response.status, headers })
+    } catch {
+      // 注入失败就退回原始响应：首帧会退化成"脚本接管后才上色"，但页面还能打开。
     }
-  })
+  }
+  return new Response(response.body, { status: response.status, headers })
 }
 
 /**
@@ -187,11 +205,25 @@ function resolveFile(url: URL, entry: string): string | undefined {
 }
 
 let bound = false
+/**
+ * 首帧引导数据的提供者：按**内部页种类**给对应的快照（设置页要 `SettingsSnapshot`、
+ * 新标签页要 `NtpSnapshot`），每次 `bindInternalProtocol` 调用都替换成最新窗口的。
+ */
+type BootstrapProvider = (kind: InternalKind) => InternalBootstrap
+let bootstrapProvider: BootstrapProvider
 
 /**
  * 绑定协议到**内部会话**（幂等）。调用方：应用启动时对 `getInternalSession()` 调一次。
+ *
+ * `bootstrap` 提供内部页首帧要用的主题与数据（见 `shared/internal-bootstrap.ts`）：
+ * 每次调用都会替换它（协议只绑一次，但窗口可以开多个，最新窗口的快照最贴近用户当前状态）。
+ * 它是**首帧副本**，不是权威：页面挂载后仍然用 `baoSettings.read()` / `baoNtp.read()` 校正。
  */
-export function bindInternalProtocol(target: Session): void {
+export function bindInternalProtocol(
+  target: Session,
+  bootstrap?: BootstrapProvider
+): void {
+  if (bootstrap) bootstrapProvider = bootstrap
   if (bound) return
   bound = true
   target.protocol.handle(INTERNAL_SCHEME, async (request) => {
@@ -203,18 +235,22 @@ export function bindInternalProtocol(target: Session): void {
     }
     const kind = hostKind(url.hostname)
     if (!kind) return new Response('not found', { status: 404 })
+    const entry = ENTRY_FILES[kind]
     const dev = devRendererUrl()
     if (dev) {
       try {
-        return await proxyToDevServer(dev, url, ENTRY_FILES[kind])
+        return await proxyToDevServer(dev, url, entry, kind, bootstrapProvider)
       } catch {
         return new Response('dev server unavailable', { status: 502 })
       }
     }
-    const file = resolveFile(url, ENTRY_FILES[kind])
+    const file = resolveFile(url, entry)
     if (!file) return new Response('bad request', { status: 400 })
     try {
-      const body = readFileSync(file)
+      const isHtml = extname(file).toLowerCase() === '.html'
+      const body = isHtml
+        ? Buffer.from(applyBootstrap(readFileSync(file, 'utf8'), kind, bootstrapProvider), 'utf8')
+        : readFileSync(file)
       return new Response(new Uint8Array(body), {
         status: 200,
         headers: {
@@ -229,4 +265,15 @@ export function bindInternalProtocol(target: Session): void {
       return new Response('not found', { status: 404 })
     }
   })
+}
+
+/** 入口 HTML 才注入首帧数据；注入失败退回原文（页面仍能打开，只是首帧没有配色）。 */
+function applyBootstrap(html: string, kind: InternalKind, bootstrap: BootstrapProvider): string {
+  if (!bootstrap) return html
+  try {
+    return injectInternalBootstrap(html, bootstrap(kind))
+  } catch (error) {
+    console.warn('[internal] 首帧注入失败，退回原始 HTML：', error)
+    return html
+  }
 }

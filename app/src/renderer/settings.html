@@ -5,16 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>设置</title>
     <!--
-      首帧底色：`--surface-page` 由 JS 从 Fluent token 注入，脚本执行前页面是白的——
-      深色主题下会闪一下白？这里用 `prefers-color-scheme`（跟随 nativeTheme.themeSource）
-      先铺 **和 `--surface-page`（Fluent `colorNeutralBackground2`）完全相同的**底色，
-      Vue 挂载后再由设计 token 接管。取错一档（例如 #f5f5f5）等于加载时先闪一下再归位。
-      tests/unit/brand-tokens.test.ts 盯着这几个值。
+      这里**不写任何颜色**：`bao://` 的响应在返回 HTML 前，会把解析好的主题
+      （`data-theme` + 整套 Fluent 变量）注入到 `<head>` 最前面（见
+      `shared/internal-bootstrap.ts`），所以第一帧就有正确底色，不会"白一下再变深色"。
+
+      过去这里手抄了一份 `#fafafa / #1f1f1f` 的近似底色，还抄错过一档——副本必然会漂。
     -->
-    <style>
-      html { background: #fafafa; }
-      @media (prefers-color-scheme: dark) { html { background: #1f1f1f; } }
-    </style>
   </head>
   <body>
     <div id="app"></div>

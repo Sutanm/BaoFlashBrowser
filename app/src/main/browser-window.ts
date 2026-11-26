@@ -491,7 +491,12 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   // Ruffle 资源协议按页面会话绑定（每个会话一次）。
   bindRuffleProtocol(pageSession)
   // 内部页协议只绑内部会话（幂等）：页面会话里加载 `bao://` 会被直接拒绝。
-  bindInternalProtocol(getInternalSession())
+  // 第三个参数是首帧引导数据：`bao://` 的 HTML 在返回前就带上主题变量与快照，
+  // 于是第一帧就是真页面（不再需要 `newtab.html` 里手抄的骨架与配色副本）。
+  bindInternalProtocol(getInternalSession(), (kind) => ({
+    theme: currentTheme(),
+    snapshot: kind === 'settings' ? internalSnapshot() : ntpState()
+  }))
   const plugins = options.flash === true
   const shellUrl = options.shellUrl
   /**

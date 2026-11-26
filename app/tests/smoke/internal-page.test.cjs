@@ -240,6 +240,27 @@ test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后�
     assert.ok(/Chromium \d/.test(about.text), `关于里应有 Chromium 版本：${about.text}`)
     assert.equal(about.current, '关于', '切换后导航的 aria-current 要跟着走')
 
+    // 「关于」里的 Flash 只是摘要：点了要能回到真正那张卡（2026-11-26 反馈：
+    // 关于里只放「打开所在文件夹」，看起来像导入/自动发现被砍掉了）。
+    await inSettings(app, `[...document.querySelectorAll('#about-title')]
+      .map((title) => title.closest('.setting-section'))
+      .flatMap((section) => [...section.querySelectorAll('button.action')])
+      .find((el) => el.textContent.trim() === 'Flash 插件设置')?.click()`)
+    const backToFlash = await waitFor(async () => {
+      const value = await inSettings(app, `(() => {
+        const section = document.getElementById('flash-section')
+        if (!section || section.hidden) return null
+        return {
+          current: document.querySelector('.settings-nav button[aria-current="page"]')?.textContent?.trim() ?? '',
+          actions: [...section.querySelectorAll('button.action')].map((el) => el.textContent.trim())
+        }
+      })()`)
+      return value && value.actions.length ? value : null
+    }, { message: '「关于」里的 Flash 设置入口没有把用户送回 Flash 卡片' })
+    assert.equal(backToFlash.current, '外观与偏好', '跳转后导航应切到「外观与偏好」')
+    assert.deepEqual(backToFlash.actions, ['打开所在文件夹', '导入'],
+      'Flash 卡片必须同时有「打开所在文件夹」和「导入」（导入是 BYOP 的主路径）')
+
     await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '隐私与清理')?.click()`)
     const privacy = await waitFor(async () => {
       const value = await inSettings(app, `(() => {
