@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>收藏夹</title>
+    <!--
+      与设置页/新标签页同一条首帧约定：`bao://` 的响应在返回前把解析好的主题变量与
+      `FavoritesSnapshot` 注入到 `<head>`（见 `shared/internal-bootstrap.ts`），
+      所以第一帧就是正确底色 + 真实收藏，不会"白一下再变深色"或"先空列表再长出内容"。
+    -->
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./favorites.ts"></script>
+  </body>
+</html>

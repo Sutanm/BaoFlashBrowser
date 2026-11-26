@@ -140,6 +140,27 @@ async function open(node: BookmarkNode): Promise<void> {
   }
 }
 
+/**
+ * 打开管理页（`bao://favorites`）并收起本飞窗。
+ *
+ * 为什么先关飞窗再切标签：管理页是**另一个标签**，飞窗挂在工具栏按钮下、属于外壳；
+ * 留着它会盖在新页面的上方（视图在最上层），看起来像"点了没反应"。
+ */
+async function manage(): Promise<void> {
+  if (busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    if (!await store.run({ type: 'open-favorites' })) {
+      error.value = store.message || '无法打开收藏夹管理页'
+      return
+    }
+    await window.baoOverlay.closeQuick(true)
+  } finally {
+    busy.value = false
+  }
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
   event.preventDefault()
@@ -245,6 +266,13 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
       </p>
 
       <p v-if="error" class="overlay-error" role="status">{{ error }}</p>
+
+      <!--
+        管理页入口（Edge 的收藏夹 hub 底部同样有「管理收藏夹」）：
+        面板只做快速浏览/打开，整理（拖动排序、改名、导入）在 `bao://favorites` 里做。
+      -->
+      <div class="overlay-divider" role="presentation"></div>
+      <button type="button" class="hub-manage" :disabled="busy" @click="manage">管理收藏夹</button>
     </section>
   </div>
 </template>
@@ -315,4 +343,18 @@ watch(() => snapshot.value?.theme, (theme) => { if (theme) applyShellTheme(theme
 .hub-row .row-remove:hover:not(:disabled) { color: var(--text-primary); background: var(--surface-pressed); }
 .hub-row .row-remove .shell-icon { width: 13px; height: 13px; }
 @media (forced-colors: active) { .hub-row .row-remove { opacity: 1; } }
+
+/* 底部「管理收藏夹」：与其它飞窗的行按钮同高同圆角，整行宽，悬停才铺底色。 */
+.hub-manage {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border-radius: 7px;
+  text-align: start;
+  font-size: 12px;
+  color: var(--accent-strong);
+}
+.hub-manage:hover:not(:disabled) { background: var(--surface-hover); }
+.hub-manage:disabled { color: var(--text-disabled); }
 </style>

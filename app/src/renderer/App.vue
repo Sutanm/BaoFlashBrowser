@@ -116,7 +116,7 @@ const engineSwitchable = computed(() => Boolean(active.value && !active.value.in
 const engineTitle = computed(() => {
   const tab = active.value
   if (!tab) return ''
-  if (tab.internal) return '新标签页没有可切换的站点引擎'
+  if (tab.internal) return '内部页没有可切换的站点引擎'
   const current = `渲染引擎：${engineLabels[tab.engine]}`
   return tab.pinnedEngine
     ? `${current} · 站点已记住 ${engineLabels[tab.pinnedEngine]}`
@@ -841,6 +841,8 @@ onBeforeUnmount(() => store.disconnect())
               <circle class="throbber-arc" cx="25" cy="25" r="20" />
             </svg>
             <span v-else-if="tab.internal === 'settings'" class="site-icon settings-icon" aria-hidden="true"><ShellIcon name="gear" /></span>
+            <!-- 收藏夹管理页也是内部页：给它的图标（与工具栏那颗「收藏夹」同一个图形）。 -->
+            <span v-else-if="tab.internal === 'favorites'" class="site-icon settings-icon" aria-hidden="true"><ShellIcon name="bookmarks" /></span>
             <!--
               站点图标：有就画（Chromium 的 tab favicon，16px），没有才退回通用页形。
             -->
@@ -1011,7 +1013,7 @@ onBeforeUnmount(() => store.disconnect())
       </template>
       <p v-else class="bar-hint">
         <span>把常用网址收藏到这里，随时一键打开。</span>
-        <button type="button" class="bar-hint-action" @click="openQuick('bookmarks')">立即管理收藏夹</button>
+        <button type="button" class="bar-hint-action" @click="run({ type: 'open-favorites' })">立即管理收藏夹</button>
       </p>
     </div>
     <!--

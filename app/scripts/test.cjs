@@ -9,7 +9,7 @@ const [suite, ...flags] = process.argv.slice(2)
 const suites = {
   smoke: ['startup', 'tabs', 'tab-ops', 'engine', 'engine-switch', 'input', 'plugin-input', 'ruffle-input',
     'ruffle-cors', 'engine-broker', 'popup', 'permissions', 'theme', 'titlebar',
-    'internal-page', 'newtab', 'favicon', 'quick-settings', 'bookmarks', 'bookmark-bar',
+    'internal-page', 'newtab', 'favicon', 'quick-settings', 'bookmarks', 'bookmark-bar', 'favorites',
     'settings-search-engine',
     'overlay-prewarm-hidden', 'overlay-prewarm-policy',
     'tab-discard', 'tab-duplicate-ruffle', 'session-restore', 'data-cleanup',

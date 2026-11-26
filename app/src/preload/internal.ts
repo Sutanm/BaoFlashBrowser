@@ -4,14 +4,17 @@ import { settingsChannels } from '../shared/settings'
 import type { SettingsBridge, SettingsSnapshot, SettingsWriteResult } from '../shared/settings'
 import { ntpChannels } from '../shared/ntp'
 import type { NtpBridge, NtpCommandResult, NtpSnapshot } from '../shared/ntp'
+import { favoritesChannels } from '../shared/favorites'
+import type { FavoritesBridge, FavoritesCommandResult, FavoritesSnapshot } from '../shared/favorites'
 
 /**
- * 内部页（`bao://settings` / `bao://newtab`）的 preload（架构 §3 IPC：页面不获得外壳 IPC 桥）。
+ * 内部页（`bao://settings` / `bao://newtab` / `bao://favorites`）的 preload
+ * （架构 §3 IPC：页面不获得外壳 IPC 桥）。
  *
- * 两种内部页**共用这一个 preload**：同一个 WebContents 会在两个文档之间就地导航
- * （设置覆盖新标签页），而 preload 是按文档执行的，按 kind 换文件会让就地导航后的文档
- * 拿不到桥。安全边界不在这里，而在主进程：每个通道都按「本窗口标签表 ∧ 主帧 ∧ 文档 URL」
- * 判定发送者，NTP 只获得主题这一项的写权限，设置页拿不到新标签页的导航/主题入口。
+ * 三种内部页**共用这一个 preload**：同一个 WebContents 会在不同内部文档之间就地导航
+ * （设置覆盖新标签页、管理页覆盖设置页），而 preload 是按文档执行的，按 kind 换文件会让就地
+ * 导航后的文档拿不到桥。安全边界不在这里，而在主进程：每个通道都按「本窗口标签表 ∧ 主帧 ∧
+ * 文档 URL」判定发送者，NTP 只获得主题这一项的写权限，设置页拿不到新标签页的导航/主题入口。
  *
  * 这里没有 `baoBrowser`、没有 `baoOverlay`、没有 `baoWindowControl`、没有任意 URL 读写。
  */
@@ -41,8 +44,19 @@ const ntp: NtpBridge = {
   }
 }
 
+const favorites: FavoritesBridge = {
+  read: () => ipcRenderer.invoke(favoritesChannels.read),
+  run: (command) => ipcRenderer.invoke(favoritesChannels.command, command),
+  subscribe(listener) {
+    const relay = (_event: IpcRendererEvent, snapshot: FavoritesSnapshot) => listener(snapshot)
+    ipcRenderer.on(favoritesChannels.changed, relay)
+    return () => ipcRenderer.removeListener(favoritesChannels.changed, relay)
+  }
+}
+
 contextBridge.exposeInMainWorld('baoSettings', settings)
 contextBridge.exposeInMainWorld('baoNtp', ntp)
+contextBridge.exposeInMainWorld('baoFavorites', favorites)
 
 // 便于测试断言"内部页拿不到外壳桥"：这里不导出任何其它东西。
-export type { NtpCommandResult, SettingsWriteResult }
+export type { FavoritesCommandResult, NtpCommandResult, SettingsWriteResult }

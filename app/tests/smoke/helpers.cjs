@@ -389,6 +389,49 @@ async function setEngine(shell, engine) {
   }, { message: `切到 ${engine} 后投影没有同步` })
 }
 
+/**
+ * 在内部页文档里执行一段脚本（`marker` 是 URL 前缀，例如 `bao://favorites/`）。
+ *
+ * 内部页住在 WebContentsView 里、不是 BrowserWindow，所以 Playwright 的 `page` 拿不到它们；
+ * 只能从主进程按 URL 找到那个 WebContents 再 `executeJavaScript`。视图可能在创建窗口期，
+ * 所以和 `overlayEval` 一样重试一次。
+ */
+async function internalEval(app, marker, code) {
+  let lastError
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const id = await app.evaluate(({ webContents }, prefix) => {
+      const target = webContents.getAllWebContents().find((contents) =>
+        (contents.getURL() ?? '').startsWith(prefix))
+      return target ? target.id : null
+    }, marker)
+    if (!id) {
+      lastError = new Error(`没有找到内部页文档：${marker}`)
+      await new Promise((done) => setTimeout(done, 250))
+      continue
+    }
+    try {
+      return await app.evaluate(async ({ webContents }, payload) => {
+        const target = webContents.fromId(payload.id)
+        if (!target || target.isDestroyed()) throw new Error('内部页已销毁')
+        return target.executeJavaScript(payload.code)
+      }, { id, code })
+    } catch (error) {
+      lastError = error
+      await new Promise((done) => setTimeout(done, 250))
+    }
+  }
+  throw lastError ?? new Error(`内部页不可用：${marker}`)
+}
+
+/** 内部页文档是否存在（返回 URL，否则 null）。 */
+async function internalUrlOf(app, marker) {
+  return app.evaluate(({ webContents }, prefix) => {
+    const target = webContents.getAllWebContents().find((contents) =>
+      (contents.getURL() ?? '').startsWith(prefix))
+    return target ? target.getURL() : null
+  }, marker)
+}
+
 module.exports = {
   audioStateOf,
   clickSessionBubble,
@@ -396,6 +439,8 @@ module.exports = {
   appNativeFlashSkip,
   flashPluginPath,
   hasFlashPlugin,
+  internalEval,
+  internalUrlOf,
   isShellPage,
   launchApp,
   launchAppAt,

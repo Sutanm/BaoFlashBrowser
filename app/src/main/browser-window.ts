@@ -19,12 +19,14 @@ import * as engineRules from './engine-rules'
 import { addBookmarkData, bookmarkNodes, clearEngineRulesData, clearSessionData, createBookmarkFolderData, removeBookmarkData, setSetting, settings as currentSettings, saveSession, storageStatus, updateBookmarkData } from './storage'
 import { BOOKMARK_BAR_MODES, BOOKMARK_BAR_ROOT, isBookmarkableAddress, showsBookmarkBar } from '../shared/bookmarks'
 import type { BookmarkBarMode } from '../shared/bookmarks'
-import { bindInternalProtocol, internalKindOf, internalUrls, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
+import { bindInternalProtocol, FAVORITES_URL, internalKindOf, internalTitles, internalUrls, isFavoritesUrl, isInternalUrl, isNewTabUrl, isSettingsUrl, parseInternalAddress, SETTINGS_URL } from './internal-pages'
 import type { InternalKind } from './internal-pages'
 import { bookmarkBarModeLabels, settingsChannels } from '../shared/settings'
 import type { PrewarmMode, SettingsSnapshot } from '../shared/settings'
 import { ntpChannels } from '../shared/ntp'
 import type { NtpCommand, NtpCommandResult, NtpSnapshot } from '../shared/ntp'
+import { favoritesChannels } from '../shared/favorites'
+import type { FavoritesCommand, FavoritesCommandResult, FavoritesSnapshot } from '../shared/favorites'
 import { importFlashPlugin } from './flash-plugin'
 import { flashLoadedPath, flashStatus } from './plugins'
 import { shellThemes, windowPalette } from '../shared/shell-theme'
@@ -207,6 +209,12 @@ interface WindowController extends TabHost {
   ntpSnapshot(): NtpSnapshot
   /** 新标签页的窄命令：打开设置、在本标签导航、切换主题。 */
   runNtp(event: IpcMainInvokeEvent, command: NtpCommand): NtpCommandResult
+  /** 收藏夹管理页的可信判定：本窗口标签 ∧ 主帧 ∧ 文档 URL ∈ bao://favorites/*。 */
+  favoritesSender(event: IpcMainInvokeEvent): boolean
+  /** 管理页读到的状态（全量收藏树 + 站点图标 + 主题 + 存储状态）。 */
+  favoritesSnapshot(): FavoritesSnapshot
+  /** 管理页的窄命令：打开、新建文件夹、改名、删除。 */
+  runFavorites(command: FavoritesCommand): FavoritesCommandResult
   /** 会话数据被用户清除：丢掉仍挂着的崩溃恢复提示（库里已经没有了）。 */
   forgetSessionPrompt(): void
   /** 规则/设置变化后重新投影（引擎来源胶囊要立刻按新规则重算）。 */
@@ -568,7 +576,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   // 于是第一帧就是真页面（不再需要 `newtab.html` 里手抄的骨架与配色副本）。
   bindInternalProtocol(getInternalSession(), (kind) => ({
     theme: currentTheme(),
-    snapshot: kind === 'settings' ? internalSnapshot() : ntpState()
+    snapshot: kind === 'settings'
+      ? internalSnapshot()
+      : kind === 'favorites' ? favoritesSnapshot() : ntpState()
   }))
   const plugins = options.flash === true
   const shellUrl = options.shellUrl
@@ -701,11 +711,13 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    * 3. 历史前进/后退不经过 `load()`，所以 `requestedUrl` 会在**提交时**清掉
    *    （见 `did-navigate`）——否则 Back 之后地址栏会一直显示上一次输入的地址。
    *
-   * 内部页按 Chrome 的语义：设置页立刻显示 `bao://settings/`，新标签页不显示地址。
+   * 内部页按 Chrome 的语义：设置页与收藏夹管理页立刻显示自己的 `bao://` 地址，
+   * 新标签页不显示地址。
    */
   function displayAddress(tab: Tab, liveUrl: string): string {
     if (tab.failedUrl) return tab.failedUrl
     if (tab.internal === 'settings') return liveUrl || SETTINGS_URL
+    if (tab.internal === 'favorites') return liveUrl || FAVORITES_URL
     if (tab.internal === 'newtab') return ''
     const requested = tab.requestedUrl && tab.requestedUrl !== liveUrl ? tab.requestedUrl : ''
     return requested || liveUrl || tab.lastUrl || ''
@@ -716,7 +728,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (!tab.view) {
       const address = tab.internal === 'newtab'
         ? ''
-        : tab.internal === 'settings' ? (tab.lastUrl || SETTINGS_URL) : (tab.lastUrl ?? '')
+        : tab.internal === 'settings'
+          ? (tab.lastUrl || SETTINGS_URL)
+          : tab.internal === 'favorites' ? (tab.lastUrl || FAVORITES_URL) : (tab.lastUrl ?? '')
       return {
         id: tab.id,
         title: tab.lastTitle || tab.initialTitle,
@@ -839,6 +853,22 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
   }
 
+  /**
+   * 收藏夹管理页（`bao://favorites`）读到的快照。
+   *
+   * 与外壳那份投影同一代数据（`bookmarkNodes()` 就是内存里那份全量树），额外带上
+   * 站点图标表与主题：管理页要画图标、要跟着系统主题变色，而它拿不到 `baoBrowser`，
+   * 也就没法像外壳那样从别处取这两样东西。
+   */
+  function favoritesSnapshot(): FavoritesSnapshot {
+    return {
+      bookmarks: bookmarkNodes(),
+      favicons: faviconProjection(),
+      theme: currentTheme(),
+      storage: storageStatus()
+    }
+  }
+
   function notify(tab: Tab): void {
     if (!tabs.includes(tab)) return
     if (active === tab) layout()
@@ -853,10 +883,25 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
    */
   function publishBookmarks(): void {
     publish()
+    // 管理页（`bao://favorites`）不在外壳投影里：它要自己那份快照，且**每一个**开着的
+    // 管理页都要更新（同一窗口里也可以有多个标签指向同一个文档）。
+    broadcastFavorites()
     // 新加/改过的收藏可能带来没见过的站点：补一次图标（单飞，重复调用无副作用）。
     ensureBookmarkFavicons()
     for (const other of controllers.values()) {
       if (other !== controller) other.refreshProjection()
+    }
+  }
+
+  /** 把最新的收藏夹快照推给本窗口里所有管理页标签。 */
+  function broadcastFavorites(): void {
+    if (closing) return
+    const snapshot = favoritesSnapshot()
+    for (const tab of tabs) {
+      if (tab.internal !== 'favorites') continue
+      const contents = tab.view?.webContents
+      if (!contents || contents.isDestroyed()) continue
+      contents.send(favoritesChannels.changed, snapshot)
     }
   }
 
@@ -1411,7 +1456,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       id: nextTabId++,
       view,
       error: '',
-      initialTitle: kind === 'newtab' ? '新标签页' : '设置',
+      initialTitle: internalTitles[kind],
       engine: engineFor(undefined).engine,
       manualOverride: false,
       pinned: false,
@@ -1550,8 +1595,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function sessionWindowSnapshot(): SessionWindow {
     const projected: SessionTab[] = []
     for (const tab of tabs) {
-      // 设置页不落盘：它是随时可重开的内部页，恢复它只会让用户多一个「设置」标签。
-      if (tab.internal === 'settings') continue
+      // 设置页与收藏夹管理页都不落盘：它们是随时可重开的内部页，恢复它们只会让用户
+      // 多一个「设置」/「收藏夹」标签（且它们的页面状态——选中哪个文件夹——本来就不记）。
+      if (tab.internal === 'settings' || tab.internal === 'favorites') continue
       const liveUrl = safe(() => tab.view?.webContents.getURL() ?? '', '')
       const liveTitle = safe(() => tab.view?.webContents.getTitle() ?? '', '')
       // 文档还没提交（首帧前 / DNS 未返回 / 已提交旧文档但新导航在途）时以 requestedUrl 为准，
@@ -1583,10 +1629,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return { tabs: projected }
   }
 
-  /** 内部页就地导航（NTP ↔ 设置）：同一会话，历史项追加（与 Chrome 的 CURRENT_TAB 一致）。 */
+  /** 内部页就地导航（NTP ↔ 设置 ↔ 收藏夹）：同一会话，历史项追加（与 Chrome 的 CURRENT_TAB 一致）。 */
   function controlInternal(tab: Tab, target: { kind: InternalKind; url: string }): void {
     tab.internal = target.kind
-    tab.initialTitle = target.kind === 'newtab' ? '新标签页' : '设置'
+    tab.initialTitle = internalTitles[target.kind]
     tab.error = ''
     tab.failedUrl = undefined
     tab.notice = undefined
@@ -1600,28 +1646,38 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
-   * 打开内部单例页（当前只有设置页）。
+   * 打开内部**单例**页（设置页、收藏夹管理页）。
    *
    * 对齐 Chrome 的 `ShowSingletonTabOverwritingNTP`（`chrome/browser/ui/singleton_tabs.cc:76-94`）：
-   * ① 窗口内已有设置标签 → 切过去；
+   * ① 窗口内已有同种标签 → 切过去；
    * ② 当前标签正是新标签页 → **就地覆盖**，不新建标签；
    * ③ 都没有 → 新建前台标签。
+   *
+   * 单例是按**种类**算的（设置与收藏夹各一个）：它们是两件不同的东西，互相顶掉会丢用户的上下文。
    */
-  function openSettingsTab(): Tab {
-    const existing = tabs.find((item) => item.internal === 'settings')
+  function openSingletonInternal(kind: InternalKind): Tab {
+    const existing = tabs.find((item) => item.internal === kind)
     if (existing) {
       select(existing, true)
       return existing
     }
     const current = active
     if (current && current.internal === 'newtab') {
-      controlInternal(current, { kind: 'settings', url: SETTINGS_URL })
+      controlInternal(current, { kind, url: internalUrls[kind] })
       select(current, true)
       return current
     }
-    const opened = openInternalTab('settings')
+    const opened = openInternalTab(kind)
     select(opened, true)
     return opened
+  }
+
+  function openSettingsTab(): Tab {
+    return openSingletonInternal('settings')
+  }
+
+  function openFavoritesTab(): Tab {
+    return openSingletonInternal('favorites')
   }
 
   /**
@@ -1649,7 +1705,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       }
       const opened = resolveNavigation(address, engine)
       if (!opened) return fail('invalid-address')
-      if (tab.internal === 'settings') {
+      // 设置页/收藏夹管理页里输入 http(s) → 新开普通标签，原地不动（既有 P2 决策：
+      // 内部页不变成网页容器，否则管理页一被顶掉，用户就回不来了）。
+      if (tab.internal === 'settings' || tab.internal === 'favorites') {
         const resolved = engineFor(opened)
         select(addTab('新标签页', opened, resolved.engine, resolved.source), true)
       } else {
@@ -2459,7 +2517,12 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         }))
       },
       { type: 'separator' },
-      { label: '打开收藏夹', click: () => overlays.requestBookmarks() }
+      { label: '打开收藏夹', click: () => overlays.requestBookmarks() },
+      /**
+       * 管理页入口：Chromium 的横条右键菜单里同样有 `Manage bookmarks…`
+       * （`bookmark_bar_view.cc` 的组织菜单），只是它放在「书签管理器」那一条上。
+       */
+      { label: '管理收藏夹…', click: () => openFavoritesTab() }
     ]
     Menu.buildFromTemplate(template).popup({ window })
   }
@@ -2877,6 +2940,9 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     ntpSender,
     ntpSnapshot: ntpState,
     runNtp,
+    favoritesSender,
+    favoritesSnapshot,
+    runFavorites,
     forgetSessionPrompt,
     refreshProjection: () => {
       if (!active) return
@@ -3010,8 +3076,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       const engineAction = command.type === 'set-engine' || command.type === 'remember-engine' || command.type === 'forget-engine'
       // 齿轮飞窗（quick）只允许「写设置」和「打开设置页」；引擎面板只允许引擎操作，
       // 外加「打开设置页」（插件缺失时点 Flash 档要跳到设置页的导入入口）。
-      // 收藏夹面板与快捷设置共用同一个飞窗文档（同一个 `quick` 角色）：它额外能收藏/删除/打开收藏。
-      const settingsAction = command.type === 'set-setting' || command.type === 'open-settings'
+      // 收藏夹面板与快捷设置共用同一个飞窗文档（同一个 `quick` 角色）：它额外能收藏/删除/打开收藏，
+      // 以及「打开收藏夹管理页」（面板里只做浏览，整理在管理页里做）。
+      const settingsAction = command.type === 'set-setting' || command.type === 'open-settings' ||
+        command.type === 'open-favorites'
       // 收藏夹/编辑气泡与快捷设置共用同一个飞窗文档（同一个 `quick` 角色）：
       // 它们额外能改写、新建文件夹、删除、打开收藏（**收藏当前页**是外壳的事，不在这一档里）。
       const bookmarkAction = command.type === 'update-bookmark' || command.type === 'remove-bookmark' ||
@@ -3030,6 +3098,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         break
       case 'open-settings':
         openSettingsTab()
+        break
+      /** 打开收藏夹管理页：入口在外壳（横条空态/右键菜单）与收藏夹飞窗底部。 */
+      case 'open-favorites':
+        openFavoritesTab()
         break
       case 'select':
       case 'close': {
@@ -3362,15 +3434,18 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     publish()
   }
 
-  /** 设置变化后推给本窗口的内部页：设置页拿设置快照，新标签页拿 NTP 快照。 */
+  /** 设置变化后推给本窗口的内部页：设置页拿设置快照，新标签页拿 NTP 快照，管理页拿收藏夹快照。 */
   function broadcastSettings(): void {
     const settingsSnapshot = internalSnapshot()
     const ntpSnapshot = ntpState()
+    // 主题也在管理页的快照里：系统主题一变它就得重绘，所以一起推（同一个 snapshot 实例）。
+    const bookmarksSnapshot = favoritesSnapshot()
     for (const tab of tabs) {
       const contents = tab.view?.webContents
       if (!contents || contents.isDestroyed()) continue
       if (tab.internal === 'settings') contents.send(settingsChannels.changed, settingsSnapshot)
       else if (tab.internal === 'newtab') contents.send(ntpChannels.changed, ntpSnapshot)
+      else if (tab.internal === 'favorites') contents.send(favoritesChannels.changed, bookmarksSnapshot)
     }
   }
 
@@ -3406,6 +3481,78 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const frame = event.senderFrame
     if (!frame || frame !== event.sender.mainFrame) return false
     return isNewTabUrl(frame.url)
+  }
+
+  /**
+   * 收藏夹管理页的可信判定（与设置页同构的三条件）：
+   * ① 是本窗口亲自创建的**管理页**视图；② 是主帧；③ 文档 URL ∈ `bao://favorites/*`。
+   *
+   * 它是唯一能改收藏夹的内部页，所以这条判定同时是「谁能改收藏」的边界：
+   * 网页拿不到这个通道，NTP 与设置页也拿不到（它们的 `tab.internal` 不是 `favorites`）。
+   */
+  function favoritesSender(event: IpcMainInvokeEvent): boolean {
+    if (closing) return false
+    const tab = tabs.find((item) => item.internal === 'favorites' && item.view?.webContents.id === event.sender.id)
+    if (!tab) return false
+    const frame = event.senderFrame
+    if (!frame || frame !== event.sender.mainFrame) return false
+    return isFavoritesUrl(frame.url)
+  }
+
+  /**
+   * 管理页的写命令（唯一的收藏夹写入口，除了外壳/飞窗那几条）。
+   *
+   * 校验分两层，与外壳那套一致：
+   * 1. **形状**：命令类型与字段类型（页面只能传 id 与字符串，传不了任意对象）；
+   * 2. **内容**：id 必须在库里、父节点必须是文件夹——后者由存储层判（`addBookmark` /
+   *    `moveBookmark` 的规则一处实现），这里不重写一遍。
+   */
+  function runFavorites(command: FavoritesCommand): FavoritesCommandResult {
+    if (!command || typeof command !== 'object' || typeof command.type !== 'string') {
+      return { ok: false, code: 'invalid-command' }
+    }
+    const id = typeof (command as { id?: unknown }).id === 'string' ? (command as { id: string }).id : ''
+    const title = typeof (command as { title?: unknown }).title === 'string' ? (command as { title: string }).title : ''
+    switch (command.type) {
+      /**
+       * 双击打开：**新前台标签页**（`command_manager.ts:556-558`）。
+       *
+       * 地址取自库里（`bookmarkNodes()`），页面传不了 URL；打开后管理页留在原标签，
+       * 用户可以继续整理——这正是 Chromium 的行为。
+       */
+      case 'open': {
+        if (!id) return { ok: false, code: 'invalid-command' }
+        const node = bookmarkNodes().find((entry) => entry.id === id && entry.kind === 'url')
+        if (!node?.url) return { ok: false, code: 'bookmark-missing' }
+        openUrlInNewTab(node.url)
+        return { ok: true, snapshot: favoritesSnapshot() }
+      }
+      case 'create-folder': {
+        if (!title.trim()) return { ok: false, code: 'invalid-command' }
+        const parentId = typeof (command as { parentId?: unknown }).parentId === 'string'
+          ? (command as { parentId: string }).parentId
+          : BOOKMARK_BAR_ROOT
+        const createdId = createBookmarkFolderData({ title, parentId })
+        if (!createdId) return { ok: false, code: 'bookmark-save-failed' }
+        publishBookmarks()
+        return { ok: true, snapshot: favoritesSnapshot(), createdId }
+      }
+      case 'rename': {
+        if (!id) return { ok: false, code: 'invalid-command' }
+        if (!title.trim()) return { ok: false, code: 'invalid-command' }
+        if (!updateBookmarkData(id, { title })) return { ok: false, code: 'bookmark-save-failed' }
+        publishBookmarks()
+        return { ok: true, snapshot: favoritesSnapshot() }
+      }
+      case 'remove': {
+        if (!id) return { ok: false, code: 'invalid-command' }
+        if (!removeBookmarkData(id)) return { ok: false, code: 'bookmark-save-failed' }
+        publishBookmarks()
+        return { ok: true, snapshot: favoritesSnapshot() }
+      }
+      default:
+        return { ok: false, code: 'invalid-command' }
+    }
   }
 
   /** 新标签页读到的状态：设置子集 + 解析后的主题 + 插件可用性。 */
@@ -3924,6 +4071,23 @@ export function registerBrowserIpc(): void {
     const controller = controllerFor(event)
     if (!controller || !controller.ntpSender(event)) return { ok: false, code: 'forbidden-sender' }
     return controller.runNtp(event, command as NtpCommand)
+  })
+
+  /**
+   * 收藏夹管理页的窄通道（`bao://favorites`）。
+   *
+   * 与设置页/新标签页同构：只接受本窗口管理页的主帧。`read` 不给快照以外的东西，
+   * `command` 只认那几种类型；两者的拒绝都是 `forbidden-sender`，页面据此显示一句通用文案。
+   */
+  ipcMain.handle(favoritesChannels.read, (event) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.favoritesSender(event)) return undefined
+    return controller.favoritesSnapshot()
+  })
+  ipcMain.handle(favoritesChannels.command, (event, command: unknown) => {
+    const controller = controllerFor(event)
+    if (!controller || !controller.favoritesSender(event)) return { ok: false, code: 'forbidden-sender' }
+    return controller.runFavorites(command as FavoritesCommand)
   })
 
   /**

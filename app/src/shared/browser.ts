@@ -91,6 +91,14 @@ export type BrowserCommand =
    */
   | { type: 'open-bookmark'; id: string }
   /**
+   * 打开收藏夹管理页（`bao://favorites`）。
+   *
+   * 入口有三个：工具栏/横条的空态提示、横条的右键菜单、收藏夹飞窗底部的「管理收藏夹」。
+   * 主进程按**单例内部页**处理它（已有就切过去、当前是新标签页就地覆盖），
+   * 与「打开设置」同一条规则。
+   */
+  | { type: 'open-favorites' }
+  /**
    * 收藏夹横条的右键菜单（Chromium 的 `BookmarkBarView::ShowContextMenu`）。
    *
    * 菜单是**原生**的（`Menu.popup`）：它是系统控件，不是我们要重画的一套 UI；而且
@@ -169,10 +177,10 @@ export interface BrowserTab {
   /** 页面音频是否被静音。 */
   muted: boolean
   /**
-   * 内部页（`bao://newtab` / `bao://settings`）：没有引擎、站点规则与页面权限。
-   * 两种内部页同会话、不同 origin，所以「打开设置」可以覆盖当前的新标签页。
+   * 内部页（`bao://newtab` / `bao://settings` / `bao://favorites`）：没有引擎、站点规则与页面权限。
+   * 三种内部页同会话、不同 origin，所以「打开设置/收藏夹」可以覆盖当前的新标签页。
    */
-  internal?: 'newtab' | 'settings'
+  internal?: 'newtab' | 'settings' | 'favorites'
   /** 已休眠（视图被丢弃）：切回时重建并重新加载。 */
   discarded?: boolean
   /** 用户标记「保持活跃」：挂机/游戏标签，永不自动休眠。 */

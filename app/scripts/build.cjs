@@ -83,9 +83,16 @@ function buildIfChanged() {
   const [stampHash, stampTypecheck] = stampText.split(':')
   const hash = fingerprint()
   const typecheck = process.env.BAO_SKIP_TYPECHECK !== '1'
-  // 四个产物文件都要在：只查两个可能漏掉 preload 或设置页（dev 已改走 Vite，但生产仍需要它）。
-  const outExists = [['out', 'main', 'index.js'], ['out', 'preload', 'index.js'], ['out', 'renderer', 'index.html'], ['out', 'renderer', 'settings.html']]
-    .every((parts) => existsSync(join(ROOT, ...parts)))
+  // 每个内部页都要在：只查其中几个的话，新增一个页面（收藏夹管理页就是第一例）时
+  // 可能出现"产物目录缺文件、构建却判定为最新"，于是那个页面永远 404。
+  const outExists = [
+    ['out', 'main', 'index.js'],
+    ['out', 'preload', 'index.js'],
+    ['out', 'renderer', 'index.html'],
+    ['out', 'renderer', 'settings.html'],
+    ['out', 'renderer', 'newtab.html'],
+    ['out', 'renderer', 'favorites.html']
+  ].every((parts) => existsSync(join(ROOT, ...parts)))
   const fresh = process.env.BAO_FORCE_BUILD !== '1' && outExists && stampHash === hash && stampTypecheck === String(typecheck)
   if (fresh) {
     console.log('构建产物是最新的，跳过 typecheck + build（BAO_FORCE_BUILD=1 可强制重建）')

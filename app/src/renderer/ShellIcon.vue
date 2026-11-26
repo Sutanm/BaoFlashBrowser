@@ -8,7 +8,7 @@
 defineProps<{
   name: 'lock' | 'chevron' | 'flash' | 'ruffle' | 'check' | 'error' | 'close' | 'gear'
   | 'palette' | 'shield' | 'home' | 'gauge' | 'translate' | 'info'
-  | 'star' | 'star-filled' | 'page' | 'folder' | 'bookmarks'
+  | 'star' | 'star-filled' | 'page' | 'folder' | 'bookmarks' | 'search'
 }>()
 </script>
 
@@ -75,6 +75,11 @@ defineProps<{
     <g v-else-if="name === 'bookmarks'">
       <path d="M14 3.8h5.2v16.3l-2.6-2.7-2.6 2.7z" />
       <path d="M4.2 6.4h6.4M4.2 11h6.4M4.2 15.6h4.4" />
+    </g>
+    <!-- 放大镜：收藏夹管理页的搜索框（与系统控件同一语义，纯装饰） -->
+    <g v-else-if="name === 'search'">
+      <circle cx="10.5" cy="10.5" r="6" />
+      <path d="m15 15 4.5 4.5" />
     </g>
     <path v-else d="m6 6 12 12M18 6 6 18" />
   </svg>

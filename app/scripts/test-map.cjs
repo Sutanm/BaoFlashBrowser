@@ -61,12 +61,12 @@ const RULES = [
       /^src\/renderer\/ShellOverlay\.vue$/
     ],
     tests: ['overlay-prewarm-hidden', 'overlay-prewarm-policy', 'quick-settings', 'bookmarks', 'bookmark-bar',
-      'theme', 'engine', 'shell-crash-heal']
+      'favorites', 'theme', 'engine', 'shell-crash-heal']
   },
   {
     // 外壳 UI 主体（标签栏/工具栏/地址栏/飞窗入口）。
     match: [/^src\/renderer\/App\.vue$/, /^src\/renderer\/ShellIcon\.vue$/],
-    tests: ['tabs', 'tab-ops', 'tearoff', 'quick-settings', 'bookmarks', 'bookmark-bar', 'favicon', 'engine',
+    tests: ['tabs', 'tab-ops', 'tearoff', 'quick-settings', 'bookmarks', 'bookmark-bar', 'favorites', 'favicon', 'engine',
       'theme', 'titlebar', 'newtab', 'internal-page', 'input', 'overlay-prewarm-hidden',
       'overlay-prewarm-policy']
   },
@@ -136,6 +136,22 @@ const RULES = [
       /^src\/renderer\/NewTabPage\.vue$/
     ],
     tests: ['internal-page', 'newtab']
+  },
+  {
+    /*
+     * 收藏夹管理页（`bao://favorites`）。
+     *
+     * 它同时碰三样东西：内部页接线（internal-pages / preload / vite 入口）、收藏夹数据
+     * （shared/favorites 的窄合同）、以及收藏夹本体的展示口径，所以三条用例都跑。
+     */
+    match: [
+      /^src\/renderer\/FavoritesPage\.vue$/,
+      /^src\/renderer\/favorites\.[^/]+$/,
+      /^src\/renderer\/favorites-env\.d\.ts$/,
+      /^src\/shared\/favorites\.ts$/,
+      /^src\/shared\/bookmark-import\.ts$/
+    ],
+    tests: ['favorites', 'bookmarks', 'bookmark-bar', 'internal-page', 'data-cleanup']
   },
   {
     // 窗口外观：主题、标题栏、窗口按钮。

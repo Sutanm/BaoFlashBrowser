@@ -25,24 +25,50 @@ import type { Session } from 'electron'
 export const INTERNAL_SCHEME = 'bao'
 export const SETTINGS_HOST = 'settings'
 export const NEWTAB_HOST = 'newtab'
+/**
+ * 收藏夹管理页的 host（`bao://favorites/`）。
+ *
+ * 对齐 `chrome://bookmarks`：Chromium 把书签管理器当成**独立 WebUI**
+ * （`chrome/browser/ui/webui/bookmarks/bookmarks_ui.cc`），不是工具栏上的气泡——
+ * 它要摆「文件夹树 + 条目列表 + 工具栏」三块，气泡装不下，这一点与本项目
+ * `overlay-geometry.ts` 里飞窗卡片只有 264 宽是同一个结论。
+ */
+export const FAVORITES_HOST = 'favorites'
 /** 规范的设置页地址（尾斜杠保留：`webContents.getURL()` 也返回这个形式）。 */
 export const SETTINGS_URL = 'bao://settings/'
 /** 规范的新标签页地址（与 Chrome 的 `chrome://newtab/` 同构）。 */
 export const NEWTAB_URL = 'bao://newtab/'
+/** 规范的收藏夹管理页地址。 */
+export const FAVORITES_URL = 'bao://favorites/'
 
-/** 内部页种类：新标签页与设置页同会话、不同 origin。 */
-export type InternalKind = 'newtab' | 'settings'
+/** 内部页种类：三种内部页共用同一个会话（不同 origin 由 host 区分）。 */
+export type InternalKind = 'newtab' | 'settings' | 'favorites'
 
 /** 每种内部页的规范地址（导航/恢复时用）。 */
 export const internalUrls: Record<InternalKind, string> = {
   newtab: NEWTAB_URL,
-  settings: SETTINGS_URL
+  settings: SETTINGS_URL,
+  favorites: FAVORITES_URL
+}
+
+/**
+ * 每种内部页的标签标题。
+ *
+ * 一处定义、两处消费（建标签时的 `initialTitle` 与就地切换后的标题）：写两遍的话，
+ * 从 NTP 就地变成收藏夹管理页时标签会先显示「新标签页」，而设置页那条路径早已修过同一个坑
+ * （见 `browser-window.ts` 的 `placeholderTitle()` 注释）。
+ */
+export const internalTitles: Record<InternalKind, string> = {
+  newtab: '新标签页',
+  settings: '设置',
+  favorites: '收藏夹'
 }
 
 /** 每种内部页的文档入口（`out/renderer` 下的文件名）。 */
 const ENTRY_FILES: Record<InternalKind, string> = {
   newtab: 'newtab.html',
-  settings: 'settings.html'
+  settings: 'settings.html',
+  favorites: 'favorites.html'
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -151,6 +177,7 @@ function hostKind(hostname: string): InternalKind | undefined {
   const host = hostname.toLowerCase()
   if (host === NEWTAB_HOST) return 'newtab'
   if (host === SETTINGS_HOST) return 'settings'
+  if (host === FAVORITES_HOST) return 'favorites'
   return undefined
 }
 
@@ -175,6 +202,10 @@ export function isSettingsUrl(url: string): boolean {
 
 export function isNewTabUrl(url: string): boolean {
   return internalKindOf(url) === 'newtab'
+}
+
+export function isFavoritesUrl(url: string): boolean {
+  return internalKindOf(url) === 'favorites'
 }
 
 /**
