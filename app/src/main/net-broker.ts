@@ -79,6 +79,22 @@ function requestOnce(
 
     for (const [name, value] of Object.entries(headers)) request.setHeader(name, value)
     request.on('error', (error) => finish(error as Error))
+    /**
+     * `redirect: 'manual'` 下 **`response` 事件不一定来**（Electron 要求用 `redirect` 事件
+     * 观察跳转、再 `followRedirect()`）。原实现只等 `response`，遇到 3xx 会一直挂到 20 s
+     * 超时，表现为"网络错误"而不是"逐跳拒绝"（2026-11-26 审计）。
+     *
+     * 这里只把目标报给调用方，由它逐跳重授权；授权通过会另起一次请求，所以不 `followRedirect()`。
+     */
+    request.on('redirect', (statusCode, _method, redirectUrl) => {
+      const location = typeof redirectUrl === 'string' ? redirectUrl : String(redirectUrl)
+      finish(null, { status: statusCode, contentType: '', location, body: new Uint8Array() })
+      try {
+        request.abort()
+      } catch {
+        // 已结束
+      }
+    })
     request.on('response', (response: IncomingMessage) => {
       const location = response.headers.location
       const chunks: Buffer[] = []

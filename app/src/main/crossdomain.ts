@@ -1,5 +1,6 @@
 import { net } from 'electron'
-import { registrableDomain } from '../shared/site'
+import { domainMatches, parsePolicy, sameOriginHop } from './crossdomain-rules'
+import type { CrossDomainPolicy } from './crossdomain-rules'
 
 /**
  * Flash 的跨域策略（`crossdomain.xml`）—— 架构 §3 引擎「站点兼容规则」。
@@ -17,17 +18,6 @@ import { registrableDomain } from '../shared/site'
  * - 「同源」比较完整来源，不是 `host`；
  * - 读取有字节上限，不再整份 `text()` 后截断。
  */
-interface AllowRule {
-  /** `*`、`*.example.com` 或精确域（小写） */
-  readonly domain: string
-  /** 该条规则是否只允许 https 来源 */
-  readonly secure: boolean
-}
-
-export interface CrossDomainPolicy {
-  readonly rules: readonly AllowRule[]
-}
-
 const CACHE_TTL_MS = 10 * 60_000
 const MAX_POLICY_BYTES = 64 * 1024
 const MAX_CACHE_ENTRIES = 200
@@ -35,16 +25,6 @@ const FETCH_TIMEOUT_MS = 6_000
 
 const cache = new Map<string, { at: number; policy: CrossDomainPolicy | null }>()
 
-function parsePolicy(xml: string): CrossDomainPolicy {
-  const rules: AllowRule[] = []
-  for (const match of xml.matchAll(/<allow-access-from\b[^>]*>/gi)) {
-    const tag = match[0]
-    const domain = /domain\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]?.toLowerCase()
-    if (!domain) continue
-    rules.push({ domain, secure: !/secure\s*=\s*["']false["']/i.test(tag) })
-  }
-  return { rules }
-}
 
 /** 有字节上限的读取：超出即中止，避免为一份策略文件读进无界内容。 */
 /**
@@ -79,21 +59,7 @@ function parsePolicy(xml: string): CrossDomainPolicy {
  * 注意：`net.request` 的 `close` 早于 `redirect`/`response` 触发（官方与自编译内核一致），
  * 不能拿 `close` 当结束信号，否则会漏掉整条响应。
  */
-/** 一跳是否仍在同一站点：可注册域相同，且不允许 https → http 降级。 */
-function sameSiteHop(from: string, to: string): boolean {
-  let source: URL
-  let target: URL
-  try {
-    source = new URL(from)
-    target = new URL(to)
-  } catch {
-    return false
-  }
-  if (source.protocol === 'https:' && target.protocol !== 'https:') return false
-  const sourceSite = registrableDomain(source.hostname) || source.hostname
-  const targetSite = registrableDomain(target.hostname) || target.hostname
-  return sourceSite === targetSite
-}
+
 const MAX_REDIRECT_HOPS = 5
 
 function fetchPolicy(origin: string): Promise<CrossDomainPolicy | null> {
@@ -127,7 +93,7 @@ function fetchPolicy(origin: string): Promise<CrossDomainPolicy | null> {
 
     request.on('redirect', (_status, _method, redirectUrl) => {
       hops += 1
-      if (hops > MAX_REDIRECT_HOPS || !sameSiteHop(current, redirectUrl)) {
+      if (hops > MAX_REDIRECT_HOPS || !sameOriginHop(current, redirectUrl)) {
         try {
           request.abort()
         } catch {
@@ -148,9 +114,26 @@ function fetchPolicy(origin: string): Promise<CrossDomainPolicy | null> {
         return
       }
       // Electron 的 IncomingMessage 类型没声明 setEncoding；数据是 Buffer，自己按 UTF-8 拼接。
+      let overflowed = false
       response.on('data', (chunk) => {
-        if (body.length >= MAX_POLICY_BYTES) return
+        if (overflowed) return
         body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+        if (body.length > MAX_POLICY_BYTES) {
+          /**
+           * 超限整份丢弃（fail-closed）。原实现只是"不再追加"，然后拿**截短的 XML** 去解析——
+           * 截断处如果刚好落在一条规则中间，解析结果就由攻击者控制（2026-11-26 审计）。
+           * 策略文件本该只有几百字节，读不到完整内容就不该采信。
+           */
+          overflowed = true
+          body = ''
+          try {
+            request.abort()
+          } catch {
+            // 已结束
+          }
+          clearTimeout(timer)
+          finish(null)
+        }
       })
       response.on('end', () => {
         clearTimeout(timer)
@@ -172,36 +155,6 @@ function fetchPolicy(origin: string): Promise<CrossDomainPolicy | null> {
     request.end()
   })
 }
-async function readBounded(response: Response, limit: number): Promise<string> {
-  const stream = response.body
-  if (!stream) return ''
-  const reader = stream.getReader()
-  const chunks: Uint8Array[] = []
-  let size = 0
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (!value) continue
-      size += value.byteLength
-      if (size > limit) {
-        await reader.cancel()
-        return ''
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-  const merged = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    merged.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return new TextDecoder().decode(merged)
-}
-
 async function loadPolicy(origin: string): Promise<CrossDomainPolicy | null> {
   const cached = cache.get(origin)
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.policy
@@ -213,12 +166,6 @@ async function loadPolicy(origin: string): Promise<CrossDomainPolicy | null> {
   return policy
 }
 
-/** `*.example.com` 匹配子域，`example.com` 只匹配自身（与 Flash 一致）。 */
-function domainMatches(pattern: string, host: string): boolean {
-  if (pattern === '*') return true
-  if (pattern.startsWith('*.')) return host === pattern.slice(2) || host.endsWith(pattern.slice(1))
-  return host === pattern
-}
 
 /**
  * 判定「来源 `initiatorUrl` 能否读取 `targetUrl` 的跨域响应」。
