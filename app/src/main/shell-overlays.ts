@@ -304,6 +304,14 @@ export function createShellOverlays(
     }
     if (contents.isLoading()) contents.once('did-finish-load', onLoaded)
     else onLoaded()
+    /**
+     * 预热出来但**始终没被打开**的文档也要走退役计时（2026-11-26 审计）。
+     *
+     * 共享模式下"预热"由外壳 `window.open` 完成，`prewarmForShell()` 在 shared 分支直接返回，
+     * 于是 `armRetire()` 从来没被调用：只悬停、不点击的用户会一直留着一份浮层文档，直到关窗。
+     * `armRetire()` 自己只对 `auto` 档生效，`always` / `never` 不受影响。
+     */
+    armRetire()
     return true
   }
 

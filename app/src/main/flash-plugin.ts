@@ -167,16 +167,33 @@ export function importFlashPlugin(source: string, loadedPath: string | undefined
   if (!info.hasPepperExports) return { ok: false, code: 'not-pepper' }
 
   const target = userDropIn()
+  let replaced = true
   try {
+    const before = existsSync(target) ? statSync(target) : undefined
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(source, target)
     // 复制换了内容：文件大小/时间可能不变，主动丢掉版本记忆。
     versionMemo.delete(target)
+    const after = statSync(target)
+    /**
+     * 「同路径覆盖」不能只看路径（2026-11-26 审计）：用户已经导入过一次、应用也加载了那份，
+     * 之后再导入**另一个版本**覆盖同一个文件时，磁盘路径与启动时注册的完全一样，但运行中的
+     * 进程映射的还是旧 DLL。这里比较覆盖前后的文件身份，内容变了就一定要重启。
+     */
+    replaced = !before || before.size !== after.size || before.mtimeMs !== after.mtimeMs
   } catch {
     return { ok: false, code: 'copy-failed' }
   }
   // 导入写的是 <userData>/flash/，它优先于自动发现；如果环境变量或安装目录里有更高
   // 优先级的候选，状态里会显示那个（source 字段），这里一并返回，界面据此提示「需要重启」。
   const status = flashPluginStatus(loadedPath, { force: true })
-  return { ok: true, status: { ...status, restartRequired: status.path !== target || loadedPath !== target } }
+  return {
+    ok: true,
+    status: {
+      ...status,
+      // 文件被覆盖后不能报「就绪」：运行中的插件进程仍然是旧二进制。
+      ready: status.ready && !replaced,
+      restartRequired: replaced || status.path !== target || loadedPath !== target
+    }
+  }
 }

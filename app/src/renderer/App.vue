@@ -225,6 +225,19 @@ let hoverPrewarmTimer = 0
  */
 const HOVER_PREWARM_MS = 180
 
+/**
+ * 悬停定时器到点：**开窗前再问一次主进程**。
+ *
+ * 排队这 180 ms 里策略可能已经从 `auto` 变成 `never`（设置页切换、自动化开始、窗口转后台），
+ * 而主进程此时会 `retire()` 掉已有的浮层文档；如果这里不复查，定时器会立刻把刚退役的文档
+ * 又开回来（2026-11-26 审计）。
+ */
+function prewarmOpen(): void {
+  void window.baoOverlay.canPrewarm().then((allowed) => {
+    if (allowed) void ensureSharedOverlay()
+  })
+}
+
 function prewarmOverlay(): void {
   // 闸门在主进程：`overlay.prewarm=never` 和自动化/后台模式一律回答 false。
   // 早先这里不看返回值、直接排开窗定时器，于是三档行为完全一致（never 也照样悬停即建、
@@ -237,7 +250,7 @@ function prewarmOverlay(): void {
     // 共享模式（以及模式还没探测出来时）按"悬停意图"延迟开窗：点得快就取消，让点击路径
     // 自己去冷开（`cancelHoverPrewarm`）。独立进程模式下 `ensureSharedOverlay()` 立刻返回。
     window.clearTimeout(hoverPrewarmTimer)
-    hoverPrewarmTimer = window.setTimeout(() => { void ensureSharedOverlay() }, HOVER_PREWARM_MS)
+    hoverPrewarmTimer = window.setTimeout(prewarmOpen, HOVER_PREWARM_MS)
   })
 }
 
