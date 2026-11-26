@@ -50,8 +50,8 @@ const windowIcon = process.platform === 'win32'
 /**
  * 一次两阶段引擎切换的候选状态。
  *
- * 准备期间 `tab.view` / `tab.engine` / `tab.binding` 全部保持旧值；候选视图先按
- * `binding`（旧代际 + 1）绑定，事件在提交前因 `tab.binding` 未变而全部作废。
+ * 准备期间 `tab.view` / `tab.engine` 与账本里的绑定代际全部保持旧值；候选视图先按
+ * `binding`（旧代际 + 1）绑定，事件在提交前因账本代际未变而全部作废。
  * 只有 `prepare` 成功且 token 仍是当前尝试时才允许提交；其余情况一律只清理候选。
  */
 interface EngineAttempt {
@@ -59,7 +59,7 @@ interface EngineAttempt {
   engine: BrowserEngine
   source: EngineSource
   view: WebContentsView
-  /** 候选视图将要使用的绑定代际（提交时写回 `tab.binding`）。 */
+  /** 候选视图将要使用的绑定代际（提交时由 `tabRegistry.commitReserved()` 生效）。 */
   binding: number
   cancelled: boolean
   cancelSignal: Promise<'cancelled'>
@@ -70,14 +70,14 @@ interface Tab {
   id: number
   /** 休眠（丢弃）时为空：省掉一整个渲染进程，切回时按 lastUrl 重建。 */
   view?: WebContentsView
-  binding: number
+  // `binding` / `navigation` 代际不在标签上：由 `tabRegistry` 持有（A1-b），镜像字段已删除。
   /**
-   * 导航版本：普通导航、重定向与同文档历史更新都会推进。
+   * 导航代际：普通导航、重定向与同文档历史更新都会推进（由 	abRegistry.bumpNavigation() 推进）。
    *
-   * 引擎切换的准备阶段旧页仍然可交互，用户可以在那时导航；提交时必须比对版本，
-   * 否则会把用户刚导航到的页面换回快照里的旧地址（2026-11-26 审计复现）。
+   * 为什么它不在标签字段上：引擎切换的准备阶段旧页仍然可交互，用户可以在那时导航；
+   * 提交时必须比对代际，否则会把用户刚导航到的页面换回快照里的旧地址（2026-11-26 审计复现）。
+   * 代际只有一个权威（	abRegistry），标签上留一份副本迟早不一致。
    */
-  navVersion: number
   error: string
   failedUrl?: string
   notice?: BrowserTab['notice']
@@ -892,32 +892,56 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   }
 
   /**
-   * 标签身份与代际（A1-b）：**账本**是 `tabRegistry`，`tab.binding` / `tab.navVersion`
-   * 是它的镜像。
+   * 标签身份与代际（A1-b）：**唯一账本**是 `tabRegistry`，标签上不再有 `binding` /
+   * `navVersion` 字段。
    *
-   * 为什么先做镜像而不是直接删字段：这两个数字的读取点有十几处（事件守卫 `live()`、
-   * 引擎切换提交校验、会话快照、诊断），一次性全改成账本查询会把「代际收口」和
-   * 「读取侧重构」混成一次高风险改动。当前这一步保证的是**只有这里能推进代际**，
-   * 且每次推进都会发出生命周期事件（架构 §7 规则 9）。
-   * 下一片再把读取侧切到账本，然后删掉镜像字段。
+   * 为什么删掉字段而不是留一份镜像：两处存同一事实，出岔子时不报错、只会静默丢事件
+   * （2026-11-26 实测：引擎切换提交后镜像停在旧代际，`live()` 恒假，该标签所有页面事件
+   * 被忽略，表现为「点链接不开窗」）。代际推进同时发出生命周期事件（架构 §7 规则 9）。
    */
   function registerTab(tab: Tab): void {
-    tabRegistry.create({ tabId: tab.id, windowId: window.id, bindingId: tab.binding, navigationId: tab.navVersion })
+    tabRegistry.create({ tabId: tab.id, windowId: window.id })
+  }
+
+  /**
+   * 代际读取。标签不在账本里（已关闭）返回 0：任何捕获到的代际都不会等于 0，
+   * 于是那个视图的事件自然全部作废——不需要额外的「已关闭」标记。
+   */
+  function bindingOf(tab: Tab): number {
+    return tabRegistry.snapshot(tab.id)?.bindingId ?? 0
+  }
+
+  function navigationOf(tab: Tab): number {
+    return tabRegistry.snapshot(tab.id)?.navigationId ?? 0
+  }
+
+  /**
+   * `bind()` 自足：拿到视图的标签必须先在账本里。
+   * 否则 `live()` 恒为假、该页面的事件被**静默**忽略（点击不开窗、加载态不更新，且不报错）。
+   */
+  function ensureRegistered(tab: Tab): void {
+    if (!tabRegistry.snapshot(tab.id)) registerTab(tab)
   }
 
   function advanceBinding(tab: Tab, kind: TabLifecycleKind): void {
-    const next = tabRegistry.bumpBinding(tab.id, kind)
-    tab.binding = next ?? tab.binding + 1
+    tabRegistry.bumpBinding(tab.id, kind)
   }
 
   function advanceNavigation(tab: Tab): void {
-    const next = tabRegistry.bumpNavigation(tab.id)
-    tab.navVersion = next ?? tab.navVersion + 1
+    tabRegistry.bumpNavigation(tab.id)
   }
 
-  function bind(tab: Tab, view: WebContentsView, binding = tab.binding): void {
+  /**
+   * 给视图装事件。`generation` 缺省时取**当前**代际。
+   *
+   * 注意顺序：先 `ensureRegistered` 再读代际。写成参数默认值 `binding = bindingOf(tab)`
+   * 会在登记之前求值（未登记 → 0），之后 `live()` 永远为假——又是一次静默丢事件。
+   */
+  function bind(tab: Tab, view: WebContentsView, generation?: number): void {
+    ensureRegistered(tab)
+    const binding = generation ?? bindingOf(tab)
     const contents = view.webContents
-    const live = () => tab.view === view && tab.binding === binding && !contents.isDestroyed()
+    const live = () => tab.view === view && bindingOf(tab) === binding && !contents.isDestroyed()
 
     contents.on('before-input-event', (event, input) => {
       if (!live() || event.defaultPrevented) return
@@ -998,7 +1022,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   ): Tab {
     const view = createPageView(engine)
     const tab: Tab = {
-      id: nextTabId++, view, binding: 1, navVersion: 0, error: '', initialTitle, engine, manualOverride: source === 'manual', pinned: false, muted: false, host: controller
+      id: nextTabId++, view, error: '', initialTitle, engine, manualOverride: source === 'manual', pinned: false, muted: false, host: controller
     }
     tabs.push(tab)
     registerTab(tab)
@@ -1018,8 +1042,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     const tab: Tab = {
       id: nextTabId++,
       view,
-      binding: 1,
-      navVersion: 0,
       error: '',
       initialTitle: kind === 'newtab' ? '新标签页' : '设置',
       engine: engineFor(undefined).engine,
@@ -1067,8 +1089,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function createRestoredTab(entry: SessionTab): Tab {
     const tab: Tab = {
       id: nextTabId++,
-      binding: 1,
-      navVersion: 0,
       error: '',
       initialTitle: entry.title || (entry.internal === 'newtab' ? '新标签页' : entry.url),
       manualOverride: entry.manualOverride,
@@ -1370,7 +1390,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
   function flashContentOf(tab: Tab, contents: WebContents): Promise<boolean> {
     return detectFlashContent({
       tabId: tab.id,
-      binding: tab.binding,
+      binding: bindingOf(tab),
       cache: flashPresence,
       // 主帧已 detach 或 WebContents 已销毁时 getter 会抛：交给纯层按「有 Flash」处理。
       frames: () => {
@@ -1613,7 +1633,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
     const attempt = createEngineAttempt(tab, engine, 'manual')
     // 准备期间旧页仍可交互：记下此刻的导航版本，提交前必须仍然一致。
-    const navVersion = tab.navVersion
+    const navVersion = navigationOf(tab)
     const outcome = await Promise.race([
       prepareEngineCandidate(attempt, entries, index, fallbackUrl),
       attempt.cancelSignal
@@ -1625,10 +1645,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     }
     // 准备期间可能已被新请求取代、标签被关闭/移交，旧视图被重建，或**用户在旧页上导航过**。
     const stillCurrent = tab.engineSwitch === attempt && !attempt.cancelled &&
-      tabs.includes(tab) && tab.view === oldView && tab.navVersion === navVersion
+      tabs.includes(tab) && tab.view === oldView && navigationOf(tab) === navVersion
     if (!stillCurrent) {
       if (tab.engineSwitch === attempt) cancelEngineSwitch(tab)
-      if (tab.navVersion !== navVersion) {
+      if (navigationOf(tab) !== navVersion) {
         // 导航已经生效，用户看到的页面比快照新：不能拿旧栈把它换回去。
         console.error('引擎切换已取消：准备期间旧页发生了导航，提交会覆盖更新的页面。')
       }
@@ -1660,10 +1680,10 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     if (contents && !contents.isDestroyed()) contents.close()
   }
 
-  /** 建候选视图：按「旧代际 + 1」绑定，事件在提交前全部作废（`tab.binding` 尚未推进）。 */
+  /** 建候选视图：按「旧代际 + 1」绑定，事件在提交前全部作废（账本代际尚未推进）。 */
   function createEngineAttempt(tab: Tab, engine: BrowserEngine, source: EngineSource): EngineAttempt {
     const view = createPageView(engine)
-    const binding = tabRegistry.reserveBinding(tab.id) ?? tab.binding + 1
+    const binding = tabRegistry.reserveBinding(tab.id) ?? 1
     bind(tab, view, binding)
     applyMuted(tab, view)
     let cancel = () => {}
@@ -1833,7 +1853,6 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     // 注意 `commitReserved` 返回 true 才是正常路径——写成 `if (!commit) 同步镜像` 会让
     // 镜像永远停在旧代际，`live()` 从此恒为假，页面事件全部被忽略（2026-11-26 实测）。
     tabRegistry.commitReserved(tab.id, attempt.binding, 'engine-committed')
-    tab.binding = attempt.binding
     tab.view = view
     tab.engine = attempt.engine
     tab.manualOverride = attempt.source === 'manual'
@@ -2302,7 +2321,7 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
       return {
         id: tab.id,
         engine: tab.engine,
-        binding: tab.binding,
+        binding: bindingOf(tab),
         viewId: contents?.id,
         viewAlive: Boolean(contents && !contents.isDestroyed()),
         pendingEngine: tab.engineSwitch?.engine
@@ -2873,7 +2892,6 @@ function discardDetachedTab(tab: Tab): void {
   // 标签已没有窗口可承载：账本先注销（它不会再被任何窗口列出），代际推进只剩
   // 「作废在飞事件」的意义，所以仍然保留。
   tabRegistry.close(tab.id)
-  tab.binding += 1
   tab.host = undefined
   activityLeases.releaseTab(tab.id)
   const view = tab.view

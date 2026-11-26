@@ -63,12 +63,35 @@ if (!tabRegistry.commitReserved(tab.id, attempt.binding, 'engine-committed')) {
 | 隐藏冒烟（全量，4 并发） | **30 个文件 0 失败**，97.3 s |
 | 关键用例 | `engine-switch` 8/8、`tearoff` 8/8、`tab-discard` 11/11、`session-restore` 7/7、`popup` 2/2 |
 
-## 5. 未做（A1-b 剩余）
+## 5. 追加（同日）：读取侧切换，镜像字段删除
 
-1. **读取侧切换**：`live()`、引擎提交校验、会话快照、诊断投影仍读镜像字段；
-2. **WindowRegistry / BrowsingContextRegistry** 还没独立成形（当前靠 `controllers` 与
-   `tabs` 的宿主字段隐式表达）；
-3. **`CapabilityWorld` 适配**（A1-c）：`capability-contract.ts` 需要 `tab()` 端口返回
-   `bindingId`/`navigationId`/`loading`/`flashContent`，本步已经具备前两项的来源；
-4. 生命周期事件目前**没有消费者**：这是刻意的（不为没有消费者的能力建空壳），
-   A1-c 接线时第一个消费者是 Capability 服务与休眠扫描。
+接线第一片保留了 `tab.binding` / `tab.navVersion` 作镜像。同一天做完第二片：**读取侧全部切到账本，
+两个字段从 `Tab` 上删除**。
+
+| 读取点 | 现在 |
+| --- | --- |
+| 事件守卫 `live()` | `bindingOf(tab) === binding` |
+| 引擎切换提交校验 | `navigationOf(tab) === navVersion`（准备时取的快照值） |
+| 会话快照 / 诊断投影 | `bindingOf(tab)` |
+| 候选视图 | `tabRegistry.reserveBinding(tab.id)` |
+
+配套两个防御：
+
+1. `bindingOf()` 对「不在账本里的标签」返回 **0**：任何捕获到的代际都不会等于 0，
+   于是已关闭标签的视图事件自然全部作废，不需要额外的「已关闭」标记；
+2. `bind()` 里先 `ensureRegistered(tab)` 再读代际。**不能**写成参数默认值
+   `binding = bindingOf(tab)`——默认值在登记之前求值（未登记 → 0），之后 `live()` 永远为假，
+   又是一次静默丢事件。这条已写进函数注释。
+
+验证：typecheck 通过、unit 280/280、全量隐藏冒烟 **30 个文件 0 失败**（98.7 s）；
+`browser-window.ts` 3162 行（接线前 3151、纯化前 3165——两次改动都在同一个量级，
+真正删掉的是 2 个字段和 13 处分散写入）。
+
+## 6. 未做（归到 A1-c）
+
+1. **WindowRegistry / BrowsingContextRegistry 没有独立成形**。原因不是没时间，而是**没有消费者**：
+   窗口归属已由 `TabRegistry.windowId` 表达，窗口生命周期目前只有控制器自己在用；
+   弹窗上下文的稳定身份要等能力服务开始解析 target 时才有意义。按 §18-A1「不为没有消费者的
+   能力提前建空壳」的口径，这一步留在 A1-c 与第一个消费者一起做。
+2. **生命周期事件还没有消费者**：同上，A1-c 的第一个消费者是能力服务与休眠扫描。
+3. **`CapabilityWorld` 适配**（A1-c）：代际、加载态、Flash 判定、租约四个来源现在都齐了。
