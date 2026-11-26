@@ -9,6 +9,7 @@ import type { FlashPluginState } from '../shared/settings'
 import { DEFAULT_SEARCH_ENGINE, SEARCH_ENGINES, searchEngineLabels } from '../shared/search'
 import type { SearchEngine } from '../shared/search'
 import type { BrowserEngine } from '../shared/engine'
+import ShellIcon from './ShellIcon.vue'
 import { applyShellTheme } from './theme'
 
 /**
@@ -47,19 +48,46 @@ const startupModes = SESSION_STARTUP_MODES
 const storage = computed(() => snapshot.value?.storage ?? 'ready')
 
 /**
- * 左侧分区：**每一项都有真实内容**，点得动。
+ * 左侧分区：照 Edge 的切法与顺序（2026-11-26），但**只列我们真有东西的项**。
  *
- * 早期那版还列了「下载」且全是置灰摆设——本版本按安全策略拒绝所有下载
- * （见 `main/sessions.ts` 的 `denyDownloads`，下载能力在 M2 立项），
- * 列一个点进去也没内容的条目等于假 UI，所以直接不列；接入下载时再加回来。
+ * 映射关系（Edge → 我们）：
+ *   外观 → 外观（主题）；隐私、搜索和服务 → 搜索（默认搜索引擎）+ 浏览数据；
+ *   启动 → 启动；系统和性能 → 性能；语言 → 语言；关于 → 关于。
+ * 不列：个人资料 / 密码和自动填充 / 默认浏览器 / 下载 / 辅助功能 / 重置设置 / 扩展
+ * ——这些我们没有任何数据源或能力（下载按安全策略整体拒绝，见 `main/sessions.ts`
+ * 的 `denyDownloads`），列出来就是假 UI。
+ *
+ * `group` 只控制左栏的视觉分组（Edge 用空行分开三组），不影响内容。
  */
 const sections = [
-  { id: 'appearance', label: '外观与偏好' },
-  { id: 'privacy', label: '隐私与清理' },
-  { id: 'about', label: '关于' }
+  { id: 'appearance', label: '外观', icon: 'palette', group: 1 },
+  { id: 'engine', label: '引擎', icon: 'flash', group: 1 },
+  { id: 'privacy', label: '隐私、搜索和服务', icon: 'shield', group: 2 },
+  { id: 'startup', label: '启动', icon: 'home', group: 2 },
+  { id: 'performance', label: '性能', icon: 'gauge', group: 2 },
+  { id: 'language', label: '语言', icon: 'translate', group: 3 },
+  { id: 'about', label: '关于', icon: 'info', group: 3 }
 ] as const
 type SettingsSection = (typeof sections)[number]['id']
 const section = ref<SettingsSection>('appearance')
+
+/** 按 `group` 切成视觉组（空行由模板里的 `.nav-gap` 画）。 */
+const navGroups = sections.reduce<Array<Array<(typeof sections)[number]>>>((groups, item) => {
+  const last = groups[groups.length - 1]
+  if (last && last[0].group === item.group) last.push(item)
+  else groups.push([item])
+  return groups
+}, [])
+
+/**
+ * 切换分区：内容区是**同一个滚动容器**，切到更短的分区时停在旧位置会看到一片空白，
+ * 所以每次切换都把内容滚回顶部（与 Chrome/Edge 一致）。
+ */
+function selectSection(next: SettingsSection): void {
+  if (section.value === next) return
+  section.value = next
+  document.querySelector('.settings-body')?.scrollTo({ top: 0 })
+}
 
 /** 「关于」的版本三元组由主进程随快照下发（内部页拿不到 process.versions）。 */
 const runtime = computed(() => snapshot.value?.runtime ?? { app: '—', electron: '—', chromium: '—' })
@@ -225,11 +253,12 @@ function focusFlashSection(): void {
 }
 
 /**
- * 「关于」里的 Flash 只是摘要：把用户送到真正那张卡（导入 / 定位 / 自动发现说明都在那里）。
- * 切分区之后要等一帧——`:hidden` 的元素刚变为可见时还没有布局，`scrollIntoView` 会无效。
+ * 「关于」里的 Flash 只是摘要：把用户送到真正那张卡（导入 / 定位 / 自动发现说明都在那里，
+ * 在「引擎」分区）。切分区之后要等一帧——`:hidden` 的元素刚变为可见时还没有布局，
+ * `scrollIntoView` 会无效。
  */
 function goFlashSection(): void {
-  section.value = 'appearance'
+  section.value = 'engine'
   void nextTick(() => document.getElementById('flash-section')?.scrollIntoView({ block: 'center' }))
 }
 
@@ -240,13 +269,19 @@ function goFlashSection(): void {
     <nav class="settings-nav" aria-label="设置分类">
       <h1 class="nav-title">设置</h1>
       <!-- 左侧导航是真的分区切换（`:hidden` 只换内容，不重载文档）：每一项都有对应内容。 -->
-      <button
-        v-for="item in sections"
-        :key="item.id"
-        type="button"
-        :aria-current="section === item.id ? 'page' : undefined"
-        @click="section = item.id"
-      >{{ item.label }}</button>
+      <template v-for="(group, index) in navGroups" :key="index">
+        <div v-if="index > 0" class="nav-gap" aria-hidden="true"></div>
+        <button
+          v-for="item in group"
+          :key="item.id"
+          type="button"
+          :aria-current="section === item.id ? 'page' : undefined"
+          @click="selectSection(item.id)"
+        >
+          <ShellIcon :name="item.icon" />
+          <span>{{ item.label }}</span>
+        </button>
+      </template>
     </nav>
 
     <main class="settings-content">
@@ -282,7 +317,7 @@ function goFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="engine-title">
+      <section class="setting-section" :hidden="section !== 'engine'" aria-labelledby="engine-title">
         <header class="section-heading">
           <h2 id="engine-title">默认引擎</h2>
           <p class="section-caption">决定 Flash 内容优先使用的运行方式</p>
@@ -315,7 +350,7 @@ function goFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="search-title">
+      <section class="setting-section" :hidden="section !== 'privacy'" aria-labelledby="search-title">
         <header class="section-heading">
           <h2 id="search-title">搜索引擎</h2>
           <p class="section-caption">地址栏和新标签页里不像是网址的输入，用它来搜索</p>
@@ -339,7 +374,7 @@ function goFlashSection(): void {
         </div>
       </section>
 
-      <section id="flash-section" class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="flash-title">
+      <section id="flash-section" class="setting-section" :hidden="section !== 'engine'" aria-labelledby="flash-title">
         <header class="section-heading"><h2 id="flash-title">Flash 插件</h2></header>
         <div class="setting-card">
           <div class="select-row flash-row">
@@ -356,7 +391,22 @@ function goFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="startup-title">
+      <section class="setting-section" :hidden="section !== 'engine'" aria-labelledby="rules-title">
+        <header class="section-heading">
+          <h2 id="rules-title">站点引擎规则</h2>
+          <p class="section-caption">各站点「记住的引擎」</p>
+        </header>
+        <div class="setting-card">
+          <div class="select-row">
+            <span>记住的引擎</span>
+            <button type="button" class="action" aria-label="清除站点引擎规则" :disabled="rulesClearing" @click="clearEngineRules">全部清除</button>
+          </div>
+          <p class="lead">删除各站点「记住的引擎」规则；已打开的标签不会重新加载，来源回到默认。</p>
+          <p v-if="rulesNotice" role="status">{{ rulesNotice }}</p>
+        </div>
+      </section>
+
+      <section class="setting-section" :hidden="section !== 'startup'" aria-labelledby="startup-title">
         <header class="section-heading"><h2 id="startup-title">启动</h2></header>
         <div class="setting-card">
           <div role="radiogroup" aria-label="启动时" class="choices">
@@ -376,7 +426,7 @@ function goFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="perf-title">
+      <section class="setting-section" :hidden="section !== 'performance'" aria-labelledby="perf-title">
         <header class="section-heading"><h2 id="perf-title">性能</h2></header>
         <div class="setting-card">
           <div class="toggle-row">
@@ -417,7 +467,7 @@ function goFlashSection(): void {
         </div>
       </section>
 
-      <section class="setting-section" :hidden="section !== 'appearance'" aria-labelledby="language-title">
+      <section class="setting-section" :hidden="section !== 'language'" aria-labelledby="language-title">
         <header class="section-heading"><h2 id="language-title">语言</h2></header>
         <div class="setting-card">
           <div class="value-row">
@@ -433,7 +483,7 @@ function goFlashSection(): void {
       <section class="setting-section" :hidden="section !== 'privacy'" aria-labelledby="privacy-title">
         <header class="section-heading">
           <h2 id="privacy-title">浏览数据</h2>
-          <p class="section-caption">清除保存在本机上的会话与站点规则</p>
+          <p class="section-caption">清除保存在本机上的浏览会话</p>
         </header>
         <div class="setting-card">
           <div class="select-row">
@@ -442,12 +492,6 @@ function goFlashSection(): void {
           </div>
           <p class="lead">删除上次退出时保存的标签记录与崩溃恢复提示。清除后本次运行不再记录会话，下次启动恢复记录。</p>
           <p v-if="dataNotice" role="status">{{ dataNotice }}</p>
-          <div class="select-row">
-            <span>站点引擎规则</span>
-            <button type="button" class="action" aria-label="清除站点引擎规则" :disabled="rulesClearing" @click="clearEngineRules">清除</button>
-          </div>
-          <p class="lead">删除各站点「记住的引擎」规则；已打开的标签不会重新加载，来源回到默认。</p>
-          <p v-if="rulesNotice" role="status">{{ rulesNotice }}</p>
         </div>
       </section>
 
@@ -477,7 +521,7 @@ function goFlashSection(): void {
               <h3>Flash 插件</h3>
               <p :title="flash?.path">{{ flashStatusText }}</p>
             </div>
-            <!-- 关于里只放状态摘要：导入/定位这些动作都在「外观与偏好 → Flash 插件」那张卡里，
+            <!-- 关于里只放状态摘要：导入/定位这些动作都在「引擎 → Flash 插件」那张卡里，
                  两处各放一套按钮会让人以为功能分叉了（2026-11-26 反馈）。 -->
             <button type="button" class="action" aria-label="去 Flash 插件设置" @click="goFlashSection">Flash 插件设置</button>
           </div>
@@ -554,28 +598,42 @@ button:disabled { cursor: default; opacity: 0.6; }
   letter-spacing: -.02em;
 }
 .settings-nav button {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
-  min-height: 40px;
-  padding: 0 13px;
-  border-radius: 999px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
   font-size: 13px;
   text-align: left;
+  color: var(--text-primary);
   transition: background var(--motion-fast), color var(--motion-fast);
 }
+.settings-nav button .shell-icon { color: var(--text-secondary); }
+.settings-nav button:hover:not([aria-current='page']) { background: var(--surface-hover); }
+/* 选中项照 Edge：中性选中面 + 左侧 3px 竖条（品牌色不再染整颗胶囊） */
 .settings-nav button[aria-current='page'] {
-  color: var(--engine-accent);
-  background: color-mix(in srgb, var(--engine-accent) 11%, var(--surface-toolbar));
-  color: var(--text-primary);
+  background: var(--surface-selected);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--engine-accent) 8%, transparent);
+  box-shadow: none;
 }
-.settings-nav button[aria-current='page'] .shell-icon { color: var(--engine-accent); }
+.settings-nav button[aria-current='page'] .shell-icon { color: var(--text-primary); }
+.settings-nav button[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--text-primary);
+}
 .settings-nav button:disabled { color: var(--text-secondary); opacity: 0.55; }
-/* 分区切换只换内容，导航项保持同一个滚动容器：不跳滚动位置、不重排。 */
-.settings-nav button[aria-current='page']:hover { background: color-mix(in srgb, var(--engine-accent) 14%, var(--surface-toolbar)); }
+/* Edge 用空行把导航分三组：这里只做视觉分隔，不参与点击/焦点。 */
+.nav-gap { height: 14px; }
 
 /* Chromium Settings 的核心是稳定的单列扫描路径；宽屏只增加两侧留白，不重排设置顺序。 */
 .settings-content {

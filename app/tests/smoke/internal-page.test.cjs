@@ -176,7 +176,12 @@ test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后�
     }, { message: '恢复后的设置页没有加载' })
     assert.equal(restoredUrl, 'bao://settings/')
 
-    // ⑦ 「飞窗预热」是开/关开关（不是三选一），说明行要跟着开关走、悬浮说明不能为空。
+    // ⑦ 飞窗预热在「性能」分区（2026-11-26 按 Edge 重新分类）：先切过去再断言。
+    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '性能')?.click()`)
+    await waitFor(async () => (await inSettings(app, `document.querySelector('.settings-nav button[aria-current="page"]')?.textContent?.trim()`)) === '性能'
+      ? true : null, { message: '没有切到「性能」分区' })
+
+    // 「飞窗预热」是开/关开关（不是三选一），说明行要跟着开关走、悬浮说明不能为空。
     //    2026-11-26 收敛：删掉中间档 `auto`，并顺手钉住"默认在描述里"这条（不在档位名上加徽标）。
     const prewarm = await inSettings(app, `(() => {
       const toggle = document.querySelector('[role="switch"][aria-label="飞窗预热"]')
@@ -224,7 +229,9 @@ test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后�
       globalThis.__navMarker = 'still-here'
       return [...document.querySelectorAll('.settings-nav button')].map((el) => el.textContent.trim())
     })()`)
-    assert.deepEqual(nav, ['外观与偏好', '隐私与清理', '关于'],
+    // 2026-11-26 按 Edge 的切法重排：只列我们真有内容的项（Edge 的个人资料/密码/默认浏览器/
+    // 下载/辅助功能/重置设置/扩展都没有数据源，不列）。
+    assert.deepEqual(nav, ['外观', '引擎', '隐私、搜索和服务', '启动', '性能', '语言', '关于'],
       '导航项必须逐项有真实内容（不列空分区）')
 
     await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '关于')?.click()`)
@@ -257,11 +264,11 @@ test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后�
       })()`)
       return value && value.actions.length ? value : null
     }, { message: '「关于」里的 Flash 设置入口没有把用户送回 Flash 卡片' })
-    assert.equal(backToFlash.current, '外观与偏好', '跳转后导航应切到「外观与偏好」')
+    assert.equal(backToFlash.current, '引擎', '跳转后导航应切到「引擎」（Flash 卡片所在分区）')
     assert.deepEqual(backToFlash.actions, ['打开所在文件夹', '导入'],
       'Flash 卡片必须同时有「打开所在文件夹」和「导入」（导入是 BYOP 的主路径）')
 
-    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '隐私与清理')?.click()`)
+    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '隐私、搜索和服务')?.click()`)
     const privacy = await waitFor(async () => {
       const value = await inSettings(app, `(() => {
         const section = document.getElementById('privacy-title')?.closest('.setting-section')
@@ -269,14 +276,32 @@ test('设置页：Ctrl+, 就地覆盖新标签页，只有设置桥，写入后�
         return [...section.querySelectorAll('button.action')].map((el) => el.getAttribute('aria-label'))
       })()`)
       return value && value.length ? value : null
-    }, { message: '「隐私与清理」分区没有清除入口' })
-    assert.deepEqual(privacy, ['清除已保存的会话', '清除站点引擎规则'])
+    }, { message: '「隐私、搜索和服务」分区没有清除入口' })
+    // 站点引擎规则搬到「引擎」分区（它清的是引擎记忆，不是隐私），隐私页只剩浏览数据。
+    assert.deepEqual(privacy, ['清除已保存的会话'])
+
+    // 「引擎」分区必须把三件事收在一起：默认引擎、Flash 插件、站点引擎规则。
+    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '引擎')?.click()`)
+    const enginePage = await waitFor(async () => {
+      const value = await inSettings(app, `(() => {
+        const section = document.getElementById('rules-title')?.closest('.setting-section')
+        const flash = document.getElementById('flash-section')
+        if (!section || section.hidden || !flash || flash.hidden) return null
+        return {
+          rules: section.querySelector('button.action')?.getAttribute('aria-label') ?? '',
+          flashButtons: [...flash.querySelectorAll('button.action')].map((el) => el.textContent.trim())
+        }
+      })()`)
+      return value && value.rules ? value : null
+    }, { message: '「引擎」分区没有把 Flash 与站点规则收在一起' })
+    assert.equal(enginePage.rules, '清除站点引擎规则')
+    assert.deepEqual(enginePage.flashButtons, ['打开所在文件夹', '导入'])
 
     assert.equal(await inSettings(app, 'globalThis.__navMarker'), 'still-here', '分区切换不该重载文档（那是"刷新感"的来源）')
     // 回到默认分区，后面的断言/用例都按「外观与偏好」看。
-    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '外观与偏好')?.click()`)
-    await waitFor(async () => (await inSettings(app, `document.querySelector('.settings-nav button[aria-current="page"]')?.textContent?.trim()`)) === '外观与偏好'
-      ? true : null, { message: '没能切回「外观与偏好」' })
+    await inSettings(app, `[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '外观')?.click()`)
+    await waitFor(async () => (await inSettings(app, `document.querySelector('.settings-nav button[aria-current="page"]')?.textContent?.trim()`)) === '外观'
+      ? true : null, { message: '没能切回「外观」' })
   } finally {
     await close()
     await server.close()
@@ -352,6 +377,10 @@ test('设置页：焦点环只在键盘操作时出现（鼠标点击不出环�
       return { cls: String(el.className), focusVisible: el.matches(':focus-visible'),
                outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth }
     })()`
+
+    // 引擎选项在「引擎」分区（默认展示的是「外观」）：先切过去，隐藏分区里的控件不可聚焦。
+    await probe(`[...document.querySelectorAll('.settings-nav button')].find((el) => el.textContent.trim() === '引擎')?.click()`)
+    await new Promise((done) => setTimeout(done, 200))
 
     // ① 键盘：Tab 到引擎选项，应当有 2px 实线环
     const keyboard = await app.evaluate(async ({ webContents }, target) => {
