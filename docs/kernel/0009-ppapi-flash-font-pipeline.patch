@@ -1,0 +1,226 @@
+From ab3f164c9d7040111683b5004fa6e2f9c8def5a5 Mon Sep 17 00:00:00 2001
+From: BaoFlash <dev@baoflash.local>
+Date: Fri, 27 Nov 2026 19:48:40 +0800
+Subject: [PATCH] fix(ppapi): restore Flash font pipeline in the plugin process
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+回移 PPAPI 时漏掉两处，导致同一份 pepflashplayer64.dll 的中文文本与
+Chromium 84/87 表现不同（字体观感更黑、笔画更粗）。两处都在插件进程：
+
+1. PpapiThread::PreCacheFontForFlash 整条桥接被删
+   Chromium 138 删代码时把 ppb_flash_thunk.cc 的 PreloadFontWin 改成空转，
+   同时删掉了 PpapiGlobals → PluginProxyDelegate → PluginGlobals →
+   PpapiThread 的转发链，但 ChildThreadImpl::PreCacheFont 与
+   FontCacheDispatcher 仍在。这里按 M87 的形状把转发链补回来，使
+   PPB_Flash.PreloadFontWin 恢复真实语义（实测本 SWF 不调用该接口，
+   属于完整性修复，不是本次字体问题的直接解）。
+
+2. 插件进程从未初始化 Blink 的字体渲染样式
+   WebFontRenderStyle::Set*() 只由渲染进程的 WebViewImpl 调用；PPAPI
+   插件进程没有 WebView，全局量一直是默认值，于是插件进程里 Blink 绘制
+   的所有字形都走 Skia 默认样式而不是用户的 ClearType 配置。在
+   LowerToken() 之前用 gfx::GetFontRenderParams() 的结果初始化（SystemParametersInfo
+   需要 Win32k，必须在沙箱降权前执行）。
+
+实测（本机 150% DPI，12px 中文）：修复前笔画更粗、边缘半调像素约为老平台
+3.4 倍；修复后墨量与半调像素与 Chromium 87 基本持平。
+
+刻意不开启 LCD（次像素）文本：12px 汉字 1px 笔画会被拆到 R/G/B 三个通道，
+观感是断笔，实测明显劣于灰度。见 docs/reports/2026-11-27-flash-font-rendering.md。
+---
+ content/ppapi_plugin/ppapi_thread.cc | 57 ++++++++++++++++++++++++++++
+ content/ppapi_plugin/ppapi_thread.h  |  1 +
+ ppapi/proxy/plugin_globals.cc        |  5 +++
+ ppapi/proxy/plugin_globals.h         |  1 +
+ ppapi/proxy/plugin_proxy_delegate.h  |  7 ++++
+ ppapi/shared_impl/ppapi_globals.h    |  7 ++++
+ ppapi/thunk/ppb_flash_thunk.cc       |  3 +-
+ 7 files changed, 79 insertions(+), 2 deletions(-)
+
+diff --git a/content/ppapi_plugin/ppapi_thread.cc b/content/ppapi_plugin/ppapi_thread.cc
+index 9743443cb7d53..b8b7ca2405388 100644
+--- a/content/ppapi_plugin/ppapi_thread.cc
++++ b/content/ppapi_plugin/ppapi_thread.cc
+@@ -44,10 +44,13 @@
+ #include "ppapi/proxy/plugin_message_filter.h"
+ #include "ppapi/proxy/ppapi_messages.h"
+ #include "ppapi/proxy/resource_reply_thread_registrar.h"
++#include "third_party/blink/public/platform/web_font_render_style.h"
+ #include "third_party/blink/public/web/blink.h"
++#include "third_party/skia/include/core/SkFontTypes.h"
+ #include "ui/base/buildflags.h"
+ #include "ui/base/ui_base_features.h"
+ #include "ui/base/ui_base_switches.h"
++#include "ui/gfx/font_render_params.h"
+ 
+ #if BUILDFLAG(IS_WIN)
+ #include "base/win/win_util.h"
+@@ -69,6 +72,46 @@ static void WarmupWindowsLocales(const ppapi::PpapiPermissions& permissions) {
+   ::GetUserDefaultLCID();
+ }
+ 
++// The PPAPI plugin process has no WebView, so nothing ever calls
++// blink::WebFontRenderStyle::Set*() here and the globals keep their defaults.
++// Every glyph the plugin's Blink font stack draws would then use Skia's default
++// style rather than the user's ClearType configuration. Seed the style from the
++// system font render parameters while the process is still unsandboxed, since
++// the underlying SystemParametersInfo query needs Win32k.
++//
++// Note: LCD (subpixel) text is deliberately left off. Flash draws 12px CJK
++// glyphs whose 1px strokes would be split across the R/G/B channels, which
++// reads as broken strokes; grayscale matches the Chromium 84/87 output.
++static void SetupFontRenderStyle() {
++  gfx::FontRenderParams params =
++      gfx::GetFontRenderParams(gfx::FontRenderParamsQuery(), nullptr);
++
++  SkFontHinting hinting = SkFontHinting::kNormal;
++  switch (params.hinting) {
++    case gfx::FontRenderParams::HINTING_NONE:
++      hinting = SkFontHinting::kNone;
++      break;
++    case gfx::FontRenderParams::HINTING_SLIGHT:
++      hinting = SkFontHinting::kSlight;
++      break;
++    case gfx::FontRenderParams::HINTING_MEDIUM:
++      hinting = SkFontHinting::kNormal;
++      break;
++    case gfx::FontRenderParams::HINTING_FULL:
++      hinting = SkFontHinting::kFull;
++      break;
++  }
++
++  blink::WebFontRenderStyle::SetHinting(hinting);
++  blink::WebFontRenderStyle::SetAutoHint(params.autohinter);
++  blink::WebFontRenderStyle::SetUseBitmaps(params.use_bitmaps);
++  blink::WebFontRenderStyle::SetAntiAlias(params.antialiasing);
++  blink::WebFontRenderStyle::SetSubpixelRendering(
++      params.subpixel_rendering !=
++      gfx::FontRenderParams::SUBPIXEL_RENDERING_NONE);
++  blink::WebFontRenderStyle::SetSubpixelPositioning(params.subpixel_positioning);
++}
++
+ #endif
+ 
+ namespace content {
+@@ -214,6 +257,19 @@ void PpapiThread::SetActiveURL(const std::string& url) {
+   GetContentClient()->SetActiveURL(GURL(url), std::string());
+ }
+ 
++void PpapiThread::PreCacheFontForFlash(const void* logfontw) {
++#if BUILDFLAG(IS_WIN)
++  // Flash calls PPB_Flash.PreloadFontWin with a LOGFONTW for every font it is
++  // about to draw with. Handing it to the shared font cache is what makes that
++  // font's tables reachable from the sandboxed plugin process. Chromium 138
++  // removed this call chain (ppb_flash_thunk.cc was left with a no-op), so the
++  // bridge has to be restored for the interface to keep working.
++  ChildThreadImpl::PreCacheFont(*static_cast<const LOGFONT*>(logfontw));
++#else
++  (void)logfontw;
++#endif
++}
++
+ PP_Resource PpapiThread::CreateBrowserFont(
+     ppapi::proxy::Connection connection,
+     PP_Instance instance,
+@@ -332,6 +388,7 @@ void PpapiThread::OnLoadPlugin(const base::FilePath& path,
+     sandbox::policy::WarmupRandomnessInfrastructure();
+ 
+     WarmupWindowsLocales(permissions);
++    SetupFontRenderStyle();
+ 
+     g_target_services->LowerToken();
+   }
+diff --git a/content/ppapi_plugin/ppapi_thread.h b/content/ppapi_plugin/ppapi_thread.h
+index c97f0f198ad8d..97e048a8c6b31 100644
+--- a/content/ppapi_plugin/ppapi_thread.h
++++ b/content/ppapi_plugin/ppapi_thread.h
+@@ -101,6 +101,7 @@ class PpapiThread : public ChildThreadImpl,
+   IPC::Sender* GetBrowserSender() override;
+   std::string GetUILanguage() override;
+   void SetActiveURL(const std::string& url) override;
++  void PreCacheFontForFlash(const void* logfontw) override;
+   PP_Resource CreateBrowserFont(ppapi::proxy::Connection connection,
+                                 PP_Instance instance,
+                                 const PP_BrowserFont_Trusted_Description& desc,
+diff --git a/ppapi/proxy/plugin_globals.cc b/ppapi/proxy/plugin_globals.cc
+index f62c2ceb5c5cc..9b22da3015883 100644
+--- a/ppapi/proxy/plugin_globals.cc
++++ b/ppapi/proxy/plugin_globals.cc
+@@ -239,5 +239,10 @@ bool PluginGlobals::IsPluginGlobals() const {
+   return true;
+ }
+ 
++void PluginGlobals::PreCacheFontForFlash(const void* logfontw) {
++  ProxyAutoUnlock unlock;
++  plugin_proxy_delegate_->PreCacheFontForFlash(logfontw);
++}
++
+ }  // namespace proxy
+ }  // namespace ppapi
+diff --git a/ppapi/proxy/plugin_globals.h b/ppapi/proxy/plugin_globals.h
+index a0d99c88dc498..a8f8da53b465a 100644
+--- a/ppapi/proxy/plugin_globals.h
++++ b/ppapi/proxy/plugin_globals.h
+@@ -158,6 +158,7 @@ class PPAPI_PROXY_EXPORT PluginGlobals : public PpapiGlobals {
+ 
+   // PpapiGlobals overrides.
+   bool IsPluginGlobals() const override;
++  void PreCacheFontForFlash(const void* logfontw) override;
+ 
+   static PluginGlobals* plugin_globals_;
+ 
+diff --git a/ppapi/proxy/plugin_proxy_delegate.h b/ppapi/proxy/plugin_proxy_delegate.h
+index dc4cce7d0d277..bc201ed19d5ed 100644
+--- a/ppapi/proxy/plugin_proxy_delegate.h
++++ b/ppapi/proxy/plugin_proxy_delegate.h
+@@ -27,6 +27,13 @@ class PPAPI_PROXY_EXPORT PluginProxyDelegate {
+   // Returns the language code of the current UI language.
+   virtual std::string GetUILanguage() = 0;
+ 
++  // Flash asks the host to pre-load a font's tables before drawing with it
++  // (PPB_Flash.PreloadFontWin). Restored after Chromium 138 removed the hook
++  // together with the rest of Flash; without it Flash cannot reach system font
++  // tables from the sandboxed plugin process and falls back to SimSun on
++  // Chinese Windows.
++  virtual void PreCacheFontForFlash(const void* logfontw) = 0;
++
+   // Sets the active url which is reported by breakpad.
+   virtual void SetActiveURL(const std::string& url) = 0;
+ 
+diff --git a/ppapi/shared_impl/ppapi_globals.h b/ppapi/shared_impl/ppapi_globals.h
+index 21dc8ecf0c4b0..bb1cccc54fe4c 100644
+--- a/ppapi/shared_impl/ppapi_globals.h
++++ b/ppapi/shared_impl/ppapi_globals.h
+@@ -123,6 +123,13 @@ class PPAPI_SHARED_EXPORT PpapiGlobals {
+   // in-process plugins.
+   virtual base::TaskRunner* GetFileTaskRunner() = 0;
+ 
++  // Flash asks the host to pre-load a font's tables before it draws with that
++  // font (PPB_Flash.PreloadFontWin). Chromium 138 dropped this hook along with
++  // the rest of Flash; without it Flash cannot obtain system font tables under
++  // the PPAPI sandbox and silently falls back to SimSun on Chinese Windows.
++  // Empty default implementation keeps non-plugin globals unaffected.
++  virtual void PreCacheFontForFlash(const void* logfontw) {}
++
+   virtual bool IsHostGlobals() const;
+   virtual bool IsPluginGlobals() const;
+ 
+diff --git a/ppapi/thunk/ppb_flash_thunk.cc b/ppapi/thunk/ppb_flash_thunk.cc
+index bd0bae5c5d1bc..448401fac949e 100644
+--- a/ppapi/thunk/ppb_flash_thunk.cc
++++ b/ppapi/thunk/ppb_flash_thunk.cc
+@@ -110,8 +110,7 @@ void PreLoadFontWin(const void* logfontw) {
+   // There's no instance so we have to reach into the delegate without
+   // thunking.
+   ProxyAutoLock lock;
+-  // Chromium 138 removed PreCacheFontForFlash(); nothing to do here.
+-  (void)logfontw;
++  PpapiGlobals::Get()->PreCacheFontForFlash(logfontw);
+ }
+ 
+ PP_Bool IsRectTopmost(PP_Instance instance, const PP_Rect* rect) {
+-- 
+2.55.0.windows.3
+

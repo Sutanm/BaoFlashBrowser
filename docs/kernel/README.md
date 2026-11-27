@@ -102,7 +102,7 @@ git revert --no-edit 9de35f61aea60   # 或 git checkout bao-v142-265-verified
 Chromium 在 `28df8180bb721` 移除了专用的 Windows PPAPI 沙箱类型。移植后的插件进程以 `--no-sandbox` 启动，Adobe Flash 因此可以运行初始化探测命令 `cmd.exe /c echo NOT SANDBOXED`。
 补丁使用 Chromium 现有的 Windows 通用沙箱，给 Pepper 配置独立的策略。插件进程使用受限令牌、Win32k 限制和禁止派生子进程的作业限制。Flash 保留 ActionScript 所需的动态代码能力。
 
-Windows 实测中，`app.getAppMetrics()` 报告 Pepper Plugin 的 `integrityLevel: "untrusted"` 和 `sandboxed: true`。Flash 加载、JS 桥、键盘输入和 Stage3D AUTO / SOFTWARE 均通过。进程及焦点监测未发现测试启动 CMD 或抢占前台。
+Windows 实测中，`app.getAppMetrics()` 报告 Pepper Plugin 的 `integrityLevel: "untrusted"` 和 `sandboxed: true`。Flash 加载、JS 桥、键盘输入、Stage3D AUTO / SOFTWARE 与**文本渲染**（[0009](0009-ppapi-flash-font-pipeline.patch)）均通过。进程及焦点监测未发现测试启动 CMD 或抢占前台。
 
 从基线重建时，在内核树执行 `git apply D:\java_workspace\BaoFlashBrowserNext\docs\kernel\0002-win-ppapi-process-sandbox.patch`，再按上述方法构建 `out/Rel`。
 
@@ -130,6 +130,7 @@ E39（`v39.8.10`）已结束支持，官方修复想用只能单条回拣。候�
 | [`0006-53031-detached-view-bounds.patch`](0006-53031-detached-view-bounds.patch) | #53031 `96f3996` | 视图不在 `Widget` 里时把尺寸直接 `Resize` 给 WebContents（+20 行） | `innerWidth×innerHeight`：从未 attach 时 `[0,0]` → `[400,300]`；叠加层"先 setBounds 后 addChildView"顺序下附着前也正确。缺口：`removeChildView` 后再 setBounds 仍 stale（E39 上不再触发 Layout，产品不依赖） |
 | [`0007-49959-webcontents-clone.patch`](0007-49959-webcontents-clone.patch) | #49959 `76a03e1` | 新增 `webContents.clone()`（44 行；E39 用 `Handle::ToV8()`） | **已装配但当前无消费者**：克隆体**拿不到页面 preload**（官方 E44 同样如此）→ Ruffle 不可用；PPAPI 同进程第二个实例无法实例化 → 本品页面标签无适用场景。应用侧接入已撤销，补丁保留待上游支持或 Ruffle 改为免 preload 注入 |
 | [`0008-frameless-resize-band-dpi.patch`](0008-frameless-resize-band-dpi.patch) | 自研（非上游） | 无边框窗口的缩放带按设备缩放比换算：`kResizeInsideBoundsSize`（DIP）→ 物理像素 | 真实缩放三档实测：**旧内核恒 4 px**（不随 DPI 变）、**新内核 100% 4 / 150% 7 / 200% 9 px**；100% 下新旧一致（改动是恒等）；装配时冒烟 0 失败（当时 58 用例，现 70） |
+| [`0009-ppapi-flash-font-pipeline.patch`](0009-ppapi-flash-font-pipeline.patch) | 自研（补 M138 删除缺口） | 插件进程两条字体链路：① 恢复 `PpapiGlobals → PluginProxyDelegate → PluginGlobals → PpapiThread::PreCacheFontForFlash → ChildThreadImpl::PreCacheFont` 转发（`ppb_flash_thunk.cc` 的 `PreloadFontWin` 从空转改回真实调用）；② 在 `LowerToken()` 前用 `gfx::GetFontRenderParams()` 初始化 `blink::WebFontRenderStyle`（插件进程没有 WebView，这些全局量原本永远是默认值） | `PPB_BrowserFont_Trusted` 实测请求 `face='Microsoft YaHei'` 且解析正确；修复②后 12px 中文的墨量/半调边缘像素与 Chromium 87 持平（改前半调像素约为 3.4 倍）。**刻意不开 LCD**：12px 汉字 1px 笔画拆到 RGB 三通道会断笔。全量证据见 [2026-11-27-flash-font-rendering](../reports/2026-11-27-flash-font-rendering.md) |
 
 另：`#51562`（约束后缩水）**不采用**——真实症状只在 `frame:true + setMaximumSize` 组合，产品路径不触发，
 且补丁依赖 E39 不存在的 `GetRestoredFrameBorderInsets()`。两条判定过程见

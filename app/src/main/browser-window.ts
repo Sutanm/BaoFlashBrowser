@@ -970,17 +970,40 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
     return { x: 0, y, width, height: Math.max(0, height - y) }
   }
 
+  /**
+   * 页面视图与叠加层的矩形重算——**窗口不可见时整段跳过**。
+   *
+   * `getContentSize()` 在最小化窗口上返回 `0×0`（Windows 平台事实）。套用它就会把页面视图
+   * 压成 0×0，而**还原不会补发 `resize`**，于是那块区域一直白到下一次切标签
+   * （`select() → layout()`）——2026-11-27 用探针复现：最小化期间页面后台导航（挂机游戏的
+   * 登录跳转 / 广告 / SPA 路由）释放收藏夹横条的 `barHold` 就会调到这里，还原后
+   * `bounds = 1100×0`、`contentSize` 已恢复 1100×760，渲染进程还在出帧（rAF 正常），
+   * 单纯是视图没有面积。
+   *
+   * 跳过时保留上一次的矩形——它本来就是还原后的正确值。窗口能看见之后由
+   * `restore` / `maximize` / `show` 三个事件补一次（见下方的接线）。
+   *
+   * 注意**不要**在这里做"隐藏→可见"的强制转换：那是老项目（E11 + 每个视图
+   * `backgroundThrottling:false`）为了绕开 Electron #52844 才需要的；本项目的页面视图没有
+   * 关节流，E39 上最小化→还原本身能恢复出帧（探针实测），只需要把矩形补回去。
+   */
   function layout(): void {
+    if (window.isDestroyed()) return
+    // 最小化期间不重算：这是唯一会把视图压成 0×0 的入口。
+    if (window.isMinimized()) return
     overlays.layout()
     if (!active) return
     if (!active.view) return
-    active.view.setBounds(pageBounds(active))
+    const bounds = pageBounds(active)
+    // 内容区退化（宽度或高度为 0）时不套用：保留上一次的有效矩形。
+    if (bounds.width <= 0 || bounds.height <= 0) return
+    active.view.setBounds(bounds)
     // 失败时让外壳绘制带重试动作的内容页，不在工具栏里塞错误文字。
     active.view.setVisible(!active.error)
     // 在途候选已经挂在旧页上面：窗口缩放/横条开关时矩形要跟着走。
     const candidate = active.engineSwitch
     if (candidate && window.contentView.children.includes(candidate.view)) {
-      candidate.view.setBounds(pageBounds(active))
+      candidate.view.setBounds(bounds)
     }
   }
 
@@ -1002,6 +1025,19 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
         sandbox: true,
         webSecurity: true,
         plugins: !ruffle,
+        /**
+         * Flash 的绝大多数文本**不指定字体名**，而是走 `PPB_BrowserFont_Trusted`
+         * 的「通用字族」（family = DEFAULT/SANS/SERIF），由宿主用 WebPreferences 的
+         * 字体映射表解析。Electron 39 的 `font_defaults` 把这些映射填成**系统 UI 字体**，
+         * 本机是 `Noto Sans SC`（可变字体，12px 下默认实例偏细偏窄，与老平台观感差异明显）；
+         * Electron 11 那一代表里是 Chromium 内置的 `Microsoft YaHei`。
+         * 这里显式对齐雅黑，保证与老平台/Chrome 一致（2026-11-27 实测定位，见
+         * docs/reports/2026-11-27-flash-font-rendering.md）。
+         */
+        defaultFontFamily: {
+          standard: 'Microsoft YaHei',
+          sansSerif: 'Microsoft YaHei'
+        },
         /**
          * Ruffle 需要把引导注入**每个子帧**：站点的客户端 SWF 常挂在跨源 iframe 里
          * （2026-11-22 淘米对照：`Couldn't load Ruffle into IFRAME[]: SecurityError`），
@@ -3834,6 +3870,17 @@ export async function createBrowserWindow(options: BrowserWindowOptions): Promis
 
   nativeTheme.on('updated', onNativeThemeUpdated)
   window.on('resize', layout)
+  /**
+   * 最小化/隐藏期间 `layout()` 会被守卫跳过（`getContentSize()` 是 `0×0`），
+   * 而**还原不会补发 `resize`**，所以这三种"又能看见了"的转换必须补一次：
+   * - `restore` / `maximize`：最小化→还原（含任务栏点击、最大化按钮）；
+   * - `show`：`hide()` → `show()`（接管窗口、托盘、自动化 `showInactive` 路径）。
+   *
+   * 幂等：矩形没变时 `setBounds` 是空操作，重叠触发（maximize 常连带 resize）不会抖。
+   */
+  window.on('restore', layout)
+  window.on('maximize', layout)
+  window.on('show', layout)
   // 关闭一旦开始就标记出来：跨窗口移交的回挂路径据此拒绝把标签塞进正在关闭的窗口。
   window.on('close', () => {
     closeRequested = true
